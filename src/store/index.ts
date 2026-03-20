@@ -1,0 +1,1 @@
+// Store for authentication state

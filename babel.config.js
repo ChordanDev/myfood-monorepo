@@ -1,8 +1,6 @@
 module.exports = function (api) {
   api.cache(true);
-  let plugins = [];
-
-  plugins.push('react-native-worklets/plugin');
+  const plugins = ['expo-router/babel', 'react-native-worklets/plugin'];
 
   return {
     presets: [['babel-preset-expo', { jsxImportSource: 'nativewind' }], 'nativewind/babel'],
