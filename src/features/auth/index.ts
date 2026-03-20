@@ -1,1 +1,1 @@
-// Auth feature exports
+export { AuthLandingScreen } from './screens/AuthLandingScreen';
