@@ -2,18 +2,21 @@ import { Pressable, Text, View } from 'react-native';
 
 export function AuthLandingScreen() {
   return (
-    <View className="flex-1 bg-[#ECE6DA] px-8">
-      <View className="flex-1 items-center justify-center">
-        <Text className="mb-16 text-6xl font-extrabold text-[#1F2C14]">MyFood</Text>
+    <View className="flex-1 bg-[#E5D8C4] px-8">
+        <View className="flex-1 bg-[#E5D8C4] px-8 pt-16">
+            <View className="items-center">
+                <Text className="mb-16 text-6xl font-montserrat-extrabold text-[#242B12]">MyFood</Text>
+            </View>
+        </View>
+        <View className='flex-1 justify-center'>
+            <Pressable className="mb-5 w-full items-center rounded-2xl border-2 border-[#364025] bg-[#899064] py-4">
+            <Text className="text-[20px] font-inter-medium text-[#242B12]">Iniciar Sesion</Text>
+            </Pressable>
 
-        <Pressable className="mb-5 w-full items-center rounded-3xl border-2 border-[#354B22] bg-[#9CA574] py-4">
-          <Text className="text-4xl font-semibold text-[#1F2C14]">Iniciar Sesion</Text>
-        </Pressable>
-
-        <Pressable className="w-full items-center rounded-3xl bg-[#2E4420] py-4">
-          <Text className="text-4xl font-semibold text-[#ECE6DA]">Registrarse</Text>
-        </Pressable>
-      </View>
+            <Pressable className="w-full items-center rounded-2xl bg-[#364025] py-4">
+            <Text className="text-[20px] font-inter-semibold text-[#D8D98B]">Registrarse</Text>
+            </Pressable>
+        </View>
     </View>
   );
 }
