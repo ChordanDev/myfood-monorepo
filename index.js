@@ -2,7 +2,7 @@
 if (globalThis.__reanimatedLoggerConfig == null) {
   globalThis.__reanimatedLoggerConfig = {
     level: 1,
-    strict: true,
+    strict: false,
     logFunction(data) {
       if (data?.level >= 2) {
         console.error(data?.message);

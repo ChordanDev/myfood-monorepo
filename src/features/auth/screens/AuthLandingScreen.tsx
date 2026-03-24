@@ -1,8 +1,9 @@
-import { ImageBackground, Pressable, Text, View } from 'react-native';
+import { ImageBackground, Pressable, Text, View, Image } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { SocialLoginIcons } from '../components/SocialLoginIcons';
-import { DishCarousel } from '../components/DishCarousel';
 import { LinearGradient } from 'expo-linear-gradient';
+
+
 
 export function AuthLandingScreen() {
   const insets = useSafeAreaInsets();
@@ -37,18 +38,68 @@ export function AuthLandingScreen() {
             }}
         >
             <View className="items-center">
+
                 {/* TITULO */}
                 <View className="justify-start items-center pt-4 mb-10" style={{ paddingHorizontal: 32 }}>
                     <Text className="text-[48px] font-montserrat-bold text-[#242B12]">MyFood</Text>
                 </View>
 
-                {/* SECCION FOTOS */}
-                <View style={{ width: '100%' }}>
-                    <DishCarousel />
-                </View>
+                {/* IMAGENES PLATOS */}
+<View
+  style={{
+    height: 200,
+    justifyContent: 'center',
+    alignItems: 'center',
+  }}
+>
+  {[
+    require('/Users/luccagiordana/Documents/proyectoApp/my-expo-app/assets/AuthFoodImages/Gemini_Generated_Image_6g6mrd6g6mrd6g6m-removebg-preview.png'),
+    require('/Users/luccagiordana/Documents/proyectoApp/my-expo-app/assets/AuthFoodImages/Gemini_Generated_Image_16g8h616g8h616g8-removebg-preview.png'),
+    require('/Users/luccagiordana/Documents/proyectoApp/my-expo-app/assets/AuthFoodImages/Gemini_Generated_Image_pg509gpg509gpg50-removebg-preview.png'),
+    require('/Users/luccagiordana/Documents/proyectoApp/my-expo-app/assets/AuthFoodImages/Gemini_Generated_Image_pw980xpw980xpw98-removebg-preview.png'),
+    require('/Users/luccagiordana/Documents/proyectoApp/my-expo-app/assets/AuthFoodImages/Gemini_Generated_Image_urgyfkurgyfkurgy-removebg-preview.png'),
+  ].map((source, index) => {
+    const centerIndex = 2; // el del medio
+    const diff = index - centerIndex;
+
+    const scale =
+      diff === 0 ? 1 :
+      Math.abs(diff) === 1 ? 0.75 :
+      0.55;
+
+    const size = 180 * scale;
+
+    const translateX =
+      diff === 0 ? 0 :
+      diff === -1 ? -90 :
+      diff === 1 ? 90 :
+      diff === -2 ? -150 :
+      150;
+
+    return (
+      <Image
+        key={index}
+        source={source}
+        style={{
+          position: 'absolute',
+          width: size,
+          height: size,
+          borderRadius: size / 2,
+
+          transform: [{ translateX }],
+
+          zIndex: 10 - Math.abs(diff),
+        }}
+        resizeMode="cover"
+      />
+    );
+  })}
+</View>
+
             </View>
 
             <View className="content-start" style={{ flexShrink: 0, paddingHorizontal: 32 }}>
+
                 {/* BOTONES */}
                 <View className=''>
 
