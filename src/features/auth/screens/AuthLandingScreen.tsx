@@ -1,4 +1,4 @@
-import { ImageBackground, Pressable, Text, View, Image } from 'react-native';
+import { ImageBackground, Pressable, Text, View, Image, Dimensions } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { SocialLoginIcons } from '../components/SocialLoginIcons';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -10,10 +10,10 @@ export function AuthLandingScreen() {
 
   return (
     <LinearGradient
-        colors={['#E5D8C4', '#242B12']}
+        colors={['#E5D8C4', '#242B12', '#191D0D']}
         start={{ x: 0, y: 0 }}
-        end={{ x: 0.75, y: 1 }}
-        locations={[0, 0.63]}
+        end={{ x: 0, y: 1 }}
+        locations={[0, 0.63, 0.70]}
         style={{ flex: 1 }}
         >
         <ImageBackground
@@ -45,56 +45,52 @@ export function AuthLandingScreen() {
                 </View>
 
                 {/* IMAGENES PLATOS */}
-<View
-  style={{
-    height: 200,
-    justifyContent: 'center',
-    alignItems: 'center',
-  }}
->
-  {[
-    require('/Users/luccagiordana/Documents/proyectoApp/my-expo-app/assets/AuthFoodImages/Gemini_Generated_Image_6g6mrd6g6mrd6g6m-removebg-preview.png'),
-    require('/Users/luccagiordana/Documents/proyectoApp/my-expo-app/assets/AuthFoodImages/Gemini_Generated_Image_16g8h616g8h616g8-removebg-preview.png'),
-    require('/Users/luccagiordana/Documents/proyectoApp/my-expo-app/assets/AuthFoodImages/Gemini_Generated_Image_pg509gpg509gpg50-removebg-preview.png'),
-    require('/Users/luccagiordana/Documents/proyectoApp/my-expo-app/assets/AuthFoodImages/Gemini_Generated_Image_pw980xpw980xpw98-removebg-preview.png'),
-    require('/Users/luccagiordana/Documents/proyectoApp/my-expo-app/assets/AuthFoodImages/Gemini_Generated_Image_urgyfkurgyfkurgy-removebg-preview.png'),
-  ].map((source, index) => {
-    const centerIndex = 2; // el del medio
-    const diff = index - centerIndex;
+            <View
+              style={{
+                height: 200,
+                justifyContent: 'center',
+                alignItems: 'center',
+              }}
+            >
+              {[
+                require('/Users/luccagiordana/Documents/proyectoApp/my-expo-app/assets/AuthFoodImages/Gemini_Generated_Image_6g6mrd6g6mrd6g6m-removebg-preview.png'),
+                require('/Users/luccagiordana/Documents/proyectoApp/my-expo-app/assets/AuthFoodImages/Gemini_Generated_Image_pg509gpg509gpg50-removebg-preview.png'),
+                require('/Users/luccagiordana/Documents/proyectoApp/my-expo-app/assets/AuthFoodImages/Gemini_Generated_Image_16g8h616g8h616g8-removebg-preview.png'),
+                require('/Users/luccagiordana/Documents/proyectoApp/my-expo-app/assets/AuthFoodImages/Gemini_Generated_Image_urgyfkurgyfkurgy-removebg-preview.png'),
+                require('/Users/luccagiordana/Documents/proyectoApp/my-expo-app/assets/AuthFoodImages/Gemini_Generated_Image_q4mqgdq4mqgdq4mq-removebg-preview.png'),
+              ].map((source, index) => {
+                const { width: SCREEN_WIDTH } = Dimensions.get('window');
+                
+                const centerIndex = 2; // el del medio
+                const diff = index - centerIndex;
 
-    const scale =
-      diff === 0 ? 1 :
-      Math.abs(diff) === 1 ? 0.75 :
-      0.55;
+                const scale =
+                  diff === 0 ? 1 :
+                  Math.abs(diff) === 1 ? 0.75 :
+                  0.70;
 
-    const size = 180 * scale;
+                const translateX = diff * (SCREEN_WIDTH * 0.26);
+                const size = SCREEN_WIDTH * 0.45 * scale;
 
-    const translateX =
-      diff === 0 ? 0 :
-      diff === -1 ? -90 :
-      diff === 1 ? 90 :
-      diff === -2 ? -150 :
-      150;
+                return (
+                  <Image
+                    key={index}
+                    source={source}
+                    style={{
+                      position: 'absolute',
+                      width: size,
+                      height: size,
+                      borderRadius: size / 2,
+                      opacity: diff === 0 ? 1 : 0.8,
+                      transform: [{ translateX }],
 
-    return (
-      <Image
-        key={index}
-        source={source}
-        style={{
-          position: 'absolute',
-          width: size,
-          height: size,
-          borderRadius: size / 2,
-
-          transform: [{ translateX }],
-
-          zIndex: 10 - Math.abs(diff),
-        }}
-        resizeMode="cover"
-      />
-    );
-  })}
-</View>
+                      zIndex: 10 - Math.abs(diff),
+                    }}
+                    resizeMode="cover"
+                  />
+                );
+              })}
+            </View>
 
             </View>
 
