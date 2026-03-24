@@ -1,6 +1,8 @@
 import '../global.css';
 import { Stack } from 'expo-router';
 import { useFonts } from 'expo-font';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
+import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { 
   Montserrat_400Regular, 
   Montserrat_600SemiBold, 
@@ -25,6 +27,13 @@ export default function RootLayout() {
     Inter_600SemiBold,
     Inter_700Bold
   });
-if (!fontsLoaded) return null;
-  return <Stack screenOptions={{ headerShown: false }} />;
+  if (!fontsLoaded) return null;
+
+  return (
+    <GestureHandlerRootView style={{ flex: 1 }}>
+      <SafeAreaProvider>
+        <Stack screenOptions={{ headerShown: false }} />
+      </SafeAreaProvider>
+    </GestureHandlerRootView>
+  );
 }
