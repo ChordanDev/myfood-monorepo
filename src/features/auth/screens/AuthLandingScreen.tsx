@@ -1,126 +1,89 @@
-import { ImageBackground, Pressable, Text, View, Image, Dimensions } from 'react-native';
+import { ImageBackground, ScrollView, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { SocialLoginIcons } from '../components/SocialLoginIcons';
 import { LinearGradient } from 'expo-linear-gradient';
-
-
+import { useResponsiveScale } from '@/hooks/useResponsiveScale';
+import { AUTH_FOOD_IMAGES } from '@/constants/authAssets';
+import { AuthButton, CarouselImages, SocialDivider, SocialLoginIcons } from '../components';
 
 export function AuthLandingScreen() {
   const insets = useSafeAreaInsets();
+  const metrics = useResponsiveScale();
 
   return (
     <LinearGradient
-        colors={['#E5D8C4', '#242B12', '#191D0D']}
-        start={{ x: 0, y: 0 }}
-        end={{ x: 0, y: 1 }}
-        locations={[0, 0.63, 0.70]}
-        style={{ flex: 1 }}
-        >
-        <ImageBackground
-            source={require('../../../../assets/noisy-background.jpg')}
-            resizeMode="repeat"
-            style={{
-                position: 'absolute',
-                top: 0,
-                right: 0,
-                bottom: 0,
-                left: 0,
-                opacity: 0.2,
-            }}
-        />
+      colors={['#E5D8C4', '#242B12', '#191D0D', '#111309']}
+      start={{ x: 0, y: 0 }}
+      end={{ x: 0, y: 1 }}
+      locations={[0, 0.65, 0.93, 0.98]}
+      style={{ flex: 1 }}>
+      <ImageBackground
+        source={require('../../../../assets/noisy-background.jpg')}
+        resizeMode="repeat"
+        style={{
+          position: 'absolute',
+          top: 0,
+          right: 0,
+          bottom: 0,
+          left: 0,
+          opacity: 0.2,
+        }}
+      />
 
-        <View
-            style={{
-                flex: 1,
-                paddingTop: insets.top,
-                paddingBottom: insets.bottom,
-                justifyContent: 'space-between',
-            }}
-        >
-            <View className="items-center">
-
-                {/* TITULO */}
-                <View className="justify-start items-center pt-4 mb-10" style={{ paddingHorizontal: 32 }}>
-                    <Text className="text-[48px] font-montserrat-bold text-[#242B12]">MyFood</Text>
-                </View>
-
-                {/* IMAGENES PLATOS */}
+      <View style={{ flex: 1 }}>
+        <ScrollView
+          bounces={false}
+          showsVerticalScrollIndicator={false}
+          contentContainerStyle={{
+            flexGrow: 1,
+            paddingTop: insets.top,
+            paddingBottom: insets.bottom,
+            justifyContent: 'space-between',
+          }}>
+          <View style={{ alignItems: 'center', paddingHorizontal: metrics.horizontalPadding }}>
             <View
               style={{
-                height: 200,
-                justifyContent: 'center',
+                justifyContent: 'flex-start',
                 alignItems: 'center',
-              }}
-            >
-              {[
-                require('/Users/luccagiordana/Documents/proyectoApp/my-expo-app/assets/AuthFoodImages/Gemini_Generated_Image_6g6mrd6g6mrd6g6m-removebg-preview.png'),
-                require('/Users/luccagiordana/Documents/proyectoApp/my-expo-app/assets/AuthFoodImages/Gemini_Generated_Image_pg509gpg509gpg50-removebg-preview.png'),
-                require('/Users/luccagiordana/Documents/proyectoApp/my-expo-app/assets/AuthFoodImages/Gemini_Generated_Image_16g8h616g8h616g8-removebg-preview.png'),
-                require('/Users/luccagiordana/Documents/proyectoApp/my-expo-app/assets/AuthFoodImages/Gemini_Generated_Image_urgyfkurgyfkurgy-removebg-preview.png'),
-                require('/Users/luccagiordana/Documents/proyectoApp/my-expo-app/assets/AuthFoodImages/Gemini_Generated_Image_q4mqgdq4mqgdq4mq-removebg-preview.png'),
-              ].map((source, index) => {
-                const { width: SCREEN_WIDTH } = Dimensions.get('window');
-                
-                const centerIndex = 2; // el del medio
-                const diff = index - centerIndex;
-
-                const scale =
-                  diff === 0 ? 1 :
-                  Math.abs(diff) === 1 ? 0.75 :
-                  0.70;
-
-                const translateX = diff * (SCREEN_WIDTH * 0.26);
-                const size = SCREEN_WIDTH * 0.45 * scale;
-
-                return (
-                  <Image
-                    key={index}
-                    source={source}
-                    style={{
-                      position: 'absolute',
-                      width: size,
-                      height: size,
-                      borderRadius: size / 2,
-                      opacity: diff === 0 ? 1 : 0.8,
-                      transform: [{ translateX }],
-
-                      zIndex: 10 - Math.abs(diff),
-                    }}
-                    resizeMode="cover"
-                  />
-                );
-              })}
+                paddingTop: 16,
+                marginBottom: metrics.titleBottomSpacing,
+              }}>
+              <Text
+                style={{ fontSize: metrics.titleFontSize, color: '#242B12' }}
+                className="font-montserrat-bold">
+                MyFood
+              </Text>
             </View>
 
+            <CarouselImages images={AUTH_FOOD_IMAGES} metrics={metrics} />
+          </View>
+
+          <View
+            style={{
+              flexShrink: 0,
+              gap: metrics.sectionGap,
+              paddingHorizontal: metrics.horizontalPadding,
+            }}>
+            <View style={{ gap: metrics.buttonsGap }}>
+              <AuthButton title="Iniciar Sesión" variant="primary" metrics={metrics} />
+              <AuthButton title="Registrarse" variant="secondary" metrics={metrics} />
             </View>
 
-            <View className="content-start" style={{ flexShrink: 0, paddingHorizontal: 32 }}>
-
-                {/* BOTONES */}
-                <View className=''>
-
-                    {/* BOTON INICIAR SESION */}
-                    <Pressable className="mb-5 w-full rounded-3xl bg-[#899064] items-center py-5">
-                        <Text className="text-[18px] font-inter-medium text-[#242B12]">Iniciar Sesión</Text>
-                    </Pressable>
-        
-                    {/* BOTON REGISTRARSE */}
-                    <Pressable className="w-full items-center rounded-3xl bg-[#242B12] py-5">
-                        <Text className="text-[18px] font-inter-medium text-[#D8D98B]">Registrarse</Text>
-                    </Pressable>
-                </View>
-
-                {/* SECCION SOCIAL */}
-                <View className='justify-end items-center pt-16 pb-10'>
-                    <Text className="mb-3 text-[16px] font-inter-medium text-[#cbd8aa]">Iniciar sesión con</Text>
-                    <View className="mb-6 h-[1px] w-6/12 bg-[#D8D98B] opacity-50" />
-
-                    <SocialLoginIcons />
-
-                </View>
+            <View
+              style={{
+                alignItems: 'center',
+                paddingTop: metrics.socialTopPadding,
+                paddingBottom: metrics.socialBottomPadding,
+              }}>
+              <SocialDivider metrics={metrics} />
+              <SocialLoginIcons
+                iconSize={metrics.socialIconsSize}
+                containerSize={metrics.socialIconsContainerSize}
+                gap={metrics.socialIconsGap}
+              />
             </View>
-        </View>  
+          </View>
+        </ScrollView>
+      </View>
     </LinearGradient>
-
   );
 }
