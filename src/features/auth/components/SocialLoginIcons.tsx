@@ -19,32 +19,20 @@ export function SocialLoginIcons({
   gap = 64,
 }: SocialLoginIconsProps) {
   return (
-    <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap }}>
+    <View className="flex-row items-center justify-center" style={{ gap }}>
       <Pressable
-        style={{
-          width: containerSize,
-          height: containerSize,
-          alignItems: 'center',
-          justifyContent: 'center',
-        }}>
+        className="items-center justify-center"
+        style={{ width: containerSize, height: containerSize }}>
         <SvgXml xml={googleSvg} width={iconSize} height={iconSize} />
       </Pressable>
       <Pressable
-        style={{
-          width: containerSize,
-          height: containerSize,
-          alignItems: 'center',
-          justifyContent: 'center',
-        }}>
+        className="items-center justify-center"
+        style={{ width: containerSize, height: containerSize }}>
         <SvgXml xml={facebookSvg} width={iconSize} height={iconSize} />
       </Pressable>
       <Pressable
-        style={{
-          width: containerSize,
-          height: containerSize,
-          alignItems: 'center',
-          justifyContent: 'center',
-        }}>
+        className="items-center justify-center"
+        style={{ width: containerSize, height: containerSize }}>
         <SvgXml xml={appleSvg} width={iconSize} height={iconSize} />
       </Pressable>
     </View>

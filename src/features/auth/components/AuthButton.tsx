@@ -10,24 +10,20 @@ interface AuthButtonProps {
 
 export function AuthButton({ title, variant, metrics, onPress }: AuthButtonProps) {
   const isPrimary = variant === 'primary';
+  const buttonBgClass = isPrimary ? 'bg-[#899064]' : 'bg-[#242B12]';
+  const textColorClass = isPrimary ? 'text-[#242B12]' : 'text-[#D8D98B]';
 
   return (
     <Pressable
       onPress={onPress}
+      className={`w-full items-center justify-center ${buttonBgClass}`}
       style={{
-        width: '100%',
-        alignItems: 'center',
-        justifyContent: 'center',
         borderRadius: metrics.buttonRadius,
         paddingVertical: metrics.buttonVerticalPadding,
-        backgroundColor: isPrimary ? '#899064' : '#242B12',
       }}>
       <Text
-        style={{
-          fontSize: metrics.buttonFontSize,
-          color: isPrimary ? '#242B12' : '#D8D98B',
-        }}
-        className="font-inter-medium">
+        style={{ fontSize: metrics.buttonFontSize }}
+        className={`font-inter-medium ${textColorClass}`}>
         {title}
       </Text>
     </Pressable>

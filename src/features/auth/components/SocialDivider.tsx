@@ -8,23 +8,17 @@ interface SocialDividerProps {
 
 export function SocialDivider({ metrics, label = 'Iniciar sesión con' }: SocialDividerProps) {
   return (
-    <View style={{ alignItems: 'center' }}>
+    <View className="items-center">
       <Text
-        style={{
-          marginBottom: 12,
-          fontSize: metrics.socialLabelFontSize,
-          color: '#cbd8aa',
-        }}
-        className="font-inter-medium">
+        style={{ fontSize: metrics.socialLabelFontSize }}
+        className="mb-3 font-inter-medium text-[#cbd8aa]">
         {label}
       </Text>
       <View
+        className="h-px bg-[#D8D98B] opacity-50"
         style={{
           width: metrics.socialDividerWidth,
-          height: 1,
           marginBottom: metrics.socialDividerBottomMargin,
-          backgroundColor: '#D8D98B',
-          opacity: 0.5,
         }}
       />
     </View>

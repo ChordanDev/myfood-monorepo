@@ -15,7 +15,7 @@ export function AuthLandingScreen() {
       start={{ x: 0, y: 0 }}
       end={{ x: 0, y: 1 }}
       locations={[0, 0.65, 0.93, 0.98]}
-      style={{ flex: 1 }}>
+      className="flex-1">
       <ImageBackground
         source={require('../../../../assets/noisy-background.jpg')}
         resizeMode="repeat"
@@ -29,7 +29,7 @@ export function AuthLandingScreen() {
         }}
       />
 
-      <View style={{ flex: 1 }}>
+      <View className="flex-1">
         <ScrollView
           bounces={false}
           showsVerticalScrollIndicator={false}
@@ -39,12 +39,12 @@ export function AuthLandingScreen() {
             paddingBottom: insets.bottom,
             justifyContent: 'space-between',
           }}>
-          <View style={{ alignItems: 'center', paddingHorizontal: metrics.horizontalPadding }}>
+          
+          {/* Sección superior con título e imágenes */}
+          <View className="items-center" style={{ paddingHorizontal: metrics.horizontalPadding }}>
             <View
+              className="items-center justify-start pt-4"
               style={{
-                justifyContent: 'flex-start',
-                alignItems: 'center',
-                paddingTop: 16,
                 marginBottom: metrics.titleBottomSpacing,
               }}>
               <Text
@@ -58,8 +58,8 @@ export function AuthLandingScreen() {
           </View>
 
           <View
+            className="shrink"
             style={{
-              flexShrink: 0,
               gap: metrics.sectionGap,
               paddingHorizontal: metrics.horizontalPadding,
             }}>
@@ -69,8 +69,8 @@ export function AuthLandingScreen() {
             </View>
 
             <View
+              className="items-center"
               style={{
-                alignItems: 'center',
                 paddingTop: metrics.socialTopPadding,
                 paddingBottom: metrics.socialBottomPadding,
               }}>
