@@ -1,6 +1,7 @@
 import '../global.css';
 import { Stack } from 'expo-router';
 import { useFonts } from 'expo-font';
+import { ActivityIndicator, View } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { 
@@ -17,7 +18,7 @@ Inter_700Bold
 } from "@expo-google-fonts/inter";
 
 export default function RootLayout() {
-  const [fontsLoaded] = useFonts({
+  const [fontsLoaded, fontError] = useFonts({
     Montserrat_400Regular,
     Montserrat_600SemiBold,
     Montserrat_700Bold,
@@ -27,7 +28,15 @@ export default function RootLayout() {
     Inter_600SemiBold,
     Inter_700Bold
   });
-  if (!fontsLoaded) return null;
+
+  // Never leave the app in a blank state while fonts are loading/failing.
+  if (!fontsLoaded && !fontError) {
+    return (
+      <View className="flex-1 items-center justify-center bg-[#111309]">
+        <ActivityIndicator size="small" color="#D8D98B" />
+      </View>
+    );
+  }
 
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
