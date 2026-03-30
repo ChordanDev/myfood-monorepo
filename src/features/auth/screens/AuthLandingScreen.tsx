@@ -22,6 +22,7 @@ import {
   SocialDivider,
   SocialLoginIcons,
 } from '../components';
+import TitlePrimaryComponent from '../../../components/TitlePrimary';
 
 export function AuthLandingScreen() {
   const insets = useSafeAreaInsets(); // Para manejar los safe areas de la pantalla, el notch y la barra de abajo
@@ -71,7 +72,7 @@ export function AuthLandingScreen() {
     inputRange: [0, 1],
     outputRange: [0, -metrics.keyboardLiftDistance],
   });
-  
+
   return (
     <LinearGradient
       colors={['#E5D8C4', '#242B12', '#191D0D', '#111309']}
@@ -89,79 +90,71 @@ export function AuthLandingScreen() {
           right: 0,
           bottom: 0,
           left: 0,
-          opacity: 0.2, 
+          opacity: 0.2,
         }}
       />
 
-      <View className="flex-1">
-        <ScrollView
-          bounces={false}
-          showsVerticalScrollIndicator={false}
-          keyboardShouldPersistTaps="handled"
-          keyboardDismissMode="on-drag"
-          contentContainerStyle={{
-            flexGrow: 1,
-            paddingTop: insets.top,
-            paddingBottom: insets.bottom,
-            justifyContent: 'space-between',
-          }}>
-          
-          {/* Sección superior con título e imágenes */}
-          <View className="items-center" style={{ paddingHorizontal: metrics.horizontalPadding }}>
-            
-            {/* TÍTULO */}
-            <View
-              className="items-center justify-start pt-4"
-              style={{
-                marginBottom: metrics.titleBottomSpacing,
-              }}>
-              <Text
-                style={{ fontSize: metrics.titleFontSize, color: '#242B12' }}
-                className="font-montserrat-bold">
-                MyFood
-              </Text>
-            </View>
-            
-            {/* CAROUSEL DE IMÁGENES */}
-            <CarouselImages images={AUTH_FOOD_IMAGES} metrics={metrics} />
-          </View>
-          
-
-          {/* Sección inferior con botones y opciones sociales */}
-          <View
-            className="shrink"
+      <View style={{ flex: 1, paddingTop: insets.top, paddingBottom: insets.bottom }}>
+        <KeyboardAvoidingView
+          className="items-center"
+          style={{ flex: 4 }}
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+          keyboardVerticalOffset={Platform.OS === 'ios' ? insets.top : 0}>
+          <Animated.View
+            className="shrink justify-between"
             style={{
-              gap: metrics.sectionGap,
               paddingHorizontal: metrics.horizontalPadding,
+              transform: [{ translateY: formShift }],
+              flex: 1,
             }}>
+            {/* Sección superior con título e imágenes */}
+            <View className="items-center">
+              {/* TÍTULO */}
+              <TitlePrimaryComponent text="MyFood" metrics={metrics} />
 
-            {/* BOTONES DE INICIAR SESIÓN Y REGISTRARSE */}
-            <View style={{ gap: metrics.buttonsGap }}>
-              <AuthCredentialsForm metrics={metrics} onValidityChange={setIsCredentialsValid} />
-              <AuthButton
-                title="Iniciar Sesión"
-                variant="primary"
-                metrics={metrics}
-                disabled={!isCredentialsValid}
-              />
-              <AuthButton title="Registrarse" variant="secondary" metrics={metrics} />
+              {/* CAROUSEL DE IMÁGENES */}
+              <CarouselImages images={AUTH_FOOD_IMAGES} metrics={metrics} />
             </View>
 
-            {/* DIVISOR Y OPCIONES DE INICIO DE SESIÓN SOCIAL */}
-            <View
-              className="items-center"
-              style={{
-                paddingBottom: metrics.socialBottomPadding,
-              }}>
-              <SocialDivider metrics={metrics} />
-              <SocialLoginIcons
-                iconSize={metrics.socialIconsSize}
-                containerSize={metrics.socialIconsContainerSize}
-                gap={metrics.socialIconsGap}
-              />
-            </View>
+            <AuthCredentialsForm metrics={metrics} onValidityChange={setIsCredentialsValid} />
+          </Animated.View>
+        </KeyboardAvoidingView>
+
+        {/* Sección inferior con formulario, botones y opciones sociales */}
+
+        <View
+          className="justify-between"
+          style={{
+            flex: 3,
+            paddingHorizontal: metrics.horizontalPadding,
+            gap: metrics.sectionGap,
+          }}>
+          {/* BOTONES DE INICIAR SESIÓN Y REGISTRARSE */}
+          <View className="justify-center" style={{ gap: metrics.buttonsGap, flex: 1 }}>
+            <AuthButton
+              title="Iniciar Sesión"
+              variant="primary"
+              metrics={metrics}
+              disabled={!isCredentialsValid}
+            />
+            <AuthButton title="Registrarse" variant="secondary" metrics={metrics} />
           </View>
-        </ScrollView>
+
+          {/* DIVISOR Y OPCIONES DE INICIO DE SESIÓN SOCIAL */}
+          <View
+            className="items-center justify-end"
+            style={{
+              paddingBottom: metrics.socialBottomPadding,
+              flex: 1,
+            }}>
+            <SocialDivider metrics={metrics} />
+            <SocialLoginIcons
+              iconSize={metrics.socialIconsSize}
+              containerSize={metrics.socialIconsContainerSize}
+              gap={metrics.socialIconsGap}
+            />
+          </View>
+        </View>
       </View>
     </LinearGradient>
   );
