@@ -22,12 +22,12 @@ export function AuthCredentialsForm({
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [emailTouched, setEmailTouched] = useState(false);
-  const [passwordTouched, setPasswordTouched] = useState(false);
-  
+
   const normalizedEmail = useMemo(() => email.trim().toLowerCase(), [email]);
   const isValidEmail = EMAIL_REGEX.test(normalizedEmail);
   const isPasswordValid = password.length > 0 && password.length <= PASSWORD_MAX_LENGTH;
   const isFormValid = isValidEmail && isPasswordValid;
+  const showEmailError = emailTouched && email.length > 0 && !isValidEmail;
 
   useEffect(() => {
     onValidityChange?.(isFormValid);
@@ -35,7 +35,7 @@ export function AuthCredentialsForm({
   }, [isFormValid, normalizedEmail, onCredentialsChange, onValidityChange, password]);
 
   return (
-    <View>
+    <View style={{ paddingHorizontal: metrics.formHorizontalPadding }}>
       <View
         className="w-full bg-[#E5D8C4]"
         style={{
@@ -73,7 +73,6 @@ export function AuthCredentialsForm({
           <TextInput
             value={password}
             onChangeText={setPassword}
-            onBlur={() => setPasswordTouched(true)}
             placeholder="Contraseña"
             placeholderTextColor="#6F735E"
             secureTextEntry={!showPassword}
@@ -105,21 +104,14 @@ export function AuthCredentialsForm({
         </View>
       </View>
 
-      <View style={{ paddingTop: 6 }}>
-        {emailTouched && email.length > 0 && !isValidEmail ? (
-          <Text style={{ fontSize: metrics.formErrorFontSize }} className="font-inter-medium text-[#D8D98B]">
+      <View className="items-center" style={{ paddingTop: showEmailError ? 6 : 0 }}>
+        {showEmailError ? (
+          <Text
+            style={{ fontSize: metrics.formErrorFontSize, textAlign: 'center' }}
+            className="font-inter-medium text-[#D8D98B]">
             Ingresa un correo valido (ejemplo@dominio.com).
           </Text>
         ) : null}
-
-        {normalizedEmail.length > 0 && passwordTouched && !isPasswordValid ? (
-          <Text
-            style={{ fontSize: metrics.formErrorFontSize, marginTop: metrics.formFieldGap / 2 }}
-            className="font-inter-medium text-[#D8D98B]">
-            La contraseña es obligatoria y admite hasta 20 caracteres.
-          </Text>
-        ) : null}
-
       </View>
     </View>
   );

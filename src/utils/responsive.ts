@@ -14,6 +14,7 @@ export interface AuthLandingMetrics {
   carouselTranslateFactor: number;
   carouselSideScale: number;
   carouselEdgeScale: number;
+  formHorizontalPadding: number;
   formContainerRadius: number;
   formFieldVerticalPadding: number;
   formFieldHorizontalPadding: number;
@@ -24,7 +25,7 @@ export interface AuthLandingMetrics {
   buttonVerticalPadding: number;
   buttonFontSize: number;
   buttonRadius: number;
-  buttonsGap: number;
+  buttonTopMargin: number;
   sectionGap: number;
   keyboardLiftDistance: number;
   socialBottomPadding: number;
@@ -85,9 +86,9 @@ export function getAuthLandingMetrics(width: number, height: number): AuthLandin
   };
 
   const buttonPaddingBySize: Record<PhoneSizeBucket, number> = {
-    xs: 10,
-    sm: 12,
-    md: 14,
+    xs: 13,
+    sm: 14,
+    md: 15,
     lg: 16,
   };
 
@@ -102,7 +103,7 @@ export function getAuthLandingMetrics(width: number, height: number): AuthLandin
     xs: 14,
     sm: 15,
     md: 16,
-    lg: 17,
+    lg: 16,
   };
 
   const buttonFontBySize: Record<PhoneSizeBucket, number> = {
@@ -120,10 +121,10 @@ export function getAuthLandingMetrics(width: number, height: number): AuthLandin
   };
 
   const socialIconBySize: Record<PhoneSizeBucket, number> = {
-    xs: 32,
-    sm: 35,
-    md: 38,
-    lg: 40,
+    xs: 34,
+    sm: 37,
+    md: 40,
+    lg: 42,
   };
 
   const socialGapBySize: Record<PhoneSizeBucket, number> = {
@@ -144,7 +145,7 @@ export function getAuthLandingMetrics(width: number, height: number): AuthLandin
     // Métricas del título
     titleFontSize: titleFontBySize[phoneSize], // Tamaño de fuente del título basado en el tamaño del teléfono
     titleBottomSpacing: clamp(40 * compactFactor, 28, 40), // Espacio inferior del título, ajustado por el factor de compacidad y limitado entre 28 y 40
-    titleTopSpacing: clamp(12 * compactFactor, 8, 16), // Margen superior del título, ajustado por el factor de compacidad y limitado entre 8 y 16
+    titleTopSpacing: clamp(10 * compactFactor, 6, 14), // Margen superior del título, ajustado por el factor de compacidad y limitado entre 2 y 10
 
     // Métricas del carrusel
     carouselHeight: clamp(carouselHeightBySize[phoneSize] * compactFactor, 130, 220), // Altura del carrusel, ajustada por el factor de compacidad y limitada entre 130 y 220
@@ -154,6 +155,7 @@ export function getAuthLandingMetrics(width: number, height: number): AuthLandin
     carouselEdgeScale: 0.65, // Escala de las imágenes en los bordes del carrusel
 
     // Métricas del formulario
+    formHorizontalPadding: horizontalPaddingBySize[phoneSize] + 8, // Padding horizontal del formulario, basado en el tamaño del teléfono
     formContainerRadius: 10, // Radio del contenedor del formulario
     formFieldVerticalPadding: clamp(formFieldPaddingBySize[phoneSize] * compactFactor, 10, 15), // Padding vertical de los campos del formulario, ajustado por el factor de compacidad y limitado entre 10 y 15
     formFieldHorizontalPadding: clamp(10 * compactFactor, 12, 18), // Padding horizontal de los campos del formulario, ajustado por el factor de compacidad y limitado entre 12 y 18
@@ -166,7 +168,7 @@ export function getAuthLandingMetrics(width: number, height: number): AuthLandin
     buttonVerticalPadding: clamp(buttonPaddingBySize[phoneSize] * compactFactor, 12, 20), // Padding vertical de los botones, ajustado por el factor de compacidad y limitado entre 12 y 20
     buttonFontSize: buttonFontBySize[phoneSize], // Tamaño de fuente de los botones, basado en el tamaño del teléfono
     buttonRadius: 24, // Radio de los botones
-    buttonsGap: clamp(14 * compactFactor, 10, 16), // Gap entre los botones, ajustado por el factor de compacidad y limitado entre 12 y 18
+    buttonTopMargin: clamp(14 * compactFactor, 10, 16), // Margen superior de los botones, ajustado por el factor de compacidad y limitado entre 14 y 24
 
     // Gap entre botones de autenticación y opciones sociales
     sectionGap: clamp(12 * compactFactor, 8, 14),
