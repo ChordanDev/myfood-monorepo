@@ -64,7 +64,7 @@ export function AuthLandingScreen() {
         <View className="justify-between" style={{ flex: 1 }}>
           <AuthButton title="Registrarse" variant="secondary" metrics={metrics} />
 
-          <SocialLogin />
+          <SocialLogin metrics={metrics} />
         </View>
       </SafeAreaContent>
     </LinearGradient>
