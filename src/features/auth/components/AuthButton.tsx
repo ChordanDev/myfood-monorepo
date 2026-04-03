@@ -1,6 +1,5 @@
 import { Pressable, Text, View } from 'react-native';
 import { AuthLandingMetrics } from '@/utils/responsive';
-
 interface AuthButtonProps {
   title: string;
   variant: 'primary' | 'secondary';
@@ -26,7 +25,7 @@ export function AuthButton({
       <Pressable
         onPress={onPress}
         disabled={disabled}
-        className={`w-full items-center justify-center ${buttonBgClass}`}
+        className={`w-full items-center justify-center ${buttonBgClass} active:scale-97 active:bg-[#2d3519]`}
         style={{
           borderRadius: metrics.buttonRadius,
           paddingVertical: metrics.buttonVerticalPadding,

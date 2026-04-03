@@ -4,18 +4,18 @@ import { useFonts } from 'expo-font';
 import { ActivityIndicator, View } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
-import { 
-  Montserrat_400Regular, 
-  Montserrat_600SemiBold, 
-  Montserrat_700Bold, 
-  Montserrat_800ExtraBold 
-} from "@expo-google-fonts/montserrat";
 import {
-Inter_400Regular,
-Inter_500Medium,
-Inter_600SemiBold,
-Inter_700Bold
-} from "@expo-google-fonts/inter";
+  Montserrat_400Regular,
+  Montserrat_600SemiBold,
+  Montserrat_700Bold,
+  Montserrat_800ExtraBold,
+} from '@expo-google-fonts/montserrat';
+import {
+  Inter_400Regular,
+  Inter_500Medium,
+  Inter_600SemiBold,
+  Inter_700Bold,
+} from '@expo-google-fonts/inter';
 
 export default function RootLayout() {
   const [fontsLoaded, fontError] = useFonts({
@@ -26,7 +26,7 @@ export default function RootLayout() {
     Inter_400Regular,
     Inter_500Medium,
     Inter_600SemiBold,
-    Inter_700Bold
+    Inter_700Bold,
   });
 
   // Never leave the app in a blank state while fonts are loading/failing.

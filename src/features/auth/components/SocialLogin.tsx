@@ -1,17 +1,19 @@
+import { AuthLandingMetrics } from '@/utils/responsive';
 import { SocialDivider } from './SocialDivider';
 import { SocialLoginIcons } from './SocialLoginIcons';
-import { useResponsiveScale } from '@/hooks/useResponsiveScale';
 import { View } from 'react-native';
 
-export function SocialLogin() {
-  const metrics = useResponsiveScale();
+interface SocialLoginProps {
+  metrics: AuthLandingMetrics;
+}
 
+export function SocialLogin({ metrics }: SocialLoginProps) {
   return (
     <View
-      className="items-center justify-end"
+      className="items-center"
       style={{
         paddingHorizontal: metrics.horizontalPadding,
-        paddingBottom: metrics.socialBottomPadding,
+        marginBottom: metrics.socialBottomMargin,
       }}>
       <SocialDivider metrics={metrics} />
       <SocialLoginIcons

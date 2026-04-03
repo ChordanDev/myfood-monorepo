@@ -28,7 +28,7 @@ export interface AuthLandingMetrics {
   buttonTopMargin: number;
   sectionGap: number;
   keyboardLiftDistance: number;
-  socialBottomPadding: number;
+  socialBottomMargin: number;
   socialLabelFontSize: number;
   socialDividerWidth: number;
   socialDividerBottomMargin: number;
@@ -175,7 +175,7 @@ export function getAuthLandingMetrics(width: number, height: number): AuthLandin
     keyboardLiftDistance: clamp(shortestSide * 0.08, 24, 40),
 
     // Métricas de los elementos sociales
-    socialBottomPadding: clamp(40 * compactFactor, 26, 40), // Padding inferior de los elementos sociales, ajustado por el factor de compacidad y limitado entre 26 y 40
+    socialBottomMargin: clamp(60 * compactFactor, 46, 60), // Margen inferior de los elementos sociales, ajustado por el factor de compacidad y limitado entre 36 y 50
     socialLabelFontSize: socialLabelBySize[phoneSize], // Tamaño de fuente de las etiquetas sociales, basado en el tamaño del teléfono
     socialDividerWidth: clamp(width * 0.5, 150, 250), // Ancho del divisor social, basado en la mitad del ancho de la pantalla y limitado entre 150 y 250
     socialDividerBottomMargin: clamp(24 * compactFactor, 14, 24), // Margen inferior del divisor social, ajustado por el factor de compacidad y limitado entre 14 y 24

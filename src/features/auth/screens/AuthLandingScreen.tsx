@@ -14,10 +14,8 @@ export function AuthLandingScreen() {
   const { formAnimatedStyle, isKeyboardOpen } = useKeyboardAnimation();
 
   const animatedAuthContent = (
-    <View className="flex-1 justify-between">
-      <Animated.View
-        className="w-full shrink justify-between"
-        style={[formAnimatedStyle, { flex: 1 }]}>
+    <View className="flex-1">
+      <Animated.View className="h-full w-full justify-between" style={formAnimatedStyle}>
         <View className="items-center">
           {/* TÍTULO */}
           <TitlePrimary text="MyFood" metrics={metrics} />
@@ -52,15 +50,15 @@ export function AuthLandingScreen() {
 
       <SafeAreaContent>
         {/* Sección de título y carousel, envuelta en máscara de desvanecimiento al levantar teclado */}
-        <View className="items-center" style={{ flex: 2, overflow: 'hidden' }}>
+        <View className="items-center" style={{ flex: 5, overflow: 'hidden' }}>
           <TopFadeMask enabled={isKeyboardOpen} fadeSize={50}>
             {animatedAuthContent}
           </TopFadeMask>
         </View>
 
         {/* Sección botones y opciones sociales */}
-        <View className="justify-between" style={{ flex: 1 }}>
-          <AuthButton title="Registrarse" variant="secondary" metrics={metrics} />
+        <View className="justify-between" style={{ flex: 3 }}>
+          <AuthButton title="Crear una cuenta" variant="secondary" metrics={metrics} />
 
           <SocialLogin metrics={metrics} />
         </View>
