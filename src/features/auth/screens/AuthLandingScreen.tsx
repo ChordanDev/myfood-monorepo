@@ -13,31 +13,6 @@ export function AuthLandingScreen() {
   const [isCredentialsValid, setIsCredentialsValid] = useState(false);
   const { formAnimatedStyle, isKeyboardOpen } = useKeyboardAnimation();
 
-  const animatedAuthContent = (
-    <View className="flex-1">
-      <Animated.View className="h-full w-full justify-between" style={formAnimatedStyle}>
-        <View className="items-center">
-          {/* TÍTULO */}
-          <TitlePrimary text="MyFoox" metrics={metrics} />
-
-          {/* CAROUSEL DE IMÁGENES */}
-          <CarouselImages images={AUTH_FOOD_IMAGES} metrics={metrics} />
-        </View>
-
-        <View>
-          {/* FORMULARIO DE CREDENCIALES */}
-          <AuthCredentialsForm metrics={metrics} onValidityChange={setIsCredentialsValid} />
-          <AuthButton
-            title="Iniciar Sesión"
-            variant="primary"
-            metrics={metrics}
-            disabled={!isCredentialsValid}
-          />
-        </View>
-      </Animated.View>
-    </View>
-  );
-
   return (
     <LinearGradient
       colors={['#E5D8C4', '#242B12', '#191D0D', '#111309']}
@@ -52,7 +27,28 @@ export function AuthLandingScreen() {
         {/* Sección de título y carousel, envuelta en máscara de desvanecimiento al levantar teclado */}
         <View className="items-center" style={{ flex: 5, overflow: 'hidden' }}>
           <TopFadeMask enabled={isKeyboardOpen} fadeSize={50}>
-            {animatedAuthContent}
+            <View className="flex-1">
+              <Animated.View className="h-full w-full justify-between" style={formAnimatedStyle}>
+                <View className="items-center">
+                  {/* TÍTULO */}
+                  <TitlePrimary text="MyFood" metrics={metrics} />
+
+                  {/* CAROUSEL DE IMÁGENES */}
+                  <CarouselImages images={AUTH_FOOD_IMAGES} metrics={metrics} />
+                </View>
+
+                <View>
+                  {/* FORMULARIO DE CREDENCIALES */}
+                  <AuthCredentialsForm metrics={metrics} onValidityChange={setIsCredentialsValid} />
+                  <AuthButton
+                    title="Iniciar Sesión"
+                    variant="primary"
+                    metrics={metrics}
+                    disabled={!isCredentialsValid}
+                  />
+                </View>
+              </Animated.View>
+            </View>
           </TopFadeMask>
         </View>
 
