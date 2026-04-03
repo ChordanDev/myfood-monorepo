@@ -18,7 +18,7 @@ export function AuthLandingScreen() {
       <Animated.View className="h-full w-full justify-between" style={formAnimatedStyle}>
         <View className="items-center">
           {/* TÍTULO */}
-          <TitlePrimary text="MyFood" metrics={metrics} />
+          <TitlePrimary text="MyFoox" metrics={metrics} />
 
           {/* CAROUSEL DE IMÁGENES */}
           <CarouselImages images={AUTH_FOOD_IMAGES} metrics={metrics} />
