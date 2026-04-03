@@ -1,55 +1,62 @@
-import { useEffect, useRef, useState } from 'react';
-import { Animated, Easing, Keyboard, Platform } from 'react-native';
+import { useEffect, useState } from 'react';
+import { Keyboard, Platform } from 'react-native';
+import {
+  Easing,
+  cancelAnimation,
+  useAnimatedStyle,
+  useSharedValue,
+  withSpring,
+  withTiming,
+} from 'react-native-reanimated';
 
 export function useKeyboardAnimation() {
+  const isIOS = Platform.OS === 'ios';
   const [isKeyboardOpen, setIsKeyboardOpen] = useState(false);
   const [keyboardHeight, setKeyboardHeight] = useState(0);
-  const keyboardProgress = useRef(new Animated.Value(0)).current;
-  const formShift = useRef(new Animated.Value(0)).current;
+  const keyboardProgress = useSharedValue(0);
+  const formShift = useSharedValue(0);
+  const formAnimatedStyle = useAnimatedStyle(() => ({
+    transform: [{ translateY: formShift.value }],
+  }));
 
   useEffect(() => {
-    const FALLBACK_DURATION = Platform.OS === 'android' ? 180 : 220;
+    const FALLBACK_DURATION = isIOS ? 240 : 200;
+    const IOS_EASING = Easing.bezier(0.25, 0.1, 0.25, 1);
 
     const getAnimationDuration = (value?: number) => {
       if (typeof value !== 'number' || Number.isNaN(value) || value <= 16) {
         return FALLBACK_DURATION;
       }
 
-      return value;
+      return Math.min(Math.max(value, 140), 320);
     };
 
-    const showEvent = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
-    const hideEvent = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
+    const showEvent = isIOS ? 'keyboardWillShow' : 'keyboardDidShow';
+    const hideEvent = isIOS ? 'keyboardWillHide' : 'keyboardDidHide';
 
     const animateTo = (toValue: number, duration = FALLBACK_DURATION) => {
-      Animated.timing(keyboardProgress, {
-        toValue,
+      keyboardProgress.value = withTiming(toValue, {
         duration,
-        easing: Easing.out(Easing.cubic),
-        useNativeDriver: true,
-      }).start();
+        easing: isIOS ? IOS_EASING : Easing.out(Easing.cubic),
+      });
     };
 
     const animateShiftTo = (toValue: number, duration = FALLBACK_DURATION) => {
-      if (Platform.OS === 'android') {
-        Animated.spring(formShift, {
-          toValue,
-          damping: 18,
-          stiffness: 220,
-          mass: 0.7,
+      if (!isIOS) {
+        formShift.value = withSpring(toValue, {
+          damping: 20,
+          stiffness: 170,
+          mass: 0.8,
           overshootClamping: true,
-          useNativeDriver: true,
-        }).start();
+        });
 
         return;
       }
 
-      Animated.timing(formShift, {
-        toValue,
+      formShift.value = withTiming(toValue, {
         duration,
-        easing: Easing.out(Easing.cubic),
-        useNativeDriver: true,
-      }).start();
+        easing: IOS_EASING,
+      });
     };
 
     const showSubscription = Keyboard.addListener(showEvent, (event) => {
@@ -57,13 +64,12 @@ export function useKeyboardAnimation() {
       setIsKeyboardOpen(true);
 
       const duration = getAnimationDuration(event.duration);
-      const targetShift =
-        Platform.OS === 'android'
-          ? -(event.endCoordinates.height / 2.8)
-          : -(event.endCoordinates.height / 2.5);
+      const targetShift = isIOS
+        ? -(event.endCoordinates.height / 2.75)
+        : -(event.endCoordinates.height / 3);
 
-      keyboardProgress.stopAnimation();
-      formShift.stopAnimation();
+      cancelAnimation(keyboardProgress);
+      cancelAnimation(formShift);
 
       animateTo(1, duration);
       animateShiftTo(targetShift, duration);
@@ -71,11 +77,12 @@ export function useKeyboardAnimation() {
 
     const hideSubscription = Keyboard.addListener(hideEvent, (event) => {
       setIsKeyboardOpen(false);
+      setKeyboardHeight(0);
 
       const duration = getAnimationDuration(event.duration);
 
-      keyboardProgress.stopAnimation();
-      formShift.stopAnimation();
+      cancelAnimation(keyboardProgress);
+      cancelAnimation(formShift);
 
       animateTo(0, duration);
       animateShiftTo(0, duration);
@@ -85,11 +92,12 @@ export function useKeyboardAnimation() {
       showSubscription.remove();
       hideSubscription.remove();
     };
-  }, [formShift, keyboardProgress]);
+  }, [formShift, isIOS, keyboardProgress]);
 
   return {
     keyboardProgress,
     formShift,
+    formAnimatedStyle,
     isKeyboardOpen,
     keyboardHeight,
   };

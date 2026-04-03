@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import { Animated, View } from 'react-native';
+import { View } from 'react-native';
+import Animated from 'react-native-reanimated';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useResponsiveScale } from '@/hooks/useResponsiveScale';
 import { useKeyboardAnimation } from '@/hooks/useKeyboardAnimation';
@@ -10,16 +11,13 @@ import { NoisyBackground, SafeAreaContent, TitlePrimary, TopFadeMask } from '../
 export function AuthLandingScreen() {
   const metrics = useResponsiveScale();
   const [isCredentialsValid, setIsCredentialsValid] = useState(false);
-  const { formShift, isKeyboardOpen } = useKeyboardAnimation();
+  const { formAnimatedStyle, isKeyboardOpen } = useKeyboardAnimation();
 
   const animatedAuthContent = (
     <View className="flex-1 justify-between">
       <Animated.View
         className="w-full shrink justify-between"
-        style={{
-          transform: [{ translateY: formShift }],
-          flex: 1,
-        }}>
+        style={[formAnimatedStyle, { flex: 1 }]}>
         <View className="items-center">
           {/* TÍTULO */}
           <TitlePrimary text="MyFood" metrics={metrics} />
