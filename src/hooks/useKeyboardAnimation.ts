@@ -12,41 +12,64 @@ import {
 const IOS_EASING = Easing.bezier(0.25, 0.1, 0.25, 1);
 const ANDROID_EASING = Easing.out(Easing.cubic);
 
-export function useKeyboardAnimation() {
+interface KeyboardAnimationOptions {
+  liftFactor?: number;
+  durationScale?: number;
+  fallbackDuration?: number;
+  enabled?: boolean;
+}
+
+export function useKeyboardAnimation(options?: KeyboardAnimationOptions) {
   const isIOS = Platform.OS === 'ios';
   const [isKeyboardOpen, setIsKeyboardOpen] = useState(false);
   const keyboardProgress = useSharedValue(0);
   const keyboardHeight = useSharedValue(0);
-  const FALLBACK_DURATION = isIOS ? 240 : 320;
+  const liftFactor = options?.liftFactor ?? 0.4;
+  const durationScale = options?.durationScale ?? 1;
+  const fallbackDuration = options?.fallbackDuration ?? (isIOS ? 240 : 320);
+  const enabled = options?.enabled ?? true;
 
   const formAnimatedStyle = useAnimatedStyle(() => ({
     transform: [
       {
-        translateY: interpolate(keyboardProgress.value, [0, 1], [0, -keyboardHeight.value * 0.4]),
+        translateY: interpolate(
+          keyboardProgress.value,
+          [0, 1],
+          [0, -keyboardHeight.value * liftFactor]
+        ),
       },
     ],
   }));
 
   useEffect(() => {
+    if (!enabled) {
+      setIsKeyboardOpen(false);
+      cancelAnimation(keyboardProgress);
+      cancelAnimation(keyboardHeight);
+      keyboardProgress.value = 0;
+      keyboardHeight.value = 0;
+      return;
+    }
+
     const getAnimationDuration = (value?: number) => {
       if (typeof value !== 'number' || Number.isNaN(value) || value <= 16) {
-        return FALLBACK_DURATION;
+        return Math.round(fallbackDuration * durationScale);
       }
 
       const clampedDuration = Math.min(Math.max(value, 140), 320);
 
       if (!isIOS) {
-        return Math.min(Math.round(clampedDuration * 1.45), 460);
+        return Math.min(Math.round(clampedDuration * 1.45 * durationScale), 520);
       }
 
-      return clampedDuration;
+      return Math.round(clampedDuration * durationScale);
     };
 
     const showEvent = isIOS ? 'keyboardWillChangeFrame' : 'keyboardDidShow';
     const hideEvent = isIOS ? 'keyboardWillHide' : 'keyboardDidHide';
     const easing = isIOS ? IOS_EASING : ANDROID_EASING;
 
-    const animateProgressTo = (toValue: number, duration = FALLBACK_DURATION) => {
+    const animateProgressTo = (toValue: number, duration = fallbackDuration) => {
       cancelAnimation(keyboardProgress);
 
       keyboardProgress.value = withTiming(toValue, {
@@ -55,7 +78,7 @@ export function useKeyboardAnimation() {
       });
     };
 
-    const animateHeightTo = (toValue: number, duration = FALLBACK_DURATION) => {
+    const animateHeightTo = (toValue: number, duration = fallbackDuration) => {
       cancelAnimation(keyboardHeight);
 
       keyboardHeight.value = withTiming(toValue, {
@@ -64,7 +87,7 @@ export function useKeyboardAnimation() {
       });
     };
 
-    const animateKeyboard = (height: number, isOpen: boolean, duration = FALLBACK_DURATION) => {
+    const animateKeyboard = (height: number, isOpen: boolean, duration = fallbackDuration) => {
       if (isOpen) {
         animateHeightTo(height, duration);
       }
@@ -90,7 +113,7 @@ export function useKeyboardAnimation() {
       showSubscription.remove();
       hideSubscription.remove();
     };
-  }, [FALLBACK_DURATION, isIOS, keyboardHeight, keyboardProgress]);
+  }, [durationScale, enabled, fallbackDuration, isIOS, keyboardHeight, keyboardProgress]);
 
   return {
     formAnimatedStyle,

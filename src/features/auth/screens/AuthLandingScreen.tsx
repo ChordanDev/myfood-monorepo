@@ -5,13 +5,37 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { useResponsiveScale } from '@/hooks/useResponsiveScale';
 import { useKeyboardAnimation } from '@/hooks/useKeyboardAnimation';
 import { AUTH_FOOD_IMAGES } from '@/constants/authAssets';
-import { AuthButton, AuthCredentialsForm, CarouselImages, SocialLogin } from '../components';
+import {
+  AuthButton,
+  AuthCredentialsForm,
+  CarouselImages,
+  RegisterEntryModal,
+  SocialLogin,
+} from '../components';
 import { NoisyBackground, SafeAreaContent, TitlePrimary, TopFadeMask } from '../../../components';
+import { useRouter } from 'expo-router';
 
 export function AuthLandingScreen() {
+  const router = useRouter();
   const metrics = useResponsiveScale();
   const [isCredentialsValid, setIsCredentialsValid] = useState(false);
-  const { formAnimatedStyle, isKeyboardOpen } = useKeyboardAnimation();
+  const [showRegisterModal, setShowRegisterModal] = useState(false);
+  const { formAnimatedStyle, isKeyboardOpen } = useKeyboardAnimation({
+    enabled: !showRegisterModal,
+  });
+
+  const closeRegisterModal = () => {
+    setShowRegisterModal(false);
+  };
+
+  const openRegisterModal = () => {
+    setShowRegisterModal(true);
+  };
+
+  const handleContinueRegister = (email: string) => {
+    closeRegisterModal();
+    router.push({ pathname: '/register', params: { email } });
+  };
 
   return (
     <LinearGradient
@@ -54,11 +78,21 @@ export function AuthLandingScreen() {
 
         {/* Sección botones y opciones sociales */}
         <View className="justify-between" style={{ flex: 3 }}>
-          <AuthButton title="Crear una cuenta" variant="secondary" metrics={metrics} />
-
+          <AuthButton
+            title="Crear una cuenta"
+            variant="secondary"
+            metrics={metrics}
+            onPress={openRegisterModal}
+          />
           <SocialLogin metrics={metrics} />
         </View>
       </SafeAreaContent>
+
+      <RegisterEntryModal
+        visible={showRegisterModal}
+        onClose={closeRegisterModal}
+        onContinue={handleContinueRegister}
+      />
     </LinearGradient>
   );
 }

@@ -4,3 +4,6 @@ export { AuthButton } from './AuthButton';
 export { SocialDivider } from './SocialDivider';
 export { AuthCredentialsForm } from './AuthCredentialsForm';
 export { SocialLogin } from './SocialLogin';
+export { RegisterEntryModal } from './RegisterEntryModal';
+export { VerificationCodeInput } from './VerificationCodeInput';
+export { VerificationActions } from './VerificationActions';
