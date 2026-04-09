@@ -13,10 +13,9 @@ import {
   SocialLogin,
 } from '../components';
 import { NoisyBackground, SafeAreaContent, TitlePrimary, TopFadeMask } from '../../../components';
-import { useRouter } from 'expo-router';
+import { Link } from 'expo-router';
 
 export function AuthLandingScreen() {
-  const router = useRouter();
   const metrics = useResponsiveScale();
   const [isCredentialsValid, setIsCredentialsValid] = useState(false);
   const [loginEmail, setLoginEmail] = useState('');
@@ -33,13 +32,8 @@ export function AuthLandingScreen() {
     setShowRegisterModal(true);
   };
 
-  const handleContinueRegister = (email: string) => {
+  const handleContinueRegister = (_email: string) => {
     closeRegisterModal();
-    router.push({ pathname: '/register', params: { email, flow: 'register' } });
-  };
-
-  const handleContinueLogin = () => {
-    router.push({ pathname: '/register', params: { email: loginEmail, flow: 'login' } });
   };
 
   return (
@@ -74,13 +68,19 @@ export function AuthLandingScreen() {
                     onCredentialsChange={({ email }) => setLoginEmail(email)}
                   />
                   {/* BOTÓN DE INICIAR SESIÓN */}
-                  <AuthButton
-                    title="Iniciar Sesión"
-                    variant="primary"
-                    metrics={metrics}
-                    disabled={!isCredentialsValid}
-                    onPress={handleContinueLogin}
-                  />
+                  <Link
+                    asChild
+                    href={{
+                      pathname: '/register',
+                      params: { email: loginEmail, flow: 'login' },
+                    }}>
+                    <AuthButton
+                      title="Iniciar Sesión"
+                      variant="primary"
+                      metrics={metrics}
+                      disabled={!isCredentialsValid}
+                    />
+                  </Link>
                 </View>
               </Animated.View>
             </View>

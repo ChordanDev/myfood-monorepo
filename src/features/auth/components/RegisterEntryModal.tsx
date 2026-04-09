@@ -8,6 +8,7 @@ import {
   Platform,
   useWindowDimensions,
 } from 'react-native';
+import { Link } from 'expo-router';
 import Animated from 'react-native-reanimated';
 import { useKeyboardAnimation } from '@/hooks/useKeyboardAnimation';
 import { useEmailValidation } from '../hooks';
@@ -45,13 +46,15 @@ export function RegisterEntryModal({ visible, onClose, onContinue }: RegisterEnt
     onClose();
   };
 
-  const handleContinue = () => {
+  const handleContinue = (event: { preventDefault: () => void }) => {
     setTermsTouched(true);
 
     if (!canSubmit) {
+      event.preventDefault();
       return;
     }
 
+    // Keep landing screen state clean when this route is pushed.
     onContinue(normalizedRegisterEmail);
   };
 
@@ -125,13 +128,20 @@ export function RegisterEntryModal({ visible, onClose, onContinue }: RegisterEnt
             />
 
             <View className="mt-6">
-              <Pressable
-                onPress={handleContinue}
-                disabled={isContinueDisabled}
-                className="w-full items-center rounded-2xl bg-[#242B12] py-3 active:opacity-90"
-                style={{ opacity: canSubmit ? 1 : 0.55 }}>
-                <Text className="font-inter-semibold text-base text-[#D8D98B]">Continuar</Text>
-              </Pressable>
+              <Link
+                asChild
+                href={{
+                  pathname: '/register',
+                  params: { email: normalizedRegisterEmail, flow: 'register' },
+                }}>
+                <Pressable
+                  onPress={handleContinue}
+                  disabled={isContinueDisabled}
+                  className="w-full items-center rounded-2xl bg-[#242B12] py-3 active:opacity-90"
+                  style={{ opacity: canSubmit ? 1 : 0.55 }}>
+                  <Text className="font-inter-semibold text-base text-[#D8D98B]">Continuar</Text>
+                </Pressable>
+              </Link>
 
               <Pressable onPress={handleClose} className="mt-3 items-center py-1">
                 <Text className="font-inter-medium text-sm text-[#4A5130]">Cancelar</Text>
