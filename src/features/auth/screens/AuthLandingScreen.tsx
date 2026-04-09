@@ -1,78 +1,109 @@
-import { ImageBackground, Pressable, Text, View } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { SocialLoginIcons } from '../components/SocialLoginIcons';
+import { useState } from 'react';
+import { View } from 'react-native';
+import Animated from 'react-native-reanimated';
 import { LinearGradient } from 'expo-linear-gradient';
-
+import { useResponsiveScale } from '@/hooks/useResponsiveScale';
+import { useKeyboardAnimation } from '@/hooks/useKeyboardAnimation';
+import { AUTH_FOOD_IMAGES } from '@/constants/authAssets';
+import {
+  AuthButton,
+  AuthCredentialsForm,
+  CarouselImages,
+  RegisterEntryModal,
+  SocialLogin,
+} from '../components';
+import { NoisyBackground, SafeAreaContent, TitlePrimary, TopFadeMask } from '../../../components';
+import { useRouter } from 'expo-router';
 
 export function AuthLandingScreen() {
-  const insets = useSafeAreaInsets();
+  const router = useRouter();
+  const metrics = useResponsiveScale();
+  const [isCredentialsValid, setIsCredentialsValid] = useState(false);
+  const [loginEmail, setLoginEmail] = useState('');
+  const [showRegisterModal, setShowRegisterModal] = useState(false);
+  const { formAnimatedStyle, isKeyboardOpen } = useKeyboardAnimation({
+    enabled: !showRegisterModal,
+  });
+
+  const closeRegisterModal = () => {
+    setShowRegisterModal(false);
+  };
+
+  const openRegisterModal = () => {
+    setShowRegisterModal(true);
+  };
+
+  const handleContinueRegister = (email: string) => {
+    closeRegisterModal();
+    router.push({ pathname: '/register', params: { email, flow: 'register' } });
+  };
+
+  const handleContinueLogin = () => {
+    router.push({ pathname: '/register', params: { email: loginEmail, flow: 'login' } });
+  };
+
   return (
     <LinearGradient
-        colors={['#E5D8C4', '#242B12']}
-        start={{ x: 0, y: 0 }}
-        end={{ x: 0.5, y: 1 }}
-        locations={[0, 0.63]}
-        style={{ flex: 1 }}
-        >
-        <ImageBackground
-            source={require('../../../../assets/noisy-background.jpg')}
-            resizeMode="repeat"
-            style={{
-                position: 'absolute',
-                top: 0,
-                right: 0,
-                bottom: 0,
-                left: 0,
-                opacity: 0.2,
-            }}
-        />
+      colors={['#E5D8C4', '#242B12', '#191D0D', '#111309']}
+      start={{ x: 0, y: 0 }}
+      end={{ x: 0, y: 1 }}
+      locations={[0, 0.65, 0.93, 0.98]}
+      className="flex-1"
+      style={{ flex: 1 }}>
+      <NoisyBackground opacity={0.2} />
 
-        <View
-            style={{
-                flex: 1,
-                paddingHorizontal: 32,
-                paddingTop: insets.top,
-                paddingBottom: insets.bottom,
-                justifyContent: 'space-between',
-            }}
-        >
-            <View className="items-center">
-                {/* TITULO */}
-                <View className="justify-start items-center pt-4 mb-32">
-                    <Text className="text-[48px] font-montserrat-bold text-[#242B12]">MyFood</Text>
+      <SafeAreaContent>
+        {/* Sección de título y carousel, envuelta en máscara de desvanecimiento al levantar teclado */}
+        <View className="items-center" style={{ flex: 5, overflow: 'hidden' }}>
+          <TopFadeMask enabled={isKeyboardOpen} fadeSize={50}>
+            <View className="flex-1">
+              <Animated.View className="h-full w-full justify-between" style={formAnimatedStyle}>
+                <View className="items-center">
+                  {/* TÍTULO */}
+                  <TitlePrimary text="MyFood" metrics={metrics} />
+
+                  {/* CAROUSEL DE IMÁGENES */}
+                  <CarouselImages images={AUTH_FOOD_IMAGES} metrics={metrics} />
                 </View>
 
-                {/* SECCION FOTOS */}
-                <View className="justify-start items-center">
-                    <Text className="text-[24px] font-inter-medium text-[#242B12]">Fotos</Text>
+                <View>
+                  {/* FORMULARIO DE CREDENCIALES */}
+                  <AuthCredentialsForm
+                    metrics={metrics}
+                    onValidityChange={setIsCredentialsValid}
+                    onCredentialsChange={({ email }) => setLoginEmail(email)}
+                  />
+                  {/* BOTÓN DE INICIAR SESIÓN */}
+                  <AuthButton
+                    title="Iniciar Sesión"
+                    variant="primary"
+                    metrics={metrics}
+                    disabled={!isCredentialsValid}
+                    onPress={handleContinueLogin}
+                  />
                 </View>
+              </Animated.View>
             </View>
+          </TopFadeMask>
+        </View>
 
-            <View className="content-start">
-                {/* BOTONES */}
-                <View className=''>
+        {/* Sección botones y opciones sociales */}
+        <View className="justify-between" style={{ flex: 3 }}>
+          <AuthButton
+            title="Crear una cuenta"
+            variant="secondary"
+            metrics={metrics}
+            onPress={openRegisterModal}
+          />
+          <SocialLogin metrics={metrics} />
+        </View>
+      </SafeAreaContent>
 
-                    {/* BOTON INICIAR SESION */}
-                    <Pressable className="mb-5 w-full rounded-3xl bg-[#899064] items-center py-5">
-                        <Text className="text-[18px] font-inter-medium text-[#242B12]">Iniciar Sesión</Text>
-                    </Pressable>
-        
-                    {/* BOTON REGISTRARSE */}
-                    <Pressable className="w-full items-center rounded-3xl bg-[#242B12] py-5">
-                        <Text className="text-[18px] font-inter-medium text-[#D8D98B]">Registrarse</Text>
-                    </Pressable>
-                </View>
-
-                {/* SECCION SOCIAL */}
-                <View className='justify-end items-center pt-16 pb-8'>
-                    <Text className="mb-3 text-[16px] font-inter-medium text-[#242B12]">Iniciar sesión con</Text>
-                    <View className="mb-6 h-[1px] w-6/12 bg-[#D8D98B] opacity-50" />
-
-                    <SocialLoginIcons />
-                </View>
-            </View>
-        </View>  
+      <RegisterEntryModal
+        visible={showRegisterModal}
+        onClose={closeRegisterModal}
+        onContinue={handleContinueRegister}
+      />
     </LinearGradient>
-
   );
 }
