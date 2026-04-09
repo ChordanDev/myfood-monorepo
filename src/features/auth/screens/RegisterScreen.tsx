@@ -1,16 +1,19 @@
 import { useMemo, useState } from 'react';
 import { Alert, Pressable, Text, View } from 'react-native';
+import Animated from 'react-native-reanimated';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
 import { SafeAreaContent, NoisyBackground } from '@/components';
 import { VerificationActions, VerificationCodeInput } from '../components';
 import { useResendCooldown } from '../hooks';
+import { useKeyboardAnimation } from '@/hooks/useKeyboardAnimation';
 
 export function RegisterScreen() {
   const router = useRouter();
   const params = useLocalSearchParams<{ email?: string }>();
   const [code, setCode] = useState('');
   const { secondsLeft, canResend, restart } = useResendCooldown(45);
+  const { formAnimatedStyle } = useKeyboardAnimation();
 
   const email = useMemo(() => {
     const rawEmail = params.email;
@@ -37,7 +40,12 @@ export function RegisterScreen() {
       return;
     }
 
-    Alert.alert('Cuenta verificada', 'Tu correo fue validado correctamente.');
+    Alert.alert('Cuenta verificada', 'Tu correo fue validado correctamente.', [
+      {
+        text: 'OK',
+        onPress: () => router.replace('/'),
+      },
+    ]);
   };
 
   const handleResendCode = () => {
@@ -59,25 +67,27 @@ export function RegisterScreen() {
       style={{ flex: 1 }}>
       <NoisyBackground opacity={0.2} />
       <SafeAreaContent>
-        <View className="flex-1 justify-center px-7">
-          <Text className="text-center font-montserrat-bold text-[34px] text-[#F7F2E8]">
-            Verifica tu correo
-          </Text>
-          <Text className="font-inter-regular mt-3 text-center text-base text-[#D8D98B]">
-            Enviamos un codigo de 6 digitos a {maskedEmail}.
-          </Text>
+        <Animated.View className="h-full w-full justify-between" style={formAnimatedStyle}>
+          <View className="flex-1 justify-center px-7">
+            <Text className="text-center font-montserrat-bold text-[34px] text-[#F7F2E8]">
+              Verifica tu correo
+            </Text>
+            <Text className="font-inter-regular mt-3 text-center text-base text-[#D8D98B]">
+              Enviamos un codigo de 6 digitos a {maskedEmail}.
+            </Text>
 
-          <VerificationCodeInput value={code} onChange={setCode} />
-          <VerificationActions
-            secondsLeft={secondsLeft}
-            onVerify={handleVerifyCode}
-            onResend={handleResendCode}
-          />
+            <VerificationCodeInput value={code} onChange={setCode} />
+            <VerificationActions
+              secondsLeft={secondsLeft}
+              onVerify={handleVerifyCode}
+              onResend={handleResendCode}
+            />
 
-          <Pressable onPress={() => router.back()} className="mt-6 items-center py-1">
-            <Text className="font-inter-regular text-[#F7F2E8]">Cambiar correo</Text>
-          </Pressable>
-        </View>
+            <Pressable onPress={() => router.back()} className="mt-6 items-center py-1">
+              <Text className="font-inter-regular text-[#F7F2E8]">Cambiar correo</Text>
+            </Pressable>
+          </View>
+        </Animated.View>
       </SafeAreaContent>
     </LinearGradient>
   );

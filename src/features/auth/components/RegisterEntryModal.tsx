@@ -1,18 +1,18 @@
-import { useMemo, useState } from 'react';
+import { useState } from 'react';
 import {
   Modal,
   Pressable,
   ScrollView,
   Text,
-  TextInput,
   View,
   Platform,
   useWindowDimensions,
 } from 'react-native';
 import Animated from 'react-native-reanimated';
 import { useKeyboardAnimation } from '@/hooks/useKeyboardAnimation';
-
-const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+import { useEmailValidation } from '../hooks';
+import { EmailTextInput } from './EmailTextInput';
+import { InputErrorText } from './InputErrorText';
 
 interface RegisterEntryModalProps {
   visible: boolean;
@@ -29,29 +29,26 @@ export function RegisterEntryModal({ visible, onClose, onContinue }: RegisterEnt
   });
   const [registerEmail, setRegisterEmail] = useState('');
   const [acceptedTerms, setAcceptedTerms] = useState(false);
-  const [emailTouched, setEmailTouched] = useState(false);
   const [termsTouched, setTermsTouched] = useState(false);
 
   const modalHorizontalPadding = width < 360 ? 16 : 24;
   const modalMaxHeight = Math.min(height * 0.82, 560);
 
-  const normalizedRegisterEmail = useMemo(
-    () => registerEmail.trim().toLowerCase(),
-    [registerEmail]
-  );
-  const isValidRegisterEmail = EMAIL_REGEX.test(normalizedRegisterEmail);
+  const { normalizedEmail: normalizedRegisterEmail, isValidEmail: isValidRegisterEmail } =
+    useEmailValidation(registerEmail);
+  const canSubmit = isValidRegisterEmail && acceptedTerms;
+  const isContinueDisabled = !isValidRegisterEmail;
+  const showEmailError = registerEmail.length > 0 && !isValidRegisterEmail;
 
   const handleClose = () => {
-    setEmailTouched(false);
     setTermsTouched(false);
     onClose();
   };
 
   const handleContinue = () => {
-    setEmailTouched(true);
     setTermsTouched(true);
 
-    if (!isValidRegisterEmail || !acceptedTerms) {
+    if (!canSubmit) {
       return;
     }
 
@@ -86,24 +83,26 @@ export function RegisterEntryModal({ visible, onClose, onContinue }: RegisterEnt
             </Text>
 
             <View className="mt-5 rounded-xl bg-[#F6ECDE]">
-              <TextInput
+              <EmailTextInput
                 value={registerEmail}
                 onChangeText={setRegisterEmail}
-                onBlur={() => setEmailTouched(true)}
                 placeholder="tuemail@dominio.com"
                 placeholderTextColor="#6F735E"
-                keyboardType="email-address"
-                autoCapitalize="none"
-                autoCorrect={false}
-                className="font-inter-regular px-4 py-3 text-base text-[#242B12]"
+                androidDescenderFix
+                className="font-inter-regular px-4 text-[#242B12]"
+                style={{
+                  fontSize: 14,
+                  height: 48,
+                  ...(Platform.OS === 'ios' ? { paddingTop: 12, paddingBottom: 12 } : null),
+                }}
               />
             </View>
 
-            {emailTouched && !isValidRegisterEmail ? (
-              <Text className="mt-2 font-inter-medium text-sm text-[#8A1F1F]">
-                Ingresa un correo valido para continuar.
-              </Text>
-            ) : null}
+            <InputErrorText
+              visible={showEmailError}
+              text="Ingresa un correo valido para continuar."
+              className="mt-2 font-inter-medium text-sm text-[#8A1F1F]"
+            />
 
             <Pressable
               className="mt-4 flex-row items-center"
@@ -119,16 +118,18 @@ export function RegisterEntryModal({ visible, onClose, onContinue }: RegisterEnt
               </Text>
             </Pressable>
 
-            {termsTouched && !acceptedTerms ? (
-              <Text className="mt-2 font-inter-medium text-sm text-[#8A1F1F]">
-                Debes aceptar los terminos para crear tu cuenta.
-              </Text>
-            ) : null}
+            <InputErrorText
+              visible={termsTouched && isValidRegisterEmail && !acceptedTerms}
+              text="Debes aceptar los terminos para crear tu cuenta."
+              className="mt-2 font-inter-medium text-sm text-[#8A1F1F]"
+            />
 
             <View className="mt-6">
               <Pressable
                 onPress={handleContinue}
-                className="w-full items-center rounded-2xl bg-[#242B12] py-3 active:opacity-90">
+                disabled={isContinueDisabled}
+                className="w-full items-center rounded-2xl bg-[#242B12] py-3 active:opacity-90"
+                style={{ opacity: canSubmit ? 1 : 0.55 }}>
                 <Text className="font-inter-semibold text-base text-[#D8D98B]">Continuar</Text>
               </Pressable>
 

@@ -64,6 +64,7 @@ export function AuthLandingScreen() {
                 <View>
                   {/* FORMULARIO DE CREDENCIALES */}
                   <AuthCredentialsForm metrics={metrics} onValidityChange={setIsCredentialsValid} />
+                  {/* BOTÓN DE INICIAR SESIÓN */}
                   <AuthButton
                     title="Iniciar Sesión"
                     variant="primary"

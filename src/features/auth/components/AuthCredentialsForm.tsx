@@ -1,9 +1,9 @@
-import { useEffect, useMemo, useState } from 'react';
-import { Text, TextInput, View } from 'react-native';
+import { useEffect, useState } from 'react';
+import { View } from 'react-native';
 import { AuthLandingMetrics } from '@/utils/responsive';
-
-const EMAIL_MAX_LENGTH = 80;
-const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+import { useEmailValidation } from '../hooks';
+import { EmailTextInput } from './EmailTextInput';
+import { InputErrorText } from './InputErrorText';
 
 interface AuthCredentialsFormProps {
   metrics: AuthLandingMetrics;
@@ -17,12 +17,10 @@ export function AuthCredentialsForm({
   onCredentialsChange,
 }: AuthCredentialsFormProps) {
   const [email, setEmail] = useState('');
-  const [emailTouched, setEmailTouched] = useState(false);
 
-  const normalizedEmail = useMemo(() => email.trim().toLowerCase(), [email]);
-  const isValidEmail = EMAIL_REGEX.test(normalizedEmail);
+  const { normalizedEmail, isValidEmail } = useEmailValidation(email);
   const isFormValid = isValidEmail;
-  const showEmailError = emailTouched && email.length > 0 && !isValidEmail;
+  const showEmailError = email.length > 0 && !isValidEmail;
 
   useEffect(() => {
     onValidityChange?.(isFormValid);
@@ -37,16 +35,11 @@ export function AuthCredentialsForm({
           borderRadius: metrics.formContainerRadius,
           overflow: 'hidden',
         }}>
-        <TextInput
+        <EmailTextInput
           value={email}
           onChangeText={setEmail}
-          onBlur={() => setEmailTouched(true)}
           placeholder="Correo electronico"
           placeholderTextColor="#6F735E"
-          keyboardType="email-address"
-          autoCapitalize="none"
-          autoCorrect={false}
-          maxLength={EMAIL_MAX_LENGTH}
           className="text-[#242B12]"
           style={{
             fontSize: metrics.formFieldFontSize,
@@ -57,13 +50,12 @@ export function AuthCredentialsForm({
       </View>
 
       <View className="items-center" style={{ paddingTop: showEmailError ? 6 : 0 }}>
-        {showEmailError ? (
-          <Text
-            style={{ fontSize: metrics.formErrorFontSize, textAlign: 'center' }}
-            className="font-inter-medium text-[#D8D98B]">
-            Ingresa un correo valido (ejemplo@dominio.com).
-          </Text>
-        ) : null}
+        <InputErrorText
+          visible={showEmailError}
+          text="Ingresa un correo valido (ejemplo@dominio.com)."
+          className="font-inter-medium text-[#D8D98B]"
+          style={{ fontSize: metrics.formErrorFontSize, textAlign: 'center' }}
+        />
       </View>
     </View>
   );
