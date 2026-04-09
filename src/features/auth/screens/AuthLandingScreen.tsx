@@ -13,9 +13,11 @@ import {
   SocialLogin,
 } from '../components';
 import { NoisyBackground, SafeAreaContent, TitlePrimary, TopFadeMask } from '../../../components';
+
 import { Link } from 'expo-router';
 
 export function AuthLandingScreen() {
+
   const metrics = useResponsiveScale();
   const [isCredentialsValid, setIsCredentialsValid] = useState(false);
   const [loginEmail, setLoginEmail] = useState('');
