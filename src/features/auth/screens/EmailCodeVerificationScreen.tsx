@@ -7,21 +7,11 @@ import { SafeAreaContent, NoisyBackground } from '@/components';
 import { VerificationActions, VerificationCodeInput } from '../components';
 import { useResendCooldown } from '../hooks';
 import { useKeyboardAnimation } from '@/hooks/useKeyboardAnimation';
-
-type VerificationFlow = 'register' | 'login';
-
-function resolveStringParam(value: string | string[] | undefined): string {
-  if (Array.isArray(value)) {
-    return value[0] ?? '';
-  }
-
-  return value ?? '';
-}
-
-function resolveFlowParam(value: string | string[] | undefined): VerificationFlow {
-  const rawFlow = resolveStringParam(value);
-  return rawFlow === 'login' ? 'login' : 'register';
-}
+import {
+  getVerificationFlowConfig,
+  resolveStringParam,
+  resolveVerificationFlow,
+} from '../utils/emailCodeVerificationFlow';
 
 export function EmailCodeVerificationScreen() {
   const router = useRouter();
@@ -31,7 +21,11 @@ export function EmailCodeVerificationScreen() {
   const { formAnimatedStyle } = useKeyboardAnimation();
 
   const email = useMemo(() => resolveStringParam(params.email), [params.email]);
-  const flow = useMemo(() => resolveFlowParam(params.flow), [params.flow]);
+  const flow = useMemo(() => resolveVerificationFlow(params.flow), [params.flow]);
+  const { successTitle, successMessage, resendMessage, successRedirectPath } = useMemo(
+    () => getVerificationFlowConfig(flow),
+    [flow]
+  );
 
   const maskedEmail = useMemo(() => {
     const [localPart, domainPart] = email.split('@');
@@ -43,27 +37,18 @@ export function EmailCodeVerificationScreen() {
     return `${localHead}***@${domainPart}`;
   }, [email]);
 
-  const isLoginFlow = flow === 'login';
-  const successRedirectPath = isLoginFlow ? '/home' : '/';
-
   const handleVerifyCode = () => {
     if (code.length !== 6) {
       Alert.alert('Codigo incompleto', 'Ingresa los 6 digitos para verificar tu cuenta.');
       return;
     }
 
-    Alert.alert(
-      isLoginFlow ? 'Sesion iniciada' : 'Cuenta verificada',
-      isLoginFlow
-        ? 'Tu codigo fue validado correctamente.'
-        : 'Tu correo fue validado correctamente.',
-      [
-        {
-          text: 'OK',
-          onPress: () => router.replace(successRedirectPath),
-        },
-      ]
-    );
+    Alert.alert(successTitle, successMessage, [
+      {
+        text: 'OK',
+        onPress: () => router.replace(successRedirectPath),
+      },
+    ]);
   };
 
   const handleResendCode = () => {
@@ -72,23 +57,16 @@ export function EmailCodeVerificationScreen() {
     }
 
     restart();
-    Alert.alert(
-      'Codigo reenviado',
-      isLoginFlow
-        ? 'Te enviamos un nuevo codigo para iniciar sesion.'
-        : 'Revisalo en tu correo y vuelve a intentarlo.'
-    );
+    Alert.alert('Codigo reenviado', resendMessage);
   };
 
   return (
     <LinearGradient
-      colors={['#E5D8C4', '#242B12', '#191D0D', '#111309']}
+      colors={['#111309', '#191D0D', '#242B12']}
       start={{ x: 0, y: 0 }}
-      end={{ x: 0, y: 1 }}
-      locations={[0, 0.65, 0.93, 0.98]}
-      className="flex-1"
+      end={{ x: 1, y: 1 }}
       style={{ flex: 1 }}>
-      <NoisyBackground opacity={0.2} />
+      <NoisyBackground opacity={0.16} />
       <SafeAreaContent>
         <Animated.View className="h-full w-full justify-between" style={formAnimatedStyle}>
           <View className="flex-1 justify-center px-7">
