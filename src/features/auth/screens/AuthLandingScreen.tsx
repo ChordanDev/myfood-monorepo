@@ -19,6 +19,7 @@ export function AuthLandingScreen() {
   const router = useRouter();
   const metrics = useResponsiveScale();
   const [isCredentialsValid, setIsCredentialsValid] = useState(false);
+  const [loginEmail, setLoginEmail] = useState('');
   const [showRegisterModal, setShowRegisterModal] = useState(false);
   const { formAnimatedStyle, isKeyboardOpen } = useKeyboardAnimation({
     enabled: !showRegisterModal,
@@ -34,7 +35,11 @@ export function AuthLandingScreen() {
 
   const handleContinueRegister = (email: string) => {
     closeRegisterModal();
-    router.push({ pathname: '/register', params: { email } });
+    router.push({ pathname: '/register', params: { email, flow: 'register' } });
+  };
+
+  const handleContinueLogin = () => {
+    router.push({ pathname: '/register', params: { email: loginEmail, flow: 'login' } });
   };
 
   return (
@@ -63,13 +68,18 @@ export function AuthLandingScreen() {
 
                 <View>
                   {/* FORMULARIO DE CREDENCIALES */}
-                  <AuthCredentialsForm metrics={metrics} onValidityChange={setIsCredentialsValid} />
+                  <AuthCredentialsForm
+                    metrics={metrics}
+                    onValidityChange={setIsCredentialsValid}
+                    onCredentialsChange={({ email }) => setLoginEmail(email)}
+                  />
                   {/* BOTÓN DE INICIAR SESIÓN */}
                   <AuthButton
                     title="Iniciar Sesión"
                     variant="primary"
                     metrics={metrics}
                     disabled={!isCredentialsValid}
+                    onPress={handleContinueLogin}
                   />
                 </View>
               </Animated.View>

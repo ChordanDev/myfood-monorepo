@@ -1,5 +1,5 @@
-import { RegisterScreen } from '../src/features/auth';
+import { EmailCodeVerificationScreen } from '../src/features/auth';
 
 export default function RegisterRoute() {
-  return <RegisterScreen />;
+  return <EmailCodeVerificationScreen />;
 }
