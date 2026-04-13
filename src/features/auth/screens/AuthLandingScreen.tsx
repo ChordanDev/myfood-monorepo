@@ -44,7 +44,6 @@ export function AuthLandingScreen() {
       start={{ x: 0, y: 0 }}
       end={{ x: 0, y: 1 }}
       locations={[0, 0.65, 0.93, 0.98]}
-      className="flex-1"
       style={{ flex: 1 }}>
       <NoisyBackground opacity={0.2} />
 
