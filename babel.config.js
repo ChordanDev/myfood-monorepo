@@ -1,3 +1,4 @@
+// Config Babel para Expo con NativeWind y Reanimated.
 module.exports = function (api) {
   api.cache(true);
   const plugins = ['react-native-reanimated/plugin'];

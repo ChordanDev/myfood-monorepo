@@ -15,6 +15,7 @@ export function SocialLogin({ metrics }: SocialLoginProps) {
         paddingHorizontal: metrics.horizontalPadding,
         marginBottom: metrics.socialBottomMargin,
       }}>
+      {/* Separador y botones de login social. */}
       <SocialDivider metrics={metrics} />
       <SocialLoginIcons
         iconSize={metrics.socialIconsSize}

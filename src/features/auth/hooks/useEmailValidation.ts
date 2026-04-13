@@ -9,6 +9,7 @@ interface UseEmailValidationResult {
 }
 
 export function useEmailValidation(email: string): UseEmailValidationResult {
+  // Normaliza el email antes de validar.
   const normalizedEmail = useMemo(() => email.trim().toLowerCase(), [email]);
   const isValidEmail = EMAIL_REGEX.test(normalizedEmail);
 

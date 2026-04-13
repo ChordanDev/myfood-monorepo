@@ -14,11 +14,12 @@ import {
 } from '../utils/emailCodeVerificationFlow';
 
 export function EmailCodeVerificationScreen() {
+  // Obtiene parametros de la ruta para construir el flujo.
   const router = useRouter();
   const params = useLocalSearchParams<{ email?: string | string[]; flow?: string | string[] }>();
   const [code, setCode] = useState('');
   const { secondsLeft, canResend, restart } = useResendCooldown(45);
-  const { formAnimatedStyle } = useKeyboardAnimation();
+  const { inputAnimatedStyle } = useKeyboardAnimation();
 
   const email = useMemo(() => resolveStringParam(params.email), [params.email]);
   const flow = useMemo(() => resolveVerificationFlow(params.flow), [params.flow]);
@@ -38,8 +39,9 @@ export function EmailCodeVerificationScreen() {
   }, [email]);
 
   const handleVerifyCode = () => {
+    // Bloquea verificacion hasta completar los 6 digitos.
     if (code.length !== 6) {
-      Alert.alert('Codigo incompleto', 'Ingresa los 6 digitos para verificar tu cuenta.');
+      Alert.alert('C\u00f3digo incompleto', 'Ingresa los 6 d\u00edgitos para verificar tu cuenta.');
       return;
     }
 
@@ -52,12 +54,13 @@ export function EmailCodeVerificationScreen() {
   };
 
   const handleResendCode = () => {
+    // Respeta el cooldown antes de reenviar.
     if (!canResend) {
       return;
     }
 
     restart();
-    Alert.alert('Codigo reenviado', resendMessage);
+    Alert.alert('C\u00f3digo reenviado', resendMessage);
   };
 
   return (
@@ -68,13 +71,13 @@ export function EmailCodeVerificationScreen() {
       style={{ flex: 1 }}>
       <NoisyBackground opacity={0.16} />
       <SafeAreaContent>
-        <Animated.View className="h-full w-full justify-between" style={formAnimatedStyle}>
+        <Animated.View className="h-full w-full justify-between" style={inputAnimatedStyle}>
           <View className="flex-1 justify-center px-7">
             <Text className="text-center font-montserrat-bold text-[34px] text-[#F7F2E8]">
               Verifica tu correo
             </Text>
             <Text className="font-inter-regular mt-3 text-center text-base text-[#D8D98B]">
-              Enviamos un codigo de 6 digitos a {maskedEmail}.
+              Enviamos un c\u00f3digo de 6 d\u00edgitos a {maskedEmail}.
             </Text>
 
             <VerificationCodeInput value={code} onChange={setCode} />

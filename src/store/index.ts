@@ -1,1 +1,1 @@
-// Store for authentication state
+// Store para el estado de autenticacion.

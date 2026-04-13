@@ -12,6 +12,7 @@ export function SocialDivider({ metrics, label = 'Iniciar sesión con' }: Social
       <Text
         style={{ fontSize: metrics.socialLabelFontSize }}
         className="mb-3 font-inter-medium text-[#cbd8aa]">
+        {/* Etiqueta sobre las opciones sociales. */}
         {label}
       </Text>
       <View

@@ -1,3 +1,4 @@
+// Barrel de componentes compartidos.
 export { TitlePrimary } from './TitlePrimary';
 export { TopFadeMask } from './TopFadeMask';
 export { NoisyBackground } from './NoisyBackground';

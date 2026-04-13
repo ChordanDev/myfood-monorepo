@@ -1,2 +1,2 @@
-// Utility functions for the application
+// Barrel de utilidades de la aplicacion.
 export * from './responsive';

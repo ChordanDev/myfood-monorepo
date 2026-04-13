@@ -29,9 +29,10 @@ export function useKeyboardAnimation(options?: KeyboardAnimationOptions) {
   const fallbackDuration = options?.fallbackDuration ?? (isIOS ? 240 : 320);
   const enabled = options?.enabled ?? true;
 
-  const formAnimatedStyle = useAnimatedStyle(() => ({
+  const inputAnimatedStyle = useAnimatedStyle(() => ({
     transform: [
       {
+        // Mueve el contenido hacia arriba en proporcion a la altura del teclado.
         translateY: interpolate(
           keyboardProgress.value,
           [0, 1],
@@ -65,7 +66,8 @@ export function useKeyboardAnimation(options?: KeyboardAnimationOptions) {
       return Math.round(clampedDuration * durationScale);
     };
 
-    const showEvent = isIOS ? 'keyboardWillChangeFrame' : 'keyboardDidShow';
+    const showEvent = isIOS ? 'keyboardWillShow' : 'keyboardDidShow';
+    const frameEvent = isIOS ? 'keyboardWillChangeFrame' : null;
     const hideEvent = isIOS ? 'keyboardWillHide' : 'keyboardDidHide';
     const easing = isIOS ? IOS_EASING : ANDROID_EASING;
 
@@ -90,6 +92,8 @@ export function useKeyboardAnimation(options?: KeyboardAnimationOptions) {
     const animateKeyboard = (height: number, isOpen: boolean, duration = fallbackDuration) => {
       if (isOpen) {
         animateHeightTo(height, duration);
+      } else {
+        animateHeightTo(0, duration);
       }
 
       setIsKeyboardOpen(isOpen);
@@ -100,8 +104,18 @@ export function useKeyboardAnimation(options?: KeyboardAnimationOptions) {
       const height = event.endCoordinates.height;
       const duration = getAnimationDuration(event.duration);
 
+      // En iOS el evento tambien entrega duraciones fiables.
       animateKeyboard(height, height > 0, duration);
     });
+
+    const frameSubscription = frameEvent
+      ? Keyboard.addListener(frameEvent, (event) => {
+          const height = event.endCoordinates.height;
+          const duration = getAnimationDuration(event.duration);
+
+          animateKeyboard(height, height > 0, duration);
+        })
+      : null;
 
     const hideSubscription = Keyboard.addListener(hideEvent, (event) => {
       const duration = getAnimationDuration(event.duration);
@@ -111,12 +125,13 @@ export function useKeyboardAnimation(options?: KeyboardAnimationOptions) {
 
     return () => {
       showSubscription.remove();
+      frameSubscription?.remove();
       hideSubscription.remove();
     };
   }, [durationScale, enabled, fallbackDuration, isIOS, keyboardHeight, keyboardProgress]);
 
   return {
-    formAnimatedStyle,
+    inputAnimatedStyle,
     isKeyboardOpen,
   };
 }

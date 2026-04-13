@@ -17,12 +17,12 @@ import { NoisyBackground, SafeAreaContent, TitlePrimary, TopFadeMask } from '../
 import { Link } from 'expo-router';
 
 export function AuthLandingScreen() {
-
+  // Estado local para validacion y modal de registro.
   const metrics = useResponsiveScale();
   const [isCredentialsValid, setIsCredentialsValid] = useState(false);
   const [loginEmail, setLoginEmail] = useState('');
   const [showRegisterModal, setShowRegisterModal] = useState(false);
-  const { formAnimatedStyle, isKeyboardOpen } = useKeyboardAnimation({
+  const { inputAnimatedStyle, isKeyboardOpen } = useKeyboardAnimation({
     enabled: !showRegisterModal,
   });
 
@@ -49,27 +49,24 @@ export function AuthLandingScreen() {
       <NoisyBackground opacity={0.2} />
 
       <SafeAreaContent>
-        {/* Sección de título y carousel, envuelta en máscara de desvanecimiento al levantar teclado */}
         <View className="items-center" style={{ flex: 5, overflow: 'hidden' }}>
           <TopFadeMask enabled={isKeyboardOpen} fadeSize={50}>
             <View className="flex-1">
-              <Animated.View className="h-full w-full justify-between" style={formAnimatedStyle}>
+              <Animated.View className="h-full w-full justify-between" style={inputAnimatedStyle}>
                 <View className="items-center">
-                  {/* TÍTULO */}
+                  {/* Encabezado visual con marca y carrusel. */}
                   <TitlePrimary text="MyFood" metrics={metrics} />
-
-                  {/* CAROUSEL DE IMÁGENES */}
                   <CarouselImages images={AUTH_FOOD_IMAGES} metrics={metrics} />
                 </View>
 
                 <View>
-                  {/* FORMULARIO DE CREDENCIALES */}
+                  {/* Formulario de login con validacion en vivo. */}
                   <AuthCredentialsForm
                     metrics={metrics}
                     onValidityChange={setIsCredentialsValid}
                     onCredentialsChange={({ email }) => setLoginEmail(email)}
                   />
-                  {/* BOTÓN DE INICIAR SESIÓN */}
+                  {/* Navega a verificacion si el email es valido. */}
                   <Link
                     asChild
                     href={{
@@ -89,8 +86,8 @@ export function AuthLandingScreen() {
           </TopFadeMask>
         </View>
 
-        {/* Sección botones y opciones sociales */}
         <View className="justify-between" style={{ flex: 3 }}>
+          {/* Accesos alternativos al registro y login social. */}
           <AuthButton
             title="Crear una cuenta"
             variant="secondary"

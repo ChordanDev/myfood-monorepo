@@ -7,6 +7,7 @@ interface UseResendCooldownResult {
 }
 
 export function useResendCooldown(initialSeconds = 45): UseResendCooldownResult {
+  // Cuenta regresiva en segundos para habilitar reenvio.
   const [secondsLeft, setSecondsLeft] = useState(initialSeconds);
 
   useEffect(() => {
@@ -15,6 +16,7 @@ export function useResendCooldown(initialSeconds = 45): UseResendCooldownResult 
     }
 
     const timer = setInterval(() => {
+      // Decrementa hasta cero y mantiene el limite.
       setSecondsLeft((prev) => (prev <= 1 ? 0 : prev - 1));
     }, 1000);
 

@@ -7,6 +7,7 @@ interface CarouselImagesProps {
 }
 
 export function CarouselImages({ images, metrics }: CarouselImagesProps) {
+  // Usa el indice central como referencia para el layout del carrusel.
   const centerIndex = Math.floor(images.length / 2);
 
   return (

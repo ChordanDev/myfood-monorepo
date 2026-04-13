@@ -1,2 +1,2 @@
-// Global types for the application
+// Tipos globales de la aplicacion.
 export type {};

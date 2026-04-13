@@ -1,3 +1,4 @@
+// Carga global de estilos para NativeWind.
 import '../global.css';
 import { Stack } from 'expo-router';
 import { useFonts } from 'expo-font';
@@ -18,6 +19,7 @@ import {
 } from '@expo-google-fonts/inter';
 
 export default function RootLayout() {
+  // Carga fuentes antes de renderizar la navegacion.
   const [fontsLoaded, fontError] = useFonts({
     Montserrat_400Regular,
     Montserrat_600SemiBold,
@@ -29,7 +31,7 @@ export default function RootLayout() {
     Inter_700Bold,
   });
 
-  // Never leave the app in a blank state while fonts are loading/failing.
+  // Evita una pantalla en blanco mientras cargan las fuentes.
   if (!fontsLoaded && !fontError) {
     return (
       <View className="flex-1 items-center justify-center bg-[#111309]">
