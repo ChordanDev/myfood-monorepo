@@ -86,11 +86,10 @@ export function RegisterEntryModal({ visible, onClose, onContinue }: RegisterEnt
             keyboardShouldPersistTaps="handled"
             contentContainerStyle={{ paddingHorizontal: 20, paddingTop: 24, paddingBottom: 20 }}>
             <Text className="text-center font-montserrat-bold text-xl text-[#242B12]">
-              Crea tu cuenta
+              Creá tu cuenta
             </Text>
             <Text className="font-inter-regular mt-2 text-center text-[#4A5130]">
-              Ingresa tu correo y acepta los t\u00e9rminos para recibir un c\u00f3digo de
-              verificaci\u00f3n.
+              Ingresá tu correo y acepta los términos para recibir un código de verificación.
             </Text>
 
             <View className="mt-5 rounded-xl bg-[#F6ECDE]">
@@ -125,13 +124,13 @@ export function RegisterEntryModal({ visible, onClose, onContinue }: RegisterEnt
                 {acceptedTerms ? <Text className="text-xs text-[#E5D8C4]">✓</Text> : null}
               </View>
               <Text className="font-inter-regular ml-3 flex-1 text-[#242B12]">
-                Acepto t\u00e9rminos y condiciones.
+                Acepto términos y condiciones.
               </Text>
             </Pressable>
 
             <InputErrorText
               visible={termsTouched && isValidRegisterEmail && !acceptedTerms}
-              text="Debes aceptar los t\u00e9rminos para crear tu cuenta."
+              text="Debes aceptar los términos para crear tu cuenta."
               className="mt-2 font-inter-medium text-sm text-[#8A1F1F]"
             />
 

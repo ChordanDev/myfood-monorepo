@@ -41,7 +41,7 @@ export function EmailCodeVerificationScreen() {
   const handleVerifyCode = () => {
     // Bloquea verificacion hasta completar los 6 digitos.
     if (code.length !== 6) {
-      Alert.alert('C\u00f3digo incompleto', 'Ingresa los 6 d\u00edgitos para verificar tu cuenta.');
+      Alert.alert('Código incompleto', 'Ingresa los 6 dígitos para verificar tu cuenta.');
       return;
     }
 
@@ -69,7 +69,7 @@ export function EmailCodeVerificationScreen() {
       start={{ x: 0, y: 0 }}
       end={{ x: 1, y: 1 }}
       style={{ flex: 1 }}>
-      <NoisyBackground opacity={0.16} />
+      <NoisyBackground opacity={0.2} />
       <SafeAreaContent>
         <Animated.View className="h-full w-full justify-between" style={inputAnimatedStyle}>
           <View className="flex-1 justify-center px-7">
@@ -77,7 +77,7 @@ export function EmailCodeVerificationScreen() {
               Verifica tu correo
             </Text>
             <Text className="font-inter-regular mt-3 text-center text-base text-[#D8D98B]">
-              Enviamos un c\u00f3digo de 6 d\u00edgitos a {maskedEmail}.
+              Enviamos un código de 6 dígitos a {maskedEmail}.
             </Text>
 
             <VerificationCodeInput value={code} onChange={setCode} />
