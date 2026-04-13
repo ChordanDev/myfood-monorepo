@@ -13,7 +13,7 @@ export function VerificationActions({ secondsLeft, onVerify, onResend }: Verific
         onPress={onVerify}
         className="mt-5 items-center rounded-2xl bg-[#899064] py-4 active:opacity-90">
         {/* CTA principal de verificacion. */}
-        <Text className="font-inter-semibold text-lg text-[#242B12]">Verificar c\u00f3digo</Text>
+        <Text className="font-inter-semibold text-lg text-[#242B12]">Verificar código</Text>
       </Pressable>
 
       <Pressable onPress={onResend} className="mt-4 items-center py-1">

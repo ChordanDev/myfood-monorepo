@@ -11,13 +11,13 @@ const VERIFICATION_FLOW_CONFIG: Record<VerificationFlow, VerificationFlowConfig>
   register: {
     successTitle: 'Cuenta verificada',
     successMessage: 'Tu correo fue validado correctamente.',
-    resendMessage: 'Rev\u00edsalo en tu correo y vuelve a intentarlo.',
+    resendMessage: 'Revísalo en tu correo y vuelve a intentarlo.',
     successRedirectPath: '/',
   },
   login: {
-    successTitle: 'Sesi\u00f3n iniciada',
-    successMessage: 'Tu c\u00f3digo fue validado correctamente.',
-    resendMessage: 'Te enviamos un nuevo c\u00f3digo para iniciar sesi\u00f3n.',
+    successTitle: 'Sesión iniciada',
+    successMessage: 'Tu código fue validado correctamente.',
+    resendMessage: 'Te enviamos un nuevo código para iniciar sesión.',
     successRedirectPath: '/home',
   },
 };

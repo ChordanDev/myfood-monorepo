@@ -40,7 +40,7 @@ export function AuthCredentialsForm({
         <EmailTextInput
           value={email}
           onChangeText={setEmail}
-          placeholder="Correo electr\u00f3nico"
+          placeholder="Correo electrónico"
           placeholderTextColor="#6F735E"
           className="text-[#242B12]"
           style={{
