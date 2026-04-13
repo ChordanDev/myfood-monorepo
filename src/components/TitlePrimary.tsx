@@ -14,6 +14,7 @@ export function TitlePrimary({ text, metrics }: TitleProps) {
         marginBottom: metrics.titleBottomSpacing,
         marginTop: metrics.titleTopSpacing,
       }}>
+      {/* Titulo principal ajustado por metricas responsivas. */}
       <Text
         style={{ fontSize: metrics.titleFontSize, color: '#242B12' }}
         className="font-montserrat-bold">

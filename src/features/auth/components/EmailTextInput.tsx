@@ -27,6 +27,7 @@ export function EmailTextInput({
 }: EmailTextInputProps) {
   return (
     <TextInput
+      // Forza configuracion adecuada para emails.
       className={className}
       value={value}
       onChangeText={onChangeText}

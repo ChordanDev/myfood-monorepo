@@ -1,3 +1,4 @@
+// Config Metro con soporte NativeWind.
 const { getDefaultConfig } = require('expo/metro-config');
 const { withNativeWind } = require('nativewind/metro');
 

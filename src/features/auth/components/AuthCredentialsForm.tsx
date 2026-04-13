@@ -16,6 +16,7 @@ export function AuthCredentialsForm({
   onValidityChange,
   onCredentialsChange,
 }: AuthCredentialsFormProps) {
+  // Estado local del email para validacion en tiempo real.
   const [email, setEmail] = useState('');
 
   const { normalizedEmail, isValidEmail } = useEmailValidation(email);
@@ -23,6 +24,7 @@ export function AuthCredentialsForm({
   const showEmailError = email.length > 0 && !isValidEmail;
 
   useEffect(() => {
+    // Propaga validez y credenciales normalizadas al padre.
     onValidityChange?.(isFormValid);
     onCredentialsChange?.({ email: normalizedEmail });
   }, [isFormValid, normalizedEmail, onCredentialsChange, onValidityChange]);
@@ -38,7 +40,7 @@ export function AuthCredentialsForm({
         <EmailTextInput
           value={email}
           onChangeText={setEmail}
-          placeholder="Correo electronico"
+          placeholder="Correo electr\u00f3nico"
           placeholderTextColor="#6F735E"
           className="text-[#242B12]"
           style={{
@@ -52,7 +54,7 @@ export function AuthCredentialsForm({
       <View className="items-center" style={{ paddingTop: showEmailError ? 6 : 0 }}>
         <InputErrorText
           visible={showEmailError}
-          text="Ingresa un correo valido (ejemplo@dominio.com)."
+          text="Ingresa un correo v\u00e1lido (ejemplo@dominio.com)."
           className="font-inter-medium text-[#D8D98B]"
           style={{ fontSize: metrics.formErrorFontSize, textAlign: 'center' }}
         />

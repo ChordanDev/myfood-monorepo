@@ -1,5 +1,6 @@
 import { Pressable, Text, View } from 'react-native';
 import { AuthLandingMetrics } from '@/utils/responsive';
+
 interface AuthButtonProps {
   title: string;
   variant: 'primary' | 'secondary';
@@ -15,6 +16,7 @@ export function AuthButton({
   onPress,
   disabled = false,
 }: AuthButtonProps) {
+  // Estilos derivados del variant para evitar duplicacion.
   const isPrimary = variant === 'primary';
   const buttonBgClass = isPrimary ? 'bg-[#899064]' : 'bg-[#242B12]';
   const textColorClass = isPrimary ? 'text-[#242B12]' : 'text-[#D8D98B]';

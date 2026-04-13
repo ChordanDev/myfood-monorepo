@@ -16,6 +16,7 @@ export function TopFadeMask({ children, enabled = true, fadeSize = 50, style }: 
       style={[{ flex: 1, width: '100%' }, style]}
       maskElement={
         <View style={{ flex: 1, backgroundColor: 'transparent' }}>
+          {/* Mascara con degradado arriba y opaco abajo. */}
           {enabled ? (
             <>
               <LinearGradient

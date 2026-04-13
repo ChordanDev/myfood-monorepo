@@ -17,6 +17,7 @@ export function SafeAreaContent({
   includeBottom = true,
   overflowHidden = true,
 }: SafeAreaContentProps) {
+  // Aplica insets del Safe Area de forma configurable.
   const insets = useSafeAreaInsets();
 
   return (

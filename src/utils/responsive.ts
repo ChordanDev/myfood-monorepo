@@ -38,10 +38,12 @@ export interface AuthLandingMetrics {
 }
 
 export function clamp(value: number, min: number, max: number): number {
-  return Math.min(max, Math.max(min, value)); // Asegura que el valor esté entre min y max
+  // Limita un valor dentro de un rango.
+  return Math.min(max, Math.max(min, value));
 }
 
 export function getPhoneSizeBucket(shortestSide: number): PhoneSizeBucket {
+  // Clasifica el dispositivo segun su lado mas corto.
   if (shortestSide <= 350) {
     return 'xs';
   }
@@ -58,6 +60,7 @@ export function getPhoneSizeBucket(shortestSide: number): PhoneSizeBucket {
 }
 
 export function getAuthLandingMetrics(width: number, height: number): AuthLandingMetrics {
+  // Deriva metricas responsivas para la pantalla de auth.
   const isLandscape = width > height;
   const shortestSide = Math.min(width, height);
   const phoneSize = getPhoneSizeBucket(shortestSide);
@@ -135,52 +138,39 @@ export function getAuthLandingMetrics(width: number, height: number): AuthLandin
   };
 
   return {
-    // Métricas generales
-    screenWidth: width, // Ancho de la pantalla
-    screenHeight: height, // Alto de la pantalla
-    isLandscape, // Indica si el dispositivo está en orientación horizontal
-    phoneSize, // Bucket de tamaño del teléfono
-    horizontalPadding: horizontalPaddingBySize[phoneSize], // Padding horizontal basado en el tamaño del teléfono
-
-    // Métricas del título
-    titleFontSize: titleFontBySize[phoneSize], // Tamaño de fuente del título basado en el tamaño del teléfono
-    titleBottomSpacing: clamp(40 * compactFactor, 28, 40), // Espacio inferior del título, ajustado por el factor de compacidad y limitado entre 28 y 40
-    titleTopSpacing: clamp(10 * compactFactor, 6, 14), // Margen superior del título, ajustado por el factor de compacidad y limitado entre 2 y 10
-
-    // Métricas del carrusel
-    carouselHeight: clamp(carouselHeightBySize[phoneSize] * compactFactor, 130, 220), // Altura del carrusel, ajustada por el factor de compacidad y limitada entre 130 y 220
-    carouselBaseImageSize: clamp(shortestSide * 0.5 * compactFactor, 115, 220), // Tamaño base de las imágenes del carrusel, basado en la mitad del lado más corto, ajustado por el factor de compacidad y limitado entre 115 y 220
-    carouselTranslateFactor: shortestSide <= 350 ? 0.24 : 0.26, // Factor de traducción del carrusel, ajustado para teléfonos muy pequeños
-    carouselSideScale: 0.7, // Escala de las imágenes laterales del carrusel
-    carouselEdgeScale: 0.65, // Escala de las imágenes en los bordes del carrusel
-
-    // Métricas del formulario
-    formHorizontalPadding: horizontalPaddingBySize[phoneSize] + 8, // Padding horizontal del formulario, basado en el tamaño del teléfono
-    formContainerRadius: 10, // Radio del contenedor del formulario
-    formFieldVerticalPadding: clamp(formFieldPaddingBySize[phoneSize] * compactFactor, 10, 15), // Padding vertical de los campos del formulario, ajustado por el factor de compacidad y limitado entre 10 y 15
-    formFieldHorizontalPadding: clamp(10 * compactFactor, 12, 18), // Padding horizontal de los campos del formulario, ajustado por el factor de compacidad y limitado entre 12 y 18
-    formFieldFontSize: formFieldFontBySize[phoneSize], // Tamaño de fuente de los campos del formulario, basado en el tamaño del teléfono
-    formFieldGap: clamp(10 * compactFactor, 8, 12), // Gap entre los campos del formulario, ajustado por el factor de compacidad y limitado entre 8 y 12
-    formFieldSeparatorWidth: clamp(width - horizontalPaddingBySize[phoneSize] * 2 - 24, 180, 420), // Ancho del separador de campos del formulario, basado en el ancho de la pantalla menos los paddings horizontales y un margen adicional, limitado entre 180 y 420
-    formErrorFontSize: clamp(socialLabelBySize[phoneSize] - 2, 12, 14), // Tamaño de fuente de los mensajes de error del formulario, basado en el tamaño de las etiquetas sociales menos un ajuste, limitado entre 12 y 14
-
-    // Métricas de los botones
-    buttonVerticalPadding: clamp(buttonPaddingBySize[phoneSize] * compactFactor, 12, 20), // Padding vertical de los botones, ajustado por el factor de compacidad y limitado entre 12 y 20
-    buttonFontSize: buttonFontBySize[phoneSize], // Tamaño de fuente de los botones, basado en el tamaño del teléfono
-    buttonRadius: 24, // Radio de los botones
-    buttonTopMargin: clamp(14 * compactFactor, 10, 16), // Margen superior de los botones, ajustado por el factor de compacidad y limitado entre 14 y 24
-
-    // Gap entre botones de autenticación y opciones sociales
+    screenWidth: width,
+    screenHeight: height,
+    isLandscape,
+    phoneSize,
+    horizontalPadding: horizontalPaddingBySize[phoneSize],
+    titleFontSize: titleFontBySize[phoneSize],
+    titleBottomSpacing: clamp(40 * compactFactor, 28, 40),
+    titleTopSpacing: clamp(10 * compactFactor, 6, 14),
+    carouselHeight: clamp(carouselHeightBySize[phoneSize] * compactFactor, 130, 220),
+    carouselBaseImageSize: clamp(shortestSide * 0.5 * compactFactor, 115, 220),
+    carouselTranslateFactor: shortestSide <= 350 ? 0.24 : 0.26,
+    carouselSideScale: 0.7,
+    carouselEdgeScale: 0.65,
+    formHorizontalPadding: horizontalPaddingBySize[phoneSize] + 8,
+    formContainerRadius: 10,
+    formFieldVerticalPadding: clamp(formFieldPaddingBySize[phoneSize] * compactFactor, 10, 15),
+    formFieldHorizontalPadding: clamp(10 * compactFactor, 12, 18),
+    formFieldFontSize: formFieldFontBySize[phoneSize],
+    formFieldGap: clamp(10 * compactFactor, 8, 12),
+    formFieldSeparatorWidth: clamp(width - horizontalPaddingBySize[phoneSize] * 2 - 24, 180, 420),
+    formErrorFontSize: clamp(socialLabelBySize[phoneSize] - 2, 12, 14),
+    buttonVerticalPadding: clamp(buttonPaddingBySize[phoneSize] * compactFactor, 12, 20),
+    buttonFontSize: buttonFontBySize[phoneSize],
+    buttonRadius: 24,
+    buttonTopMargin: clamp(14 * compactFactor, 10, 16),
     sectionGap: clamp(12 * compactFactor, 8, 14),
     keyboardLiftDistance: clamp(shortestSide * 0.08, 24, 40),
-
-    // Métricas de los elementos sociales
-    socialBottomMargin: clamp(60 * compactFactor, 46, 60), // Margen inferior de los elementos sociales, ajustado por el factor de compacidad y limitado entre 36 y 50
-    socialLabelFontSize: socialLabelBySize[phoneSize], // Tamaño de fuente de las etiquetas sociales, basado en el tamaño del teléfono
-    socialDividerWidth: clamp(width * 0.5, 150, 250), // Ancho del divisor social, basado en la mitad del ancho de la pantalla y limitado entre 150 y 250
-    socialDividerBottomMargin: clamp(24 * compactFactor, 14, 24), // Margen inferior del divisor social, ajustado por el factor de compacidad y limitado entre 14 y 24
-    socialIconsSize: socialIconBySize[phoneSize], // Tamaño de los íconos sociales, basado en el tamaño del teléfono
-    socialIconsContainerSize: clamp(socialIconBySize[phoneSize] + 12, 42, 54), // Tamaño del contenedor de los íconos sociales, basado en el tamaño de los íconos más un padding adicional, limitado entre 42 y 54
-    socialIconsGap: socialGapBySize[phoneSize], // Gap entre los íconos sociales, basado en el tamaño del teléfono
+    socialBottomMargin: clamp(60 * compactFactor, 46, 60),
+    socialLabelFontSize: socialLabelBySize[phoneSize],
+    socialDividerWidth: clamp(width * 0.5, 150, 250),
+    socialDividerBottomMargin: clamp(24 * compactFactor, 14, 24),
+    socialIconsSize: socialIconBySize[phoneSize],
+    socialIconsContainerSize: clamp(socialIconBySize[phoneSize] + 12, 42, 54),
+    socialIconsGap: socialGapBySize[phoneSize],
   };
 }

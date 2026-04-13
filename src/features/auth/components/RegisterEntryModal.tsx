@@ -8,7 +8,7 @@ import {
   Platform,
   useWindowDimensions,
 } from 'react-native';
-import { Link } from 'expo-router';
+import { useRouter } from 'expo-router';
 import Animated from 'react-native-reanimated';
 import { useKeyboardAnimation } from '@/hooks/useKeyboardAnimation';
 import { useEmailValidation } from '../hooks';
@@ -22,8 +22,10 @@ interface RegisterEntryModalProps {
 }
 
 export function RegisterEntryModal({ visible, onClose, onContinue }: RegisterEntryModalProps) {
+  // Usa router para navegar al flujo de verificacion.
+  const router = useRouter();
   const { width, height } = useWindowDimensions();
-  const { formAnimatedStyle } = useKeyboardAnimation({
+  const { inputAnimatedStyle } = useKeyboardAnimation({
     enabled: visible,
     liftFactor: Platform.OS === 'android' ? 0.3 : 0.3,
     durationScale: 1.2,
@@ -38,24 +40,29 @@ export function RegisterEntryModal({ visible, onClose, onContinue }: RegisterEnt
   const { normalizedEmail: normalizedRegisterEmail, isValidEmail: isValidRegisterEmail } =
     useEmailValidation(registerEmail);
   const canSubmit = isValidRegisterEmail && acceptedTerms;
-  const isContinueDisabled = !isValidRegisterEmail;
+  const isContinueDisabled = !canSubmit;
   const showEmailError = registerEmail.length > 0 && !isValidRegisterEmail;
 
   const handleClose = () => {
+    // Reinicia validacion de terminos al cerrar.
     setTermsTouched(false);
     onClose();
   };
 
-  const handleContinue = (event: { preventDefault: () => void }) => {
+  const handleContinue = () => {
+    // Muestra error de terminos si intenta continuar sin aceptar.
     setTermsTouched(true);
 
     if (!canSubmit) {
-      event.preventDefault();
       return;
     }
 
-    // Keep landing screen state clean when this route is pushed.
     onContinue(normalizedRegisterEmail);
+    // Navega a verificacion con email normalizado.
+    router.push({
+      pathname: '/register',
+      params: { email: normalizedRegisterEmail, flow: 'register' },
+    });
   };
 
   return (
@@ -71,7 +78,7 @@ export function RegisterEntryModal({ visible, onClose, onContinue }: RegisterEnt
         <Pressable className="absolute inset-0" onPress={handleClose} />
 
         <Animated.View
-          style={[formAnimatedStyle, { maxHeight: modalMaxHeight }]}
+          style={[inputAnimatedStyle, { maxHeight: modalMaxHeight }]}
           className="w-full max-w-[440px] overflow-hidden rounded-3xl bg-[#E5D8C4]">
           <ScrollView
             bounces={false}
@@ -82,7 +89,8 @@ export function RegisterEntryModal({ visible, onClose, onContinue }: RegisterEnt
               Crea tu cuenta
             </Text>
             <Text className="font-inter-regular mt-2 text-center text-[#4A5130]">
-              Ingresa tu correo y acepta los terminos para recibir un codigo de verificacion.
+              Ingresa tu correo y acepta los t\u00e9rminos para recibir un c\u00f3digo de
+              verificaci\u00f3n.
             </Text>
 
             <View className="mt-5 rounded-xl bg-[#F6ECDE]">
@@ -103,7 +111,7 @@ export function RegisterEntryModal({ visible, onClose, onContinue }: RegisterEnt
 
             <InputErrorText
               visible={showEmailError}
-              text="Ingresa un correo valido para continuar."
+              text="Ingresa un correo v\u00e1lido para continuar."
               className="mt-2 font-inter-medium text-sm text-[#8A1F1F]"
             />
 
@@ -117,31 +125,24 @@ export function RegisterEntryModal({ visible, onClose, onContinue }: RegisterEnt
                 {acceptedTerms ? <Text className="text-xs text-[#E5D8C4]">✓</Text> : null}
               </View>
               <Text className="font-inter-regular ml-3 flex-1 text-[#242B12]">
-                Acepto terminos y condiciones.
+                Acepto t\u00e9rminos y condiciones.
               </Text>
             </Pressable>
 
             <InputErrorText
               visible={termsTouched && isValidRegisterEmail && !acceptedTerms}
-              text="Debes aceptar los terminos para crear tu cuenta."
+              text="Debes aceptar los t\u00e9rminos para crear tu cuenta."
               className="mt-2 font-inter-medium text-sm text-[#8A1F1F]"
             />
 
             <View className="mt-6">
-              <Link
-                asChild
-                href={{
-                  pathname: '/register',
-                  params: { email: normalizedRegisterEmail, flow: 'register' },
-                }}>
-                <Pressable
-                  onPress={handleContinue}
-                  disabled={isContinueDisabled}
-                  className="w-full items-center rounded-2xl bg-[#242B12] py-3 active:opacity-90"
-                  style={{ opacity: canSubmit ? 1 : 0.55 }}>
-                  <Text className="font-inter-semibold text-base text-[#D8D98B]">Continuar</Text>
-                </Pressable>
-              </Link>
+              <Pressable
+                onPress={handleContinue}
+                disabled={isContinueDisabled}
+                className="w-full items-center rounded-2xl bg-[#242B12] py-3 active:opacity-90"
+                style={{ opacity: canSubmit ? 1 : 0.55 }}>
+                <Text className="font-inter-semibold text-base text-[#D8D98B]">Continuar</Text>
+              </Pressable>
 
               <Pressable onPress={handleClose} className="mt-3 items-center py-1">
                 <Text className="font-inter-medium text-sm text-[#4A5130]">Cancelar</Text>

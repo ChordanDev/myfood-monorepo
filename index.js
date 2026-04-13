@@ -1,4 +1,4 @@
-// Seed a safe Reanimated logger config before Expo Router evaluates routes.
+// Config segura del logger de Reanimated antes de cargar Expo Router.
 if (globalThis.__reanimatedLoggerConfig == null) {
   globalThis.__reanimatedLoggerConfig = {
     level: 1,
@@ -13,4 +13,5 @@ if (globalThis.__reanimatedLoggerConfig == null) {
   };
 }
 
+// Punto de entrada de Expo Router.
 require('expo-router/entry');

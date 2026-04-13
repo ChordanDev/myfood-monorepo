@@ -1,3 +1,4 @@
+// Barrel de componentes de auth.
 export { SocialLoginIcons } from './SocialLoginIcons';
 export { CarouselImages } from './CarouselImages';
 export { AuthButton } from './AuthButton';

@@ -1,3 +1,4 @@
+// Config Prettier con soporte para clases Tailwind.
 module.exports = {
   printWidth: 100,
   tabWidth: 2,

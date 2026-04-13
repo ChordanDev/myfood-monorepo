@@ -1,1 +1,1 @@
-// Home feature exports
+// Exportes del feature Home.

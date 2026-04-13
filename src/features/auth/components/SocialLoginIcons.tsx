@@ -18,6 +18,7 @@ export function SocialLoginIcons({
   containerSize = 48,
   gap = 64,
 }: SocialLoginIconsProps) {
+  // Iconos inline en SVG para evitar dependencias externas.
   return (
     <View className="flex-row items-center justify-center" style={{ gap }}>
       <Pressable

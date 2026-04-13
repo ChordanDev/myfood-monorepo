@@ -3,6 +3,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { NoisyBackground, SafeAreaContent } from '../src/components';
 
 export default function HomeRoute() {
+  // Placeholder de Home para el flujo de login.
   return (
     <LinearGradient
       colors={['#111309', '#191D0D', '#242B12']}
