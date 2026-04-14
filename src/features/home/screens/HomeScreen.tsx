@@ -19,7 +19,9 @@ export function HomeScreen() {
       <SafeAreaContent>
         <TitlePrimary text="COMIDAS" metrics={metrics} />
         <View className="flex-1 bg-gray-300">
-          <View className="w-full rounded-lg bg-[#899064]" style={{ flex: 1 }} />
+          <View className="w-full rounded-lg  bg-[#899064] p-2" style={{ flex: 1 }}>
+            <View className="max-w-48 items-start rounded-lg bg-[#27291e]" style={{ flex: 1 }} />
+          </View>
           <View className="w-full rounded-lg bg-[#899064]" style={{ flex: 3 }} />
           <View className="w-full rounded-lg bg-[#899064]" style={{ flex: 3 }} />
         </View>

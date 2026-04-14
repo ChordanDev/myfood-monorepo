@@ -31,6 +31,10 @@ export default function RootLayout() {
     Inter_700Bold,
   });
 
+  // Permite elegir la ruta inicial con una variable de entorno.
+  const startHomeFlag = process.env.EXPO_PUBLIC_START_HOME;
+  const initialRouteName = startHomeFlag === 'true' ? '(tabs)' : 'index';
+
   // Evita una pantalla en blanco mientras cargan las fuentes.
   if (!fontsLoaded && !fontError) {
     return (
@@ -43,7 +47,7 @@ export default function RootLayout() {
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <SafeAreaProvider>
-        <Stack screenOptions={{ headerShown: false }} />
+        <Stack initialRouteName={initialRouteName} screenOptions={{ headerShown: false }} />
       </SafeAreaProvider>
     </GestureHandlerRootView>
   );
