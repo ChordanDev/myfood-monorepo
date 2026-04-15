@@ -1,9 +1,9 @@
 import { Text, View } from 'react-native';
-import { AuthLandingMetrics } from '@/utils/responsive';
+import { TitleMetrics } from '@/utils/responsive';
 
 interface TitleProps {
   text: string;
-  metrics: AuthLandingMetrics;
+  metrics: TitleMetrics;
 }
 
 export function TitlePrimary({ text, metrics }: TitleProps) {

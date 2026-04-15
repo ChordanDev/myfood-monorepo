@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { View } from 'react-native';
 import Animated from 'react-native-reanimated';
 import { LinearGradient } from 'expo-linear-gradient';
-import { useResponsiveScale } from '@/hooks/useResponsiveScale';
+import { useAuthResponsiveScale } from '../hooks';
 import { useKeyboardAnimation } from '@/hooks/useKeyboardAnimation';
 import { AUTH_FOOD_IMAGES } from '@/constants/authAssets';
 import {
@@ -18,7 +18,7 @@ import { Link } from 'expo-router';
 
 export function AuthLandingScreen() {
   // Estado local para validacion y modal de registro.
-  const metrics = useResponsiveScale();
+  const metrics = useAuthResponsiveScale();
   const [isCredentialsValid, setIsCredentialsValid] = useState(false);
   const [loginEmail, setLoginEmail] = useState('');
   const [showRegisterModal, setShowRegisterModal] = useState(false);

@@ -1,11 +1,11 @@
-import { Text, View } from 'react-native';
+import { View } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
-import { NoisyBackground, SafeAreaContent, TitlePrimary, TopFadeMask } from '@/components';
-import { useResponsiveScale } from '@/hooks/useResponsiveScale';
+import { NoisyBackground, SafeAreaContent, TitlePrimary } from '@/components';
+import { useTitleMetrics } from '@/hooks/useTitleMetrics';
+import { Calendar } from '../components';
 
 export function HomeScreen() {
-  // Placeholder de Home para el flujo de login.
-  const metrics = useResponsiveScale();
+  const metrics = useTitleMetrics();
 
   return (
     <LinearGradient
@@ -16,14 +16,19 @@ export function HomeScreen() {
       className="flex-1"
       style={{ flex: 1 }}>
       <NoisyBackground opacity={0.2} />
-      <SafeAreaContent>
+      <SafeAreaContent includeBottom={false} style={{ flex: 1 }}>
         <TitlePrimary text="COMIDAS" metrics={metrics} />
-        <View className="flex-1 bg-gray-300">
-          <View className="w-full rounded-lg  bg-[#899064] p-2" style={{ flex: 1 }}>
-            <View className="max-w-48 items-start rounded-lg bg-[#27291e]" style={{ flex: 1 }} />
+        <View className="flex-1 items-center gap-2 px-3 pb-3">
+          <View className="w-full rounded-lg" style={{ flex: 1 }}>
+            <View className="h-16 w-16 rounded-full bg-[#27291e]" />
           </View>
-          <View className="w-full rounded-lg bg-[#899064]" style={{ flex: 3 }} />
-          <View className="w-full rounded-lg bg-[#899064]" style={{ flex: 3 }} />
+          <View className="w-full flex-row gap-2" style={{ flex: 4 }}>
+            <View className="rounded-3xl bg-[#27291e]" style={{ flex: 5 }} />
+            <View className="rounded-full bg-[#27291e]" style={{ flex: 4 }} />
+          </View>
+          <View className="w-full" style={{ flex: 5 }}>
+            <Calendar />
+          </View>
         </View>
       </SafeAreaContent>
     </LinearGradient>
