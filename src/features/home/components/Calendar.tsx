@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { Pressable, ScrollView, Text, View } from 'react-native';
+import { Calendar as RNCalendar, DateData, LocaleConfig } from 'react-native-calendars';
 
 const MONTHS = [
   'Enero',
@@ -18,116 +18,165 @@ const MONTHS = [
 
 const WEEKDAYS = ['D', 'L', 'M', 'M', 'J', 'V', 'S'];
 
-const DAY_SIZE = 43;
-const CALENDAR_BODY_HEIGHT = DAY_SIZE * 4.5 + 32;
-const CALENDAR_BG = '#7B845D';
-const CALENDAR_BORDER = '#5F6646';
-const DAY_BG = '#C8B79A';
 const DAY_TEXT = '#2C2F1D';
-const TODAY_BG = '#D8D98B';
+const DISABLED_TEXT = 'rgba(44, 47, 29, 0.45)';
+const TODAY_BG = '#2F4A33';
+const TODAY_TEXT = '#F6F2E8';
+const PLANNED_BG = '#A8C48A';
 
-function getMonthGrid(year: number, month: number): Array<number | null> {
-  const firstDay = new Date(year, month, 1).getDay();
-  const totalDays = new Date(year, month + 1, 0).getDate();
-  const totalCells = Math.ceil((firstDay + totalDays) / 7) * 7;
+LocaleConfig.locales.es = {
+  monthNames: MONTHS,
+  monthNamesShort: [
+    'Ene',
+    'Feb',
+    'Mar',
+    'Abr',
+    'May',
+    'Jun',
+    'Jul',
+    'Ago',
+    'Sep',
+    'Oct',
+    'Nov',
+    'Dic',
+  ],
+  dayNames: ['Domingo', 'Lunes', 'Martes', 'Miercoles', 'Jueves', 'Viernes', 'Sabado'],
+  dayNamesShort: WEEKDAYS,
+};
+LocaleConfig.defaultLocale = 'es';
 
-  return Array.from({ length: totalCells }, (_, index) => {
-    const dayNumber = index - firstDay + 1;
-    return dayNumber > 0 && dayNumber <= totalDays ? dayNumber : null;
-  });
+export type MealPlan = {
+  mealType: string;
+  courseType: string;
+  description: string;
+  ingredients: string[];
+  recipe: string;
+};
+
+export type PlanByDate = Record<string, MealPlan[]>;
+
+type CalendarProps = {
+  planByDate?: PlanByDate;
+  selectedDate?: string | null;
+  onSelectDate?: (dateString: string) => void;
+};
+
+function startOfDay(date: Date) {
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate());
 }
 
-export function Calendar() {
+function formatDateKey(date: Date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+function parseDateKey(dateString: string) {
+  const [year, month, day] = dateString.split('-').map(Number);
+  return new Date(year, month - 1, day);
+}
+
+function getMonthDateKeys(year: number, month: number) {
+  const totalDays = new Date(year, month + 1, 0).getDate();
+  const keys: string[] = [];
+
+  for (let day = 1; day <= totalDays; day += 1) {
+    keys.push(formatDateKey(new Date(year, month, day)));
+  }
+
+  return keys;
+}
+
+function isSelectableDate(dateString: string, planByDate: PlanByDate, today: Date) {
+  const dayDate = parseDateKey(dateString);
+  const isPast = dayDate < today;
+  const isPlanned = Boolean(planByDate[dateString]?.length);
+  return !isPast && isPlanned;
+}
+
+type MarkedDate = {
+  selected?: boolean;
+  selectedColor?: string;
+  selectedTextColor?: string;
+  disabled?: boolean;
+  disableTouchEvent?: boolean;
+};
+
+export function Calendar({ planByDate = {}, selectedDate, onSelectDate }: CalendarProps) {
   const [currentMonth, setCurrentMonth] = useState(() => {
     const now = new Date();
     return new Date(now.getFullYear(), now.getMonth(), 1);
   });
+  const [internalSelectedDate, setInternalSelectedDate] = useState<string | null>(null);
 
-  const today = new Date();
+  const today = startOfDay(new Date());
+  const todayKey = formatDateKey(today);
+  const activeSelectedDate = selectedDate === undefined ? internalSelectedDate : selectedDate;
+
   const year = currentMonth.getFullYear();
   const month = currentMonth.getMonth();
-  const monthLabel = `${MONTHS[month]} ${year}`;
 
-  const days = useMemo(() => getMonthGrid(year, month), [year, month]);
+  const monthDateKeys = useMemo(() => getMonthDateKeys(year, month), [year, month]);
 
-  const handlePrevMonth = () => {
-    setCurrentMonth((prev) => new Date(prev.getFullYear(), prev.getMonth() - 1, 1));
+  const markedDates = useMemo(() => {
+    const marks: Record<string, MarkedDate> = {};
+
+    monthDateKeys.forEach((dateKey) => {
+      const dayDate = parseDateKey(dateKey);
+      const isPast = dayDate < today;
+      const isToday = dateKey === todayKey;
+      const isPlanned = Boolean(planByDate[dateKey]?.length);
+      const isSelected = activeSelectedDate === dateKey;
+      const isSelectable = !isPast && isPlanned;
+
+      if (isToday || isPlanned || isSelected) {
+        marks[dateKey] = {
+          selected: true,
+          selectedColor: isSelected || isToday ? TODAY_BG : PLANNED_BG,
+          selectedTextColor: isSelected || isToday ? TODAY_TEXT : DAY_TEXT,
+          disabled: !isSelectable && !isToday,
+          disableTouchEvent: !isSelectable,
+        };
+      } else {
+        marks[dateKey] = {
+          disabled: true,
+          disableTouchEvent: true,
+        };
+      }
+    });
+
+    return marks;
+  }, [activeSelectedDate, monthDateKeys, planByDate, today, todayKey]);
+
+  const handleMonthChange = (date: DateData) => {
+    setCurrentMonth(new Date(date.year, date.month - 1, 1));
   };
 
-  const handleNextMonth = () => {
-    setCurrentMonth((prev) => new Date(prev.getFullYear(), prev.getMonth() + 1, 1));
+  const handleSelectDate = (dateString: string) => {
+    onSelectDate?.(dateString);
+    if (selectedDate === undefined) {
+      setInternalSelectedDate(dateString);
+    }
   };
 
   return (
-    <View
-      className="w-full rounded-3xl px-3 py-3"
-      style={{ backgroundColor: CALENDAR_BG, borderWidth: 1, borderColor: CALENDAR_BORDER }}>
-      <View className="mb-3 flex-row items-center justify-between px-1">
-        <Pressable onPress={handlePrevMonth} hitSlop={10} accessibilityLabel="Mes anterior">
-          <Text className="text-lg" style={{ color: DAY_TEXT }}>
-            {'<'}
-          </Text>
-        </Pressable>
-        <Text className="font-inter-bold text-lg" style={{ color: DAY_TEXT }}>
-          {monthLabel}
-        </Text>
-        <Pressable onPress={handleNextMonth} hitSlop={10} accessibilityLabel="Mes siguiente">
-          <Text className="text-lg" style={{ color: DAY_TEXT }}>
-            {'>'}
-          </Text>
-        </Pressable>
-      </View>
-
-      <View className="mb-2 flex-row justify-between px-1">
-        {WEEKDAYS.map((label, index) => (
-          <Text
-            key={`${label}-${index}`}
-            style={{ width: DAY_SIZE, textAlign: 'center', color: DAY_TEXT }}
-            className="font-inter-semibold text-base">
-            {label}
-          </Text>
-        ))}
-      </View>
-
-      <ScrollView
-        style={{ height: CALENDAR_BODY_HEIGHT }}
-        contentContainerStyle={{ paddingBottom: 4 }}
-        showsVerticalScrollIndicator={false}
-        nestedScrollEnabled>
-        <View className="flex-row flex-wrap bg-slate-400">
-          {days.map((day, index) => {
-            const isToday =
-              day !== null &&
-              today.getFullYear() === year &&
-              today.getMonth() === month &&
-              today.getDate() === day;
-
-            return (
-              <View
-                key={`day-${index}`}
-                style={{ width: '14.2857%', alignItems: 'center', marginBottom: 8 }}>
-                {day === null ? (
-                  <View style={{ width: DAY_SIZE, height: DAY_SIZE }} />
-                ) : (
-                  <View
-                    style={{
-                      width: DAY_SIZE,
-                      height: DAY_SIZE,
-                      borderRadius: DAY_SIZE / 2,
-                      backgroundColor: isToday ? TODAY_BG : DAY_BG,
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                    }}>
-                    <Text style={{ color: DAY_TEXT }} className="font-inter-semibold text-base">
-                      {day}
-                    </Text>
-                  </View>
-                )}
-              </View>
-            );
-          })}
-        </View>
-      </ScrollView>
-    </View>
+    <RNCalendar
+      current={formatDateKey(currentMonth)}
+      onMonthChange={handleMonthChange}
+      onDayPress={(date) => {
+        if (!isSelectableDate(date.dateString, planByDate, today)) {
+          return;
+        }
+        handleSelectDate(date.dateString);
+      }}
+      markedDates={markedDates}
+      firstDay={0}
+      enableSwipeMonths
+      disableAllTouchEventsForInactiveDays
+      theme={{
+        textDisabledColor: DISABLED_TEXT,
+      }}
+    />
   );
 }
