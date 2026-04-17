@@ -1,2 +1,2 @@
-// Utilidades del feature Home (vacio por ahora).
-export {};
+// Utilidades del feature Home.
+export * from './calendarDate';

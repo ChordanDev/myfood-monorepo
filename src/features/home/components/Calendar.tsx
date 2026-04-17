@@ -1,6 +1,24 @@
-import { useMemo, useState } from 'react';
-import { Calendar as RNCalendar, DateData, LocaleConfig } from 'react-native-calendars';
+import { useEffect, useMemo, useState } from 'react';
+import { Pressable, ScrollView, Text, View } from 'react-native';
+import { Calendar as RNCalendar, DateData } from 'react-native-calendars';
+import '../constants/calendarLocale';
+import type { CalendarProps, MarkedDate } from '../types/calendar';
+import {
+  formatDateKey,
+  getMonthDateKeys,
+  isSelectableDate,
+  parseDateKey,
+  startOfDay,
+} from '../utils/calendarDate';
 
+const DAY_TEXT = '#2C2F1D';
+const DISABLED_TEXT = 'rgba(44, 47, 29, 0.45)';
+const TODAY_BG = '#2F4A33';
+const TODAY_TEXT = '#F6F2E8';
+const PLANNED_BG = '#A8C48A';
+const DEFAULT_DAY_SIZE = 42;
+const DEFAULT_VIEWPORT_HEIGHT = 308;
+const DEFAULT_MIN_HEIGHT = 360;
 const MONTHS = [
   'Enero',
   'Febrero',
@@ -15,95 +33,25 @@ const MONTHS = [
   'Noviembre',
   'Diciembre',
 ];
-
 const WEEKDAYS = ['D', 'L', 'M', 'M', 'J', 'V', 'S'];
 
-const DAY_TEXT = '#2C2F1D';
-const DISABLED_TEXT = 'rgba(44, 47, 29, 0.45)';
-const TODAY_BG = '#2F4A33';
-const TODAY_TEXT = '#F6F2E8';
-const PLANNED_BG = '#A8C48A';
-
-LocaleConfig.locales.es = {
-  monthNames: MONTHS,
-  monthNamesShort: [
-    'Ene',
-    'Feb',
-    'Mar',
-    'Abr',
-    'May',
-    'Jun',
-    'Jul',
-    'Ago',
-    'Sep',
-    'Oct',
-    'Nov',
-    'Dic',
-  ],
-  dayNames: ['Domingo', 'Lunes', 'Martes', 'Miercoles', 'Jueves', 'Viernes', 'Sabado'],
-  dayNamesShort: WEEKDAYS,
-};
-LocaleConfig.defaultLocale = 'es';
-
-export type MealPlan = {
-  mealType: string;
-  courseType: string;
-  description: string;
-  ingredients: string[];
-  recipe: string;
-};
-
-export type PlanByDate = Record<string, MealPlan[]>;
-
-type CalendarProps = {
-  planByDate?: PlanByDate;
-  selectedDate?: string | null;
-  onSelectDate?: (dateString: string) => void;
-};
-
-function startOfDay(date: Date) {
-  return new Date(date.getFullYear(), date.getMonth(), date.getDate());
+function formatMonthKey(year: number, month: number) {
+  return `${year}-${String(month + 1).padStart(2, '0')}`;
 }
 
-function formatDateKey(date: Date) {
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, '0');
-  const day = String(date.getDate()).padStart(2, '0');
-  return `${year}-${month}-${day}`;
+function parseMonthKey(monthKey: string) {
+  const [year, month] = monthKey.split('-').map(Number);
+  return new Date(year, month - 1, 1);
 }
 
-function parseDateKey(dateString: string) {
-  const [year, month, day] = dateString.split('-').map(Number);
-  return new Date(year, month - 1, day);
-}
-
-function getMonthDateKeys(year: number, month: number) {
-  const totalDays = new Date(year, month + 1, 0).getDate();
-  const keys: string[] = [];
-
-  for (let day = 1; day <= totalDays; day += 1) {
-    keys.push(formatDateKey(new Date(year, month, day)));
-  }
-
-  return keys;
-}
-
-function isSelectableDate(dateString: string, planByDate: PlanByDate, today: Date) {
-  const dayDate = parseDateKey(dateString);
-  const isPast = dayDate < today;
-  const isPlanned = Boolean(planByDate[dateString]?.length);
-  return !isPast && isPlanned;
-}
-
-type MarkedDate = {
-  selected?: boolean;
-  selectedColor?: string;
-  selectedTextColor?: string;
-  disabled?: boolean;
-  disableTouchEvent?: boolean;
-};
-
-export function Calendar({ planByDate = {}, selectedDate, onSelectDate }: CalendarProps) {
+export function Calendar({
+  planByDate = {},
+  selectedDate,
+  onSelectDate,
+  daySize = DEFAULT_DAY_SIZE,
+  viewportHeight = DEFAULT_VIEWPORT_HEIGHT,
+  minHeight = DEFAULT_MIN_HEIGHT,
+}: CalendarProps) {
   const [currentMonth, setCurrentMonth] = useState(() => {
     const now = new Date();
     return new Date(now.getFullYear(), now.getMonth(), 1);
@@ -116,6 +64,29 @@ export function Calendar({ planByDate = {}, selectedDate, onSelectDate }: Calend
 
   const year = currentMonth.getFullYear();
   const month = currentMonth.getMonth();
+  const monthLabel = `${MONTHS[month]} ${year}`;
+  const currentMonthKey = formatMonthKey(year, month);
+
+  const allowedMonthKeys = useMemo(() => {
+    const keys = Object.keys(planByDate)
+      .filter((dateKey) => Boolean(planByDate[dateKey]?.length))
+      .map((dateKey) => dateKey.slice(0, 7));
+
+    return Array.from(new Set(keys)).sort();
+  }, [planByDate]);
+
+  const currentMonthIndex = allowedMonthKeys.indexOf(currentMonthKey);
+  const hasAllowedMonths = allowedMonthKeys.length > 0;
+
+  useEffect(() => {
+    if (!hasAllowedMonths) {
+      return;
+    }
+
+    if (currentMonthIndex === -1) {
+      setCurrentMonth(parseMonthKey(allowedMonthKeys[0]));
+    }
+  }, [allowedMonthKeys, currentMonthIndex, hasAllowedMonths]);
 
   const monthDateKeys = useMemo(() => getMonthDateKeys(year, month), [year, month]);
 
@@ -149,8 +120,47 @@ export function Calendar({ planByDate = {}, selectedDate, onSelectDate }: Calend
     return marks;
   }, [activeSelectedDate, monthDateKeys, planByDate, today, todayKey]);
 
+  const calendarTheme = useMemo(
+    () =>
+      ({
+        textDisabledColor: DISABLED_TEXT,
+        'stylesheet.day.basic': {
+          base: {
+            width: daySize,
+            height: daySize,
+            alignItems: 'center',
+            justifyContent: 'center',
+          },
+        },
+      }) as any,
+    [daySize]
+  );
+
   const handleMonthChange = (date: DateData) => {
-    setCurrentMonth(new Date(date.year, date.month - 1, 1));
+    const nextMonthKey = `${date.year}-${String(date.month).padStart(2, '0')}`;
+    if (!hasAllowedMonths || allowedMonthKeys.includes(nextMonthKey)) {
+      setCurrentMonth(new Date(date.year, date.month - 1, 1));
+    }
+  };
+
+  const handlePrevAllowedMonth = () => {
+    if (!hasAllowedMonths || currentMonthIndex <= 0) {
+      return;
+    }
+
+    setCurrentMonth(parseMonthKey(allowedMonthKeys[currentMonthIndex - 1]));
+  };
+
+  const handleNextAllowedMonth = () => {
+    if (
+      !hasAllowedMonths ||
+      currentMonthIndex === -1 ||
+      currentMonthIndex >= allowedMonthKeys.length - 1
+    ) {
+      return;
+    }
+
+    setCurrentMonth(parseMonthKey(allowedMonthKeys[currentMonthIndex + 1]));
   };
 
   const handleSelectDate = (dateString: string) => {
@@ -161,22 +171,67 @@ export function Calendar({ planByDate = {}, selectedDate, onSelectDate }: Calend
   };
 
   return (
-    <RNCalendar
-      current={formatDateKey(currentMonth)}
-      onMonthChange={handleMonthChange}
-      onDayPress={(date) => {
-        if (!isSelectableDate(date.dateString, planByDate, today)) {
-          return;
-        }
-        handleSelectDate(date.dateString);
-      }}
-      markedDates={markedDates}
-      firstDay={0}
-      enableSwipeMonths
-      disableAllTouchEventsForInactiveDays
-      theme={{
-        textDisabledColor: DISABLED_TEXT,
-      }}
-    />
+    <View className="w-full rounded-3xl bg-[#899064]" style={{ flex: 1 }}>
+      <View className="mb-3 flex-row items-center justify-between px-1">
+        <Pressable
+          onPress={handlePrevAllowedMonth}
+          hitSlop={10}
+          accessibilityLabel="Mes anterior"
+          disabled={hasAllowedMonths ? currentMonthIndex <= 0 : false}>
+          <Text className="text-lg" style={{ color: DAY_TEXT }}>
+            {'<'}
+          </Text>
+        </Pressable>
+        <Text className="font-inter-bold text-lg" style={{ color: DAY_TEXT }}>
+          {monthLabel}
+        </Text>
+        <Pressable
+          onPress={handleNextAllowedMonth}
+          hitSlop={10}
+          accessibilityLabel="Mes siguiente"
+          disabled={hasAllowedMonths ? currentMonthIndex >= allowedMonthKeys.length - 1 : false}>
+          <Text className="text-lg" style={{ color: DAY_TEXT }}>
+            {'>'}
+          </Text>
+        </Pressable>
+      </View>
+
+      <View className="mb-2 flex-row justify-between px-1">
+        {WEEKDAYS.map((label, index) => (
+          <Text
+            key={`${label}-${index}`}
+            style={{ width: daySize, textAlign: 'center', color: DAY_TEXT }}
+            className="font-inter-semibold text-base">
+            {label}
+          </Text>
+        ))}
+      </View>
+
+      <ScrollView
+        style={{ height: viewportHeight }}
+        contentContainerStyle={{ paddingBottom: 4 }}
+        showsVerticalScrollIndicator={false}
+        nestedScrollEnabled>
+        <RNCalendar
+          style={{ minHeight }}
+          current={formatDateKey(currentMonth)}
+          onMonthChange={handleMonthChange}
+          onDayPress={(date) => {
+            if (!isSelectableDate(date.dateString, planByDate, today)) {
+              return;
+            }
+            handleSelectDate(date.dateString);
+          }}
+          markedDates={markedDates}
+          firstDay={0}
+          enableSwipeMonths
+          hideDayNames
+          hideArrows
+          renderHeader={() => null}
+          disableAllTouchEventsForInactiveDays
+          theme={calendarTheme}
+        />
+      </ScrollView>
+    </View>
   );
 }
