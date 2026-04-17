@@ -20,15 +20,14 @@ export function HomeScreen() {
       <NoisyBackground opacity={0.2} />
       <SafeAreaContent includeBottom={false} style={{ flex: 1 }}>
         <TitlePrimary text="COMIDAS" metrics={metrics} />
-        <View className="flex-1 items-center gap-2 px-3 pb-5">
-          <View className="w-full rounded-lg" style={{ flex: 1 }}>
-            <View className="h-16 w-16 rounded-full bg-[#27291e]" />
+        <View className="w-full flex-1 px-4">
+          <View className="flex-1">
+            <View className="aspect-square h-1 rounded-full bg-black" />
           </View>
-          <View className="w-full flex-row gap-2" style={{ flex: 4 }}>
-            <View className="rounded-3xl bg-[#27291e]" style={{ flex: 5 }} />
-            <View className="rounded-full bg-[#27291e]" style={{ flex: 4 }} />
+          <View className="flex-2 bg-red-500">
+            <View className="w-2/3 bg-black"></View>
           </View>
-          <View className="w-full" style={{ flex: 6 }}>
+          <View className="h-3/6 w-full self-end">
             <Calendar planByDate={planByDate} daySize={44} viewportHeight={320} minHeight={370} />
           </View>
         </View>
