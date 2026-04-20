@@ -3,9 +3,11 @@ export type MockMealType = 'desayuno' | 'almuerzo' | 'cena';
 export type MockCourseType = 'entrada' | 'principal' | 'postre' | 'ensalada' | 'snack';
 
 export type MockMealPlan = {
-  mealType: MockMealType;
+  tipo: MockMealType;
+  mealType?: MockMealType;
   courseType: MockCourseType;
-  description: string;
+  descripcion: string;
+  description?: string;
   ingredients: string[];
   recipe: string;
 };
@@ -32,51 +34,51 @@ const inThreeDaysKey = formatDateKey(addDays(today, 3));
 export const mockPlanByDate: MockPlanByDate = {
   [todayKey]: [
     {
-      mealType: 'almuerzo',
+      tipo: 'almuerzo',
       courseType: 'principal',
-      description: 'Pollo al horno con papas y ensalada fresca.',
+      descripcion: 'Pollo al horno con papas y ensalada fresca.',
       ingredients: ['pollo', 'papa', 'tomate', 'lechuga', 'aceite de oliva', 'sal'],
       recipe:
         'Condimentar el pollo, hornear 40 minutos a 200C y servir con papas asadas y ensalada.',
     },
     {
-      mealType: 'cena',
+      tipo: 'cena',
       courseType: 'ensalada',
-      description: 'Ensalada tibia de quinoa con vegetales salteados.',
+      descripcion: 'Ensalada tibia de quinoa con vegetales salteados.',
       ingredients: ['quinoa', 'zanahoria', 'brocoli', 'cebolla morada', 'limon', 'sal'],
       recipe: 'Cocinar quinoa, saltear vegetales y mezclar con jugo de limon y sal.',
     },
   ],
   [tomorrowKey]: [
     {
-      mealType: 'desayuno',
+      tipo: 'desayuno',
       courseType: 'principal',
-      description: 'Avena cremosa con banana y canela.',
+      descripcion: 'Avena cremosa con banana y canela.',
       ingredients: ['avena', 'leche', 'banana', 'canela'],
       recipe: 'Cocinar la avena con leche 8 minutos y terminar con banana y canela.',
     },
     {
-      mealType: 'almuerzo',
+      tipo: 'almuerzo',
       courseType: 'principal',
-      description: 'Pasta integral con salsa de tomate y albahaca.',
+      descripcion: 'Pasta integral con salsa de tomate y albahaca.',
       ingredients: ['pasta integral', 'tomate triturado', 'ajo', 'albahaca', 'aceite'],
       recipe: 'Hervir pasta, cocinar salsa 15 minutos y mezclar antes de servir.',
     },
   ],
   [inTwoDaysKey]: [
     {
-      mealType: 'cena',
+      tipo: 'cena',
       courseType: 'principal',
-      description: 'Tacos de pescado con repollo y yogur.',
+      descripcion: 'Tacos de pescado con repollo y yogur.',
       ingredients: ['pescado blanco', 'tortillas', 'repollo', 'yogur', 'limon'],
       recipe: 'Cocinar el pescado a la plancha, armar tacos y agregar salsa de yogur.',
     },
   ],
   [inThreeDaysKey]: [
     {
-      mealType: 'almuerzo',
+      tipo: 'almuerzo',
       courseType: 'postre',
-      description: 'Yogur natural con frutas y granola casera.',
+      descripcion: 'Yogur natural con frutas y granola casera.',
       ingredients: ['yogur natural', 'frutillas', 'banana', 'granola'],
       recipe: 'Servir en capas yogur, frutas cortadas y granola encima.',
     },
@@ -87,6 +89,14 @@ export function getMockMealsForDate(dateKey: string): MockMealPlan[] {
   return mockPlanByDate[dateKey] ?? [];
 }
 
+export function getMockMealType(meal: MockMealPlan): MockMealType {
+  return meal.tipo ?? meal.mealType ?? 'almuerzo';
+}
+
+export function getMockMealDescription(meal: MockMealPlan): string {
+  return meal.descripcion ?? meal.description ?? '';
+}
+
 export function getMockMealsByType(dateKey: string, mealType: MockMealType): MockMealPlan[] {
-  return getMockMealsForDate(dateKey).filter((meal) => meal.mealType === mealType);
+  return getMockMealsForDate(dateKey).filter((meal) => getMockMealType(meal) === mealType);
 }

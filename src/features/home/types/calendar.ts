@@ -1,7 +1,11 @@
+export type MealType = 'desayuno' | 'almuerzo' | 'cena';
+
 export type MealPlan = {
-  mealType: string;
-  courseType: string;
-  description: string;
+  tipo?: MealType;
+  mealType?: MealType;
+  courseType?: string;
+  descripcion?: string;
+  description?: string;
   ingredients: string[];
   recipe: string;
 };
