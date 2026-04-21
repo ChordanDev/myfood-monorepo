@@ -1,4 +1,5 @@
-import { Text, View } from 'react-native';
+import Svg, { Path } from 'react-native-svg';
+import { ShadowSurface } from '@/components';
 import type { MockMealType } from '@/mocks';
 
 interface FoodCardProps {
@@ -6,27 +7,24 @@ interface FoodCardProps {
   description: string | null;
 }
 
-const MEAL_TYPE_LABEL: Record<MockMealType, string> = {
-  desayuno: 'Desayuno',
-  almuerzo: 'Almuerzo',
-  cena: 'Cena',
-};
+const FOOD_CARD_SHAPE_PATH = [
+  'M4 52.2353V209.461C4 226.03 17.4315 239.507 34 239.507H236.455C261.276 239.507 275.36 211.083 260.324 191.334L185.931 93.6195C178.944 84.4422 177.837 72.072 183.084 61.8002L192.345 43.6688C203.565 21.7033 184.958 -3.66386 160.637 0.44048L29.0079 22.6536C14.5699 25.0901 4 37.5932 4 52.2353Z',
+].join(' ');
 
 function FoodCard({ mealType, description }: FoodCardProps) {
-  const title = mealType ? MEAL_TYPE_LABEL[mealType] : 'Sin comida planificada';
-  const body = description?.trim()
-    ? description
-    : mealType
-      ? 'No hay una comida planificada para este tipo en el dia seleccionado.'
-      : 'Selecciona un dia del calendario para ver la descripcion de la comida.';
+  const hasMealData = Boolean(mealType || description?.trim());
 
   return (
-    <View className="h-full w-full overflow-hidden rounded-3xl bg-[#364025] px-4 py-4">
-      <Text className="font-inter-semibold text-xs uppercase text-[#D8D98B]">Comida sugerida</Text>
-      <Text className="mt-1 font-montserrat-bold text-2xl text-[#F6F2E8]">{title}</Text>
-      <View className="mt-3 h-px" style={{ backgroundColor: 'rgba(216, 217, 139, 0.35)' }} />
-      <Text className="mt-3 font-inter text-base leading-6 text-[#F6F2E8]">{body}</Text>
-    </View>
+    <ShadowSurface className="h-full w-full">
+      <Svg
+        width="100%"
+        height="100%"
+        viewBox="0 0 271 239.507"
+        preserveAspectRatio="none"
+        accessible={false}>
+        <Path d={FOOD_CARD_SHAPE_PATH} fill={hasMealData ? '#364025' : '#2F3D22'} />
+      </Svg>
+    </ShadowSurface>
   );
 }
 

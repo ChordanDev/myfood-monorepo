@@ -135,11 +135,11 @@ export function HomeScreen() {
       <SafeAreaContent includeBottom={false} style={{ flex: 1 }}>
         <TitlePrimary text="COMIDAS" metrics={metrics} />
         <View className="w-full flex-1 gap-4 px-4 pb-4">
-          <View className="h-3/6 w-2/3 justify-between gap-4">
-            <View className="flex-1">
+          <View className="h-3/6 flex-shrink gap-4">
+            <View className="w-[70%] flex-1">
               <HomeFoodCard mealType={selectedMealType} description={selectedMealDescription} />
             </View>
-            <View>
+            <View className="min-w-full">
               <FoodTypeSwitcher
                 value={selectedMealType}
                 availableTypes={availableMealTypes}

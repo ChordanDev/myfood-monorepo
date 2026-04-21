@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Pressable, ScrollView, Text, View } from 'react-native';
+import { ShadowSurface } from '@/components';
 import type { CalendarProps } from '../types/calendar';
 import { formatDateKey, isSelectableDate, startOfDay } from '../utils/calendarDate';
 
@@ -141,103 +142,109 @@ export function Calendar({
   };
 
   return (
-    <View className="w-full overflow-hidden rounded-3xl bg-[#899064]" style={{ flex: 1 }}>
-      <View className="mb-3 flex-row items-center justify-center gap-6 px-1">
-        <Pressable
-          onPress={handlePrevAllowedMonth}
-          hitSlop={10}
-          accessibilityLabel="Mes anterior"
-          disabled={isPrevDisabled}
-          style={{ opacity: isPrevDisabled ? 0.35 : 1 }}>
-          <Text className="text-xl" style={{ color: DAY_TEXT }}>
-            {'<'}
+    <ShadowSurface className="w-full rounded-3xl bg-[#899064]" style={{ flex: 1 }}>
+      <View className="w-full overflow-hidden rounded-3xl" style={{ flex: 1 }}>
+        <View className="mb-3 flex-row items-center justify-center gap-6 px-1">
+          <Pressable
+            onPress={handlePrevAllowedMonth}
+            hitSlop={10}
+            accessibilityLabel="Mes anterior"
+            disabled={isPrevDisabled}
+            style={{ opacity: isPrevDisabled ? 0.35 : 1 }}>
+            <Text className="text-xl" style={{ color: DAY_TEXT }}>
+              {'<'}
+            </Text>
+          </Pressable>
+          <Text className="font-inter-bold text-lg" style={{ color: DAY_TEXT }}>
+            {monthLabel}
           </Text>
-        </Pressable>
-        <Text className="font-inter-bold text-lg" style={{ color: DAY_TEXT }}>
-          {monthLabel}
-        </Text>
-        <Pressable
-          onPress={handleNextAllowedMonth}
-          hitSlop={10}
-          accessibilityLabel="Mes siguiente"
-          disabled={isNextDisabled}
-          style={{ opacity: isNextDisabled ? 0.35 : 1 }}>
-          <Text className="text-xl" style={{ color: DAY_TEXT }}>
-            {'>'}
-          </Text>
-        </Pressable>
-      </View>
-
-      <View className="mb-2 flex-row px-1">
-        {WEEKDAYS.map((label, index) => (
-          <Text
-            key={`${label}-${index}`}
-            style={{ width: '14.2857%', textAlign: 'center', color: DAY_TEXT }}
-            className="font-inter-semibold text-base">
-            {label}
-          </Text>
-        ))}
-      </View>
-      <View className="h-px bg-[#364025] opacity-50" />
-      <ScrollView
-        style={{ height: viewportHeight }}
-        contentContainerStyle={{ paddingBottom: 0 }}
-        showsVerticalScrollIndicator={false}
-        bounces={false}
-        alwaysBounceVertical={false}
-        nestedScrollEnabled>
-        <View className="flex-row flex-wrap px-1 pt-2" style={{ minHeight: contentMinHeight }}>
-          {monthGrid.map((cell) => {
-            const dayDate = cell.date;
-            const dateString = formatDateKey(dayDate);
-            const isToday = dateString === todayKey;
-            const isPlanned = Boolean(planByDate[dateString]?.length);
-            const isSelected = activeSelectedDate === dateString;
-            const isPast = dayDate < today;
-            const isPreviousMonthDay =
-              dayDate.getFullYear() < year ||
-              (dayDate.getFullYear() === year && dayDate.getMonth() < month);
-            const isSelectable = !isPreviousMonthDay && !isPast && isPlanned;
-            const hasCircle = isSelected || isToday || isPlanned;
-            const borderColor = !isSelected && isToday ? SELECTED_BG : 'transparent';
-            const borderWidth = !isSelected && isToday ? 2 : 0;
-            const backgroundColor = isSelected
-              ? SELECTED_BG
-              : isPlanned
-                ? PLANNED_BG
-                : 'transparent';
-            const textColor = isSelected ? SELECTED_TEXT : isSelectable ? DAY_TEXT : DISABLED_TEXT;
-            const opacity = 1;
-
-            return (
-              <View
-                key={dateString}
-                style={{ width: '14.2857%', alignItems: 'center', marginBottom: 8 }}>
-                <Pressable
-                  onPress={() => handleSelectDate(dateString)}
-                  disabled={!isSelectable}
-                  accessibilityRole="button"
-                  accessibilityState={{ disabled: !isSelectable }}
-                  style={{
-                    width: daySize,
-                    height: daySize,
-                    borderRadius: hasCircle ? daySize / 2 : 0,
-                    borderColor: borderColor,
-                    borderWidth: borderWidth,
-                    backgroundColor,
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    opacity,
-                  }}>
-                  <Text style={{ color: textColor }} className="font-inter-semibold text-base">
-                    {dayDate.getDate()}
-                  </Text>
-                </Pressable>
-              </View>
-            );
-          })}
+          <Pressable
+            onPress={handleNextAllowedMonth}
+            hitSlop={10}
+            accessibilityLabel="Mes siguiente"
+            disabled={isNextDisabled}
+            style={{ opacity: isNextDisabled ? 0.35 : 1 }}>
+            <Text className="text-xl" style={{ color: DAY_TEXT }}>
+              {'>'}
+            </Text>
+          </Pressable>
         </View>
-      </ScrollView>
-    </View>
+
+        <View className="mb-2 flex-row px-1">
+          {WEEKDAYS.map((label, index) => (
+            <Text
+              key={`${label}-${index}`}
+              style={{ width: '14.2857%', textAlign: 'center', color: DAY_TEXT }}
+              className="font-inter-semibold text-base">
+              {label}
+            </Text>
+          ))}
+        </View>
+        <View className="h-px bg-[#364025] opacity-50" />
+        <ScrollView
+          style={{ height: viewportHeight }}
+          contentContainerStyle={{ paddingBottom: 0 }}
+          showsVerticalScrollIndicator={false}
+          bounces={false}
+          alwaysBounceVertical={false}
+          nestedScrollEnabled>
+          <View className="flex-row flex-wrap px-1 pt-2" style={{ minHeight: contentMinHeight }}>
+            {monthGrid.map((cell) => {
+              const dayDate = cell.date;
+              const dateString = formatDateKey(dayDate);
+              const isToday = dateString === todayKey;
+              const isPlanned = Boolean(planByDate[dateString]?.length);
+              const isSelected = activeSelectedDate === dateString;
+              const isPast = dayDate < today;
+              const isPreviousMonthDay =
+                dayDate.getFullYear() < year ||
+                (dayDate.getFullYear() === year && dayDate.getMonth() < month);
+              const isSelectable = !isPreviousMonthDay && !isPast && isPlanned;
+              const hasCircle = isSelected || isToday || isPlanned;
+              const borderColor = !isSelected && isToday ? SELECTED_BG : 'transparent';
+              const borderWidth = !isSelected && isToday ? 2 : 0;
+              const backgroundColor = isSelected
+                ? SELECTED_BG
+                : isPlanned
+                  ? PLANNED_BG
+                  : 'transparent';
+              const textColor = isSelected
+                ? SELECTED_TEXT
+                : isSelectable
+                  ? DAY_TEXT
+                  : DISABLED_TEXT;
+              const opacity = 1;
+
+              return (
+                <View
+                  key={dateString}
+                  style={{ width: '14.2857%', alignItems: 'center', marginBottom: 8 }}>
+                  <Pressable
+                    onPress={() => handleSelectDate(dateString)}
+                    disabled={!isSelectable}
+                    accessibilityRole="button"
+                    accessibilityState={{ disabled: !isSelectable }}
+                    style={{
+                      width: daySize,
+                      height: daySize,
+                      borderRadius: hasCircle ? daySize / 2 : 0,
+                      borderColor: borderColor,
+                      borderWidth: borderWidth,
+                      backgroundColor,
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      opacity,
+                    }}>
+                    <Text style={{ color: textColor }} className="font-inter-semibold text-base">
+                      {dayDate.getDate()}
+                    </Text>
+                  </Pressable>
+                </View>
+              );
+            })}
+          </View>
+        </ScrollView>
+      </View>
+    </ShadowSurface>
   );
 }

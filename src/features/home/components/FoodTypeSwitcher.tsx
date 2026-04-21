@@ -1,4 +1,5 @@
-import { Pressable, Text, View } from 'react-native';
+import { Pressable, Text } from 'react-native';
+import { ShadowSurface } from '@/components';
 import type { MockMealType } from '@/mocks';
 
 interface FoodTypeSwitcherProps {
@@ -19,7 +20,7 @@ export function FoodTypeSwitcher({ value, availableTypes = [], onChange }: FoodT
   const availableTypesSet = new Set(availableTypes);
 
   return (
-    <View className="flex-row rounded-2xl bg-[#242B12] p-1">
+    <ShadowSurface className="flex-row rounded-2xl bg-[#242B12] p-2">
       {ORDERED_MEAL_TYPES.map((mealType) => {
         const isActive = value === mealType;
         const isUnavailable = !availableTypesSet.has(mealType);
@@ -43,6 +44,6 @@ export function FoodTypeSwitcher({ value, availableTypes = [], onChange }: FoodT
           </Pressable>
         );
       })}
-    </View>
+    </ShadowSurface>
   );
 }
