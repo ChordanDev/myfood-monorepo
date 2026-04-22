@@ -45,7 +45,7 @@ export function getTitleMetrics(width: number, height: number): TitleMetrics {
 
   return {
     titleFontSize: titleFontBySize[phoneSize],
-    titleBottomSpacing: clamp(40 * compactFactor, 28, 40),
+    titleBottomSpacing: clamp(24 * compactFactor, 12, 24),
     titleTopSpacing: clamp(10 * compactFactor, 6, 14),
   };
 }

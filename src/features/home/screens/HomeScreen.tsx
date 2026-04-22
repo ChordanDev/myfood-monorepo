@@ -137,7 +137,11 @@ export function HomeScreen() {
         <View className="w-full flex-1 gap-4 px-4 pb-4">
           <View className="h-3/6 flex-shrink gap-4">
             <View className="w-[70%] flex-1">
-              <HomeFoodCard mealType={selectedMealType} description={selectedMealDescription} />
+              <HomeFoodCard
+                mealType={selectedMealType}
+                description={selectedMealDescription}
+                selectedDate={selectedDate}
+              />
             </View>
             <View className="min-w-full">
               <FoodTypeSwitcher
