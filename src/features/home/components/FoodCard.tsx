@@ -47,7 +47,7 @@ function FoodCard({ mealType, description, selectedDate }: FoodCardProps) {
         <Svg
           width="100%"
           height="100%"
-          viewBox="0 0 271 248"
+          viewBox="0 0 271 240"
           preserveAspectRatio="none"
           accessible={false}>
           <Defs>
@@ -78,7 +78,7 @@ function FoodCard({ mealType, description, selectedDate }: FoodCardProps) {
           />
         </Svg>
 
-        <View className="absolute inset-0 px-4 py-3">
+        <View className="absolute inset-0 px-4 pt-3">
           {topLeftLabel ? (
             <Text
               className="font-montserrat-alt-black text-xl text-[#F6F2E8]"
@@ -87,7 +87,7 @@ function FoodCard({ mealType, description, selectedDate }: FoodCardProps) {
             </Text>
           ) : null}
 
-          <View className="flex-1 items-center justify-center px-3 pb-2">
+          <View className="flex-1 items-center justify-center px-3">
             <Text
               className="text-center font-inter-semibold text-base leading-6 text-[#F6F2E8]"
               numberOfLines={5}>
