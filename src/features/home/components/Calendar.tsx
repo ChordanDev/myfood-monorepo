@@ -180,15 +180,14 @@ export function Calendar({
             </Text>
           ))}
         </View>
-        <View className="h-px bg-[#364025] opacity-50" />
+        <View className="h-px flex-1 bg-[#364025] opacity-50" />
         <ScrollView
-          style={{ height: viewportHeight }}
-          contentContainerStyle={{ paddingBottom: 0 }}
+          contentContainerStyle={{ paddingBottom: 0, flexGrow: 0 }}
           showsVerticalScrollIndicator={false}
-          bounces={false}
+          bounces={true}
           alwaysBounceVertical={false}
           nestedScrollEnabled>
-          <View className="flex-row flex-wrap px-1 pt-2" style={{ minHeight: contentMinHeight }}>
+          <View className="flex-row flex-wrap px-1 pt-2">
             {monthGrid.map((cell) => {
               const dayDate = cell.date;
               const dateString = formatDateKey(dayDate);

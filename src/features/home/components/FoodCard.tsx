@@ -16,7 +16,7 @@ const FOOD_CARD_GRADIENT_ACTIVE_ID = 'foodCardGradientActive';
 const FOOD_CARD_GRADIENT_EMPTY_ID = 'foodCardGradientEmpty';
 const FOOD_CARD_ICON_COLOR = '#D8D98B';
 const FOOD_CARD_TOP_ICON_SCALE = 1;
-const FOOD_CARD_BOTTOM_ICON_SCALE = 1.4;
+const FOOD_CARD_BOTTOM_ICON_SCALE = 1.2;
 const FOOD_CARD_TOP_ICON_BOX_PERCENT = 10;
 const FOOD_CARD_BOTTOM_ICON_BOX_PERCENT = 10.5;
 
@@ -35,19 +35,19 @@ function FavoriteStarIcon() {
 
 function SparklesGradientIcon({ size }: { size: number }) {
   return (
-    <Svg width={size} height={size} viewBox="0 0 28 28" fill="none" accessible={false}>
+    <Svg width={size} height={size} viewBox="0 0 64 64" fill="none" accessible={false}>
       <Defs>
-        <SvgLinearGradient id="sparklesMainGradient" x1="100%" y1="100%" x2="0%" y2="0%">
+        <SvgLinearGradient id="sparklesMainGradient" x1="0%" y1="0%" x2="100%" y2="100%">
           <Stop offset="0" stopColor="#F08A2B" />
           <Stop offset="0.56" stopColor="#BFD57D" />
           <Stop offset="1" stopColor="#F4F1DD" />
         </SvgLinearGradient>
-        <SvgLinearGradient id="sparklesTopGradient" x1="100%" y1="100%" x2="0%" y2="0%">
+        <SvgLinearGradient id="sparklesTopGradient" x1="0%" y1="0%" x2="100%" y2="100%">
           <Stop offset="0" stopColor="#F08A2B" />
           <Stop offset="0.56" stopColor="#BFD57D" />
           <Stop offset="1" stopColor="#F4F1DD" />
         </SvgLinearGradient>
-        <SvgLinearGradient id="sparklesBottomGradient" x1="100%" y1="100%" x2="0%" y2="0%">
+        <SvgLinearGradient id="sparklesBottomGradient" x1="0%" y1="0%" x2="100%" y2="100%">
           <Stop offset="0" stopColor="#F08A2B" />
           <Stop offset="0.56" stopColor="#BFD57D" />
           <Stop offset="1" stopColor="#F4F1DD" />
@@ -55,15 +55,15 @@ function SparklesGradientIcon({ size }: { size: number }) {
       </Defs>
 
       <Path
-        d="M9 6C10.395 11.58 13.42 14.605 19 16C13.42 17.395 10.395 20.42 9 26C7.605 20.42 4.58 17.395 -1 16C4.58 14.605 7.605 11.58 9 6Z"
+        d="M40 17L47 31L61 38L47 45L40 59L33 45L19 38L33 31L40 17Z"
         fill="url(#sparklesMainGradient)"
       />
       <Path
-        d="M19 1C19.74 3.96 21.34 5.56 24.3 6.3C21.34 7.04 19.74 8.64 19 11.6C18.26 8.64 16.66 7.04 13.7 6.3C16.66 5.56 18.26 3.96 19 1Z"
+        d="M17 2L20.5 9L27.5 12.5L20.5 16L17 23L13.5 16L6.5 12.5L13.5 9L17 2Z"
         fill="url(#sparklesTopGradient)"
       />
       <Path
-        d="M23 8.8C23.47 10.68 24.49 11.7 26.37 12.17C24.49 12.64 23.47 13.66 23 15.54C22.53 13.66 21.51 12.64 19.63 12.17C21.51 11.7 22.53 10.68 23 8.8Z"
+        d="M16 44L18 48L22 50L18 52L16 56L14 52L10 50L14 48L16 44Z"
         fill="url(#sparklesBottomGradient)"
       />
     </Svg>

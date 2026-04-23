@@ -20,7 +20,7 @@ export function FoodTypeSwitcher({ value, availableTypes = [], onChange }: FoodT
   const availableTypesSet = new Set(availableTypes);
 
   return (
-    <ShadowSurface className="flex-row rounded-2xl bg-[#242B12] p-2">
+    <ShadowSurface className="flex-row rounded-3xl bg-[#1B210E] p-2">
       {ORDERED_MEAL_TYPES.map((mealType) => {
         const isActive = value === mealType;
         const isUnavailable = !availableTypesSet.has(mealType);
@@ -30,7 +30,7 @@ export function FoodTypeSwitcher({ value, availableTypes = [], onChange }: FoodT
             key={mealType}
             onPress={() => onChange?.(mealType)}
             disabled={isUnavailable}
-            className="flex-1 items-center rounded-xl px-2 py-2"
+            className="flex-1 items-center rounded-3xl px-2 py-2"
             accessibilityState={{ disabled: isUnavailable, selected: isActive }}
             style={{
               backgroundColor: isActive ? '#D8D98B' : 'transparent',
