@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { View } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
-import { NoisyBackground, SafeAreaContent, TitlePrimary } from '@/components';
+import { AddCircleButton, NoisyBackground, SafeAreaContent, TitlePrimary } from '@/components';
 import { useTitleMetrics } from '@/hooks/useTitleMetrics';
 import {
   getMockMealDescription,
@@ -11,9 +11,12 @@ import {
   type MockMealType,
 } from '@/mocks';
 import { Calendar } from '../components/Calendar';
+import { FloatingFoodImage } from '../components/FloatingFoodImage';
 import { FoodTypeSwitcher } from '../components/FoodTypeSwitcher';
 import HomeFoodCard from '../components/FoodCard';
 import { formatDateKey } from '../utils/calendarDate';
+
+const FOOD_CARD_IMAGE = require('../../../../assets/AuthFoodImages/Gemini_Generated_Image_16g8h616g8h616g8-removebg-preview.png');
 
 const ORDERED_MEAL_TYPES: MockMealType[] = ['desayuno', 'almuerzo', 'cena'];
 
@@ -125,7 +128,7 @@ export function HomeScreen() {
 
   return (
     <LinearGradient
-      colors={['#17180E', '#565A41', '#E5D8C4']}
+      colors={['#17180E', '#565A41', '#D6C4B1']}
       start={{ x: 0, y: 0 }}
       end={{ x: 0, y: 1 }}
       locations={[0, 0.05, 0.15]}
@@ -136,12 +139,18 @@ export function HomeScreen() {
         <TitlePrimary text="COMIDAS" metrics={metrics} />
         <View className="w-full flex-1 gap-4 px-4 pb-4">
           <View className="h-3/6 flex-shrink gap-4">
-            <View className="w-[70%] flex-1">
-              <HomeFoodCard
-                mealType={selectedMealType}
-                description={selectedMealDescription}
-                selectedDate={selectedDate}
-              />
+            <View className="relative flex-1 flex-row items-start gap-4">
+              <FloatingFoodImage source={FOOD_CARD_IMAGE} leftPercent={78} />
+              <View className="relative w-3/4">
+                <HomeFoodCard
+                  mealType={selectedMealType}
+                  description={selectedMealDescription}
+                  selectedDate={selectedDate}
+                />
+              </View>
+              <View className="w-full flex-1 items-start self-end">
+                <AddCircleButton size={65} />
+              </View>
             </View>
             <View className="min-w-full">
               <FoodTypeSwitcher
@@ -157,8 +166,6 @@ export function HomeScreen() {
               selectedDate={selectedDate}
               onSelectDate={handleSelectDate}
               daySize={44}
-              viewportHeight={320}
-              minHeight={370}
             />
           </View>
         </View>

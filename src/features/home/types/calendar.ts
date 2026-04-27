@@ -17,14 +17,4 @@ export type CalendarProps = {
   selectedDate?: string | null;
   onSelectDate?: (dateString: string) => void;
   daySize?: number;
-  viewportHeight?: number;
-  minHeight?: number;
-};
-
-export type MarkedDate = {
-  selected?: boolean;
-  selectedColor?: string;
-  selectedTextColor?: string;
-  disabled?: boolean;
-  disableTouchEvent?: boolean;
 };

@@ -19,6 +19,10 @@ const FOOD_CARD_TOP_ICON_SCALE = 1;
 const FOOD_CARD_BOTTOM_ICON_SCALE = 1.2;
 const FOOD_CARD_TOP_ICON_BOX_PERCENT = 10;
 const FOOD_CARD_BOTTOM_ICON_BOX_PERCENT = 10.5;
+const FOOD_CARD_LABEL_CENTER_PERCENT = 40;
+const FOOD_CARD_LABEL_WIDTH_PERCENT = 60;
+const FOOD_CARD_DESCRIPTION_CENTER_PERCENT = 40;
+const FOOD_CARD_DESCRIPTION_WIDTH_PERCENT = 60;
 
 function FavoriteStarIcon() {
   return (
@@ -76,19 +80,19 @@ const SPANISH_WEEKDAY_FORMATTER = new Intl.DateTimeFormat('es-AR', {
 
 function getTopLeftLabel(selectedDate: string | null) {
   if (!selectedDate) {
-    return '';
+    return null;
   }
 
   const selectedDay = startOfDay(parseDateKey(selectedDate));
   const today = startOfDay(new Date());
 
   if (selectedDay.getTime() === today.getTime()) {
-    return 'HOY';
+    return { dayName: 'HOY', dayNumber: null, isToday: true };
   }
 
   const weekday = SPANISH_WEEKDAY_FORMATTER.format(selectedDay);
   const weekdayLabel = weekday.charAt(0).toUpperCase() + weekday.slice(1);
-  return `${weekdayLabel} ${selectedDay.getDate()}`;
+  return { dayName: weekdayLabel, dayNumber: String(selectedDay.getDate()), isToday: false };
 }
 
 function FoodCard({ mealType, description, selectedDate }: FoodCardProps) {
@@ -98,6 +102,13 @@ function FoodCard({ mealType, description, selectedDate }: FoodCardProps) {
   const topIconBoxSize = `${FOOD_CARD_TOP_ICON_BOX_PERCENT * FOOD_CARD_TOP_ICON_SCALE}%`;
   const bottomIconBoxSize = `${FOOD_CARD_BOTTOM_ICON_BOX_PERCENT * FOOD_CARD_BOTTOM_ICON_SCALE}%`;
   const bottomIconSize = Math.round(24 * FOOD_CARD_BOTTOM_ICON_SCALE);
+  const dayLabelLeft = `${FOOD_CARD_LABEL_CENTER_PERCENT - FOOD_CARD_LABEL_WIDTH_PERCENT / 2}%`;
+  const dayLabelWidth = `${FOOD_CARD_LABEL_WIDTH_PERCENT}%`;
+  const descriptionLeft = `${
+    FOOD_CARD_DESCRIPTION_CENTER_PERCENT - FOOD_CARD_DESCRIPTION_WIDTH_PERCENT / 2
+  }%`;
+  const descriptionWidth = `${FOOD_CARD_DESCRIPTION_WIDTH_PERCENT}%`;
+  const dayNameColor = topLeftLabel?.isToday ? '#FFB63C' : '#D8D98B';
 
   return (
     <ShadowSurface className="h-full w-full">
@@ -105,7 +116,7 @@ function FoodCard({ mealType, description, selectedDate }: FoodCardProps) {
         <Svg
           width="100%"
           height="100%"
-          viewBox="0 0 271 240"
+          viewBox="4 0 263 240"
           preserveAspectRatio="none"
           accessible={false}>
           <Defs>
@@ -154,17 +165,30 @@ function FoodCard({ mealType, description, selectedDate }: FoodCardProps) {
             <SparklesGradientIcon size={bottomIconSize} />
           </View>
 
-          {topLeftLabel ? (
+          <View
+            className="absolute"
+            style={{ left: dayLabelLeft, top: '20%', width: dayLabelWidth }}>
+            {topLeftLabel ? (
+              <Text className="text-center" style={{ letterSpacing: 1 }}>
+                <Text
+                  className="font-montserrat-alt-bold text-[18px]"
+                  style={{ color: dayNameColor }}>
+                  {topLeftLabel.dayName}
+                </Text>
+                {topLeftLabel.dayNumber ? (
+                  <Text className="font-montserrat-alt-black text-[20px] text-[#FFB63C]">
+                    {' '}
+                    {topLeftLabel.dayNumber}
+                  </Text>
+                ) : null}
+              </Text>
+            ) : null}
+          </View>
+          <View
+            className="absolute"
+            style={{ left: descriptionLeft, top: '50%', width: descriptionWidth }}>
             <Text
-              className="max-w-[72%] font-montserrat-alt-black text-xl text-[#F6F2E8]"
-              style={{ letterSpacing: 1 }}>
-              {topLeftLabel}
-            </Text>
-          ) : null}
-
-          <View className="flex-1 items-center justify-center px-3">
-            <Text
-              className="text-center font-inter-semibold text-base leading-6 text-[#F6F2E8]"
+              className="text-center font-inter-medium text-base leading-7 text-[#F5F3D4]"
               numberOfLines={5}>
               {descriptionText}
             </Text>

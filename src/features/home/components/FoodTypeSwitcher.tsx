@@ -38,7 +38,7 @@ export function FoodTypeSwitcher({ value, availableTypes = [], onChange }: FoodT
             }}>
             <Text
               className="font-inter-semibold text-sm"
-              style={{ color: isActive ? '#242B12' : '#F6F2E8' }}>
+              style={{ color: isActive ? '#242B12' : isUnavailable ? '#F6F2E8' : '#F5F3D4' }}>
               {MEAL_TYPE_LABEL[mealType]}
             </Text>
           </Pressable>

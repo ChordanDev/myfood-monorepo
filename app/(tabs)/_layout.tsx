@@ -2,7 +2,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { Tabs } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-const TAB_BAR_BG = '#111309';
+const TAB_BAR_BG = '#13160B';
 const TAB_BAR_BORDER = '#1C1C1C';
 const TAB_ACTIVE = '#D8D98B';
 const TAB_INACTIVE = '#BCC399';

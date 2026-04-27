@@ -7,11 +7,9 @@ import { formatDateKey, isSelectableDate, startOfDay } from '../utils/calendarDa
 const DAY_TEXT = '#2C2F1D';
 const DISABLED_TEXT = 'rgba(44, 47, 29, 0.45)';
 const SELECTED_BG = '#364025';
-const SELECTED_TEXT = '#F6F2E8';
-const PLANNED_BG = '#D8D98B';
+const SELECTED_TEXT = '#F5F3D4';
+const PLANNED_BG = '#FFB63C';
 const DEFAULT_DAY_SIZE = 42;
-const DEFAULT_VIEWPORT_HEIGHT = 308;
-const DEFAULT_MIN_HEIGHT = 360;
 const MONTHS = [
   'Enero',
   'Febrero',
@@ -62,8 +60,6 @@ export function Calendar({
   selectedDate,
   onSelectDate,
   daySize = DEFAULT_DAY_SIZE,
-  viewportHeight = DEFAULT_VIEWPORT_HEIGHT,
-  minHeight = DEFAULT_MIN_HEIGHT,
 }: CalendarProps) {
   const [currentMonth, setCurrentMonth] = useState(() => {
     const now = new Date();
@@ -106,10 +102,6 @@ export function Calendar({
   }, [allowedMonthKeys, currentMonthIndex, hasAllowedMonths]);
 
   const monthGrid = useMemo(() => getMonthGrid(year, month), [year, month]);
-  const gridRows = monthGrid.length / 7;
-  const gridContentHeight = gridRows * (daySize + 8) + 8;
-  const contentMinHeight = Math.max(viewportHeight, Math.min(minHeight, gridContentHeight));
-
   const handlePrevAllowedMonth = () => {
     if (!hasAllowedMonths || currentMonthIndex <= 0) {
       return;
@@ -142,7 +134,9 @@ export function Calendar({
   };
 
   return (
-    <ShadowSurface className="w-full rounded-3xl bg-[#899064]" style={{ flex: 1 }}>
+    <ShadowSurface
+      className="w-full rounded-3xl bg-[#899064]"
+      style={{ flex: 1, borderRadius: 24 }}>
       <View className="w-full overflow-hidden rounded-3xl" style={{ flex: 1 }}>
         <View className="mb-3 flex-row items-center justify-center gap-6 px-1">
           <Pressable
@@ -180,7 +174,7 @@ export function Calendar({
             </Text>
           ))}
         </View>
-        <View className="h-px flex-1 bg-[#364025] opacity-50" />
+        <View className="h-px w-full bg-[#364025] opacity-30" />
         <ScrollView
           contentContainerStyle={{ paddingBottom: 0, flexGrow: 0 }}
           showsVerticalScrollIndicator={false}
@@ -191,14 +185,14 @@ export function Calendar({
             {monthGrid.map((cell) => {
               const dayDate = cell.date;
               const dateString = formatDateKey(dayDate);
-              const isToday = dateString === todayKey;
-              const isPlanned = Boolean(planByDate[dateString]?.length);
-              const isSelected = activeSelectedDate === dateString;
-              const isPast = dayDate < today;
               const isPreviousMonthDay =
                 dayDate.getFullYear() < year ||
                 (dayDate.getFullYear() === year && dayDate.getMonth() < month);
-              const isSelectable = !isPreviousMonthDay && !isPast && isPlanned;
+              const isSelectable =
+                !isPreviousMonthDay && isSelectableDate(dateString, planByDate, today);
+              const isSelected = activeSelectedDate === dateString;
+              const isToday = dateString === todayKey;
+              const isPlanned = Boolean(planByDate[dateString]?.length);
               const hasCircle = isSelected || isToday || isPlanned;
               const borderColor = !isSelected && isToday ? SELECTED_BG : 'transparent';
               const borderWidth = !isSelected && isToday ? 2 : 0;
@@ -212,7 +206,6 @@ export function Calendar({
                 : isSelectable
                   ? DAY_TEXT
                   : DISABLED_TEXT;
-              const opacity = 1;
 
               return (
                 <View
@@ -232,7 +225,6 @@ export function Calendar({
                       backgroundColor,
                       alignItems: 'center',
                       justifyContent: 'center',
-                      opacity,
                     }}>
                     <Text style={{ color: textColor }} className="font-inter-semibold text-base">
                       {dayDate.getDate()}
