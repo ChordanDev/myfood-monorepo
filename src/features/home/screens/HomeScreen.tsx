@@ -2,7 +2,6 @@ import { useEffect, useMemo, useState } from 'react';
 import { View } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { AddCircleButton, NoisyBackground, SafeAreaContent, TitlePrimary } from '@/components';
-import { useTitleMetrics } from '@/hooks/useTitleMetrics';
 import {
   getMockMealDescription,
   getMockMealType,
@@ -10,10 +9,9 @@ import {
   type MockMealPlan,
   type MockMealType,
 } from '@/mocks';
-import { Calendar } from '../components/Calendar';
-import { FloatingFoodImage } from '../components/FloatingFoodImage';
-import { FoodTypeSwitcher } from '../components/FoodTypeSwitcher';
+import { Calendar, FloatingFoodImage, FoodTypeSwitcher } from '../components';
 import HomeFoodCard from '../components/FoodCard';
+import { useHomeResponsiveScale } from '../hooks/useHomeResponsiveScale';
 import { formatDateKey } from '../utils/calendarDate';
 
 const FOOD_CARD_IMAGE = require('../../../../assets/AuthFoodImages/Gemini_Generated_Image_16g8h616g8h616g8-removebg-preview.png');
@@ -72,7 +70,7 @@ function getClosestMealType(availableMealTypes: MockMealType[], now: Date) {
 }
 
 export function HomeScreen() {
-  const metrics = useTitleMetrics();
+  const metrics = useHomeResponsiveScale();
   const planByDate = mockPlanByDate;
   const [selectedDate, setSelectedDate] = useState<string | null>(() =>
     getInitialSelectedDate(planByDate)
@@ -137,19 +135,34 @@ export function HomeScreen() {
       <NoisyBackground opacity={0.2} />
       <SafeAreaContent includeBottom={false} style={{ flex: 1 }}>
         <TitlePrimary text="COMIDAS" metrics={metrics} />
-        <View className="w-full flex-1 gap-4 px-4 pb-4">
-          <View className="h-3/6 flex-shrink gap-4">
-            <View className="relative flex-1 flex-row items-start gap-4">
-              <FloatingFoodImage source={FOOD_CARD_IMAGE} leftPercent={78} />
-              <View className="relative w-3/4">
+        <View
+          className="w-full flex-1"
+          style={{
+            paddingHorizontal: metrics.horizontalPadding,
+            paddingBottom: metrics.bottomPadding,
+            gap: metrics.sectionGap,
+          }}>
+          <View className="h-3/6 flex-shrink" style={{ gap: metrics.rowGap }}>
+            <View className="relative flex-1 flex-row items-start" style={{ gap: metrics.rowGap }}>
+              <FloatingFoodImage
+                source={FOOD_CARD_IMAGE}
+                leftPercent={metrics.foodImageLeftPercent}
+                topPercent={metrics.foodImageTopPercent}
+                widthPercent={metrics.foodImageWidthPercent}
+                sizeScale={metrics.foodImageSizeScale}
+              />
+              <View style={{ width: `${metrics.cardColumnPercent}%` }}>
                 <HomeFoodCard
                   mealType={selectedMealType}
                   description={selectedMealDescription}
                   selectedDate={selectedDate}
+                  metrics={metrics}
                 />
               </View>
-              <View className="w-full flex-1 items-start self-end">
-                <AddCircleButton size={65} />
+              <View
+                className="items-start self-end"
+                style={{ width: `${metrics.sideColumnPercent}%` }}>
+                <AddCircleButton size={metrics.addButtonSize} />
               </View>
             </View>
             <View className="min-w-full">
@@ -157,6 +170,7 @@ export function HomeScreen() {
                 value={selectedMealType}
                 availableTypes={availableMealTypes}
                 onChange={handleMealTypeChange}
+                metrics={metrics}
               />
             </View>
           </View>
@@ -165,7 +179,11 @@ export function HomeScreen() {
               planByDate={planByDate}
               selectedDate={selectedDate}
               onSelectDate={handleSelectDate}
-              daySize={44}
+              daySize={metrics.calendarDaySize}
+              monthFontSize={metrics.calendarHeaderFontSize}
+              navFontSize={metrics.calendarNavFontSize}
+              weekdayFontSize={metrics.calendarWeekdayFontSize}
+              dayFontSize={metrics.calendarDayFontSize}
             />
           </View>
         </View>

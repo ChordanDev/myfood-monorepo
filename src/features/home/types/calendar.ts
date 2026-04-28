@@ -17,4 +17,8 @@ export type CalendarProps = {
   selectedDate?: string | null;
   onSelectDate?: (dateString: string) => void;
   daySize?: number;
+  monthFontSize?: number;
+  navFontSize?: number;
+  weekdayFontSize?: number;
+  dayFontSize?: number;
 };

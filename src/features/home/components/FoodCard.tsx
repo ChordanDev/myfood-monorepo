@@ -4,10 +4,13 @@ import { ShadowSurface } from '@/components';
 import type { MockMealType } from '@/mocks';
 import { parseDateKey, startOfDay } from '../utils/calendarDate';
 
+import type { HomeMetrics } from '../utils/responsive';
+
 interface FoodCardProps {
   mealType: MockMealType | null;
   description: string | null;
   selectedDate: string | null;
+  metrics: HomeMetrics;
 }
 
 const FOOD_CARD_SHAPE_PATH =
@@ -95,7 +98,7 @@ function getTopLeftLabel(selectedDate: string | null) {
   return { dayName: weekdayLabel, dayNumber: String(selectedDay.getDate()), isToday: false };
 }
 
-function FoodCard({ mealType, description, selectedDate }: FoodCardProps) {
+function FoodCard({ mealType, description, selectedDate, metrics }: FoodCardProps) {
   const hasMealData = Boolean(mealType || description?.trim());
   const topLeftLabel = getTopLeftLabel(selectedDate);
   const descriptionText = description?.trim() ?? '';
@@ -171,12 +174,14 @@ function FoodCard({ mealType, description, selectedDate }: FoodCardProps) {
             {topLeftLabel ? (
               <Text className="text-center" style={{ letterSpacing: 1 }}>
                 <Text
-                  className="font-montserrat-alt-bold text-[18px]"
-                  style={{ color: dayNameColor }}>
+                  className="font-montserrat-alt-bold"
+                  style={{ color: dayNameColor, fontSize: metrics.foodCardLabelFontSize }}>
                   {topLeftLabel.dayName}
                 </Text>
                 {topLeftLabel.dayNumber ? (
-                  <Text className="font-montserrat-alt-black text-[20px] text-[#FFB63C]">
+                  <Text
+                    className="font-montserrat-alt-black text-[#FFB63C]"
+                    style={{ fontSize: metrics.foodCardNumberFontSize }}>
                     {' '}
                     {topLeftLabel.dayNumber}
                   </Text>
@@ -188,7 +193,11 @@ function FoodCard({ mealType, description, selectedDate }: FoodCardProps) {
             className="absolute"
             style={{ left: descriptionLeft, top: '50%', width: descriptionWidth }}>
             <Text
-              className="text-center font-inter-medium text-base leading-7 text-[#F5F3D4]"
+              className="text-center font-inter-medium text-[#F5F3D4]"
+              style={{
+                fontSize: metrics.foodCardDescriptionFontSize,
+                lineHeight: metrics.foodCardDescriptionLineHeight,
+              }}
               numberOfLines={5}>
               {descriptionText}
             </Text>

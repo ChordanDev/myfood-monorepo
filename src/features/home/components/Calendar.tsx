@@ -10,6 +10,10 @@ const SELECTED_BG = '#364025';
 const SELECTED_TEXT = '#F5F3D4';
 const PLANNED_BG = '#FFB63C';
 const DEFAULT_DAY_SIZE = 42;
+const DEFAULT_MONTH_FONT_SIZE = 18;
+const DEFAULT_NAV_FONT_SIZE = 20;
+const DEFAULT_WEEKDAY_FONT_SIZE = 14;
+const DEFAULT_DAY_FONT_SIZE = 14;
 const MONTHS = [
   'Enero',
   'Febrero',
@@ -60,6 +64,10 @@ export function Calendar({
   selectedDate,
   onSelectDate,
   daySize = DEFAULT_DAY_SIZE,
+  monthFontSize = DEFAULT_MONTH_FONT_SIZE,
+  navFontSize = DEFAULT_NAV_FONT_SIZE,
+  weekdayFontSize = DEFAULT_WEEKDAY_FONT_SIZE,
+  dayFontSize = DEFAULT_DAY_FONT_SIZE,
 }: CalendarProps) {
   const [currentMonth, setCurrentMonth] = useState(() => {
     const now = new Date();
@@ -145,11 +153,9 @@ export function Calendar({
             accessibilityLabel="Mes anterior"
             disabled={isPrevDisabled}
             style={{ opacity: isPrevDisabled ? 0.35 : 1 }}>
-            <Text className="text-xl" style={{ color: DAY_TEXT }}>
-              {'<'}
-            </Text>
+            <Text style={{ color: DAY_TEXT, fontSize: navFontSize }}>{'<'}</Text>
           </Pressable>
-          <Text className="font-inter-bold text-lg" style={{ color: DAY_TEXT }}>
+          <Text className="font-inter-bold" style={{ color: DAY_TEXT, fontSize: monthFontSize }}>
             {monthLabel}
           </Text>
           <Pressable
@@ -158,9 +164,7 @@ export function Calendar({
             accessibilityLabel="Mes siguiente"
             disabled={isNextDisabled}
             style={{ opacity: isNextDisabled ? 0.35 : 1 }}>
-            <Text className="text-xl" style={{ color: DAY_TEXT }}>
-              {'>'}
-            </Text>
+            <Text style={{ color: DAY_TEXT, fontSize: navFontSize }}>{'>'}</Text>
           </Pressable>
         </View>
 
@@ -168,8 +172,13 @@ export function Calendar({
           {WEEKDAYS.map((label, index) => (
             <Text
               key={`${label}-${index}`}
-              style={{ width: '14.2857%', textAlign: 'center', color: DAY_TEXT }}
-              className="font-inter-semibold text-base">
+              style={{
+                width: '14.2857%',
+                textAlign: 'center',
+                color: DAY_TEXT,
+                fontSize: weekdayFontSize,
+              }}
+              className="font-inter-semibold">
               {label}
             </Text>
           ))}
@@ -226,7 +235,9 @@ export function Calendar({
                       alignItems: 'center',
                       justifyContent: 'center',
                     }}>
-                    <Text style={{ color: textColor }} className="font-inter-semibold text-base">
+                    <Text
+                      style={{ color: textColor, fontSize: dayFontSize }}
+                      className="font-inter-semibold">
                       {dayDate.getDate()}
                     </Text>
                   </Pressable>
