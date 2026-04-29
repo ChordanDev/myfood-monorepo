@@ -80,9 +80,9 @@ export function getHomeMetrics(width: number, height: number): HomeMetrics {
   };
 
   const addButtonBySize: Record<PhoneSizeBucket, number> = {
-    xs: 52,
-    sm: 58,
-    md: 65,
+    xs: 64,
+    sm: 65,
+    md: 68,
     lg: 70,
   };
 
@@ -101,17 +101,17 @@ export function getHomeMetrics(width: number, height: number): HomeMetrics {
   };
 
   const foodImageWidthBySize: Record<PhoneSizeBucket, number> = {
-    xs: 36,
-    sm: 38,
+    xs: 38,
+    sm: 40,
     md: 40,
     lg: 42,
   };
 
   const foodImageScaleBySize: Record<PhoneSizeBucket, number> = {
-    xs: 1.4,
-    sm: 1.5,
-    md: 1.62,
-    lg: 1.7,
+    xs: 1.75,
+    sm: 1.7,
+    md: 1.65,
+    lg: 1.6,
   };
 
   const foodCardLabelBySize: Record<PhoneSizeBucket, number> = {

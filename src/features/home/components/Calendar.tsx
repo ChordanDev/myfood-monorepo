@@ -194,11 +194,7 @@ export function Calendar({
             {monthGrid.map((cell) => {
               const dayDate = cell.date;
               const dateString = formatDateKey(dayDate);
-              const isPreviousMonthDay =
-                dayDate.getFullYear() < year ||
-                (dayDate.getFullYear() === year && dayDate.getMonth() < month);
-              const isSelectable =
-                !isPreviousMonthDay && isSelectableDate(dateString, planByDate, today);
+              const isSelectable = isSelectableDate(dateString, planByDate, today);
               const isSelected = activeSelectedDate === dateString;
               const isToday = dateString === todayKey;
               const isPlanned = Boolean(planByDate[dateString]?.length);
