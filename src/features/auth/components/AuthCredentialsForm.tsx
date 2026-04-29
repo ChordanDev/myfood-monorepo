@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { View } from 'react-native';
-import { AuthLandingMetrics } from '@/utils/responsive';
+import { AuthLandingMetrics } from '@/features/auth/utils/responsive';
 import { useEmailValidation } from '../hooks';
 import { EmailTextInput } from './EmailTextInput';
 import { InputErrorText } from './InputErrorText';

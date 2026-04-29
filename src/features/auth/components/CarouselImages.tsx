@@ -1,5 +1,5 @@
 import { Image, ImageSourcePropType, View } from 'react-native';
-import { AuthLandingMetrics } from '@/utils/responsive';
+import { AuthLandingMetrics } from '@/features/auth/utils/responsive';
 
 interface CarouselImagesProps {
   images: ImageSourcePropType[];

@@ -1,5 +1,5 @@
 import { Text, View } from 'react-native';
-import { AuthLandingMetrics } from '@/utils/responsive';
+import { AuthLandingMetrics } from '@/features/auth/utils/responsive';
 
 interface SocialDividerProps {
   metrics: AuthLandingMetrics;

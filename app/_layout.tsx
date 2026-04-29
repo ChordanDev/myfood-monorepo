@@ -12,6 +12,10 @@ import {
   Montserrat_800ExtraBold,
 } from '@expo-google-fonts/montserrat';
 import {
+  MontserratAlternates_700Bold,
+  MontserratAlternates_900Black,
+} from '@expo-google-fonts/montserrat-alternates';
+import {
   Inter_400Regular,
   Inter_500Medium,
   Inter_600SemiBold,
@@ -25,11 +29,17 @@ export default function RootLayout() {
     Montserrat_600SemiBold,
     Montserrat_700Bold,
     Montserrat_800ExtraBold,
+    MontserratAlternates_700Bold,
+    MontserratAlternates_900Black,
     Inter_400Regular,
     Inter_500Medium,
     Inter_600SemiBold,
     Inter_700Bold,
   });
+
+  // Permite elegir la ruta inicial con una variable de entorno.
+  const startHomeFlag = process.env.EXPO_PUBLIC_START_HOME;
+  const initialRouteName = startHomeFlag === 'true' ? '(tabs)' : 'index';
 
   // Evita una pantalla en blanco mientras cargan las fuentes.
   if (!fontsLoaded && !fontError) {
@@ -43,7 +53,7 @@ export default function RootLayout() {
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <SafeAreaProvider>
-        <Stack screenOptions={{ headerShown: false }} />
+        <Stack initialRouteName={initialRouteName} screenOptions={{ headerShown: false }} />
       </SafeAreaProvider>
     </GestureHandlerRootView>
   );

@@ -1,4 +1,4 @@
-import { AuthLandingMetrics } from '@/utils/responsive';
+import { AuthLandingMetrics } from '@/features/auth/utils/responsive';
 import { SocialDivider } from './SocialDivider';
 import { SocialLoginIcons } from './SocialLoginIcons';
 import { View } from 'react-native';

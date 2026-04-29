@@ -11,6 +11,8 @@ module.exports = {
         'montserrat-semibold': ['Montserrat_600SemiBold'],
         'montserrat-bold': ['Montserrat_700Bold'],
         'montserrat-extrabold': ['Montserrat_800ExtraBold'],
+        'montserrat-alt-bold': ['MontserratAlternates_700Bold'],
+        'montserrat-alt-black': ['MontserratAlternates_900Black'],
         inter: ['Inter_400Regular'],
         'inter-medium': ['Inter_500Medium'],
         'inter-semibold': ['Inter_600SemiBold'],
