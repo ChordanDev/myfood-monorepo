@@ -1,10 +1,11 @@
-import { useState } from 'react';
+import { useCallback, useState } from 'react';
 import { View } from 'react-native';
 import Animated from 'react-native-reanimated';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useAuthResponsiveScale } from '../hooks';
 import { useKeyboardAnimation } from '@/hooks/useKeyboardAnimation';
 import { AUTH_FOOD_IMAGES } from '@/constants/authAssets';
+import { COLORS, GRADIENTS } from '@/constants/theme';
 import {
   AuthButton,
   AuthCredentialsForm,
@@ -12,8 +13,7 @@ import {
   RegisterEntryModal,
   SocialLogin,
 } from '../components';
-import { NoisyBackground, SafeAreaContent, TitlePrimary, TopFadeMask } from '../../../components';
-
+import { NoisyBackground, SafeAreaContent, TitlePrimary, TopFadeMask } from '@/components';
 import { Link } from 'expo-router';
 
 export function AuthLandingScreen() {
@@ -26,24 +26,29 @@ export function AuthLandingScreen() {
     enabled: !showRegisterModal,
   });
 
-  const closeRegisterModal = () => {
+  const closeRegisterModal = useCallback(() => {
     setShowRegisterModal(false);
-  };
+  }, []);
 
-  const openRegisterModal = () => {
+  const openRegisterModal = useCallback(() => {
     setShowRegisterModal(true);
-  };
+  }, []);
 
-  const handleContinueRegister = (_email: string) => {
-    closeRegisterModal();
-  };
+  const handleContinueRegister = useCallback((_email: string) => {
+    setShowRegisterModal(false);
+  }, []);
+
+  // Estabiliza la referencia para evitar re-renders en AuthCredentialsForm.
+  const handleCredentialsChange = useCallback(({ email }: { email: string }) => {
+    setLoginEmail(email);
+  }, []);
 
   return (
     <LinearGradient
-      colors={['#E5D8C4', '#242B12', '#191D0D', '#111309']}
+      colors={[...GRADIENTS.authLanding.colors]}
       start={{ x: 0, y: 0 }}
       end={{ x: 0, y: 1 }}
-      locations={[0, 0.65, 0.93, 0.98]}
+      locations={[...GRADIENTS.authLanding.locations]}
       style={{ flex: 1 }}>
       <NoisyBackground opacity={0.2} />
 
@@ -63,7 +68,7 @@ export function AuthLandingScreen() {
                   <AuthCredentialsForm
                     metrics={metrics}
                     onValidityChange={setIsCredentialsValid}
-                    onCredentialsChange={({ email }) => setLoginEmail(email)}
+                    onCredentialsChange={handleCredentialsChange}
                   />
                   {/* Navega a verificacion si el email es valido. */}
                   <Link

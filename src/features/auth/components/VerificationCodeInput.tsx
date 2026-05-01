@@ -16,6 +16,8 @@ export function VerificationCodeInput({ value, onChange }: VerificationCodeInput
         placeholderTextColor="#6F735E"
         keyboardType="number-pad"
         textAlign="center"
+        accessibilityLabel="Código de verificación"
+        accessibilityHint="Ingresa el código de 6 dígitos enviado a tu correo"
         className="py-4 font-inter-semibold text-2xl tracking-[6px] text-[#242B12]"
       />
     </View>

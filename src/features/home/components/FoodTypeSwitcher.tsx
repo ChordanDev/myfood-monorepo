@@ -1,18 +1,18 @@
 import { Pressable, Text } from 'react-native';
 import { ShadowSurface } from '@/components';
-import type { MockMealType } from '@/mocks';
+import type { MealType } from '@/mocks';
 import type { HomeMetrics } from '../utils/responsive';
 
 interface FoodTypeSwitcherProps {
-  value: MockMealType | null;
-  availableTypes?: MockMealType[];
-  onChange?: (mealType: MockMealType) => void;
+  value: MealType | null;
+  availableTypes?: MealType[];
+  onChange?: (mealType: MealType) => void;
   metrics: HomeMetrics;
 }
 
-const ORDERED_MEAL_TYPES: MockMealType[] = ['desayuno', 'almuerzo', 'cena'];
+const ORDERED_MEAL_TYPES: MealType[] = ['desayuno', 'almuerzo', 'cena'];
 
-const MEAL_TYPE_LABEL: Record<MockMealType, string> = {
+const MEAL_TYPE_LABEL: Record<MealType, string> = {
   desayuno: 'Desayuno',
   almuerzo: 'Almuerzo',
   cena: 'Cena',

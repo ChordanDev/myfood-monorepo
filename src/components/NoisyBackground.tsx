@@ -1,5 +1,7 @@
 import { ImageBackground, Platform, StyleProp, ViewStyle } from 'react-native';
 
+const NOISE_TEXTURE = require('../../assets/noisy-background.jpg');
+
 interface NoisyBackgroundProps {
   opacity?: number;
   style?: StyleProp<ViewStyle>;
@@ -9,7 +11,7 @@ export function NoisyBackground({ opacity = 0.2, style }: NoisyBackgroundProps) 
   return (
     <ImageBackground
       // Textura de ruido para dar profundidad visual al fondo.
-      source={require('../../assets/noisy-background.jpg')}
+      source={NOISE_TEXTURE}
       resizeMode={Platform.OS === 'ios' ? 'cover' : 'repeat'}
       style={[
         {

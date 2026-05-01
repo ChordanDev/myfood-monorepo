@@ -2,7 +2,7 @@
 import '../global.css';
 import { Stack } from 'expo-router';
 import { useFonts } from 'expo-font';
-import { ActivityIndicator, View } from 'react-native';
+import { ActivityIndicator, Text, View } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import {
@@ -21,6 +21,7 @@ import {
   Inter_600SemiBold,
   Inter_700Bold,
 } from '@expo-google-fonts/inter';
+import { COLORS } from '../src/constants/theme';
 
 export default function RootLayout() {
   // Carga fuentes antes de renderizar la navegacion.
@@ -37,15 +38,30 @@ export default function RootLayout() {
     Inter_700Bold,
   });
 
-  // Permite elegir la ruta inicial con una variable de entorno.
+  // TODO: Reemplazar EXPO_PUBLIC_START_HOME por estado de autenticacion real
+  // cuando el backend de Elixir este integrado (ej: token en SecureStore).
   const startHomeFlag = process.env.EXPO_PUBLIC_START_HOME;
   const initialRouteName = startHomeFlag === 'true' ? '(tabs)' : 'index';
 
   // Evita una pantalla en blanco mientras cargan las fuentes.
   if (!fontsLoaded && !fontError) {
     return (
-      <View className="flex-1 items-center justify-center bg-[#111309]">
-        <ActivityIndicator size="small" color="#D8D98B" />
+      <View className="flex-1 items-center justify-center" style={{ backgroundColor: COLORS.bgDarkest }}>
+        <ActivityIndicator size="small" color={COLORS.accentYellow} />
+      </View>
+    );
+  }
+
+  // Muestra un error visible si las fuentes no pudieron cargarse.
+  if (fontError) {
+    return (
+      <View className="flex-1 items-center justify-center px-6" style={{ backgroundColor: COLORS.bgDarkest }}>
+        <Text className="font-bold text-lg" style={{ color: COLORS.accentOrange }}>
+          Error cargando fuentes
+        </Text>
+        <Text className="mt-2 text-center text-sm" style={{ color: COLORS.textLight }}>
+          {fontError.message}
+        </Text>
       </View>
     );
   }
