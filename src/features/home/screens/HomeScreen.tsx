@@ -1,135 +1,39 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo } from 'react';
 import { View } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { AddCircleButton, NoisyBackground, SafeAreaContent, TitlePrimary } from '@/components';
-import {
-  getMockMealDescription,
-  getMockMealType,
-  mockPlanByDate,
-  type MockMealPlan,
-  type MockMealType,
-} from '@/mocks';
+import { getMockPlanByDate } from '@/mocks';
 import { Calendar, FloatingFoodImage, FoodTypeSwitcher } from '../components';
-import HomeFoodCard from '../components/FoodCard';
+import { FoodCard } from '../components/FoodCard';
 import { useHomeResponsiveScale } from '../hooks/useHomeResponsiveScale';
-import { formatDateKey } from '../utils/calendarDate';
+import { useHomeState } from '../hooks/useHomeState';
+import { GRADIENTS } from '@/constants/theme';
 
 const FOOD_CARD_IMAGE = require('../../../../assets/AuthFoodImages/Gemini_Generated_Image_16g8h616g8h616g8-removebg-preview.png');
 
-const ORDERED_MEAL_TYPES: MockMealType[] = ['desayuno', 'almuerzo', 'cena'];
-
-const MEAL_TYPE_MINUTES: Record<MockMealType, number> = {
-  desayuno: 8 * 60,
-  almuerzo: 13 * 60,
-  cena: 20 * 60,
-};
-
-function getAvailableDateKeys(planByDate: Record<string, MockMealPlan[]>) {
-  return Object.keys(planByDate)
-    .filter((dateKey) => Boolean(planByDate[dateKey]?.length))
-    .sort();
-}
-
-function getInitialSelectedDate(planByDate: Record<string, MockMealPlan[]>) {
-  const todayKey = formatDateKey(new Date());
-
-  if (planByDate[todayKey]?.length) {
-    return todayKey;
-  }
-
-  return getAvailableDateKeys(planByDate)[0] ?? null;
-}
-
-function getAvailableMealTypes(meals: MockMealPlan[]) {
-  const availableTypes = new Set<MockMealType>();
-
-  meals.forEach((meal) => {
-    availableTypes.add(getMockMealType(meal));
-  });
-
-  return ORDERED_MEAL_TYPES.filter((mealType) => availableTypes.has(mealType));
-}
-
-function getClosestMealType(availableMealTypes: MockMealType[], now: Date) {
-  if (!availableMealTypes.length) {
-    return null;
-  }
-
-  const currentMinutes = now.getHours() * 60 + now.getMinutes();
-
-  return availableMealTypes.reduce((closestType, currentType) => {
-    const currentDistance = Math.abs(MEAL_TYPE_MINUTES[currentType] - currentMinutes);
-    const closestDistance = Math.abs(MEAL_TYPE_MINUTES[closestType] - currentMinutes);
-
-    if (currentDistance < closestDistance) {
-      return currentType;
-    }
-
-    return closestType;
-  });
-}
-
 export function HomeScreen() {
   const metrics = useHomeResponsiveScale();
-  const planByDate = mockPlanByDate;
-  const [selectedDate, setSelectedDate] = useState<string | null>(() =>
-    getInitialSelectedDate(planByDate)
-  );
-  const [selectedMealType, setSelectedMealType] = useState<MockMealType | null>(null);
+  // useMemo evita que planByDate sea una referencia nueva en cada render.
+  const planByDate = useMemo(() => getMockPlanByDate(), []);
+  
+  // Logica de negocio extraida a un hook dedicado.
+  const {
+    selectedDate,
+    selectedMealType,
+    availableMealTypes,
+    selectedMeal,
+    handleSelectDate,
+    handleMealTypeChange,
+  } = useHomeState(planByDate);
 
-  const availableDateKeys = useMemo(() => getAvailableDateKeys(planByDate), [planByDate]);
-
-  useEffect(() => {
-    if (!selectedDate || !availableDateKeys.includes(selectedDate)) {
-      setSelectedDate(getInitialSelectedDate(planByDate));
-    }
-  }, [availableDateKeys, planByDate, selectedDate]);
-
-  const mealsForSelectedDate = useMemo(() => {
-    if (!selectedDate) {
-      return [];
-    }
-
-    return planByDate[selectedDate] ?? [];
-  }, [planByDate, selectedDate]);
-
-  const availableMealTypes = useMemo(
-    () => getAvailableMealTypes(mealsForSelectedDate),
-    [mealsForSelectedDate]
-  );
-
-  useEffect(() => {
-    setSelectedMealType(getClosestMealType(availableMealTypes, new Date()));
-  }, [availableMealTypes, selectedDate]);
-
-  const selectedMeal = useMemo(() => {
-    if (!selectedMealType) {
-      return null;
-    }
-
-    return mealsForSelectedDate.find((meal) => getMockMealType(meal) === selectedMealType) ?? null;
-  }, [mealsForSelectedDate, selectedMealType]);
-
-  const selectedMealDescription = selectedMeal ? getMockMealDescription(selectedMeal) : null;
-
-  const handleSelectDate = (dateString: string) => {
-    setSelectedDate(dateString);
-  };
-
-  const handleMealTypeChange = (mealType: MockMealType) => {
-    if (!availableMealTypes.includes(mealType)) {
-      return;
-    }
-
-    setSelectedMealType(mealType);
-  };
+  const selectedMealDescription = selectedMeal?.descripcion ?? '';
 
   return (
     <LinearGradient
-      colors={['#17180E', '#565A41', '#D6C4B1']}
+      colors={[...GRADIENTS.home.colors]}
       start={{ x: 0, y: 0 }}
       end={{ x: 0, y: 1 }}
-      locations={[0, 0.05, 0.15]}
+      locations={[...GRADIENTS.home.locations]}
       className="flex-1"
       style={{ flex: 1 }}>
       <NoisyBackground opacity={0.2} />
@@ -152,7 +56,7 @@ export function HomeScreen() {
                 sizeScale={metrics.foodImageSizeScale}
               />
               <View style={{ width: `${metrics.cardColumnPercent}%` }}>
-                <HomeFoodCard
+                <FoodCard
                   mealType={selectedMealType}
                   description={selectedMealDescription}
                   selectedDate={selectedDate}

@@ -1,5 +1,6 @@
 import { Text, View } from 'react-native';
 import { TitleMetrics } from '@/utils/responsive';
+import { COLORS } from '@/constants/theme';
 
 interface TitleProps {
   text: string;
@@ -16,12 +17,10 @@ export function TitlePrimary({ text, metrics }: TitleProps) {
       }}>
       {/* Titulo principal ajustado por metricas responsivas. */}
       <Text
-        style={{ fontSize: metrics.titleFontSize, color: '#242B12' }}
+        style={{ fontSize: metrics.titleFontSize, color: COLORS.textDark }}
         className="font-montserrat-bold">
         {text}
       </Text>
     </View>
   );
 }
-
-export default TitlePrimary;

@@ -1,18 +1,8 @@
-export type MockMealType = 'desayuno' | 'almuerzo' | 'cena';
+// Datos mock para desarrollo. Usa los tipos canonicos de home/types.
+import type { CourseType, MealPlan, MealType, PlanByDate } from '@/features/home/types/calendar';
 
-export type MockCourseType = 'entrada' | 'principal' | 'postre' | 'ensalada' | 'snack';
-
-export type MockMealPlan = {
-  tipo: MockMealType;
-  mealType?: MockMealType;
-  courseType: MockCourseType;
-  descripcion: string;
-  description?: string;
-  ingredients: string[];
-  recipe: string;
-};
-
-export type MockPlanByDate = Record<string, MockMealPlan[]>;
+// Re-exporta los tipos canonicos para consumidores existentes.
+export type { MealType, MealPlan, PlanByDate, CourseType };
 
 function formatDateKey(date: Date): string {
   const year = date.getFullYear();
@@ -25,78 +15,84 @@ function addDays(base: Date, days: number): Date {
   return new Date(base.getFullYear(), base.getMonth(), base.getDate() + days);
 }
 
-const today = new Date();
-const todayKey = formatDateKey(today);
-const tomorrowKey = formatDateKey(addDays(today, 1));
-const inTwoDaysKey = formatDateKey(addDays(today, 2));
-const inThreeDaysKey = formatDateKey(addDays(today, 3));
+// Genera las claves de fecha de forma lazy para evitar datos estáticos
+// que se vuelven obsoletos si la app permanece abierta entre dias.
+function buildMockPlanByDate(): PlanByDate {
+  const today = new Date();
+  const todayKey = formatDateKey(today);
+  const tomorrowKey = formatDateKey(addDays(today, 1));
+  const inTwoDaysKey = formatDateKey(addDays(today, 2));
+  const inThreeDaysKey = formatDateKey(addDays(today, 3));
 
-export const mockPlanByDate: MockPlanByDate = {
-  [todayKey]: [
-    {
-      tipo: 'almuerzo',
-      courseType: 'principal',
-      descripcion: 'Pollo al horno con papas y ensalada fresca.',
-      ingredients: ['pollo', 'papa', 'tomate', 'lechuga', 'aceite de oliva', 'sal'],
-      recipe:
-        'Condimentar el pollo, hornear 40 minutos a 200C y servir con papas asadas y ensalada.',
-    },
-    {
-      tipo: 'cena',
-      courseType: 'ensalada',
-      descripcion: 'Ensalada tibia de quinoa con vegetales salteados.',
-      ingredients: ['quinoa', 'zanahoria', 'brocoli', 'cebolla morada', 'limon', 'sal'],
-      recipe: 'Cocinar quinoa, saltear vegetales y mezclar con jugo de limon y sal.',
-    },
-  ],
-  [tomorrowKey]: [
-    {
-      tipo: 'desayuno',
-      courseType: 'principal',
-      descripcion: 'Avena cremosa con banana y canela.',
-      ingredients: ['avena', 'leche', 'banana', 'canela'],
-      recipe: 'Cocinar la avena con leche 8 minutos y terminar con banana y canela.',
-    },
-    {
-      tipo: 'almuerzo',
-      courseType: 'principal',
-      descripcion: 'Pasta integral con salsa de tomate y albahaca.',
-      ingredients: ['pasta integral', 'tomate triturado', 'ajo', 'albahaca', 'aceite'],
-      recipe: 'Hervir pasta, cocinar salsa 15 minutos y mezclar antes de servir.',
-    },
-  ],
-  [inTwoDaysKey]: [
-    {
-      tipo: 'cena',
-      courseType: 'principal',
-      descripcion: 'Tacos de pescado con repollo y yogur.',
-      ingredients: ['pescado blanco', 'tortillas', 'repollo', 'yogur', 'limon'],
-      recipe: 'Cocinar el pescado a la plancha, armar tacos y agregar salsa de yogur.',
-    },
-  ],
-  [inThreeDaysKey]: [
-    {
-      tipo: 'almuerzo',
-      courseType: 'postre',
-      descripcion: 'Yogur natural con frutas y granola casera.',
-      ingredients: ['yogur natural', 'frutillas', 'banana', 'granola'],
-      recipe: 'Servir en capas yogur, frutas cortadas y granola encima.',
-    },
-  ],
-};
-
-export function getMockMealsForDate(dateKey: string): MockMealPlan[] {
-  return mockPlanByDate[dateKey] ?? [];
+  return {
+    [todayKey]: [
+      {
+        tipo: 'almuerzo',
+        courseType: 'principal',
+        descripcion: 'Pollo al horno con papas y ensalada fresca.',
+        ingredients: ['pollo', 'papa', 'tomate', 'lechuga', 'aceite de oliva', 'sal'],
+        recipe:
+          'Condimentar el pollo, hornear 40 minutos a 200C y servir con papas asadas y ensalada.',
+      },
+      {
+        tipo: 'cena',
+        courseType: 'ensalada',
+        descripcion: 'Ensalada tibia de quinoa con vegetales salteados.',
+        ingredients: ['quinoa', 'zanahoria', 'brocoli', 'cebolla morada', 'limon', 'sal'],
+        recipe: 'Cocinar quinoa, saltear vegetales y mezclar con jugo de limon y sal.',
+      },
+    ],
+    [tomorrowKey]: [
+      {
+        tipo: 'desayuno',
+        courseType: 'principal',
+        descripcion: 'Avena cremosa con banana y canela.',
+        ingredients: ['avena', 'leche', 'banana', 'canela'],
+        recipe: 'Cocinar la avena con leche 8 minutos y terminar con banana y canela.',
+      },
+      {
+        tipo: 'almuerzo',
+        courseType: 'principal',
+        descripcion: 'Pasta integral con salsa de tomate y albahaca.',
+        ingredients: ['pasta integral', 'tomate triturado', 'ajo', 'albahaca', 'aceite'],
+        recipe: 'Hervir pasta, cocinar salsa 15 minutos y mezclar antes de servir.',
+      },
+    ],
+    [inTwoDaysKey]: [
+      {
+        tipo: 'cena',
+        courseType: 'principal',
+        descripcion: 'Tacos de pescado con repollo y yogur.',
+        ingredients: ['pescado blanco', 'tortillas', 'repollo', 'yogur', 'limon'],
+        recipe: 'Cocinar el pescado a la plancha, armar tacos y agregar salsa de yogur.',
+      },
+    ],
+    [inThreeDaysKey]: [
+      {
+        tipo: 'almuerzo',
+        courseType: 'postre',
+        descripcion: 'Yogur natural con frutas y granola casera.',
+        ingredients: ['yogur natural', 'frutillas', 'banana', 'granola'],
+        recipe: 'Servir en capas yogur, frutas cortadas y granola encima.',
+      },
+    ],
+  };
 }
 
-export function getMockMealType(meal: MockMealPlan): MockMealType {
-  return meal.tipo ?? meal.mealType ?? 'almuerzo';
+// Expone un getter que regenera los datos al ser invocado.
+// Para uso en componentes, se puede llamar una vez por render via useMemo.
+export function getMockPlanByDate(): PlanByDate {
+  return buildMockPlanByDate();
 }
 
-export function getMockMealDescription(meal: MockMealPlan): string {
-  return meal.descripcion ?? meal.description ?? '';
+export function getMockMealsForDate(planByDate: PlanByDate, dateKey: string): MealPlan[] {
+  return planByDate[dateKey] ?? [];
 }
 
-export function getMockMealsByType(dateKey: string, mealType: MockMealType): MockMealPlan[] {
-  return getMockMealsForDate(dateKey).filter((meal) => getMockMealType(meal) === mealType);
+export function getMockMealsByType(
+  planByDate: PlanByDate,
+  dateKey: string,
+  mealType: MealType,
+): MealPlan[] {
+  return getMockMealsForDate(planByDate, dateKey).filter((meal) => meal.tipo === mealType);
 }

@@ -27,6 +27,9 @@ export function AuthButton({
       <Pressable
         onPress={onPress}
         disabled={disabled}
+        accessibilityRole="button"
+        accessibilityLabel={title}
+        accessibilityState={{ disabled }}
         className={`w-full items-center justify-center ${buttonBgClass} active:scale-97 active:bg-[#2d3519]`}
         style={{
           borderRadius: metrics.buttonRadius,

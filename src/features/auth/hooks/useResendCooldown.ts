@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 interface UseResendCooldownResult {
   secondsLeft: number;
@@ -9,23 +9,41 @@ interface UseResendCooldownResult {
 export function useResendCooldown(initialSeconds = 45): UseResendCooldownResult {
   // Cuenta regresiva en segundos para habilitar reenvio.
   const [secondsLeft, setSecondsLeft] = useState(initialSeconds);
+  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const clearTimer = useCallback(() => {
+    if (timerRef.current !== null) {
+      clearInterval(timerRef.current);
+      timerRef.current = null;
+    }
+  }, []);
 
   useEffect(() => {
     if (secondsLeft <= 0) {
+      clearTimer();
       return;
     }
 
-    const timer = setInterval(() => {
-      // Decrementa hasta cero y mantiene el limite.
-      setSecondsLeft((prev) => (prev <= 1 ? 0 : prev - 1));
+    // Crea un unico interval que decrementa hasta cero.
+    timerRef.current = setInterval(() => {
+      setSecondsLeft((prev) => {
+        if (prev <= 1) {
+          clearTimer();
+          return 0;
+        }
+        return prev - 1;
+      });
     }, 1000);
 
-    return () => clearInterval(timer);
-  }, [secondsLeft]);
+    return clearTimer;
+    // Solo depende de si secondsLeft pasa de 0 a >0 (restart).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [secondsLeft > 0]);
 
-  const restart = () => {
+  const restart = useCallback(() => {
+    clearTimer();
     setSecondsLeft(initialSeconds);
-  };
+  }, [clearTimer, initialSeconds]);
 
   return {
     secondsLeft,

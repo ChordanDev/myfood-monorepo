@@ -1,22 +1,25 @@
 import type { PropsWithChildren } from 'react';
-import { View, type StyleProp, type ViewProps, type ViewStyle } from 'react-native';
+import { type StyleProp, View, type ViewProps, type ViewStyle } from 'react-native';
+import { COLORS } from '@/constants/theme';
 
 const SOFT_SHADOW_STYLE: ViewStyle = {
-  shadowColor: '#000000',
+  shadowColor: COLORS.shadow,
   shadowOffset: { width: 0, height: 4 },
   shadowOpacity: 0.25,
   shadowRadius: 2,
+  // Android solo usa elevation; los shadow* props son para iOS.
   elevation: 8,
   overflow: 'visible',
 };
 
 type ShadowSurfaceProps = PropsWithChildren<ViewProps> & {
   style?: StyleProp<ViewStyle>;
+  className?: string;
 };
 
-export function ShadowSurface({ children, style, ...viewProps }: ShadowSurfaceProps) {
+export function ShadowSurface({ children, style, className, ...viewProps }: ShadowSurfaceProps) {
   return (
-    <View {...viewProps} collapsable={false} style={[SOFT_SHADOW_STYLE, style]}>
+    <View className={className} style={[SOFT_SHADOW_STYLE, style]} {...viewProps}>
       {children}
     </View>
   );

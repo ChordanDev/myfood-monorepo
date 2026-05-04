@@ -1,13 +1,13 @@
 import { Text, View } from 'react-native';
 import Svg, { Defs, LinearGradient as SvgLinearGradient, Path, Stop } from 'react-native-svg';
 import { ShadowSurface } from '@/components';
-import type { MockMealType } from '@/mocks';
+import type { MealType } from '@/mocks';
 import { parseDateKey, startOfDay } from '../utils/calendarDate';
 
 import type { HomeMetrics } from '../utils/responsive';
 
 interface FoodCardProps {
-  mealType: MockMealType | null;
+  mealType: MealType | null;
   description: string | null;
   selectedDate: string | null;
   metrics: HomeMetrics;
@@ -107,9 +107,8 @@ function FoodCard({ mealType, description, selectedDate, metrics }: FoodCardProp
   const bottomIconSize = Math.round(24 * FOOD_CARD_BOTTOM_ICON_SCALE);
   const dayLabelLeft = `${FOOD_CARD_LABEL_CENTER_PERCENT - FOOD_CARD_LABEL_WIDTH_PERCENT / 2}%`;
   const dayLabelWidth = `${FOOD_CARD_LABEL_WIDTH_PERCENT}%`;
-  const descriptionLeft = `${
-    FOOD_CARD_DESCRIPTION_CENTER_PERCENT - FOOD_CARD_DESCRIPTION_WIDTH_PERCENT / 2
-  }%`;
+  const descriptionLeft = `${FOOD_CARD_DESCRIPTION_CENTER_PERCENT - FOOD_CARD_DESCRIPTION_WIDTH_PERCENT / 2
+    }%`;
   const descriptionWidth = `${FOOD_CARD_DESCRIPTION_WIDTH_PERCENT}%`;
   const dayNameColor = topLeftLabel?.isToday ? '#FFB63C' : '#D8D98B';
 
@@ -153,7 +152,7 @@ function FoodCard({ mealType, description, selectedDate, metrics }: FoodCardProp
         <View className="absolute inset-0 px-4 pt-3">
           <View
             className="absolute items-center justify-center"
-            style={{ right: '37%', top: '4%', width: topIconBoxSize, height: topIconBoxSize }}>
+            style={{ right: '35%', top: '5%', width: topIconBoxSize, height: topIconBoxSize }}>
             <FavoriteStarIcon />
           </View>
 
@@ -209,4 +208,3 @@ function FoodCard({ mealType, description, selectedDate, metrics }: FoodCardProp
 }
 
 export { FoodCard };
-export default FoodCard;

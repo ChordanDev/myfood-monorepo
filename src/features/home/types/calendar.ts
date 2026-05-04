@@ -1,11 +1,12 @@
+// Tipos canonicos de comidas y planes. Fuente unica de verdad.
 export type MealType = 'desayuno' | 'almuerzo' | 'cena';
 
+export type CourseType = 'entrada' | 'principal' | 'postre' | 'ensalada' | 'snack';
+
 export type MealPlan = {
-  tipo?: MealType;
-  mealType?: MealType;
-  courseType?: string;
-  descripcion?: string;
-  description?: string;
+  tipo: MealType;
+  courseType: CourseType;
+  descripcion: string;
   ingredients: string[];
   recipe: string;
 };
@@ -22,3 +23,4 @@ export type CalendarProps = {
   weekdayFontSize?: number;
   dayFontSize?: number;
 };
+
