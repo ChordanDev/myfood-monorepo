@@ -1,29 +1,32 @@
 import { useMemo, useState } from 'react';
-import { Alert, Pressable, Text, View } from 'react-native';
+import { ActivityIndicator, Alert, Pressable, Text, View } from 'react-native';
 import Animated from 'react-native-reanimated';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
 import { SafeAreaContent, NoisyBackground } from '@/components';
 import { VerificationActions, VerificationCodeInput } from '../components';
-import { useResendCooldown } from '../hooks';
+import { useResendCooldown, useAuth } from '../hooks';
 import { useKeyboardAnimation } from '@/hooks/useKeyboardAnimation';
 import {
   getVerificationFlowConfig,
   resolveStringParam,
   resolveVerificationFlow,
 } from '../utils/emailCodeVerificationFlow';
+import { COLORS } from '@/constants/theme';
 
 export function EmailCodeVerificationScreen() {
   // Obtiene parametros de la ruta para construir el flujo.
   const router = useRouter();
+  const { signIn, signUp } = useAuth();
   const params = useLocalSearchParams<{ email?: string | string[]; flow?: string | string[] }>();
   const [code, setCode] = useState('');
+  const [isVerifying, setIsVerifying] = useState(false);
   const { secondsLeft, canResend, restart } = useResendCooldown(45);
   const { inputAnimatedStyle } = useKeyboardAnimation();
 
   const email = useMemo(() => resolveStringParam(params.email), [params.email]);
   const flow = useMemo(() => resolveVerificationFlow(params.flow), [params.flow]);
-  const { successTitle, successMessage, resendMessage, successRedirectPath } = useMemo(
+  const { successTitle, successMessage, resendMessage } = useMemo(
     () => getVerificationFlowConfig(flow),
     [flow]
   );
@@ -38,19 +41,37 @@ export function EmailCodeVerificationScreen() {
     return `${localHead}***@${domainPart}`;
   }, [email]);
 
-  const handleVerifyCode = () => {
+  const handleVerifyCode = async () => {
     // Bloquea verificacion hasta completar los 6 digitos.
     if (code.length !== 6) {
       Alert.alert('Código incompleto', 'Ingresa los 6 dígitos para verificar tu cuenta.');
       return;
     }
 
-    Alert.alert(successTitle, successMessage, [
-      {
-        text: 'OK',
-        onPress: () => router.replace(successRedirectPath),
-      },
-    ]);
+    setIsVerifying(true);
+
+    try {
+      // Llama al servicio mock (o real en produccion) segun el flujo.
+      if (flow === 'login') {
+        await signIn(email, code);
+      } else {
+        await signUp(email, code);
+      }
+
+      Alert.alert(successTitle, successMessage, [
+        {
+          text: 'OK',
+          // La navegacion se maneja automaticamente por el guard en index.tsx
+          // al cambiar isAuthenticated a true.
+          onPress: () => router.replace('/'),
+        },
+      ]);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Intenta de nuevo.';
+      Alert.alert('Error de verificación', message);
+    } finally {
+      setIsVerifying(false);
+    }
   };
 
   const handleResendCode = () => {
@@ -60,7 +81,7 @@ export function EmailCodeVerificationScreen() {
     }
 
     restart();
-    Alert.alert('C\u00f3digo reenviado', resendMessage);
+    Alert.alert('Código reenviado', resendMessage);
   };
 
   return (
@@ -87,9 +108,15 @@ export function EmailCodeVerificationScreen() {
               onResend={handleResendCode}
             />
 
-            <Pressable onPress={() => router.back()} className="mt-6 items-center py-1">
-              <Text className="font-inter-regular text-[#F7F2E8]">Cambiar correo</Text>
-            </Pressable>
+            {isVerifying ? (
+              <View className="mt-6 items-center py-1">
+                <ActivityIndicator size="small" color={COLORS.accentYellow} />
+              </View>
+            ) : (
+              <Pressable onPress={() => router.back()} className="mt-6 items-center py-1">
+                <Text className="font-inter-regular text-[#F7F2E8]">Cambiar correo</Text>
+              </Pressable>
+            )}
           </View>
         </Animated.View>
       </SafeAreaContent>

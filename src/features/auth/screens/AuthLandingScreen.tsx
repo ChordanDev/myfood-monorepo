@@ -2,7 +2,7 @@ import { useCallback, useState } from 'react';
 import { View } from 'react-native';
 import Animated from 'react-native-reanimated';
 import { LinearGradient } from 'expo-linear-gradient';
-import { useAuthResponsiveScale } from '../hooks';
+import { useAuth, useAuthResponsiveScale } from '../hooks';
 import { useKeyboardAnimation } from '@/hooks/useKeyboardAnimation';
 import { AUTH_FOOD_IMAGES } from '@/constants/authAssets';
 import { COLORS, GRADIENTS } from '@/constants/theme';
@@ -18,6 +18,7 @@ import { Link } from 'expo-router';
 
 export function AuthLandingScreen() {
   // Estado local para validacion y modal de registro.
+  const { sendVerificationCode } = useAuth();
   const metrics = useAuthResponsiveScale();
   const [isCredentialsValid, setIsCredentialsValid] = useState(false);
   const [loginEmail, setLoginEmail] = useState('');
@@ -34,9 +35,14 @@ export function AuthLandingScreen() {
     setShowRegisterModal(true);
   }, []);
 
-  const handleContinueRegister = useCallback((_email: string) => {
-    setShowRegisterModal(false);
-  }, []);
+  const handleContinueRegister = useCallback(
+    (email: string) => {
+      setShowRegisterModal(false);
+      // Dispara el envio del codigo en background (mock: log en consola).
+      sendVerificationCode(email).catch(() => {});
+    },
+    [sendVerificationCode]
+  );
 
   // Estabiliza la referencia para evitar re-renders en AuthCredentialsForm.
   const handleCredentialsChange = useCallback(({ email }: { email: string }) => {

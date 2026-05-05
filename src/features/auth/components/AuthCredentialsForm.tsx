@@ -54,7 +54,7 @@ export function AuthCredentialsForm({
       <View className="items-center" style={{ paddingTop: showEmailError ? 6 : 0 }}>
         <InputErrorText
           visible={showEmailError}
-          text="Ingresa un correo v\u00e1lido (ejemplo@dominio.com)."
+          text="Ingresa un correo válido (ejemplo@dominio.com)."
           className="font-inter-medium text-[#D8D98B]"
           style={{ fontSize: metrics.formErrorFontSize, textAlign: 'center' }}
         />

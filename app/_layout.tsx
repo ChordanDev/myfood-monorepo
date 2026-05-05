@@ -22,6 +22,7 @@ import {
   Inter_700Bold,
 } from '@expo-google-fonts/inter';
 import { COLORS } from '../src/constants/theme';
+import { AuthProvider } from '../src/features/auth';
 
 export default function RootLayout() {
   // Carga fuentes antes de renderizar la navegacion.
@@ -37,11 +38,6 @@ export default function RootLayout() {
     Inter_600SemiBold,
     Inter_700Bold,
   });
-
-  // TODO: Reemplazar EXPO_PUBLIC_START_HOME por estado de autenticacion real
-  // cuando el backend de Elixir este integrado (ej: token en SecureStore).
-  const startHomeFlag = process.env.EXPO_PUBLIC_START_HOME;
-  const initialRouteName = startHomeFlag === 'true' ? '(tabs)' : 'index';
 
   // Evita una pantalla en blanco mientras cargan las fuentes.
   if (!fontsLoaded && !fontError) {
@@ -69,7 +65,9 @@ export default function RootLayout() {
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <SafeAreaProvider>
-        <Stack initialRouteName={initialRouteName} screenOptions={{ headerShown: false }} />
+        <AuthProvider>
+          <Stack screenOptions={{ headerShown: false }} />
+        </AuthProvider>
       </SafeAreaProvider>
     </GestureHandlerRootView>
   );
