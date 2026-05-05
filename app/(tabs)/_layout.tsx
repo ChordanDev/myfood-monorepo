@@ -6,7 +6,12 @@ import { useAuth } from '../../src/features/auth';
 
 export default function TabsLayout() {
   const insets = useSafeAreaInsets();
-  const { isAuthenticated } = useAuth();
+  const { isAuthenticated, isLoading } = useAuth();
+
+  // Muestra nada mientras se verifica la sesion inicial para evitar redirect falso
+  if (isLoading) {
+    return null;
+  }
 
   // Protege las tabs contra acceso directo sin autenticacion.
   if (!isAuthenticated) {

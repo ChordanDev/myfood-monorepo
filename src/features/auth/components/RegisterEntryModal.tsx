@@ -8,7 +8,7 @@ import {
   Platform,
   useWindowDimensions,
 } from 'react-native';
-import { useRouter } from 'expo-router';
+
 import Animated from 'react-native-reanimated';
 import { useKeyboardAnimation } from '@/hooks/useKeyboardAnimation';
 import { useEmailValidation } from '../hooks';
@@ -22,8 +22,6 @@ interface RegisterEntryModalProps {
 }
 
 export function RegisterEntryModal({ visible, onClose, onContinue }: RegisterEntryModalProps) {
-  // Usa router para navegar al flujo de verificacion.
-  const router = useRouter();
   const { width, height } = useWindowDimensions();
   const { inputAnimatedStyle } = useKeyboardAnimation({
     enabled: visible,
@@ -58,11 +56,6 @@ export function RegisterEntryModal({ visible, onClose, onContinue }: RegisterEnt
     }
 
     onContinue(normalizedRegisterEmail);
-    // Navega a verificacion con email normalizado.
-    router.push({
-      pathname: '/register',
-      params: { email: normalizedRegisterEmail, flow: 'register' },
-    });
   };
 
   return (

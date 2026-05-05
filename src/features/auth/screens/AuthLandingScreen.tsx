@@ -1,5 +1,5 @@
 import { useCallback, useState } from 'react';
-import { View } from 'react-native';
+import { View, Alert } from 'react-native';
 import Animated from 'react-native-reanimated';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useAuth, useAuthResponsiveScale } from '../hooks';
@@ -14,7 +14,7 @@ import {
   SocialLogin,
 } from '../components';
 import { NoisyBackground, SafeAreaContent, TitlePrimary, TopFadeMask } from '@/components';
-import { Link } from 'expo-router';
+import { useRouter } from 'expo-router';
 
 export function AuthLandingScreen() {
   // Estado local para validacion y modal de registro.
@@ -22,6 +22,7 @@ export function AuthLandingScreen() {
   const metrics = useAuthResponsiveScale();
   const [isCredentialsValid, setIsCredentialsValid] = useState(false);
   const [loginEmail, setLoginEmail] = useState('');
+  const router = useRouter();
   const [showRegisterModal, setShowRegisterModal] = useState(false);
   const { inputAnimatedStyle, isKeyboardOpen } = useKeyboardAnimation({
     enabled: !showRegisterModal,
@@ -36,13 +37,32 @@ export function AuthLandingScreen() {
   }, []);
 
   const handleContinueRegister = useCallback(
-    (email: string) => {
-      setShowRegisterModal(false);
-      // Dispara el envio del codigo en background (mock: log en consola).
-      sendVerificationCode(email).catch(() => {});
+    async (email: string) => {
+      try {
+        await sendVerificationCode(email);
+        setShowRegisterModal(false);
+        router.push({
+          pathname: '/register',
+          params: { email, flow: 'register' },
+        });
+      } catch (error) {
+        Alert.alert('Error', 'No se pudo enviar el código. Intenta nuevamente.');
+      }
     },
-    [sendVerificationCode]
+    [sendVerificationCode, router]
   );
+
+  const handleLogin = useCallback(async () => {
+    try {
+      await sendVerificationCode(loginEmail);
+      router.push({
+        pathname: '/register',
+        params: { email: loginEmail, flow: 'login' },
+      });
+    } catch (error) {
+      Alert.alert('Error', 'No se pudo enviar el código. Intenta nuevamente.');
+    }
+  }, [loginEmail, sendVerificationCode, router]);
 
   // Estabiliza la referencia para evitar re-renders en AuthCredentialsForm.
   const handleCredentialsChange = useCallback(({ email }: { email: string }) => {
@@ -76,20 +96,14 @@ export function AuthLandingScreen() {
                     onValidityChange={setIsCredentialsValid}
                     onCredentialsChange={handleCredentialsChange}
                   />
-                  {/* Navega a verificacion si el email es valido. */}
-                  <Link
-                    asChild
-                    href={{
-                      pathname: '/register',
-                      params: { email: loginEmail, flow: 'login' },
-                    }}>
-                    <AuthButton
-                      title="Iniciar Sesión"
-                      variant="primary"
-                      metrics={metrics}
-                      disabled={!isCredentialsValid}
-                    />
-                  </Link>
+                  {/* Navega a verificacion si el email es valido y se envia el codigo. */}
+                  <AuthButton
+                    title="Iniciar Sesión"
+                    variant="primary"
+                    metrics={metrics}
+                    disabled={!isCredentialsValid}
+                    onPress={handleLogin}
+                  />
                 </View>
               </Animated.View>
             </View>

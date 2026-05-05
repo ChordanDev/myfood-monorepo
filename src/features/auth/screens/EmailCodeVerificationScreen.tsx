@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { ActivityIndicator, Alert, Pressable, Text, View } from 'react-native';
 import Animated from 'react-native-reanimated';
-import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter, Redirect, Href } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
 import { SafeAreaContent, NoisyBackground } from '@/components';
 import { VerificationActions, VerificationCodeInput } from '../components';
@@ -17,7 +17,7 @@ import { COLORS } from '@/constants/theme';
 export function EmailCodeVerificationScreen() {
   // Obtiene parametros de la ruta para construir el flujo.
   const router = useRouter();
-  const { signIn, signUp } = useAuth();
+  const { signIn, signUp, sendVerificationCode } = useAuth();
   const params = useLocalSearchParams<{ email?: string | string[]; flow?: string | string[] }>();
   const [code, setCode] = useState('');
   const [isVerifying, setIsVerifying] = useState(false);
@@ -26,7 +26,7 @@ export function EmailCodeVerificationScreen() {
 
   const email = useMemo(() => resolveStringParam(params.email), [params.email]);
   const flow = useMemo(() => resolveVerificationFlow(params.flow), [params.flow]);
-  const { successTitle, successMessage, resendMessage } = useMemo(
+  const { successTitle, successMessage, resendMessage, successRedirectPath } = useMemo(
     () => getVerificationFlowConfig(flow),
     [flow]
   );
@@ -41,12 +41,18 @@ export function EmailCodeVerificationScreen() {
     return `${localHead}***@${domainPart}`;
   }, [email]);
 
+  if (!email) {
+    return <Redirect href="/" />;
+  }
+
   const handleVerifyCode = async () => {
     // Bloquea verificacion hasta completar los 6 digitos.
     if (code.length !== 6) {
       Alert.alert('Código incompleto', 'Ingresa los 6 dígitos para verificar tu cuenta.');
       return;
     }
+
+    if (isVerifying) return;
 
     setIsVerifying(true);
 
@@ -62,8 +68,7 @@ export function EmailCodeVerificationScreen() {
         {
           text: 'OK',
           // La navegacion se maneja automaticamente por el guard en index.tsx
-          // al cambiar isAuthenticated a true.
-          onPress: () => router.replace('/'),
+          onPress: () => router.replace(successRedirectPath as Href<string>),
         },
       ]);
     } catch (error) {
@@ -74,14 +79,19 @@ export function EmailCodeVerificationScreen() {
     }
   };
 
-  const handleResendCode = () => {
+  const handleResendCode = async () => {
     // Respeta el cooldown antes de reenviar.
     if (!canResend) {
       return;
     }
 
-    restart();
-    Alert.alert('Código reenviado', resendMessage);
+    try {
+      await sendVerificationCode(email);
+      restart();
+      Alert.alert('Código reenviado', resendMessage);
+    } catch (error) {
+      Alert.alert('Error', 'No se pudo reenviar el código.');
+    }
   };
 
   return (

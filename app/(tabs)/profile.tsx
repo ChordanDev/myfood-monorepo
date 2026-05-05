@@ -20,7 +20,7 @@ export default function ProfileRoute() {
       <Pressable
         onPress={signOut}
         className="w-full max-w-[200px] items-center rounded-2xl py-3 active:opacity-80"
-        style={{ backgroundColor: COLORS.errorRed || '#8A1F1F' }}>
+        style={{ backgroundColor: COLORS.textError }}>
         <Text className="font-inter-semibold text-base" style={{ color: COLORS.textLight }}>
           Cerrar Sesión
         </Text>
