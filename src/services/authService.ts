@@ -43,7 +43,6 @@ function buildMockToken(): string {
  */
 export async function sendVerificationCode(email: string): Promise<void> {
   await mockDelay();
-  // eslint-disable-next-line no-console
   console.log(`[authService MOCK] Codigo de verificacion enviado a ${email}`);
 }
 

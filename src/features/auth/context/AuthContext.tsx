@@ -26,7 +26,6 @@ export function AuthProvider({ children }: AuthProviderProps) {
           setToken(session.token);
         }
       } catch (error) {
-        // eslint-disable-next-line no-console
         console.warn('[AuthProvider] Error restaurando sesion:', error);
       } finally {
         if (!cancelled) {

@@ -18,7 +18,10 @@ export function clamp(value: number, min: number, max: number): number {
  * @param size - Bucket del dispositivo actual.
  * @param values - Tupla [xs, sm, md, lg].
  */
-export function scaleByBucket(size: PhoneSizeBucket, values: [number, number, number, number]): number {
+export function scaleByBucket(
+  size: PhoneSizeBucket,
+  values: [number, number, number, number]
+): number {
   const map: Record<PhoneSizeBucket, number> = {
     xs: values[0],
     sm: values[1],

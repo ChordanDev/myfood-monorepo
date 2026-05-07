@@ -89,7 +89,7 @@ export function EmailCodeVerificationScreen() {
       await sendVerificationCode(email);
       restart();
       Alert.alert('Código reenviado', resendMessage);
-    } catch (error) {
+    } catch {
       Alert.alert('Error', 'No se pudo reenviar el código.');
     }
   };

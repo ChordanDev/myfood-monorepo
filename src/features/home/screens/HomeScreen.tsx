@@ -15,7 +15,7 @@ export function HomeScreen() {
   const metrics = useHomeResponsiveScale();
   // useMemo evita que planByDate sea una referencia nueva en cada render.
   const planByDate = useMemo(() => getMockPlanByDate(), []);
-  
+
   // Logica de negocio extraida a un hook dedicado.
   const {
     selectedDate,

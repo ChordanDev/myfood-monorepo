@@ -10,7 +10,9 @@ export default function IndexScreen() {
   // Mientras se restaura la sesion, muestra un spinner.
   if (isLoading) {
     return (
-      <View className="flex-1 items-center justify-center" style={{ backgroundColor: COLORS.bgDarkest }}>
+      <View
+        className="flex-1 items-center justify-center"
+        style={{ backgroundColor: COLORS.bgDarkest }}>
         <ActivityIndicator size="small" color={COLORS.accentYellow} />
       </View>
     );

@@ -23,4 +23,3 @@ export type CalendarProps = {
   weekdayFontSize?: number;
   dayFontSize?: number;
 };
-

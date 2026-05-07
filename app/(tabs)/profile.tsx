@@ -6,13 +6,17 @@ export default function ProfileRoute() {
   const { signOut, user } = useAuth();
 
   return (
-    <View className="flex-1 items-center justify-center px-6" style={{ backgroundColor: COLORS.bgDarkest }}>
+    <View
+      className="flex-1 items-center justify-center px-6"
+      style={{ backgroundColor: COLORS.bgDarkest }}>
       <Text style={{ color: COLORS.textLight }} className="mb-2 font-inter-medium text-base">
         Perfil
       </Text>
-      
+
       {user && (
-        <Text style={{ color: COLORS.accentGreenMuted }} className="mb-8 font-inter-regular text-sm">
+        <Text
+          style={{ color: COLORS.accentGreenMuted }}
+          className="font-inter-regular mb-8 text-sm">
           {user.email}
         </Text>
       )}

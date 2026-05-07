@@ -42,7 +42,9 @@ export default function RootLayout() {
   // Evita una pantalla en blanco mientras cargan las fuentes.
   if (!fontsLoaded && !fontError) {
     return (
-      <View className="flex-1 items-center justify-center" style={{ backgroundColor: COLORS.bgDarkest }}>
+      <View
+        className="flex-1 items-center justify-center"
+        style={{ backgroundColor: COLORS.bgDarkest }}>
         <ActivityIndicator size="small" color={COLORS.accentYellow} />
       </View>
     );
@@ -51,8 +53,10 @@ export default function RootLayout() {
   // Muestra un error visible si las fuentes no pudieron cargarse.
   if (fontError) {
     return (
-      <View className="flex-1 items-center justify-center px-6" style={{ backgroundColor: COLORS.bgDarkest }}>
-        <Text className="font-bold text-lg" style={{ color: COLORS.accentOrange }}>
+      <View
+        className="flex-1 items-center justify-center px-6"
+        style={{ backgroundColor: COLORS.bgDarkest }}>
+        <Text className="text-lg font-bold" style={{ color: COLORS.accentOrange }}>
           Error cargando fuentes
         </Text>
         <Text className="mt-2 text-center text-sm" style={{ color: COLORS.textLight }}>

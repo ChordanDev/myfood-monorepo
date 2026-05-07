@@ -5,7 +5,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { useAuth, useAuthResponsiveScale } from '../hooks';
 import { useKeyboardAnimation } from '@/hooks/useKeyboardAnimation';
 import { AUTH_FOOD_IMAGES } from '@/constants/authAssets';
-import { COLORS, GRADIENTS } from '@/constants/theme';
+import { GRADIENTS } from '@/constants/theme';
 import {
   AuthButton,
   AuthCredentialsForm,
@@ -45,7 +45,7 @@ export function AuthLandingScreen() {
           pathname: '/register',
           params: { email, flow: 'register' },
         });
-      } catch (error) {
+      } catch {
         Alert.alert('Error', 'No se pudo enviar el código. Intenta nuevamente.');
       }
     },
@@ -59,7 +59,7 @@ export function AuthLandingScreen() {
         pathname: '/register',
         params: { email: loginEmail, flow: 'login' },
       });
-    } catch (error) {
+    } catch {
       Alert.alert('Error', 'No se pudo enviar el código. Intenta nuevamente.');
     }
   }, [loginEmail, sendVerificationCode, router]);

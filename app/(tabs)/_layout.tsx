@@ -1,4 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
+import { LinearGradient } from 'expo-linear-gradient';
 import { Redirect, Tabs } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { COLORS } from '../../src/constants/theme';
@@ -26,10 +27,20 @@ export default function TabsLayout() {
         tabBarActiveTintColor: COLORS.accentYellow,
         tabBarInactiveTintColor: COLORS.accentGreenMuted,
         tabBarStyle: {
-          backgroundColor: COLORS.bgOlive,
-          borderTopColor: COLORS.borderDark,
+          backgroundColor: 'transparent',
+          borderTopWidth: 0,
+          elevation: 0,
           height: insets.bottom + 50,
         },
+        tabBarBackground: () => (
+          <LinearGradient
+            colors={['#15180F', '#0D1007']}
+            locations={[0.61, 1]}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 0, y: 1 }}
+            style={{ flex: 1 }}
+          />
+        ),
         tabBarItemStyle: {
           paddingTop: 6,
           paddingBottom: 6,

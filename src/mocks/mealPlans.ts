@@ -92,7 +92,7 @@ export function getMockMealsForDate(planByDate: PlanByDate, dateKey: string): Me
 export function getMockMealsByType(
   planByDate: PlanByDate,
   dateKey: string,
-  mealType: MealType,
+  mealType: MealType
 ): MealPlan[] {
   return getMockMealsForDate(planByDate, dateKey).filter((meal) => meal.tipo === mealType);
 }
