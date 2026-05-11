@@ -1,11 +1,10 @@
-import { useEffect } from 'react';
-import { Pressable, StyleSheet, View } from 'react-native';
+import { useEffect, useState } from 'react';
+import { Pressable, StyleSheet, View, LayoutChangeEvent } from 'react-native';
 import Animated, {
   useAnimatedStyle,
   useSharedValue,
   withTiming,
   Easing,
-  withSequence,
 } from 'react-native-reanimated';
 import { ShadowSurface } from '@/components';
 import type { MealType } from '@/mocks';
@@ -32,6 +31,7 @@ interface SwitcherItemProps {
   isUnavailable: boolean;
   onPress: () => void;
   metrics: HomeMetrics;
+  onLayout: (event: LayoutChangeEvent) => void;
 }
 
 const SwitcherItem = ({
@@ -40,64 +40,27 @@ const SwitcherItem = ({
   isUnavailable,
   onPress,
   metrics,
+  onLayout,
 }: SwitcherItemProps) => {
-  const width = useSharedValue(isActive ? 100 : 30);
-  const opacity = useSharedValue(isActive ? 1 : 0);
-  const textScale = useSharedValue(1);
-
-  useEffect(() => {
-    if (isActive) {
-      // Fondo: Aparece suavemente de círculo a píldora
-      opacity.value = withTiming(1, { duration: 250, easing: Easing.out(Easing.quad) });
-      width.value = withTiming(100, { duration: 300, easing: Easing.out(Easing.quad) });
-
-      // Texto: Pequeño pop bounce
-      textScale.value = 0.8;
-      textScale.value = withSequence(
-        withTiming(1.1, { duration: 150, easing: Easing.out(Easing.quad) }),
-        withTiming(1, { duration: 150, easing: Easing.out(Easing.quad) })
-      );
-    } else {
-      // Desaparece y vuelve a forma circular
-      opacity.value = withTiming(0, { duration: 200, easing: Easing.in(Easing.quad) });
-      width.value = withTiming(30, { duration: 250, easing: Easing.in(Easing.quad) });
-      textScale.value = withTiming(1, { duration: 200 });
-    }
-  }, [isActive, width, opacity, textScale]);
-
-  const animatedBackgroundStyle = useAnimatedStyle(() => ({
-    width: `${width.value}%`,
-    opacity: opacity.value,
-  }));
-
-  const animatedTextStyle = useAnimatedStyle(() => ({
-    transform: [{ scale: textScale.value }],
-  }));
-
   return (
     <Pressable
       onPress={onPress}
+      onLayout={onLayout}
       disabled={isUnavailable}
       className="flex-1 items-center justify-center rounded-3xl"
       accessibilityState={{ disabled: isUnavailable, selected: isActive }}
       style={{
         opacity: isUnavailable && !isActive ? 0.35 : 1,
         paddingVertical: metrics.switcherItemPaddingVertical,
-        paddingHorizontal: metrics.switcherPadding,
+        // Eliminamos el padding horizontal aquí para que el flex-1 distribuya el espacio real uniformemente
       }}>
-      <View style={StyleSheet.absoluteFill} className="items-center justify-center">
-        <Animated.View style={[styles.indicatorBackground, animatedBackgroundStyle]} />
-      </View>
       <Animated.Text
         className="font-inter-semibold"
-        style={[
-          animatedTextStyle,
-          {
-            color: isActive ? '#D8D98B' : isUnavailable ? '#F6F2E8' : '#F5F3D4',
-            fontSize: metrics.switcherFontSize,
-            zIndex: 1,
-          },
-        ]}>
+        style={{
+          color: isActive ? '#D8D98B' : isUnavailable ? '#F6F2E8' : '#F5F3D4',
+          fontSize: metrics.switcherFontSize,
+          zIndex: 1,
+        }}>
         {MEAL_TYPE_LABEL[mealType]}
       </Animated.Text>
     </Pressable>
@@ -111,11 +74,58 @@ export function FoodTypeSwitcher({
   metrics,
 }: FoodTypeSwitcherProps) {
   const availableTypesSet = new Set(availableTypes);
+  const [layouts, setLayouts] = useState<Record<string, { x: number; width: number; height: number }>>({});
+  
+  const translateX = useSharedValue(0);
+  const indicatorWidth = useSharedValue(0);
+  const indicatorHeight = useSharedValue(0);
+  const opacity = useSharedValue(0);
+
+  useEffect(() => {
+    if (value && layouts[value] && Object.keys(layouts).length === ORDERED_MEAL_TYPES.length) {
+      const currentLayout = layouts[value];
+      
+      // Encontrar el ancho interno de la palabra más larga (Desayuno típicamente)
+      // Como estamos usando flex-1 en los botones, su ancho total (width) ya es el mismo para todos
+      // por lo tanto, el indicador solo tiene que medir exactamente lo mismo que el botón actual, o un poco menos para hacer de "píldora"
+      
+      // Queremos que la píldora sea un 90% del ancho del botón flex, centrada
+      const pillWidth = currentLayout.width * 0.90;
+      // Posición X = inicio del botón + la mitad del espacio restante
+      const pillX = currentLayout.x + (currentLayout.width - pillWidth) / 2;
+      
+      translateX.value = withTiming(pillX, { duration: 300, easing: Easing.out(Easing.quad) });
+      indicatorWidth.value = withTiming(pillWidth, { duration: 300, easing: Easing.out(Easing.quad) });
+      indicatorHeight.value = withTiming(currentLayout.height, { duration: 300, easing: Easing.out(Easing.quad) });
+      opacity.value = withTiming(1, { duration: 200 });
+    } else if (!value) {
+      opacity.value = withTiming(0, { duration: 200 });
+    }
+  }, [value, layouts]);
+
+  const animatedIndicatorStyle = useAnimatedStyle(() => ({
+    transform: [{ translateX: translateX.value }],
+    width: indicatorWidth.value,
+    height: indicatorHeight.value,
+    opacity: opacity.value,
+    position: 'absolute',
+    // Alineamos verticalmente respecto al padre considerando el padding general del contenedor
+    top: metrics.switcherPadding,
+  }));
 
   return (
     <ShadowSurface
       className="flex-row rounded-3xl bg-[#1B210E]"
-      style={{ padding: metrics.switcherPadding, borderRadius: metrics.switcherRadius }}>
+      style={{ padding: metrics.switcherPadding, borderRadius: metrics.switcherRadius, position: 'relative' }}>
+      
+      {/* Indicador animado posicionado de forma absoluta dentro del contenedor principal */}
+      <Animated.View 
+        style={[
+          styles.indicatorBackground, 
+          animatedIndicatorStyle,
+        ]} 
+      />
+
       {ORDERED_MEAL_TYPES.map((mealType) => {
         const isActive = value === mealType;
         const isUnavailable = !availableTypesSet.has(mealType);
@@ -128,6 +138,10 @@ export function FoodTypeSwitcher({
             isUnavailable={isUnavailable}
             onPress={() => onChange?.(mealType)}
             metrics={metrics}
+            onLayout={(e) => {
+              const { x, width, height } = e.nativeEvent.layout;
+              setLayouts(prev => ({ ...prev, [mealType]: { x, width, height } }));
+            }}
           />
         );
       })}
@@ -137,7 +151,6 @@ export function FoodTypeSwitcher({
 
 const styles = StyleSheet.create({
   indicatorBackground: {
-    height: '100%',
     backgroundColor: 'rgba(216, 217, 139, 0.15)',
     borderRadius: 20,
     borderWidth: 1,
