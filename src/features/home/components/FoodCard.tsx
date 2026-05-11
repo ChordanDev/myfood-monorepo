@@ -107,9 +107,8 @@ function FoodCard({ mealType, description, selectedDate, metrics }: FoodCardProp
   const bottomIconSize = Math.round(24 * FOOD_CARD_BOTTOM_ICON_SCALE);
   const dayLabelLeft = `${FOOD_CARD_LABEL_CENTER_PERCENT - FOOD_CARD_LABEL_WIDTH_PERCENT / 2}%`;
   const dayLabelWidth = `${FOOD_CARD_LABEL_WIDTH_PERCENT}%`;
-  const descriptionLeft = `${
-    FOOD_CARD_DESCRIPTION_CENTER_PERCENT - FOOD_CARD_DESCRIPTION_WIDTH_PERCENT / 2
-  }%`;
+  const descriptionLeft = `${FOOD_CARD_DESCRIPTION_CENTER_PERCENT - FOOD_CARD_DESCRIPTION_WIDTH_PERCENT / 2
+    }%`;
   const descriptionWidth = `${FOOD_CARD_DESCRIPTION_WIDTH_PERCENT}%`;
   const dayNameColor = topLeftLabel?.isToday ? '#FFB63C' : '#D8D98B';
 
@@ -117,6 +116,7 @@ function FoodCard({ mealType, description, selectedDate, metrics }: FoodCardProp
     <ShadowSurface className="h-full w-full">
       <View className="relative h-full w-full">
         <Svg
+          pointerEvents="none"
           width="100%"
           height="100%"
           viewBox="4 0 263 240"
@@ -174,12 +174,14 @@ function FoodCard({ mealType, description, selectedDate, metrics }: FoodCardProp
             {topLeftLabel ? (
               <Text className="text-center" style={{ letterSpacing: 1 }}>
                 <Text
+                  adjustsFontSizeToFit
                   className="font-montserrat-alt-bold"
                   style={{ color: dayNameColor, fontSize: metrics.foodCardLabelFontSize }}>
                   {topLeftLabel.dayName}
                 </Text>
                 {topLeftLabel.dayNumber ? (
                   <Text
+                    adjustsFontSizeToFit
                     className="font-montserrat-alt-black text-[#FFB63C]"
                     style={{ fontSize: metrics.foodCardNumberFontSize }}>
                     {' '}

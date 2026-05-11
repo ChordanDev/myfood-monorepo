@@ -1,4 +1,6 @@
-import { Pressable, Text } from 'react-native';
+import { Pressable } from 'react-native';
+import { SvgXml } from 'react-native-svg';
+import { PLUS_SVG } from '@/constants/svgIcons';
 import { ShadowSurface } from './ShadowSurface';
 
 interface AddCircleButtonProps {
@@ -32,11 +34,7 @@ export function AddCircleButton({
           borderRadius: radius,
           opacity: disabled ? 0.6 : 1,
         }}>
-        <Text
-          className="font-inter-bold text-[#FFB63C]"
-          style={{ fontSize: plusSize, lineHeight: plusSize }}>
-          +
-        </Text>
+        <SvgXml xml={PLUS_SVG} width={plusSize} height={plusSize} />
       </Pressable>
     </ShadowSurface>
   );
