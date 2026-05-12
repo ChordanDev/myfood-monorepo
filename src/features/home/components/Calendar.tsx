@@ -8,6 +8,7 @@ import Animated, {
   withSequence,
   withSpring,
 } from 'react-native-reanimated';
+import * as Haptics from 'expo-haptics';
 import { ShadowSurface } from '@/components';
 import type { CalendarProps } from '../types/calendar';
 import { formatDateKey, isSelectableDate, startOfDay } from '../utils/calendarDate';
@@ -42,8 +43,8 @@ const ACTIVE_BORDER = 'rgba(255, 182, 60, 0.80)';
 const INACTIVE_BG = 'rgba(216, 217, 139, 0.50)';
 const INACTIVE_BORDER = 'rgba(216, 217, 139, 0.75)';
 
-const TODAY_BG = 'rgba(124, 125, 79, 0.50)';
-const TODAY_BORDER = 'rgba(36, 43, 18, 0.70)';
+const TODAY_BG = 'rgba(216, 217, 139, 0.50)';
+const TODAY_BORDER = 'rgba(36, 43, 18, 1)';
 
 function formatMonthKey(year: number, month: number) {
   return `${year}-${String(month + 1).padStart(2, '0')}`;
@@ -101,8 +102,7 @@ const DayCell = ({
   useEffect(() => {
     if (isSelected) {
       textScale.value = withTiming(1.05, { duration: 250, easing: Easing.out(Easing.quad) });
-      
-      // Animación rápida de agrandar y achicar para el círculo (efecto pop sin rebote)
+
       circleScale.value = withSequence(
         withTiming(1.15, { duration: 100, easing: Easing.out(Easing.quad) }),
         withTiming(1, { duration: 100, easing: Easing.in(Easing.quad) })
@@ -114,7 +114,6 @@ const DayCell = ({
   }, [isSelected, textScale, circleScale]);
 
   const animatedCircleStyle = useAnimatedStyle(() => {
-    // Transición directa de colores (sin opacidad animada) y animación de escala
     return {
       backgroundColor: colors.bg,
       borderColor: colors.border,
@@ -132,7 +131,13 @@ const DayCell = ({
   return (
     <View style={{ width: '14.2857%', alignItems: 'center', marginBottom: 8, zIndex: 1 }}>
       <Pressable
-        onPress={() => onSelect(dateString)}
+        onPress={() => {
+          if (!isSelected) {
+            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+          }
+          onSelect(dateString);
+        }}
+        hitSlop={8}
         disabled={!isSelectable}
         accessibilityRole="button"
         accessibilityState={{ disabled: !isSelectable }}>
@@ -148,10 +153,7 @@ const DayCell = ({
             animatedCircleStyle,
           ]}>
           <Animated.Text
-            style={[
-              { color: textColor, fontSize: dayFontSize },
-              animatedTextStyle,
-            ]}
+            style={[{ color: textColor, fontSize: dayFontSize }, animatedTextStyle]}
             className="font-inter-semibold">
             {dayDate.getDate()}
           </Animated.Text>
