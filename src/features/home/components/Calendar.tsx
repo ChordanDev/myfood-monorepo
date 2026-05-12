@@ -1,14 +1,20 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Pressable, ScrollView, Text, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import Animated, {
+  useAnimatedStyle,
+  useSharedValue,
+  withTiming,
+  Easing,
+  withSequence,
+  withSpring,
+} from 'react-native-reanimated';
 import { ShadowSurface } from '@/components';
 import type { CalendarProps } from '../types/calendar';
 import { formatDateKey, isSelectableDate, startOfDay } from '../utils/calendarDate';
 
 const DAY_TEXT = '#2C2F1D';
 const DISABLED_TEXT = 'rgba(44, 47, 29, 0.45)';
-const SELECTED_BG = '#364025';
-const SELECTED_TEXT = '#F5F3D4';
-const PLANNED_BG = '#FFB63C';
+const SELECTED_TEXT = '#2C2F1D';
 const DEFAULT_DAY_SIZE = 42;
 const DEFAULT_MONTH_FONT_SIZE = 18;
 const DEFAULT_NAV_FONT_SIZE = 20;
@@ -29,6 +35,15 @@ const MONTHS = [
   'Diciembre',
 ];
 const WEEKDAYS = ['D', 'L', 'M', 'M', 'J', 'V', 'S'];
+
+const ACTIVE_BG = 'rgba(255, 182, 60, 0.65)';
+const ACTIVE_BORDER = 'rgba(255, 182, 60, 0.80)';
+
+const INACTIVE_BG = 'rgba(216, 217, 139, 0.50)';
+const INACTIVE_BORDER = 'rgba(216, 217, 139, 0.75)';
+
+const TODAY_BG = 'rgba(124, 125, 79, 0.50)';
+const TODAY_BORDER = 'rgba(36, 43, 18, 0.70)';
 
 function formatMonthKey(year: number, month: number) {
   return `${year}-${String(month + 1).padStart(2, '0')}`;
@@ -58,6 +73,93 @@ function getMonthGrid(year: number, month: number): MonthGridCell[] {
     };
   });
 }
+
+const DayCell = ({
+  dayDate,
+  dateString,
+  isSelectable,
+  isSelected,
+  isToday,
+  isPlanned,
+  daySize,
+  dayFontSize,
+  textColor,
+  onSelect,
+}: any) => {
+  const textScale = useSharedValue(1);
+  const circleScale = useSharedValue(1);
+
+  const getColors = () => {
+    if (isSelected) return { bg: ACTIVE_BG, border: ACTIVE_BORDER, borderWidth: 1 };
+    if (isToday) return { bg: TODAY_BG, border: TODAY_BORDER, borderWidth: 1 };
+    if (isPlanned) return { bg: INACTIVE_BG, border: INACTIVE_BORDER, borderWidth: 1 };
+    return { bg: 'transparent', border: 'transparent', borderWidth: 0 };
+  };
+
+  const colors = getColors();
+
+  useEffect(() => {
+    if (isSelected) {
+      textScale.value = withTiming(1.05, { duration: 250, easing: Easing.out(Easing.quad) });
+      
+      // Animación rápida de agrandar y achicar para el círculo (efecto pop sin rebote)
+      circleScale.value = withSequence(
+        withTiming(1.15, { duration: 100, easing: Easing.out(Easing.quad) }),
+        withTiming(1, { duration: 100, easing: Easing.in(Easing.quad) })
+      );
+    } else {
+      textScale.value = withTiming(1, { duration: 200, easing: Easing.in(Easing.quad) });
+      circleScale.value = withTiming(1, { duration: 150 });
+    }
+  }, [isSelected, textScale, circleScale]);
+
+  const animatedCircleStyle = useAnimatedStyle(() => {
+    // Transición directa de colores (sin opacidad animada) y animación de escala
+    return {
+      backgroundColor: colors.bg,
+      borderColor: colors.border,
+      borderWidth: colors.borderWidth,
+      transform: [{ scale: circleScale.value }],
+    };
+  });
+
+  const animatedTextStyle = useAnimatedStyle(() => {
+    return {
+      transform: [{ scale: textScale.value }],
+    };
+  });
+
+  return (
+    <View style={{ width: '14.2857%', alignItems: 'center', marginBottom: 8, zIndex: 1 }}>
+      <Pressable
+        onPress={() => onSelect(dateString)}
+        disabled={!isSelectable}
+        accessibilityRole="button"
+        accessibilityState={{ disabled: !isSelectable }}>
+        <Animated.View
+          style={[
+            {
+              width: daySize,
+              height: daySize,
+              borderRadius: daySize / 2,
+              alignItems: 'center',
+              justifyContent: 'center',
+            },
+            animatedCircleStyle,
+          ]}>
+          <Animated.Text
+            style={[
+              { color: textColor, fontSize: dayFontSize },
+              animatedTextStyle,
+            ]}
+            className="font-inter-semibold">
+            {dayDate.getDate()}
+          </Animated.Text>
+        </Animated.View>
+      </Pressable>
+    </View>
+  );
+};
 
 export function Calendar({
   planByDate = {},
@@ -110,11 +212,11 @@ export function Calendar({
   }, [allowedMonthKeys, currentMonthIndex, hasAllowedMonths]);
 
   const monthGrid = useMemo(() => getMonthGrid(year, month), [year, month]);
+
   const handlePrevAllowedMonth = () => {
     if (!hasAllowedMonths || currentMonthIndex <= 0) {
       return;
     }
-
     setCurrentMonth(parseMonthKey(allowedMonthKeys[currentMonthIndex - 1]));
   };
 
@@ -126,7 +228,6 @@ export function Calendar({
     ) {
       return;
     }
-
     setCurrentMonth(parseMonthKey(allowedMonthKeys[currentMonthIndex + 1]));
   };
 
@@ -143,7 +244,7 @@ export function Calendar({
 
   return (
     <ShadowSurface
-      className="w-full rounded-3xl bg-[#899064]"
+      className="w-full rounded-3xl bg-[#899064] opacity-90"
       style={{ flex: 1, borderRadius: 24 }}>
       <View className="w-full overflow-hidden rounded-3xl" style={{ flex: 1 }}>
         <View className="mb-3 flex-row items-center justify-center gap-6 px-1">
@@ -190,7 +291,7 @@ export function Calendar({
           bounces={true}
           alwaysBounceVertical={false}
           nestedScrollEnabled>
-          <View className="flex-row flex-wrap px-1 pt-2">
+          <View className="relative flex-row flex-wrap px-1 pt-2">
             {monthGrid.map((cell) => {
               const dayDate = cell.date;
               const dateString = formatDateKey(dayDate);
@@ -198,14 +299,7 @@ export function Calendar({
               const isSelected = activeSelectedDate === dateString;
               const isToday = dateString === todayKey;
               const isPlanned = Boolean(planByDate[dateString]?.length);
-              const hasCircle = isSelected || isToday || isPlanned;
-              const borderColor = !isSelected && isToday ? SELECTED_BG : 'transparent';
-              const borderWidth = !isSelected && isToday ? 2 : 0;
-              const backgroundColor = isSelected
-                ? SELECTED_BG
-                : isPlanned
-                  ? PLANNED_BG
-                  : 'transparent';
+
               const textColor = isSelected
                 ? SELECTED_TEXT
                 : isSelectable
@@ -213,31 +307,19 @@ export function Calendar({
                   : DISABLED_TEXT;
 
               return (
-                <View
+                <DayCell
                   key={dateString}
-                  style={{ width: '14.2857%', alignItems: 'center', marginBottom: 8 }}>
-                  <Pressable
-                    onPress={() => handleSelectDate(dateString)}
-                    disabled={!isSelectable}
-                    accessibilityRole="button"
-                    accessibilityState={{ disabled: !isSelectable }}
-                    style={{
-                      width: daySize,
-                      height: daySize,
-                      borderRadius: hasCircle ? daySize / 2 : 0,
-                      borderColor: borderColor,
-                      borderWidth: borderWidth,
-                      backgroundColor,
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                    }}>
-                    <Text
-                      style={{ color: textColor, fontSize: dayFontSize }}
-                      className="font-inter-semibold">
-                      {dayDate.getDate()}
-                    </Text>
-                  </Pressable>
-                </View>
+                  dayDate={dayDate}
+                  dateString={dateString}
+                  isSelectable={isSelectable}
+                  isSelected={isSelected}
+                  isToday={isToday}
+                  isPlanned={isPlanned}
+                  daySize={daySize}
+                  dayFontSize={dayFontSize}
+                  textColor={textColor}
+                  onSelect={handleSelectDate}
+                />
               );
             })}
           </View>
@@ -246,3 +328,5 @@ export function Calendar({
     </ShadowSurface>
   );
 }
+
+const styles = StyleSheet.create({});
