@@ -44,7 +44,7 @@ const INACTIVE_BG = 'rgba(216, 217, 139, 0.50)';
 const INACTIVE_BORDER = 'rgba(216, 217, 139, 0.75)';
 
 const TODAY_BG = 'rgba(216, 217, 139, 0.50)';
-const TODAY_BORDER = 'rgba(36, 43, 18, 1)';
+const TODAY_BORDER = 'rgba(216, 217, 139, 0.75)';
 
 function formatMonthKey(year: number, month: number) {
   return `${year}-${String(month + 1).padStart(2, '0')}`;
@@ -288,7 +288,8 @@ export function Calendar({
         </View>
         <View className="h-px w-full bg-[#364025] opacity-30" />
         <ScrollView
-          contentContainerStyle={{ paddingBottom: 0, flexGrow: 0 }}
+          style={{ flex: 1 }}
+          contentContainerStyle={{ paddingBottom: 8, flexGrow: 1 }}
           showsVerticalScrollIndicator={false}
           bounces={true}
           alwaysBounceVertical={false}

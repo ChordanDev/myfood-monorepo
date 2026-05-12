@@ -8,11 +8,14 @@ import { FoodCard } from '../components/FoodCard';
 import { useHomeResponsiveScale } from '../hooks/useHomeResponsiveScale';
 import { useHomeState } from '../hooks/useHomeState';
 import { GRADIENTS } from '@/constants/theme';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 const FOOD_CARD_IMAGE = require('../../../../assets/AuthFoodImages/Gemini_Generated_Image_16g8h616g8h616g8-removebg-preview.png');
 
 export function HomeScreen() {
   const metrics = useHomeResponsiveScale();
+  const insets = useSafeAreaInsets();
+  const tabBarHeight = insets.bottom + 60;
   // useMemo evita que planByDate sea una referencia nueva en cada render.
   const planByDate = useMemo(() => getMockPlanByDate(), []);
 
@@ -43,7 +46,7 @@ export function HomeScreen() {
           className="w-full flex-1"
           style={{
             paddingHorizontal: metrics.horizontalPadding,
-            paddingBottom: metrics.bottomPadding,
+            paddingBottom: metrics.bottomPadding + tabBarHeight,
             gap: metrics.sectionGap,
           }}>
           <View className="h-3/6 flex-shrink" style={{ gap: metrics.rowGap }}>
