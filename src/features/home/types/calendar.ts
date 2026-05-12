@@ -13,6 +13,11 @@ export type MealPlan = {
 
 export type PlanByDate = Record<string, MealPlan[]>;
 
+export type MonthGridCell = {
+  date: Date;
+  isCurrentMonth: boolean;
+};
+
 export type CalendarProps = {
   planByDate?: PlanByDate;
   selectedDate?: string | null;
