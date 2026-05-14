@@ -74,8 +74,10 @@ export function FoodTypeSwitcher({
   metrics,
 }: FoodTypeSwitcherProps) {
   const availableTypesSet = new Set(availableTypes);
-  const [layouts, setLayouts] = useState<Record<string, { x: number; width: number; height: number }>>({});
-  
+  const [layouts, setLayouts] = useState<
+    Record<string, { x: number; width: number; height: number }>
+  >({});
+
   const translateX = useSharedValue(0);
   const indicatorWidth = useSharedValue(0);
   const indicatorHeight = useSharedValue(0);
@@ -84,19 +86,25 @@ export function FoodTypeSwitcher({
   useEffect(() => {
     if (value && layouts[value] && Object.keys(layouts).length === ORDERED_MEAL_TYPES.length) {
       const currentLayout = layouts[value];
-      
+
       // Encontrar el ancho interno de la palabra más larga (Desayuno típicamente)
       // Como estamos usando flex-1 en los botones, su ancho total (width) ya es el mismo para todos
       // por lo tanto, el indicador solo tiene que medir exactamente lo mismo que el botón actual, o un poco menos para hacer de "píldora"
-      
+
       // Queremos que la píldora sea un 90% del ancho del botón flex, centrada
-      const pillWidth = currentLayout.width * 0.90;
+      const pillWidth = currentLayout.width * 0.9;
       // Posición X = inicio del botón + la mitad del espacio restante
       const pillX = currentLayout.x + (currentLayout.width - pillWidth) / 2;
-      
+
       translateX.value = withTiming(pillX, { duration: 300, easing: Easing.out(Easing.quad) });
-      indicatorWidth.value = withTiming(pillWidth, { duration: 300, easing: Easing.out(Easing.quad) });
-      indicatorHeight.value = withTiming(currentLayout.height, { duration: 300, easing: Easing.out(Easing.quad) });
+      indicatorWidth.value = withTiming(pillWidth, {
+        duration: 300,
+        easing: Easing.out(Easing.quad),
+      });
+      indicatorHeight.value = withTiming(currentLayout.height, {
+        duration: 300,
+        easing: Easing.out(Easing.quad),
+      });
       opacity.value = withTiming(1, { duration: 200 });
     } else if (!value) {
       opacity.value = withTiming(0, { duration: 200 });
@@ -116,15 +124,13 @@ export function FoodTypeSwitcher({
   return (
     <ShadowSurface
       className="flex-row rounded-3xl bg-[#1B210E]"
-      style={{ padding: metrics.switcherPadding, borderRadius: metrics.switcherRadius, position: 'relative' }}>
-      
+      style={{
+        padding: metrics.switcherPadding,
+        borderRadius: metrics.switcherRadius,
+        position: 'relative',
+      }}>
       {/* Indicador animado posicionado de forma absoluta dentro del contenedor principal */}
-      <Animated.View 
-        style={[
-          styles.indicatorBackground, 
-          animatedIndicatorStyle,
-        ]} 
-      />
+      <Animated.View style={[styles.indicatorBackground, animatedIndicatorStyle]} />
 
       {ORDERED_MEAL_TYPES.map((mealType) => {
         const isActive = value === mealType;
@@ -140,7 +146,7 @@ export function FoodTypeSwitcher({
             metrics={metrics}
             onLayout={(e) => {
               const { x, width, height } = e.nativeEvent.layout;
-              setLayouts(prev => ({ ...prev, [mealType]: { x, width, height } }));
+              setLayouts((prev) => ({ ...prev, [mealType]: { x, width, height } }));
             }}
           />
         );

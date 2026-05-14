@@ -39,7 +39,9 @@ export function useCalendarState(
   const currentMonthIndex = allowedMonthKeys.indexOf(currentMonthKey);
   const hasAllowedMonths = allowedMonthKeys.length > 0;
   const isPrevDisabled = hasAllowedMonths ? currentMonthIndex <= 0 : false;
-  const isNextDisabled = hasAllowedMonths ? currentMonthIndex >= allowedMonthKeys.length - 1 : false;
+  const isNextDisabled = hasAllowedMonths
+    ? currentMonthIndex >= allowedMonthKeys.length - 1
+    : false;
 
   useEffect(() => {
     if (!hasAllowedMonths) {

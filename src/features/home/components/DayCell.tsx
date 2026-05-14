@@ -39,9 +39,16 @@ export function DayCell({
   const circleScale = useSharedValue(1);
 
   const getColors = () => {
-    if (isSelected) return { bg: CALENDAR_COLORS.activeBg, border: CALENDAR_COLORS.activeBorder, borderWidth: 1 };
-    if (isToday) return { bg: CALENDAR_COLORS.todayBg, border: CALENDAR_COLORS.todayBorder, borderWidth: 1 };
-    if (isPlanned) return { bg: CALENDAR_COLORS.inactiveBg, border: CALENDAR_COLORS.inactiveBorder, borderWidth: 1 };
+    if (isSelected)
+      return { bg: CALENDAR_COLORS.activeBg, border: CALENDAR_COLORS.activeBorder, borderWidth: 1 };
+    if (isToday)
+      return { bg: CALENDAR_COLORS.todayBg, border: CALENDAR_COLORS.todayBorder, borderWidth: 1 };
+    if (isPlanned)
+      return {
+        bg: CALENDAR_COLORS.inactiveBg,
+        border: CALENDAR_COLORS.inactiveBorder,
+        borderWidth: 1,
+      };
     return { bg: 'transparent', border: 'transparent', borderWidth: 0 };
   };
 

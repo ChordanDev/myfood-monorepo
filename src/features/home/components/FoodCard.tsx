@@ -107,8 +107,9 @@ function FoodCard({ mealType, description, selectedDate, metrics }: FoodCardProp
   const bottomIconSize = Math.round(24 * FOOD_CARD_BOTTOM_ICON_SCALE);
   const dayLabelLeft = `${FOOD_CARD_LABEL_CENTER_PERCENT - FOOD_CARD_LABEL_WIDTH_PERCENT / 2}%`;
   const dayLabelWidth = `${FOOD_CARD_LABEL_WIDTH_PERCENT}%`;
-  const descriptionLeft = `${FOOD_CARD_DESCRIPTION_CENTER_PERCENT - FOOD_CARD_DESCRIPTION_WIDTH_PERCENT / 2
-    }%`;
+  const descriptionLeft = `${
+    FOOD_CARD_DESCRIPTION_CENTER_PERCENT - FOOD_CARD_DESCRIPTION_WIDTH_PERCENT / 2
+  }%`;
   const descriptionWidth = `${FOOD_CARD_DESCRIPTION_WIDTH_PERCENT}%`;
   const dayNameColor = topLeftLabel?.isToday ? '#FFB63C' : '#D8D98B';
 
