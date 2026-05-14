@@ -1,4 +1,11 @@
-import { Pressable, Text } from 'react-native';
+import { useEffect, useState } from 'react';
+import { Pressable, StyleSheet, View, LayoutChangeEvent } from 'react-native';
+import Animated, {
+  useAnimatedStyle,
+  useSharedValue,
+  withTiming,
+  Easing,
+} from 'react-native-reanimated';
 import { ShadowSurface } from '@/components';
 import type { MealType } from '@/mocks';
 import type { HomeMetrics } from '../utils/responsive';
@@ -18,6 +25,48 @@ const MEAL_TYPE_LABEL: Record<MealType, string> = {
   cena: 'Cena',
 };
 
+interface SwitcherItemProps {
+  mealType: MealType;
+  isActive: boolean;
+  isUnavailable: boolean;
+  onPress: () => void;
+  metrics: HomeMetrics;
+  onLayout: (event: LayoutChangeEvent) => void;
+}
+
+const SwitcherItem = ({
+  mealType,
+  isActive,
+  isUnavailable,
+  onPress,
+  metrics,
+  onLayout,
+}: SwitcherItemProps) => {
+  return (
+    <Pressable
+      onPress={onPress}
+      onLayout={onLayout}
+      disabled={isUnavailable}
+      className="flex-1 items-center justify-center rounded-3xl"
+      accessibilityState={{ disabled: isUnavailable, selected: isActive }}
+      style={{
+        opacity: isUnavailable && !isActive ? 0.35 : 1,
+        paddingVertical: metrics.switcherItemPaddingVertical,
+        // Eliminamos el padding horizontal aquí para que el flex-1 distribuya el espacio real uniformemente
+      }}>
+      <Animated.Text
+        className="font-inter-semibold"
+        style={{
+          color: isActive ? '#D8D98B' : isUnavailable ? '#F6F2E8' : '#F5F3D4',
+          fontSize: metrics.switcherFontSize,
+          zIndex: 1,
+        }}>
+        {MEAL_TYPE_LABEL[mealType]}
+      </Animated.Text>
+    </Pressable>
+  );
+};
+
 export function FoodTypeSwitcher({
   value,
   availableTypes = [],
@@ -25,39 +74,86 @@ export function FoodTypeSwitcher({
   metrics,
 }: FoodTypeSwitcherProps) {
   const availableTypesSet = new Set(availableTypes);
+  const [layouts, setLayouts] = useState<Record<string, { x: number; width: number; height: number }>>({});
+  
+  const translateX = useSharedValue(0);
+  const indicatorWidth = useSharedValue(0);
+  const indicatorHeight = useSharedValue(0);
+  const opacity = useSharedValue(0);
+
+  useEffect(() => {
+    if (value && layouts[value] && Object.keys(layouts).length === ORDERED_MEAL_TYPES.length) {
+      const currentLayout = layouts[value];
+      
+      // Encontrar el ancho interno de la palabra más larga (Desayuno típicamente)
+      // Como estamos usando flex-1 en los botones, su ancho total (width) ya es el mismo para todos
+      // por lo tanto, el indicador solo tiene que medir exactamente lo mismo que el botón actual, o un poco menos para hacer de "píldora"
+      
+      // Queremos que la píldora sea un 90% del ancho del botón flex, centrada
+      const pillWidth = currentLayout.width * 0.90;
+      // Posición X = inicio del botón + la mitad del espacio restante
+      const pillX = currentLayout.x + (currentLayout.width - pillWidth) / 2;
+      
+      translateX.value = withTiming(pillX, { duration: 300, easing: Easing.out(Easing.quad) });
+      indicatorWidth.value = withTiming(pillWidth, { duration: 300, easing: Easing.out(Easing.quad) });
+      indicatorHeight.value = withTiming(currentLayout.height, { duration: 300, easing: Easing.out(Easing.quad) });
+      opacity.value = withTiming(1, { duration: 200 });
+    } else if (!value) {
+      opacity.value = withTiming(0, { duration: 200 });
+    }
+  }, [value, layouts]);
+
+  const animatedIndicatorStyle = useAnimatedStyle(() => ({
+    transform: [{ translateX: translateX.value }],
+    width: indicatorWidth.value,
+    height: indicatorHeight.value,
+    opacity: opacity.value,
+    position: 'absolute',
+    // Alineamos verticalmente respecto al padre considerando el padding general del contenedor
+    top: metrics.switcherPadding,
+  }));
 
   return (
     <ShadowSurface
       className="flex-row rounded-3xl bg-[#1B210E]"
-      style={{ padding: metrics.switcherPadding, borderRadius: metrics.switcherRadius }}>
+      style={{ padding: metrics.switcherPadding, borderRadius: metrics.switcherRadius, position: 'relative' }}>
+      
+      {/* Indicador animado posicionado de forma absoluta dentro del contenedor principal */}
+      <Animated.View 
+        style={[
+          styles.indicatorBackground, 
+          animatedIndicatorStyle,
+        ]} 
+      />
+
       {ORDERED_MEAL_TYPES.map((mealType) => {
         const isActive = value === mealType;
         const isUnavailable = !availableTypesSet.has(mealType);
 
         return (
-          <Pressable
+          <SwitcherItem
             key={mealType}
+            mealType={mealType}
+            isActive={isActive}
+            isUnavailable={isUnavailable}
             onPress={() => onChange?.(mealType)}
-            disabled={isUnavailable}
-            className="flex-1 items-center rounded-3xl"
-            accessibilityState={{ disabled: isUnavailable, selected: isActive }}
-            style={{
-              backgroundColor: isActive ? '#D8D98B' : 'transparent',
-              opacity: isUnavailable && !isActive ? 0.35 : 1,
-              paddingVertical: metrics.switcherItemPaddingVertical,
-              paddingHorizontal: metrics.switcherPadding,
-            }}>
-            <Text
-              className="font-inter-semibold"
-              style={{
-                color: isActive ? '#242B12' : isUnavailable ? '#F6F2E8' : '#F5F3D4',
-                fontSize: metrics.switcherFontSize,
-              }}>
-              {MEAL_TYPE_LABEL[mealType]}
-            </Text>
-          </Pressable>
+            metrics={metrics}
+            onLayout={(e) => {
+              const { x, width, height } = e.nativeEvent.layout;
+              setLayouts(prev => ({ ...prev, [mealType]: { x, width, height } }));
+            }}
+          />
         );
       })}
     </ShadowSurface>
   );
 }
+
+const styles = StyleSheet.create({
+  indicatorBackground: {
+    backgroundColor: 'rgba(216, 217, 139, 0.15)',
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: 'rgba(216, 217, 139, 0.3)',
+  },
+});
