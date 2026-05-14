@@ -1,5 +1,5 @@
 export const CALENDAR_COLORS = {
-  dayText: '#2C2F1D',
+  dayText: '#242B12',
   disabledText: 'rgba(44, 47, 29, 0.45)',
   selectedText: '#2C2F1D',
   activeBg: 'rgba(255, 182, 60, 0.65)',
