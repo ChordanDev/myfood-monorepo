@@ -34,7 +34,7 @@ export function Calendar({
 
   return (
     <ShadowSurface
-      className="w-full rounded-3xl bg-[#899064] opacity-90"
+      className="w-full rounded-3xl bg-[#909574] opacity-100"
       style={{ flex: 1, borderRadius: 24 }}>
       <View className="w-full overflow-hidden rounded-3xl" style={{ flex: 1 }}>
         <View className="mb-3 flex-row items-center justify-center gap-6 px-1">
@@ -46,7 +46,9 @@ export function Calendar({
             style={{ opacity: isPrevDisabled ? 0.35 : 1 }}>
             <Text style={{ color: CALENDAR_COLORS.dayText, fontSize: navFontSize }}>{'<'}</Text>
           </Pressable>
-          <Text className="font-inter-bold" style={{ color: CALENDAR_COLORS.dayText, fontSize: monthFontSize }}>
+          <Text
+            className="font-inter-bold"
+            style={{ color: CALENDAR_COLORS.dayText, fontSize: monthFontSize }}>
             {monthLabel}
           </Text>
           <Pressable
