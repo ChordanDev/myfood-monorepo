@@ -29,15 +29,17 @@ export function AddCircleButton({ size = DEFAULT_BUTTON_SIZE, onPress }: AddCirc
   const radius = Math.round(buttonSize / 2);
   const plusSize = Math.round(buttonSize * 0.55);
 
+  const BORDER_WIDTH = 3;
+  const innerSize = buttonSize - BORDER_WIDTH * 2;
+  const innerRadius = Math.round(innerSize / 2);
+
   const transition = useSharedValue(0);
 
   useEffect(() => {
     transition.value = withRepeat(
-      withSequence(
-        withTiming(1, { duration: 2500, easing: Easing.linear }),
-        withTiming(0, { duration: 0 })
-      ),
-      -1
+      withTiming(1, { duration: 2500, easing: Easing.linear }),
+      -1,
+      false // false significa que no revierte (hace un bucle continuo 0 -> 1 -> 0 -> 1)
     );
 
     return () => {
@@ -48,10 +50,12 @@ export function AddCircleButton({ size = DEFAULT_BUTTON_SIZE, onPress }: AddCirc
   const animatedGradientStyle = useAnimatedStyle(() => ({
     transform: [
       {
-        translateX: interpolate(transition.value, [0, 1], [-2 * buttonSize, 0]),
+        // Trasladamos exactamente el ancho de un botón hacia la izquierda
+        translateX: interpolate(transition.value, [0, 1], [0, -buttonSize]),
       },
     ],
-    width: buttonSize * 3,
+    // El ancho del gradiente es exactamente el doble para que las dos mitades coincidan a la perfección
+    width: buttonSize * 2,
     height: buttonSize,
     position: 'absolute',
     left: 0,
@@ -64,13 +68,13 @@ export function AddCircleButton({ size = DEFAULT_BUTTON_SIZE, onPress }: AddCirc
         onPress={onPress}
         accessibilityRole="button"
         accessibilityLabel="Agregar"
-        className="active:scale-95"
+        className="items-center justify-center active:scale-95"
         style={{
           width: buttonSize,
           height: buttonSize,
           borderRadius: radius,
           overflow: 'hidden',
-          backgroundColor: COLORS.bgCard,
+          backgroundColor: 'transparent',
         }}>
         <Animated.View style={animatedGradientStyle}>
           <LinearGradient
@@ -88,7 +92,16 @@ export function AddCircleButton({ size = DEFAULT_BUTTON_SIZE, onPress }: AddCirc
             style={StyleSheet.absoluteFillObject}
           />
         </Animated.View>
-        <View className="absolute inset-0 items-center justify-center">
+
+        <View
+          style={{
+            width: innerSize,
+            height: innerSize,
+            borderRadius: innerRadius,
+            backgroundColor: COLORS.bgCard,
+            alignItems: 'center',
+            justifyContent: 'center',
+          }}>
           <SvgXml xml={PLUS_SVG} width={plusSize} height={plusSize} />
         </View>
       </Pressable>
