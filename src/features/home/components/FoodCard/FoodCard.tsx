@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { Text, View, StyleSheet, Pressable } from 'react-native';
 import Svg, { Defs, LinearGradient as SvgLinearGradient, Path, Stop } from 'react-native-svg';
 import { ShadowSurface } from '@/components';
-import type { MealType } from '@/mocks';
+import type { MealType } from '@/types/domain';
 import type { HomeMetrics } from '../../utils/responsive';
 
 import {
@@ -13,22 +13,35 @@ import {
 import { getTopLeftLabel } from './utils';
 import { FavoriteStarIcon, SparklesGradientIcon } from './icons';
 import { useFoodCardLayout } from './useFoodCardLayout';
+import { useRecipeTheme } from '@/context/RecipeThemeContext';
 
 interface FoodCardProps {
   mealType: MealType | null;
   description: string | null;
   selectedDate: string | null;
   metrics: HomeMetrics;
+  onPressSparkles?: () => void;
 }
 
-export function FoodCard({ mealType, description, selectedDate, metrics }: FoodCardProps) {
+export function FoodCard({
+  mealType,
+  description,
+  selectedDate,
+  metrics,
+  onPressSparkles,
+}: FoodCardProps) {
+  const { theme } = useRecipeTheme();
   const [isFavorite, setIsFavorite] = useState(false);
   const hasMealData = Boolean(mealType || description?.trim());
   const descriptionText = description?.trim() ?? '';
 
   const topLeftLabel = getTopLeftLabel(selectedDate);
   const layout = useFoodCardLayout(metrics);
-  const dayNameColor = topLeftLabel?.isToday ? '#FFB63C' : '#D8D98B';
+  const dayNameColor = topLeftLabel?.isToday ? '#FFB63C' : theme.primaryAccent;
+
+  const stopColors = hasMealData
+    ? [theme?.foodCardGradient?.[0] || '#364025', theme?.foodCardGradient?.[1] || '#1B210E']
+    : ['#2F3D22', '#1B210E'];
 
   return (
     <ShadowSurface className="h-full w-full">
@@ -42,30 +55,17 @@ export function FoodCard({ mealType, description, selectedDate, metrics }: FoodC
           accessible={false}>
           <Defs>
             <SvgLinearGradient
-              id={FOOD_CARD_GRADIENT_ACTIVE_ID}
+              id="foodCardMainGradient"
               x1="9"
               y1="114.507"
               x2="213.5"
               y2="302.007"
               gradientUnits="userSpaceOnUse">
-              <Stop offset="0.379808" stopColor="#364025" />
-              <Stop offset="0.778846" stopColor="#1B210E" />
-            </SvgLinearGradient>
-            <SvgLinearGradient
-              id={FOOD_CARD_GRADIENT_EMPTY_ID}
-              x1="9"
-              y1="114.507"
-              x2="213.5"
-              y2="302.007"
-              gradientUnits="userSpaceOnUse">
-              <Stop offset="0.379808" stopColor="#2F3D22" />
-              <Stop offset="0.778846" stopColor="#1B210E" />
+              <Stop offset="0.379808" stopColor={stopColors[0]} />
+              <Stop offset="0.778846" stopColor={stopColors[1]} />
             </SvgLinearGradient>
           </Defs>
-          <Path
-            d={FOOD_CARD_SHAPE_PATH}
-            fill={`url(#${hasMealData ? FOOD_CARD_GRADIENT_ACTIVE_ID : FOOD_CARD_GRADIENT_EMPTY_ID})`}
-          />
+          <Path d={FOOD_CARD_SHAPE_PATH} fill="url(#foodCardMainGradient)" />
         </Svg>
 
         <View className="absolute inset-0 px-4 pt-3">
@@ -81,13 +81,16 @@ export function FoodCard({ mealType, description, selectedDate, metrics }: FoodC
             <FavoriteStarIcon isFilled={isFavorite} />
           </Pressable>
 
-          <View
+          <Pressable
+            onPress={onPressSparkles}
+            disabled={!hasMealData}
             className="absolute items-center justify-center"
             style={{
               bottom: '8%',
               right: '8%',
               width: layout.bottomIconBoxSize as any,
               height: layout.bottomIconBoxSize as any,
+              opacity: hasMealData ? 1 : 0.3,
             }}>
             <View
               className="items-center justify-center"
@@ -100,7 +103,7 @@ export function FoodCard({ mealType, description, selectedDate, metrics }: FoodC
               ]}>
               <SparklesGradientIcon size={layout.bottomIconSize} />
             </View>
-          </View>
+          </Pressable>
 
           <View
             className="absolute"
@@ -137,8 +140,9 @@ export function FoodCard({ mealType, description, selectedDate, metrics }: FoodC
               width: layout.descriptionWidth as any,
             }}>
             <Text
-              className="text-center font-inter-medium text-[#F5F3D4]"
+              className="text-center font-inter-medium"
               style={{
+                color: theme.textMain,
                 fontSize: metrics.foodCardDescriptionFontSize as any,
                 lineHeight: metrics.foodCardDescriptionLineHeight as any,
               }}

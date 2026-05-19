@@ -30,7 +30,7 @@ Un asistente personal de nutrición "AI-Native" que gestiona el ciclo completo d
 - **Vista de Receta con Chat Contextual**: Uso de **Contexto Inyectado** para responder dudas sobre ingredientes o pasos.
 - **Estética Dinámica (Rich Aesthetics)**: 
     - Generación de imágenes de platos mediante IA.
-    - **Mapeo Temático**: Cambio del tema visual global (paletas de colores) basado en la imagen de la receta actual, afectando principalmente a la Home.
+    - **Mapeo Temático Basado en Receta**: Cada `MasterRecipe` incluye una configuración de colores predefinida en la DB (`RecipeThemeConfig`). Al seleccionar una comida en el calendario, la aplicación actualiza dinámicamente: el gradiente del `FoodCard`, el fondo de la pantalla (Home), el contenedor del calendario y los acentos de los botones mediante un `RecipeThemeContext`.
 
 ## 4. Definiciones Técnicas Relevantes
 - **Persistencia Híbrida**: La base de datos contiene maestros, mientras que el usuario posee su propia colección de favoritos (pudiendo ser versiones modificadas).

@@ -29,35 +29,17 @@ export function FavoriteStarIcon({ isFilled }: { isFilled?: boolean }) {
 export function SparklesGradientIcon({ size }: { size: number }) {
   return (
     <Svg width={size} height={size} viewBox="0 0 64 64" fill="none" accessible={false}>
-      <Defs>
-        <SvgLinearGradient id="sparklesMainGradient" x1="0%" y1="0%" x2="100%" y2="100%">
-          <Stop offset="0" stopColor="#F08A2B" />
-          <Stop offset="0.56" stopColor="#BFD57D" />
-          <Stop offset="1" stopColor="#F4F1DD" />
-        </SvgLinearGradient>
-        <SvgLinearGradient id="sparklesTopGradient" x1="0%" y1="0%" x2="100%" y2="100%">
-          <Stop offset="0" stopColor="#F08A2B" />
-          <Stop offset="0.56" stopColor="#BFD57D" />
-          <Stop offset="1" stopColor="#F4F1DD" />
-        </SvgLinearGradient>
-        <SvgLinearGradient id="sparklesBottomGradient" x1="0%" y1="0%" x2="100%" y2="100%">
-          <Stop offset="0" stopColor="#F08A2B" />
-          <Stop offset="0.56" stopColor="#BFD57D" />
-          <Stop offset="1" stopColor="#F4F1DD" />
-        </SvgLinearGradient>
-      </Defs>
-
       <Path
         d="M40 17L47 31L61 38L47 45L40 59L33 45L19 38L33 31L40 17Z"
-        fill="url(#sparklesMainGradient)"
+        fill="#FFB63C"
       />
       <Path
         d="M17 2L20.5 9L27.5 12.5L20.5 16L17 23L13.5 16L6.5 12.5L13.5 9L17 2Z"
-        fill="url(#sparklesTopGradient)"
+        fill="#D8D98B"
       />
       <Path
         d="M16 44L18 48L22 50L18 52L16 56L14 52L10 50L14 48L16 44Z"
-        fill="url(#sparklesBottomGradient)"
+        fill="#F5F3D4"
       />
     </Svg>
   );

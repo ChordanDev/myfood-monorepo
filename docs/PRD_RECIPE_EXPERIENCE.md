@@ -10,7 +10,7 @@ Proporcionar una interfaz detallada y asistida por IA para la ejecución de rece
 
 ## 3. Funcionalidades Detalladas
 ### 3.1. Visualización de Receta
-- **Interfaz Tematizada**: La paleta de colores de la pantalla se adapta dinámicamente según la imagen de la comida presente en la **HomeScreen** (Mapeo Temático).
+- **Interfaz Tematizada**: La paleta de colores de la pantalla se adapta dinámicamente consumiendo el `RecipeThemeConfig` de la receta activa. Esto afecta gradientes de fondo, botones de acción y textos.
 - **Ingredientes Aproximados**: Lista con cantidades estimadas.
 - **Pasos de Preparación**: Instrucciones detalladas (estructuradas para mejor lectura).
 

@@ -10,6 +10,8 @@ import { ShadowSurface } from '@/components';
 import type { MealType } from '@/mocks';
 import type { HomeMetrics } from '../utils/responsive';
 
+import { useRecipeTheme } from '@/context/RecipeThemeContext';
+
 interface FoodTypeSwitcherProps {
   value: MealType | null;
   availableTypes?: MealType[];
@@ -42,6 +44,7 @@ const SwitcherItem = ({
   metrics,
   onLayout,
 }: SwitcherItemProps) => {
+  const { theme } = useRecipeTheme();
   return (
     <Pressable
       onPress={onPress}
@@ -57,7 +60,7 @@ const SwitcherItem = ({
       <Animated.Text
         className="font-inter-semibold"
         style={{
-          color: isActive ? '#D8D98B' : isUnavailable ? '#F6F2E8' : '#F5F3D4',
+          color: isActive ? theme.primaryAccent : isUnavailable ? theme.textMain + '72' : theme.textMain,
           fontSize: metrics.switcherFontSize,
           zIndex: 1,
         }}>
@@ -73,6 +76,7 @@ export function FoodTypeSwitcher({
   onChange,
   metrics,
 }: FoodTypeSwitcherProps) {
+  const { theme } = useRecipeTheme();
   const availableTypesSet = new Set(availableTypes);
   const [layouts, setLayouts] = useState<
     Record<string, { x: number; width: number; height: number }>
@@ -119,18 +123,23 @@ export function FoodTypeSwitcher({
     position: 'absolute',
     // Alineamos verticalmente respecto al padre considerando el padding general del contenedor
     top: metrics.switcherPadding,
+    backgroundColor: theme.primaryAccent + '26', // ~15% opacity
+    borderColor: theme.primaryAccent + '4D', // ~30% opacity
+    borderRadius: 20,
+    borderWidth: 1,
   }));
 
   return (
     <ShadowSurface
-      className="flex-row rounded-3xl bg-[#1B210E]"
+      className="flex-row rounded-3xl"
       style={{
         padding: metrics.switcherPadding,
         borderRadius: metrics.switcherRadius,
         position: 'relative',
+        backgroundColor: theme.calendarBg,
       }}>
       {/* Indicador animado posicionado de forma absoluta dentro del contenedor principal */}
-      <Animated.View style={[styles.indicatorBackground, animatedIndicatorStyle]} />
+      <Animated.View style={[animatedIndicatorStyle]} />
 
       {ORDERED_MEAL_TYPES.map((mealType) => {
         const isActive = value === mealType;
@@ -155,11 +164,4 @@ export function FoodTypeSwitcher({
   );
 }
 
-const styles = StyleSheet.create({
-  indicatorBackground: {
-    backgroundColor: 'rgba(216, 217, 139, 0.15)',
-    borderRadius: 20,
-    borderWidth: 1,
-    borderColor: 'rgba(216, 217, 139, 0.3)',
-  },
-});
+const styles = StyleSheet.create({});

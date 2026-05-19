@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, memo } from 'react';
 import { Pressable, View } from 'react-native';
 import Animated, {
   useAnimatedStyle,
@@ -9,6 +9,7 @@ import Animated, {
 } from 'react-native-reanimated';
 import * as Haptics from 'expo-haptics';
 import { CALENDAR_COLORS } from '../constants/calendar';
+import { useRecipeTheme } from '@/context/RecipeThemeContext';
 
 export interface DayCellProps {
   dayDate: Date;
@@ -23,7 +24,7 @@ export interface DayCellProps {
   onSelect: (dateString: string) => void;
 }
 
-export function DayCell({
+export const DayCell = memo(({
   dayDate,
   dateString,
   isSelectable,
@@ -34,13 +35,18 @@ export function DayCell({
   dayFontSize,
   textColor,
   onSelect,
-}: DayCellProps) {
+}: DayCellProps) => {
+  const { theme } = useRecipeTheme();
   const textScale = useSharedValue(1);
   const circleScale = useSharedValue(1);
 
   const getColors = () => {
     if (isSelected)
-      return { bg: CALENDAR_COLORS.activeBg, border: CALENDAR_COLORS.activeBorder, borderWidth: 1 };
+      return {
+        bg: theme.calendarDayActive,
+        border: theme.calendarDayActive,
+        borderWidth: 1,
+      };
     if (isToday)
       return { bg: CALENDAR_COLORS.todayBg, border: CALENDAR_COLORS.todayBorder, borderWidth: 1 };
     if (isPlanned)
@@ -121,4 +127,4 @@ export function DayCell({
       </Pressable>
     </View>
   );
-}
+});

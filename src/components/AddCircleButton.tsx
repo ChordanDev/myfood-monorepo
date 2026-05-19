@@ -16,6 +16,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { PLUS_SVG } from '@/constants/svgIcons';
 import { ShadowSurface } from './ShadowSurface';
 import { COLORS } from '@/constants/theme';
+import { useRecipeTheme } from '@/context/RecipeThemeContext';
 
 interface AddCircleButtonProps {
   size?: number;
@@ -25,6 +26,7 @@ interface AddCircleButtonProps {
 const DEFAULT_BUTTON_SIZE = 56;
 
 export function AddCircleButton({ size = DEFAULT_BUTTON_SIZE, onPress }: AddCircleButtonProps) {
+  const { theme } = useRecipeTheme();
   const buttonSize = Math.round(size);
   const radius = Math.round(buttonSize / 2);
   const plusSize = Math.round(buttonSize * 0.55);
@@ -79,13 +81,11 @@ export function AddCircleButton({ size = DEFAULT_BUTTON_SIZE, onPress }: AddCirc
         <Animated.View style={animatedGradientStyle}>
           <LinearGradient
             colors={[
-              COLORS.bgGreen,
-              COLORS.accentOrange,
-              COLORS.accentYellow,
-              COLORS.bgGreen,
-              COLORS.accentOrange,
-              COLORS.accentYellow,
-              COLORS.bgGreen,
+              theme.calendarBg,
+              theme.primaryAccent,
+              theme.calendarBg,
+              theme.primaryAccent,
+              theme.calendarBg,
             ]}
             start={{ x: 0, y: 0.5 }}
             end={{ x: 1, y: 0.5 }}
@@ -98,11 +98,11 @@ export function AddCircleButton({ size = DEFAULT_BUTTON_SIZE, onPress }: AddCirc
             width: innerSize,
             height: innerSize,
             borderRadius: innerRadius,
-            backgroundColor: COLORS.bgCard,
+            backgroundColor: theme.calendarBg,
             alignItems: 'center',
             justifyContent: 'center',
           }}>
-          <SvgXml xml={PLUS_SVG} width={plusSize} height={plusSize} />
+          <SvgXml xml={PLUS_SVG} width={plusSize} height={plusSize} color={theme.primaryAccent} />
         </View>
       </Pressable>
     </ShadowSurface>
