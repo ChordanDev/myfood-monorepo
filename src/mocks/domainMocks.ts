@@ -30,7 +30,7 @@ export const MOCK_MASTER_RECIPES: MasterRecipe[] = [
       { order: 4, instruction: 'Servir el pollo sobre la cama de arroz.' },
     ],
     imageUrl:
-      'https://images.unsplash.com/photo-1604908176997-125f25cc6f3d?q=80&w=1000&auto=format&fit=crop',
+      '/Users/luccagiordana/Documents/proyectoApp/my-expo-app/assets/AuthFoodImages/Gemini_Generated_Image_16g8h616g8h616g8-removebg-preview.png',
     theme: {
       foodCardGradient: ['#4A2B12', '#110904'],
       primaryAccent: '#FFB63C',
@@ -38,6 +38,11 @@ export const MOCK_MASTER_RECIPES: MasterRecipe[] = [
       calendarBg: '#2E1A0B',
       calendarDayActive: '#FFB63C',
       textMain: '#F7F2E8',
+      tabOvalBg: 'rgba(255, 182, 60, 0.15)',
+      tabOvalBorder: 'rgba(255, 182, 60, 0.3)',
+      tabIconBgActive: 'rgba(255, 182, 60, 0.15)',
+      tabIconBgInactive: 'rgba(255, 182, 60, 0.15)',
+      tabBarGradient: ['#15180F', '#0D1007'], // Gradiente para la tab bar, opcional
     },
   },
   {
@@ -66,6 +71,11 @@ export const MOCK_MASTER_RECIPES: MasterRecipe[] = [
       calendarBg: '#191D0D',
       calendarDayActive: '#D8D98B',
       textMain: '#F5F3D4',
+      tabOvalBg: 'rgba(216, 217, 139, 0.15)',
+      tabOvalBorder: 'rgba(216, 217, 139, 0.3)',
+      tabIconBgActive: 'rgba(216, 217, 139, 1)',
+      tabIconBgInactive: 'rgba(216, 217, 139, 0.75)',
+      tabBarGradient: ['#15180F', '#0D1007'], // Gradiente para la tab bar
     },
   },
 ];
@@ -73,15 +83,62 @@ export const MOCK_MASTER_RECIPES: MasterRecipe[] = [
 export const MOCK_INVENTORY: InventoryItem[] = [
   { ingredientId: 'i1', amount: 500 }, // Medio kilo de arroz
   { ingredientId: 'i5', amount: 250 }, // 250ml de aceite
-  { ingredientId: 'i4', amount: 3 },   // 3 cebollas
+  { ingredientId: 'i4', amount: 3 }, // 3 cebollas
 ];
+
+function formatDateKey(date: Date): string {
+  return date.toISOString().split('T')[0];
+}
+
+function addDays(base: Date, days: number): Date {
+  const result = new Date(base);
+  result.setDate(result.getDate() + days);
+  return result;
+}
+
+const today = new Date();
 
 export const MOCK_MEAL_PLAN: MealPlanEntry[] = [
   {
     id: 'mp1',
-    date: new Date().toISOString().split('T')[0],
+    date: formatDateKey(today),
     type: 'almuerzo',
     recipeId: 'r1',
+    isCooked: false,
+  },
+  {
+    id: 'mp2',
+    date: formatDateKey(today),
+    type: 'cena',
+    recipeId: 'r2',
+    isCooked: false,
+  },
+  {
+    id: 'mp3',
+    date: formatDateKey(addDays(today, 1)),
+    type: 'desayuno',
+    recipeId: 'r2',
+    isCooked: false,
+  },
+  {
+    id: 'mp4',
+    date: formatDateKey(addDays(today, 1)),
+    type: 'almuerzo',
+    recipeId: 'r1',
+    isCooked: false,
+  },
+  {
+    id: 'mp5',
+    date: formatDateKey(addDays(today, 2)),
+    type: 'cena',
+    recipeId: 'r1',
+    isCooked: false,
+  },
+  {
+    id: 'mp6',
+    date: formatDateKey(addDays(today, 3)),
+    type: 'almuerzo',
+    recipeId: 'r2',
     isCooked: false,
   },
 ];

@@ -14,6 +14,11 @@ const DEFAULT_THEME: RecipeThemeConfig = {
   calendarBg: COLORS.bgMedium,
   calendarDayActive: COLORS.accentYellow,
   textMain: COLORS.textLight,
+  tabIconBgActive: 'rgba(216, 217, 139, 0.15)',
+  tabIconBgInactive: 'rgba(216, 217, 139, 0.15)',
+  tabOvalBg: 'rgba(216, 217, 139, 0.15)',
+  tabOvalBorder: 'rgba(216, 217, 139, 0.3)',
+  tabBarGradient: ['#15180F', '#0D1007'], // Gradiente para la tab bar
 };
 
 const RecipeThemeContext = createContext<RecipeThemeContextType | undefined>(undefined);
@@ -30,6 +35,11 @@ export function RecipeThemeProvider({ children }: { children: ReactNode }) {
       // Asegurar que los arrays tengan el tamaño correcto
       foodCardGradient: currentTheme.foodCardGradient ?? DEFAULT_THEME.foodCardGradient,
       appBgGradient: currentTheme.appBgGradient ?? DEFAULT_THEME.appBgGradient,
+      tabIconBgActive: currentTheme.tabIconBgActive ?? DEFAULT_THEME.tabIconBgActive,
+      tabIconBgInactive: currentTheme.tabIconBgInactive ?? DEFAULT_THEME.tabIconBgInactive,
+      tabOvalBg: currentTheme.tabOvalBg ?? DEFAULT_THEME.tabOvalBg,
+      tabOvalBorder: currentTheme.tabOvalBorder ?? DEFAULT_THEME.tabOvalBorder,
+      tabBarGradient: currentTheme.tabBarGradient ?? DEFAULT_THEME.tabBarGradient,
     };
   }, [currentTheme]);
 

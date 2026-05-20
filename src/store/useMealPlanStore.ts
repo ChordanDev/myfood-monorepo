@@ -46,6 +46,7 @@ export const useMealPlanStore = create<MealPlanState>()(
     }),
     {
       name: 'meal-plan-storage',
+      version: 1, // Incrementado para forzar la carga de los nuevos mocks
       storage: createJSONStorage(() => AsyncStorage),
     }
   )
