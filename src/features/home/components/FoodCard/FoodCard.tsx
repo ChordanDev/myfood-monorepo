@@ -5,15 +5,10 @@ import { ShadowSurface } from '@/components';
 import type { MealType } from '@/types/domain';
 import type { HomeMetrics } from '../../utils/responsive';
 
-import {
-  FOOD_CARD_SHAPE_PATH,
-  FOOD_CARD_GRADIENT_ACTIVE_ID,
-  FOOD_CARD_GRADIENT_EMPTY_ID,
-} from './constants';
+import { FOOD_CARD_SHAPE_PATH, FOOD_CARD_GRADIENT_ACTIVE_ID } from './constants';
 import { getTopLeftLabel } from './utils';
 import { FavoriteStarIcon, SparklesGradientIcon } from './icons';
 import { useFoodCardLayout } from './useFoodCardLayout';
-import { useRecipeTheme } from '@/context/RecipeThemeContext';
 
 interface FoodCardProps {
   mealType: MealType | null;
@@ -30,18 +25,13 @@ export function FoodCard({
   metrics,
   onPressSparkles,
 }: FoodCardProps) {
-  const { theme } = useRecipeTheme();
   const [isFavorite, setIsFavorite] = useState(false);
   const hasMealData = Boolean(mealType || description?.trim());
   const descriptionText = description?.trim() ?? '';
 
   const topLeftLabel = getTopLeftLabel(selectedDate);
   const layout = useFoodCardLayout(metrics);
-  const dayNameColor = topLeftLabel?.isToday ? '#FFB63C' : theme.primaryAccent;
-
-  const stopColors = hasMealData
-    ? [theme?.foodCardGradient?.[0] || '#364025', theme?.foodCardGradient?.[1] || '#1B210E']
-    : ['#2F3D22', '#1B210E'];
+  const dayNameColor = topLeftLabel?.isToday ? '#FFB63C' : '#D8D98B';
 
   return (
     <ShadowSurface className="h-full w-full">
@@ -55,17 +45,17 @@ export function FoodCard({
           accessible={false}>
           <Defs>
             <SvgLinearGradient
-              id="foodCardMainGradient"
+              id={FOOD_CARD_GRADIENT_ACTIVE_ID}
               x1="9"
               y1="114.507"
               x2="213.5"
               y2="302.007"
               gradientUnits="userSpaceOnUse">
-              <Stop offset="0.379808" stopColor={stopColors[0]} />
-              <Stop offset="0.778846" stopColor={stopColors[1]} />
+              <Stop offset="0.379808" stopColor="#364025" />
+              <Stop offset="0.778846" stopColor="#1B210E" />
             </SvgLinearGradient>
           </Defs>
-          <Path d={FOOD_CARD_SHAPE_PATH} fill="url(#foodCardMainGradient)" />
+          <Path d={FOOD_CARD_SHAPE_PATH} fill={`url(#${FOOD_CARD_GRADIENT_ACTIVE_ID})`} />
         </Svg>
 
         <View className="absolute inset-0 px-4 pt-3">
@@ -140,9 +130,8 @@ export function FoodCard({
               width: layout.descriptionWidth as any,
             }}>
             <Text
-              className="text-center font-inter-medium"
+              className="text-center font-inter-medium text-[#F5F3D4]"
               style={{
-                color: theme.textMain,
                 fontSize: metrics.foodCardDescriptionFontSize as any,
                 lineHeight: metrics.foodCardDescriptionLineHeight as any,
               }}
