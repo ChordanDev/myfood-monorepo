@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useState, ReactNode, useMemo, useCallback } from 'react';
 import { RecipeThemeConfig } from '@/types/domain';
-import { COLORS, GRADIENTS } from '@/constants/theme';
+import { COLORS } from '@/constants/theme';
 
 interface RecipeThemeContextType {
   theme: RecipeThemeConfig;
@@ -10,7 +10,7 @@ interface RecipeThemeContextType {
 const DEFAULT_THEME: RecipeThemeConfig = {
   foodCardGradient: ['#364025', '#1B210E'],
   primaryAccent: '#D8D98B',
-  appBgGradient: ['#17180E', '#565A41', '#D6C4B1'],
+  appBgGradient: ['#17180E', '#565A41'],
   calendarBg: COLORS.bgMedium,
   calendarDayActive: COLORS.accentYellow,
   textMain: COLORS.textLight,
@@ -19,6 +19,9 @@ const DEFAULT_THEME: RecipeThemeConfig = {
   tabOvalBg: 'rgba(216, 217, 139, 0.15)',
   tabOvalBorder: 'rgba(216, 217, 139, 0.3)',
   tabBarGradient: ['#15180F', '#0D1007'], // Gradiente para la tab bar
+  darkColor: '#1B210E', // ~5% opacity for subtle background
+  primaryAccentIntense: '#FF8400', // Acento primario intenso para elementos destacados
+  lightColor: '#BCBFA7',
 };
 
 const RecipeThemeContext = createContext<RecipeThemeContextType | undefined>(undefined);
@@ -40,6 +43,9 @@ export function RecipeThemeProvider({ children }: { children: ReactNode }) {
       tabOvalBg: currentTheme.tabOvalBg ?? DEFAULT_THEME.tabOvalBg,
       tabOvalBorder: currentTheme.tabOvalBorder ?? DEFAULT_THEME.tabOvalBorder,
       tabBarGradient: currentTheme.tabBarGradient ?? DEFAULT_THEME.tabBarGradient,
+      darkColor: currentTheme.darkColor ?? DEFAULT_THEME.darkColor,
+      primaryAccentIntense: currentTheme.primaryAccentIntense ?? DEFAULT_THEME.primaryAccentIntense,
+      lightColor: currentTheme.lightColor ?? DEFAULT_THEME.lightColor,
     };
   }, [currentTheme]);
 

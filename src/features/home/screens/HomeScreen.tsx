@@ -3,14 +3,13 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
 import { AddCircleButton, NoisyBackground, SafeAreaContent, TitlePrimary } from '@/components';
 import { Calendar, FloatingFoodImage, FoodTypeSwitcher } from '../components';
-import type { MealType as CalendarMealType } from '../types/calendar';
 import { FoodCard } from '../components/FoodCard';
 import { useHomeResponsiveScale } from '../hooks/useHomeResponsiveScale';
 import { useHomeState } from '../hooks/useHomeState';
 import { GRADIENTS } from '@/constants/theme';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useRecipeTheme } from '@/context/RecipeThemeContext';
-import { useEffect, useMemo } from 'react';
+import { useMemo } from 'react';
+import { useHomeRecipeTheme } from '../hooks/useHomeRecipeTheme';
 
 const DEFAULT_FOOD_IMAGE = require('../../../../assets/AuthFoodImages/Gemini_Generated_Image_16g8h616g8h616g8-removebg-preview.png');
 
@@ -19,9 +18,7 @@ export function HomeScreen() {
   const metrics = useHomeResponsiveScale();
   const insets = useSafeAreaInsets();
   const tabBarHeight = insets.bottom + 60;
-  const { theme, setRecipeTheme } = useRecipeTheme();
 
-  // Logica de negocio extraida a un hook dedicado que ahora usa Zustand.
   const {
     selectedDate,
     selectedMealType,
@@ -31,20 +28,9 @@ export function HomeScreen() {
     handleSelectDate,
     handleMealTypeChange,
   } = useHomeState();
+  const theme = useHomeRecipeTheme(selectedMeal);
 
-  // Actualizar el tema global cuando cambia la comida seleccionada con un pequeño delay para estabilidad
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      if (selectedMeal?.theme) {
-        setRecipeTheme(selectedMeal.theme);
-      } else {
-        setRecipeTheme(null);
-      }
-    }, 100);
-    return () => clearTimeout(timer);
-  }, [selectedMeal?.recipeId, setRecipeTheme]);
-
-  const selectedMealDescription = selectedMeal?.descripcion ?? '';
+  const selectedMealDescription = selectedMeal?.description ?? '';
   const foodImageSource = selectedMeal?.imageUrl
     ? { uri: selectedMeal.imageUrl }
     : DEFAULT_FOOD_IMAGE;
@@ -57,9 +43,9 @@ export function HomeScreen() {
 
   const bgColors = useMemo(() => {
     if (!theme?.appBgGradient || theme.appBgGradient.length < 2) {
-      return [...GRADIENTS.home.colors] as string[];
+      return GRADIENTS.home.colors;
     }
-    return [...theme.appBgGradient] as string[];
+    return theme.appBgGradient;
   }, [theme?.appBgGradient]);
 
   return (
@@ -67,7 +53,7 @@ export function HomeScreen() {
       colors={bgColors}
       start={{ x: 0, y: 0 }}
       end={{ x: 0, y: 1 }}
-      className="flex-1"
+      locations={[0, 0.1]}
       style={{ flex: 1 }}>
       <NoisyBackground opacity={0.2} />
       <SafeAreaContent includeBottom={false} style={{ flex: 1 }}>
@@ -108,8 +94,8 @@ export function HomeScreen() {
             </View>
             <View className="min-w-full">
               <FoodTypeSwitcher
-                value={selectedMealType === 'snack' ? null : selectedMealType}
-                availableTypes={availableMealTypes as unknown as CalendarMealType[]}
+                value={selectedMealType}
+                availableTypes={availableMealTypes}
                 onChange={handleMealTypeChange}
                 metrics={metrics}
               />

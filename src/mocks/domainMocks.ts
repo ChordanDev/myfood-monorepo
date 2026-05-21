@@ -34,8 +34,8 @@ export const MOCK_MASTER_RECIPES: MasterRecipe[] = [
     theme: {
       foodCardGradient: ['#4A2B12', '#110904'],
       primaryAccent: '#FFB63C',
-      appBgGradient: ['#1A0F06', '#4A2B12', '#D6C4B1'],
-      calendarBg: '#2E1A0B',
+      appBgGradient: ['#181C0D', '#BCBFA7'],
+      calendarBg: '#787D5E',
       calendarDayActive: '#FFB63C',
       textMain: '#F7F2E8',
       tabOvalBg: 'rgba(255, 182, 60, 0.15)',
@@ -43,6 +43,9 @@ export const MOCK_MASTER_RECIPES: MasterRecipe[] = [
       tabIconBgActive: 'rgba(255, 182, 60, 0.15)',
       tabIconBgInactive: 'rgba(255, 182, 60, 0.15)',
       tabBarGradient: ['#15180F', '#0D1007'], // Gradiente para la tab bar, opcional
+      darkColor: '#1B210E', // ~5% opacity for subtle background
+      primaryAccentIntense: '#FF8400',
+      lightColor: '#BCBFA7', // Color claro para textos o elementos secundarios en contraste con el fondo oscuro
     },
   },
   {
@@ -63,12 +66,13 @@ export const MOCK_MASTER_RECIPES: MasterRecipe[] = [
       { order: 4, instruction: 'Mezclar la pasta con la espinaca y servir.' },
     ],
     imageUrl:
-      'https://images.unsplash.com/photo-1551183053-bf91a1d81141?q=80&w=1000&auto=format&fit=crop',
+      '/Users/luccagiordana/Documents/proyectoApp/my-expo-app/assets/AuthFoodImages/Gemini_Generated_Image_16g8h616g8h616g8-removebg-preview.png',
     theme: {
       foodCardGradient: ['#364025', '#1B210E'],
+      darkColor: '#1B210E',
       primaryAccent: '#D8D98B',
-      appBgGradient: ['#111309', '#364025', '#BCC399'],
-      calendarBg: '#191D0D',
+      appBgGradient: ['#181C0D', '#BCBFA7'],
+      calendarBg: '#787D5E',
       calendarDayActive: '#D8D98B',
       textMain: '#F5F3D4',
       tabOvalBg: 'rgba(216, 217, 139, 0.15)',
@@ -76,6 +80,8 @@ export const MOCK_MASTER_RECIPES: MasterRecipe[] = [
       tabIconBgActive: 'rgba(216, 217, 139, 1)',
       tabIconBgInactive: 'rgba(216, 217, 139, 0.75)',
       tabBarGradient: ['#15180F', '#0D1007'], // Gradiente para la tab bar
+      primaryAccentIntense: '#FF8400',
+      lightColor: '#BCBFA7',
     },
   },
 ];

@@ -35,7 +35,7 @@ export interface RecipeThemeConfig {
 
   // Colores de la UI Global (Home)
   primaryAccent: string; // Botones, iconos destacados
-  appBgGradient: [string, string, string]; // Colores para el fondo [Top, Middle, Bottom]
+  appBgGradient: [string, string]; // Colores para el fondo [Top, Middle, Bottom]
   calendarBg: string; // Fondo del contenedor del calendario
   calendarDayActive: string; // Círculo del día seleccionado
   textMain: string; // Color de los textos de la receta (en la card)
@@ -44,6 +44,9 @@ export interface RecipeThemeConfig {
   tabOvalBg: string; // Fondo del óvalo animado de las tabs
   tabOvalBorder: string; // Borde del óvalo animado de las tabs
   tabBarGradient: [string, string]; // Gradiente para el fondo de la tab bar (opcional, si no se usa el default)
+  darkColor: string; // Color oscuro para fondos de elementos secundarios (ej. fondo del switcher de tipos de comida)
+  primaryAccentIntense: string;
+  lightColor: string;
 }
 
 export interface MasterRecipe {

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Pressable, StyleSheet, LayoutChangeEvent } from 'react-native';
+import { Pressable, LayoutChangeEvent } from 'react-native';
 import Animated, {
   useAnimatedStyle,
   useSharedValue,
@@ -7,7 +7,7 @@ import Animated, {
   Easing,
 } from 'react-native-reanimated';
 import { ShadowSurface } from '@/components';
-import type { MealType } from '@/mocks';
+import type { HomeMealType } from '../domain/localMealPlan';
 import type { HomeMetrics } from '../utils/responsive';
 
 import { useRecipeTheme } from '@/context/RecipeThemeContext';
@@ -18,6 +18,8 @@ interface FoodTypeSwitcherProps {
   onChange?: (mealType: MealType) => void;
   metrics: HomeMetrics;
 }
+
+type MealType = HomeMealType;
 
 const ORDERED_MEAL_TYPES: MealType[] = ['desayuno', 'almuerzo', 'cena'];
 
@@ -60,7 +62,11 @@ const SwitcherItem = ({
       <Animated.Text
         className="font-inter-semibold"
         style={{
-          color: isActive ? theme.primaryAccent : isUnavailable ? theme.textMain + '72' : theme.textMain,
+          color: isActive
+            ? theme.primaryAccent
+            : isUnavailable
+              ? theme.textMain + '72'
+              : theme.textMain,
           fontSize: metrics.switcherFontSize,
           zIndex: 1,
         }}>
@@ -136,7 +142,7 @@ export function FoodTypeSwitcher({
         padding: metrics.switcherPadding,
         borderRadius: metrics.switcherRadius,
         position: 'relative',
-        backgroundColor: theme.calendarBg,
+        backgroundColor: theme.darkColor, // ~5% opacity for subtle background
       }}>
       {/* Indicador animado posicionado de forma absoluta dentro del contenedor principal */}
       <Animated.View style={[animatedIndicatorStyle]} />
@@ -163,5 +169,3 @@ export function FoodTypeSwitcher({
     </ShadowSurface>
   );
 }
-
-const styles = StyleSheet.create({});

@@ -91,3 +91,21 @@ Proceso de seleccionar una paleta de colores predefinida basada en los colores d
 
 ### Ingrediente Aproximado (Approximate Ingredient)
 Sistema de medición que utiliza valores estimados (gramos, mililitros, unidades) para gestionar el **Inventario** y la **Lista de Compras**. Permite una lógica de planificación flexible sin requerir una precisión matemática absoluta por parte del usuario o la IA.
+
+### Tema Global de Receta (Global Recipe Theme)
+Estado visual de la aplicación dictado por la **Receta Local** seleccionada para el día actual. Modifica la paleta de colores de toda la interfaz (Home, Perfil, etc.) para inmersión contextual.
+
+### Tema por Defecto (Fallback Theme)
+Configuración visual neutral que la aplicación asume cuando el usuario navega a días pasados o futuros en el **Plan de Comidas Local**, evitando que la interfaz cambie erráticamente durante la planificación.
+
+### Selección Inteligente de Tema (Smart Theme Default)
+Comportamiento inicial de la aplicación que calcula la comida más relevante ("Desayuno", "Almuerzo", "Cena") basándose en la hora local del dispositivo, aplicando inmediatamente su tema asociado sin requerir interacción del usuario.
+
+### Carga Diferida de Receta (Lazy-Loaded Recipe)
+Estrategia de optimización donde solo los metadatos de texto (nombre, ingredientes, pasos) de las recetas futuras se descargan al **Plan de Comidas Local**. Los recursos pesados (imágenes, configuraciones de tema) se retienen en la base de datos hasta el día de consumo.
+
+### Placeholder de Comida (Meal Placeholder)
+Elemento visual temporal (color gris/neutral o icono) que se muestra en la interfaz para los días en los que la imagen y el tema de la receta aún no han sido descargados mediante **Carga Diferida de Receta**.
+
+### Descarga Forzada (Force Load)
+Proceso desencadenado cuando el usuario reasigna una comida futura al día actual (ej: "Mover a hoy"). Ignora la **Carga Diferida de Receta** estándar e inmediatamente obtiene los recursos pesados (imagen y tema) de la base de datos para aplicarlos al entorno activo.

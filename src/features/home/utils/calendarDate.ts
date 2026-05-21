@@ -1,4 +1,6 @@
-import type { PlanByDate, MonthGridCell } from '../types/calendar';
+import type { MonthGridCell } from '../types/calendar';
+import type { LocalMealPlanByDate } from '../domain/localMealPlan';
+import { isSelectableMealDate } from '../domain/localMealPlan';
 
 export function startOfDay(date: Date) {
   return new Date(date.getFullYear(), date.getMonth(), date.getDate());
@@ -51,9 +53,6 @@ export function getMonthDateKeys(year: number, month: number) {
   return keys;
 }
 
-export function isSelectableDate(dateString: string, planByDate: PlanByDate, today: Date) {
-  const dayDate = parseDateKey(dateString);
-  const isPast = dayDate < today;
-  const isPlanned = Boolean(planByDate[dateString]?.length);
-  return !isPast && isPlanned;
+export function isSelectableDate(dateString: string, planByDate: LocalMealPlanByDate, today: Date) {
+  return isSelectableMealDate(dateString, planByDate, today, parseDateKey);
 }

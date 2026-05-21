@@ -3,7 +3,7 @@ import { ShadowSurface } from '@/components';
 import { DayCell } from './DayCell';
 import { useCalendarState } from '../hooks/useCalendarState';
 import { CALENDAR_COLORS, CALENDAR_DEFAULTS, MONTHS, WEEKDAYS } from '../constants/calendar';
-import { formatDateKey, isSelectableDate } from '../utils/calendarDate';
+import { formatDateKey } from '../utils/calendarDate';
 import type { CalendarProps } from '../types/calendar';
 
 import { useRecipeTheme } from '@/context/RecipeThemeContext';
@@ -31,6 +31,7 @@ export function Calendar({
     handlePrevMonth,
     handleNextMonth,
     handleSelectDate,
+    canSelectDate,
   } = useCalendarState(planByDate, selectedDate, onSelectDate);
 
   const monthLabel = `${MONTHS[month]} ${year}`;
@@ -91,7 +92,7 @@ export function Calendar({
             {monthGrid.map((cell) => {
               const dayDate = cell.date;
               const dateString = formatDateKey(dayDate);
-              const isSelectable = isSelectableDate(dateString, planByDate, today);
+              const isSelectable = canSelectDate(dateString);
               const isSelected = activeSelectedDate === dateString;
               const isToday = dateString === todayKey;
               const isPlanned = Boolean(planByDate[dateString]?.length);

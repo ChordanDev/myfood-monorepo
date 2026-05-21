@@ -6,6 +6,7 @@ import Animated, {
   Easing,
   interpolate,
   useAnimatedStyle,
+  useDerivedValue,
   useSharedValue,
   withRepeat,
   withSequence,
@@ -15,7 +16,6 @@ import { LinearGradient } from 'expo-linear-gradient';
 
 import { PLUS_SVG } from '@/constants/svgIcons';
 import { ShadowSurface } from './ShadowSurface';
-import { COLORS } from '@/constants/theme';
 import { useRecipeTheme } from '@/context/RecipeThemeContext';
 
 interface AddCircleButtonProps {
@@ -39,9 +39,11 @@ export function AddCircleButton({ size = DEFAULT_BUTTON_SIZE, onPress }: AddCirc
 
   useEffect(() => {
     transition.value = withRepeat(
-      withTiming(1, { duration: 2500, easing: Easing.linear }),
-      -1,
-      false // false significa que no revierte (hace un bucle continuo 0 -> 1 -> 0 -> 1)
+      withSequence(
+        withTiming(1, { duration: 3000, easing: Easing.linear }),
+        withTiming(0, { duration: 0 })
+      ),
+      -1
     );
 
     return () => {
@@ -49,15 +51,17 @@ export function AddCircleButton({ size = DEFAULT_BUTTON_SIZE, onPress }: AddCirc
     };
   }, [transition]);
 
+  const translateX = useDerivedValue(() =>
+    interpolate(transition.value, [0, 1], [-2 * buttonSize, 0])
+  );
+
   const animatedGradientStyle = useAnimatedStyle(() => ({
     transform: [
       {
-        // Trasladamos exactamente el ancho de un botón hacia la izquierda
-        translateX: interpolate(transition.value, [0, 1], [0, -buttonSize]),
+        translateX: translateX.value,
       },
     ],
-    // El ancho del gradiente es exactamente el doble para que las dos mitades coincidan a la perfección
-    width: buttonSize * 2,
+    width: buttonSize * 3,
     height: buttonSize,
     position: 'absolute',
     left: 0,
@@ -81,11 +85,13 @@ export function AddCircleButton({ size = DEFAULT_BUTTON_SIZE, onPress }: AddCirc
         <Animated.View style={animatedGradientStyle}>
           <LinearGradient
             colors={[
-              theme.calendarBg,
+              theme.primaryAccentIntense,
+              theme.lightColor,
               theme.primaryAccent,
-              theme.calendarBg,
+              theme.primaryAccentIntense,
+              theme.lightColor,
               theme.primaryAccent,
-              theme.calendarBg,
+              theme.primaryAccentIntense,
             ]}
             start={{ x: 0, y: 0.5 }}
             end={{ x: 1, y: 0.5 }}
@@ -98,7 +104,7 @@ export function AddCircleButton({ size = DEFAULT_BUTTON_SIZE, onPress }: AddCirc
             width: innerSize,
             height: innerSize,
             borderRadius: innerRadius,
-            backgroundColor: theme.calendarBg,
+            backgroundColor: theme.darkColor,
             alignItems: 'center',
             justifyContent: 'center',
           }}>
