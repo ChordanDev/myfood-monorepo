@@ -6,7 +6,6 @@ import { Calendar, FloatingFoodImage, FoodTypeSwitcher } from '../components';
 import { FoodCard } from '../components/FoodCard';
 import { useHomeResponsiveScale } from '../hooks/useHomeResponsiveScale';
 import { useHomeState } from '../hooks/useHomeState';
-import { GRADIENTS } from '@/constants/theme';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useMemo } from 'react';
 import { useHomeRecipeTheme } from '../hooks/useHomeRecipeTheme';
@@ -41,21 +40,14 @@ export function HomeScreen() {
     }
   };
 
-  const bgColors = useMemo(() => {
-    if (!theme?.appBgGradient || theme.appBgGradient.length < 2) {
-      return GRADIENTS.home.colors;
-    }
-    return theme.appBgGradient;
-  }, [theme?.appBgGradient]);
-
   return (
     <LinearGradient
-      colors={bgColors}
+      colors={[theme.colorDark, theme.appBg]}
       start={{ x: 0, y: 0 }}
       end={{ x: 0, y: 1 }}
       locations={[0, 0.1]}
       style={{ flex: 1 }}>
-      <NoisyBackground opacity={0.2} />
+      <NoisyBackground opacity={0.3} />
       <SafeAreaContent includeBottom={false} style={{ flex: 1 }}>
         <TitlePrimary text="COMIDAS" metrics={metrics} />
         <View

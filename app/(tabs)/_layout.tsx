@@ -14,6 +14,7 @@ import Animated, {
 import { BottomTabBarProps } from '@react-navigation/bottom-tabs';
 import { useAuth } from '../../src/features/auth';
 import { useRecipeTheme } from '../../src/context/RecipeThemeContext';
+import tiny from '../../src/utils/tiny';
 
 // Componente que anima cada botón de tab al ser seleccionado.
 const AnimatedTabButton = ({ isFocused, onPress, options }: any) => {
@@ -64,8 +65,8 @@ const AnimatedTabButton = ({ isFocused, onPress, options }: any) => {
         style={[
           animatedOvalStyle,
           {
-            backgroundColor: theme.tabOvalBg,
-            borderColor: theme.tabOvalBorder,
+            backgroundColor: tiny(theme.icon).setAlpha(0.15).toRgbString(),
+            borderColor: tiny(theme.icon).setAlpha(0.3).toRgbString(),
           },
         ]}
       />
@@ -74,7 +75,7 @@ const AnimatedTabButton = ({ isFocused, onPress, options }: any) => {
         {options.tabBarIcon &&
           options.tabBarIcon({
             focused: isFocused,
-            color: isFocused ? theme.tabIconBgActive : theme.tabIconBgInactive,
+            color: isFocused ? theme.icon : tiny(theme.icon).setAlpha(0.8).toRgbString(),
             size: 24,
           })}
       </Animated.View>
@@ -99,7 +100,7 @@ function CustomTabBar({
         elevation: 0,
       }}>
       <LinearGradient
-        colors={theme.tabBarGradient}
+        colors={[theme.colorDark, theme.colorBlack]}
         locations={[0.61, 1]}
         start={{ x: 0, y: 0 }}
         end={{ x: 0, y: 1 }}

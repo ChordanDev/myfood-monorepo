@@ -12,6 +12,8 @@ import type { HomeMetrics } from '../utils/responsive';
 
 import { useRecipeTheme } from '@/context/RecipeThemeContext';
 
+import tiny from '@/utils/tiny';
+
 interface FoodTypeSwitcherProps {
   value: MealType | null;
   availableTypes?: MealType[];
@@ -63,10 +65,10 @@ const SwitcherItem = ({
         className="font-inter-semibold"
         style={{
           color: isActive
-            ? theme.primaryAccent
+            ? theme.textMedium
             : isUnavailable
-              ? theme.textMain + '72'
-              : theme.textMain,
+              ? tiny(theme.textLight).setAlpha(0.44).toRgbString()
+              : theme.textLight,
           fontSize: metrics.switcherFontSize,
           zIndex: 1,
         }}>
@@ -129,8 +131,8 @@ export function FoodTypeSwitcher({
     position: 'absolute',
     // Alineamos verticalmente respecto al padre considerando el padding general del contenedor
     top: metrics.switcherPadding,
-    backgroundColor: theme.primaryAccent + '26', // ~15% opacity
-    borderColor: theme.primaryAccent + '4D', // ~30% opacity
+    backgroundColor: tiny(theme.icon).setAlpha(0.15).toRgbString(), // ~15% opacity
+    borderColor: tiny(theme.icon).setAlpha(0.3).toRgbString(), // ~30% opacity
     borderRadius: 20,
     borderWidth: 1,
   }));
@@ -142,7 +144,7 @@ export function FoodTypeSwitcher({
         padding: metrics.switcherPadding,
         borderRadius: metrics.switcherRadius,
         position: 'relative',
-        backgroundColor: theme.darkColor, // ~5% opacity for subtle background
+        backgroundColor: theme.colorDark, // ~5% opacity for subtle background
       }}>
       {/* Indicador animado posicionado de forma absoluta dentro del contenedor principal */}
       <Animated.View style={[animatedIndicatorStyle]} />

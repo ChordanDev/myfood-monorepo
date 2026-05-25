@@ -44,7 +44,10 @@ export function RecipeScreen() {
     setTimeout(() => {
       setChatHistory((prev) => [
         ...prev,
-        { role: 'ai', text: `¡Claro! Respecto a "${recipe.name}", mi consejo es que ${chatMessage.includes('pollo') ? 'puedes sustituirlo por tofu si prefieres algo más ligero.' : 'sigas los pasos con cuidado, especialmente el fuego medio.'}` },
+        {
+          role: 'ai',
+          text: `¡Claro! Respecto a "${recipe.name}", mi consejo es que ${chatMessage.includes('pollo') ? 'puedes sustituirlo por tofu si prefieres algo más ligero.' : 'sigas los pasos con cuidado, especialmente el fuego medio.'}`,
+        },
       ]);
     }, 1000);
   };
@@ -53,7 +56,9 @@ export function RecipeScreen() {
     <LinearGradient colors={theme.background} className="flex-1" style={{ flex: 1 }}>
       <NoisyBackground opacity={0.15} />
       <SafeAreaContent includeBottom={false}>
-        <ScrollView contentContainerStyle={styles.scrollContainer} showsVerticalScrollIndicator={false}>
+        <ScrollView
+          contentContainerStyle={styles.scrollContainer}
+          showsVerticalScrollIndicator={false}>
           {/* Header con Imagen */}
           <View style={styles.header}>
             <Pressable onPress={() => router.back()} style={styles.backButton}>
@@ -75,7 +80,9 @@ export function RecipeScreen() {
           </View>
 
           <View style={styles.content}>
-            <Text style={[styles.description, { color: theme.secondary }]}>{recipe.description}</Text>
+            <Text style={[styles.description, { color: theme.secondary }]}>
+              {recipe.description}
+            </Text>
 
             {/* Sección Ingredientes */}
             <ShadowSurface style={styles.card}>
@@ -105,13 +112,22 @@ export function RecipeScreen() {
 
             {/* Chat de IA */}
             <ShadowSurface style={styles.chatCard}>
-              <Text style={[styles.sectionTitle, { color: theme.accent }]}>ASISTENTE DE COCINA</Text>
+              <Text style={[styles.sectionTitle, { color: theme.accent }]}>
+                ASISTENTE DE COCINA
+              </Text>
               <View style={styles.chatHistory}>
                 {chatHistory.length === 0 ? (
-                  <Text style={styles.emptyChat}>Hazme cualquier pregunta sobre esta receta...</Text>
+                  <Text style={styles.emptyChat}>
+                    Hazme cualquier pregunta sobre esta receta...
+                  </Text>
                 ) : (
                   chatHistory.map((msg, i) => (
-                    <View key={i} style={[styles.chatBubble, msg.role === 'user' ? styles.userBubble : styles.aiBubble]}>
+                    <View
+                      key={i}
+                      style={[
+                        styles.chatBubble,
+                        msg.role === 'user' ? styles.userBubble : styles.aiBubble,
+                      ]}>
                       <Text style={styles.chatBubbleText}>{msg.text}</Text>
                     </View>
                   ))
@@ -125,7 +141,9 @@ export function RecipeScreen() {
                   value={chatMessage}
                   onChangeText={setChatMessage}
                 />
-                <Pressable onPress={handleSendChat} style={[styles.sendButton, { backgroundColor: theme.accent }]}>
+                <Pressable
+                  onPress={handleSendChat}
+                  style={[styles.sendButton, { backgroundColor: theme.accent }]}>
                   <Text style={styles.sendButtonText}>→</Text>
                 </Pressable>
               </View>
@@ -135,7 +153,10 @@ export function RecipeScreen() {
             <Pressable
               onPress={handleMarkAsCooked}
               disabled={mealEntry?.isCooked}
-              style={[styles.mainButton, { backgroundColor: mealEntry?.isCooked ? '#444' : theme.accent }]}>
+              style={[
+                styles.mainButton,
+                { backgroundColor: mealEntry?.isCooked ? '#444' : theme.accent },
+              ]}>
               <Text style={[styles.mainButtonText, { color: theme.primary }]}>
                 {mealEntry?.isCooked ? 'PLATILLO COMPLETADO' : 'MARCAR COMO COCINADO'}
               </Text>
@@ -152,8 +173,23 @@ const styles = StyleSheet.create({
   scrollContainer: { paddingBottom: 60 },
   header: { height: 300, width: '100%', position: 'relative' },
   recipeImage: { width: '100%', height: '100%', resizeMode: 'cover' },
-  backButton: { position: 'absolute', top: 20, left: 20, zIndex: 10, padding: 10, backgroundColor: 'rgba(0,0,0,0.3)', borderRadius: 20 },
-  titleOverlay: { position: 'absolute', bottom: 0, left: 0, right: 0, padding: 20, backgroundColor: 'rgba(0,0,0,0.4)' },
+  backButton: {
+    position: 'absolute',
+    top: 20,
+    left: 20,
+    zIndex: 10,
+    padding: 10,
+    backgroundColor: 'rgba(0,0,0,0.3)',
+    borderRadius: 20,
+  },
+  titleOverlay: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    padding: 20,
+    backgroundColor: 'rgba(0,0,0,0.4)',
+  },
   title: { fontSize: 24, fontWeight: 'bold', letterSpacing: 1 },
   tagContainer: { flexDirection: 'row', marginTop: 8, gap: 8 },
   tag: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 20 },
@@ -166,7 +202,13 @@ const styles = StyleSheet.create({
   dot: { fontSize: 20 },
   ingredientText: { fontSize: 16, opacity: 0.9 },
   stepRow: { flexDirection: 'row', gap: 15, marginBottom: 10 },
-  stepNumberBadge: { width: 24, height: 24, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
+  stepNumberBadge: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   stepNumber: { fontSize: 12, fontWeight: 'bold', color: '#1B210E' },
   stepText: { fontSize: 16, flex: 1, lineHeight: 22 },
   chatCard: { padding: 20, backgroundColor: 'rgba(0,0,0,0.2)', borderRadius: 20, gap: 15 },
@@ -177,8 +219,21 @@ const styles = StyleSheet.create({
   aiBubble: { alignSelf: 'flex-start', backgroundColor: 'rgba(216, 217, 139, 0.1)' },
   chatBubbleText: { color: '#F5F3D4', fontSize: 14 },
   chatInputContainer: { flexDirection: 'row', gap: 10 },
-  chatInput: { flex: 1, backgroundColor: 'rgba(255,255,255,0.05)', borderRadius: 12, paddingHorizontal: 15, color: 'white', height: 45 },
-  sendButton: { width: 45, height: 45, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
+  chatInput: {
+    flex: 1,
+    backgroundColor: 'rgba(255,255,255,0.05)',
+    borderRadius: 12,
+    paddingHorizontal: 15,
+    color: 'white',
+    height: 45,
+  },
+  sendButton: {
+    width: 45,
+    height: 45,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   sendButtonText: { fontSize: 20, fontWeight: 'bold', color: '#1B210E' },
   mainButton: { padding: 18, borderRadius: 15, alignItems: 'center', marginTop: 10 },
   mainButtonText: { fontWeight: 'bold', fontSize: 16, letterSpacing: 1 },

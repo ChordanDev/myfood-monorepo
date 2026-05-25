@@ -30,23 +30,18 @@ export interface RecipeStep {
 }
 
 export interface RecipeThemeConfig {
-  // Colores para el FoodCard (SVG Gradient)
-  foodCardGradient: [string, string]; // [Color1, Color2]
-
-  // Colores de la UI Global (Home)
-  primaryAccent: string; // Botones, iconos destacados
-  appBgGradient: [string, string]; // Colores para el fondo [Top, Middle, Bottom]
-  calendarBg: string; // Fondo del contenedor del calendario
-  calendarDayActive: string; // Círculo del día seleccionado
-  textMain: string; // Color de los textos de la receta (en la card)
-  tabIconBgInactive: string; // Color de los iconos de las tabs
-  tabIconBgActive: string; // Color de los iconos de las tabs cuando están activos
-  tabOvalBg: string; // Fondo del óvalo animado de las tabs
-  tabOvalBorder: string; // Borde del óvalo animado de las tabs
-  tabBarGradient: [string, string]; // Gradiente para el fondo de la tab bar (opcional, si no se usa el default)
-  darkColor: string; // Color oscuro para fondos de elementos secundarios (ej. fondo del switcher de tipos de comida)
-  primaryAccentIntense: string; // Acento primario intenso para elementos destacados
-  lightColor: string; // Color claro para textos secundarios o fondos de elementos menos destacados
+  colorBlack: string;
+  colorDark: string;
+  colorMedium: string;
+  colorLight: string;
+  primaryAccent: string;
+  appBg: string;
+  icon: string;
+  textBlack: string;
+  textDark: string;
+  textMedium: string;
+  textLight: string;
+  primaryAccentIntense: string;
 }
 
 export interface MasterRecipe {
@@ -90,4 +85,23 @@ export interface UserPreferences {
   totalBudget?: number;
   restrictions: string[]; // ['sin-gluten', 'vegano', etc.]
   preferences: string[]; // ['mediterranea', 'picante', etc.]
+}
+
+export interface UserProfile {
+  id: string;
+  email: string;
+  name?: string;
+  preferences: UserPreferences;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface MealPlan {
+  id: string;
+  userId: string;
+  startDate: string; // YYYY-MM-DD
+  endDate: string; // YYYY-MM-DD
+  entries: MealPlanEntry[];
+  status: 'draft' | 'active' | 'archived';
+  createdAt: string;
 }

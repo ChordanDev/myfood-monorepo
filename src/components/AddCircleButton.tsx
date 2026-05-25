@@ -86,10 +86,10 @@ export function AddCircleButton({ size = DEFAULT_BUTTON_SIZE, onPress }: AddCirc
           <LinearGradient
             colors={[
               theme.primaryAccentIntense,
-              theme.lightColor,
+              theme.colorLight,
               theme.primaryAccent,
               theme.primaryAccentIntense,
-              theme.lightColor,
+              theme.colorLight,
               theme.primaryAccent,
               theme.primaryAccentIntense,
             ]}
@@ -104,7 +104,7 @@ export function AddCircleButton({ size = DEFAULT_BUTTON_SIZE, onPress }: AddCirc
             width: innerSize,
             height: innerSize,
             borderRadius: innerRadius,
-            backgroundColor: theme.darkColor,
+            backgroundColor: theme.colorDark,
             alignItems: 'center',
             justifyContent: 'center',
           }}>

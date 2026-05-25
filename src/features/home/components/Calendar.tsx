@@ -38,7 +38,7 @@ export function Calendar({
   return (
     <ShadowSurface
       className="w-full rounded-3xl"
-      style={{ flex: 1, borderRadius: 24, backgroundColor: theme.calendarBg }}>
+      style={{ flex: 1, borderRadius: 24, backgroundColor: theme.colorLight }}>
       <View className="w-full overflow-hidden rounded-3xl" style={{ flex: 1 }}>
         <View className="mb-3 flex-row items-center justify-center gap-6 px-1">
           <Pressable
@@ -47,11 +47,11 @@ export function Calendar({
             accessibilityLabel="Mes anterior"
             disabled={isPrevDisabled}
             style={{ opacity: isPrevDisabled ? 0.35 : 1 }}>
-            <Text style={{ color: theme.textMain, fontSize: navFontSize }}>{'<'}</Text>
+            <Text style={{ color: theme.textBlack, fontSize: navFontSize }}>{'<'}</Text>
           </Pressable>
           <Text
             className="font-inter-bold"
-            style={{ color: theme.textMain, fontSize: monthFontSize }}>
+            style={{ color: theme.textBlack, fontSize: monthFontSize }}>
             {monthLabel}
           </Text>
           <Pressable
@@ -60,7 +60,7 @@ export function Calendar({
             accessibilityLabel="Mes siguiente"
             disabled={isNextDisabled}
             style={{ opacity: isNextDisabled ? 0.35 : 1 }}>
-            <Text style={{ color: theme.textMain, fontSize: navFontSize }}>{'>'}</Text>
+            <Text style={{ color: theme.textBlack, fontSize: navFontSize }}>{'>'}</Text>
           </Pressable>
         </View>
 
@@ -71,7 +71,7 @@ export function Calendar({
               style={{
                 width: '14.2857%',
                 textAlign: 'center',
-                color: theme.textMain,
+                color: theme.textBlack,
                 fontSize: weekdayFontSize,
               }}
               className="font-inter-semibold">

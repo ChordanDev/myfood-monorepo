@@ -1,6 +1,6 @@
 import { Text, View } from 'react-native';
 import { TitleMetrics } from '@/utils/responsive';
-import { COLORS } from '@/constants/theme';
+import { useRecipeTheme } from '@/context/RecipeThemeContext';
 
 interface TitleProps {
   text: string;
@@ -8,6 +8,7 @@ interface TitleProps {
 }
 
 export function TitlePrimary({ text, metrics }: TitleProps) {
+  const { theme } = useRecipeTheme();
   return (
     <View
       className="items-center justify-start"
@@ -17,7 +18,7 @@ export function TitlePrimary({ text, metrics }: TitleProps) {
       }}>
       {/* Titulo principal ajustado por metricas responsivas. */}
       <Text
-        style={{ fontSize: metrics.titleFontSize, color: COLORS.textDark }}
+        style={{ fontSize: metrics.titleFontSize, color: theme.textDark }}
         className="font-montserrat-bold">
         {text}
       </Text>

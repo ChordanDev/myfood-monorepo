@@ -9,6 +9,7 @@ import { FOOD_CARD_SHAPE_PATH, FOOD_CARD_GRADIENT_ACTIVE_ID } from './constants'
 import { getTopLeftLabel } from './utils';
 import { FavoriteStarIcon, SparklesGradientIcon } from './icons';
 import { useFoodCardLayout } from './useFoodCardLayout';
+import { useRecipeTheme } from '@/context/RecipeThemeContext';
 
 interface FoodCardProps {
   mealType: MealType | null;
@@ -28,10 +29,11 @@ export function FoodCard({
   const [isFavorite, setIsFavorite] = useState(false);
   const hasMealData = Boolean(mealType || description?.trim());
   const descriptionText = description?.trim() ?? '';
+  const { theme } = useRecipeTheme();
 
   const topLeftLabel = getTopLeftLabel(selectedDate);
   const layout = useFoodCardLayout(metrics);
-  const dayNameColor = topLeftLabel?.isToday ? '#FFB63C' : '#D8D98B';
+  const dayNameColor = topLeftLabel?.isToday ? theme.primaryAccent : theme.textMedium;
 
   return (
     <ShadowSurface className="h-full w-full">
@@ -51,8 +53,8 @@ export function FoodCard({
               x2="213.5"
               y2="302.007"
               gradientUnits="userSpaceOnUse">
-              <Stop offset="0.379808" stopColor="#364025" />
-              <Stop offset="0.778846" stopColor="#1B210E" />
+              <Stop offset="0.379808" stopColor={theme.colorDark} />
+              <Stop offset="0.778846" stopColor={theme.colorMedium} />
             </SvgLinearGradient>
           </Defs>
           <Path d={FOOD_CARD_SHAPE_PATH} fill={`url(#${FOOD_CARD_GRADIENT_ACTIVE_ID})`} />
@@ -113,8 +115,11 @@ export function FoodCard({
                 {topLeftLabel.dayNumber ? (
                   <Text
                     adjustsFontSizeToFit
-                    className="font-montserrat-alt-black text-[#FFB63C]"
-                    style={{ fontSize: metrics.foodCardNumberFontSize }}>
+                    className="font-montserrat-alt-black"
+                    style={{
+                      color: theme.primaryAccent,
+                      fontSize: metrics.foodCardNumberFontSize,
+                    }}>
                     {' '}
                     {topLeftLabel.dayNumber}
                   </Text>

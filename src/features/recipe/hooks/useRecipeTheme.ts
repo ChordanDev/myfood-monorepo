@@ -17,7 +17,7 @@ export function useRecipeTheme(recipe?: MasterRecipe): RecipeTheme {
 
     if (!recipe) return RECIPE_THEMES.green;
 
-    const tags = recipe.tags.map(t => t.toLowerCase());
+    const tags = recipe.tags.map((t) => t.toLowerCase());
 
     if (tags.includes('vegetariana') || tags.includes('saludable')) {
       return RECIPE_THEMES.green;
