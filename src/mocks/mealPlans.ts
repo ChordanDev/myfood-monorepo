@@ -1,8 +1,9 @@
-// Datos mock para desarrollo. Usa los tipos canonicos de home/types.
-import type { CourseType, MealPlan, MealType, PlanByDate } from '@/features/home/types/calendar';
+// Datos mock para desarrollo. Usa la forma canonica del Plan de Comidas Local.
+import type { MealPlanEntry, MealType } from '@/types/domain';
+import type { PlanByDate } from '@/features/home/types/calendar';
 
 // Re-exporta los tipos canonicos para consumidores existentes.
-export type { MealType, MealPlan, PlanByDate, CourseType };
+export type { MealType, PlanByDate };
 
 function formatDateKey(date: Date): string {
   const year = date.getFullYear();
@@ -27,53 +28,52 @@ function buildMockPlanByDate(): PlanByDate {
   return {
     [todayKey]: [
       {
-        tipo: 'almuerzo',
-        courseType: 'principal',
-        descripcion: 'Pollo al horno con papas y ensalada fresca.',
-        ingredients: ['pollo', 'papa', 'tomate', 'lechuga', 'aceite de oliva', 'sal'],
-        recipe:
-          'Condimentar el pollo, hornear 40 minutos a 200C y servir con papas asadas y ensalada.',
+        id: 'mock-mp1',
+        date: todayKey,
+        type: 'almuerzo',
+        recipeId: 'r1',
+        isCooked: false,
       },
       {
-        tipo: 'cena',
-        courseType: 'ensalada',
-        descripcion: 'Ensalada tibia de quinoa con vegetales salteados.',
-        ingredients: ['quinoa', 'zanahoria', 'brocoli', 'cebolla morada', 'limon', 'sal'],
-        recipe: 'Cocinar quinoa, saltear vegetales y mezclar con jugo de limon y sal.',
+        id: 'mock-mp2',
+        date: todayKey,
+        type: 'cena',
+        recipeId: 'r2',
+        isCooked: false,
       },
     ],
     [tomorrowKey]: [
       {
-        tipo: 'desayuno',
-        courseType: 'principal',
-        descripcion: 'Avena cremosa con banana y canela.',
-        ingredients: ['avena', 'leche', 'banana', 'canela'],
-        recipe: 'Cocinar la avena con leche 8 minutos y terminar con banana y canela.',
+        id: 'mock-mp3',
+        date: tomorrowKey,
+        type: 'desayuno',
+        recipeId: 'r2',
+        isCooked: false,
       },
       {
-        tipo: 'almuerzo',
-        courseType: 'principal',
-        descripcion: 'Pasta integral con salsa de tomate y albahaca.',
-        ingredients: ['pasta integral', 'tomate triturado', 'ajo', 'albahaca', 'aceite'],
-        recipe: 'Hervir pasta, cocinar salsa 15 minutos y mezclar antes de servir.',
+        id: 'mock-mp4',
+        date: tomorrowKey,
+        type: 'almuerzo',
+        recipeId: 'r1',
+        isCooked: false,
       },
     ],
     [inTwoDaysKey]: [
       {
-        tipo: 'cena',
-        courseType: 'principal',
-        descripcion: 'Tacos de pescado con repollo y yogur.',
-        ingredients: ['pescado blanco', 'tortillas', 'repollo', 'yogur', 'limon'],
-        recipe: 'Cocinar el pescado a la plancha, armar tacos y agregar salsa de yogur.',
+        id: 'mock-mp5',
+        date: inTwoDaysKey,
+        type: 'cena',
+        recipeId: 'r1',
+        isCooked: false,
       },
     ],
     [inThreeDaysKey]: [
       {
-        tipo: 'almuerzo',
-        courseType: 'postre',
-        descripcion: 'Yogur natural con frutas y granola casera.',
-        ingredients: ['yogur natural', 'frutillas', 'banana', 'granola'],
-        recipe: 'Servir en capas yogur, frutas cortadas y granola encima.',
+        id: 'mock-mp6',
+        date: inThreeDaysKey,
+        type: 'almuerzo',
+        recipeId: 'r2',
+        isCooked: false,
       },
     ],
   };
@@ -85,7 +85,7 @@ export function getMockPlanByDate(): PlanByDate {
   return buildMockPlanByDate();
 }
 
-export function getMockMealsForDate(planByDate: PlanByDate, dateKey: string): MealPlan[] {
+export function getMockMealsForDate(planByDate: PlanByDate, dateKey: string): MealPlanEntry[] {
   return planByDate[dateKey] ?? [];
 }
 
@@ -93,6 +93,6 @@ export function getMockMealsByType(
   planByDate: PlanByDate,
   dateKey: string,
   mealType: MealType
-): MealPlan[] {
-  return getMockMealsForDate(planByDate, dateKey).filter((meal) => meal.tipo === mealType);
+): MealPlanEntry[] {
+  return getMockMealsForDate(planByDate, dateKey).filter((meal) => meal.type === mealType);
 }
