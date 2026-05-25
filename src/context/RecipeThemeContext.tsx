@@ -21,7 +21,7 @@ const DEFAULT_THEME: RecipeThemeConfig = {
   tabBarGradient: ['#15180F', '#0D1007'], // Gradiente para la tab bar
   darkColor: '#1B210E', // ~5% opacity for subtle background
   primaryAccentIntense: '#FF8400', // Acento primario intenso para elementos destacados
-  lightColor: '#BCBFA7',
+  lightColor: '#BCBFA7', // Color claro para textos secundarios o fondos de elementos menos destacados
 };
 
 const RecipeThemeContext = createContext<RecipeThemeContextType | undefined>(undefined);

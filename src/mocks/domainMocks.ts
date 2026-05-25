@@ -42,10 +42,10 @@ export const MOCK_MASTER_RECIPES: MasterRecipe[] = [
       tabOvalBorder: 'rgba(255, 182, 60, 0.3)',
       tabIconBgActive: 'rgba(255, 182, 60, 0.15)',
       tabIconBgInactive: 'rgba(255, 182, 60, 0.15)',
-      tabBarGradient: ['#15180F', '#0D1007'], // Gradiente para la tab bar, opcional
-      darkColor: '#1B210E', // ~5% opacity for subtle background
+      tabBarGradient: ['#15180F', '#0D1007'],
+      darkColor: '#1B210E',
       primaryAccentIntense: '#FF8400',
-      lightColor: '#BCBFA7', // Color claro para textos o elementos secundarios en contraste con el fondo oscuro
+      lightColor: '#BCBFA7',
     },
   },
   {

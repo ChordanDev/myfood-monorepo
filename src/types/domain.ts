@@ -45,8 +45,8 @@ export interface RecipeThemeConfig {
   tabOvalBorder: string; // Borde del óvalo animado de las tabs
   tabBarGradient: [string, string]; // Gradiente para el fondo de la tab bar (opcional, si no se usa el default)
   darkColor: string; // Color oscuro para fondos de elementos secundarios (ej. fondo del switcher de tipos de comida)
-  primaryAccentIntense: string;
-  lightColor: string;
+  primaryAccentIntense: string; // Acento primario intenso para elementos destacados
+  lightColor: string; // Color claro para textos secundarios o fondos de elementos menos destacados
 }
 
 export interface MasterRecipe {
