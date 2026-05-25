@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Pressable, StyleSheet, View, LayoutChangeEvent } from 'react-native';
+import { Pressable, LayoutChangeEvent } from 'react-native';
 import Animated, {
   useAnimatedStyle,
   useSharedValue,
@@ -7,8 +7,10 @@ import Animated, {
   Easing,
 } from 'react-native-reanimated';
 import { ShadowSurface } from '@/components';
-import type { MealType } from '@/mocks';
+import type { HomeMealType } from '../domain/localMealPlan';
 import type { HomeMetrics } from '../utils/responsive';
+
+import { useRecipeTheme } from '@/context/RecipeThemeContext';
 
 interface FoodTypeSwitcherProps {
   value: MealType | null;
@@ -16,6 +18,8 @@ interface FoodTypeSwitcherProps {
   onChange?: (mealType: MealType) => void;
   metrics: HomeMetrics;
 }
+
+type MealType = HomeMealType;
 
 const ORDERED_MEAL_TYPES: MealType[] = ['desayuno', 'almuerzo', 'cena'];
 
@@ -42,6 +46,7 @@ const SwitcherItem = ({
   metrics,
   onLayout,
 }: SwitcherItemProps) => {
+  const { theme } = useRecipeTheme();
   return (
     <Pressable
       onPress={onPress}
@@ -57,7 +62,11 @@ const SwitcherItem = ({
       <Animated.Text
         className="font-inter-semibold"
         style={{
-          color: isActive ? '#D8D98B' : isUnavailable ? '#F6F2E8' : '#F5F3D4',
+          color: isActive
+            ? theme.primaryAccent
+            : isUnavailable
+              ? theme.textMain + '72'
+              : theme.textMain,
           fontSize: metrics.switcherFontSize,
           zIndex: 1,
         }}>
@@ -73,9 +82,12 @@ export function FoodTypeSwitcher({
   onChange,
   metrics,
 }: FoodTypeSwitcherProps) {
+  const { theme } = useRecipeTheme();
   const availableTypesSet = new Set(availableTypes);
-  const [layouts, setLayouts] = useState<Record<string, { x: number; width: number; height: number }>>({});
-  
+  const [layouts, setLayouts] = useState<
+    Record<string, { x: number; width: number; height: number }>
+  >({});
+
   const translateX = useSharedValue(0);
   const indicatorWidth = useSharedValue(0);
   const indicatorHeight = useSharedValue(0);
@@ -84,19 +96,25 @@ export function FoodTypeSwitcher({
   useEffect(() => {
     if (value && layouts[value] && Object.keys(layouts).length === ORDERED_MEAL_TYPES.length) {
       const currentLayout = layouts[value];
-      
+
       // Encontrar el ancho interno de la palabra más larga (Desayuno típicamente)
       // Como estamos usando flex-1 en los botones, su ancho total (width) ya es el mismo para todos
       // por lo tanto, el indicador solo tiene que medir exactamente lo mismo que el botón actual, o un poco menos para hacer de "píldora"
-      
+
       // Queremos que la píldora sea un 90% del ancho del botón flex, centrada
-      const pillWidth = currentLayout.width * 0.90;
+      const pillWidth = currentLayout.width * 0.9;
       // Posición X = inicio del botón + la mitad del espacio restante
       const pillX = currentLayout.x + (currentLayout.width - pillWidth) / 2;
-      
+
       translateX.value = withTiming(pillX, { duration: 300, easing: Easing.out(Easing.quad) });
-      indicatorWidth.value = withTiming(pillWidth, { duration: 300, easing: Easing.out(Easing.quad) });
-      indicatorHeight.value = withTiming(currentLayout.height, { duration: 300, easing: Easing.out(Easing.quad) });
+      indicatorWidth.value = withTiming(pillWidth, {
+        duration: 300,
+        easing: Easing.out(Easing.quad),
+      });
+      indicatorHeight.value = withTiming(currentLayout.height, {
+        duration: 300,
+        easing: Easing.out(Easing.quad),
+      });
       opacity.value = withTiming(1, { duration: 200 });
     } else if (!value) {
       opacity.value = withTiming(0, { duration: 200 });
@@ -111,20 +129,23 @@ export function FoodTypeSwitcher({
     position: 'absolute',
     // Alineamos verticalmente respecto al padre considerando el padding general del contenedor
     top: metrics.switcherPadding,
+    backgroundColor: theme.primaryAccent + '26', // ~15% opacity
+    borderColor: theme.primaryAccent + '4D', // ~30% opacity
+    borderRadius: 20,
+    borderWidth: 1,
   }));
 
   return (
     <ShadowSurface
-      className="flex-row rounded-3xl bg-[#1B210E]"
-      style={{ padding: metrics.switcherPadding, borderRadius: metrics.switcherRadius, position: 'relative' }}>
-      
+      className="flex-row rounded-3xl"
+      style={{
+        padding: metrics.switcherPadding,
+        borderRadius: metrics.switcherRadius,
+        position: 'relative',
+        backgroundColor: theme.darkColor, // ~5% opacity for subtle background
+      }}>
       {/* Indicador animado posicionado de forma absoluta dentro del contenedor principal */}
-      <Animated.View 
-        style={[
-          styles.indicatorBackground, 
-          animatedIndicatorStyle,
-        ]} 
-      />
+      <Animated.View style={[animatedIndicatorStyle]} />
 
       {ORDERED_MEAL_TYPES.map((mealType) => {
         const isActive = value === mealType;
@@ -140,7 +161,7 @@ export function FoodTypeSwitcher({
             metrics={metrics}
             onLayout={(e) => {
               const { x, width, height } = e.nativeEvent.layout;
-              setLayouts(prev => ({ ...prev, [mealType]: { x, width, height } }));
+              setLayouts((prev) => ({ ...prev, [mealType]: { x, width, height } }));
             }}
           />
         );
@@ -148,12 +169,3 @@ export function FoodTypeSwitcher({
     </ShadowSurface>
   );
 }
-
-const styles = StyleSheet.create({
-  indicatorBackground: {
-    backgroundColor: 'rgba(216, 217, 139, 0.15)',
-    borderRadius: 20,
-    borderWidth: 1,
-    borderColor: 'rgba(216, 217, 139, 0.3)',
-  },
-});

@@ -1,4 +1,8 @@
 // Carga global de estilos para NativeWind.
+// El import es un side-effect CSS usado por NativeWind; TypeScript puede quejarse
+// de no encontrar declaraciones de tipo para archivos .css, así que ignoramos
+// el chequeo TS aquí.
+// @ts-ignore: Implicit side-effect import of CSS for NativeWind
 import '../global.css';
 import { Stack } from 'expo-router';
 import { useFonts } from 'expo-font';
@@ -23,6 +27,7 @@ import {
 } from '@expo-google-fonts/inter';
 import { COLORS } from '../src/constants/theme';
 import { AuthProvider } from '../src/features/auth';
+import { RecipeThemeProvider } from '../src/context/RecipeThemeContext';
 
 export default function RootLayout() {
   // Carga fuentes antes de renderizar la navegacion.
@@ -70,7 +75,9 @@ export default function RootLayout() {
     <GestureHandlerRootView style={{ flex: 1 }}>
       <SafeAreaProvider>
         <AuthProvider>
-          <Stack screenOptions={{ headerShown: false }} />
+          <RecipeThemeProvider>
+            <Stack screenOptions={{ headerShown: false }} />
+          </RecipeThemeProvider>
         </AuthProvider>
       </SafeAreaProvider>
     </GestureHandlerRootView>

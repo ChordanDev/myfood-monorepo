@@ -1,10 +1,12 @@
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Pressable, ScrollView, Text, View } from 'react-native';
 import { ShadowSurface } from '@/components';
 import { DayCell } from './DayCell';
 import { useCalendarState } from '../hooks/useCalendarState';
 import { CALENDAR_COLORS, CALENDAR_DEFAULTS, MONTHS, WEEKDAYS } from '../constants/calendar';
 import { formatDateKey, isSelectableDate } from '../utils/calendarDate';
 import type { CalendarProps } from '../types/calendar';
+
+import { useRecipeTheme } from '@/context/RecipeThemeContext';
 
 export function Calendar({
   planByDate = {},
@@ -16,6 +18,7 @@ export function Calendar({
   weekdayFontSize = CALENDAR_DEFAULTS.weekdayFontSize,
   dayFontSize = CALENDAR_DEFAULTS.dayFontSize,
 }: CalendarProps) {
+  const { theme } = useRecipeTheme();
   const {
     year,
     month,
@@ -34,8 +37,8 @@ export function Calendar({
 
   return (
     <ShadowSurface
-      className="w-full rounded-3xl bg-[#899064] opacity-90"
-      style={{ flex: 1, borderRadius: 24 }}>
+      className="w-full rounded-3xl"
+      style={{ flex: 1, borderRadius: 24, backgroundColor: theme.calendarBg }}>
       <View className="w-full overflow-hidden rounded-3xl" style={{ flex: 1 }}>
         <View className="mb-3 flex-row items-center justify-center gap-6 px-1">
           <Pressable
@@ -44,9 +47,11 @@ export function Calendar({
             accessibilityLabel="Mes anterior"
             disabled={isPrevDisabled}
             style={{ opacity: isPrevDisabled ? 0.35 : 1 }}>
-            <Text style={{ color: CALENDAR_COLORS.dayText, fontSize: navFontSize }}>{'<'}</Text>
+            <Text style={{ color: theme.textMain, fontSize: navFontSize }}>{'<'}</Text>
           </Pressable>
-          <Text className="font-inter-bold" style={{ color: CALENDAR_COLORS.dayText, fontSize: monthFontSize }}>
+          <Text
+            className="font-inter-bold"
+            style={{ color: theme.textMain, fontSize: monthFontSize }}>
             {monthLabel}
           </Text>
           <Pressable
@@ -55,7 +60,7 @@ export function Calendar({
             accessibilityLabel="Mes siguiente"
             disabled={isNextDisabled}
             style={{ opacity: isNextDisabled ? 0.35 : 1 }}>
-            <Text style={{ color: CALENDAR_COLORS.dayText, fontSize: navFontSize }}>{'>'}</Text>
+            <Text style={{ color: theme.textMain, fontSize: navFontSize }}>{'>'}</Text>
           </Pressable>
         </View>
 
@@ -66,7 +71,7 @@ export function Calendar({
               style={{
                 width: '14.2857%',
                 textAlign: 'center',
-                color: CALENDAR_COLORS.dayText,
+                color: theme.textMain,
                 fontSize: weekdayFontSize,
               }}
               className="font-inter-semibold">
@@ -74,7 +79,7 @@ export function Calendar({
             </Text>
           ))}
         </View>
-        <View className="h-px w-full bg-[#364025] opacity-30" />
+        <View className="h-px w-full opacity-30" style={{ backgroundColor: theme.primaryAccent }} />
         <ScrollView
           style={{ flex: 1 }}
           contentContainerStyle={{ paddingBottom: 8, flexGrow: 1 }}
@@ -119,5 +124,3 @@ export function Calendar({
     </ShadowSurface>
   );
 }
-
-const styles = StyleSheet.create({});

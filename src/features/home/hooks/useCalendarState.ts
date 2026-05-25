@@ -1,13 +1,14 @@
 import { useState, useMemo, useEffect } from 'react';
 import {
   formatDateKey,
-  isSelectableDate,
   startOfDay,
   formatMonthKey,
   parseMonthKey,
   getMonthGrid,
+  parseDateKey,
 } from '../utils/calendarDate';
 import type { PlanByDate } from '../types/calendar';
+import { getAllowedMonthKeys, isSelectableMealDate } from '../domain/localMealPlan';
 
 export function useCalendarState(
   planByDate: PlanByDate = {},
@@ -29,17 +30,15 @@ export function useCalendarState(
   const currentMonthKey = formatMonthKey(year, month);
 
   const allowedMonthKeys = useMemo(() => {
-    const keys = Object.keys(planByDate)
-      .filter((dateKey) => Boolean(planByDate[dateKey]?.length))
-      .map((dateKey) => dateKey.slice(0, 7));
-
-    return Array.from(new Set(keys)).sort();
+    return getAllowedMonthKeys(planByDate);
   }, [planByDate]);
 
   const currentMonthIndex = allowedMonthKeys.indexOf(currentMonthKey);
   const hasAllowedMonths = allowedMonthKeys.length > 0;
   const isPrevDisabled = hasAllowedMonths ? currentMonthIndex <= 0 : false;
-  const isNextDisabled = hasAllowedMonths ? currentMonthIndex >= allowedMonthKeys.length - 1 : false;
+  const isNextDisabled = hasAllowedMonths
+    ? currentMonthIndex >= allowedMonthKeys.length - 1
+    : false;
 
   useEffect(() => {
     if (!hasAllowedMonths) {
@@ -72,7 +71,7 @@ export function useCalendarState(
   };
 
   const handleSelectDate = (dateString: string) => {
-    if (!isSelectableDate(dateString, planByDate, today)) {
+    if (!isSelectableMealDate(dateString, planByDate, today, parseDateKey)) {
       return;
     }
 
@@ -80,6 +79,10 @@ export function useCalendarState(
     if (selectedDate === undefined) {
       setInternalSelectedDate(dateString);
     }
+  };
+
+  const canSelectDate = (dateString: string) => {
+    return isSelectableMealDate(dateString, planByDate, today, parseDateKey);
   };
 
   return {
@@ -94,5 +97,6 @@ export function useCalendarState(
     handlePrevMonth,
     handleNextMonth,
     handleSelectDate,
+    canSelectDate,
   };
 }

@@ -3,7 +3,6 @@ import { View, Pressable, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Redirect, Tabs } from 'expo-router';
-import { Platform } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Animated, {
   useAnimatedStyle,
@@ -13,13 +12,15 @@ import Animated, {
   withSequence,
 } from 'react-native-reanimated';
 import { BottomTabBarProps } from '@react-navigation/bottom-tabs';
-import { COLORS } from '../../src/constants/theme';
 import { useAuth } from '../../src/features/auth';
+import { useRecipeTheme } from '../../src/context/RecipeThemeContext';
 
-const AnimatedTabButton = ({ route, isFocused, onPress, options }: any) => {
+// Componente que anima cada botón de tab al ser seleccionado.
+const AnimatedTabButton = ({ isFocused, onPress, options }: any) => {
   const width = useSharedValue(isFocused ? 60 : 40);
   const opacity = useSharedValue(isFocused ? 1 : 0);
   const iconScale = useSharedValue(1);
+  const { theme } = useRecipeTheme();
 
   useEffect(() => {
     if (isFocused) {
@@ -39,8 +40,9 @@ const AnimatedTabButton = ({ route, isFocused, onPress, options }: any) => {
       width.value = withTiming(40, { duration: 250, easing: Easing.in(Easing.quad) });
       iconScale.value = withTiming(1, { duration: 200 });
     }
-  }, [isFocused, width, opacity, iconScale]);
+  }, [iconScale, isFocused, opacity, width]);
 
+  // Estilos animados para el óvalo indicador y el icono.
   const animatedOvalStyle = useAnimatedStyle(() => {
     return {
       width: width.value,
@@ -48,6 +50,7 @@ const AnimatedTabButton = ({ route, isFocused, onPress, options }: any) => {
     };
   });
 
+  // El icono hace un pequeño pop al seleccionar la tab para dar feedback visual.
   const animatedIconStyle = useAnimatedStyle(() => {
     return {
       transform: [{ scale: iconScale.value }],
@@ -55,13 +58,23 @@ const AnimatedTabButton = ({ route, isFocused, onPress, options }: any) => {
   });
 
   return (
-    <Pressable onPress={onPress} style={styles.tabButton}>
-      <Animated.View style={[styles.indicatorOval, animatedOvalStyle]} />
+    <Pressable onPress={onPress} className="h-full flex-1 items-center justify-center">
+      <Animated.View
+        className="absolute h-10 rounded-[20px] border"
+        style={[
+          animatedOvalStyle,
+          {
+            backgroundColor: theme.tabOvalBg,
+            borderColor: theme.tabOvalBorder,
+          },
+        ]}
+      />
       <Animated.View style={animatedIconStyle}>
+        {/* Icono de la tab que fue previamente definido en TabsLayout */}
         {options.tabBarIcon &&
           options.tabBarIcon({
             focused: isFocused,
-            color: isFocused ? COLORS.accentYellow : COLORS.accentGreenMuted,
+            color: isFocused ? theme.tabIconBgActive : theme.tabIconBgInactive,
             size: 24,
           })}
       </Animated.View>
@@ -69,23 +82,31 @@ const AnimatedTabButton = ({ route, isFocused, onPress, options }: any) => {
   );
 };
 
+// Componente personalizado para la tab bar que incluye el fondo con gradiente y los botones animados.
 function CustomTabBar({
-  state,
-  descriptors,
-  navigation,
+  state, // Estado de navegación que incluye las rutas y la ruta activa
+  descriptors, // Descriptores de cada ruta que incluyen opciones como el icono
+  navigation, // Objeto de navegación para manejar la navegación entre tabs
   insets,
 }: BottomTabBarProps & { insets: any }) {
+  const { theme } = useRecipeTheme();
+
   return (
-    <View style={[styles.tabBarContainer, { height: insets.bottom + 60 }]}>
+    <View
+      className="absolute bottom-0 left-0 right-0 border-t-0"
+      style={{
+        height: insets.bottom + 60,
+        elevation: 0,
+      }}>
       <LinearGradient
-        colors={['#15180F', '#0D1007']}
+        colors={theme.tabBarGradient}
         locations={[0.61, 1]}
         start={{ x: 0, y: 0 }}
         end={{ x: 0, y: 1 }}
         style={StyleSheet.absoluteFillObject}
       />
-
-      <View style={styles.tabsRow}>
+      <View className="h-[60px] flex-row items-center">
+        {/* Mapeo de rutas a botones de tab */}
         {state.routes.map((route, index) => {
           const { options } = descriptors[route.key];
           const isFocused = state.index === index;
@@ -105,7 +126,6 @@ function CustomTabBar({
           return (
             <AnimatedTabButton
               key={route.key}
-              route={route}
               isFocused={isFocused}
               onPress={onPress}
               options={options}
@@ -139,6 +159,7 @@ export default function TabsLayout() {
       }}>
       <Tabs.Screen
         name="home"
+        // options es guardado en el descriptor de cada ruta el cual es pasado al CustomTabBar para que lo renderize a su manera.
         options={{
           title: 'Home',
           tabBarIcon: ({ color, size, focused }) => (
@@ -173,36 +194,6 @@ export default function TabsLayout() {
           ),
         }}
       />
-    </Tabs >
+    </Tabs>
   );
 }
-
-const styles = StyleSheet.create({
-  tabBarContainer: {
-    position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
-    elevation: 0,
-    borderTopWidth: 0,
-  },
-  tabsRow: {
-    flexDirection: 'row',
-    height: 60,
-    alignItems: 'center',
-  },
-  tabButton: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    height: '100%',
-  },
-  indicatorOval: {
-    position: 'absolute',
-    height: 40,
-    backgroundColor: 'rgba(216, 217, 139, 0.15)',
-    borderRadius: 20,
-    borderWidth: 1,
-    borderColor: 'rgba(216, 217, 139, 0.3)',
-  },
-});
