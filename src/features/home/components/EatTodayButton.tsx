@@ -1,4 +1,6 @@
-import { Pressable, Text, useWindowDimensions } from 'react-native';
+import { Pressable, useWindowDimensions } from 'react-native';
+import Animated from 'react-native-reanimated';
+import { useAnimatedThemeStyle } from '@/hooks/useAnimatedThemeStyle';
 import type { HomeMealType } from '../domain/localMealPlan';
 
 export type EatTodayDestinationType = Extract<HomeMealType, 'almuerzo' | 'cena'>;
@@ -39,6 +41,11 @@ export function EatTodayButton({
   const { width: screenWidth } = useWindowDimensions();
   const imageWidth = Math.round((screenWidth * widthPercent * sizeScale) / 100);
   const buttonSize = Math.max(96, Math.round(imageWidth * 0.5));
+  const buttonThemeStyle = useAnimatedThemeStyle({
+    backgroundColor,
+    ...(borderColor ? { borderColor } : {}),
+  });
+  const textThemeStyle = useAnimatedThemeStyle({ color: textColor });
 
   return (
     <Pressable
@@ -54,14 +61,27 @@ export function EatTodayButton({
         height: buttonSize,
         borderRadius: buttonSize / 2,
         zIndex: 10,
-        backgroundColor,
-        ...(borderColor ? { borderWidth: 2, borderColor } : {}),
+        overflow: 'hidden',
       }}>
-      <Text
+      <Animated.View
+        style={[
+          {
+            position: 'absolute',
+            top: 0,
+            right: 0,
+            bottom: 0,
+            left: 0,
+            borderRadius: buttonSize / 2,
+            ...(borderColor ? { borderWidth: 2 } : {}),
+          },
+          buttonThemeStyle,
+        ]}
+      />
+      <Animated.Text
         className="text-center font-inter-bold leading-tight"
-        style={{ color: textColor, fontSize: Math.round(buttonSize * 0.16) }}>
+        style={[{ fontSize: Math.round(buttonSize * 0.16) }, textThemeStyle]}>
         COMER{'\n'}HOY
-      </Text>
+      </Animated.Text>
     </Pressable>
   );
 }

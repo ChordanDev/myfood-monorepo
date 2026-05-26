@@ -15,6 +15,8 @@ import { BottomTabBarProps } from '@react-navigation/bottom-tabs';
 import { useAuth } from '../../src/features/auth';
 import { useRecipeTheme } from '../../src/context/RecipeThemeContext';
 import { useThemeColor } from '../../src/hooks/useThemeColor';
+import { useGradientCrossfade } from '../../src/hooks/useGradientCrossfade';
+import { useAnimatedThemeStyle } from '../../src/hooks/useAnimatedThemeStyle';
 
 // Componente que anima cada botón de tab al ser seleccionado.
 const AnimatedTabButton = ({ isFocused, onPress, options }: any) => {
@@ -22,6 +24,10 @@ const AnimatedTabButton = ({ isFocused, onPress, options }: any) => {
   const opacity = useSharedValue(isFocused ? 1 : 0);
   const iconScale = useSharedValue(1);
   const { getColorWithOpacity, theme } = useThemeColor();
+  const ovalThemeStyle = useAnimatedThemeStyle({
+    backgroundColor: getColorWithOpacity('icon', 0.15),
+    borderColor: getColorWithOpacity('icon', 0.3),
+  });
 
   useEffect(() => {
     if (isFocused) {
@@ -62,13 +68,7 @@ const AnimatedTabButton = ({ isFocused, onPress, options }: any) => {
     <Pressable onPress={onPress} className="h-full flex-1 items-center justify-center">
       <Animated.View
         className="absolute h-10 rounded-[20px] border"
-        style={[
-          animatedOvalStyle,
-          {
-            backgroundColor: getColorWithOpacity('icon', 0.15),
-            borderColor: getColorWithOpacity('icon', 0.3),
-          },
-        ]}
+        style={[animatedOvalStyle, ovalThemeStyle]}
       />
       <Animated.View style={animatedIconStyle}>
         {/* Icono de la tab que fue previamente definido en TabsLayout */}
@@ -91,6 +91,13 @@ function CustomTabBar({
   insets,
 }: BottomTabBarProps & { insets: any }) {
   const { theme } = useRecipeTheme();
+  const tabBarBackgroundColors: [string, string] = [theme.colorDark, theme.colorBlack];
+  const {
+    currentColors: currentTabBarBackgroundColors,
+    previousColors: previousTabBarBackgroundColors,
+    animatedStyle: animatedTabBarBackgroundStyle,
+    AnimatedView,
+  } = useGradientCrossfade(tabBarBackgroundColors);
 
   return (
     <View
@@ -100,12 +107,21 @@ function CustomTabBar({
         elevation: 0,
       }}>
       <LinearGradient
-        colors={[theme.colorDark, theme.colorBlack]}
+        colors={previousTabBarBackgroundColors}
         locations={[0.61, 1]}
         start={{ x: 0, y: 0 }}
         end={{ x: 0, y: 1 }}
         style={StyleSheet.absoluteFillObject}
       />
+      <AnimatedView style={[StyleSheet.absoluteFillObject, animatedTabBarBackgroundStyle]}>
+        <LinearGradient
+          colors={currentTabBarBackgroundColors}
+          locations={[0.61, 1]}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 0, y: 1 }}
+          style={styles.gradient}
+        />
+      </AnimatedView>
       <View className="h-[60px] flex-row items-center">
         {/* Mapeo de rutas a botones de tab */}
         {state.routes.map((route, index) => {
@@ -198,3 +214,7 @@ export default function TabsLayout() {
     </Tabs>
   );
 }
+
+const styles = StyleSheet.create({
+  gradient: { flex: 1 },
+});

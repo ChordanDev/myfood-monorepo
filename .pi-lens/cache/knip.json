@@ -8,6 +8,11 @@
     },
     {
       "type": "file",
+      "name": "src/hooks/useTitleMetrics.ts",
+      "file": "src/hooks/useTitleMetrics.ts"
+    },
+    {
+      "type": "file",
       "name": "src/mocks/index.ts",
       "file": "src/mocks/index.ts"
     },
@@ -15,11 +20,6 @@
       "type": "file",
       "name": "src/mocks/mealPlans.ts",
       "file": "src/mocks/mealPlans.ts"
-    },
-    {
-      "type": "file",
-      "name": "src/hooks/useTitleMetrics.ts",
-      "file": "src/hooks/useTitleMetrics.ts"
     },
     {
       "type": "file",
@@ -397,6 +397,11 @@
     },
     {
       "type": "file",
+      "name": "src/hooks/useTitleMetrics.ts",
+      "file": "src/hooks/useTitleMetrics.ts"
+    },
+    {
+      "type": "file",
       "name": "src/mocks/index.ts",
       "file": "src/mocks/index.ts"
     },
@@ -404,11 +409,6 @@
       "type": "file",
       "name": "src/mocks/mealPlans.ts",
       "file": "src/mocks/mealPlans.ts"
-    },
-    {
-      "type": "file",
-      "name": "src/hooks/useTitleMetrics.ts",
-      "file": "src/hooks/useTitleMetrics.ts"
     },
     {
       "type": "file",

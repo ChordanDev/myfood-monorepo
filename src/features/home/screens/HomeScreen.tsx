@@ -1,4 +1,4 @@
-import { Alert, View } from 'react-native';
+import { Alert, StyleSheet, View } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
 import { AddCircleButton, NoisyBackground, SafeAreaContent, TitlePrimary } from '@/components';
@@ -18,6 +18,8 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useHomeRecipeTheme } from '../hooks/useHomeRecipeTheme';
 import { formatDateKey } from '../utils/calendarDate';
 import { useMealPlanStore } from '@/store';
+import { useGradientCrossfade } from '@/hooks/useGradientCrossfade';
+import { getRecipeImageSource } from '@/features/recipe/utils/recipeImageSource';
 
 const DEFAULT_FOOD_IMAGE = require('../../../../assets/AuthFoodImages/Gemini_Generated_Image_16g8h616g8h616g8-removebg-preview.png');
 
@@ -42,9 +44,14 @@ export function HomeScreen() {
   const isTodaySelected = selectedDate === todayKey;
 
   const selectedMealDescription = selectedMeal?.description ?? '';
-  const foodImageSource = selectedMeal?.imageUrl
-    ? { uri: selectedMeal.imageUrl }
-    : DEFAULT_FOOD_IMAGE;
+  const foodImageSource = getRecipeImageSource(selectedMeal?.imageUrl) ?? DEFAULT_FOOD_IMAGE;
+  const backgroundColors: [string, string] = [theme.colorDark, theme.appBg];
+  const {
+    currentColors: currentBackgroundColors,
+    previousColors: previousBackgroundColors,
+    animatedStyle: animatedBackgroundStyle,
+    AnimatedView,
+  } = useGradientCrossfade(backgroundColors);
 
   const handlePressSparkles = () => {
     if (selectedMeal?.recipeId) {
@@ -102,12 +109,23 @@ export function HomeScreen() {
   };
 
   return (
-    <LinearGradient
-      colors={[theme.colorDark, theme.appBg]}
-      start={{ x: 0, y: 0 }}
-      end={{ x: 0, y: 1 }}
-      locations={[0, 0.1]}
-      style={{ flex: 1 }}>
+    <View style={[styles.screen, { backgroundColor: backgroundColors[1] }]}>
+      <LinearGradient
+        colors={previousBackgroundColors}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 0, y: 1 }}
+        locations={[0, 0.1]}
+        style={StyleSheet.absoluteFill}
+      />
+      <AnimatedView style={[StyleSheet.absoluteFill, animatedBackgroundStyle]}>
+        <LinearGradient
+          colors={currentBackgroundColors}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 0, y: 1 }}
+          locations={[0, 0.1]}
+          style={styles.gradient}
+        />
+      </AnimatedView>
       <NoisyBackground opacity={0.3} />
       <SafeAreaContent includeBottom={false} style={{ flex: 1 }}>
         <TitlePrimary text="COMIDAS" metrics={metrics} />
@@ -183,6 +201,11 @@ export function HomeScreen() {
           </View>
         </View>
       </SafeAreaContent>
-    </LinearGradient>
+    </View>
   );
 }
+
+const styles = StyleSheet.create({
+  screen: { flex: 1 },
+  gradient: { flex: 1 },
+});

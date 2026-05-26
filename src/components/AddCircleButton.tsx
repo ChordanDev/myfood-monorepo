@@ -1,5 +1,5 @@
 import { useEffect } from 'react';
-import { Pressable, View, StyleSheet } from 'react-native';
+import { Pressable, StyleSheet } from 'react-native';
 import { SvgXml } from 'react-native-svg';
 import Animated, {
   cancelAnimation,
@@ -14,6 +14,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { PLUS_SVG } from '@/constants/svgIcons';
 import { ShadowSurface } from './ShadowSurface';
 import { useRecipeTheme } from '@/context/RecipeThemeContext';
+import { useAnimatedThemeStyle } from '@/hooks/useAnimatedThemeStyle';
 
 interface AddCircleButtonProps {
   size?: number;
@@ -34,6 +35,7 @@ export function AddCircleButton({ size = DEFAULT_BUTTON_SIZE, onPress }: AddCirc
 
   const rotation = useSharedValue(0);
   const gradientSize = buttonSize * 2.6;
+  const innerThemeStyle = useAnimatedThemeStyle({ backgroundColor: theme.colorDark });
 
   useEffect(() => {
     rotation.value = withRepeat(
@@ -84,17 +86,19 @@ export function AddCircleButton({ size = DEFAULT_BUTTON_SIZE, onPress }: AddCirc
           />
         </Animated.View>
 
-        <View
-          style={{
-            width: innerSize,
-            height: innerSize,
-            borderRadius: innerRadius,
-            backgroundColor: theme.colorDark,
-            alignItems: 'center',
-            justifyContent: 'center',
-          }}>
+        <Animated.View
+          style={[
+            {
+              width: innerSize,
+              height: innerSize,
+              borderRadius: innerRadius,
+              alignItems: 'center',
+              justifyContent: 'center',
+            },
+            innerThemeStyle,
+          ]}>
           <SvgXml xml={PLUS_SVG} width={plusSize} height={plusSize} color={theme.primaryAccent} />
-        </View>
+        </Animated.View>
       </Pressable>
     </ShadowSurface>
   );

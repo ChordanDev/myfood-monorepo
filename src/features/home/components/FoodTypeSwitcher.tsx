@@ -11,6 +11,7 @@ import type { HomeMealType } from '../domain/localMealPlan';
 import type { HomeMetrics } from '../utils/responsive';
 
 import { useThemeColor } from '@/hooks/useThemeColor';
+import { useAnimatedThemeStyle } from '@/hooks/useAnimatedThemeStyle';
 
 interface FoodTypeSwitcherProps {
   value: MealType | null;
@@ -47,6 +48,13 @@ const SwitcherItem = ({
   onLayout,
 }: SwitcherItemProps) => {
   const { theme, getColorWithOpacity } = useThemeColor();
+  const textColor = isActive
+    ? theme.textMedium
+    : isUnavailable
+      ? getColorWithOpacity('textLight', 0.44)
+      : theme.textLight;
+  const textStyle = useAnimatedThemeStyle({ color: textColor });
+
   return (
     <Pressable
       onPress={onPress}
@@ -61,15 +69,7 @@ const SwitcherItem = ({
       }}>
       <Animated.Text
         className="font-inter-semibold"
-        style={{
-          color: isActive
-            ? theme.textMedium
-            : isUnavailable
-              ? getColorWithOpacity('textLight', 0.44)
-              : theme.textLight,
-          fontSize: metrics.switcherFontSize,
-          zIndex: 1,
-        }}>
+        style={[{ fontSize: metrics.switcherFontSize, zIndex: 1 }, textStyle]}>
         {MEAL_TYPE_LABEL[mealType]}
       </Animated.Text>
     </Pressable>
@@ -137,11 +137,14 @@ export function FoodTypeSwitcher({
     position: 'absolute',
     // Alineamos verticalmente respecto al padre considerando el padding general del contenedor
     top: metrics.switcherPadding,
-    backgroundColor: indicatorBackgroundColor,
-    borderColor: indicatorBorderColor,
     borderRadius: 20,
     borderWidth: 1,
   }));
+  const indicatorThemeStyle = useAnimatedThemeStyle({
+    backgroundColor: indicatorBackgroundColor,
+    borderColor: indicatorBorderColor,
+  });
+  const containerThemeStyle = useAnimatedThemeStyle({ backgroundColor: theme.colorDark });
 
   return (
     <ShadowSurface
@@ -150,10 +153,24 @@ export function FoodTypeSwitcher({
         padding: metrics.switcherPadding,
         borderRadius: metrics.switcherRadius,
         position: 'relative',
-        backgroundColor: theme.colorDark, // ~5% opacity for subtle background
+        overflow: 'hidden',
       }}>
+      <Animated.View
+        pointerEvents="none"
+        style={[
+          {
+            position: 'absolute',
+            top: 0,
+            right: 0,
+            bottom: 0,
+            left: 0,
+            borderRadius: metrics.switcherRadius,
+          },
+          containerThemeStyle,
+        ]}
+      />
       {/* Indicador animado posicionado de forma absoluta dentro del contenedor principal */}
-      <Animated.View style={[animatedIndicatorStyle]} />
+      <Animated.View style={[animatedIndicatorStyle, indicatorThemeStyle]} />
 
       {ORDERED_MEAL_TYPES.map((mealType) => {
         const isActive = value === mealType;

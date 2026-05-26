@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
 import { Text, View, Pressable } from 'react-native';
+import Animated from 'react-native-reanimated';
 import Svg, { Defs, LinearGradient as SvgLinearGradient, Path, Stop } from 'react-native-svg';
 import { ShadowSurface } from '@/components';
 import type { MealType } from '@/types/domain';
@@ -10,6 +11,7 @@ import { getTopLeftLabel } from './utils';
 import { FavoriteStarIcon, SparklesGradientIcon } from './icons';
 import { useFoodCardLayout } from './useFoodCardLayout';
 import { useThemeColor } from '@/hooks/useThemeColor';
+import { useAnimatedThemeStyle } from '@/hooks/useAnimatedThemeStyle';
 
 interface FoodCardProps {
   mealType: MealType | null;
@@ -43,6 +45,11 @@ export function FoodCard({
   const topLeftLabel = getTopLeftLabel(selectedDate);
   const layout = useFoodCardLayout(metrics);
   const dayNameColor = topLeftLabel?.isToday ? theme.primaryAccent : theme.textMedium;
+  const sparklesButtonThemeStyle = useAnimatedThemeStyle({
+    backgroundColor: sparklesBackgroundColor,
+    borderColor: sparklesBorderColor,
+  });
+  const descriptionThemeStyle = useAnimatedThemeStyle({ color: theme.textLight });
 
   return (
     <ShadowSurface className="h-full w-full">
@@ -93,18 +100,19 @@ export function FoodCard({
               height: layout.bottomIconBoxSize as any,
               opacity: hasMealData ? 1 : 0.3,
             }}>
-            <View
+            <Animated.View
               className="items-center justify-center"
-              style={{
-                backgroundColor: sparklesBackgroundColor,
-                borderColor: sparklesBorderColor,
-                borderWidth: 1,
-                borderRadius: 999,
-                width: layout.bottomIconSize * 1.6,
-                height: layout.bottomIconSize * 1.6,
-              }}>
+              style={[
+                {
+                  borderWidth: 1,
+                  borderRadius: 999,
+                  width: layout.bottomIconSize * 1.6,
+                  height: layout.bottomIconSize * 1.6,
+                },
+                sparklesButtonThemeStyle,
+              ]}>
               <SparklesGradientIcon size={layout.bottomIconSize} />
-            </View>
+            </Animated.View>
           </Pressable>
 
           <View
@@ -144,16 +152,18 @@ export function FoodCard({
               top: '50%',
               width: layout.descriptionWidth as any,
             }}>
-            <Text
+            <Animated.Text
               className="text-center font-inter-medium"
-              style={{
-                color: theme.textLight,
-                fontSize: metrics.foodCardDescriptionFontSize as any,
-                lineHeight: metrics.foodCardDescriptionLineHeight as any,
-              }}
+              style={[
+                {
+                  fontSize: metrics.foodCardDescriptionFontSize as any,
+                  lineHeight: metrics.foodCardDescriptionLineHeight as any,
+                },
+                descriptionThemeStyle,
+              ]}
               numberOfLines={5}>
               {descriptionText}
-            </Text>
+            </Animated.Text>
           </View>
         </View>
       </View>

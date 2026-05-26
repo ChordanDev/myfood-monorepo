@@ -11,6 +11,7 @@ import Animated, {
   withTiming,
 } from 'react-native-reanimated';
 import { useRecipeTheme } from '../hooks/useRecipeTheme';
+import { getRecipeImageSource } from '../utils/recipeImageSource';
 
 export function RecipeScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -20,6 +21,7 @@ export function RecipeScreen() {
   const recipe = getRecipeById(id as string);
   const mealEntry = entries.find((e) => e.recipeId === id);
   const theme = useRecipeTheme(recipe);
+  const recipeImageSource = getRecipeImageSource(recipe?.imageUrl);
   const previousBackgroundRef = useRef(theme.background);
   const [previousBackground, setPreviousBackground] = useState(theme.background);
   const themeTransitionProgress = useSharedValue(1);
@@ -99,9 +101,7 @@ export function RecipeScreen() {
             <Pressable onPress={() => router.back()} style={styles.backButton}>
               <Text style={{ color: theme.text, fontSize: 24 }}>←</Text>
             </Pressable>
-            {recipe.imageUrl && (
-              <Image source={{ uri: recipe.imageUrl }} style={styles.recipeImage} />
-            )}
+            {recipeImageSource && <Image source={recipeImageSource} style={styles.recipeImage} />}
             <View style={styles.titleOverlay}>
               <Text style={[styles.title, { color: theme.text }]}>{recipe.name.toUpperCase()}</Text>
               <View style={styles.tagContainer}>

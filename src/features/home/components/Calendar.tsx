@@ -1,4 +1,5 @@
-import { Pressable, ScrollView, Text, View } from 'react-native';
+import { Pressable, ScrollView, View } from 'react-native';
+import Animated from 'react-native-reanimated';
 import { ShadowSurface } from '@/components';
 import { DayCell } from './DayCell';
 import { useCalendarState } from '../hooks/useCalendarState';
@@ -8,6 +9,7 @@ import type { CalendarProps } from '../types/calendar';
 
 import { useRecipeTheme } from '@/context/RecipeThemeContext';
 import { useThemeColor } from '@/hooks/useThemeColor';
+import { useAnimatedThemeStyle } from '@/hooks/useAnimatedThemeStyle';
 
 export function Calendar({
   planByDate = {},
@@ -36,12 +38,15 @@ export function Calendar({
   } = useCalendarState(planByDate, selectedDate, onSelectDate);
 
   const monthLabel = `${MONTHS[month]} ${year}`;
+  const surfaceStyle = useAnimatedThemeStyle({ backgroundColor: theme.colorLight });
+  const textDarkStyle = useAnimatedThemeStyle({ color: theme.textDark });
+  const dividerStyle = useAnimatedThemeStyle({ backgroundColor: theme.colorDark });
 
   return (
-    <ShadowSurface
-      className="w-full rounded-3xl"
-      style={{ flex: 1, borderRadius: 24, backgroundColor: theme.colorLight }}>
-      <View className="w-full overflow-hidden rounded-3xl" style={{ flex: 1 }}>
+    <ShadowSurface className="w-full rounded-3xl" style={{ flex: 1, borderRadius: 24 }}>
+      <Animated.View
+        className="w-full overflow-hidden rounded-3xl"
+        style={[{ flex: 1 }, surfaceStyle]}>
         <View className="mb-3 flex-row items-center justify-center gap-6 px-1">
           <Pressable
             onPress={handlePrevMonth}
@@ -49,39 +54,41 @@ export function Calendar({
             accessibilityLabel="Mes anterior"
             disabled={isPrevDisabled}
             style={{ opacity: isPrevDisabled ? 0.35 : 1 }}>
-            <Text style={{ color: theme.textDark, fontSize: navFontSize }}>{'<'}</Text>
+            <Animated.Text style={[{ fontSize: navFontSize }, textDarkStyle]}>{'<'}</Animated.Text>
           </Pressable>
-          <Text
+          <Animated.Text
             className="font-inter-bold"
-            style={{ color: theme.textDark, fontSize: monthFontSize }}>
+            style={[{ fontSize: monthFontSize }, textDarkStyle]}>
             {monthLabel}
-          </Text>
+          </Animated.Text>
           <Pressable
             onPress={handleNextMonth}
             hitSlop={10}
             accessibilityLabel="Mes siguiente"
             disabled={isNextDisabled}
             style={{ opacity: isNextDisabled ? 0.35 : 1 }}>
-            <Text style={{ color: theme.textDark, fontSize: navFontSize }}>{'>'}</Text>
+            <Animated.Text style={[{ fontSize: navFontSize }, textDarkStyle]}>{'>'}</Animated.Text>
           </Pressable>
         </View>
 
         <View className="mb-2 flex-row px-1">
           {WEEKDAYS.map((label, index) => (
-            <Text
+            <Animated.Text
               key={`${label}-${index}`}
-              style={{
-                width: '14.2857%',
-                textAlign: 'center',
-                color: theme.textDark,
-                fontSize: weekdayFontSize,
-              }}
+              style={[
+                {
+                  width: '14.2857%',
+                  textAlign: 'center',
+                  fontSize: weekdayFontSize,
+                },
+                textDarkStyle,
+              ]}
               className="font-inter-semibold">
               {label}
-            </Text>
+            </Animated.Text>
           ))}
         </View>
-        <View className="h-px w-full opacity-30" style={{ backgroundColor: theme.colorDark }} />
+        <Animated.View className="h-px w-full opacity-30" style={dividerStyle} />
         <ScrollView
           style={{ flex: 1 }}
           contentContainerStyle={{ paddingBottom: 8, flexGrow: 1 }}
@@ -122,7 +129,7 @@ export function Calendar({
             })}
           </View>
         </ScrollView>
-      </View>
+      </Animated.View>
     </ShadowSurface>
   );
 }

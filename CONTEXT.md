@@ -2,122 +2,88 @@
 
 ## Files Retrieved
 
-1. `app/_layout.tsx` (lines 30, 74-80) - mounts `RecipeThemeProvider` around the whole Expo stack.
-2. `src/context/RecipeThemeContext.tsx` (lines 4-75) - defines default recipe theme, provider state, `setRecipeTheme(null)` fallback behavior, and context `useRecipeTheme`.
-3. `src/features/home/hooks/useHomeRecipeTheme.ts` (lines 1-18) - only caller of context `setRecipeTheme`; currently applies selected meal recipe theme regardless of selected date.
-4. `src/features/home/screens/HomeScreen.tsx` (lines 20-29, 42-49, 68-105) - wires `selectedDate`/`selectedMeal` from `useHomeState`, uses `useHomeRecipeTheme`, and passes themed colors to the home gradient and child components.
-5. `src/features/home/hooks/useHomeState.ts` (lines 13-72) - derives `todayKey`, `selectedDate`, `mealsForSelectedDate`, `selectedMealType`, and `selectedMeal`.
-6. `src/features/home/domain/localMealPlan.ts` (lines 21-34, 55-77, 88-95) - builds entries by date, chooses initial selected date, joins selected meal entry to current recipe/theme, and gates selectable dates.
-7. `src/features/home/domain/recipeThemeSelection.ts` (lines 1-5) - returns `selectedMeal?.theme ?? null`.
-8. `src/features/home/hooks/useCalendarState.ts` (lines 13-102) - computes `todayKey`, active selected date, and date selection behavior for calendar.
-9. `src/features/home/components/Calendar.tsx` (lines 22-36, 93-119) - consumes current context theme and computes per-day `isToday`/`isSelected`.
-10. `src/features/home/components/DayCell.tsx` (lines 32-51) - consumes current context theme for selected/today/planned day styling.
-11. `src/hooks/useThemeColor.ts` (lines 1-23) - common context-theme color accessor used by themed components.
-12. `src/features/recipe/hooks/useRecipeTheme.ts` (lines 5-35) - separate recipe-detail theme hook; not the context hook, but it applies `recipe.theme` whenever present.
-13. `src/features/recipe/screens/RecipeScreen.tsx` (lines 9-17, 55-89) - recipe detail derives recipe by route id and uses the separate feature theme hook.
-14. `src/store/useMealPlanStore.ts` (lines 8-45) - store source for `entries`, `recipes`, `getRecipeById`, and meal-plan lookup.
+1. `src/features/home/screens/HomeScreen.tsx` (lines 41-55, 112-159, 174-201) - owns Home theme selection, already crossfades page background, passes raw theme colors into children.
+2. `app/(tabs)/_layout.tsx` (lines 21-84, 94-125) - custom tab bar; background already crossfades, but button/icon colors still snap.
+3. `src/features/home/components/Calendar.tsx` (lines 22-23, 41-84, 101-115) - calendar surface/header/weekday/divider/text colors come directly from theme.
+4. `src/features/home/components/DayCell.tsx` (lines 32-51, 67-80) - day circle fill/border/text colors switch directly on theme.
+5. `src/features/home/components/FoodTypeSwitcher.tsx` (lines 49-74, 85-93, 132-154) - switcher text, background, and active pill colors derive from theme/useThemeColor and snap.
+6. `src/features/home/components/FoodCard/FoodCard.tsx` (lines 32-45, 57-69, 96-106, 117-156) - SVG gradient stops, sparkles button, day label, number, description colors snap.
+7. `src/features/home/components/FoodCard/icons.tsx` (lines 4-29, 33-43) - star/sparkles SVG fills/strokes use raw theme colors.
+8. `src/features/home/components/EatTodayButton.tsx` (lines 43-65) - receives theme colors from HomeScreen and applies raw background/border/text colors.
+9. `src/components/AddCircleButton.tsx` (lines 25-27, 73-97) - used by Home; rotating gradient colors, inner background, and plus icon color use raw theme colors.
+10. `src/components/TitlePrimary.tsx` (lines 10-22) - used by Home; title text color comes directly from theme.
+11. `src/hooks/useThemeColor.ts` (lines 10-25) - returns current theme and opacity helper only; no transition state.
+12. `src/hooks/useGradientCrossfade.ts` (lines 11-43) - existing 450ms opacity crossfade helper for two-color gradients.
+13. `src/features/home/hooks/useHomeRecipeTheme.ts` (lines 7-24) - changes RecipeThemeContext 100ms after selected meal/date changes.
 
 ## Key Code
 
-`src/context/RecipeThemeContext.tsx`:
+Existing animated pieces:
 
-```ts
-const DEFAULT_THEME: RecipeThemeConfig = { ... };
-
-export function RecipeThemeProvider({ children }: { children: ReactNode }) {
-  const [currentTheme, setCurrentTheme] = useState<Partial<RecipeThemeConfig> | null>(null);
-
-  const theme = useMemo(() => {
-    if (!currentTheme) return DEFAULT_THEME;
-    return { ...DEFAULT_THEME, ...currentTheme, ...fallbacks };
-  }, [currentTheme]);
-
-  const setRecipeTheme = useCallback((newTheme: RecipeThemeConfig | null) => {
-    setCurrentTheme((prev) => {
-      if (JSON.stringify(prev) === JSON.stringify(newTheme)) return prev;
-      return newTheme;
-    });
-  }, []);
-}
+```tsx
+// Home background already crossfades.
+const backgroundColors: [string, string] = [theme.colorDark, theme.appBg];
+const { currentColors, previousColors, animatedStyle } = useGradientCrossfade(backgroundColors);
 ```
 
-Important behavior: `setRecipeTheme(null)` makes `theme` become `DEFAULT_THEME`.
-
-`src/features/home/hooks/useHomeRecipeTheme.ts`:
-
-```ts
-export function useHomeRecipeTheme(selectedMeal: LocalMealSelection | null) {
-  const { theme, setRecipeTheme } = useRecipeTheme();
-
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      setRecipeTheme(getThemeForLocalMealSelection(selectedMeal));
-    }, 100);
-    return () => clearTimeout(timer);
-  }, [selectedMeal, setRecipeTheme]);
-
-  return theme;
-}
+```tsx
+// Tab bar background already crossfades.
+const tabBarBackgroundColors: [string, string] = [theme.colorDark, theme.colorBlack];
 ```
 
-This is the enforcement point: it is the only `setRecipeTheme` usage found under `src`.
+Theme-driven props/styles still abrupt, prioritized:
 
-`src/features/home/hooks/useHomeState.ts` selected date/current recipe derivation:
+1. **FoodCard SVG and text (`src/features/home/components/FoodCard/FoodCard.tsx`)**
+   - Animate `<Stop stopColor={theme.colorMedium} />` and `<Stop stopColor={theme.colorDark} />` (lines 65-66), or crossfade whole card SVG layers.
+   - Animate sparkles button `backgroundColor`/`borderColor` (lines 99-100).
+   - Animate label colors: `dayNameColor`, `theme.primaryAccent`, `theme.textLight` (lines 45, 122, 130, 150).
 
-```ts
-const todayKey = formatDateKey(new Date());
-const planByDate = useMemo(() => buildLocalMealPlanByDate(entries), [entries]);
-const availableDateKeys = useMemo(() => Object.keys(planByDate), [planByDate]);
-const [selectedDate, setSelectedDate] = useState<string | null>(() =>
-  getInitialSelectedDate(availableDateKeys, todayKey)
-);
-const mealsForSelectedDate = useMemo(() => {
-  if (!selectedDate) return [];
-  return planByDate[selectedDate] ?? [];
-}, [planByDate, selectedDate]);
-const selectedMeal = useMemo(() => {
-  return getSelectedLocalMeal(mealsForSelectedDate, recipes, selectedMealType);
-}, [mealsForSelectedDate, recipes, selectedMealType]);
-```
+2. **Calendar + DayCell (`Calendar.tsx`, `DayCell.tsx`)**
+   - `Calendar`: surface `backgroundColor: theme.colorLight` (line 43), nav/header/weekday `color: theme.textDark` (lines 52, 56, 76), divider `backgroundColor: theme.colorDark` (line 84), computed day `textColor` (lines 101-105).
+   - `DayCell`: circle `backgroundColor: colors.bg`, `borderColor: colors.border`, and day text `color: textColor` (lines 74-79). These are high-visibility because many cells update at once.
 
-`src/features/home/domain/localMealPlan.ts` current recipe/theme join:
+3. **FoodTypeSwitcher (`FoodTypeSwitcher.tsx`)**
+   - Container `backgroundColor: theme.colorDark` (line 153).
+   - Indicator `backgroundColor`/`borderColor` from `getColorWithOpacity('icon', ...)` (lines 140-141).
+   - Item text colors `theme.textMedium`, `theme.textLight`, and faded unavailable color (lines 65-69).
+   - Keep existing position/width/height timing; add color timing separately.
 
-```ts
-const selectedEntry = entries.find((entry) => entry.type === selectedMealType);
-const recipe = recipes.find((candidate) => candidate.id === selectedEntry.recipeId);
-return {
-  ...selectedEntry,
-  description: recipe?.description ?? 'Sin descripción',
-  imageUrl: recipe?.imageUrl,
-  theme: recipe?.theme,
-};
-```
+4. **Custom tab button (`app/(tabs)/_layout.tsx`)**
+   - Animated oval `backgroundColor`/`borderColor` (lines 69-70) snap even though width/opacity animate.
+   - Icon `color` passed to `Ionicons` (line 79) snaps for focused/unfocused states.
+   - Tab bar gradient background itself is already covered by `useGradientCrossfade` (lines 94-125).
+
+5. **Home edge controls and title**
+   - `EatTodayButton` props from HomeScreen `backgroundColor={theme.primaryAccent}`, `textColor={theme.textBlack}`, `borderColor={theme.primaryAccentIntense}` (HomeScreen lines 151-158; applied in EatTodayButton lines 57-62).
+   - `AddCircleButton`: LinearGradient `colors` (lines 75-80), inner `backgroundColor: theme.colorDark` (line 92), plus icon `color={theme.primaryAccent}` (line 96).
+   - `TitlePrimary`: title `color: theme.textDark` (line 21).
 
 ## Architecture
 
-- `app/_layout.tsx` wraps the entire navigation stack in `RecipeThemeProvider`.
-- The provider exposes a global `theme` plus `setRecipeTheme`. Null theme means default colors from `src/context/RecipeThemeContext.tsx`.
-- Home data flow:
-  1. `useMealPlanStore()` supplies `entries` and `recipes`.
-  2. `useHomeState()` formats today's date, groups entries by date, chooses/updates `selectedDate`, filters meals for that date, picks a meal type, and joins the meal entry to its `MasterRecipe` to produce `selectedMeal.theme`.
-  3. `HomeScreen` calls `useHomeRecipeTheme(selectedMeal)`, receives the context theme, and uses it for the screen gradient.
-  4. `Calendar`, `DayCell`, `FoodCard`, `AddCircleButton`, auth components, and other shared components consume the same context theme via `useRecipeTheme()` or `useThemeColor()`.
-- Calendar selection is controlled by `selectedDate` from `useHomeState`; `useCalendarState` separately computes `todayKey` for UI state.
-- Recipe detail has a separate hook with the same name at `src/features/recipe/hooks/useRecipeTheme.ts`; it does not use `RecipeThemeContext` and currently themes any recipe with `recipe.theme` regardless of selected date.
+`useHomeRecipeTheme(selectedMeal, selectedDate)` writes to `RecipeThemeContext` after a 100ms timeout. Any component using `useRecipeTheme()` or `useThemeColor()` re-renders with the new theme immediately. Only the large Home background and custom tab bar background currently crossfade via `useGradientCrossfade`, which overlays previous/current gradients and animates opacity for 450ms. Most child components apply new `backgroundColor`, `borderColor`, `color`, `fill`, `stroke`, or SVG `stopColor` directly, causing abrupt changes during the same theme swap.
+
+For a total theme transition, likely introduce/reuse a color transition primitive for single colors and SVG colors, or crossfade grouped visual layers where direct color animation is hard (`react-native-svg` gradient stops, Ionicons color). Keep existing layout/selection animations separate from theme color animation.
 
 ## Start Here
 
-Start with `src/features/home/hooks/useHomeRecipeTheme.ts`. It is the narrowest enforcement point because it is the only place that calls context `setRecipeTheme`, and `setRecipeTheme(null)` already restores the default theme.
+Start with `src/features/home/components/FoodCard/FoodCard.tsx`: it contains the most noticeable unanimated theme surfaces (card SVG gradient, labels, description, sparkles button) and will establish the pattern needed for the rest.
 
-Recommended minimal implementation steps:
+## Prioritized Animation Targets
 
-1. Change `useHomeRecipeTheme` signature to accept `selectedDate: string | null` in addition to `selectedMeal`.
-2. Import `formatDateKey` from `src/features/home/utils/calendarDate`.
-3. Inside the effect, compute `const isTodaySelected = selectedDate === formatDateKey(new Date());`.
-4. Call `setRecipeTheme(isTodaySelected ? getThemeForLocalMealSelection(selectedMeal) : null);`.
-5. Add `selectedDate` to the effect dependency array.
-6. Update `HomeScreen` line 29 from `useHomeRecipeTheme(selectedMeal)` to `useHomeRecipeTheme(selectedMeal, selectedDate)`.
-7. Keep `RecipeThemeContext.tsx` unchanged; its existing null behavior already returns the default theme.
-8. If product scope includes the recipe detail screen too, add a separate decision/implementation: `RecipeScreen` currently lacks selected-date context and uses a separate theme hook. It would need a date param from Home navigation or explicit entry-date lookup before it can enforce “today only” there.
+1. FoodCard card gradient + all FoodCard text/icon/button colors.
+2. Calendar surface/header/divider/day cell fills/borders/text.
+3. FoodTypeSwitcher container, active pill, and text colors.
+4. Custom tab button oval/icon colors; tab bar background is already animated.
+5. Home title, EatTodayButton, and AddCircleButton theme colors.
 
-Risk/constraint: when leaving Home to another tab/screen, the last context theme persists unless a screen/hook resets it. This task’s minimal home-date enforcement resets on non-today Home selections, but does not globally reset on navigation unless those screens mount a reset or Home selection changes.
+## Should Not Be Animated
+
+- `FloatingFoodImage` image/source and its layout/position: not theme-colored.
+- Calendar month navigation disabled opacity, press `active:scale-95`, haptics, and layout sizes: interaction/layout state, not theme transition.
+- FoodTypeSwitcher indicator translate/width/height/opacity: already selection animation; only add color transition.
+- `ShadowSurface` static shadow/elevation: not theme-driven.
+- Route navigation, auth redirect, and meal/date state changes: not visual color props.
+
+## Supervisor coordination
+
+No blocker. Engram tools were not available in this subagent toolset, so no memory save was performed.

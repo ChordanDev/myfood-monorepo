@@ -1,7 +1,9 @@
 import { memo, useMemo } from 'react';
-import { Pressable, View, Text } from 'react-native';
+import { Pressable, View } from 'react-native';
+import Animated from 'react-native-reanimated';
 import * as Haptics from 'expo-haptics';
 import { useRecipeTheme } from '@/context/RecipeThemeContext';
+import { useAnimatedThemeStyle } from '@/hooks/useAnimatedThemeStyle';
 
 export interface DayCellProps {
   dayDate: Date;
@@ -49,6 +51,18 @@ export const DayCell = memo(
 
       return { bg: 'transparent', border: 'transparent', borderWidth: 0 };
     }, [isSelected, isToday, isPlanned, theme]);
+    const selectionStateKey = `${isSelected}-${isToday}-${isPlanned}-${isSelectable}`;
+    const circleStyle = useAnimatedThemeStyle(
+      {
+        backgroundColor: colors.bg,
+        borderColor: colors.border,
+      },
+      { immediateKey: selectionStateKey }
+    );
+    const textStyle = useAnimatedThemeStyle(
+      { color: textColor },
+      { immediateKey: selectionStateKey }
+    );
 
     return (
       <View style={{ width: '14.2857%', alignItems: 'center', marginBottom: 8, zIndex: 1 }}>
@@ -64,23 +78,24 @@ export const DayCell = memo(
           className="active:scale-95"
           accessibilityRole="button"
           accessibilityState={{ disabled: !isSelectable }}>
-          <View
-            style={{
-              width: daySize,
-              height: daySize,
-              borderRadius: daySize / 2,
-              alignItems: 'center',
-              justifyContent: 'center',
-              backgroundColor: colors.bg,
-              borderColor: colors.border,
-              borderWidth: colors.borderWidth,
-            }}>
-            <Text
-              style={{ color: textColor, fontSize: dayFontSize }}
+          <Animated.View
+            style={[
+              {
+                width: daySize,
+                height: daySize,
+                borderRadius: daySize / 2,
+                alignItems: 'center',
+                justifyContent: 'center',
+                borderWidth: colors.borderWidth,
+              },
+              circleStyle,
+            ]}>
+            <Animated.Text
+              style={[{ fontSize: dayFontSize }, textStyle]}
               className="font-inter-semibold">
               {dayDate.getDate()}
-            </Text>
-          </View>
+            </Animated.Text>
+          </Animated.View>
         </Pressable>
       </View>
     );

@@ -1,4 +1,4 @@
 {
-  "signature": "src/features/home/screens/HomeScreen.tsx::Unresolved from this turn — src/features/home/screens/HomeScreen.tsx:\n🔴 STOP — 1 issue(s) must be fixed:\n  L139: Type '{ leftPercent: number; topPercent: number; widthPercent: number; sizeScale: number; backgroundColor: string; textColor: string; borderColor: string; onPress: () => void; }' is not assignable to type 'IntrinsicAttributes & EatTodayButtonProps'.\n    Property 'borderColor' does not exist on type 'IntrinsicAttributes & EatTodayButtonProps'.\n    💡 Fix: LSP quick fixes: Convert 'require' to 'import'",
-  "sessionId": "lens-mplvcyqh-0be9e244"
+  "signature": "app/(tabs)/_layout.tsx::Unresolved from this turn — app/(tabs)/_layout.tsx:\n🔴 STOP — 1 issue(s) must be fixed:\n  L122: Cannot find name 'styles'.",
+  "sessionId": "lens-mpn5r0x8-0a358d12"
 }
