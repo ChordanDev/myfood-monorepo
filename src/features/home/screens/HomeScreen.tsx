@@ -7,7 +7,6 @@ import { FoodCard } from '../components/FoodCard';
 import { useHomeResponsiveScale } from '../hooks/useHomeResponsiveScale';
 import { useHomeState } from '../hooks/useHomeState';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useMemo } from 'react';
 import { useHomeRecipeTheme } from '../hooks/useHomeRecipeTheme';
 
 const DEFAULT_FOOD_IMAGE = require('../../../../assets/AuthFoodImages/Gemini_Generated_Image_16g8h616g8h616g8-removebg-preview.png');

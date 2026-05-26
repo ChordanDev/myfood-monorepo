@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Pressable, LayoutChangeEvent } from 'react-native';
 import Animated, {
   useAnimatedStyle,
@@ -10,9 +10,7 @@ import { ShadowSurface } from '@/components';
 import type { HomeMealType } from '../domain/localMealPlan';
 import type { HomeMetrics } from '../utils/responsive';
 
-import { useRecipeTheme } from '@/context/RecipeThemeContext';
-
-import tiny from '@/utils/tiny';
+import { useThemeColor } from '@/hooks/useThemeColor';
 
 interface FoodTypeSwitcherProps {
   value: MealType | null;
@@ -48,7 +46,7 @@ const SwitcherItem = ({
   metrics,
   onLayout,
 }: SwitcherItemProps) => {
-  const { theme } = useRecipeTheme();
+  const { theme, getColorWithOpacity } = useThemeColor();
   return (
     <Pressable
       onPress={onPress}
@@ -67,7 +65,7 @@ const SwitcherItem = ({
           color: isActive
             ? theme.textMedium
             : isUnavailable
-              ? tiny(theme.textLight).setAlpha(0.44).toRgbString()
+              ? getColorWithOpacity('textLight', 0.44)
               : theme.textLight,
           fontSize: metrics.switcherFontSize,
           zIndex: 1,
@@ -84,7 +82,15 @@ export function FoodTypeSwitcher({
   onChange,
   metrics,
 }: FoodTypeSwitcherProps) {
-  const { theme } = useRecipeTheme();
+  const { theme, getColorWithOpacity } = useThemeColor();
+  const indicatorBackgroundColor = useMemo(
+    () => getColorWithOpacity('icon', 0.15),
+    [getColorWithOpacity]
+  );
+  const indicatorBorderColor = useMemo(
+    () => getColorWithOpacity('icon', 0.3),
+    [getColorWithOpacity]
+  );
   const availableTypesSet = new Set(availableTypes);
   const [layouts, setLayouts] = useState<
     Record<string, { x: number; width: number; height: number }>
@@ -121,7 +127,7 @@ export function FoodTypeSwitcher({
     } else if (!value) {
       opacity.value = withTiming(0, { duration: 200 });
     }
-  }, [value, layouts]);
+  }, [value, layouts, translateX, indicatorWidth, indicatorHeight, opacity]);
 
   const animatedIndicatorStyle = useAnimatedStyle(() => ({
     transform: [{ translateX: translateX.value }],
@@ -131,8 +137,8 @@ export function FoodTypeSwitcher({
     position: 'absolute',
     // Alineamos verticalmente respecto al padre considerando el padding general del contenedor
     top: metrics.switcherPadding,
-    backgroundColor: tiny(theme.icon).setAlpha(0.15).toRgbString(), // ~15% opacity
-    borderColor: tiny(theme.icon).setAlpha(0.3).toRgbString(), // ~30% opacity
+    backgroundColor: indicatorBackgroundColor,
+    borderColor: indicatorBorderColor,
     borderRadius: 20,
     borderWidth: 1,
   }));

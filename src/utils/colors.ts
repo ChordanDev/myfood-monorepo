@@ -1,5 +1,7 @@
-// Minimal tiny replacement: only implements the parts we use in the app
-// Supports: tiny(color).setAlpha(alpha).toRgbString()
+/**
+ * Helper para manipular opacidad de colores en formato Hex o RGB.
+ * Reemplaza al anterior helper "tiny" siguiendo el contrato de theme del dominio.
+ */
 
 type RGB = { r: number; g: number; b: number; a: number };
 
@@ -21,7 +23,6 @@ function parseHex(hex: string): RGB {
     const b = parseInt(h.slice(4, 6), 16);
     return { r, g, b, a: 1 };
   }
-  // fallback
   return { r: 0, g: 0, b: 0, a: 1 };
 }
 
@@ -36,30 +37,25 @@ function parseRgbString(input: string): RGB {
   return { r: clamp(r), g: clamp(g), b: clamp(b), a: isNaN(a) ? 1 : a };
 }
 
-function parseColor(input: any): RGB {
+function parseColor(input: string): RGB {
   if (!input) return { r: 0, g: 0, b: 0, a: 1 };
-  if (typeof input !== 'string') return { r: 0, g: 0, b: 0, a: 1 };
   const s = input.trim();
   if (s.startsWith('#')) return parseHex(s);
   if (s.startsWith('rgb')) return parseRgbString(s);
-  // try to parse hex without #
   if (/^[0-9a-fA-F]{6}$/.test(s)) return parseHex('#' + s);
-  // unknown: fallback to black
   return { r: 0, g: 0, b: 0, a: 1 };
 }
 
-export default function tiny(input: string) {
-  const base = parseColor(input);
-  const obj = {
-    setAlpha(alpha: number) {
-      const a = Math.max(0, Math.min(1, Number(alpha) || 0));
-      const rgb = { ...base, a };
-      return {
-        toRgbString() {
-          return `rgba(${clamp(rgb.r)}, ${clamp(rgb.g)}, ${clamp(rgb.b)}, ${rgb.a})`;
-        },
-      };
-    },
-  };
-  return obj;
+/**
+ * Aplica una opacidad a un color (Hex o RGB) y devuelve un string rgba.
+ * @param color Color en formato '#RRGGBB', '#RGB' o 'rgb(r,g,b)'
+ * @param opacity Valor entre 0 y 1
+ */
+export function withOpacity(color: string, opacity: number): string {
+  const base = parseColor(color);
+  const a = Math.max(0, Math.min(1, opacity));
+  return `rgba(${clamp(base.r)}, ${clamp(base.g)}, ${clamp(base.b)}, ${a})`;
 }
+
+// Alias para compatibilidad o preferencia semántica
+export const hexWithOpacity = withOpacity;

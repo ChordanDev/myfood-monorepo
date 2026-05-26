@@ -36,6 +36,7 @@ export interface RecipeThemeConfig {
   colorLight: string;
   primaryAccent: string;
   appBg: string;
+  appBgGradient?: [string, string];
   icon: string;
   textBlack: string;
   textDark: string;

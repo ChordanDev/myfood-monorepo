@@ -14,6 +14,8 @@ import { useKeyboardAnimation } from '@/hooks/useKeyboardAnimation';
 import { useEmailValidation } from '../hooks';
 import { EmailTextInput } from './EmailTextInput';
 import { InputErrorText } from './InputErrorText';
+import { useRecipeTheme } from '@/context/RecipeThemeContext';
+import { useThemeColor } from '@/hooks/useThemeColor';
 
 interface RegisterEntryModalProps {
   visible: boolean;
@@ -23,6 +25,8 @@ interface RegisterEntryModalProps {
 
 export function RegisterEntryModal({ visible, onClose, onContinue }: RegisterEntryModalProps) {
   const { width, height } = useWindowDimensions();
+  const { theme } = useRecipeTheme();
+  const { getColorWithOpacity } = useThemeColor();
   const { inputAnimatedStyle } = useKeyboardAnimation({
     enabled: visible,
     liftFactor: Platform.OS === 'android' ? 0.3 : 0.3,
@@ -71,29 +75,36 @@ export function RegisterEntryModal({ visible, onClose, onContinue }: RegisterEnt
         <Pressable className="absolute inset-0" onPress={handleClose} />
 
         <Animated.View
-          style={[inputAnimatedStyle, { maxHeight: modalMaxHeight }]}
-          className="w-full max-w-[440px] overflow-hidden rounded-3xl bg-[#E5D8C4]">
+          style={[inputAnimatedStyle, { maxHeight: modalMaxHeight, backgroundColor: theme.icon }]}
+          className="w-full max-w-[440px] overflow-hidden rounded-3xl">
           <ScrollView
             bounces={false}
             showsVerticalScrollIndicator={false}
             keyboardShouldPersistTaps="handled"
             contentContainerStyle={{ paddingHorizontal: 20, paddingTop: 24, paddingBottom: 20 }}>
-            <Text className="text-center font-montserrat-bold text-xl text-[#242B12]">
+            <Text
+              className="text-center font-montserrat-bold text-xl"
+              style={{ color: theme.colorMedium }}>
               Creá tu cuenta
             </Text>
-            <Text className="font-inter-regular mt-2 text-center text-[#4A5130]">
+            <Text
+              className="font-inter-regular mt-2 text-center"
+              style={{ color: theme.textMedium }}>
               Ingresá tu correo y acepta los términos para recibir un código de verificación.
             </Text>
 
-            <View className="mt-5 rounded-xl bg-[#F6ECDE]">
+            <View
+              className="mt-5 rounded-xl"
+              style={{ backgroundColor: getColorWithOpacity('icon', 0.8) }}>
               <EmailTextInput
                 value={registerEmail}
                 onChangeText={setRegisterEmail}
                 placeholder="tuemail@dominio.com"
-                placeholderTextColor="#6F735E"
+                placeholderTextColor={theme.textLight}
                 androidDescenderFix
-                className="font-inter-regular px-4 text-[#242B12]"
+                className="font-inter-regular px-4"
                 style={{
+                  color: theme.textBlack,
                   fontSize: 14,
                   height: 48,
                   ...(Platform.OS === 'ios' ? { paddingTop: 12, paddingBottom: 12 } : null),
@@ -104,19 +115,26 @@ export function RegisterEntryModal({ visible, onClose, onContinue }: RegisterEnt
             <InputErrorText
               visible={showEmailError}
               text="Ingresa un correo v\u00e1lido para continuar."
-              className="mt-2 font-inter-medium text-sm text-[#8A1F1F]"
+              className="mt-2 font-inter-medium text-sm"
+              style={{ color: theme.primaryAccentIntense }}
             />
 
             <Pressable
               className="mt-4 flex-row items-center"
               onPress={() => setAcceptedTerms((prev) => !prev)}>
               <View
-                className={`h-6 w-6 items-center justify-center rounded-md border ${
-                  acceptedTerms ? 'border-[#242B12] bg-[#242B12]' : 'border-[#6F735E]'
-                }`}>
-                {acceptedTerms ? <Text className="text-xs text-[#E5D8C4]">✓</Text> : null}
+                className="h-6 w-6 items-center justify-center rounded-md border"
+                style={{
+                  borderColor: acceptedTerms ? theme.colorMedium : theme.textLight,
+                  backgroundColor: acceptedTerms ? theme.colorMedium : 'transparent',
+                }}>
+                {acceptedTerms ? (
+                  <Text className="text-xs" style={{ color: theme.icon }}>
+                    ✓
+                  </Text>
+                ) : null}
               </View>
-              <Text className="font-inter-regular ml-3 flex-1 text-[#242B12]">
+              <Text className="font-inter-regular ml-3 flex-1" style={{ color: theme.colorMedium }}>
                 Acepto términos y condiciones.
               </Text>
             </Pressable>
@@ -124,20 +142,27 @@ export function RegisterEntryModal({ visible, onClose, onContinue }: RegisterEnt
             <InputErrorText
               visible={termsTouched && isValidRegisterEmail && !acceptedTerms}
               text="Debes aceptar los términos para crear tu cuenta."
-              className="mt-2 font-inter-medium text-sm text-[#8A1F1F]"
+              className="mt-2 font-inter-medium text-sm"
+              style={{ color: theme.primaryAccentIntense }}
             />
 
             <View className="mt-6">
               <Pressable
                 onPress={handleContinue}
                 disabled={isContinueDisabled}
-                className="w-full items-center rounded-2xl bg-[#242B12] py-3 active:opacity-90"
-                style={{ opacity: canSubmit ? 1 : 0.55 }}>
-                <Text className="font-inter-semibold text-base text-[#D8D98B]">Continuar</Text>
+                className="w-full items-center rounded-2xl py-3 active:opacity-90"
+                style={{ backgroundColor: theme.colorMedium, opacity: canSubmit ? 1 : 0.55 }}>
+                <Text
+                  className="font-inter-semibold text-base"
+                  style={{ color: theme.primaryAccent }}>
+                  Continuar
+                </Text>
               </Pressable>
 
               <Pressable onPress={handleClose} className="mt-3 items-center py-1">
-                <Text className="font-inter-medium text-sm text-[#4A5130]">Cancelar</Text>
+                <Text className="font-inter-medium text-sm" style={{ color: theme.textMedium }}>
+                  Cancelar
+                </Text>
               </Pressable>
             </View>
           </ScrollView>

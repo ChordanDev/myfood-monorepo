@@ -1,0 +1,4 @@
+{
+  "signature": "src/features/home/constants/calendar.ts::🕸️ Impact cascade from edited file:\nDirect importers: Calendar.tsx, DayCell.tsx\nCheck next: Calendar.tsx, DayCell.tsx\n📐 Cascade errors in 2 neighbor file(s) — fix before finishing turn:\n<diagnostics file=\"src/features/home/components/Calendar.tsx\" reason=\"imports\">\n  line 5, col 10 rule=cascade:2305: Module '\"../constants/calendar\"' has no exported member 'CALENDAR_COLORS'.\n</diagnostics>\n<diagnostics file=\"src/features/home/components/DayCell.tsx\" reason=\"imports\">\n  line 4, col 10 rule=cascade:2305: Module '\"../constants/calendar\"' has no exported member 'CALENDAR_COLORS'.\n</diagnostics>",
+  "sessionId": "lens-mplvcyqh-0be9e244"
+}

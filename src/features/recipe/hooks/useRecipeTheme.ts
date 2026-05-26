@@ -6,12 +6,16 @@ export function useRecipeTheme(recipe?: MasterRecipe): RecipeTheme {
   return useMemo(() => {
     if (recipe?.theme) {
       const { theme } = recipe;
+      const background: [string, string] = theme.appBgGradient
+        ? [theme.appBgGradient[0], theme.appBgGradient[1]]
+        : [theme.appBg, theme.primaryAccentIntense];
+
       return {
-        primary: theme.calendarBg,
+        primary: theme.colorLight,
         secondary: theme.primaryAccent,
         accent: theme.primaryAccent,
-        background: [theme.appBgGradient[0], theme.appBgGradient[1]],
-        text: theme.textMain,
+        background,
+        text: theme.textBlack,
       };
     }
 

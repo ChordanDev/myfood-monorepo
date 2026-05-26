@@ -4,6 +4,7 @@ import { AuthLandingMetrics } from '@/features/auth/utils/responsive';
 import { useEmailValidation } from '../hooks';
 import { EmailTextInput } from './EmailTextInput';
 import { InputErrorText } from './InputErrorText';
+import { useRecipeTheme } from '@/context/RecipeThemeContext';
 
 interface AuthCredentialsFormProps {
   metrics: AuthLandingMetrics;
@@ -18,6 +19,7 @@ export function AuthCredentialsForm({
 }: AuthCredentialsFormProps) {
   // Estado local del email para validacion en tiempo real.
   const [email, setEmail] = useState('');
+  const { theme } = useRecipeTheme();
 
   const { normalizedEmail, isValidEmail } = useEmailValidation(email);
   const isFormValid = isValidEmail;
@@ -32,8 +34,9 @@ export function AuthCredentialsForm({
   return (
     <View style={{ paddingHorizontal: metrics.formHorizontalPadding }}>
       <View
-        className="w-full bg-[#E5D8C4]"
+        className="w-full"
         style={{
+          backgroundColor: theme.icon,
           borderRadius: metrics.formContainerRadius,
           overflow: 'hidden',
         }}>
@@ -41,9 +44,9 @@ export function AuthCredentialsForm({
           value={email}
           onChangeText={setEmail}
           placeholder="Correo electrónico"
-          placeholderTextColor="#6F735E"
-          className="text-[#242B12]"
+          placeholderTextColor={theme.textLight}
           style={{
+            color: theme.textBlack,
             fontSize: metrics.formFieldFontSize,
             paddingVertical: metrics.formFieldVerticalPadding,
             paddingHorizontal: metrics.formFieldHorizontalPadding,
@@ -55,8 +58,12 @@ export function AuthCredentialsForm({
         <InputErrorText
           visible={showEmailError}
           text="Ingresa un correo válido (ejemplo@dominio.com)."
-          className="font-inter-medium text-[#D8D98B]"
-          style={{ fontSize: metrics.formErrorFontSize, textAlign: 'center' }}
+          className="font-inter-medium"
+          style={{
+            color: theme.primaryAccent,
+            fontSize: metrics.formErrorFontSize,
+            textAlign: 'center',
+          }}
         />
       </View>
     </View>

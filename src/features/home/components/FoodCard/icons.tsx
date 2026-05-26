@@ -31,15 +31,12 @@ export function SparklesGradientIcon({ size }: { size: number }) {
   const { theme } = useRecipeTheme();
   return (
     <Svg width={size} height={size} viewBox="0 0 64 64" fill="none" accessible={false}>
-      <Path d="M40 17L47 31L61 38L47 45L40 59L33 45L19 38L33 31L40 17Z" fill={theme.colorDark} />
+      <Path d="M40 17L47 31L61 38L47 45L40 59L33 45L19 38L33 31L40 17Z" fill={theme.icon} />
       <Path
         d="M17 2L20.5 9L27.5 12.5L20.5 16L17 23L13.5 16L6.5 12.5L13.5 9L17 2Z"
         fill={theme.icon}
       />
-      <Path
-        d="M16 44L18 48L22 50L18 52L16 56L14 52L10 50L14 48L16 44Z"
-        fill={theme.primaryAccent}
-      />
+      <Path d="M16 44L18 48L22 50L18 52L16 56L14 52L10 50L14 48L16 44Z" fill={theme.icon} />
     </Svg>
   );
 }

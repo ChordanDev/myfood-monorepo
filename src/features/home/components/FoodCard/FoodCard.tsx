@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { Text, View, StyleSheet, Pressable } from 'react-native';
+import { useMemo, useState } from 'react';
+import { Text, View, Pressable } from 'react-native';
 import Svg, { Defs, LinearGradient as SvgLinearGradient, Path, Stop } from 'react-native-svg';
 import { ShadowSurface } from '@/components';
 import type { MealType } from '@/types/domain';
@@ -9,7 +9,7 @@ import { FOOD_CARD_SHAPE_PATH, FOOD_CARD_GRADIENT_ACTIVE_ID } from './constants'
 import { getTopLeftLabel } from './utils';
 import { FavoriteStarIcon, SparklesGradientIcon } from './icons';
 import { useFoodCardLayout } from './useFoodCardLayout';
-import { useRecipeTheme } from '@/context/RecipeThemeContext';
+import { useThemeColor } from '@/hooks/useThemeColor';
 
 interface FoodCardProps {
   mealType: MealType | null;
@@ -29,7 +29,16 @@ export function FoodCard({
   const [isFavorite, setIsFavorite] = useState(false);
   const hasMealData = Boolean(mealType || description?.trim());
   const descriptionText = description?.trim() ?? '';
-  const { theme } = useRecipeTheme();
+  const { getColorWithOpacity, theme } = useThemeColor();
+
+  const sparklesBackgroundColor = useMemo(
+    () => getColorWithOpacity('icon', 0.15),
+    [getColorWithOpacity]
+  );
+  const sparklesBorderColor = useMemo(
+    () => getColorWithOpacity('icon', 0.3),
+    [getColorWithOpacity]
+  );
 
   const topLeftLabel = getTopLeftLabel(selectedDate);
   const layout = useFoodCardLayout(metrics);
@@ -53,8 +62,8 @@ export function FoodCard({
               x2="213.5"
               y2="302.007"
               gradientUnits="userSpaceOnUse">
-              <Stop offset="0.379808" stopColor={theme.colorDark} />
-              <Stop offset="0.778846" stopColor={theme.colorMedium} />
+              <Stop offset="0.379808" stopColor={theme.colorMedium} />
+              <Stop offset="0.778846" stopColor={theme.colorDark} />
             </SvgLinearGradient>
           </Defs>
           <Path d={FOOD_CARD_SHAPE_PATH} fill={`url(#${FOOD_CARD_GRADIENT_ACTIVE_ID})`} />
@@ -86,13 +95,14 @@ export function FoodCard({
             }}>
             <View
               className="items-center justify-center"
-              style={[
-                styles.capsuleContainer,
-                {
-                  width: layout.bottomIconSize * 1.6,
-                  height: layout.bottomIconSize * 1.6,
-                },
-              ]}>
+              style={{
+                backgroundColor: sparklesBackgroundColor,
+                borderColor: sparklesBorderColor,
+                borderWidth: 1,
+                borderRadius: 999,
+                width: layout.bottomIconSize * 1.6,
+                height: layout.bottomIconSize * 1.6,
+              }}>
               <SparklesGradientIcon size={layout.bottomIconSize} />
             </View>
           </Pressable>
@@ -135,8 +145,9 @@ export function FoodCard({
               width: layout.descriptionWidth as any,
             }}>
             <Text
-              className="text-center font-inter-medium text-[#F5F3D4]"
+              className="text-center font-inter-medium"
               style={{
+                color: theme.textMedium,
                 fontSize: metrics.foodCardDescriptionFontSize as any,
                 lineHeight: metrics.foodCardDescriptionLineHeight as any,
               }}
@@ -149,12 +160,3 @@ export function FoodCard({
     </ShadowSurface>
   );
 }
-
-const styles = StyleSheet.create({
-  capsuleContainer: {
-    backgroundColor: 'rgba(216, 217, 139, 0.07)',
-    borderRadius: 999,
-    borderWidth: 1,
-    borderColor: 'rgba(216, 217, 139, 0.15)',
-  },
-});

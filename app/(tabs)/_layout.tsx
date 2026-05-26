@@ -14,14 +14,14 @@ import Animated, {
 import { BottomTabBarProps } from '@react-navigation/bottom-tabs';
 import { useAuth } from '../../src/features/auth';
 import { useRecipeTheme } from '../../src/context/RecipeThemeContext';
-import tiny from '../../src/utils/tiny';
+import { useThemeColor } from '../../src/hooks/useThemeColor';
 
 // Componente que anima cada botón de tab al ser seleccionado.
 const AnimatedTabButton = ({ isFocused, onPress, options }: any) => {
   const width = useSharedValue(isFocused ? 60 : 40);
   const opacity = useSharedValue(isFocused ? 1 : 0);
   const iconScale = useSharedValue(1);
-  const { theme } = useRecipeTheme();
+  const { getColorWithOpacity, theme } = useThemeColor();
 
   useEffect(() => {
     if (isFocused) {
@@ -65,8 +65,8 @@ const AnimatedTabButton = ({ isFocused, onPress, options }: any) => {
         style={[
           animatedOvalStyle,
           {
-            backgroundColor: tiny(theme.icon).setAlpha(0.15).toRgbString(),
-            borderColor: tiny(theme.icon).setAlpha(0.3).toRgbString(),
+            backgroundColor: getColorWithOpacity('icon', 0.15),
+            borderColor: getColorWithOpacity('icon', 0.3),
           },
         ]}
       />
@@ -75,7 +75,7 @@ const AnimatedTabButton = ({ isFocused, onPress, options }: any) => {
         {options.tabBarIcon &&
           options.tabBarIcon({
             focused: isFocused,
-            color: isFocused ? theme.icon : tiny(theme.icon).setAlpha(0.8).toRgbString(),
+            color: isFocused ? theme.icon : getColorWithOpacity('icon', 0.8),
             size: 24,
           })}
       </Animated.View>

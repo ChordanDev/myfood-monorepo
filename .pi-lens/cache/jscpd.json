@@ -1,0 +1,24 @@
+{
+  "success": true,
+  "clones": [
+    {
+      "fileA": "src/mocks/mealPlans.ts",
+      "startA": 8,
+      "fileB": "src/features/home/utils/calendarDate.ts",
+      "startB": 9,
+      "lines": 8,
+      "tokens": 0
+    },
+    {
+      "fileA": "src/mocks/domainMocks.ts",
+      "startA": 64,
+      "fileB": "src/mocks/domainMocks.ts",
+      "startB": 30,
+      "lines": 20,
+      "tokens": 0
+    }
+  ],
+  "duplicatedLines": 26,
+  "totalLines": 5808,
+  "percentage": 0.45
+}

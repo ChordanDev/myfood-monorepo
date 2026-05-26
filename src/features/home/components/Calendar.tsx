@@ -2,11 +2,12 @@ import { Pressable, ScrollView, Text, View } from 'react-native';
 import { ShadowSurface } from '@/components';
 import { DayCell } from './DayCell';
 import { useCalendarState } from '../hooks/useCalendarState';
-import { CALENDAR_COLORS, CALENDAR_DEFAULTS, MONTHS, WEEKDAYS } from '../constants/calendar';
+import { CALENDAR_DEFAULTS, MONTHS, WEEKDAYS } from '../constants/calendar';
 import { formatDateKey, isSelectableDate } from '../utils/calendarDate';
 import type { CalendarProps } from '../types/calendar';
 
 import { useRecipeTheme } from '@/context/RecipeThemeContext';
+import { useThemeColor } from '@/hooks/useThemeColor';
 
 export function Calendar({
   planByDate = {},
@@ -19,6 +20,7 @@ export function Calendar({
   dayFontSize = CALENDAR_DEFAULTS.dayFontSize,
 }: CalendarProps) {
   const { theme } = useRecipeTheme();
+  const { getColorWithOpacity } = useThemeColor();
   const {
     year,
     month,
@@ -97,10 +99,10 @@ export function Calendar({
               const isPlanned = Boolean(planByDate[dateString]?.length);
 
               const textColor = isSelected
-                ? CALENDAR_COLORS.selectedText
+                ? theme.textBlack
                 : isSelectable
-                  ? CALENDAR_COLORS.dayText
-                  : CALENDAR_COLORS.disabledText;
+                  ? theme.textBlack
+                  : getColorWithOpacity('textBlack', 0.45);
 
               return (
                 <DayCell

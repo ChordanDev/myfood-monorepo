@@ -3,6 +3,11 @@
   "issues": [
     {
       "type": "file",
+      "name": "fix-auth-colors.js",
+      "file": "fix-auth-colors.js"
+    },
+    {
+      "type": "file",
       "name": "src/mocks/index.ts",
       "file": "src/mocks/index.ts"
     },
@@ -95,6 +100,12 @@
     },
     {
       "type": "export",
+      "name": "hexWithOpacity",
+      "file": "src/utils/colors.ts",
+      "line": 61
+    },
+    {
+      "type": "export",
       "name": "SocialLoginIcons",
       "file": "src/features/auth/components/index.ts",
       "line": 2
@@ -128,6 +139,12 @@
       "name": "getMonthDateKeys",
       "file": "src/features/home/utils/calendarDate.ts",
       "line": 45
+    },
+    {
+      "type": "export",
+      "name": "FOOD_CARD_ICON_COLOR",
+      "file": "src/features/home/components/FoodCard/constants.ts",
+      "line": 6
     },
     {
       "type": "export",
@@ -193,42 +210,48 @@
       "type": "export",
       "name": "CustomizedRecipe",
       "file": "src/types/domain.ts",
-      "line": 64
+      "line": 60
     },
     {
       "type": "export",
       "name": "ShoppingListItem",
       "file": "src/types/domain.ts",
-      "line": 79
+      "line": 75
     },
     {
       "type": "export",
       "name": "BudgetLevel",
       "file": "src/types/domain.ts",
-      "line": 85
+      "line": 81
     },
     {
       "type": "export",
       "name": "UserPreferences",
       "file": "src/types/domain.ts",
-      "line": 87
+      "line": 83
     },
     {
       "type": "export",
       "name": "UserProfile",
       "file": "src/types/domain.ts",
-      "line": 95
+      "line": 91
     },
     {
       "type": "export",
       "name": "MealPlan",
       "file": "src/types/domain.ts",
-      "line": 104
+      "line": 100
     }
   ],
   "unusedExports": [
     {
       "type": "export",
+      "name": "hexWithOpacity",
+      "file": "src/utils/colors.ts",
+      "line": 61
+    },
+    {
+      "type": "export",
       "name": "SocialLoginIcons",
       "file": "src/features/auth/components/index.ts",
       "line": 2
@@ -262,6 +285,12 @@
       "name": "getMonthDateKeys",
       "file": "src/features/home/utils/calendarDate.ts",
       "line": 45
+    },
+    {
+      "type": "export",
+      "name": "FOOD_CARD_ICON_COLOR",
+      "file": "src/features/home/components/FoodCard/constants.ts",
+      "line": 6
     },
     {
       "type": "export",
@@ -327,40 +356,45 @@
       "type": "export",
       "name": "CustomizedRecipe",
       "file": "src/types/domain.ts",
-      "line": 64
+      "line": 60
     },
     {
       "type": "export",
       "name": "ShoppingListItem",
       "file": "src/types/domain.ts",
-      "line": 79
+      "line": 75
     },
     {
       "type": "export",
       "name": "BudgetLevel",
       "file": "src/types/domain.ts",
-      "line": 85
+      "line": 81
     },
     {
       "type": "export",
       "name": "UserPreferences",
       "file": "src/types/domain.ts",
-      "line": 87
+      "line": 83
     },
     {
       "type": "export",
       "name": "UserProfile",
       "file": "src/types/domain.ts",
-      "line": 95
+      "line": 91
     },
     {
       "type": "export",
       "name": "MealPlan",
       "file": "src/types/domain.ts",
-      "line": 104
+      "line": 100
     }
   ],
   "unusedFiles": [
+    {
+      "type": "file",
+      "name": "fix-auth-colors.js",
+      "file": "fix-auth-colors.js"
+    },
     {
       "type": "file",
       "name": "src/mocks/index.ts",
@@ -458,5 +492,5 @@
       "line": 14
     }
   ],
-  "summary": "Found 39 issues"
+  "summary": "Found 42 issues"
 }
