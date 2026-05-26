@@ -1,4 +1,4 @@
-import { memo } from 'react';
+import { memo, useMemo } from 'react';
 import { Pressable, View, Text } from 'react-native';
 import * as Haptics from 'expo-haptics';
 import { useRecipeTheme } from '@/context/RecipeThemeContext';
@@ -31,24 +31,24 @@ export const DayCell = memo(
   }: DayCellProps) => {
     const { theme } = useRecipeTheme();
 
-    const getColors = () => {
-      if (isSelected)
-        return {
-          bg: theme.primaryAccent,
-          border: theme.primaryAccent,
-          borderWidth: 1,
-        };
-      if (isToday) return { bg: theme.colorMedium, border: theme.primaryAccent, borderWidth: 1 };
-      if (isPlanned)
-        return {
-          bg: theme.colorDark,
-          border: theme.colorMedium,
-          borderWidth: 1,
-        };
-      return { bg: 'transparent', border: 'transparent', borderWidth: 0 };
-    };
+    const colors = useMemo(() => {
+      if (isSelected) {
+        if (isToday) {
+          return { bg: theme.primaryAccent, border: theme.colorMedium, borderWidth: 2 };
+        }
+        return { bg: theme.primaryAccent, border: theme.primaryAccent, borderWidth: 1 };
+      }
 
-    const colors = getColors();
+      if (isToday) {
+        return { bg: theme.icon, border: theme.colorMedium, borderWidth: 2 };
+      }
+
+      if (isPlanned) {
+        return { bg: theme.icon, border: 'transparent', borderWidth: 0 };
+      }
+
+      return { bg: 'transparent', border: 'transparent', borderWidth: 0 };
+    }, [isSelected, isToday, isPlanned, theme]);
 
     return (
       <View style={{ width: '14.2857%', alignItems: 'center', marginBottom: 8, zIndex: 1 }}>

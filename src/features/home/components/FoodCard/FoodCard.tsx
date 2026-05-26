@@ -147,7 +147,7 @@ export function FoodCard({
             <Text
               className="text-center font-inter-medium"
               style={{
-                color: theme.textMedium,
+                color: theme.textLight,
                 fontSize: metrics.foodCardDescriptionFontSize as any,
                 lineHeight: metrics.foodCardDescriptionLineHeight as any,
               }}

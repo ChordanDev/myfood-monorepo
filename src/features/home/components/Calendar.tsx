@@ -49,11 +49,11 @@ export function Calendar({
             accessibilityLabel="Mes anterior"
             disabled={isPrevDisabled}
             style={{ opacity: isPrevDisabled ? 0.35 : 1 }}>
-            <Text style={{ color: theme.textBlack, fontSize: navFontSize }}>{'<'}</Text>
+            <Text style={{ color: theme.textDark, fontSize: navFontSize }}>{'<'}</Text>
           </Pressable>
           <Text
             className="font-inter-bold"
-            style={{ color: theme.textBlack, fontSize: monthFontSize }}>
+            style={{ color: theme.textDark, fontSize: monthFontSize }}>
             {monthLabel}
           </Text>
           <Pressable
@@ -62,7 +62,7 @@ export function Calendar({
             accessibilityLabel="Mes siguiente"
             disabled={isNextDisabled}
             style={{ opacity: isNextDisabled ? 0.35 : 1 }}>
-            <Text style={{ color: theme.textBlack, fontSize: navFontSize }}>{'>'}</Text>
+            <Text style={{ color: theme.textDark, fontSize: navFontSize }}>{'>'}</Text>
           </Pressable>
         </View>
 
@@ -73,7 +73,7 @@ export function Calendar({
               style={{
                 width: '14.2857%',
                 textAlign: 'center',
-                color: theme.textBlack,
+                color: theme.textDark,
                 fontSize: weekdayFontSize,
               }}
               className="font-inter-semibold">
@@ -81,7 +81,7 @@ export function Calendar({
             </Text>
           ))}
         </View>
-        <View className="h-px w-full opacity-30" style={{ backgroundColor: theme.primaryAccent }} />
+        <View className="h-px w-full opacity-30" style={{ backgroundColor: theme.colorDark }} />
         <ScrollView
           style={{ flex: 1 }}
           contentContainerStyle={{ paddingBottom: 8, flexGrow: 1 }}
