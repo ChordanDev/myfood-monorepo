@@ -51,8 +51,11 @@ export function useHomeState() {
     return getSelectedLocalMeal(mealsForSelectedDate, recipes, selectedMealType);
   }, [mealsForSelectedDate, recipes, selectedMealType]);
 
-  const handleSelectDate = (dateString: string) => {
+  const handleSelectDate = (dateString: string, mealType?: HomeMealType) => {
     setSelectedDate(dateString);
+    if (mealType) {
+      setSelectedMealType(mealType);
+    }
   };
 
   const handleMealTypeChange = (mealType: HomeMealType) => {

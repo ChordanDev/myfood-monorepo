@@ -4,12 +4,9 @@ import { SvgXml } from 'react-native-svg';
 import Animated, {
   cancelAnimation,
   Easing,
-  interpolate,
   useAnimatedStyle,
-  useDerivedValue,
   useSharedValue,
   withRepeat,
-  withSequence,
   withTiming,
 } from 'react-native-reanimated';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -35,37 +32,28 @@ export function AddCircleButton({ size = DEFAULT_BUTTON_SIZE, onPress }: AddCirc
   const innerSize = buttonSize - BORDER_WIDTH * 2;
   const innerRadius = Math.round(innerSize / 2);
 
-  const transition = useSharedValue(0);
+  const rotation = useSharedValue(0);
+  const gradientSize = buttonSize * 2.6;
 
   useEffect(() => {
-    transition.value = withRepeat(
-      withSequence(
-        withTiming(1, { duration: 3000, easing: Easing.linear }),
-        withTiming(0, { duration: 0 })
-      ),
-      -1
+    rotation.value = withRepeat(
+      withTiming(360, { duration: 3600, easing: Easing.linear }),
+      -1,
+      false
     );
 
     return () => {
-      cancelAnimation(transition);
+      cancelAnimation(rotation);
     };
-  }, [transition]);
-
-  const translateX = useDerivedValue(() =>
-    interpolate(transition.value, [0, 1], [-2 * buttonSize, 0])
-  );
+  }, [rotation]);
 
   const animatedGradientStyle = useAnimatedStyle(() => ({
-    transform: [
-      {
-        translateX: translateX.value,
-      },
-    ],
-    width: buttonSize * 3,
-    height: buttonSize,
+    transform: [{ rotateZ: `${rotation.value}deg` }],
+    width: gradientSize,
+    height: gradientSize,
     position: 'absolute',
-    left: 0,
-    top: 0,
+    left: -(gradientSize - buttonSize) / 2,
+    top: -(gradientSize - buttonSize) / 2,
   }));
 
   return (
@@ -86,15 +74,12 @@ export function AddCircleButton({ size = DEFAULT_BUTTON_SIZE, onPress }: AddCirc
           <LinearGradient
             colors={[
               theme.primaryAccentIntense,
-              theme.colorLight,
-              theme.primaryAccent,
-              theme.primaryAccentIntense,
-              theme.colorLight,
+              theme.icon,
               theme.primaryAccent,
               theme.primaryAccentIntense,
             ]}
-            start={{ x: 0, y: 0.5 }}
-            end={{ x: 1, y: 0.5 }}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
             style={StyleSheet.absoluteFillObject}
           />
         </Animated.View>
