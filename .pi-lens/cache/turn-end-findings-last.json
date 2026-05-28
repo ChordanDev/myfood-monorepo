@@ -1,4 +1,0 @@
-{
-  "signature": "app/(tabs)/_layout.tsx::Unresolved from this turn — app/(tabs)/_layout.tsx:\n🔴 STOP — 1 issue(s) must be fixed:\n  L122: Cannot find name 'styles'.",
-  "sessionId": "lens-mpn5r0x8-0a358d12"
-}
