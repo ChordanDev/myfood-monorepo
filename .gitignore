@@ -27,3 +27,5 @@ android
 .venv
 # Local Pi runtime state
 .atl/
+.pi/
+.pi-lens/

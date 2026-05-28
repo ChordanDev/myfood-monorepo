@@ -11,14 +11,14 @@ const DEFAULT_THEME: RecipeThemeConfig = {
   colorDark: '#151515',
   colorMedium: '#404040',
   colorLight: '#747474',
-  primaryAccent: '#FFA23E',
+  primaryAccent: '#D8D98B',
   appBg: '#C5C5C5',
   icon: '#CFCFCF',
   textBlack: '#1E1E1E',
   textDark: '#1E1E1E',
   textMedium: '#DADADA',
   textLight: '#DADADA',
-  primaryAccentIntense: '#FF8D13',
+  primaryAccentIntense: '#FCFF00',
 };
 
 const RecipeThemeContext = createContext<RecipeThemeContextType | undefined>(undefined);
