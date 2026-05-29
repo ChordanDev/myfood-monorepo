@@ -4,6 +4,7 @@ import Animated from 'react-native-reanimated';
 import * as Haptics from 'expo-haptics';
 import { useRecipeTheme } from '@/context/RecipeThemeContext';
 import { useAnimatedThemeStyle } from '@/hooks/useAnimatedThemeStyle';
+import { withOpacity } from '@/utils/colors';
 
 export interface DayCellProps {
   dayDate: Date;
@@ -34,19 +35,36 @@ export const DayCell = memo(
     const { theme } = useRecipeTheme();
 
     const colors = useMemo(() => {
+      const targetOpacity = 0.7;
       if (isSelected) {
         if (isToday) {
-          return { bg: theme.primaryAccent, border: theme.colorMedium, borderWidth: 2 };
+          return {
+            bg: withOpacity(theme.primaryAccent, targetOpacity),
+            border: theme.colorMedium,
+            borderWidth: 2,
+          };
         }
-        return { bg: theme.primaryAccent, border: theme.primaryAccent, borderWidth: 1 };
+        return {
+          bg: withOpacity(theme.primaryAccent, targetOpacity),
+          border: theme.primaryAccent,
+          borderWidth: 1,
+        };
       }
 
       if (isToday) {
-        return { bg: theme.icon, border: theme.colorMedium, borderWidth: 2 };
+        return {
+          bg: withOpacity(theme.icon, targetOpacity),
+          border: theme.colorMedium,
+          borderWidth: 1,
+        };
       }
 
       if (isPlanned) {
-        return { bg: theme.icon, border: 'transparent', borderWidth: 0 };
+        return {
+          bg: withOpacity(theme.icon, targetOpacity),
+          border: theme.icon,
+          borderWidth: 1,
+        };
       }
 
       return { bg: 'transparent', border: 'transparent', borderWidth: 0 };

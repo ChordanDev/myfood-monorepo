@@ -62,7 +62,7 @@ export function EatTodayButton({
   useEffect(() => {
     breath.value = withRepeat(
       withTiming(1, {
-        duration: 1800,
+        duration: 1400,
         easing: Easing.inOut(Easing.sin),
       }),
       -1,
@@ -132,7 +132,7 @@ export function EatTodayButton({
       <Animated.Text
         className="text-center font-montserrat-semibold leading-tight"
         style={[{ fontSize: 13, letterSpacing: 0.8 }, textThemeStyle]}>
-        Comerlo Hoy
+        COMERLO HOY
       </Animated.Text>
     </Pressable>
   );
