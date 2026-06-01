@@ -1,89 +1,177 @@
-# Code Context
+# Meal Planning App Context
 
-## Files Retrieved
+This context defines the product language for a meal-planning app that coordinates AI planning, recipes, shopping, inventory, and shared accounts.
 
-1. `src/features/home/screens/HomeScreen.tsx` (lines 41-55, 112-159, 174-201) - owns Home theme selection, already crossfades page background, passes raw theme colors into children.
-2. `app/(tabs)/_layout.tsx` (lines 21-84, 94-125) - custom tab bar; background already crossfades, but button/icon colors still snap.
-3. `src/features/home/components/Calendar.tsx` (lines 22-23, 41-84, 101-115) - calendar surface/header/weekday/divider/text colors come directly from theme.
-4. `src/features/home/components/DayCell.tsx` (lines 32-51, 67-80) - day circle fill/border/text colors switch directly on theme.
-5. `src/features/home/components/FoodTypeSwitcher.tsx` (lines 49-74, 85-93, 132-154) - switcher text, background, and active pill colors derive from theme/useThemeColor and snap.
-6. `src/features/home/components/FoodCard/FoodCard.tsx` (lines 32-45, 57-69, 96-106, 117-156) - SVG gradient stops, sparkles button, day label, number, description colors snap.
-7. `src/features/home/components/FoodCard/icons.tsx` (lines 4-29, 33-43) - star/sparkles SVG fills/strokes use raw theme colors.
-8. `src/features/home/components/EatTodayButton.tsx` (lines 43-65) - receives theme colors from HomeScreen and applies raw background/border/text colors.
-9. `src/components/AddCircleButton.tsx` (lines 25-27, 73-97) - used by Home; rotating gradient colors, inner background, and plus icon color use raw theme colors.
-10. `src/components/TitlePrimary.tsx` (lines 10-22) - used by Home; title text color comes directly from theme.
-11. `src/hooks/useThemeColor.ts` (lines 10-25) - returns current theme and opacity helper only; no transition state.
-12. `src/hooks/useGradientCrossfade.ts` (lines 11-43) - existing 450ms opacity crossfade helper for two-color gradients.
-13. `src/features/home/hooks/useHomeRecipeTheme.ts` (lines 7-24) - changes RecipeThemeContext 100ms after selected meal/date changes.
+## Language
 
-## Key Code
+**User**:
+An individual person authenticated in the app.
+_Avoid_: Account, profile
 
-Existing animated pieces:
+**Email Code Authentication**:
+A passwordless authentication flow where a **User** signs in or confirms account creation by entering a short-lived code sent to their email.
+_Avoid_: Password login, magic link unless the user clicks a link instead of entering a code
 
-```tsx
-// Home background already crossfades.
-const backgroundColors: [string, string] = [theme.colorDark, theme.appBg];
-const { currentColors, previousColors, animatedStyle } = useGradientCrossfade(backgroundColors);
-```
+**Explicit Account Creation**:
+A user-facing onboarding flow where a new **User** intentionally creates an account with only an email before first sign-in, even though authentication remains passwordless.
+_Avoid_: Silent registration, implicit signup
 
-```tsx
-// Tab bar background already crossfades.
-const tabBarBackgroundColors: [string, string] = [theme.colorDark, theme.colorBlack];
-```
+**Onboarding Profile**:
+The post-authentication setup data collected after account creation, including display name, restrictions, preferences, cooking skill, and household size.
+_Avoid_: Signup data
 
-Theme-driven props/styles still abrupt, prioritized:
+**Account**:
+A billing and sharing container that can be individual or family-scoped.
+_Avoid_: User, household
 
-1. **FoodCard SVG and text (`src/features/home/components/FoodCard/FoodCard.tsx`)**
-   - Animate `<Stop stopColor={theme.colorMedium} />` and `<Stop stopColor={theme.colorDark} />` (lines 65-66), or crossfade whole card SVG layers.
-   - Animate sparkles button `backgroundColor`/`borderColor` (lines 99-100).
-   - Animate label colors: `dayNameColor`, `theme.primaryAccent`, `theme.textLight` (lines 45, 122, 130, 150).
+**Individual Account**:
+An account used by exactly one **User**.
+_Avoid_: Solo user
 
-2. **Calendar + DayCell (`Calendar.tsx`, `DayCell.tsx`)**
-   - `Calendar`: surface `backgroundColor: theme.colorLight` (line 43), nav/header/weekday `color: theme.textDark` (lines 52, 56, 76), divider `backgroundColor: theme.colorDark` (line 84), computed day `textColor` (lines 101-105).
-   - `DayCell`: circle `backgroundColor: colors.bg`, `borderColor: colors.border`, and day text `color: textColor` (lines 74-79). These are high-visibility because many cells update at once.
+**Family Account**:
+A post-MVP account shared by multiple **Users** where planning, shopping, and inventory are coordinated.
+_Avoid_: Family plan when referring to the shared data container
 
-3. **FoodTypeSwitcher (`FoodTypeSwitcher.tsx`)**
-   - Container `backgroundColor: theme.colorDark` (line 153).
-   - Indicator `backgroundColor`/`borderColor` from `getColorWithOpacity('icon', ...)` (lines 140-141).
-   - Item text colors `theme.textMedium`, `theme.textLight`, and faded unavailable color (lines 65-69).
-   - Keep existing position/width/height timing; add color timing separately.
+**Family Plus Account**:
+A post-MVP higher-tier **Family Account** with additional capabilities not yet defined.
+_Avoid_: Premium family unless pricing language is intended
 
-4. **Custom tab button (`app/(tabs)/_layout.tsx`)**
-   - Animated oval `backgroundColor`/`borderColor` (lines 69-70) snap even though width/opacity animate.
-   - Icon `color` passed to `Ionicons` (line 79) snaps for focused/unfocused states.
-   - Tab bar gradient background itself is already covered by `useGradientCrossfade` (lines 94-125).
+**Individual-First MVP**:
+The MVP scope where each **User** operates through one **Individual Account**, while the backend still models account ownership for future family support.
+_Avoid_: Family MVP, user-only model
 
-5. **Home edge controls and title**
-   - `EatTodayButton` props from HomeScreen `backgroundColor={theme.primaryAccent}`, `textColor={theme.textBlack}`, `borderColor={theme.primaryAccentIntense}` (HomeScreen lines 151-158; applied in EatTodayButton lines 57-62).
-   - `AddCircleButton`: LinearGradient `colors` (lines 75-80), inner `backgroundColor: theme.colorDark` (line 92), plus icon `color={theme.primaryAccent}` (line 96).
-   - `TitlePrimary`: title `color: theme.textDark` (line 21).
+**Trial Period**:
+A time-limited access state that lets a new **Account** use the product for 10 days before requiring a paid plan.
+_Avoid_: Free plan, freemium
 
-## Architecture
+**Access Lock**:
+The state where an **Account** cannot use the app after its **Trial Period** expires without an active subscription.
+_Avoid_: Read-only mode, free mode
 
-`useHomeRecipeTheme(selectedMeal, selectedDate)` writes to `RecipeThemeContext` after a 100ms timeout. Any component using `useRecipeTheme()` or `useThemeColor()` re-renders with the new theme immediately. Only the large Home background and custom tab bar background currently crossfade via `useGradientCrossfade`, which overlays previous/current gradients and animates opacity for 450ms. Most child components apply new `backgroundColor`, `borderColor`, `color`, `fill`, `stroke`, or SVG `stopColor` directly, causing abrupt changes during the same theme swap.
+**Membership**:
+The relationship that grants a **User** access to an **Account**.
+_Avoid_: Subscription, role
 
-For a total theme transition, likely introduce/reuse a color transition primitive for single colors and SVG colors, or crossfade grouped visual layers where direct color animation is hard (`react-native-svg` gradient stops, Ionicons color). Keep existing layout/selection animations separate from theme color animation.
+**User Preferences**:
+A **User**'s individual food preferences, dislikes, restrictions, and diet signals.
+_Avoid_: Account preferences
 
-## Start Here
+**Hard Restriction**:
+A non-negotiable food rule for a **User**, such as allergy, medical restriction, strict diet, or ingredient they cannot eat.
+_Avoid_: Preference, dislike
 
-Start with `src/features/home/components/FoodCard/FoodCard.tsx`: it contains the most noticeable unanimated theme surfaces (card SVG gradient, labels, description, sparkles button) and will establish the pattern needed for the rest.
+**Soft Preference**:
+A negotiable food preference for a **User**, such as likes, dislikes, goals, favorites, or ingredients they prefer to avoid.
+_Avoid_: Restriction, allergy
 
-## Prioritized Animation Targets
+**Planning Context**:
+The combined preferences, diets, selected favorites, inventory, budget, participants, meal slots, and date range used to generate a meal plan.
+_Avoid_: Prompt, chat context
 
-1. FoodCard card gradient + all FoodCard text/icon/button colors.
-2. Calendar surface/header/divider/day cell fills/borders/text.
-3. FoodTypeSwitcher container, active pill, and text colors.
-4. Custom tab button oval/icon colors; tab bar background is already animated.
-5. Home title, EatTodayButton, and AddCircleButton theme colors.
+**Planning Participant**:
+A **User** whose preferences and restrictions are considered for a specific **Meal Plan**.
+_Avoid_: Member when referring to a concrete planning run
 
-## Should Not Be Animated
+**Meal Slot**:
+A planned eating occasion on a date, such as breakfast, lunch, dinner, or snack.
+_Avoid_: Recipe, day
 
-- `FloatingFoodImage` image/source and its layout/position: not theme-colored.
-- Calendar month navigation disabled opacity, press `active:scale-95`, haptics, and layout sizes: interaction/layout state, not theme transition.
-- FoodTypeSwitcher indicator translate/width/height/opacity: already selection animation; only add color transition.
-- `ShadowSurface` static shadow/elevation: not theme-driven.
-- Route navigation, auth redirect, and meal/date state changes: not visual color props.
+**Meal Plan**:
+A dated set of planned meals generated for an **Account**.
+_Avoid_: Calendar, plan local
 
-## Supervisor coordination
+**Draft Meal Plan**:
+A persisted temporary AI-generated meal plan that can be refined before confirmation and expires if not confirmed.
+_Avoid_: AI response, temporary calendar
 
-No blocker. Engram tools were not available in this subagent toolset, so no memory save was performed.
+**Active Draft Meal Plan**:
+The single current **Draft Meal Plan** a user/account can continue editing in the MVP.
+_Avoid_: Multiple open drafts
+
+**Confirmed Meal Plan**:
+The single active accepted **Meal Plan** for an **Account**, used to generate shopping and inventory flows and extended or edited over time.
+_Avoid_: Final plan, multiple confirmed plans
+
+**Active Meal Plan**:
+The one confirmed plan currently owned by an **Account**.
+_Avoid_: Plan history when referring to the current editable plan
+
+**Favorite Recipe**:
+A user-owned saved pointer to a reusable recipe, either a **Master Recipe** or **User Recipe**.
+_Avoid_: Saved meal, recipe copy
+
+**User Recipe**:
+A reusable custom recipe owned by a **User**, usually promoted from a **Custom Recipe** or **Plan Recipe Snapshot**.
+_Avoid_: Favorite, master recipe
+
+**Inherited Recipe Assets**:
+Image and theme assets reused from the **Master Recipe** that a **User Recipe** was derived from.
+_Avoid_: Generated custom assets
+
+**Archived User Recipe**:
+A **User Recipe** that is no longer reusable or shown in favorites/planning, but remains stored to preserve plan history.
+_Avoid_: Deleted recipe
+
+**Master Recipe**:
+A canonical recipe owned by the app's recipe bank.
+_Avoid_: General recipe, base recipe
+
+**Custom Recipe**:
+A structured recipe created by AI from a user-requested modification to a **Master Recipe** or draft meal option.
+_Avoid_: Invented recipe, modified recipe
+
+**Recipe Refinement**:
+A conversational change request that replaces a draft meal option with a validated **Custom Recipe**.
+_Avoid_: Free chat, unstructured edit
+
+**Plan Recipe Snapshot**:
+A complete recipe copy stored inside a confirmed meal plan so the user can cook it even if it is not reusable or favorited.
+_Avoid_: Favorite recipe, master recipe
+
+**Shopping List**:
+The categorized list of ingredients needed for a **Confirmed Meal Plan** after considering inventory.
+_Avoid_: Grocery plan
+
+**Inventory**:
+The account-owned set of available ingredients and quantities.
+_Avoid_: Pantry, despensa
+
+## Relationships
+
+- A new **User** is created through **Explicit Account Creation** with only an email and confirms ownership of that email through **Email Code Authentication**.
+- An **Onboarding Profile** is collected after authentication, not during initial account creation.
+- In the **Individual-First MVP**, each **User** has one **Individual Account**.
+- A **User** can belong to one or more **Accounts** through **Memberships** after family support is introduced.
+- An **Account** can be an **Individual Account**, **Family Account**, or **Family Plus Account**.
+- A new **Account** starts in a 10-day **Trial Period**; there is no free plan.
+- An **Account** enters **Access Lock** when the **Trial Period** expires without an active subscription.
+- A **Family Account** has multiple **Users** after family support is introduced.
+- A **Meal Plan**, **Shopping List**, and **Inventory** belong to exactly one **Account**.
+- In the MVP, an **Account** has at most one **Active Meal Plan**.
+- **User Preferences** belong to exactly one **User**.
+- A **Planning Context** for a family plan combines the preferences and diets of the selected **Planning Participants**.
+- If no **Planning Participants** are selected, all active **Users** in the **Account** are included by default.
+- A **Hard Restriction** from any relevant **Planning Participant** applies to the whole family **Meal Plan** in the MVP.
+- A **Soft Preference** influences planning but does not block a family **Meal Plan**.
+- In the MVP, a **Favorite Recipe** belongs to exactly one **User** and references either a **Master Recipe** or a **User Recipe**.
+- A **Recipe Refinement** can create a **Custom Recipe** inside a **Draft Meal Plan**.
+- In the MVP, a user/account has at most one **Active Draft Meal Plan** at a time.
+- A **Draft Meal Plan** expires 24 hours after creation if not confirmed.
+- A **Custom Recipe** in a confirmed **Meal Plan** is stored as a **Plan Recipe Snapshot** unless the user saves it as a **Favorite Recipe**.
+- Saving a **Plan Recipe Snapshot** as a favorite promotes it to a **User Recipe** and creates a **Favorite Recipe** pointer.
+- Removing a favorite deletes the **Favorite Recipe** pointer; related **User Recipes** are archived instead of physically deleted when history integrity requires it.
+- In the MVP, a **User Recipe** uses **Inherited Recipe Assets** from its base **Master Recipe** when available; otherwise it uses default placeholders.
+- The planner can use the current **User**'s **Favorite Recipes** as planning input in the MVP.
+
+## Example dialogue
+
+> **Dev:** "When a family creates a **Meal Plan**, do we use only the preferences of the user who pressed generate?"
+> **Domain expert:** "No — for a **Family Account**, the **Planning Context** must consider the preferences and diet of every relevant **User** in that account."
+
+## Flagged ambiguities
+
+- "Cuenta" and "usuario" are distinct: **User** is the individual person; **Account** is the individual or shared container.
+- "Family plan" can mean subscription tier or shared data container; use **Family Account** for the shared product concept and reserve pricing names for plan tiers.
+- Family planning is post-MVP; the MVP is **Individual-First**.
+- Family planning starts as one shared **Meal Plan** for the account; per-person meal variants are a future extension, not the MVP default.
+- A **User** can belong to an **Account** but be excluded from a specific **Meal Plan** by not being selected as a **Planning Participant** after family support exists.

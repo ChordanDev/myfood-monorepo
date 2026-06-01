@@ -119,7 +119,7 @@ function CustomTabBar({
           locations={[0.61, 1]}
           start={{ x: 0, y: 0 }}
           end={{ x: 0, y: 1 }}
-          style={styles.gradient}
+          style={{ flex: 1 }}
         />
       </AnimatedView>
       <View className="h-[60px] flex-row items-center">
@@ -214,7 +214,3 @@ export default function TabsLayout() {
     </Tabs>
   );
 }
-
-const styles = StyleSheet.create({
-  gradient: { flex: 1 },
-});
