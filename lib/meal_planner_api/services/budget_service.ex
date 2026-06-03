@@ -1,22 +1,30 @@
-defmodule MealPlannerApi.Budgets do
+defmodule MealPlannerApi.Services.BudgetService do
   @moduledoc """
-  Budget context with account-based constraints.
+  Budget resolution service.
+
+  Resolves weekly budget limits based on account type and subscription tier.
   """
 
-  alias MealPlannerApi.Repo
+  alias MealPlannerApi.Data.AccountRepo
   alias MealPlannerApi.Budgets.Budget
-  alias MealPlannerApi.Persistence.Accounts.Account
 
-  @spec resolve_for(map(), map()) :: Budget.t()
-  def resolve_for(user, params \\ %{}) when is_map(user) do
+  @spec resolve(map()) :: Budget.t()
+  def resolve(user) do
     account_id = Map.get(user, :account_id)
     tier = Map.get(user, :subscription_tier, :free)
-    default_limit = resolve_default_limit(account_id, tier)
+    override = Map.get(user, :weekly_budget_cents)
+
+    limit =
+      if override && is_integer(override) && override > 0 do
+        override
+      else
+        resolve_default_limit(account_id, tier)
+      end
 
     %Budget{
       account_id: account_id,
-      weekly_limit_cents: parse_int(Map.get(params, "weekly_budget_cents"), default_limit),
-      currency: Map.get(params, "currency", "ARS")
+      weekly_limit_cents: limit,
+      currency: Map.get(user, :currency, "ARS")
     }
   end
 
@@ -35,23 +43,11 @@ defmodule MealPlannerApi.Budgets do
     }
   end
 
-  defp parse_int(nil, fallback), do: fallback
-  defp parse_int(value, _fallback) when is_integer(value), do: value
-
-  defp parse_int(value, fallback) when is_binary(value) do
-    case Integer.parse(value) do
-      {int, _} when int > 0 -> int
-      _ -> fallback
-    end
-  end
-
-  defp parse_int(_, fallback), do: fallback
-
   defp resolve_default_limit(account_id, tier) when is_binary(account_id) do
     case Ecto.UUID.cast(account_id) do
       {:ok, _} ->
-        case Repo.get(Account, account_id) do
-          %Account{default_budget_cents: cents} when is_integer(cents) and cents >= 0 -> cents
+        case AccountRepo.get_account(account_id) do
+          %{default_budget_cents: cents} when is_integer(cents) and cents >= 0 -> cents
           _ -> tier_default_limit(tier)
         end
 
