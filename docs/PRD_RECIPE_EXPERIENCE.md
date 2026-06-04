@@ -55,7 +55,7 @@ La aplicación utiliza un sistema de tematización dinámica basado en las recet
   - Deduplicación MVP: un usuario no puede tener dos favoritos con el mismo `masterRecipeId` ni dos favoritos con el mismo `userRecipeId`. Si se repite la operación, el backend devuelve el favorito existente. No se deduplican recetas parecidas por contenido en MVP.
 - **Marcar como Cocinado**:
   - Dispara el **Consumo Automático** del inventario.
-  - **Registro de Sobras**: Flujo opcional donde el usuario confirma si quedaron porciones preparadas (**Sobra de Comida**) o si el sistema debe registrar el remanente de ingredientes crudos (**Sobra de Ingrediente**).
+  - **Registro de Sobras**: Después de marcar cocinado, la app muestra una pregunta liviana: "¿Quedaron sobras?" con opciones rápidas `No`, `Sí, comida preparada` y `Sí, ingredientes`. Si elige comida preparada, se crea `PreparedLeftover`; si elige ingredientes, se ajusta Inventario con sobras de ingrediente.
 
 ### 3.4. Edición de Plan (Intercambio de Recetas)
 

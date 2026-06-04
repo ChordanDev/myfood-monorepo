@@ -133,8 +133,20 @@ The categorized list of ingredients needed for a **Confirmed Meal Plan** after c
 _Avoid_: Grocery plan
 
 **Inventory**:
-The account-owned set of available ingredients and quantities.
+The account-owned current state of available ingredients and quantities.
 _Avoid_: Pantry, despensa
+
+**Inventory Movement**:
+An auditable change to **Inventory**, such as purchase, recipe consumption, manual adjustment, voice adjustment, or reversal.
+_Avoid_: Inventory item
+
+**Ingredient Leftover**:
+A remaining raw ingredient tracked as part of **Inventory**.
+_Avoid_: Prepared leftover
+
+**Prepared Leftover**:
+A remaining prepared meal portion stored separately from **Inventory**.
+_Avoid_: Ingredient leftover, inventory item
 
 ## Relationships
 
@@ -147,6 +159,9 @@ _Avoid_: Pantry, despensa
 - An **Account** enters **Access Lock** when the **Trial Period** expires without an active subscription.
 - A **Family Account** has multiple **Users** after family support is introduced.
 - A **Meal Plan**, **Shopping List**, and **Inventory** belong to exactly one **Account**.
+- Every change to **Inventory** creates an **Inventory Movement**.
+- An **Ingredient Leftover** is tracked inside **Inventory**.
+- A **Prepared Leftover** is tracked separately from **Inventory** and can reference the meal that produced it.
 - In the MVP, an **Account** has at most one **Active Meal Plan**.
 - **User Preferences** belong to exactly one **User**.
 - A **Planning Context** for a family plan combines the preferences and diets of the selected **Planning Participants**.

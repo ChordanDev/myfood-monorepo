@@ -70,6 +70,7 @@ Un asistente personal de nutrición "AI-Native" que gestiona el ciclo completo d
 - **Modelo de Propiedad**: Preferencias y Favoritos pertenecen al usuario; Planes, Lista de Compras e Inventario pertenecen a la Cuenta. En MVP cada usuario tiene una Cuenta Individual.
 - **Prueba y Suscripción**: No existe plan gratuito. Toda Cuenta nueva comienza con 10 días de prueba; luego debe tener una suscripción activa para continuar usando la app.
 - **Bloqueo por Prueba Expirada**: Si la prueba termina y no hay suscripción activa, la Cuenta queda bloqueada. El usuario puede autenticarse para resolver el pago, pero no puede acceder a las funcionalidades ni a los datos de la app hasta activar una suscripción.
+- **Realtime MVP**: En MVP se usan Phoenix Channels solo para progreso/resultados del planner y experiencia conversacional de IA. La colaboración familiar en tiempo real sobre lista de compras e inventario queda fuera del MVP y se reserva para Family Account post-MVP.
 - **Contrato de Acceso en `/me`**: La respuesta incluye `account.access.status` (`trialing`, `active`, `locked`), `account.access.reason` (`trial_expired`, `subscription_past_due` o `null`), `trialEndsAt`, `trialDaysRemaining` y `canUseApp`. Si `canUseApp` es `false`, el front debe mostrar paywall/billing y no cargar datos internos.
 - **Gestión de Contexto**: La memoria a largo plazo se almacena en la base de datos (Preferencias, Favoritos, Inventario), no en el historial del chat.
 - **Multimodalidad**: Soporte para entrada de voz en la gestión de inventario.
