@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { ActivityIndicator, Alert, Pressable, Text, View } from 'react-native';
 import Animated from 'react-native-reanimated';
-import { useLocalSearchParams, useRouter, Redirect, Href } from 'expo-router';
+import { useLocalSearchParams, useRouter, Redirect } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
 import { SafeAreaContent, NoisyBackground } from '@/components';
 import { VerificationActions, VerificationCodeInput } from '../components';
@@ -12,26 +12,31 @@ import {
   resolveStringParam,
   resolveVerificationFlow,
 } from '../utils/emailCodeVerificationFlow';
-import { COLORS } from '@/constants/theme';
-
 import { useRecipeTheme } from '@/context/RecipeThemeContext';
-import { useThemeColor } from '@/hooks/useThemeColor';
+import { getAuthErrorMessage } from '@/services/authService';
 
 export function EmailCodeVerificationScreen() {
   const { theme } = useRecipeTheme();
-  const { getColorWithOpacity } = useThemeColor();
   // Obtiene parametros de la ruta para construir el flujo.
   const router = useRouter();
-  const { signIn, signUp, sendVerificationCode } = useAuth();
-  const params = useLocalSearchParams<{ email?: string | string[]; flow?: string | string[] }>();
+  const { signIn, signUp, requestVerificationCode } = useAuth();
+  const params = useLocalSearchParams<{
+    email?: string | string[];
+    flow?: string | string[];
+    cooldown?: string | string[];
+  }>();
   const [code, setCode] = useState('');
   const [isVerifying, setIsVerifying] = useState(false);
-  const { secondsLeft, canResend, restart } = useResendCooldown(45);
+  const initialCooldown = useMemo(() => {
+    const rawCooldown = Number(resolveStringParam(params.cooldown));
+    return Number.isFinite(rawCooldown) && rawCooldown > 0 ? rawCooldown : 45;
+  }, [params.cooldown]);
+  const { secondsLeft, canResend, restart } = useResendCooldown(initialCooldown);
   const { inputAnimatedStyle } = useKeyboardAnimation();
 
   const email = useMemo(() => resolveStringParam(params.email), [params.email]);
   const flow = useMemo(() => resolveVerificationFlow(params.flow), [params.flow]);
-  const { successTitle, successMessage, resendMessage, successRedirectPath } = useMemo(
+  const { successTitle, successMessage, resendMessage } = useMemo(
     () => getVerificationFlowConfig(flow),
     [flow]
   );
@@ -72,13 +77,12 @@ export function EmailCodeVerificationScreen() {
       Alert.alert(successTitle, successMessage, [
         {
           text: 'OK',
-          // La navegacion se maneja automaticamente por el guard en index.tsx
-          onPress: () => router.replace(successRedirectPath as Href<string>),
+          // La navegacion se maneja automaticamente por el gate en index.tsx.
+          onPress: () => router.replace('/'),
         },
       ]);
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Intenta de nuevo.';
-      Alert.alert('Error de verificación', message);
+      Alert.alert('Error de verificación', getAuthErrorMessage(error));
     } finally {
       setIsVerifying(false);
     }
@@ -91,11 +95,11 @@ export function EmailCodeVerificationScreen() {
     }
 
     try {
-      await sendVerificationCode(email);
-      restart();
+      const response = await requestVerificationCode(email, flow);
+      restart(response.resendAvailableInSeconds);
       Alert.alert('Código reenviado', resendMessage);
-    } catch {
-      Alert.alert('Error', 'No se pudo reenviar el código.');
+    } catch (error) {
+      Alert.alert('Error', getAuthErrorMessage(error));
     }
   };
 

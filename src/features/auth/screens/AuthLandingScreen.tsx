@@ -15,10 +15,11 @@ import {
 } from '../components';
 import { NoisyBackground, SafeAreaContent, TitlePrimary, TopFadeMask } from '@/components';
 import { useRouter } from 'expo-router';
+import { getAuthErrorMessage } from '@/services/authService';
 
 export function AuthLandingScreen() {
   // Estado local para validacion y modal de registro.
-  const { sendVerificationCode } = useAuth();
+  const { requestVerificationCode } = useAuth();
   const metrics = useAuthResponsiveScale();
   const [isCredentialsValid, setIsCredentialsValid] = useState(false);
   const [loginEmail, setLoginEmail] = useState('');
@@ -39,30 +40,38 @@ export function AuthLandingScreen() {
   const handleContinueRegister = useCallback(
     async (email: string) => {
       try {
-        await sendVerificationCode(email);
+        const response = await requestVerificationCode(email, 'register');
         setShowRegisterModal(false);
         router.push({
           pathname: '/register',
-          params: { email, flow: 'register' },
+          params: {
+            email,
+            flow: 'register',
+            cooldown: String(response.resendAvailableInSeconds),
+          },
         });
-      } catch {
-        Alert.alert('Error', 'No se pudo enviar el código. Intenta nuevamente.');
+      } catch (error) {
+        Alert.alert('Error', getAuthErrorMessage(error));
       }
     },
-    [sendVerificationCode, router]
+    [requestVerificationCode, router]
   );
 
   const handleLogin = useCallback(async () => {
     try {
-      await sendVerificationCode(loginEmail);
+      const response = await requestVerificationCode(loginEmail, 'login');
       router.push({
         pathname: '/register',
-        params: { email: loginEmail, flow: 'login' },
+        params: {
+          email: loginEmail,
+          flow: 'login',
+          cooldown: String(response.resendAvailableInSeconds),
+        },
       });
-    } catch {
-      Alert.alert('Error', 'No se pudo enviar el código. Intenta nuevamente.');
+    } catch (error) {
+      Alert.alert('Error', getAuthErrorMessage(error));
     }
-  }, [loginEmail, sendVerificationCode, router]);
+  }, [loginEmail, requestVerificationCode, router]);
 
   // Estabiliza la referencia para evitar re-renders en AuthCredentialsForm.
   const handleCredentialsChange = useCallback(({ email }: { email: string }) => {

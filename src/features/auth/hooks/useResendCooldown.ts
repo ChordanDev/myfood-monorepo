@@ -3,7 +3,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 interface UseResendCooldownResult {
   secondsLeft: number;
   canResend: boolean;
-  restart: () => void;
+  restart: (nextSeconds?: number) => void;
 }
 
 export function useResendCooldown(initialSeconds = 45): UseResendCooldownResult {
@@ -17,6 +17,10 @@ export function useResendCooldown(initialSeconds = 45): UseResendCooldownResult 
       timerRef.current = null;
     }
   }, []);
+
+  useEffect(() => {
+    setSecondsLeft(initialSeconds);
+  }, [initialSeconds]);
 
   useEffect(() => {
     if (secondsLeft <= 0) {
@@ -40,10 +44,13 @@ export function useResendCooldown(initialSeconds = 45): UseResendCooldownResult 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [secondsLeft > 0]);
 
-  const restart = useCallback(() => {
-    clearTimer();
-    setSecondsLeft(initialSeconds);
-  }, [clearTimer, initialSeconds]);
+  const restart = useCallback(
+    (nextSeconds?: number) => {
+      clearTimer();
+      setSecondsLeft(nextSeconds ?? initialSeconds);
+    },
+    [clearTimer, initialSeconds]
+  );
 
   return {
     secondsLeft,
