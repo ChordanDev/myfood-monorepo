@@ -1,5 +1,6 @@
-import { createContext, useCallback, useEffect, useMemo, useState } from 'react';
+import { createContext, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
+import { AppState } from 'react-native';
 import type { AuthContextValue, AuthFlow, AuthSession, CurrentMe } from '../types/auth';
 import * as authService from '@/services/authService';
 
@@ -25,10 +26,13 @@ export function AuthProvider({ children }: AuthProviderProps) {
   const [accessToken, setAccessToken] = useState<string | null>(null);
   const [refreshToken, setRefreshToken] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const accessTokenRef = useRef<string | null>(null);
 
   const applySession = useCallback((session: AuthSession | null) => {
+    const nextAccessToken = session?.accessToken ?? null;
     setMe(session?.me ?? null);
-    setAccessToken(session?.accessToken ?? null);
+    setAccessToken(nextAccessToken);
+    accessTokenRef.current = nextAccessToken;
     setRefreshToken(session?.refreshToken ?? null);
   }, []);
 
@@ -79,27 +83,41 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
   const signOut = useCallback(async () => {
     const tokenForLogout = accessToken;
+    const refreshTokenForLogout = refreshToken;
 
     try {
-      await authService.logout(tokenForLogout);
+      await authService.logout(tokenForLogout, refreshTokenForLogout);
     } catch (error) {
       console.warn('[AuthProvider] Error cerrando sesión remota:', error);
     } finally {
       await authService.clearSession();
       applySession(null);
     }
-  }, [accessToken, applySession]);
+  }, [accessToken, refreshToken, applySession]);
 
   const refreshMe = useCallback(async () => {
     const session = await authService.refreshCurrentSession();
     applySession(session);
   }, [applySession]);
 
-  const requestVerificationCode = useCallback(async (email: string, flow: AuthFlow) => {
+  useEffect(() => {
+    const subscription = AppState.addEventListener('change', (nextState) => {
+      if (nextState !== 'active' || !accessTokenRef.current) return;
+
+      refreshMe().catch((error) => {
+        if (authService.isTransientAuthError(error)) return;
+        console.warn('[AuthProvider] Error revalidando sesión:', error);
+      });
+    });
+
+    return () => subscription.remove();
+  }, [refreshMe]);
+
+  const requestVerificationCode = useCallback((email: string, flow: AuthFlow) => {
     return authService.requestVerificationCode(email, flow);
   }, []);
 
-  const sendVerificationCode = useCallback(async (email: string, flow: AuthFlow = 'login') => {
+  const sendVerificationCode = useCallback((email: string, flow: AuthFlow = 'login') => {
     return authService.sendVerificationCode(email, flow);
   }, []);
 

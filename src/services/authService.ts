@@ -34,9 +34,12 @@ const KNOWN_AUTH_ERROR_CODES = new Set<AuthErrorCode>([
   'unknown_error',
 ]);
 
-const RECOVERABLE_AUTH_ERROR_CODES = new Set<AuthErrorCode>([
+const REFRESHABLE_AUTH_ERROR_CODES = new Set<AuthErrorCode>([
   'unauthenticated',
   'access_token_expired',
+]);
+
+const SESSION_INVALID_AUTH_ERROR_CODES = new Set<AuthErrorCode>([
   'refresh_token_invalid',
   'refresh_token_revoked',
   'refresh_token_replayed',
@@ -265,9 +268,20 @@ export async function refreshTokens(refreshToken: string): Promise<RefreshRespon
   return tokens;
 }
 
-export async function logout(accessToken: string | null): Promise<void> {
+export async function logout(
+  accessToken: string | null,
+  refreshToken?: string | null
+): Promise<void> {
   if (!accessToken) return;
-  await apiRequest<null>('/api/auth/logout', { method: 'POST' }, accessToken);
+
+  await apiRequest<null>(
+    '/api/auth/logout',
+    {
+      method: 'POST',
+      ...(refreshToken ? { body: JSON.stringify({ refreshToken }) } : {}),
+    },
+    accessToken
+  );
 }
 
 export async function getStoredSession(): Promise<StoredAuthSession | null> {
@@ -290,8 +304,16 @@ export async function getStoredSession(): Promise<StoredAuthSession | null> {
   }
 }
 
-export function isRecoverableAuthError(error: unknown): boolean {
-  return isAuthApiError(error) && RECOVERABLE_AUTH_ERROR_CODES.has(error.code);
+export function isRefreshableAuthError(error: unknown): boolean {
+  return isAuthApiError(error) && REFRESHABLE_AUTH_ERROR_CODES.has(error.code);
+}
+
+export function isSessionInvalidAuthError(error: unknown): boolean {
+  return isAuthApiError(error) && SESSION_INVALID_AUTH_ERROR_CODES.has(error.code);
+}
+
+export function isTransientAuthError(error: unknown): boolean {
+  return isAuthApiError(error) && error.code === 'network_error';
 }
 
 export async function restoreSessionWithFreshMe(): Promise<AuthSession | null> {
@@ -304,7 +326,11 @@ export async function restoreSessionWithFreshMe(): Promise<AuthSession | null> {
     await persistSession(freshSession);
     return freshSession;
   } catch (error) {
-    if (!isRecoverableAuthError(error)) {
+    if (isTransientAuthError(error)) {
+      return storedSession;
+    }
+
+    if (!isRefreshableAuthError(error)) {
       throw error;
     }
   }
@@ -315,9 +341,17 @@ export async function restoreSessionWithFreshMe(): Promise<AuthSession | null> {
     const refreshedSession: AuthSession = { ...tokens, me };
     await persistSession(refreshedSession);
     return refreshedSession;
-  } catch {
-    await clearSession();
-    return null;
+  } catch (error) {
+    if (isTransientAuthError(error)) {
+      return storedSession;
+    }
+
+    if (isSessionInvalidAuthError(error)) {
+      await clearSession();
+      return null;
+    }
+
+    throw error;
   }
 }
 

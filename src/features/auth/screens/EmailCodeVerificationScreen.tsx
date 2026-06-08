@@ -27,6 +27,7 @@ export function EmailCodeVerificationScreen() {
   }>();
   const [code, setCode] = useState('');
   const [isVerifying, setIsVerifying] = useState(false);
+  const [isResending, setIsResending] = useState(false);
   const initialCooldown = useMemo(() => {
     const rawCooldown = Number(resolveStringParam(params.cooldown));
     return Number.isFinite(rawCooldown) && rawCooldown > 0 ? rawCooldown : 45;
@@ -90,16 +91,19 @@ export function EmailCodeVerificationScreen() {
 
   const handleResendCode = async () => {
     // Respeta el cooldown antes de reenviar.
-    if (!canResend) {
+    if (!canResend || isResending) {
       return;
     }
 
+    setIsResending(true);
     try {
       const response = await requestVerificationCode(email, flow);
       restart(response.resendAvailableInSeconds);
       Alert.alert('Código reenviado', resendMessage);
     } catch (error) {
       Alert.alert('Error', getAuthErrorMessage(error));
+    } finally {
+      setIsResending(false);
     }
   };
 
@@ -127,6 +131,8 @@ export function EmailCodeVerificationScreen() {
             <VerificationCodeInput value={code} onChange={setCode} />
             <VerificationActions
               secondsLeft={secondsLeft}
+              isVerifying={isVerifying}
+              isResending={isResending}
               onVerify={handleVerifyCode}
               onResend={handleResendCode}
             />

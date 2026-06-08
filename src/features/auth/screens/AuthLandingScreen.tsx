@@ -23,6 +23,8 @@ export function AuthLandingScreen() {
   const metrics = useAuthResponsiveScale();
   const [isCredentialsValid, setIsCredentialsValid] = useState(false);
   const [loginEmail, setLoginEmail] = useState('');
+  const [isRequestingLoginCode, setIsRequestingLoginCode] = useState(false);
+  const [isRequestingRegisterCode, setIsRequestingRegisterCode] = useState(false);
   const router = useRouter();
   const [showRegisterModal, setShowRegisterModal] = useState(false);
   const { inputAnimatedStyle, isKeyboardOpen } = useKeyboardAnimation({
@@ -39,6 +41,9 @@ export function AuthLandingScreen() {
 
   const handleContinueRegister = useCallback(
     async (email: string) => {
+      if (isRequestingRegisterCode) return;
+
+      setIsRequestingRegisterCode(true);
       try {
         const response = await requestVerificationCode(email, 'register');
         setShowRegisterModal(false);
@@ -52,12 +57,17 @@ export function AuthLandingScreen() {
         });
       } catch (error) {
         Alert.alert('Error', getAuthErrorMessage(error));
+      } finally {
+        setIsRequestingRegisterCode(false);
       }
     },
-    [requestVerificationCode, router]
+    [isRequestingRegisterCode, requestVerificationCode, router]
   );
 
   const handleLogin = useCallback(async () => {
+    if (isRequestingLoginCode) return;
+
+    setIsRequestingLoginCode(true);
     try {
       const response = await requestVerificationCode(loginEmail, 'login');
       router.push({
@@ -70,8 +80,10 @@ export function AuthLandingScreen() {
       });
     } catch (error) {
       Alert.alert('Error', getAuthErrorMessage(error));
+    } finally {
+      setIsRequestingLoginCode(false);
     }
-  }, [loginEmail, requestVerificationCode, router]);
+  }, [isRequestingLoginCode, loginEmail, requestVerificationCode, router]);
 
   // Estabiliza la referencia para evitar re-renders en AuthCredentialsForm.
   const handleCredentialsChange = useCallback(({ email }: { email: string }) => {
@@ -107,10 +119,10 @@ export function AuthLandingScreen() {
                   />
                   {/* Navega a verificacion si el email es valido y se envia el codigo. */}
                   <AuthButton
-                    title="Iniciar Sesión"
+                    title={isRequestingLoginCode ? 'Enviando código...' : 'Iniciar Sesión'}
                     variant="primary"
                     metrics={metrics}
-                    disabled={!isCredentialsValid}
+                    disabled={!isCredentialsValid || isRequestingLoginCode}
                     onPress={handleLogin}
                   />
                 </View>
@@ -133,6 +145,7 @@ export function AuthLandingScreen() {
 
       <RegisterEntryModal
         visible={showRegisterModal}
+        isSubmitting={isRequestingRegisterCode}
         onClose={closeRegisterModal}
         onContinue={handleContinueRegister}
       />

@@ -135,6 +135,43 @@ describe('authService', () => {
     });
   });
 
+  it('preserves the stored session when /me fails because the network is unavailable', async () => {
+    await authService.persistSession({
+      accessToken: 'stored-access',
+      refreshToken: 'stored-refresh',
+      tokenType: 'Bearer',
+      me,
+    });
+    fetchMock.mockRejectedValueOnce(new Error('offline'));
+
+    const session = await authService.restoreSessionWithFreshMe();
+
+    expect(session).toMatchObject({
+      accessToken: 'stored-access',
+      refreshToken: 'stored-refresh',
+      me,
+    });
+    await expect(authService.getStoredSession()).resolves.toMatchObject({
+      accessToken: 'stored-access',
+      refreshToken: 'stored-refresh',
+    });
+  });
+
+  it('sends the refresh token with logout when available', async () => {
+    fetchMock.mockReturnValueOnce(mockJsonResponse(null));
+
+    await authService.logout('access-1', 'refresh-1');
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      'https://api.example.test/api/auth/logout',
+      expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({ refreshToken: 'refresh-1' }),
+        headers: expect.objectContaining({ Authorization: 'Bearer access-1' }),
+      })
+    );
+  });
+
   it('throws stable AuthApiError codes from backend envelopes', async () => {
     fetchMock.mockReturnValueOnce(
       mockJsonResponse({ error: { code: 'code_invalid', message: 'Code invalid' } }, false, 422)
