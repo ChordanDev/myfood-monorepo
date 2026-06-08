@@ -31,26 +31,45 @@ export function AuthButton({
 
   return (
     <View
-      style={{ marginTop: metrics.buttonTopMargin, paddingHorizontal: metrics.horizontalPadding }}>
-      <Pressable
-        onPress={onPress}
-        disabled={disabled}
-        accessibilityRole="button"
-        accessibilityLabel={title}
-        accessibilityState={{ disabled }}
-        className="active:scale-97 w-full items-center justify-center"
-        style={({ pressed }) => ({
-          backgroundColor: pressed ? activeBg : backgroundColor,
+      style={{
+        width: '100%',
+        marginTop: metrics.buttonTopMargin,
+        paddingHorizontal: metrics.horizontalPadding,
+      }}>
+      <View
+        style={{
+          width: '100%',
+          backgroundColor,
           borderRadius: metrics.buttonRadius,
-          paddingVertical: metrics.buttonVerticalPadding,
           opacity: disabled ? 0.55 : 1,
-        })}>
-        <Text
-          style={{ fontSize: metrics.buttonFontSize, color: textColor }}
-          className="font-inter-medium">
-          {title}
-        </Text>
-      </Pressable>
+          overflow: 'hidden',
+        }}>
+        <Pressable
+          onPress={onPress}
+          disabled={disabled}
+          accessibilityRole="button"
+          accessibilityLabel={title}
+          accessibilityState={{ disabled }}
+          style={({ pressed }) => ({
+            width: '100%',
+            alignItems: 'center',
+            justifyContent: 'center',
+            backgroundColor: pressed ? activeBg : 'transparent',
+            paddingVertical: metrics.buttonVerticalPadding,
+            transform: [{ scale: pressed ? 0.97 : 1 }],
+          })}>
+          <Text
+            style={{
+              width: '100%',
+              textAlign: 'center',
+              fontSize: metrics.buttonFontSize,
+              color: textColor,
+            }}
+            className="font-inter-medium">
+            {title}
+          </Text>
+        </Pressable>
+      </View>
     </View>
   );
 }
