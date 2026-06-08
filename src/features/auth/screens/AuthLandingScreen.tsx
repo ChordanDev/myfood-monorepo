@@ -15,13 +15,16 @@ import {
 } from '../components';
 import { NoisyBackground, SafeAreaContent, TitlePrimary, TopFadeMask } from '@/components';
 import { useRouter } from 'expo-router';
+import { getAuthErrorMessage } from '@/services/authService';
 
 export function AuthLandingScreen() {
   // Estado local para validacion y modal de registro.
-  const { sendVerificationCode } = useAuth();
+  const { requestVerificationCode } = useAuth();
   const metrics = useAuthResponsiveScale();
   const [isCredentialsValid, setIsCredentialsValid] = useState(false);
   const [loginEmail, setLoginEmail] = useState('');
+  const [isRequestingLoginCode, setIsRequestingLoginCode] = useState(false);
+  const [isRequestingRegisterCode, setIsRequestingRegisterCode] = useState(false);
   const router = useRouter();
   const [showRegisterModal, setShowRegisterModal] = useState(false);
   const { inputAnimatedStyle, isKeyboardOpen } = useKeyboardAnimation({
@@ -38,31 +41,49 @@ export function AuthLandingScreen() {
 
   const handleContinueRegister = useCallback(
     async (email: string) => {
+      if (isRequestingRegisterCode) return;
+
+      setIsRequestingRegisterCode(true);
       try {
-        await sendVerificationCode(email);
+        const response = await requestVerificationCode(email, 'register');
         setShowRegisterModal(false);
         router.push({
           pathname: '/register',
-          params: { email, flow: 'register' },
+          params: {
+            email,
+            flow: 'register',
+            cooldown: String(response.resendAvailableInSeconds),
+          },
         });
-      } catch {
-        Alert.alert('Error', 'No se pudo enviar el código. Intenta nuevamente.');
+      } catch (error) {
+        Alert.alert('Error', getAuthErrorMessage(error));
+      } finally {
+        setIsRequestingRegisterCode(false);
       }
     },
-    [sendVerificationCode, router]
+    [isRequestingRegisterCode, requestVerificationCode, router]
   );
 
   const handleLogin = useCallback(async () => {
+    if (isRequestingLoginCode) return;
+
+    setIsRequestingLoginCode(true);
     try {
-      await sendVerificationCode(loginEmail);
+      const response = await requestVerificationCode(loginEmail, 'login');
       router.push({
         pathname: '/register',
-        params: { email: loginEmail, flow: 'login' },
+        params: {
+          email: loginEmail,
+          flow: 'login',
+          cooldown: String(response.resendAvailableInSeconds),
+        },
       });
-    } catch {
-      Alert.alert('Error', 'No se pudo enviar el código. Intenta nuevamente.');
+    } catch (error) {
+      Alert.alert('Error', getAuthErrorMessage(error));
+    } finally {
+      setIsRequestingLoginCode(false);
     }
-  }, [loginEmail, sendVerificationCode, router]);
+  }, [isRequestingLoginCode, loginEmail, requestVerificationCode, router]);
 
   // Estabiliza la referencia para evitar re-renders en AuthCredentialsForm.
   const handleCredentialsChange = useCallback(({ email }: { email: string }) => {
@@ -98,10 +119,10 @@ export function AuthLandingScreen() {
                   />
                   {/* Navega a verificacion si el email es valido y se envia el codigo. */}
                   <AuthButton
-                    title="Iniciar Sesión"
+                    title={isRequestingLoginCode ? 'Enviando código...' : 'Iniciar Sesión'}
                     variant="primary"
                     metrics={metrics}
-                    disabled={!isCredentialsValid}
+                    disabled={!isCredentialsValid || isRequestingLoginCode}
                     onPress={handleLogin}
                   />
                 </View>
@@ -124,6 +145,7 @@ export function AuthLandingScreen() {
 
       <RegisterEntryModal
         visible={showRegisterModal}
+        isSubmitting={isRequestingRegisterCode}
         onClose={closeRegisterModal}
         onContinue={handleContinueRegister}
       />

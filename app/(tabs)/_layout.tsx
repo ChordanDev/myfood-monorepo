@@ -156,7 +156,7 @@ function CustomTabBar({
 
 export default function TabsLayout() {
   const insets = useSafeAreaInsets();
-  const { isAuthenticated, isLoading } = useAuth();
+  const { isAuthenticated, isLoading, canUseApp } = useAuth();
 
   // Muestra nada mientras se verifica la sesion inicial para evitar redirect falso
   if (isLoading) {
@@ -164,7 +164,7 @@ export default function TabsLayout() {
   }
 
   // Protege las tabs contra acceso directo sin autenticacion.
-  if (!isAuthenticated) {
+  if (!isAuthenticated || !canUseApp) {
     return <Redirect href="/" />;
   }
 

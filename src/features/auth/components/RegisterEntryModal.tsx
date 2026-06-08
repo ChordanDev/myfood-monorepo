@@ -19,11 +19,17 @@ import { useThemeColor } from '@/hooks/useThemeColor';
 
 interface RegisterEntryModalProps {
   visible: boolean;
+  isSubmitting?: boolean;
   onClose: () => void;
   onContinue: (email: string) => void;
 }
 
-export function RegisterEntryModal({ visible, onClose, onContinue }: RegisterEntryModalProps) {
+export function RegisterEntryModal({
+  visible,
+  isSubmitting = false,
+  onClose,
+  onContinue,
+}: RegisterEntryModalProps) {
   const { width, height } = useWindowDimensions();
   const { theme } = useRecipeTheme();
   const { getColorWithOpacity } = useThemeColor();
@@ -42,7 +48,7 @@ export function RegisterEntryModal({ visible, onClose, onContinue }: RegisterEnt
   const { normalizedEmail: normalizedRegisterEmail, isValidEmail: isValidRegisterEmail } =
     useEmailValidation(registerEmail);
   const canSubmit = isValidRegisterEmail && acceptedTerms;
-  const isContinueDisabled = !canSubmit;
+  const isContinueDisabled = !canSubmit || isSubmitting;
   const showEmailError = registerEmail.length > 0 && !isValidRegisterEmail;
 
   const handleClose = () => {
@@ -55,7 +61,7 @@ export function RegisterEntryModal({ visible, onClose, onContinue }: RegisterEnt
     // Muestra error de terminos si intenta continuar sin aceptar.
     setTermsTouched(true);
 
-    if (!canSubmit) {
+    if (!canSubmit || isSubmitting) {
       return;
     }
 
@@ -151,15 +157,21 @@ export function RegisterEntryModal({ visible, onClose, onContinue }: RegisterEnt
                 onPress={handleContinue}
                 disabled={isContinueDisabled}
                 className="w-full items-center rounded-2xl py-3 active:opacity-90"
-                style={{ backgroundColor: theme.colorMedium, opacity: canSubmit ? 1 : 0.55 }}>
+                style={{
+                  backgroundColor: theme.colorMedium,
+                  opacity: isContinueDisabled ? 0.55 : 1,
+                }}>
                 <Text
                   className="font-inter-semibold text-base"
                   style={{ color: theme.primaryAccent }}>
-                  Continuar
+                  {isSubmitting ? 'Enviando código...' : 'Continuar'}
                 </Text>
               </Pressable>
 
-              <Pressable onPress={handleClose} className="mt-3 items-center py-1">
+              <Pressable
+                disabled={isSubmitting}
+                onPress={handleClose}
+                className="mt-3 items-center py-1">
                 <Text className="font-inter-medium text-sm" style={{ color: theme.textMedium }}>
                   Cancelar
                 </Text>

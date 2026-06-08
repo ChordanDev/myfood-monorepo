@@ -8,7 +8,7 @@ const colorMap = {
   '#242B12': 'theme.colorMedium',
   '#F7F2E8': 'theme.textBlack',
   '#D8D98B': 'theme.primaryAccent',
-  '#8A1F1F': "theme.textMedium // error fallback", // we will replace this properly
+  '#8A1F1F': 'theme.textMedium // error fallback', // we will replace this properly
   '#899064': 'theme.colorLight',
   '#2d3519': 'theme.colorMedium',
   '#E5D8C4': 'theme.icon',
