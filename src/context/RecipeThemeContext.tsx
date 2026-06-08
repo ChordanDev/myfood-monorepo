@@ -7,18 +7,18 @@ interface RecipeThemeContextType {
 }
 
 const DEFAULT_THEME: RecipeThemeConfig = {
-  colorBlack: '#111111',
-  colorDark: '#151515',
-  colorMedium: '#404040',
-  colorLight: '#747474',
-  primaryAccent: '#FFA23E',
-  appBg: '#C5C5C5',
-  icon: '#CFCFCF',
-  textBlack: '#1E1E1E',
-  textDark: '#1E1E1E',
-  textMedium: '#DADADA',
-  textLight: '#DADADA',
-  primaryAccentIntense: '#FF8D13',
+  colorBlack: '#1B1911',
+  colorDark: '#1E1C14',
+  colorMedium: '#45402F',
+  colorLight: '#A0997E',
+  primaryAccent: '#E69447',
+  appBg: '#E1D8BA',
+  icon: '#C4BC9C',
+  textBlack: '#1E1C14',
+  textDark: '#1E1C14',
+  textMedium: '#C4BC9C',
+  textLight: '#EDE8D5',
+  primaryAccentIntense: '#45402F',
 };
 
 const RecipeThemeContext = createContext<RecipeThemeContextType | undefined>(undefined);

@@ -1,8 +1,8 @@
 import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { InventoryItem, Ingredient } from '../types/domain';
 import { MOCK_INVENTORY, MOCK_INGREDIENTS } from '../mocks/domainMocks';
+import { safeAsyncStorage } from '@/utils/safeAsyncStorage';
 
 interface InventoryState {
   items: InventoryItem[];
@@ -58,7 +58,7 @@ export const useInventoryStore = create<InventoryState>()(
     }),
     {
       name: 'inventory-storage',
-      storage: createJSONStorage(() => AsyncStorage),
+      storage: createJSONStorage(() => safeAsyncStorage),
     }
   )
 );

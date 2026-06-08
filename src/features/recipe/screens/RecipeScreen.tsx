@@ -1,10 +1,17 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { View, Text, ScrollView, Pressable, StyleSheet, Image, TextInput } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useMealPlanStore } from '@/store';
 import { SafeAreaContent, NoisyBackground, ShadowSurface } from '@/components';
 import { LinearGradient } from 'expo-linear-gradient';
+import Animated, {
+  Easing,
+  useAnimatedStyle,
+  useSharedValue,
+  withTiming,
+} from 'react-native-reanimated';
 import { useRecipeTheme } from '../hooks/useRecipeTheme';
+import { getRecipeImageSource } from '../utils/recipeImageSource';
 
 export function RecipeScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -14,6 +21,32 @@ export function RecipeScreen() {
   const recipe = getRecipeById(id as string);
   const mealEntry = entries.find((e) => e.recipeId === id);
   const theme = useRecipeTheme(recipe);
+  const recipeImageSource = getRecipeImageSource(recipe?.imageUrl);
+  const previousBackgroundRef = useRef(theme.background);
+  const [previousBackground, setPreviousBackground] = useState(theme.background);
+  const themeTransitionProgress = useSharedValue(1);
+
+  const animatedThemeStyle = useAnimatedStyle(() => ({
+    opacity: themeTransitionProgress.value,
+  }));
+
+  useEffect(() => {
+    const previousBackgroundValue = previousBackgroundRef.current;
+    const nextBackground = theme.background;
+    const hasBackgroundChanged =
+      previousBackgroundValue[0] !== nextBackground[0] ||
+      previousBackgroundValue[1] !== nextBackground[1];
+
+    if (!hasBackgroundChanged) return;
+
+    setPreviousBackground(previousBackgroundValue);
+    previousBackgroundRef.current = nextBackground;
+    themeTransitionProgress.value = 0;
+    themeTransitionProgress.value = withTiming(1, {
+      duration: 450,
+      easing: Easing.inOut(Easing.cubic),
+    });
+  }, [theme.background, themeTransitionProgress]);
 
   const [chatMessage, setChatMessage] = useState('');
   const [chatHistory, setChatHistory] = useState<{ role: 'user' | 'ai'; text: string }[]>([]);
@@ -53,7 +86,11 @@ export function RecipeScreen() {
   };
 
   return (
-    <LinearGradient colors={theme.background} className="flex-1" style={{ flex: 1 }}>
+    <View className="flex-1" style={[styles.screen, { backgroundColor: theme.background[1] }]}>
+      <LinearGradient colors={previousBackground} style={StyleSheet.absoluteFill} />
+      <Animated.View style={[StyleSheet.absoluteFill, animatedThemeStyle]}>
+        <LinearGradient colors={theme.background} style={styles.backgroundGradient} />
+      </Animated.View>
       <NoisyBackground opacity={0.15} />
       <SafeAreaContent includeBottom={false}>
         <ScrollView
@@ -64,9 +101,7 @@ export function RecipeScreen() {
             <Pressable onPress={() => router.back()} style={styles.backButton}>
               <Text style={{ color: theme.text, fontSize: 24 }}>←</Text>
             </Pressable>
-            {recipe.imageUrl && (
-              <Image source={{ uri: recipe.imageUrl }} style={styles.recipeImage} />
-            )}
+            {recipeImageSource && <Image source={recipeImageSource} style={styles.recipeImage} />}
             <View style={styles.titleOverlay}>
               <Text style={[styles.title, { color: theme.text }]}>{recipe.name.toUpperCase()}</Text>
               <View style={styles.tagContainer}>
@@ -164,12 +199,14 @@ export function RecipeScreen() {
           </View>
         </ScrollView>
       </SafeAreaContent>
-    </LinearGradient>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
   center: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#1B210E' },
+  screen: { flex: 1 },
+  backgroundGradient: { flex: 1 },
   scrollContainer: { paddingBottom: 60 },
   header: { height: 300, width: '100%', position: 'relative' },
   recipeImage: { width: '100%', height: '100%', resizeMode: 'cover' },

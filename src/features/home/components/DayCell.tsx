@@ -1,8 +1,10 @@
-import { memo } from 'react';
-import { Pressable, View, Text } from 'react-native';
+import { memo, useMemo } from 'react';
+import { Pressable, View } from 'react-native';
+import Animated from 'react-native-reanimated';
 import * as Haptics from 'expo-haptics';
-import { CALENDAR_COLORS } from '../constants/calendar';
 import { useRecipeTheme } from '@/context/RecipeThemeContext';
+import { useAnimatedThemeStyle } from '@/hooks/useAnimatedThemeStyle';
+import { withOpacity } from '@/utils/colors';
 
 export interface DayCellProps {
   dayDate: Date;
@@ -32,25 +34,53 @@ export const DayCell = memo(
   }: DayCellProps) => {
     const { theme } = useRecipeTheme();
 
-    const getColors = () => {
-      if (isSelected)
+    const colors = useMemo(() => {
+      const targetOpacity = 0.7;
+      if (isSelected) {
+        if (isToday) {
+          return {
+            bg: withOpacity(theme.primaryAccent, targetOpacity),
+            border: theme.colorMedium,
+            borderWidth: 2,
+          };
+        }
         return {
-          bg: theme.calendarDayActive,
-          border: theme.calendarDayActive,
+          bg: withOpacity(theme.primaryAccent, targetOpacity),
+          border: theme.primaryAccent,
           borderWidth: 1,
         };
-      if (isToday)
-        return { bg: CALENDAR_COLORS.todayBg, border: CALENDAR_COLORS.todayBorder, borderWidth: 1 };
-      if (isPlanned)
-        return {
-          bg: CALENDAR_COLORS.inactiveBg,
-          border: CALENDAR_COLORS.inactiveBorder,
-          borderWidth: 1,
-        };
-      return { bg: 'transparent', border: 'transparent', borderWidth: 0 };
-    };
+      }
 
-    const colors = getColors();
+      if (isToday) {
+        return {
+          bg: withOpacity(theme.icon, targetOpacity),
+          border: theme.colorMedium,
+          borderWidth: 1,
+        };
+      }
+
+      if (isPlanned) {
+        return {
+          bg: withOpacity(theme.icon, targetOpacity),
+          border: theme.icon,
+          borderWidth: 1,
+        };
+      }
+
+      return { bg: 'transparent', border: 'transparent', borderWidth: 0 };
+    }, [isSelected, isToday, isPlanned, theme]);
+    const selectionStateKey = `${isSelected}-${isToday}-${isPlanned}-${isSelectable}`;
+    const circleStyle = useAnimatedThemeStyle(
+      {
+        backgroundColor: colors.bg,
+        borderColor: colors.border,
+      },
+      { immediateKey: selectionStateKey }
+    );
+    const textStyle = useAnimatedThemeStyle(
+      { color: textColor },
+      { immediateKey: selectionStateKey }
+    );
 
     return (
       <View style={{ width: '14.2857%', alignItems: 'center', marginBottom: 8, zIndex: 1 }}>
@@ -66,23 +96,24 @@ export const DayCell = memo(
           className="active:scale-95"
           accessibilityRole="button"
           accessibilityState={{ disabled: !isSelectable }}>
-          <View
-            style={{
-              width: daySize,
-              height: daySize,
-              borderRadius: daySize / 2,
-              alignItems: 'center',
-              justifyContent: 'center',
-              backgroundColor: colors.bg,
-              borderColor: colors.border,
-              borderWidth: colors.borderWidth,
-            }}>
-            <Text
-              style={{ color: textColor, fontSize: dayFontSize }}
+          <Animated.View
+            style={[
+              {
+                width: daySize,
+                height: daySize,
+                borderRadius: daySize / 2,
+                alignItems: 'center',
+                justifyContent: 'center',
+                borderWidth: colors.borderWidth,
+              },
+              circleStyle,
+            ]}>
+            <Animated.Text
+              style={[{ fontSize: dayFontSize }, textStyle]}
               className="font-inter-semibold">
               {dayDate.getDate()}
-            </Text>
-          </View>
+            </Animated.Text>
+          </Animated.View>
         </Pressable>
       </View>
     );

@@ -1,111 +1,192 @@
-# Context: Meal Planning Application
+# Meal Planning App Context
 
-Este documento define el lenguaje ubicuo y los conceptos fundamentales del dominio de la aplicación de planificación de comidas.
+This context defines the product language for a meal-planning app that coordinates AI planning, recipes, shopping, inventory, and shared accounts.
 
-## Glosario
+## Language
 
-### Comida (Meal / MealPlan)
-Una instancia específica de alimentación planificada para una fecha y tipo determinado. Contiene una descripción, ingredientes y una receta.
+**User**:
+An individual person authenticated in the app.
+_Avoid_: Account, profile
 
-### Tipo de Comida (Meal Type)
-Categorización temporal de una **Comida**.
-- **Desayuno**: Primera comida del día.
-- **Almuerzo**: Comida del mediodía.
-- **Cena**: Última comida del día.
+**Email Code Authentication**:
+A passwordless authentication flow where a **User** signs in or confirms account creation by entering a short-lived code sent to their email.
+_Avoid_: Password login, magic link unless the user clicks a link instead of entering a code
 
-### Tipo de Plato (Course Type)
-Categorización funcional o estructural de una **Comida**.
-- **Principal**: Plato fuerte.
-- **Ensalada**: Acompañamiento o plato ligero basado en vegetales.
-- **Postre**: Plato dulce al final de una comida.
+**Explicit Account Creation**:
+A user-facing onboarding flow where a new **User** intentionally creates an account with only an email before first sign-in, even though authentication remains passwordless.
+_Avoid_: Silent registration, implicit signup
 
-### Preferencia (Preference)
-Inclinación del usuario hacia ciertos sabores, tipos de cocina o ingredientes (ej: "me gusta la comida mediterránea"). No es una regla estricta.
+**Onboarding Profile**:
+The post-authentication setup data collected after account creation, including display name, restrictions, preferences, cooking skill, and household size.
+_Avoid_: Signup data
 
-### Restricción (Restriction)
-Regla innegociable basada en salud, ética o religión (ej: "celiaquía", "veganismo"). El planificador debe excluir estrictamente cualquier ingrediente que viole esto.
+**Account**:
+A billing and sharing container that can be individual or family-scoped.
+_Avoid_: User, household
 
-### Inventario (Inventory)
-Registro de los ingredientes que el usuario tiene actualmente disponibles en su hogar. Se alimenta de las compras confirmadas.
+**Individual Account**:
+An account used by exactly one **User**.
+_Avoid_: Solo user
 
-### Sobra (Leftover)
-Término genérico para remanentes que deben ser priorizados en la planificación futura.
-- **Sobra de Ingrediente**: Cantidad residual de un ingrediente crudo que no se utilizó completamente (ej: 500g de arroz restantes).
-- **Sobra de Comida**: Porciones de un plato ya preparado que no se consumieron y pueden ser recalentadas o transformadas.
+**Family Account**:
+A post-MVP account shared by multiple **Users** where planning, shopping, and inventory are coordinated.
+_Avoid_: Family plan when referring to the shared data container
 
-### Lista de Compras (Shopping List)
-Conjunto de ingredientes necesarios para completar un **Plan de Comidas** que no están presentes en el **Inventario**.
+**Family Plus Account**:
+A post-MVP higher-tier **Family Account** with additional capabilities not yet defined.
+_Avoid_: Premium family unless pricing language is intended
 
-### Consumo Automático (Automatic Consumption)
-Deducción de ingredientes del **Inventario** que ocurre cuando una **Comida** se marca como "Cocinada".
+**Individual-First MVP**:
+The MVP scope where each **User** operates through one **Individual Account**, while the backend still models account ownership for future family support.
+_Avoid_: Family MVP, user-only model
 
-### Consumo Manual (Manual Consumption)
-Actualización del **Inventario** realizada por el usuario mediante comandos de voz o interfaz táctil para reflejar cambios que no provienen del acto de cocinar (ej: regalar comida, desperdicio accidental).
+**Trial Period**:
+A time-limited access state that lets a new **Account** use the product for 10 days before requiring a paid plan.
+_Avoid_: Free plan, freemium
 
-### Borrador de Plan (Meal Plan Draft)
-Una propuesta generada por la IA que aún no ha sido confirmada por el usuario. Es un objeto volátil que puede ser modificado mediante lenguaje natural en el chat antes de convertirse en el plan activo.
+**Access Lock**:
+The state where an **Account** cannot use the app after its **Trial Period** expires without an active subscription.
+_Avoid_: Read-only mode, free mode
 
-### Plan de Comidas Local (Local Meal Plan)
-Copia persistente en el dispositivo del plan confirmado por el usuario. Contiene las descripciones y metadatos básicos para la visualización rápida en el Home.
+**Membership**:
+The relationship that grants a **User** access to an **Account**.
+_Avoid_: Subscription, role
 
-### Receta Local (Local Recipe)
-Copia persistente de los ingredientes y pasos de una receta en el dispositivo. Se descarga o genera una vez y queda disponible offline.
+**User Preferences**:
+A **User**'s individual food preferences, dislikes, restrictions, and diet signals.
+_Avoid_: Account preferences
 
-### Historial de Chat de Receta (Recipe Chat History)
-Registro persistente de los mensajes intercambiados con la IA sobre una receta específica. Permite al usuario consultar dudas pasadas sin necesidad de regenerar la sesión de IA.
+**Hard Restriction**:
+A non-negotiable food rule for a **User**, such as allergy, medical restriction, strict diet, or ingredient they cannot eat.
+_Avoid_: Preference, dislike
 
-### Contexto de Sesión (Session Context)
-Conjunto de datos (preferencias, inventario, receta actual) que se envía a la API de IA para que la respuesta sea relevante. Su gestión es crítica para el rendimiento y costo de los tokens.
+**Soft Preference**:
+A negotiable food preference for a **User**, such as likes, dislikes, goals, favorites, or ingredients they prefer to avoid.
+_Avoid_: Restriction, allergy
 
-### Contexto Inyectado (Just-in-Time Context)
-Estrategia de arquitectura donde solo se envía a la IA la información relevante a la pantalla o acción actual del usuario, minimizando el uso de tokens.
+**Planning Context**:
+The combined preferences, diets, selected favorites, inventory, budget, participants, meal slots, and date range used to generate a meal plan.
+_Avoid_: Prompt, chat context
 
-### Sesión Efímera (Ephemeral Session)
-Interacción con la IA que no mantiene un historial persistente a largo plazo. La "memoria" del sistema reside en los datos estructurados (Preferencias, Favoritos) y no en el hilo de conversación anterior.
+**Planning Participant**:
+A **User** whose preferences and restrictions are considered for a specific **Meal Plan**.
+_Avoid_: Member when referring to a concrete planning run
 
-### Receta Maestra (Master Recipe)
-Receta base validada y almacenada en la base de datos global. Se utiliza como plantilla para asegurar la precisión nutricional y evitar alucinaciones de la IA durante la selección del plan.
+**Meal Slot**:
+A planned eating occasion on a date, such as breakfast, lunch, dinner, or snack.
+_Avoid_: Recipe, day
 
-### Entrada Híbrida (Hybrid Input)
-Patrón de interfaz de usuario donde se combinan controles estructurados (ej: sliders para cantidad de días o presupuesto) con un campo de lenguaje natural (chat) para maximizar la eficiencia y precisión en la captura de intenciones.
+**Meal Plan**:
+A dated set of planned meals generated for an **Account**.
+_Avoid_: Calendar, plan local
 
-### Presupuesto (Budget)
-Límite económico definido por el usuario para un plan. Puede expresarse de dos formas:
-- **Nivel de Gasto**: Preajustes cualitativos (ej: "Muy Barato", "Estándar", "Premium").
-- **Presupuesto Total**: Una cantidad numérica específica para la duración total del plan.
+**Draft Meal Plan**:
+A persisted temporary AI-generated meal plan that can be refined before confirmation and expires if not confirmed.
+_Avoid_: AI response, temporary calendar
 
-### Costo Estimado de Receta (Estimated Recipe Cost)
-Valor monetario calculado mediante la suma de los precios promedio de mercado de cada **Ingrediente** necesario para una **Receta Maestra**. Este valor es dinámico y sirve como métrica principal para la alineación con el **Presupuesto**.
+**Active Draft Meal Plan**:
+The single current **Draft Meal Plan** a user/account can continue editing in the MVP.
+_Avoid_: Multiple open drafts
 
-### Costo Cero de Inventario (Zero-Cost Inventory)
-Regla de negocio donde los ingredientes que ya existen en el **Inventario** (especialmente las **Sobras**) se computan con valor $0 al calcular el **Costo Estimado de Receta** para un nuevo plan, priorizando su uso para minimizar el desperdicio, independientemente de su valor original.
+**Confirmed Meal Plan**:
+The single active accepted **Meal Plan** for an **Account**, used to generate shopping and inventory flows and extended or edited over time.
+_Avoid_: Final plan, multiple confirmed plans
 
-### Receta Personalizada (Customized Recipe)
-Una versión de una **Receta Maestra** que ha sido modificada por la IA a pedido del usuario (ej: sustitución de ingredientes). Solo se persiste si se marca como **Favorita**.
+**Active Meal Plan**:
+The one confirmed plan currently owned by an **Account**.
+_Avoid_: Plan history when referring to the current editable plan
 
-### Receta Favorita (Favorite Recipe)
-Referencia a una **Receta Maestra** o una **Receta Personalizada** que el usuario ha guardado para uso futuro. Se prioriza en el algoritmo de planificación.
+**Favorite Recipe**:
+A user-owned saved pointer to a reusable recipe, either a **Master Recipe** or **User Recipe**.
+_Avoid_: Saved meal, recipe copy
 
-### Mapeo Temático (Thematic Mapping)
-Proceso de seleccionar una paleta de colores predefinida basada en los colores dominantes de una imagen generada por IA para aplicar a la UI global.
+**User Recipe**:
+A reusable custom recipe owned by a **User**, usually promoted from a **Custom Recipe** or **Plan Recipe Snapshot**.
+_Avoid_: Favorite, master recipe
 
-### Ingrediente Aproximado (Approximate Ingredient)
-Sistema de medición que utiliza valores estimados (gramos, mililitros, unidades) para gestionar el **Inventario** y la **Lista de Compras**. Permite una lógica de planificación flexible sin requerir una precisión matemática absoluta por parte del usuario o la IA.
+**Inherited Recipe Assets**:
+Image and theme assets reused from the **Master Recipe** that a **User Recipe** was derived from.
+_Avoid_: Generated custom assets
 
-### Tema Global de Receta (Global Recipe Theme)
-Estado visual de la aplicación dictado por la **Receta Local** seleccionada para el día actual. Modifica la paleta de colores de toda la interfaz (Home, Perfil, etc.) para inmersión contextual.
+**Archived User Recipe**:
+A **User Recipe** that is no longer reusable or shown in favorites/planning, but remains stored to preserve plan history.
+_Avoid_: Deleted recipe
 
-### Tema por Defecto (Fallback Theme)
-Configuración visual neutral que la aplicación asume cuando el usuario navega a días pasados o futuros en el **Plan de Comidas Local**, evitando que la interfaz cambie erráticamente durante la planificación.
+**Master Recipe**:
+A canonical recipe owned by the app's recipe bank.
+_Avoid_: General recipe, base recipe
 
-### Selección Inteligente de Tema (Smart Theme Default)
-Comportamiento inicial de la aplicación que calcula la comida más relevante ("Desayuno", "Almuerzo", "Cena") basándose en la hora local del dispositivo, aplicando inmediatamente su tema asociado sin requerir interacción del usuario.
+**Custom Recipe**:
+A structured recipe created by AI from a user-requested modification to a **Master Recipe** or draft meal option.
+_Avoid_: Invented recipe, modified recipe
 
-### Carga Diferida de Receta (Lazy-Loaded Recipe)
-Estrategia de optimización donde solo los metadatos de texto (nombre, ingredientes, pasos) de las recetas futuras se descargan al **Plan de Comidas Local**. Los recursos pesados (imágenes, configuraciones de tema) se retienen en la base de datos hasta el día de consumo.
+**Recipe Refinement**:
+A conversational change request that replaces a draft meal option with a validated **Custom Recipe**.
+_Avoid_: Free chat, unstructured edit
 
-### Placeholder de Comida (Meal Placeholder)
-Elemento visual temporal (color gris/neutral o icono) que se muestra en la interfaz para los días en los que la imagen y el tema de la receta aún no han sido descargados mediante **Carga Diferida de Receta**.
+**Plan Recipe Snapshot**:
+A complete recipe copy stored inside a confirmed meal plan so the user can cook it even if it is not reusable or favorited.
+_Avoid_: Favorite recipe, master recipe
 
-### Descarga Forzada (Force Load)
-Proceso desencadenado cuando el usuario reasigna una comida futura al día actual (ej: "Mover a hoy"). Ignora la **Carga Diferida de Receta** estándar e inmediatamente obtiene los recursos pesados (imagen y tema) de la base de datos para aplicarlos al entorno activo.
+**Shopping List**:
+The categorized list of ingredients needed for a **Confirmed Meal Plan** after considering inventory.
+_Avoid_: Grocery plan
+
+**Inventory**:
+The account-owned current state of available ingredients and quantities.
+_Avoid_: Pantry, despensa
+
+**Inventory Movement**:
+An auditable change to **Inventory**, such as purchase, recipe consumption, manual adjustment, voice adjustment, or reversal.
+_Avoid_: Inventory item
+
+**Ingredient Leftover**:
+A remaining raw ingredient tracked as part of **Inventory**.
+_Avoid_: Prepared leftover
+
+**Prepared Leftover**:
+A remaining prepared meal portion stored separately from **Inventory**.
+_Avoid_: Ingredient leftover, inventory item
+
+## Relationships
+
+- A new **User** is created through **Explicit Account Creation** with only an email and confirms ownership of that email through **Email Code Authentication**.
+- An **Onboarding Profile** is collected after authentication, not during initial account creation.
+- In the **Individual-First MVP**, each **User** has one **Individual Account**.
+- A **User** can belong to one or more **Accounts** through **Memberships** after family support is introduced.
+- An **Account** can be an **Individual Account**, **Family Account**, or **Family Plus Account**.
+- A new **Account** starts in a 10-day **Trial Period**; there is no free plan.
+- An **Account** enters **Access Lock** when the **Trial Period** expires without an active subscription.
+- A **Family Account** has multiple **Users** after family support is introduced.
+- A **Meal Plan**, **Shopping List**, and **Inventory** belong to exactly one **Account**.
+- Every change to **Inventory** creates an **Inventory Movement**.
+- An **Ingredient Leftover** is tracked inside **Inventory**.
+- A **Prepared Leftover** is tracked separately from **Inventory** and can reference the meal that produced it.
+- In the MVP, an **Account** has at most one **Active Meal Plan**.
+- **User Preferences** belong to exactly one **User**.
+- A **Planning Context** for a family plan combines the preferences and diets of the selected **Planning Participants**.
+- If no **Planning Participants** are selected, all active **Users** in the **Account** are included by default.
+- A **Hard Restriction** from any relevant **Planning Participant** applies to the whole family **Meal Plan** in the MVP.
+- A **Soft Preference** influences planning but does not block a family **Meal Plan**.
+- In the MVP, a **Favorite Recipe** belongs to exactly one **User** and references either a **Master Recipe** or a **User Recipe**.
+- A **Recipe Refinement** can create a **Custom Recipe** inside a **Draft Meal Plan**.
+- In the MVP, a user/account has at most one **Active Draft Meal Plan** at a time.
+- A **Draft Meal Plan** expires 24 hours after creation if not confirmed.
+- A **Custom Recipe** in a confirmed **Meal Plan** is stored as a **Plan Recipe Snapshot** unless the user saves it as a **Favorite Recipe**.
+- Saving a **Plan Recipe Snapshot** as a favorite promotes it to a **User Recipe** and creates a **Favorite Recipe** pointer.
+- Removing a favorite deletes the **Favorite Recipe** pointer; related **User Recipes** are archived instead of physically deleted when history integrity requires it.
+- In the MVP, a **User Recipe** uses **Inherited Recipe Assets** from its base **Master Recipe** when available; otherwise it uses default placeholders.
+- The planner can use the current **User**'s **Favorite Recipes** as planning input in the MVP.
+
+## Example dialogue
+
+> **Dev:** "When a family creates a **Meal Plan**, do we use only the preferences of the user who pressed generate?"
+> **Domain expert:** "No — for a **Family Account**, the **Planning Context** must consider the preferences and diet of every relevant **User** in that account."
+
+## Flagged ambiguities
+
+- "Cuenta" and "usuario" are distinct: **User** is the individual person; **Account** is the individual or shared container.
+- "Family plan" can mean subscription tier or shared data container; use **Family Account** for the shared product concept and reserve pricing names for plan tiers.
+- Family planning is post-MVP; the MVP is **Individual-First**.
+- Family planning starts as one shared **Meal Plan** for the account; per-person meal variants are a future extension, not the MVP default.
+- A **User** can belong to an **Account** but be excluded from a specific **Meal Plan** by not being selected as a **Planning Participant** after family support exists.

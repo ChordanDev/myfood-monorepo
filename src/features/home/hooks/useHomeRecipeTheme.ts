@@ -1,18 +1,21 @@
-import { useEffect } from 'react';
+import { useLayoutEffect } from 'react';
 import { useRecipeTheme } from '@/context/RecipeThemeContext';
 import type { LocalMealSelection } from '../domain/localMealPlan';
 import { getThemeForLocalMealSelection } from '../domain/recipeThemeSelection';
+import { formatDateKey } from '../utils/calendarDate';
 
-export function useHomeRecipeTheme(selectedMeal: LocalMealSelection | null) {
+export function useHomeRecipeTheme(
+  selectedMeal: LocalMealSelection | null,
+  selectedDate: string | null
+) {
   const { theme, setRecipeTheme } = useRecipeTheme();
 
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      setRecipeTheme(getThemeForLocalMealSelection(selectedMeal));
-    }, 100);
+  useLayoutEffect(() => {
+    const todayKey = formatDateKey(new Date());
+    const isTodaySelected = selectedDate === todayKey;
 
-    return () => clearTimeout(timer);
-  }, [selectedMeal, setRecipeTheme]);
+    setRecipeTheme(isTodaySelected ? getThemeForLocalMealSelection(selectedMeal) : null);
+  }, [selectedDate, selectedMeal, setRecipeTheme]);
 
   return theme;
 }

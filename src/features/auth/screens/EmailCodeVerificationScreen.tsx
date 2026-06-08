@@ -14,7 +14,12 @@ import {
 } from '../utils/emailCodeVerificationFlow';
 import { COLORS } from '@/constants/theme';
 
+import { useRecipeTheme } from '@/context/RecipeThemeContext';
+import { useThemeColor } from '@/hooks/useThemeColor';
+
 export function EmailCodeVerificationScreen() {
+  const { theme } = useRecipeTheme();
+  const { getColorWithOpacity } = useThemeColor();
   // Obtiene parametros de la ruta para construir el flujo.
   const router = useRouter();
   const { signIn, signUp, sendVerificationCode } = useAuth();
@@ -96,7 +101,7 @@ export function EmailCodeVerificationScreen() {
 
   return (
     <LinearGradient
-      colors={['#111309', '#191D0D', '#242B12']}
+      colors={[theme.colorBlack, theme.colorDark, theme.colorMedium]}
       start={{ x: 0, y: 0 }}
       end={{ x: 1, y: 1 }}
       style={{ flex: 1 }}>
@@ -104,10 +109,14 @@ export function EmailCodeVerificationScreen() {
       <SafeAreaContent>
         <Animated.View className="h-full w-full justify-between" style={inputAnimatedStyle}>
           <View className="flex-1 justify-center px-7">
-            <Text className="text-center font-montserrat-bold text-[34px] text-[#F7F2E8]">
+            <Text
+              className="text-center font-montserrat-bold text-[34px]"
+              style={{ color: theme.textBlack }}>
               Verifica tu correo
             </Text>
-            <Text className="font-inter-regular mt-3 text-center text-base text-[#D8D98B]">
+            <Text
+              className="font-inter-regular mt-3 text-center text-base"
+              style={{ color: theme.primaryAccent }}>
               Enviamos un código de 6 dígitos a {maskedEmail}.
             </Text>
 
@@ -120,11 +129,13 @@ export function EmailCodeVerificationScreen() {
 
             {isVerifying ? (
               <View className="mt-6 items-center py-1">
-                <ActivityIndicator size="small" color={COLORS.accentYellow} />
+                <ActivityIndicator size="small" color={theme.primaryAccent} />
               </View>
             ) : (
               <Pressable onPress={() => router.back()} className="mt-6 items-center py-1">
-                <Text className="font-inter-regular text-[#F7F2E8]">Cambiar correo</Text>
+                <Text className="font-inter-regular" style={{ color: theme.textBlack }}>
+                  Cambiar correo
+                </Text>
               </Pressable>
             )}
           </View>
