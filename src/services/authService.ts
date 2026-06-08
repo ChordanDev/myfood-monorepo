@@ -74,45 +74,37 @@ export function isAuthApiError(error: unknown): error is AuthApiError {
   return error instanceof AuthApiError;
 }
 
+const AUTH_ERROR_MESSAGES: Partial<Record<AuthErrorCode, string>> = {
+  invalid_email: 'El email ingresado no es válido.',
+  email_already_exists: 'Ese email ya tiene una cuenta. Iniciá sesión para continuar.',
+  email_not_found: 'No encontramos una cuenta con ese email. Creá una cuenta para continuar.',
+  rate_limited: 'Hiciste demasiados intentos. Esperá un momento y volvé a probar.',
+  code_invalid: 'El código ingresado no es válido.',
+  code_expired: 'El código expiró. Pedí uno nuevo para continuar.',
+  too_many_attempts: 'Se agotaron los intentos para este código. Pedí uno nuevo.',
+  unauthenticated: 'Tu sesión expiró. Iniciá sesión nuevamente.',
+  access_token_expired: 'Tu sesión expiró. Iniciá sesión nuevamente.',
+  refresh_token_invalid: 'No pudimos renovar tu sesión. Iniciá sesión nuevamente.',
+  refresh_token_revoked: 'No pudimos renovar tu sesión. Iniciá sesión nuevamente.',
+  refresh_token_replayed: 'No pudimos renovar tu sesión. Iniciá sesión nuevamente.',
+  refresh_token_expired: 'No pudimos renovar tu sesión. Iniciá sesión nuevamente.',
+  refresh_token_session_mismatch:
+    'No pudimos cerrar la sesión de forma remota, pero se cerró en este dispositivo.',
+  trial_expired: 'Tu período de prueba terminó.',
+  configuration_error: 'Falta configurar EXPO_PUBLIC_API_URL para conectar con la API.',
+  network_error: 'No pudimos conectar con el servidor. Revisá tu conexión.',
+};
+
 export function getAuthErrorMessage(error: unknown): string {
   if (!isAuthApiError(error)) {
     return 'Ocurrió un error inesperado. Intenta nuevamente.';
   }
 
-  switch (error.code) {
-    case 'invalid_email':
-      return 'El email ingresado no es válido.';
-    case 'email_already_exists':
-      return 'Ese email ya tiene una cuenta. Iniciá sesión para continuar.';
-    case 'email_not_found':
-      return 'No encontramos una cuenta con ese email. Creá una cuenta para continuar.';
-    case 'rate_limited':
-      return 'Hiciste demasiados intentos. Esperá un momento y volvé a probar.';
-    case 'code_invalid':
-      return 'El código ingresado no es válido.';
-    case 'code_expired':
-      return 'El código expiró. Pedí uno nuevo para continuar.';
-    case 'too_many_attempts':
-      return 'Se agotaron los intentos para este código. Pedí uno nuevo.';
-    case 'unauthenticated':
-    case 'access_token_expired':
-      return 'Tu sesión expiró. Iniciá sesión nuevamente.';
-    case 'refresh_token_invalid':
-    case 'refresh_token_revoked':
-    case 'refresh_token_replayed':
-    case 'refresh_token_expired':
-      return 'No pudimos renovar tu sesión. Iniciá sesión nuevamente.';
-    case 'refresh_token_session_mismatch':
-      return 'No pudimos cerrar la sesión de forma remota, pero se cerró en este dispositivo.';
-    case 'trial_expired':
-      return 'Tu período de prueba terminó.';
-    case 'configuration_error':
-      return 'Falta configurar EXPO_PUBLIC_API_URL para conectar con la API.';
-    case 'network_error':
-      return 'No pudimos conectar con el servidor. Revisá tu conexión.';
-    default:
-      return error.message || 'Ocurrió un error inesperado. Intenta nuevamente.';
-  }
+  return (
+    AUTH_ERROR_MESSAGES[error.code] ??
+    error.message ??
+    'Ocurrió un error inesperado. Intenta nuevamente.'
+  );
 }
 
 function getApiBaseUrl(): string {
@@ -232,7 +224,7 @@ export async function requestVerificationCode(
 }
 
 /** Backwards-compatible helper for older UI call sites. */
-export async function sendVerificationCode(
+export function sendVerificationCode(
   email: string,
   flow: AuthFlow = 'login'
 ): Promise<CodeRequestResponse> {

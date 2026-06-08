@@ -41,6 +41,14 @@ function getTrialExpiryDelay(me: CurrentMe | null): number | null {
   return Math.max(expiresAt - Date.now(), 0);
 }
 
+function hasCompleteSession(
+  me: CurrentMe | null,
+  accessToken: string | null,
+  refreshToken: string | null
+): boolean {
+  return me !== null && accessToken !== null && refreshToken !== null;
+}
+
 export function AuthProvider({ children }: AuthProviderProps) {
   const [me, setMe] = useState<CurrentMe | null>(null);
   const [accessToken, setAccessToken] = useState<string | null>(null);
@@ -181,7 +189,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
       refreshToken,
       token: accessToken,
       isLoading,
-      isAuthenticated: me !== null && accessToken !== null && refreshToken !== null,
+      isAuthenticated: hasCompleteSession(me, accessToken, refreshToken),
       ...accessState,
       signIn,
       signUp,
