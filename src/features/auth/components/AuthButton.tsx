@@ -28,6 +28,7 @@ export function AuthButton({
   const activeBg = isPrimary
     ? getColorWithOpacity('colorLight', 0.8)
     : getColorWithOpacity('colorMedium', 0.8);
+  const minHeight = Math.max(68, metrics.buttonFontSize + metrics.buttonVerticalPadding * 2);
 
   return (
     <View
@@ -52,6 +53,7 @@ export function AuthButton({
           accessibilityState={{ disabled }}
           style={({ pressed }) => ({
             width: '100%',
+            minHeight,
             alignItems: 'center',
             justifyContent: 'center',
             backgroundColor: pressed ? activeBg : 'transparent',
