@@ -16,5 +16,7 @@ Start there for cross-project work:
 - `../meal-app-docs/docs/PRD_AI_PLANNER.md`
 - `../meal-app-docs/docs/PRD_RECIPE_EXPERIENCE.md`
 - `../meal-app-docs/docs/PRD_INVENTORY_SHOPPING.md`
+- Slice 1 Auth + Account + Trial Gate contract:
+  `../meal-app-docs/openspec/specs/auth-account-trial/spec.md`
 
 Workflow rule: update shared docs first, then update frontend/backend implementations.
