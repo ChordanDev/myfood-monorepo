@@ -1,7 +1,18 @@
 import { createContext, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import { AppState } from 'react-native';
-import type { AuthContextValue, AuthFlow, AuthSession, CurrentMe } from '../types/auth';
+import type {
+  AuthContextValue,
+  AuthFlow,
+  AuthSession,
+  CurrentMe,
+  OnboardingCompletionRequest,
+  OnboardingCompletionResponse,
+  SlotCookingTimes,
+  SlotCookingTimesPayload,
+  UserPreferences,
+  UserPreferencesPayload,
+} from '../types/auth';
 import * as authService from '@/services/authService';
 
 export const AuthContext = createContext<AuthContextValue | null>(null);
@@ -128,6 +139,74 @@ export function AuthProvider({ children }: AuthProviderProps) {
     applySession(session);
   }, [applySession]);
 
+  const completeOnboarding = useCallback(
+    async (payload: OnboardingCompletionRequest): Promise<OnboardingCompletionResponse> => {
+      const token = accessTokenRef.current;
+      if (!token) {
+        throw new authService.AuthApiError(
+          'unauthenticated',
+          'No active session to complete onboarding.'
+        );
+      }
+
+      const result = await authService.completeOnboarding(token, payload);
+      // Refresh /me so the gate flips from Onboarding to Tabs/TrialExpired.
+      await refreshMe();
+      return result;
+    },
+    [refreshMe]
+  );
+
+  const fetchUserPreferences = useCallback(async (): Promise<UserPreferences> => {
+    const token = accessTokenRef.current;
+    if (!token) {
+      throw new authService.AuthApiError(
+        'unauthenticated',
+        'No active session to read preferences.'
+      );
+    }
+    return authService.getUserPreferences(token);
+  }, []);
+
+  const saveUserPreferences = useCallback(
+    async (payload: UserPreferencesPayload): Promise<UserPreferences> => {
+      const token = accessTokenRef.current;
+      if (!token) {
+        throw new authService.AuthApiError(
+          'unauthenticated',
+          'No active session to save preferences.'
+        );
+      }
+      return authService.updateUserPreferences(token, payload);
+    },
+    []
+  );
+
+  const fetchSlotCookingTimes = useCallback(async (): Promise<SlotCookingTimes> => {
+    const token = accessTokenRef.current;
+    if (!token) {
+      throw new authService.AuthApiError(
+        'unauthenticated',
+        'No active session to read slot cooking times.'
+      );
+    }
+    return authService.getSlotCookingTimes(token);
+  }, []);
+
+  const saveSlotCookingTimes = useCallback(
+    async (payload: SlotCookingTimesPayload): Promise<SlotCookingTimes> => {
+      const token = accessTokenRef.current;
+      if (!token) {
+        throw new authService.AuthApiError(
+          'unauthenticated',
+          'No active session to save slot cooking times.'
+        );
+      }
+      return authService.updateSlotCookingTimes(token, payload);
+    },
+    []
+  );
+
   const handleRevalidationError = useCallback(
     async (error: unknown) => {
       if (authService.isTransientAuthError(error)) return;
@@ -181,6 +260,8 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
   const accessState = useMemo(() => getAccessState(me), [me]);
 
+  const isComplete = me?.onboarding.isComplete ?? false;
+
   const value = useMemo<AuthContextValue>(
     () => ({
       me,
@@ -191,10 +272,16 @@ export function AuthProvider({ children }: AuthProviderProps) {
       isLoading,
       isAuthenticated: hasCompleteSession(me, accessToken, refreshToken),
       ...accessState,
+      isComplete,
       signIn,
       signUp,
       signOut,
       refreshMe,
+      completeOnboarding,
+      fetchUserPreferences,
+      saveUserPreferences,
+      fetchSlotCookingTimes,
+      saveSlotCookingTimes,
       requestVerificationCode,
       sendVerificationCode,
     }),
@@ -204,10 +291,16 @@ export function AuthProvider({ children }: AuthProviderProps) {
       refreshToken,
       isLoading,
       accessState,
+      isComplete,
       signIn,
       signUp,
       signOut,
       refreshMe,
+      completeOnboarding,
+      fetchUserPreferences,
+      saveUserPreferences,
+      fetchSlotCookingTimes,
+      saveSlotCookingTimes,
       requestVerificationCode,
       sendVerificationCode,
     ]
