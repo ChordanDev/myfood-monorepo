@@ -27,7 +27,6 @@ export default function IndexScreen() {
   // Called unconditionally before any early return so React's rules
   // of hooks are satisfied.
   const route = useIndexRoute();
-  const [isSigningOut, setIsSigningOut] = useState(false);
 
   const handleSignOut = async () => {
     if (isSigningOut) return;
