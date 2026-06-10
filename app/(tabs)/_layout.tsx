@@ -156,15 +156,20 @@ function CustomTabBar({
 
 export default function TabsLayout() {
   const insets = useSafeAreaInsets();
-  const { isAuthenticated, isLoading, canUseApp } = useAuth();
+  const { isAuthenticated, isLoading, canUseApp, isComplete } = useAuth();
 
   // Muestra nada mientras se verifica la sesion inicial para evitar redirect falso
   if (isLoading) {
     return null;
   }
 
-  // Protege las tabs contra acceso directo sin autenticacion.
-  if (!isAuthenticated || !canUseApp) {
+  // Defense in depth (Judgment Day S1): incomplete users must never reach
+  // tabs, even via deep links. The index gate at `app/index.tsx` already
+  // routes them to `/onboarding`, but a direct deep link to a tab route
+  // (e.g. from a push notification) would otherwise land here. The
+  // individual screens also redirect as a second layer, but enforcing
+  // it at the layout keeps the invariant obvious.
+  if (!isAuthenticated || !canUseApp || !isComplete) {
     return <Redirect href="/" />;
   }
 

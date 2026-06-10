@@ -14,6 +14,8 @@ import type {
   UserPreferencesPayload,
 } from '../types/auth';
 import * as authService from '@/services/authService';
+import { isTransientAuthError } from '@/services/authService';
+import { reconcileAfterCompletion } from '../utils/postCompletion';
 
 export const AuthContext = createContext<AuthContextValue | null>(null);
 
@@ -65,6 +67,14 @@ export function AuthProvider({ children }: AuthProviderProps) {
   const [accessToken, setAccessToken] = useState<string | null>(null);
   const [refreshToken, setRefreshToken] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  // Set to true when the local gate should treat the user as complete
+  // even before the next /me snapshot confirms it. Used by
+  // `completeOnboarding` to flip the gate optimistically after a
+  // successful POST. Cleared when a fresh /me reports isComplete=false
+  // (defensive — should not happen in practice because completion is
+  // one-way on the server).
+  const [optimisticComplete, setOptimisticComplete] = useState(false);
+  const optimisticCompleteRef = useRef(false);
   const accessTokenRef = useRef<string | null>(null);
 
   const applySession = useCallback((session: AuthSession | null) => {
@@ -73,6 +83,17 @@ export function AuthProvider({ children }: AuthProviderProps) {
     setAccessToken(nextAccessToken);
     accessTokenRef.current = nextAccessToken;
     setRefreshToken(session?.refreshToken ?? null);
+    // Once the next /me snapshot confirms the user's state, the
+    // optimistic flag can be cleared — the gate will read from
+    // me.onboarding.isComplete from now on.
+    if (session?.me) {
+      setOptimisticComplete(false);
+      optimisticCompleteRef.current = false;
+    } else {
+      // Logging out / losing the session also drops the optimistic flag.
+      setOptimisticComplete(false);
+      optimisticCompleteRef.current = false;
+    }
   }, []);
 
   useEffect(() => {
@@ -149,12 +170,43 @@ export function AuthProvider({ children }: AuthProviderProps) {
         );
       }
 
+      // Judgment Day C2: the POST result is the source of truth. The
+      // follow-up refreshMe() is a soft read; if it fails the gate
+      // must not flip the user back to the Onboarding screen because
+      // the server already accepted the completion. The reconciliation
+      // policy is unit-tested in `postCompletion.test.ts`.
       const result = await authService.completeOnboarding(token, payload);
-      // Refresh /me so the gate flips from Onboarding to Tabs/TrialExpired.
-      await refreshMe();
+
+      const session = await authService.getStoredSession();
+      if (session?.accessToken) {
+        const reconcile = await reconcileAfterCompletion({
+          wasComplete: optimisticCompleteRef.current,
+          persisted: true,
+          refresh: () => authService.refreshCurrentSession().then((next) => next ?? session),
+          onOptimistic: (next) => {
+            setOptimisticComplete(next);
+            optimisticCompleteRef.current = next;
+          },
+          onRefreshed: (value) => {
+            applySession(value);
+          },
+          shouldRetry: (error) => isTransientAuthError(error),
+        });
+        if (reconcile.outcome === 'refresh-failed') {
+          console.warn(
+            '[AuthProvider] Background /me refresh after onboarding failed; relying on next session restore.'
+          );
+        }
+      } else {
+        // No stored session: just flip the optimistic flag so the
+        // gate moves; the next /api/me read will confirm.
+        setOptimisticComplete(true);
+        optimisticCompleteRef.current = true;
+      }
+
       return result;
     },
-    [refreshMe]
+    [applySession]
   );
 
   const fetchUserPreferences = useCallback(async (): Promise<UserPreferences> => {
@@ -260,7 +312,10 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
   const accessState = useMemo(() => getAccessState(me), [me]);
 
-  const isComplete = me?.onboarding.isComplete ?? false;
+  // isComplete is true if EITHER the server has confirmed it OR the
+  // local optimistic flag is set (during the brief window between
+  // POST success and the background refresh completion).
+  const isComplete = optimisticComplete || (me?.onboarding.isComplete ?? false);
 
   const value = useMemo<AuthContextValue>(
     () => ({

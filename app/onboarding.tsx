@@ -18,9 +18,22 @@ import type {
   CookingSkill,
   HungerLevel,
   MealSlot,
-  OnboardingCompletionRequest,
   SlotCookingTime,
 } from '../src/features/auth/types/auth';
+import {
+  DIET_CODES,
+  DIET_LABELS,
+  HARD_RESTRICTION_CODES,
+  HARD_RESTRICTION_LABELS,
+  type DietCode,
+  type HardRestrictionCode,
+} from '../src/features/preferences/catalog';
+import {
+  OnboardingValidationError,
+  buildOnboardingPayload,
+  type OnboardingFormState,
+} from '../src/features/preferences/onboardingPayload';
+import { canSubmitOnboarding } from '../src/features/preferences/onboardingSubmitGate';
 
 const COOKING_SKILLS: readonly CookingSkill[] = ['beginner', 'intermediate', 'advanced'];
 const HUNGER_LEVELS: readonly HungerLevel[] = ['light', 'normal', 'strong'];
@@ -84,13 +97,14 @@ function buildSlotForm(slot: SlotCookingTime): SlotFormState {
 export default function OnboardingRoute() {
   const router = useRouter();
   const { theme } = useRecipeTheme();
-  const { isAuthenticated, isLoading, isComplete, completeOnboarding, user, signOut } = useAuth();
+  const { isAuthenticated, isLoading, isComplete, accessToken, completeOnboarding, user, signOut } =
+    useAuth();
 
   const [displayName, setDisplayName] = useState(user?.displayName ?? '');
   const [householdSize, setHouseholdSize] = useState('1');
   const [cookingSkill, setCookingSkill] = useState<CookingSkill>('beginner');
-  const [diet, setDiet] = useState('');
-  const [hardRestrictions, setHardRestrictions] = useState('');
+  const [diet, setDiet] = useState<DietCode | null>(null);
+  const [hardRestrictions, setHardRestrictions] = useState<HardRestrictionCode[]>([]);
   const [softPreferences, setSoftPreferences] = useState('');
   const [slots, setSlots] = useState<Record<MealSlot, SlotFormState>>(() => ({
     breakfast: buildSlotForm(defaultSlot()),
@@ -100,7 +114,6 @@ export default function OnboardingRoute() {
   const [submitting, setSubmitting] = useState(false);
 
   const trimmedDisplayName = useMemo(() => displayName.trim(), [displayName]);
-  const trimmedDiet = useMemo(() => diet.trim(), [diet]);
 
   const householdSizeNumber = useMemo(() => {
     const parsed = Number.parseInt(householdSize, 10);
@@ -165,29 +178,32 @@ export default function OnboardingRoute() {
     [slots]
   );
 
+  const handleToggleHardRestriction = useCallback((code: HardRestrictionCode) => {
+    setHardRestrictions((prev) =>
+      prev.includes(code) ? prev.filter((entry) => entry !== code) : [...prev, code]
+    );
+  }, []);
+
   const handleSubmit = useCallback(async () => {
     if (submitting) return;
+    if (isLoading) {
+      // Defense-in-depth: AuthContext hasn't hydrated yet, so we cannot send
+      // a request with a bearer token. Mirror the existing redirect logic.
+      return;
+    }
     if (!isValid) {
       Alert.alert('Faltan datos', 'Revisá los campos obligatorios antes de continuar.');
       return;
     }
 
-    const payload: OnboardingCompletionRequest = {
-      profile: {
-        displayName: trimmedDisplayName,
-        householdSize: householdSizeNumber ?? 1,
-        cookingSkill,
-      },
+    const formState: OnboardingFormState = {
+      displayName: trimmedDisplayName,
+      householdSize: householdSizeNumber ?? 1,
+      cookingSkill,
       preferences: {
-        diet: trimmedDiet.length > 0 ? trimmedDiet : null,
-        hardRestrictions: hardRestrictions
-          .split(',')
-          .map((entry) => entry.trim())
-          .filter((entry) => entry.length > 0),
-        softPreferences: softPreferences
-          .split(',')
-          .map((entry) => entry.trim())
-          .filter((entry) => entry.length > 0),
+        diet,
+        hardRestrictions,
+        softPreferences: softPreferences.split(',').map((entry) => entry.trim()),
       },
       slotCookingTimes: {
         breakfast: buildSlotPayload('breakfast'),
@@ -196,11 +212,22 @@ export default function OnboardingRoute() {
       },
     };
 
+    let payload;
+    try {
+      payload = buildOnboardingPayload(formState);
+    } catch (error) {
+      if (error instanceof OnboardingValidationError) {
+        Alert.alert('Revisá el formulario', error.message);
+        return;
+      }
+      throw error;
+    }
+
     setSubmitting(true);
     try {
       await completeOnboarding(payload);
-      // AuthContext refreshes /me; the index gate will reroute based on
-      // onboarding.isComplete + account.access.canUseApp.
+      // AuthContext completes the POST and then runs a background refreshMe();
+      // the index gate reroutes based on the freshly-loaded /me snapshot.
       router.replace('/');
     } catch (error) {
       Alert.alert('No pudimos guardar', getAuthErrorMessage(error));
@@ -211,14 +238,15 @@ export default function OnboardingRoute() {
     buildSlotPayload,
     completeOnboarding,
     cookingSkill,
+    diet,
     hardRestrictions,
     householdSizeNumber,
+    isLoading,
     isValid,
     router,
     softPreferences,
     submitting,
     trimmedDisplayName,
-    trimmedDiet,
   ]);
 
   if (!isLoading && !isAuthenticated) {
@@ -228,6 +256,18 @@ export default function OnboardingRoute() {
   if (!isLoading && isComplete) {
     return <Redirect href="/" />;
   }
+
+  // Block submit until we have a token. The POST /api/onboarding/complete
+  // requires Authorization: Bearer ... and the gate flips only when /me
+  // reports isComplete=true. Sending before hydration would either fail
+  // with 401 or leave the user wedged on this screen. The rule is
+  // unit-tested in `onboardingSubmitGate.test.ts`.
+  const submitDisabled = !canSubmitOnboarding({
+    isLoading,
+    isSubmitting: submitting,
+    hasAccessToken: accessToken !== null,
+    isValid,
+  });
 
   return (
     <LinearGradient
@@ -301,26 +341,40 @@ export default function OnboardingRoute() {
             </Text>
 
             <FieldLabel theme={theme} text="Dieta (opcional)" />
-            <TextInput
-              accessibilityLabel="diet"
-              value={diet}
-              onChangeText={setDiet}
-              placeholder="omnívoro, vegetariano, pescatariano..."
-              placeholderTextColor={theme.textLight}
-              className="font-inter-regular rounded-2xl px-4 py-3 text-base"
-              style={{ backgroundColor: theme.icon, color: theme.colorMedium }}
-            />
+            <View className="flex-row flex-wrap" style={{ gap: 8 }}>
+              <Chip
+                key="none"
+                label="Ninguna"
+                selected={diet === null}
+                onPress={() => setDiet(null)}
+                theme={theme}
+              />
+              {DIET_CODES.map((code) => (
+                <Chip
+                  key={code}
+                  label={DIET_LABELS[code]}
+                  selected={diet === code}
+                  onPress={() => setDiet(code)}
+                  theme={theme}
+                />
+              ))}
+            </View>
 
-            <FieldLabel theme={theme} text="Restricciones duras (separadas por coma)" />
-            <TextInput
-              accessibilityLabel="hardRestrictions"
-              value={hardRestrictions}
-              onChangeText={setHardRestrictions}
-              placeholder="ej. maní, gluten"
-              placeholderTextColor={theme.textLight}
-              className="font-inter-regular rounded-2xl px-4 py-3 text-base"
-              style={{ backgroundColor: theme.icon, color: theme.colorMedium }}
-            />
+            <FieldLabel theme={theme} text="Restricciones duras" />
+            <Text className="font-inter-regular text-xs" style={{ color: theme.primaryAccent }}>
+              Tocá para activar o desactivar.
+            </Text>
+            <View className="flex-row flex-wrap" style={{ gap: 8 }}>
+              {HARD_RESTRICTION_CODES.map((code) => (
+                <Chip
+                  key={code}
+                  label={HARD_RESTRICTION_LABELS[code]}
+                  selected={hardRestrictions.includes(code)}
+                  onPress={() => handleToggleHardRestriction(code)}
+                  theme={theme}
+                />
+              ))}
+            </View>
 
             <FieldLabel theme={theme} text="Preferencias suaves (separadas por coma)" />
             <TextInput
@@ -359,11 +413,11 @@ export default function OnboardingRoute() {
             <Pressable
               accessibilityRole="button"
               onPress={handleSubmit}
-              disabled={!isValid || submitting}
+              disabled={submitDisabled}
               className="items-center rounded-2xl py-4 active:opacity-90"
               style={{
                 backgroundColor: theme.colorMedium,
-                opacity: !isValid || submitting ? 0.6 : 1,
+                opacity: submitDisabled ? 0.6 : 1,
               }}>
               {submitting ? (
                 <ActivityIndicator size="small" color={theme.primaryAccent} />
@@ -420,15 +474,16 @@ function Chip({
   return (
     <Pressable
       accessibilityRole="button"
+      accessibilityState={{ selected }}
       onPress={onPress}
-      className="flex-1 items-center rounded-2xl py-3 active:opacity-80"
+      className="items-center rounded-2xl px-4 py-3 active:opacity-80"
       style={{
         backgroundColor: selected ? theme.colorMedium : theme.icon,
         borderWidth: 1,
         borderColor: selected ? theme.colorMedium : 'transparent',
       }}>
       <Text
-        className="font-inter-medium text-sm capitalize"
+        className="font-inter-medium text-sm"
         style={{ color: selected ? theme.primaryAccent : theme.textBlack }}>
         {label}
       </Text>
