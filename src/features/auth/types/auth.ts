@@ -2,6 +2,57 @@
 
 export type AuthFlow = 'login' | 'register';
 
+export type CookingSkill = 'beginner' | 'intermediate' | 'advanced';
+
+export type HungerLevel = 'light' | 'normal' | 'strong';
+
+export type MealSlot = 'breakfast' | 'lunch' | 'dinner';
+
+export const SUPPORTED_MEAL_SLOTS: readonly MealSlot[] = ['breakfast', 'lunch', 'dinner'] as const;
+
+export interface OnboardingProfile {
+  displayName: string;
+  householdSize: number;
+  cookingSkill: CookingSkill;
+}
+
+export interface UserPreferencesPayload {
+  diet: string | null;
+  hardRestrictions: string[];
+  softPreferences: string[];
+}
+
+export type UserPreferences = UserPreferencesPayload;
+
+export interface SlotCookingTime {
+  cookingTimeMinutes: number;
+  hungerLevel: HungerLevel;
+}
+
+export type SlotCookingTimesPayload = Record<MealSlot, SlotCookingTime>;
+
+export type SlotCookingTimes = SlotCookingTimesPayload;
+
+export interface OnboardingCompletionRequest {
+  profile: OnboardingProfile;
+  preferences: UserPreferencesPayload;
+  slotCookingTimes: SlotCookingTimesPayload;
+}
+
+export interface OnboardingCompletionUser {
+  id: string;
+  displayName: string;
+  householdSize: number;
+  cookingSkill: CookingSkill;
+  onboardingCompletedAt: string | null;
+}
+
+export interface OnboardingCompletionResponse {
+  user: OnboardingCompletionUser;
+  preferences: UserPreferences;
+  slotCookingTimes: SlotCookingTimes;
+}
+
 export type AuthErrorCode =
   | 'invalid_email'
   | 'email_already_exists'
@@ -18,6 +69,10 @@ export type AuthErrorCode =
   | 'refresh_token_expired'
   | 'refresh_token_session_mismatch'
   | 'trial_expired'
+  | 'onboarding_invalid'
+  | 'onboarding_already_complete'
+  | 'preferences_invalid'
+  | 'slot_cooking_times_invalid'
   | 'configuration_error'
   | 'network_error'
   | 'unknown_error';
@@ -92,6 +147,8 @@ export interface AuthState {
   accessReason: string | null;
   /** Convenience flag for the Slice 1 trial-expired gate. */
   isTrialExpired: boolean;
+  /** Slice 2 onboarding flag derived from me.onboarding.isComplete. */
+  isComplete: boolean;
 }
 
 export interface AuthContextValue extends AuthState {
@@ -99,6 +156,13 @@ export interface AuthContextValue extends AuthState {
   signUp: (email: string, code: string) => Promise<void>;
   signOut: () => Promise<void>;
   refreshMe: () => Promise<void>;
+  completeOnboarding: (
+    payload: OnboardingCompletionRequest
+  ) => Promise<OnboardingCompletionResponse>;
+  fetchUserPreferences: () => Promise<UserPreferences>;
+  saveUserPreferences: (payload: UserPreferencesPayload) => Promise<UserPreferences>;
+  fetchSlotCookingTimes: () => Promise<SlotCookingTimes>;
+  saveSlotCookingTimes: (payload: SlotCookingTimesPayload) => Promise<SlotCookingTimes>;
   requestVerificationCode: (email: string, flow: AuthFlow) => Promise<CodeRequestResponse>;
   /** Backwards-compatible helper; defaults to login when no flow is supplied. */
   sendVerificationCode: (email: string, flow?: AuthFlow) => Promise<CodeRequestResponse>;

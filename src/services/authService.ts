@@ -5,7 +5,13 @@ import type {
   AuthSession,
   CodeRequestResponse,
   CurrentMe,
+  OnboardingCompletionRequest,
+  OnboardingCompletionResponse,
+  SlotCookingTimes,
+  SlotCookingTimesPayload,
   StoredAuthSession,
+  UserPreferences,
+  UserPreferencesPayload,
 } from '@/features/auth/types/auth';
 
 const ACCESS_TOKEN_KEY = 'auth_access_token';
@@ -29,6 +35,10 @@ const KNOWN_AUTH_ERROR_CODES = new Set<AuthErrorCode>([
   'refresh_token_expired',
   'refresh_token_session_mismatch',
   'trial_expired',
+  'onboarding_invalid',
+  'onboarding_already_complete',
+  'preferences_invalid',
+  'slot_cooking_times_invalid',
   'configuration_error',
   'network_error',
   'unknown_error',
@@ -91,6 +101,11 @@ const AUTH_ERROR_MESSAGES: Partial<Record<AuthErrorCode, string>> = {
   refresh_token_session_mismatch:
     'No pudimos cerrar la sesión de forma remota, pero se cerró en este dispositivo.',
   trial_expired: 'Tu período de prueba terminó.',
+  onboarding_invalid: 'Los datos de configuración no son válidos. Revisá el formulario.',
+  onboarding_already_complete: 'Ya completaste la configuración inicial.',
+  preferences_invalid: 'Tus preferencias no son válidas. Revisá los valores ingresados.',
+  slot_cooking_times_invalid:
+    'Los tiempos de cocina no son válidos. Revisá los valores ingresados.',
   configuration_error: 'Falta configurar EXPO_PUBLIC_API_URL para conectar con la API.',
   network_error: 'No pudimos conectar con el servidor. Revisá tu conexión.',
 };
@@ -252,6 +267,49 @@ export async function verifyAndSignUp(email: string, code: string): Promise<Auth
 
 export async function getMe(accessToken: string): Promise<CurrentMe> {
   return apiRequest<CurrentMe>('/api/me', { method: 'GET' }, accessToken);
+}
+
+export async function completeOnboarding(
+  accessToken: string,
+  payload: OnboardingCompletionRequest
+): Promise<OnboardingCompletionResponse> {
+  return postJson<OnboardingCompletionResponse>('/api/onboarding/complete', payload, accessToken);
+}
+
+export async function getUserPreferences(accessToken: string): Promise<UserPreferences> {
+  return apiRequest<UserPreferences>('/api/me/preferences', { method: 'GET' }, accessToken);
+}
+
+export async function updateUserPreferences(
+  accessToken: string,
+  payload: UserPreferencesPayload
+): Promise<UserPreferences> {
+  return apiRequest<UserPreferences>(
+    '/api/me/preferences',
+    {
+      method: 'PUT',
+      body: JSON.stringify(payload),
+    },
+    accessToken
+  );
+}
+
+export async function getSlotCookingTimes(accessToken: string): Promise<SlotCookingTimes> {
+  return apiRequest<SlotCookingTimes>('/api/me/slot-cooking-times', { method: 'GET' }, accessToken);
+}
+
+export async function updateSlotCookingTimes(
+  accessToken: string,
+  payload: SlotCookingTimesPayload
+): Promise<SlotCookingTimes> {
+  return apiRequest<SlotCookingTimes>(
+    '/api/me/slot-cooking-times',
+    {
+      method: 'PUT',
+      body: JSON.stringify(payload),
+    },
+    accessToken
+  );
 }
 
 export async function refreshTokens(refreshToken: string): Promise<RefreshResponse> {

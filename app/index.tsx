@@ -3,10 +3,11 @@ import { ActivityIndicator, View } from 'react-native';
 import { Redirect } from 'expo-router';
 import { AuthLandingScreen, TrialExpiredScreen, useAuth } from '../src/features/auth';
 import { COLORS } from '../src/constants/theme';
+import { resolveIndexGate } from './indexGate';
 
 export default function IndexScreen() {
   // Redirige segun el estado de autenticacion real y el gate de trial.
-  const { isAuthenticated, isLoading, canUseApp, isTrialExpired, user, signOut } = useAuth();
+  const { isAuthenticated, isLoading, canUseApp, isTrialExpired, me, user, signOut } = useAuth();
   const [isSigningOut, setIsSigningOut] = useState(false);
 
   const handleSignOut = async () => {
@@ -31,7 +32,19 @@ export default function IndexScreen() {
     );
   }
 
-  if (isAuthenticated && isTrialExpired) {
+  // Gate order (Slice 2): unauth -> AuthLanding; incomplete -> Onboarding even when locked;
+  // complete+locked -> TrialExpired; complete+usable -> Tabs.
+  const route = resolveIndexGate({
+    isAuthenticated,
+    isComplete: me?.onboarding.isComplete ?? false,
+    canUseApp,
+  });
+
+  if (route === 'Onboarding') {
+    return <Redirect href="/onboarding" />;
+  }
+
+  if (route === 'TrialExpired' || isTrialExpired) {
     return (
       <TrialExpiredScreen
         email={user?.email}
@@ -41,7 +54,7 @@ export default function IndexScreen() {
     );
   }
 
-  if (isAuthenticated && canUseApp) {
+  if (route === 'Tabs') {
     return <Redirect href="/(tabs)/home" />;
   }
 
