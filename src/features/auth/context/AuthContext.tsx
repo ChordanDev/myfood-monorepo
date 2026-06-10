@@ -62,6 +62,51 @@ function hasCompleteSession(
   return me !== null && accessToken !== null && refreshToken !== null;
 }
 
+/**
+ * Deep-equal comparison for CurrentMe values that ignores object
+ * reference identity. Used by `applySession` to decide whether a
+ * freshly fetched `/me` snapshot is content-equal to the one already
+ * held in state — if it is, we skip `setMe` so reference equality is
+ * preserved and downstream effects (notably the trial-expiry timer)
+ * are not re-evaluated.
+ *
+ * The provider does not own a stable deep-equal utility, so this
+ * compares every leaf field directly. Add a field here whenever the
+ * CurrentMe contract gains one.
+ */
+function areCurrentMeEquivalent(a: CurrentMe | null, b: CurrentMe | null): boolean {
+  if (a === b) return true;
+  if (a === null || b === null) return false;
+  if (a.user.id !== b.user.id) return false;
+  if (a.user.email !== b.user.email) return false;
+  if (a.user.displayName !== b.user.displayName) return false;
+  if (a.account.id !== b.account.id) return false;
+  if (a.account.type !== b.account.type) return false;
+  if (a.account.trialEndsAt !== b.account.trialEndsAt) return false;
+  if (a.account.subscriptionStatus !== b.account.subscriptionStatus) return false;
+  if (a.account.access.canUseApp !== b.account.access.canUseApp) return false;
+  if (a.account.access.reason !== b.account.access.reason) return false;
+  if (a.membership.role !== b.membership.role) return false;
+  if (a.onboarding.isComplete !== b.onboarding.isComplete) return false;
+  return true;
+}
+
+/**
+ * Maximum delay (in ms) we are willing to schedule a setTimeout for.
+ * Node's setTimeout clamps any delay > 2^31-1 (~24.8 days) to ~1ms,
+ * which is the root cause of the AuthProvider infinite loop when
+ * `trialEndsAt` is far in the future: every `me` reference change
+ * re-scheduled a 1ms timer that immediately fired and called
+ * `refreshMe` again, ad infinitum.
+ *
+ * If the trial expires further out than this, we skip the timer
+ * entirely — the next AppState activation, explicit refresh, or
+ * session restore will pick the change up. 1 hour is a generous
+ * upper bound: trial expirations that close should be rare and the
+ * periodic refresh on app foreground is the primary mechanism.
+ */
+const MAX_TRIAL_EXPIRY_TIMER_DELAY_MS = 60 * 60 * 1000;
+
 export function AuthProvider({ children }: AuthProviderProps) {
   const [me, setMe] = useState<CurrentMe | null>(null);
   const [accessToken, setAccessToken] = useState<string | null>(null);
@@ -76,13 +121,30 @@ export function AuthProvider({ children }: AuthProviderProps) {
   const [optimisticComplete, setOptimisticComplete] = useState(false);
   const optimisticCompleteRef = useRef(false);
   const accessTokenRef = useRef<string | null>(null);
+  // Mirror of the latest `me` state. Used by `applySession` to decide
+  // whether to call `setMe` at all (avoids the React re-render
+  // churn that produced the AuthProvider infinite loop).
+  const meRef = useRef<CurrentMe | null>(null);
 
   const applySession = useCallback((session: AuthSession | null) => {
+    const nextMe = session?.me ?? null;
+    // Skip setMe entirely when the snapshot is content-equal to the
+    // current value. We use a ref (not a functional setState updater)
+    // so we never schedule a re-render at all when the snapshot is
+    // equivalent. Functional updaters still trigger a render
+    // schedule; the parent component's useMemo and the context
+    // consumer then re-evaluate even when React bails out at render.
+    if (!areCurrentMeEquivalent(meRef.current, nextMe)) {
+      meRef.current = nextMe;
+      setMe(nextMe);
+    }
     const nextAccessToken = session?.accessToken ?? null;
-    setMe(session?.me ?? null);
-    setAccessToken(nextAccessToken);
-    accessTokenRef.current = nextAccessToken;
-    setRefreshToken(session?.refreshToken ?? null);
+    if (accessTokenRef.current !== nextAccessToken) {
+      setAccessToken(nextAccessToken);
+      accessTokenRef.current = nextAccessToken;
+    }
+    const nextRefreshToken = session?.refreshToken ?? null;
+    setRefreshToken((current) => (current === nextRefreshToken ? current : nextRefreshToken));
     // Once the next /me snapshot confirms the user's state, the
     // optimistic flag can be cleared — the gate will read from
     // me.onboarding.isComplete from now on.
@@ -285,22 +347,63 @@ export function AuthProvider({ children }: AuthProviderProps) {
   }, [handleRevalidationError, refreshMe]);
 
   useEffect(() => {
+    // Depend on stable primitives (not the full `me` object) so this
+    // effect does not re-run on every content-equal `me` reference
+    // change. Re-running was the trigger for the runaway setTimeout
+    // loop when the trial delay exceeded the 32-bit setTimeout max.
     const trialExpiryDelay = getTrialExpiryDelay(me);
     if (trialExpiryDelay === null) return;
 
-    const timeout = setTimeout(() => {
+    // Cap the scheduled delay to avoid the 32-bit setTimeout overflow
+    // that would clamp a multi-year delay to ~1ms. If the trial is
+    // further out than the cap, we let the next AppState activation
+    // or explicit refresh pick it up.
+    if (trialExpiryDelay > MAX_TRIAL_EXPIRY_TIMER_DELAY_MS) return;
+
+    // Shared refresh-and-fallback handler for both the "expired now"
+    // and "expire in the future" branches. On a transient failure
+    // we optimistically flip the local access reason so the UI can
+    // route to the TrialExpired screen before the server snapshot
+    // catches up.
+    const refreshAndHandleFailure = () => {
       refreshMe().catch((error) => {
         if (authService.isTransientAuthError(error)) {
-          setMe((currentMe) => (currentMe ? withLocalTrialExpired(currentMe) : currentMe));
+          setMe((currentMe) => {
+            if (!currentMe) return currentMe;
+            if (currentMe.account.access.reason === 'trial_expired') {
+              return currentMe;
+            }
+            return withLocalTrialExpired(currentMe);
+          });
           return;
         }
 
         handleRevalidationError(error);
       });
-    }, trialExpiryDelay);
+    };
 
+    // If the trial is already expired (delay <= 0), the server
+    // snapshot in `me` is stale. Don't schedule a 0ms setTimeout
+    // that would fire on the next tick and re-trigger the trial
+    // effect — that was the runaway loop. Instead, fire the refresh
+    // exactly once, asynchronously, and rely on the effect's stable
+    // primitive deps to prevent the cycle.
+    if (trialExpiryDelay <= 0) {
+      refreshAndHandleFailure();
+      return;
+    }
+
+    const timeout = setTimeout(refreshAndHandleFailure, trialExpiryDelay);
     return () => clearTimeout(timeout);
-  }, [handleRevalidationError, me, refreshMe]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    handleRevalidationError,
+    refreshMe,
+    me?.account.trialEndsAt,
+    me?.account.subscriptionStatus,
+    me?.account.access.canUseApp,
+    me?.account.access.reason,
+  ]);
 
   const requestVerificationCode = useCallback((email: string, flow: AuthFlow) => {
     return authService.requestVerificationCode(email, flow);
@@ -311,6 +414,13 @@ export function AuthProvider({ children }: AuthProviderProps) {
   }, []);
 
   const accessState = useMemo(() => getAccessState(me), [me]);
+
+  // Keep meRef in sync with the latest `me` so future applySession
+  // calls (which are stable callbacks) can compare against the
+  // up-to-date value without re-creating the callback.
+  useEffect(() => {
+    meRef.current = me;
+  }, [me]);
 
   // isComplete is true if EITHER the server has confirmed it OR the
   // local optimistic flag is set (during the brief window between
