@@ -145,14 +145,21 @@ export function AuthProvider({ children }: AuthProviderProps) {
     }
     const nextRefreshToken = session?.refreshToken ?? null;
     setRefreshToken((current) => (current === nextRefreshToken ? current : nextRefreshToken));
-    // Once the next /me snapshot confirms the user's state, the
-    // optimistic flag can be cleared — the gate will read from
-    // me.onboarding.isComplete from now on.
-    if (session?.me) {
+    // One-way latch: the optimistic-complete flag is set by
+    // `completeOnboarding` and only clears when a fresh /me snapshot
+    // confirms the server is in lockstep (me.onboarding.isComplete ===
+    // true). A stale /me that still reports isComplete=false must NOT
+    // clear the latch — the user has legally completed onboarding
+    // server-side and the brief window where the server has not yet
+    // propagated the completion must not bounce the gate back to
+    // false. Logging out / losing the session always clears the flag
+    // (no session means no pending completion).
+    if (!session?.me) {
       setOptimisticComplete(false);
       optimisticCompleteRef.current = false;
-    } else {
-      // Logging out / losing the session also drops the optimistic flag.
+      return;
+    }
+    if (session.me.onboarding?.isComplete === true) {
       setOptimisticComplete(false);
       optimisticCompleteRef.current = false;
     }
