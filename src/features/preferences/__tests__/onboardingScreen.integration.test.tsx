@@ -70,19 +70,19 @@ jest.mock('@/services/authService', () => ({
   AuthApiError: class extends Error {},
 }));
 
-jest.mock('@/features/preferences/catalog', () => ({
+jest.mock('@/features/preferences/constants/catalog', () => ({
   DIET_CODES: [],
   DIET_LABELS: {},
   HARD_RESTRICTION_CODES: [],
   HARD_RESTRICTION_LABELS: {},
 }));
 
-jest.mock('@/features/preferences/onboardingPayload', () => ({
+jest.mock('@/features/preferences/utils/onboardingPayload', () => ({
   buildOnboardingPayload: jest.fn(),
   OnboardingValidationError: class extends Error {},
 }));
 
-jest.mock('@/features/preferences/onboardingSubmitGate', () => ({
+jest.mock('@/features/preferences/utils/onboardingSubmitGate', () => ({
   canSubmitOnboarding: () => true,
 }));
 

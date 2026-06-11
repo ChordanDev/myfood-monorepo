@@ -6,7 +6,7 @@ import {
   saveFinished,
   startLoading,
   startSaving,
-} from '../profileLoadState';
+} from '../utils/profileLoadState';
 
 describe('profileLoadState (Judgment Day S2 + S3)', () => {
   it('starts in idle and is not saveable', () => {

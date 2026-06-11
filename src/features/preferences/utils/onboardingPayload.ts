@@ -22,7 +22,7 @@ import {
   isValidHardRestrictionCode,
   type DietCode,
   type HardRestrictionCode,
-} from './catalog';
+} from '@/features/preferences/constants/catalog';
 
 export interface OnboardingFormDietState {
   /** Selected diet code from the catalog, or null when the user picked none. */

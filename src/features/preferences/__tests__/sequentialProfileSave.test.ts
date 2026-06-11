@@ -1,4 +1,4 @@
-import { runSequentialProfileSave } from '../sequentialProfileSave';
+import { runSequentialProfileSave } from '../utils/sequentialProfileSave';
 
 describe('runSequentialProfileSave (Judgment Day S3)', () => {
   it('runs preferences then slots in order and returns both updated payloads', async () => {

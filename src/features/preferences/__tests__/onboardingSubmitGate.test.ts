@@ -1,4 +1,4 @@
-import { canSubmitOnboarding } from '../onboardingSubmitGate';
+import { canSubmitOnboarding } from '../utils/onboardingSubmitGate';
 
 describe('canSubmitOnboarding (Judgment Day S4)', () => {
   const base = {

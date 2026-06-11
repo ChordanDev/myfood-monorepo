@@ -27,11 +27,11 @@ import {
   HARD_RESTRICTION_LABELS,
   type DietCode,
   type HardRestrictionCode,
-} from '@/features/preferences/catalog';
+} from '@/features/preferences/constants/catalog';
 import {
   OnboardingValidationError,
   buildPreferencesPayload,
-} from '@/features/preferences/onboardingPayload';
+} from '@/features/preferences/utils/onboardingPayload';
 import {
   canSave,
   initialLoadState,
@@ -41,8 +41,8 @@ import {
   startLoading,
   startSaving,
   type LoadState,
-} from '@/features/preferences/profileLoadState';
-import { runSequentialProfileSave } from '@/features/preferences/sequentialProfileSave';
+} from '@/features/preferences/utils/profileLoadState';
+import { runSequentialProfileSave } from '@/features/preferences/utils/sequentialProfileSave';
 
 const HUNGER_LEVELS: readonly HungerLevel[] = ['light', 'normal', 'strong'];
 const MEAL_SLOTS: readonly MealSlot[] = ['breakfast', 'lunch', 'dinner'];

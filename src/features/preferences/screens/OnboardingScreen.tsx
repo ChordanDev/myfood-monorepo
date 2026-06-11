@@ -27,13 +27,13 @@ import {
   HARD_RESTRICTION_LABELS,
   type DietCode,
   type HardRestrictionCode,
-} from '@/features/preferences/catalog';
+} from '@/features/preferences/constants/catalog';
 import {
   OnboardingValidationError,
   buildOnboardingPayload,
   type OnboardingFormState,
-} from '@/features/preferences/onboardingPayload';
-import { canSubmitOnboarding } from '@/features/preferences/onboardingSubmitGate';
+} from '@/features/preferences/utils/onboardingPayload';
+import { canSubmitOnboarding } from '@/features/preferences/utils/onboardingSubmitGate';
 
 const COOKING_SKILLS: readonly CookingSkill[] = ['beginner', 'intermediate', 'advanced'];
 const HUNGER_LEVELS: readonly HungerLevel[] = ['light', 'normal', 'strong'];
