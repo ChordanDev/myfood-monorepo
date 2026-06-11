@@ -24,6 +24,7 @@ const mockService = {
   refreshCurrentSession: jest.fn(),
   completeOnboarding: jest.fn(),
   getStoredSession: jest.fn(),
+  persistOnboardingCompletionForStoredSession: jest.fn(),
   clearSession: jest.fn(),
   logout: jest.fn(),
   getAuthErrorMessage: (e) => (e instanceof Error ? e.message : 'unknown error'),

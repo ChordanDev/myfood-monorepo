@@ -226,6 +226,7 @@ describe('AuthContext — optimisticComplete is a one-way latch (Judgment Day C2
     // Default: empty session, no stored session, no refresh.
     mockAuthService.restoreSessionWithFreshMe.mockResolvedValue(null);
     mockAuthService.getStoredSession.mockResolvedValue(null);
+    mockAuthService.persistOnboardingCompletionForStoredSession.mockResolvedValue(null);
     mockAuthService.refreshCurrentSession.mockResolvedValue(null);
     mockAuthService.clearSession.mockResolvedValue(undefined);
     mockAuthService.logout.mockResolvedValue(undefined);
@@ -235,6 +236,7 @@ describe('AuthContext — optimisticComplete is a one-way latch (Judgment Day C2
     const session = makeSession(me);
     mockAuthService.restoreSessionWithFreshMe.mockResolvedValue(session);
     mockAuthService.getStoredSession.mockResolvedValue(session);
+    mockAuthService.persistOnboardingCompletionForStoredSession.mockResolvedValue(session);
     return renderDualProbe();
   }
 

@@ -28,6 +28,11 @@ const me: CurrentMe = {
   onboarding: { isComplete: false },
 };
 
+const completeMe: CurrentMe = {
+  ...me,
+  onboarding: { isComplete: true },
+};
+
 function mockJsonResponse(payload: unknown, ok = true, status = ok ? 200 : 400) {
   return Promise.resolve({
     ok,
@@ -154,6 +159,72 @@ describe('authService', () => {
     await expect(authService.getStoredSession()).resolves.toMatchObject({
       accessToken: 'stored-access',
       refreshToken: 'stored-refresh',
+    });
+  });
+
+  it('restores local onboarding completion when the next /me response is stale for the same user', async () => {
+    await authService.persistSession({
+      accessToken: 'stored-access',
+      refreshToken: 'stored-refresh',
+      tokenType: 'Bearer',
+      me,
+    });
+    await authService.persistOnboardingCompletionForStoredSession();
+
+    fetchMock.mockReturnValueOnce(mockJsonResponse(me));
+
+    const session = await authService.restoreSessionWithFreshMe();
+
+    expect(session?.me.onboarding.isComplete).toBe(true);
+    await expect(authService.getStoredSession()).resolves.toMatchObject({
+      me: { onboarding: { isComplete: true } },
+    });
+  });
+
+  it('restores local onboarding completion while offline after completion was persisted', async () => {
+    await authService.persistSession({
+      accessToken: 'stored-access',
+      refreshToken: 'stored-refresh',
+      tokenType: 'Bearer',
+      me,
+    });
+    await authService.persistOnboardingCompletionForStoredSession();
+    fetchMock.mockRejectedValueOnce(new Error('offline'));
+
+    const session = await authService.restoreSessionWithFreshMe();
+
+    expect(session).toMatchObject({
+      accessToken: 'stored-access',
+      refreshToken: 'stored-refresh',
+      me: { onboarding: { isComplete: true } },
+    });
+  });
+
+  it('does not apply local onboarding completion to a different user', async () => {
+    await authService.persistSession({
+      accessToken: 'complete-access',
+      refreshToken: 'complete-refresh',
+      tokenType: 'Bearer',
+      me: completeMe,
+    });
+
+    const otherUserMe: CurrentMe = {
+      ...me,
+      user: { ...me.user, id: 'user-2', email: 'other@example.com' },
+    };
+    await authService.persistSession({
+      accessToken: 'other-access',
+      refreshToken: 'other-refresh',
+      tokenType: 'Bearer',
+      me: otherUserMe,
+    });
+
+    await expect(authService.getStoredSession()).resolves.toMatchObject({
+      accessToken: 'other-access',
+      me: {
+        user: { id: 'user-2' },
+        onboarding: { isComplete: false },
+      },
     });
   });
 
