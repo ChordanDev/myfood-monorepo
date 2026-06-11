@@ -202,11 +202,37 @@ describe('AuthProvider — infinite loop guard (Judgment Day C3)', () => {
     // growing the render count into the dozens. After the fix, the
     // trial effect fires at most once on mount (for already-expired
     // trials) and the render count stays in single digits.
-    expect(finalRenders).toBeLessThan(10);
+    expect(finalRenders).toBeLessThan(5);
     // The trial effect may legitimately fire refreshMe once for an
     // already-expired trial (so the server can update access), but it
     // must NOT keep firing.
     expect(finalCalls).toBeLessThanOrEqual(1);
+
+    // Reference-identity check: with the trial-expiry effect gated to
+    // a future delay (not the 1ms overflow), the provider must not
+    // mutate the `me` reference on its own once the hydrate settle
+    // completes. We compare consecutive captures structurally
+    // (not via `toBe`) so that a legitimate hydrate from fixture to
+    // restored snapshot is allowed, but a runaway setMe would be
+    // caught by the bound on `finalRenders` above. We do require
+    // that captures past the hydrate share a single reference
+    // (no further mutations).
+    const nonNullMeRefs = captures
+      .map((c) => c.me)
+      .filter((m): m is CurrentMe => m !== null);
+    if (nonNullMeRefs.length > 2) {
+      const lastMeRef = nonNullMeRefs[nonNullMeRefs.length - 1];
+      // All captures from the second-to-last onward must share the
+      // same reference — a content-equal update would short-circuit
+      // via areCurrentMeEquivalent and not produce a new reference.
+      for (let i = nonNullMeRefs.length - 2; i >= 0; i--) {
+        const ref = nonNullMeRefs[i];
+        if (ref === lastMeRef) continue;
+        // The hydrate case: only the first capture may differ.
+        if (i === 0) continue;
+        expect(ref).toBe(lastMeRef);
+      }
+    }
 
     unmount();
   });
@@ -292,7 +318,7 @@ describe('AuthProvider — infinite loop guard (Judgment Day C3)', () => {
 
     const renderCountAfterHydration = captures.length;
     expect(renderCountAfterHydration).toBeGreaterThan(0);
-    expect(renderCountAfterHydration).toBeLessThan(10);
+    expect(renderCountAfterHydration).toBeLessThan(5);
 
     const ctx = lastContext(captures);
     expect(ctx.me).toEqual(initialMe);

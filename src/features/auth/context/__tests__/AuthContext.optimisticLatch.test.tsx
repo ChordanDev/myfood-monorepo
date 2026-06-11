@@ -289,6 +289,18 @@ describe('AuthContext — optimisticComplete is a one-way latch (Judgment Day C2
     await act(async () => {
       await handle.sink.v!.completeOnboarding(onboardingPayload);
     });
+
+    // Intermediate probe: capture the auth value at the moment the
+    // post-completion /me refresh has just been applied. If the latch
+    // regressed, applySession would have cleared the optimistic flag
+    // here, flipping isComplete to false. Asserting on the sink
+    // directly (not the last probe) is the contract: "isComplete is
+    // still true at the moment applySession ran with the stale me".
+    const latchProbe = handle.sink.v;
+    expect(latchProbe).not.toBeNull();
+    expect(latchProbe!.isComplete).toBe(true);
+    expect(latchProbe!.me?.onboarding.isComplete).toBe(false);
+
     await waitForProbe(handle.probes, (p) => p.isComplete === true);
 
     const finalProbe = handle.probes[handle.probes.length - 1];

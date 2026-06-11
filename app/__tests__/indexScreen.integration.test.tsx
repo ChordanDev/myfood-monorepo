@@ -180,17 +180,19 @@ describe('IndexScreen — redirect ping-pong with OnboardingScreen (Judgment Day
     tree.unmount();
   });
 
-  it('stays on /(tabs)/home when me reference changes but the gate inputs are content-equal (isComplete=true)', () => {
-    // After the background /me refresh returns content-equal data (which
-    // is what applySession does for stable refreshes), `me` gets a new
-    // object reference but the same content. The hook's memoization
-    // means the route must stay at /(tabs)/home.
-    const meV1 = makeMe({ onboarding: { isComplete: true } });
-    const meV2 = makeMe({ onboarding: { isComplete: true } }); // content-equal, new ref
-    const { tree } = renderIndexScreenWithValue(buildContext(meV1, { isComplete: true }));
-    expect(findRedirectHref(tree.root)).toBe('/(tabs)/home');
-    updateIndexScreenWithValue(tree, buildContext(meV2, { isComplete: true }));
-    expect(findRedirectHref(tree.root)).toBe('/(tabs)/home');
-    tree.unmount();
-  });
+  // The previous "stays on /(tabs)/home when me reference changes"
+  // test was tautological: it drove both updates with isComplete=true
+  // and me.onboarding.isComplete=true, so the gate unconditionally
+  // returns 'Tabs' regardless of me reference identity. The `me`
+  // reference is not even read by the gate (it reads the primitive
+  // `isComplete` / `canUseApp` / `isAuthenticated`), so the test could
+  // not distinguish memoized from non-memoized output. The contract
+  // this test claimed to verify — "the route stays at Tabs when the
+  // gate inputs are stable, even if a stale /me arrives between them"
+  // — is actually exercised end-to-end by
+  // `src/features/auth/context/__tests__/AuthContext.optimisticLatch.test.tsx`
+  // ("isComplete stays true even if a subsequent /me returns a stale
+  // snapshot ..."), which mounts the real AuthProvider, drives a
+  // completeOnboarding + stale /me refresh, and asserts the latch
+  // held.
 });
