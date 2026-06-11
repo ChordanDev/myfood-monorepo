@@ -17,6 +17,7 @@ import type {
 const ACCESS_TOKEN_KEY = 'auth_access_token';
 const REFRESH_TOKEN_KEY = 'auth_refresh_token';
 const ME_KEY = 'auth_me';
+const ONBOARDING_COMPLETED_USER_ID_KEY = 'auth_onboarding_completed_user_id';
 const DEVICE_ID_KEY = 'auth_device_id';
 
 const KNOWN_AUTH_ERROR_CODES = new Set<AuthErrorCode>([
@@ -220,10 +221,45 @@ function endpointForVerify(flow: AuthFlow): string {
   return flow === 'register' ? '/api/auth/signup/verify-code' : '/api/auth/login/verify-code';
 }
 
+function withLocalOnboardingCompletion(me: CurrentMe, completedUserId: string | null): CurrentMe {
+  if (completedUserId !== me.user.id) return me;
+  return {
+    ...me,
+    onboarding: { ...me.onboarding, isComplete: true },
+  };
+}
+
 export async function persistSession(session: AuthSession): Promise<void> {
+  const completedUserId = await SecureStore.getItemAsync(ONBOARDING_COMPLETED_USER_ID_KEY);
+  const shouldPersistLocalCompletion = session.me.onboarding.isComplete;
+  const shouldApplyLocalCompletion = completedUserId === session.me.user.id;
+  const me = withLocalOnboardingCompletion(session.me, completedUserId);
+
   await SecureStore.setItemAsync(ACCESS_TOKEN_KEY, session.accessToken);
   await SecureStore.setItemAsync(REFRESH_TOKEN_KEY, session.refreshToken);
-  await SecureStore.setItemAsync(ME_KEY, JSON.stringify(session.me));
+  await SecureStore.setItemAsync(ME_KEY, JSON.stringify(me));
+
+  if (shouldPersistLocalCompletion || shouldApplyLocalCompletion) {
+    await SecureStore.setItemAsync(ONBOARDING_COMPLETED_USER_ID_KEY, session.me.user.id);
+  } else if (completedUserId && completedUserId !== session.me.user.id) {
+    await SecureStore.deleteItemAsync(ONBOARDING_COMPLETED_USER_ID_KEY);
+  }
+}
+
+export async function persistOnboardingCompletionForStoredSession(): Promise<StoredAuthSession | null> {
+  const storedSession = await getStoredSession();
+  if (!storedSession) return null;
+
+  const completedSession: StoredAuthSession = {
+    ...storedSession,
+    me: {
+      ...storedSession.me,
+      onboarding: { ...storedSession.me.onboarding, isComplete: true },
+    },
+  };
+  await SecureStore.setItemAsync(ONBOARDING_COMPLETED_USER_ID_KEY, storedSession.me.user.id);
+  await persistSession(completedSession);
+  return completedSession;
 }
 
 async function persistTokens(tokens: RefreshResponse): Promise<void> {
@@ -335,10 +371,11 @@ export async function logout(
 }
 
 export async function getStoredSession(): Promise<StoredAuthSession | null> {
-  const [accessToken, refreshToken, meJson] = await Promise.all([
+  const [accessToken, refreshToken, meJson, completedUserId] = await Promise.all([
     SecureStore.getItemAsync(ACCESS_TOKEN_KEY),
     SecureStore.getItemAsync(REFRESH_TOKEN_KEY),
     SecureStore.getItemAsync(ME_KEY),
+    SecureStore.getItemAsync(ONBOARDING_COMPLETED_USER_ID_KEY),
   ]);
 
   if (!accessToken || !refreshToken || !meJson) {
@@ -346,7 +383,8 @@ export async function getStoredSession(): Promise<StoredAuthSession | null> {
   }
 
   try {
-    const me = JSON.parse(meJson) as CurrentMe;
+    const parsedMe = JSON.parse(meJson) as CurrentMe;
+    const me = withLocalOnboardingCompletion(parsedMe, completedUserId);
     return { accessToken, refreshToken, tokenType: 'Bearer', me };
   } catch {
     await clearSession();
@@ -372,7 +410,11 @@ export async function restoreSessionWithFreshMe(): Promise<AuthSession | null> {
 
   try {
     const me = await getMe(storedSession.accessToken);
-    const freshSession = { ...storedSession, me };
+    const completedUserId = await SecureStore.getItemAsync(ONBOARDING_COMPLETED_USER_ID_KEY);
+    const freshSession = {
+      ...storedSession,
+      me: withLocalOnboardingCompletion(me, completedUserId),
+    };
     await persistSession(freshSession);
     return freshSession;
   } catch (error) {
@@ -388,7 +430,11 @@ export async function restoreSessionWithFreshMe(): Promise<AuthSession | null> {
   try {
     const tokens = await refreshTokens(storedSession.refreshToken);
     const me = await getMe(tokens.accessToken);
-    const refreshedSession: AuthSession = { ...tokens, me };
+    const completedUserId = await SecureStore.getItemAsync(ONBOARDING_COMPLETED_USER_ID_KEY);
+    const refreshedSession: AuthSession = {
+      ...tokens,
+      me: withLocalOnboardingCompletion(me, completedUserId),
+    };
     await persistSession(refreshedSession);
     return refreshedSession;
   } catch (error) {
@@ -411,7 +457,11 @@ export async function refreshCurrentSession(): Promise<AuthSession | null> {
 
   const tokens = await refreshTokens(storedSession.refreshToken);
   const me = await getMe(tokens.accessToken);
-  const session: AuthSession = { ...tokens, me };
+  const completedUserId = await SecureStore.getItemAsync(ONBOARDING_COMPLETED_USER_ID_KEY);
+  const session: AuthSession = {
+    ...tokens,
+    me: withLocalOnboardingCompletion(me, completedUserId),
+  };
   await persistSession(session);
   return session;
 }
@@ -420,4 +470,5 @@ export async function clearSession(): Promise<void> {
   await SecureStore.deleteItemAsync(ACCESS_TOKEN_KEY);
   await SecureStore.deleteItemAsync(REFRESH_TOKEN_KEY);
   await SecureStore.deleteItemAsync(ME_KEY);
+  await SecureStore.deleteItemAsync(ONBOARDING_COMPLETED_USER_ID_KEY);
 }

@@ -252,7 +252,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
       // policy is unit-tested in `postCompletion.test.ts`.
       const result = await authService.completeOnboarding(token, payload);
 
-      const session = await authService.getStoredSession();
+      const session = await authService.persistOnboardingCompletionForStoredSession();
       if (session?.accessToken) {
         const reconcile = await reconcileAfterCompletion({
           wasComplete: optimisticCompleteRef.current,
