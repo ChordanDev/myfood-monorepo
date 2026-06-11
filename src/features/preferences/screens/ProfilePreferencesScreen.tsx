@@ -42,6 +42,7 @@ import {
   startSaving,
   type LoadState,
 } from '@/features/preferences/utils/profileLoadState';
+import { parseListInput } from '@/features/preferences/utils/parseListInput';
 import { runSequentialProfileSave } from '@/features/preferences/utils/sequentialProfileSave';
 
 const HUNGER_LEVELS: readonly HungerLevel[] = ['light', 'normal', 'strong'];
@@ -171,7 +172,7 @@ export function ProfilePreferencesScreen() {
     return buildPreferencesPayload({
       diet,
       hardRestrictions,
-      softPreferences: softPreferences.split(',').map((entry) => entry.trim()),
+      softPreferences: parseListInput(softPreferences),
     });
   }, [diet, hardRestrictions, softPreferences]);
 

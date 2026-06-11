@@ -34,6 +34,7 @@ import {
   type OnboardingFormState,
 } from '@/features/preferences/utils/onboardingPayload';
 import { canSubmitOnboarding } from '@/features/preferences/utils/onboardingSubmitGate';
+import { parseListInput } from '@/features/preferences/utils/parseListInput';
 
 const COOKING_SKILLS: readonly CookingSkill[] = ['beginner', 'intermediate', 'advanced'];
 const HUNGER_LEVELS: readonly HungerLevel[] = ['light', 'normal', 'strong'];
@@ -203,7 +204,7 @@ export function OnboardingScreen() {
       preferences: {
         diet,
         hardRestrictions,
-        softPreferences: softPreferences.split(',').map((entry) => entry.trim()),
+        softPreferences: parseListInput(softPreferences),
       },
       slotCookingTimes: {
         breakfast: buildSlotPayload('breakfast'),
