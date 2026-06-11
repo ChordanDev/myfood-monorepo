@@ -404,6 +404,12 @@ export function AuthProvider({ children }: AuthProviderProps) {
       });
     };
 
+    const refreshOnceForTrialEndsAt = () => {
+      if (lastTrialRefreshTrialEndsAt.current === me?.account.trialEndsAt) return;
+      lastTrialRefreshTrialEndsAt.current = me?.account.trialEndsAt;
+      refreshAndHandleFailure();
+    };
+
     // If the trial is already expired (delay <= 0), the server
     // snapshot in `me` is stale. Don't schedule a 0ms setTimeout
     // that would fire on the next tick and re-trigger the trial
@@ -412,14 +418,14 @@ export function AuthProvider({ children }: AuthProviderProps) {
     // primitive deps to prevent the cycle.
     if (trialExpiryDelay <= 0) {
       applyLocalTrialExpired();
-      if (lastTrialRefreshTrialEndsAt.current !== me?.account.trialEndsAt) {
-        lastTrialRefreshTrialEndsAt.current = me?.account.trialEndsAt;
-        refreshAndHandleFailure();
-      }
+      refreshOnceForTrialEndsAt();
       return;
     }
 
-    const timeout = setTimeout(refreshAndHandleFailure, trialExpiryDelay);
+    const timeout = setTimeout(() => {
+      applyLocalTrialExpired();
+      refreshOnceForTrialEndsAt();
+    }, trialExpiryDelay);
     return () => clearTimeout(timeout);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [

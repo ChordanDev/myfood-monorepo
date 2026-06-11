@@ -261,6 +261,53 @@ describe('AuthProvider — infinite loop guard (Judgment Day C3)', () => {
     unmount();
   });
 
+  it('locks locally when a future trial timer fires before stale /me catches up', async () => {
+    jest.useFakeTimers();
+    jest.setSystemTime(new Date('2026-01-01T00:00:00Z'));
+
+    const flushMicrotasks = async () => {
+      for (let i = 0; i < 20; i += 1) {
+        await act(async () => {
+          await Promise.resolve();
+        });
+      }
+    };
+
+    const usableMeAtExpiry = makeMe({
+      account: {
+        ...makeMe().account,
+        trialEndsAt: '2026-01-01T00:00:01Z',
+        subscriptionStatus: 'none',
+        access: { canUseApp: true, reason: null },
+      },
+    });
+
+    const refreshMock = jest.fn().mockResolvedValue(makeSession(usableMeAtExpiry));
+    const { captures, refreshCalls, unmount } = renderProvider({
+      initialMe: usableMeAtExpiry,
+      refresh: refreshMock,
+    });
+
+    try {
+      await flushMicrotasks();
+      expect(refreshCalls.mock.mock.calls.length).toBe(0);
+
+      await act(async () => {
+        jest.advanceTimersByTime(1000);
+        await Promise.resolve();
+      });
+      await flushMicrotasks();
+
+      const ctx = lastContext(captures);
+      expect(ctx.me?.account.access.canUseApp).toBe(false);
+      expect(ctx.me?.account.access.reason).toBe('trial_expired');
+      expect(refreshCalls.mock.mock.calls.length).toBe(1);
+    } finally {
+      unmount();
+      jest.useRealTimers();
+    }
+  });
+
   it('does not loop when refreshMe returns content-equal me (different object reference)', async () => {
     const firstMe = makeMe();
     const secondMe = makeMe(); // structurally identical, different object reference
