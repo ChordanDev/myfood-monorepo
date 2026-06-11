@@ -10,8 +10,9 @@
 //   - The fix locks the post-completion redirect decision in place via
 //     a one-time settled flag (`hasSettledComplete`).
 //
-// This test mounts the *actual* `app/onboarding.tsx` component with a
-// controlled AuthContext and exercises the post-completion sequence:
+// This test mounts the actual `OnboardingScreen` implementation
+// (currently re-exported by the `/onboarding` route) with a controlled
+// AuthContext and exercises the post-completion sequence:
 //   1. Initial state: isComplete=false -> the form is visible.
 //   2. Optimistic flag flips to true -> redirect to "/".
 //   3. A stale /me snapshot clears the optimistic flag (isComplete=false).
@@ -23,8 +24,8 @@
 import * as React from 'react';
 import { act, create } from 'react-test-renderer';
 import type { CurrentMe, AuthContextValue } from '@/features/auth/types/auth';
-import { AuthContext } from '../../src/features/auth/context/AuthContext';
-import OnboardingRoute from '../onboarding';
+import { AuthContext } from '@/features/auth/context/AuthContext';
+import { OnboardingScreen } from '@/features/preferences/screens/OnboardingScreen';
 
 jest.mock('expo-router', () => {
   const ReactMock = require('react');
@@ -43,7 +44,7 @@ jest.mock('expo-linear-gradient', () => {
   };
 });
 
-jest.mock('../../src/context/RecipeThemeContext', () => ({
+jest.mock('@/context/RecipeThemeContext', () => ({
   useRecipeTheme: () => ({
     theme: {
       icon: '#000',
@@ -57,31 +58,31 @@ jest.mock('../../src/context/RecipeThemeContext', () => ({
   }),
 }));
 
-jest.mock('../../src/components', () => {
+jest.mock('@/components', () => {
   return {
     NoisyBackground: () => null,
     SafeAreaContent: ({ children }: { children: unknown }) => children,
   };
 });
 
-jest.mock('../../src/services/authService', () => ({
+jest.mock('@/services/authService', () => ({
   getAuthErrorMessage: () => 'boom',
   AuthApiError: class extends Error {},
 }));
 
-jest.mock('../../src/features/preferences/catalog', () => ({
+jest.mock('@/features/preferences/catalog', () => ({
   DIET_CODES: [],
   DIET_LABELS: {},
   HARD_RESTRICTION_CODES: [],
   HARD_RESTRICTION_LABELS: {},
 }));
 
-jest.mock('../../src/features/preferences/onboardingPayload', () => ({
+jest.mock('@/features/preferences/onboardingPayload', () => ({
   buildOnboardingPayload: jest.fn(),
   OnboardingValidationError: class extends Error {},
 }));
 
-jest.mock('../../src/features/preferences/onboardingSubmitGate', () => ({
+jest.mock('@/features/preferences/onboardingSubmitGate', () => ({
   canSubmitOnboarding: () => true,
 }));
 
@@ -141,7 +142,7 @@ function renderOnboardingWithValue(value: AuthContextValue) {
   let tree: ReturnType<typeof create> | null = null;
   act(() => {
     tree = create(
-      React.createElement(AuthContext.Provider, { value }, React.createElement(OnboardingRoute))
+      React.createElement(AuthContext.Provider, { value }, React.createElement(OnboardingScreen))
     );
   });
   return { tree: tree! };
@@ -150,7 +151,7 @@ function renderOnboardingWithValue(value: AuthContextValue) {
 function updateOnboardingWithValue(tree: ReturnType<typeof create>, value: AuthContextValue) {
   act(() => {
     tree.update(
-      React.createElement(AuthContext.Provider, { value }, React.createElement(OnboardingRoute))
+      React.createElement(AuthContext.Provider, { value }, React.createElement(OnboardingScreen))
     );
   });
 }
