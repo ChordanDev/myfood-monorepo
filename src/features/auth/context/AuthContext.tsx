@@ -125,6 +125,11 @@ export function AuthProvider({ children }: AuthProviderProps) {
   // whether to call `setMe` at all (avoids the React re-render
   // churn that produced the AuthProvider infinite loop).
   const meRef = useRef<CurrentMe | null>(null);
+  // Tracks the trialEndsAt value for which refreshAndHandleFailure was
+  // last invoked, so the effect does not re-fire on every `me` change
+  // (server content-different refreshes would otherwise re-arm the
+  // refresh in a tight loop).
+  const lastTrialRefreshTrialEndsAt = useRef<string | null | undefined>(undefined);
 
   const applySession = useCallback((session: AuthSession | null) => {
     const nextMe = session?.me ?? null;
@@ -221,6 +226,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
     } finally {
       await authService.clearSession();
       applySession(null);
+      lastTrialRefreshTrialEndsAt.current = undefined;
     }
   }, [accessToken, refreshToken, applySession]);
 
@@ -380,7 +386,9 @@ export function AuthProvider({ children }: AuthProviderProps) {
             if (currentMe.account.access.reason === 'trial_expired') {
               return currentMe;
             }
-            return withLocalTrialExpired(currentMe);
+            const next = withLocalTrialExpired(currentMe);
+            meRef.current = next;
+            return next;
           });
           return;
         }
@@ -396,7 +404,10 @@ export function AuthProvider({ children }: AuthProviderProps) {
     // exactly once, asynchronously, and rely on the effect's stable
     // primitive deps to prevent the cycle.
     if (trialExpiryDelay <= 0) {
-      refreshAndHandleFailure();
+      if (lastTrialRefreshTrialEndsAt.current !== me?.account.trialEndsAt) {
+        lastTrialRefreshTrialEndsAt.current = me?.account.trialEndsAt;
+        refreshAndHandleFailure();
+      }
       return;
     }
 
