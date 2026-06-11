@@ -378,18 +378,25 @@ export function AuthProvider({ children }: AuthProviderProps) {
     // we optimistically flip the local access reason so the UI can
     // route to the TrialExpired screen before the server snapshot
     // catches up.
+    const applyLocalTrialExpired = () => {
+      setMe((currentMe) => {
+        if (!currentMe) return currentMe;
+        if (
+          !currentMe.account.access.canUseApp &&
+          currentMe.account.access.reason === 'trial_expired'
+        ) {
+          return currentMe;
+        }
+        const next = withLocalTrialExpired(currentMe);
+        meRef.current = next;
+        return next;
+      });
+    };
+
     const refreshAndHandleFailure = () => {
       refreshMe().catch((error) => {
         if (authService.isTransientAuthError(error)) {
-          setMe((currentMe) => {
-            if (!currentMe) return currentMe;
-            if (currentMe.account.access.reason === 'trial_expired') {
-              return currentMe;
-            }
-            const next = withLocalTrialExpired(currentMe);
-            meRef.current = next;
-            return next;
-          });
+          applyLocalTrialExpired();
           return;
         }
 
@@ -404,6 +411,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
     // exactly once, asynchronously, and rely on the effect's stable
     // primitive deps to prevent the cycle.
     if (trialExpiryDelay <= 0) {
+      applyLocalTrialExpired();
       if (lastTrialRefreshTrialEndsAt.current !== me?.account.trialEndsAt) {
         lastTrialRefreshTrialEndsAt.current = me?.account.trialEndsAt;
         refreshAndHandleFailure();

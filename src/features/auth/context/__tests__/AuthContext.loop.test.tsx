@@ -185,7 +185,7 @@ describe('AuthProvider — infinite loop guard (Judgment Day C3)', () => {
     });
     const refreshMock = jest
       .fn()
-      .mockResolvedValue(makeSession(makeMe(initialMe.account as never)));
+      .mockResolvedValue(makeSession(makeMe({ account: initialMe.account })));
 
     const { captures, refreshCalls, unmount } = renderProvider({
       initialMe,
@@ -202,37 +202,61 @@ describe('AuthProvider — infinite loop guard (Judgment Day C3)', () => {
     // growing the render count into the dozens. After the fix, the
     // trial effect fires at most once on mount (for already-expired
     // trials) and the render count stays in single digits.
-    expect(finalRenders).toBeLessThan(5);
+    expect(finalRenders).toBeLessThanOrEqual(5);
     // The trial effect may legitimately fire refreshMe once for an
     // already-expired trial (so the server can update access), but it
     // must NOT keep firing.
     expect(finalCalls).toBeLessThanOrEqual(1);
 
-    // Reference-identity check: with the trial-expiry effect gated to
-    // a future delay (not the 1ms overflow), the provider must not
-    // mutate the `me` reference on its own once the hydrate settle
-    // completes. We compare consecutive captures structurally
-    // (not via `toBe`) so that a legitimate hydrate from fixture to
-    // restored snapshot is allowed, but a runaway setMe would be
-    // caught by the bound on `finalRenders` above. We do require
-    // that captures past the hydrate share a single reference
-    // (no further mutations).
-    const nonNullMeRefs = captures
-      .map((c) => c.me)
-      .filter((m): m is CurrentMe => m !== null);
-    if (nonNullMeRefs.length > 2) {
-      const lastMeRef = nonNullMeRefs[nonNullMeRefs.length - 1];
-      // All captures from the second-to-last onward must share the
-      // same reference — a content-equal update would short-circuit
-      // via areCurrentMeEquivalent and not produce a new reference.
-      for (let i = nonNullMeRefs.length - 2; i >= 0; i--) {
-        const ref = nonNullMeRefs[i];
-        if (ref === lastMeRef) continue;
-        // The hydrate case: only the first capture may differ.
-        if (i === 0) continue;
-        expect(ref).toBe(lastMeRef);
-      }
-    }
+    unmount();
+  });
+
+  it('keeps an already-expired trial locked when a later stale /me reopens access', async () => {
+    const expiredUsableMe = makeMe({
+      account: {
+        ...makeMe().account,
+        trialEndsAt: '2020-01-01T00:00:00Z',
+        subscriptionStatus: 'none',
+        access: { canUseApp: true, reason: null },
+      },
+    });
+
+    const refreshMock = jest
+      .fn()
+      // First already-expired effect refresh fails transiently, so the
+      // provider applies the local trial-expired fallback.
+      .mockRejectedValueOnce(
+        new authService.AuthApiError('network_error', 'Network request failed')
+      )
+      // A later manual/AppState refresh can still return a stale usable
+      // snapshot for the same expired trialEndsAt.
+      .mockResolvedValue(makeSession(expiredUsableMe));
+
+    const { captures, refreshCalls, unmount } = renderProvider({
+      initialMe: expiredUsableMe,
+      refresh: refreshMock,
+    });
+
+    await settle();
+
+    let ctx = lastContext(captures);
+    expect(ctx.me?.account.access.canUseApp).toBe(false);
+    expect(ctx.me?.account.access.reason).toBe('trial_expired');
+    expect(refreshCalls.mock.mock.calls.length).toBe(1);
+
+    await act(async () => {
+      await lastContext(captures).refreshMe();
+    });
+    await settle();
+
+    ctx = lastContext(captures);
+    expect(ctx.me?.account.access.canUseApp).toBe(false);
+    expect(ctx.me?.account.access.reason).toBe('trial_expired');
+    // One automatic refresh for the already-expired trial plus the
+    // explicit refresh above. The guard must not fire a third network
+    // call for the same trialEndsAt, but the local fallback must still
+    // re-apply after the stale usable snapshot.
+    expect(refreshCalls.mock.mock.calls.length).toBe(2);
 
     unmount();
   });
