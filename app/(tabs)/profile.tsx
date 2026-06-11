@@ -140,12 +140,7 @@ export default function ProfileRoute() {
   }, [fetchSlotCookingTimes, fetchUserPreferences, hydrateFromServer]);
 
   useEffect(() => {
-    if (
-      isAuthenticated &&
-      isComplete &&
-      canUseApp &&
-      (loadState.status === 'idle' || loadState.status === 'error')
-    ) {
+    if (isAuthenticated && isComplete && canUseApp && loadState.status === 'idle') {
       loadData();
     }
   }, [canUseApp, isAuthenticated, isComplete, loadData, loadState.status]);
