@@ -3,13 +3,13 @@ import {
   HARD_RESTRICTION_CODES,
   isValidDietCode,
   isValidHardRestrictionCode,
-} from '../catalog';
+} from '../constants/catalog';
 import {
   OnboardingValidationError,
   buildOnboardingPayload,
   buildPreferencesPayload,
-} from '../onboardingPayload';
-import type { OnboardingFormState } from '../onboardingPayload';
+} from '../utils/onboardingPayload';
+import type { OnboardingFormState } from '../utils/onboardingPayload';
 
 const baseState: OnboardingFormState = {
   displayName: 'Lucca',

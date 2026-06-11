@@ -11,8 +11,8 @@
 import * as React from 'react';
 import { act, create } from 'react-test-renderer';
 import type { AuthContextValue, CurrentMe, SlotCookingTimes } from '@/features/auth/types/auth';
-import { AuthContext } from '../../src/features/auth/context/AuthContext';
-import ProfileRoute from '../(tabs)/profile';
+import { AuthContext } from '@/features/auth/context/AuthContext';
+import { ProfilePreferencesScreen } from '@/features/preferences/screens/ProfilePreferencesScreen';
 
 jest.mock('expo-router', () => {
   const ReactMock = require('react');
@@ -28,9 +28,9 @@ jest.mock('expo-linear-gradient', () => ({
   LinearGradient: ({ children }: { children: unknown }) => children,
 }));
 
-jest.mock('../../src/features/auth', () => {
+jest.mock('@/features/auth', () => {
   const ReactMock = require('react');
-  const mockAuthContext = require('../../src/features/auth/context/AuthContext').AuthContext;
+  const mockAuthContext = require('@/features/auth/context/AuthContext').AuthContext;
   return {
     useAuth: () => {
       const ctx = ReactMock.useContext(mockAuthContext);
@@ -40,7 +40,7 @@ jest.mock('../../src/features/auth', () => {
   };
 });
 
-jest.mock('../../src/context/RecipeThemeContext', () => ({
+jest.mock('@/context/RecipeThemeContext', () => ({
   useRecipeTheme: () => ({
     theme: {
       icon: '#000',
@@ -54,7 +54,7 @@ jest.mock('../../src/context/RecipeThemeContext', () => ({
   }),
 }));
 
-jest.mock('../../src/components', () => ({
+jest.mock('@/components', () => ({
   NoisyBackground: () => null,
   SafeAreaContent: ({ children }: { children: unknown }) => children,
 }));
@@ -118,7 +118,7 @@ async function flushEffects() {
   });
 }
 
-describe('ProfileRoute failed-load retry behavior', () => {
+describe('ProfilePreferencesScreen failed-load retry behavior', () => {
   let warnSpy: jest.SpyInstance;
 
   beforeEach(() => {
@@ -151,7 +151,7 @@ describe('ProfileRoute failed-load retry behavior', () => {
               fetchSlotCookingTimes,
             }),
           },
-          React.createElement(ProfileRoute)
+          React.createElement(ProfilePreferencesScreen)
         )
       );
     });
