@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -112,31 +112,6 @@ export default function OnboardingRoute() {
     dinner: buildSlotForm(defaultSlot()),
   }));
   const [submitting, setSubmitting] = useState(false);
-
-  // Ping-pong guard: once isComplete has been true on this screen mount,
-  // we lock the redirect to "/" for the lifetime of the screen. This
-  // prevents the IndexScreen <-> OnboardingScreen redirect ping-pong
-  // that the simulator reported as "Maximum update depth exceeded".
-  //
-  // The original race: after a successful POST /api/onboarding/complete,
-  // the AuthContext flips the optimistic flag (isComplete=true). The
-  // screen then redirects to "/", but a stale /me snapshot arriving
-  // before the server propagates the completion can briefly clear the
-  // optimistic flag (applySession clears it on every applySession that
-  // has a `me` payload) and re-set isComplete=false. The screen would
-  // then bounce back to "/onboarding" until the next /me refresh
-  // confirms completion.
-  //
-  // The flag also covers the deep-link / hydration race: a user that
-  // lands on /onboarding with isComplete already true must not be
-  // bounced through /onboarding -> / -> /onboarding while the
-  // /me refresh settles.
-  const hasSettledComplete = useRef(false);
-  useEffect(() => {
-    if (isComplete) {
-      hasSettledComplete.current = true;
-    }
-  }, [isComplete]);
 
   const trimmedDisplayName = useMemo(() => displayName.trim(), [displayName]);
 
@@ -278,7 +253,7 @@ export default function OnboardingRoute() {
     return <Redirect href="/" />;
   }
 
-  if (!isLoading && (isComplete || hasSettledComplete.current)) {
+  if (!isLoading && isComplete) {
     return <Redirect href="/" />;
   }
 

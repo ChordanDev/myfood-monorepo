@@ -7,7 +7,7 @@ import { useIndexRoute } from './useIndexRoute';
 
 export default function IndexScreen() {
   // Redirige segun el estado de autenticacion real y el gate de trial.
-  const { isLoading, isTrialExpired, user, signOut } = useAuth();
+  const { isLoading, user, signOut } = useAuth();
   const [isSigningOut, setIsSigningOut] = useState(false);
 
   // Gate order (Slice 2): unauth -> AuthLanding; incomplete -> Onboarding even when locked;
@@ -54,7 +54,7 @@ export default function IndexScreen() {
     return <Redirect href="/onboarding" />;
   }
 
-  if (route === 'TrialExpired' || isTrialExpired) {
+  if (route === 'TrialExpired') {
     return (
       <TrialExpiredScreen
         email={user?.email}

@@ -185,7 +185,7 @@ describe('AuthProvider — infinite loop guard (Judgment Day C3)', () => {
     });
     const refreshMock = jest
       .fn()
-      .mockResolvedValue(makeSession(makeMe(initialMe.account as never)));
+      .mockResolvedValue(makeSession(makeMe({ account: initialMe.account })));
 
     const { captures, refreshCalls, unmount } = renderProvider({
       initialMe,
@@ -202,13 +202,110 @@ describe('AuthProvider — infinite loop guard (Judgment Day C3)', () => {
     // growing the render count into the dozens. After the fix, the
     // trial effect fires at most once on mount (for already-expired
     // trials) and the render count stays in single digits.
-    expect(finalRenders).toBeLessThan(10);
+    expect(finalRenders).toBeLessThanOrEqual(5);
     // The trial effect may legitimately fire refreshMe once for an
     // already-expired trial (so the server can update access), but it
     // must NOT keep firing.
     expect(finalCalls).toBeLessThanOrEqual(1);
 
     unmount();
+  });
+
+  it('keeps an already-expired trial locked when a later stale /me reopens access', async () => {
+    const expiredUsableMe = makeMe({
+      account: {
+        ...makeMe().account,
+        trialEndsAt: '2020-01-01T00:00:00Z',
+        subscriptionStatus: 'none',
+        access: { canUseApp: true, reason: null },
+      },
+    });
+
+    const refreshMock = jest
+      .fn()
+      // First already-expired effect refresh fails transiently, so the
+      // provider applies the local trial-expired fallback.
+      .mockRejectedValueOnce(
+        new authService.AuthApiError('network_error', 'Network request failed')
+      )
+      // A later manual/AppState refresh can still return a stale usable
+      // snapshot for the same expired trialEndsAt.
+      .mockResolvedValue(makeSession(expiredUsableMe));
+
+    const { captures, refreshCalls, unmount } = renderProvider({
+      initialMe: expiredUsableMe,
+      refresh: refreshMock,
+    });
+
+    await settle();
+
+    let ctx = lastContext(captures);
+    expect(ctx.me?.account.access.canUseApp).toBe(false);
+    expect(ctx.me?.account.access.reason).toBe('trial_expired');
+    expect(refreshCalls.mock.mock.calls.length).toBe(1);
+
+    await act(async () => {
+      await lastContext(captures).refreshMe();
+    });
+    await settle();
+
+    ctx = lastContext(captures);
+    expect(ctx.me?.account.access.canUseApp).toBe(false);
+    expect(ctx.me?.account.access.reason).toBe('trial_expired');
+    // One automatic refresh for the already-expired trial plus the
+    // explicit refresh above. The guard must not fire a third network
+    // call for the same trialEndsAt, but the local fallback must still
+    // re-apply after the stale usable snapshot.
+    expect(refreshCalls.mock.mock.calls.length).toBe(2);
+
+    unmount();
+  });
+
+  it('locks locally when a future trial timer fires before stale /me catches up', async () => {
+    jest.useFakeTimers();
+    jest.setSystemTime(new Date('2026-01-01T00:00:00Z'));
+
+    const flushMicrotasks = async () => {
+      for (let i = 0; i < 20; i += 1) {
+        await act(async () => {
+          await Promise.resolve();
+        });
+      }
+    };
+
+    const usableMeAtExpiry = makeMe({
+      account: {
+        ...makeMe().account,
+        trialEndsAt: '2026-01-01T00:00:01Z',
+        subscriptionStatus: 'none',
+        access: { canUseApp: true, reason: null },
+      },
+    });
+
+    const refreshMock = jest.fn().mockResolvedValue(makeSession(usableMeAtExpiry));
+    const { captures, refreshCalls, unmount } = renderProvider({
+      initialMe: usableMeAtExpiry,
+      refresh: refreshMock,
+    });
+
+    try {
+      await flushMicrotasks();
+      expect(refreshCalls.mock.mock.calls.length).toBe(0);
+
+      await act(async () => {
+        jest.advanceTimersByTime(1000);
+        await Promise.resolve();
+      });
+      await flushMicrotasks();
+
+      const ctx = lastContext(captures);
+      expect(ctx.me?.account.access.canUseApp).toBe(false);
+      expect(ctx.me?.account.access.reason).toBe('trial_expired');
+      expect(refreshCalls.mock.mock.calls.length).toBe(1);
+    } finally {
+      unmount();
+      jest.useRealTimers();
+    }
   });
 
   it('does not loop when refreshMe returns content-equal me (different object reference)', async () => {
@@ -292,7 +389,7 @@ describe('AuthProvider — infinite loop guard (Judgment Day C3)', () => {
 
     const renderCountAfterHydration = captures.length;
     expect(renderCountAfterHydration).toBeGreaterThan(0);
-    expect(renderCountAfterHydration).toBeLessThan(10);
+    expect(renderCountAfterHydration).toBeLessThan(5);
 
     const ctx = lastContext(captures);
     expect(ctx.me).toEqual(initialMe);

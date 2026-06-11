@@ -189,22 +189,4 @@ describe('OnboardingScreen — post-completion redirect stabilization (Judgment 
     expect(findRedirectHref(tree.root)).toBe('/');
     tree.unmount();
   });
-
-  it('stays on "/" when isComplete briefly flips back to false (the bounce guard)', () => {
-    // Race scenario: optimistic flag set, then a stale /me snapshot
-    // arrives. applySession clears the optimistic flag because the
-    // snapshot's me.onboarding.isComplete is still false. The screen
-    // must NOT redirect back to /onboarding.
-    const me = makeMe({ onboarding: { isComplete: false } });
-    const { tree } = renderOnboardingWithValue(buildContext(me, { isComplete: false }));
-    expect(findRedirectHref(tree.root)).toBeNull();
-
-    updateOnboardingWithValue(tree, buildContext(me, { isComplete: true }));
-    expect(findRedirectHref(tree.root)).toBe('/');
-
-    updateOnboardingWithValue(tree, buildContext(me, { isComplete: false }));
-    expect(findRedirectHref(tree.root)).toBe('/');
-    expect(findRedirectHref(tree.root)).not.toBe('/onboarding');
-    tree.unmount();
-  });
 });
