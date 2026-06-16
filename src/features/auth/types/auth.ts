@@ -60,6 +60,7 @@ export type AuthErrorCode =
   | 'rate_limited'
   | 'code_invalid'
   | 'code_expired'
+  | 'code_send_failed'
   | 'too_many_attempts'
   | 'unauthenticated'
   | 'access_token_expired'
@@ -68,6 +69,8 @@ export type AuthErrorCode =
   | 'refresh_token_replayed'
   | 'refresh_token_expired'
   | 'refresh_token_session_mismatch'
+  | 'account_not_found'
+  | 'rate_limit_record_failed'
   | 'trial_expired'
   | 'onboarding_invalid'
   | 'onboarding_already_complete'
@@ -75,6 +78,7 @@ export type AuthErrorCode =
   | 'slot_cooking_times_invalid'
   | 'configuration_error'
   | 'network_error'
+  | 'timeout'
   | 'unknown_error';
 
 export interface AuthUser {

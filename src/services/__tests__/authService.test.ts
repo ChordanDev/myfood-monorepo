@@ -147,7 +147,10 @@ describe('authService', () => {
       tokenType: 'Bearer',
       me,
     });
-    fetchMock.mockRejectedValueOnce(new Error('offline'));
+    // getMe now retries once on transient errors, so mock both attempts.
+    fetchMock
+      .mockRejectedValueOnce(new Error('offline'))
+      .mockRejectedValueOnce(new Error('offline'));
 
     const session = await authService.restoreSessionWithFreshMe();
 
@@ -159,6 +162,7 @@ describe('authService', () => {
     await expect(authService.getStoredSession()).resolves.toMatchObject({
       accessToken: 'stored-access',
       refreshToken: 'stored-refresh',
+      me,
     });
   });
 
@@ -189,7 +193,10 @@ describe('authService', () => {
       me,
     });
     await authService.persistOnboardingCompletionForStoredSession();
-    fetchMock.mockRejectedValueOnce(new Error('offline'));
+    // getMe now retries once on transient errors, so mock both attempts.
+    fetchMock
+      .mockRejectedValueOnce(new Error('offline'))
+      .mockRejectedValueOnce(new Error('offline'));
 
     const session = await authService.restoreSessionWithFreshMe();
 
@@ -279,6 +286,191 @@ describe('authService', () => {
       authService.requestVerificationCode('user@example.com', 'login')
     ).rejects.toMatchObject({
       code: 'configuration_error',
+    });
+  });
+
+  describe('apiRequest timeout (AbortController)', () => {
+    it('aborts the request and throws a transient AuthApiError when the server never responds', async () => {
+      // The mock honors the AbortSignal so the production timeout actually
+      // triggers an abort the same way a real fetch would.
+      fetchMock.mockImplementationOnce(
+        (_url: unknown, init: RequestInit | undefined) =>
+          new Promise<Response>((_resolve, reject) => {
+            const signal = init?.signal;
+            if (signal) {
+              if (signal.aborted) {
+                reject(new DOMException('Aborted', 'AbortError'));
+                return;
+              }
+              signal.addEventListener('abort', () => {
+                reject(new DOMException('Aborted', 'AbortError'));
+              });
+            }
+          })
+      );
+
+      const start = Date.now();
+      await expect(
+        authService.getMe('access-1', { timeoutMs: 100, retry: false })
+      ).rejects.toMatchObject({
+        name: 'AuthApiError',
+        code: 'timeout',
+      });
+      const elapsed = Date.now() - start;
+
+      // The abort must happen close to the 100ms timeout, not block forever.
+      expect(elapsed).toBeLessThan(1000);
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      // The AbortController signal MUST be passed to fetch.
+      const callArgs = fetchMock.mock.calls[0]?.[1] as RequestInit | undefined;
+      expect(callArgs?.signal).toBeDefined();
+    });
+
+    it('cleans up the timeout after a successful response (no leaked timers)', async () => {
+      fetchMock.mockReturnValueOnce(mockJsonResponse(me));
+
+      const result = await authService.getMe('access-1', {
+        timeoutMs: 60_000,
+        retry: false,
+      });
+
+      expect(result).toEqual(me);
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      // The signal MUST be passed to fetch on the happy path too.
+      const callArgs = fetchMock.mock.calls[0]?.[1] as RequestInit | undefined;
+      expect(callArgs?.signal).toBeDefined();
+    });
+
+    it('classifies timeout errors as transient so callers can retry', () => {
+      const timeoutError = new authService.AuthApiError('timeout', 'Request timeout');
+      const networkError = new authService.AuthApiError('network_error', 'offline');
+
+      expect(authService.isTransientAuthError(timeoutError)).toBe(true);
+      expect(authService.isTransientAuthError(networkError)).toBe(true);
+      expect(
+        authService.isTransientAuthError(new authService.AuthApiError('code_invalid', 'x'))
+      ).toBe(false);
+    });
+  });
+
+  describe('isSessionInvalidAuthError', () => {
+    it('returns true for refresh_token_session_mismatch so a future device-revoke flow clears the local session', () => {
+      // refresh_token_session_mismatch is in KNOWN_AUTH_ERROR_CODES (so the
+      // user sees a Spanish message) but, until now, it was missing from
+      // SESSION_INVALID_AUTH_ERROR_CODES. Any future code path that surfaces
+      // this code outside of signOut — e.g. a device-revoke endpoint — must
+      // also clear the local session, otherwise the user would be silently
+      // logged out server-side while remaining "logged in" locally.
+      const error = new authService.AuthApiError(
+        'refresh_token_session_mismatch',
+        'session mismatch',
+        401
+      );
+
+      expect(authService.isSessionInvalidAuthError(error)).toBe(true);
+    });
+
+    it('returns true for the other session-invalid codes already covered', () => {
+      const codes = [
+        'refresh_token_invalid',
+        'refresh_token_revoked',
+        'refresh_token_replayed',
+        'refresh_token_expired',
+      ] as const;
+      for (const code of codes) {
+        const error = new authService.AuthApiError(code, code, 401);
+        expect(authService.isSessionInvalidAuthError(error)).toBe(true);
+      }
+    });
+
+    it('returns false for codes that should NOT clear the local session', () => {
+      const codes = [
+        'access_token_expired',
+        'unauthenticated',
+        'code_invalid',
+        'network_error',
+      ] as const;
+      for (const code of codes) {
+        const error = new authService.AuthApiError(code, code, 401);
+        expect(authService.isSessionInvalidAuthError(error)).toBe(false);
+      }
+    });
+  });
+
+  describe('single-attempt retry on transient errors', () => {
+    it('retries getMe once on a transient network error and returns the successful response', async () => {
+      fetchMock
+        .mockRejectedValueOnce(new Error('offline'))
+        .mockReturnValueOnce(mockJsonResponse(me));
+
+      const result = await authService.getMe('access-1');
+
+      expect(result).toEqual(me);
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+      // Both attempts MUST hit /api/me with a fresh AbortController signal.
+      expect(fetchMock.mock.calls[0]?.[0]).toBe('https://api.example.test/api/me');
+      expect(fetchMock.mock.calls[1]?.[0]).toBe('https://api.example.test/api/me');
+    });
+
+    it('retries refreshTokens once on a transient network error', async () => {
+      fetchMock.mockRejectedValueOnce(new Error('offline')).mockReturnValueOnce(
+        mockJsonResponse({
+          accessToken: 'new-access',
+          refreshToken: 'new-refresh',
+          tokenType: 'Bearer',
+        })
+      );
+
+      const result = await authService.refreshTokens('refresh-1');
+
+      expect(result.accessToken).toBe('new-access');
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+    });
+
+    it('does NOT retry verifyCode when the first attempt hits a transient error (OTP could be consumed)', async () => {
+      fetchMock.mockRejectedValueOnce(new Error('offline'));
+
+      await expect(authService.verifyAndSignIn('user@example.com', '000000')).rejects.toMatchObject(
+        { code: 'network_error' }
+      );
+
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    });
+
+    it('does NOT retry logout when the first attempt hits a transient error', async () => {
+      await authService.persistSession({
+        accessToken: 'access-1',
+        refreshToken: 'refresh-1',
+        tokenType: 'Bearer',
+        me,
+      });
+      fetchMock.mockRejectedValueOnce(new Error('offline'));
+
+      await expect(authService.logout('access-1', 'refresh-1')).rejects.toMatchObject({
+        code: 'network_error',
+      });
+
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    });
+
+    it('does NOT retry when the first attempt fails with a non-transient error (e.g. code_invalid)', async () => {
+      fetchMock.mockReturnValueOnce(
+        mockJsonResponse({ error: { code: 'code_invalid', message: 'x' } }, false, 422)
+      );
+
+      await expect(authService.getMe('access-1')).rejects.toMatchObject({ code: 'code_invalid' });
+
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    });
+
+    it('surfaces the error after retrying once when both attempts hit transient failures', async () => {
+      fetchMock
+        .mockRejectedValueOnce(new Error('offline'))
+        .mockRejectedValueOnce(new Error('offline-2'));
+
+      await expect(authService.getMe('access-1')).rejects.toMatchObject({ code: 'network_error' });
+
+      expect(fetchMock).toHaveBeenCalledTimes(2);
     });
   });
 });
