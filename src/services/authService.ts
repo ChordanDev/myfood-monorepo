@@ -1,4 +1,3 @@
-import * as SecureStore from 'expo-secure-store';
 import type {
   AuthErrorCode,
   AuthFlow,
@@ -13,6 +12,7 @@ import type {
   UserPreferences,
   UserPreferencesPayload,
 } from '@/features/auth/types/auth';
+import { secureStorage } from './secureStorage';
 
 const ACCESS_TOKEN_KEY = 'auth_access_token';
 const REFRESH_TOKEN_KEY = 'auth_refresh_token';
@@ -76,11 +76,12 @@ interface ErrorEnvelope {
   };
 }
 
-interface RefreshResponse {
-  accessToken: string;
-  refreshToken: string;
-  tokenType: 'Bearer' | string;
-}
+/**
+ * Shape of the `/api/auth/refresh` response. The token_type field is
+ * derived from the canonical `AuthTokenType` union in `types/auth.ts`
+ * so the back can never emit an unknown token type silently.
+ */
+type RefreshResponse = Pick<AuthSession, 'accessToken' | 'refreshToken' | 'tokenType'>;
 
 export class AuthApiError extends Error {
   constructor(
@@ -260,12 +261,12 @@ async function postJson<T>(
   );
 }
 
-async function getDeviceId(): Promise<string> {
-  const existing = await SecureStore.getItemAsync(DEVICE_ID_KEY);
+export async function getDeviceId(): Promise<string> {
+  const existing = await secureStorage.getItem(DEVICE_ID_KEY);
   if (existing) return existing;
 
-  const randomId = `expo-${Date.now()}-${Math.random().toString(36).slice(2, 12)}`;
-  await SecureStore.setItemAsync(DEVICE_ID_KEY, randomId);
+  const randomId = globalThis.crypto.randomUUID();
+  await secureStorage.setItem(DEVICE_ID_KEY, randomId);
   return randomId;
 }
 
@@ -286,19 +287,19 @@ function withLocalOnboardingCompletion(me: CurrentMe, completedUserId: string | 
 }
 
 export async function persistSession(session: AuthSession): Promise<void> {
-  const completedUserId = await SecureStore.getItemAsync(ONBOARDING_COMPLETED_USER_ID_KEY);
+  const completedUserId = await secureStorage.getItem(ONBOARDING_COMPLETED_USER_ID_KEY);
   const shouldPersistLocalCompletion = session.me.onboarding.isComplete;
   const shouldApplyLocalCompletion = completedUserId === session.me.user.id;
   const me = withLocalOnboardingCompletion(session.me, completedUserId);
 
-  await SecureStore.setItemAsync(ACCESS_TOKEN_KEY, session.accessToken);
-  await SecureStore.setItemAsync(REFRESH_TOKEN_KEY, session.refreshToken);
-  await SecureStore.setItemAsync(ME_KEY, JSON.stringify(me));
+  await secureStorage.setItem(ACCESS_TOKEN_KEY, session.accessToken);
+  await secureStorage.setItem(REFRESH_TOKEN_KEY, session.refreshToken);
+  await secureStorage.setItem(ME_KEY, JSON.stringify(me));
 
   if (shouldPersistLocalCompletion || shouldApplyLocalCompletion) {
-    await SecureStore.setItemAsync(ONBOARDING_COMPLETED_USER_ID_KEY, session.me.user.id);
+    await secureStorage.setItem(ONBOARDING_COMPLETED_USER_ID_KEY, session.me.user.id);
   } else if (completedUserId && completedUserId !== session.me.user.id) {
-    await SecureStore.deleteItemAsync(ONBOARDING_COMPLETED_USER_ID_KEY);
+    await secureStorage.deleteItem(ONBOARDING_COMPLETED_USER_ID_KEY);
   }
 }
 
@@ -313,14 +314,14 @@ export async function persistOnboardingCompletionForStoredSession(): Promise<Sto
       onboarding: { ...storedSession.me.onboarding, isComplete: true },
     },
   };
-  await SecureStore.setItemAsync(ONBOARDING_COMPLETED_USER_ID_KEY, storedSession.me.user.id);
+  await secureStorage.setItem(ONBOARDING_COMPLETED_USER_ID_KEY, storedSession.me.user.id);
   await persistSession(completedSession);
   return completedSession;
 }
 
 async function persistTokens(tokens: RefreshResponse): Promise<void> {
-  await SecureStore.setItemAsync(ACCESS_TOKEN_KEY, tokens.accessToken);
-  await SecureStore.setItemAsync(REFRESH_TOKEN_KEY, tokens.refreshToken);
+  await secureStorage.setItem(ACCESS_TOKEN_KEY, tokens.accessToken);
+  await secureStorage.setItem(REFRESH_TOKEN_KEY, tokens.refreshToken);
 }
 
 export async function requestVerificationCode(
@@ -482,10 +483,10 @@ export async function logout(
 
 export async function getStoredSession(): Promise<StoredAuthSession | null> {
   const [accessToken, refreshToken, meJson, completedUserId] = await Promise.all([
-    SecureStore.getItemAsync(ACCESS_TOKEN_KEY),
-    SecureStore.getItemAsync(REFRESH_TOKEN_KEY),
-    SecureStore.getItemAsync(ME_KEY),
-    SecureStore.getItemAsync(ONBOARDING_COMPLETED_USER_ID_KEY),
+    secureStorage.getItem(ACCESS_TOKEN_KEY),
+    secureStorage.getItem(REFRESH_TOKEN_KEY),
+    secureStorage.getItem(ME_KEY),
+    secureStorage.getItem(ONBOARDING_COMPLETED_USER_ID_KEY),
   ]);
 
   if (!accessToken || !refreshToken || !meJson) {
@@ -520,7 +521,7 @@ export async function restoreSessionWithFreshMe(): Promise<AuthSession | null> {
 
   try {
     const me = await getMe(storedSession.accessToken);
-    const completedUserId = await SecureStore.getItemAsync(ONBOARDING_COMPLETED_USER_ID_KEY);
+    const completedUserId = await secureStorage.getItem(ONBOARDING_COMPLETED_USER_ID_KEY);
     const freshSession = {
       ...storedSession,
       me: withLocalOnboardingCompletion(me, completedUserId),
@@ -540,7 +541,7 @@ export async function restoreSessionWithFreshMe(): Promise<AuthSession | null> {
   try {
     const tokens = await refreshTokens(storedSession.refreshToken);
     const me = await getMe(tokens.accessToken);
-    const completedUserId = await SecureStore.getItemAsync(ONBOARDING_COMPLETED_USER_ID_KEY);
+    const completedUserId = await secureStorage.getItem(ONBOARDING_COMPLETED_USER_ID_KEY);
     const refreshedSession: AuthSession = {
       ...tokens,
       me: withLocalOnboardingCompletion(me, completedUserId),
@@ -567,7 +568,7 @@ export async function refreshCurrentSession(): Promise<AuthSession | null> {
 
   const tokens = await refreshTokens(storedSession.refreshToken);
   const me = await getMe(tokens.accessToken);
-  const completedUserId = await SecureStore.getItemAsync(ONBOARDING_COMPLETED_USER_ID_KEY);
+  const completedUserId = await secureStorage.getItem(ONBOARDING_COMPLETED_USER_ID_KEY);
   const session: AuthSession = {
     ...tokens,
     me: withLocalOnboardingCompletion(me, completedUserId),
@@ -577,8 +578,8 @@ export async function refreshCurrentSession(): Promise<AuthSession | null> {
 }
 
 export async function clearSession(): Promise<void> {
-  await SecureStore.deleteItemAsync(ACCESS_TOKEN_KEY);
-  await SecureStore.deleteItemAsync(REFRESH_TOKEN_KEY);
-  await SecureStore.deleteItemAsync(ME_KEY);
-  await SecureStore.deleteItemAsync(ONBOARDING_COMPLETED_USER_ID_KEY);
+  await secureStorage.deleteItem(ACCESS_TOKEN_KEY);
+  await secureStorage.deleteItem(REFRESH_TOKEN_KEY);
+  await secureStorage.deleteItem(ME_KEY);
+  await secureStorage.deleteItem(ONBOARDING_COMPLETED_USER_ID_KEY);
 }

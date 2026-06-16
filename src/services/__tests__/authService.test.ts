@@ -353,6 +353,37 @@ describe('authService', () => {
     });
   });
 
+  describe('getDeviceId', () => {
+    const UUID_V4_REGEX =
+      /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+    it('returns a UUID v4 on first call and the same value on subsequent calls (persisted via SecureStore)', async () => {
+      // After Item 5, getDeviceId must use a real UUID generator instead of
+      // `expo-${Date.now()}-...`. The pre-Item-5 implementation produced a
+      // non-UUID string that would fail a v4 regex check.
+      const first = await authService.getDeviceId();
+      const second = await authService.getDeviceId();
+
+      expect(first).toMatch(UUID_V4_REGEX);
+      expect(second).toBe(first);
+    });
+
+    it('produces a different UUID each time storage is empty', async () => {
+      // Two independent test runs (each starts with an empty mock store)
+      // should produce two different UUIDs. UUID v4 has ~5.3×10³⁶
+      // possible values, so a collision is astronomically unlikely.
+      mockSecureStore.clear();
+      const a = await authService.getDeviceId();
+
+      mockSecureStore.clear();
+      const b = await authService.getDeviceId();
+
+      expect(a).toMatch(UUID_V4_REGEX);
+      expect(b).toMatch(UUID_V4_REGEX);
+      expect(a).not.toBe(b);
+    });
+  });
+
   describe('isSessionInvalidAuthError', () => {
     it('returns true for refresh_token_session_mismatch so a future device-revoke flow clears the local session', () => {
       // refresh_token_session_mismatch is in KNOWN_AUTH_ERROR_CODES (so the
