@@ -45,6 +45,7 @@ function withLocalTrialExpired(me: CurrentMe): CurrentMe {
 }
 
 function getTrialExpiryDelay(me: CurrentMe | null): number | null {
+  // Closed union in auth.ts makes this exhaustive at compile time.
   if (!me?.account.access.canUseApp || me.account.subscriptionStatus === 'active') return null;
   if (!me.account.trialEndsAt) return null;
 

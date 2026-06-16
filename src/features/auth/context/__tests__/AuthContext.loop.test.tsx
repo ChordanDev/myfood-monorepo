@@ -1,6 +1,6 @@
 import { act, create } from 'react-test-renderer';
 import { Text } from 'react-native';
-import type { CurrentMe } from '@/features/auth/types/auth';
+import type { AuthSession, CurrentMe } from '@/features/auth/types/auth';
 import * as authService from '@/services/authService';
 import { AuthProvider } from '../AuthContext';
 import { useAuth } from '../../hooks/useAuth';
@@ -45,7 +45,7 @@ function makeMe(overrides: Partial<CurrentMe> = {}): CurrentMe {
   };
 }
 
-function makeSession(me: CurrentMe) {
+function makeSession(me: CurrentMe): AuthSession {
   return {
     accessToken: 'access-1',
     refreshToken: 'refresh-1',

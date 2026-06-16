@@ -18,6 +18,9 @@ export function VerificationCodeInput({ value, onChange }: VerificationCodeInput
         placeholderTextColor={theme.textLight}
         keyboardType="number-pad"
         textAlign="center"
+        maxLength={6}
+        autoComplete="one-time-code"
+        textContentType="oneTimeCode"
         accessibilityLabel="Código de verificación"
         accessibilityHint="Ingresa el código de 6 dígitos enviado a tu correo"
         className="py-4 font-inter-semibold text-2xl tracking-[6px]"

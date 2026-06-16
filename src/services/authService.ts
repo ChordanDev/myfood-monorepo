@@ -1,4 +1,3 @@
-import * as SecureStore from 'expo-secure-store';
 import type {
   AuthErrorCode,
   AuthFlow,
@@ -13,12 +12,18 @@ import type {
   UserPreferences,
   UserPreferencesPayload,
 } from '@/features/auth/types/auth';
+import { secureStorage } from './secureStorage';
 
 const ACCESS_TOKEN_KEY = 'auth_access_token';
 const REFRESH_TOKEN_KEY = 'auth_refresh_token';
 const ME_KEY = 'auth_me';
 const ONBOARDING_COMPLETED_USER_ID_KEY = 'auth_onboarding_completed_user_id';
 const DEVICE_ID_KEY = 'auth_device_id';
+
+/** Default per-request timeout for normal API calls (15s). */
+const DEFAULT_REQUEST_TIMEOUT_MS = 15_000;
+/** Per-request timeout for the refresh endpoint — longer to absorb slow cold refreshes (30s). */
+export const REFRESH_REQUEST_TIMEOUT_MS = 30_000;
 
 const KNOWN_AUTH_ERROR_CODES = new Set<AuthErrorCode>([
   'invalid_email',
@@ -27,6 +32,7 @@ const KNOWN_AUTH_ERROR_CODES = new Set<AuthErrorCode>([
   'rate_limited',
   'code_invalid',
   'code_expired',
+  'code_send_failed',
   'too_many_attempts',
   'unauthenticated',
   'access_token_expired',
@@ -35,6 +41,8 @@ const KNOWN_AUTH_ERROR_CODES = new Set<AuthErrorCode>([
   'refresh_token_replayed',
   'refresh_token_expired',
   'refresh_token_session_mismatch',
+  'account_not_found',
+  'rate_limit_record_failed',
   'trial_expired',
   'onboarding_invalid',
   'onboarding_already_complete',
@@ -42,6 +50,7 @@ const KNOWN_AUTH_ERROR_CODES = new Set<AuthErrorCode>([
   'slot_cooking_times_invalid',
   'configuration_error',
   'network_error',
+  'timeout',
   'unknown_error',
 ]);
 
@@ -50,11 +59,14 @@ const REFRESHABLE_AUTH_ERROR_CODES = new Set<AuthErrorCode>([
   'access_token_expired',
 ]);
 
+const TRANSIENT_AUTH_ERROR_CODES = new Set<AuthErrorCode>(['network_error', 'timeout']);
+
 const SESSION_INVALID_AUTH_ERROR_CODES = new Set<AuthErrorCode>([
   'refresh_token_invalid',
   'refresh_token_revoked',
   'refresh_token_replayed',
   'refresh_token_expired',
+  'refresh_token_session_mismatch',
 ]);
 
 interface ErrorEnvelope {
@@ -64,11 +76,12 @@ interface ErrorEnvelope {
   };
 }
 
-interface RefreshResponse {
-  accessToken: string;
-  refreshToken: string;
-  tokenType: 'Bearer' | string;
-}
+/**
+ * Shape of the `/api/auth/refresh` response. The token_type field is
+ * derived from the canonical `AuthTokenType` union in `types/auth.ts`
+ * so the back can never emit an unknown token type silently.
+ */
+type RefreshResponse = Pick<AuthSession, 'accessToken' | 'refreshToken' | 'tokenType'>;
 
 export class AuthApiError extends Error {
   constructor(
@@ -92,6 +105,7 @@ const AUTH_ERROR_MESSAGES: Partial<Record<AuthErrorCode, string>> = {
   rate_limited: 'Hiciste demasiados intentos. Esperá un momento y volvé a probar.',
   code_invalid: 'El código ingresado no es válido.',
   code_expired: 'El código expiró. Pedí uno nuevo para continuar.',
+  code_send_failed: 'No pudimos enviar el código por email. Probá de nuevo en un momento.',
   too_many_attempts: 'Se agotaron los intentos para este código. Pedí uno nuevo.',
   unauthenticated: 'Tu sesión expiró. Iniciá sesión nuevamente.',
   access_token_expired: 'Tu sesión expiró. Iniciá sesión nuevamente.',
@@ -101,6 +115,8 @@ const AUTH_ERROR_MESSAGES: Partial<Record<AuthErrorCode, string>> = {
   refresh_token_expired: 'No pudimos renovar tu sesión. Iniciá sesión nuevamente.',
   refresh_token_session_mismatch:
     'No pudimos cerrar la sesión de forma remota, pero se cerró en este dispositivo.',
+  account_not_found: 'No pudimos encontrar tu cuenta. Iniciá sesión nuevamente.',
+  rate_limit_record_failed: 'Hubo un problema al registrar tu actividad. Intenta nuevamente.',
   trial_expired: 'Tu período de prueba terminó.',
   onboarding_invalid: 'Los datos de configuración no son válidos. Revisá el formulario.',
   onboarding_already_complete: 'Ya completaste la configuración inicial.',
@@ -109,6 +125,8 @@ const AUTH_ERROR_MESSAGES: Partial<Record<AuthErrorCode, string>> = {
     'Los tiempos de cocina no son válidos. Revisá los valores ingresados.',
   configuration_error: 'Falta configurar EXPO_PUBLIC_API_URL para conectar con la API.',
   network_error: 'No pudimos conectar con el servidor. Revisá tu conexión.',
+  timeout: 'La conexión tardó demasiado. Revisá tu señal e intentá nuevamente.',
+  unknown_error: 'Ocurrió un error inesperado. Intenta nuevamente.',
 };
 
 export function getAuthErrorMessage(error: unknown): string {
@@ -165,51 +183,90 @@ function errorFromEnvelope(payload: unknown, status: number): AuthApiError {
 async function apiRequest<T>(
   path: string,
   options: RequestInit = {},
-  accessToken?: string | null
+  accessToken?: string | null,
+  timeoutMs: number = DEFAULT_REQUEST_TIMEOUT_MS,
+  retry: boolean = false
 ): Promise<T> {
-  let response: Response;
+  const execute = async (): Promise<T> => {
+    const controller = new AbortController();
+    const timeoutHandle = setTimeout(() => controller.abort(), timeoutMs);
+
+    let response: Response;
+
+    try {
+      response = await fetch(buildApiUrl(path), {
+        ...options,
+        headers: {
+          Accept: 'application/json',
+          ...(options.body ? { 'Content-Type': 'application/json' } : {}),
+          ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
+          ...options.headers,
+        },
+        signal: controller.signal,
+      });
+    } catch (error) {
+      if (isAuthApiError(error)) throw error;
+      if (isAbortError(error)) {
+        throw new AuthApiError('timeout', 'Request timeout', 0);
+      }
+      throw new AuthApiError('network_error', 'Network request failed');
+    } finally {
+      clearTimeout(timeoutHandle);
+    }
+
+    const payload = await parseJsonResponse(response);
+
+    if (!response.ok) {
+      throw errorFromEnvelope(payload, response.status);
+    }
+
+    return payload as T;
+  };
 
   try {
-    response = await fetch(buildApiUrl(path), {
-      ...options,
-      headers: {
-        Accept: 'application/json',
-        ...(options.body ? { 'Content-Type': 'application/json' } : {}),
-        ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
-        ...options.headers,
-      },
-    });
+    return await execute();
   } catch (error) {
-    if (isAuthApiError(error)) throw error;
-    throw new AuthApiError('network_error', 'Network request failed');
+    if (retry && isTransientAuthError(error)) {
+      return execute();
+    }
+    throw error;
   }
-
-  const payload = await parseJsonResponse(response);
-
-  if (!response.ok) {
-    throw errorFromEnvelope(payload, response.status);
-  }
-
-  return payload as T;
 }
 
-async function postJson<T>(path: string, body: unknown, accessToken?: string | null): Promise<T> {
+function isAbortError(error: unknown): boolean {
+  return (
+    typeof error === 'object' &&
+    error !== null &&
+    'name' in error &&
+    (error as { name?: unknown }).name === 'AbortError'
+  );
+}
+
+async function postJson<T>(
+  path: string,
+  body: unknown,
+  accessToken?: string | null,
+  timeoutMs?: number,
+  retry: boolean = false
+): Promise<T> {
   return apiRequest<T>(
     path,
     {
       method: 'POST',
       body: JSON.stringify(body),
     },
-    accessToken
+    accessToken,
+    timeoutMs,
+    retry
   );
 }
 
-async function getDeviceId(): Promise<string> {
-  const existing = await SecureStore.getItemAsync(DEVICE_ID_KEY);
+export async function getDeviceId(): Promise<string> {
+  const existing = await secureStorage.getItem(DEVICE_ID_KEY);
   if (existing) return existing;
 
-  const randomId = `expo-${Date.now()}-${Math.random().toString(36).slice(2, 12)}`;
-  await SecureStore.setItemAsync(DEVICE_ID_KEY, randomId);
+  const randomId = globalThis.crypto.randomUUID();
+  await secureStorage.setItem(DEVICE_ID_KEY, randomId);
   return randomId;
 }
 
@@ -230,19 +287,19 @@ function withLocalOnboardingCompletion(me: CurrentMe, completedUserId: string | 
 }
 
 export async function persistSession(session: AuthSession): Promise<void> {
-  const completedUserId = await SecureStore.getItemAsync(ONBOARDING_COMPLETED_USER_ID_KEY);
+  const completedUserId = await secureStorage.getItem(ONBOARDING_COMPLETED_USER_ID_KEY);
   const shouldPersistLocalCompletion = session.me.onboarding.isComplete;
   const shouldApplyLocalCompletion = completedUserId === session.me.user.id;
   const me = withLocalOnboardingCompletion(session.me, completedUserId);
 
-  await SecureStore.setItemAsync(ACCESS_TOKEN_KEY, session.accessToken);
-  await SecureStore.setItemAsync(REFRESH_TOKEN_KEY, session.refreshToken);
-  await SecureStore.setItemAsync(ME_KEY, JSON.stringify(me));
+  await secureStorage.setItem(ACCESS_TOKEN_KEY, session.accessToken);
+  await secureStorage.setItem(REFRESH_TOKEN_KEY, session.refreshToken);
+  await secureStorage.setItem(ME_KEY, JSON.stringify(me));
 
   if (shouldPersistLocalCompletion || shouldApplyLocalCompletion) {
-    await SecureStore.setItemAsync(ONBOARDING_COMPLETED_USER_ID_KEY, session.me.user.id);
+    await secureStorage.setItem(ONBOARDING_COMPLETED_USER_ID_KEY, session.me.user.id);
   } else if (completedUserId && completedUserId !== session.me.user.id) {
-    await SecureStore.deleteItemAsync(ONBOARDING_COMPLETED_USER_ID_KEY);
+    await secureStorage.deleteItem(ONBOARDING_COMPLETED_USER_ID_KEY);
   }
 }
 
@@ -257,14 +314,14 @@ export async function persistOnboardingCompletionForStoredSession(): Promise<Sto
       onboarding: { ...storedSession.me.onboarding, isComplete: true },
     },
   };
-  await SecureStore.setItemAsync(ONBOARDING_COMPLETED_USER_ID_KEY, storedSession.me.user.id);
+  await secureStorage.setItem(ONBOARDING_COMPLETED_USER_ID_KEY, storedSession.me.user.id);
   await persistSession(completedSession);
   return completedSession;
 }
 
 async function persistTokens(tokens: RefreshResponse): Promise<void> {
-  await SecureStore.setItemAsync(ACCESS_TOKEN_KEY, tokens.accessToken);
-  await SecureStore.setItemAsync(REFRESH_TOKEN_KEY, tokens.refreshToken);
+  await secureStorage.setItem(ACCESS_TOKEN_KEY, tokens.accessToken);
+  await secureStorage.setItem(REFRESH_TOKEN_KEY, tokens.refreshToken);
 }
 
 export async function requestVerificationCode(
@@ -301,8 +358,25 @@ export async function verifyAndSignUp(email: string, code: string): Promise<Auth
   return verifyCode(email, code, 'register');
 }
 
-export async function getMe(accessToken: string): Promise<CurrentMe> {
-  return apiRequest<CurrentMe>('/api/me', { method: 'GET' }, accessToken);
+/** Optional overrides for per-call request behavior. */
+export interface RequestOptions {
+  /** Timeout in ms. Defaults to 15s for normal calls and 30s for refresh. */
+  timeoutMs?: number;
+  /**
+   * Retry once on transient errors (network_error or timeout). MUST only be true
+   * for idempotent endpoints (GETs and refresh). Defaults to false.
+   */
+  retry?: boolean;
+}
+
+export async function getMe(accessToken: string, options?: RequestOptions): Promise<CurrentMe> {
+  return apiRequest<CurrentMe>(
+    '/api/me',
+    { method: 'GET' },
+    accessToken,
+    options?.timeoutMs,
+    options?.retry ?? true
+  );
 }
 
 export async function completeOnboarding(
@@ -312,8 +386,17 @@ export async function completeOnboarding(
   return postJson<OnboardingCompletionResponse>('/api/onboarding/complete', payload, accessToken);
 }
 
-export async function getUserPreferences(accessToken: string): Promise<UserPreferences> {
-  return apiRequest<UserPreferences>('/api/me/preferences', { method: 'GET' }, accessToken);
+export async function getUserPreferences(
+  accessToken: string,
+  options?: RequestOptions
+): Promise<UserPreferences> {
+  return apiRequest<UserPreferences>(
+    '/api/me/preferences',
+    { method: 'GET' },
+    accessToken,
+    options?.timeoutMs,
+    options?.retry ?? true
+  );
 }
 
 export async function updateUserPreferences(
@@ -330,8 +413,17 @@ export async function updateUserPreferences(
   );
 }
 
-export async function getSlotCookingTimes(accessToken: string): Promise<SlotCookingTimes> {
-  return apiRequest<SlotCookingTimes>('/api/me/slot-cooking-times', { method: 'GET' }, accessToken);
+export async function getSlotCookingTimes(
+  accessToken: string,
+  options?: RequestOptions
+): Promise<SlotCookingTimes> {
+  return apiRequest<SlotCookingTimes>(
+    '/api/me/slot-cooking-times',
+    { method: 'GET' },
+    accessToken,
+    options?.timeoutMs,
+    options?.retry ?? true
+  );
 }
 
 export async function updateSlotCookingTimes(
@@ -348,8 +440,27 @@ export async function updateSlotCookingTimes(
   );
 }
 
+/**
+ * Refresh the access/refresh token pair.
+ *
+ * Trade-off (acknowledged by 4R review): the back rotates refresh tokens on
+ * every successful /auth/refresh. If the first request succeeds server-side
+ * (rotates the token) but the response is lost to a network blip, the retry
+ * uses the now-stale refresh token. The back rejects it as
+ * `refresh_token_invalid`, and `restoreSessionWithFreshMe` clears the local
+ * session. The user is silently signed out.
+ *
+ * This is a known and accepted trade-off. The alternative (no retry on
+ * refresh) would mean a single dropped packet always forces re-login.
+ */
 export async function refreshTokens(refreshToken: string): Promise<RefreshResponse> {
-  const tokens = await postJson<RefreshResponse>('/api/auth/refresh', { refreshToken });
+  const tokens = await postJson<RefreshResponse>(
+    '/api/auth/refresh',
+    { refreshToken },
+    undefined,
+    REFRESH_REQUEST_TIMEOUT_MS,
+    true
+  );
   await persistTokens(tokens);
   return tokens;
 }
@@ -372,10 +483,10 @@ export async function logout(
 
 export async function getStoredSession(): Promise<StoredAuthSession | null> {
   const [accessToken, refreshToken, meJson, completedUserId] = await Promise.all([
-    SecureStore.getItemAsync(ACCESS_TOKEN_KEY),
-    SecureStore.getItemAsync(REFRESH_TOKEN_KEY),
-    SecureStore.getItemAsync(ME_KEY),
-    SecureStore.getItemAsync(ONBOARDING_COMPLETED_USER_ID_KEY),
+    secureStorage.getItem(ACCESS_TOKEN_KEY),
+    secureStorage.getItem(REFRESH_TOKEN_KEY),
+    secureStorage.getItem(ME_KEY),
+    secureStorage.getItem(ONBOARDING_COMPLETED_USER_ID_KEY),
   ]);
 
   if (!accessToken || !refreshToken || !meJson) {
@@ -401,7 +512,7 @@ export function isSessionInvalidAuthError(error: unknown): boolean {
 }
 
 export function isTransientAuthError(error: unknown): boolean {
-  return isAuthApiError(error) && error.code === 'network_error';
+  return isAuthApiError(error) && TRANSIENT_AUTH_ERROR_CODES.has(error.code);
 }
 
 export async function restoreSessionWithFreshMe(): Promise<AuthSession | null> {
@@ -410,7 +521,7 @@ export async function restoreSessionWithFreshMe(): Promise<AuthSession | null> {
 
   try {
     const me = await getMe(storedSession.accessToken);
-    const completedUserId = await SecureStore.getItemAsync(ONBOARDING_COMPLETED_USER_ID_KEY);
+    const completedUserId = await secureStorage.getItem(ONBOARDING_COMPLETED_USER_ID_KEY);
     const freshSession = {
       ...storedSession,
       me: withLocalOnboardingCompletion(me, completedUserId),
@@ -430,7 +541,7 @@ export async function restoreSessionWithFreshMe(): Promise<AuthSession | null> {
   try {
     const tokens = await refreshTokens(storedSession.refreshToken);
     const me = await getMe(tokens.accessToken);
-    const completedUserId = await SecureStore.getItemAsync(ONBOARDING_COMPLETED_USER_ID_KEY);
+    const completedUserId = await secureStorage.getItem(ONBOARDING_COMPLETED_USER_ID_KEY);
     const refreshedSession: AuthSession = {
       ...tokens,
       me: withLocalOnboardingCompletion(me, completedUserId),
@@ -457,7 +568,7 @@ export async function refreshCurrentSession(): Promise<AuthSession | null> {
 
   const tokens = await refreshTokens(storedSession.refreshToken);
   const me = await getMe(tokens.accessToken);
-  const completedUserId = await SecureStore.getItemAsync(ONBOARDING_COMPLETED_USER_ID_KEY);
+  const completedUserId = await secureStorage.getItem(ONBOARDING_COMPLETED_USER_ID_KEY);
   const session: AuthSession = {
     ...tokens,
     me: withLocalOnboardingCompletion(me, completedUserId),
@@ -467,8 +578,8 @@ export async function refreshCurrentSession(): Promise<AuthSession | null> {
 }
 
 export async function clearSession(): Promise<void> {
-  await SecureStore.deleteItemAsync(ACCESS_TOKEN_KEY);
-  await SecureStore.deleteItemAsync(REFRESH_TOKEN_KEY);
-  await SecureStore.deleteItemAsync(ME_KEY);
-  await SecureStore.deleteItemAsync(ONBOARDING_COMPLETED_USER_ID_KEY);
+  await secureStorage.deleteItem(ACCESS_TOKEN_KEY);
+  await secureStorage.deleteItem(REFRESH_TOKEN_KEY);
+  await secureStorage.deleteItem(ME_KEY);
+  await secureStorage.deleteItem(ONBOARDING_COMPLETED_USER_ID_KEY);
 }

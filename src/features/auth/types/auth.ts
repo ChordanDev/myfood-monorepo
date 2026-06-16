@@ -60,6 +60,7 @@ export type AuthErrorCode =
   | 'rate_limited'
   | 'code_invalid'
   | 'code_expired'
+  | 'code_send_failed'
   | 'too_many_attempts'
   | 'unauthenticated'
   | 'access_token_expired'
@@ -68,6 +69,8 @@ export type AuthErrorCode =
   | 'refresh_token_replayed'
   | 'refresh_token_expired'
   | 'refresh_token_session_mismatch'
+  | 'account_not_found'
+  | 'rate_limit_record_failed'
   | 'trial_expired'
   | 'onboarding_invalid'
   | 'onboarding_already_complete'
@@ -75,6 +78,7 @@ export type AuthErrorCode =
   | 'slot_cooking_times_invalid'
   | 'configuration_error'
   | 'network_error'
+  | 'timeout'
   | 'unknown_error';
 
 export interface AuthUser {
@@ -88,16 +92,51 @@ export interface AuthAccountAccess {
   reason: string | null;
 }
 
+/**
+ * Closed union for `accounts.type`.
+ *
+ * Source of truth: `MyFoodBack.Accounts.Account.changeset/2`
+ * (`my_food_back/lib/my_food_back/accounts/account.ex`), which validates
+ * `type` against `["individual", "family", "family_plus"]`. Adding a new
+ * value on the back MUST be paired with an update here.
+ */
+export type AuthAccountType = 'individual' | 'family' | 'family_plus';
+
+/**
+ * Closed union for `accounts.subscription_status`.
+ *
+ * Source of truth: `MyFoodBack.Accounts.Account.changeset/2`, which
+ * validates against `["none", "active", "past_due", "canceled"]`.
+ */
+export type AuthSubscriptionStatus = 'none' | 'active' | 'past_due' | 'canceled';
+
+/**
+ * Closed union for `memberships.role`.
+ *
+ * Source of truth: `MyFoodBack.Accounts.Membership.changeset/2`, which
+ * validates `role` against `["owner"]`.
+ */
+export type AuthMembershipRole = 'owner';
+
+/**
+ * Closed union for OAuth-style `token_type`.
+ *
+ * Source of truth: `MyFoodBack.Auth.auth_response/6` and
+ * `token_response/3` in `my_food_back/lib/my_food_back/auth.ex`, both of
+ * which hard-code `"Bearer"`.
+ */
+export type AuthTokenType = 'Bearer';
+
 export interface AuthAccount {
   id: string;
-  type: 'individual' | string;
+  type: AuthAccountType;
   trialEndsAt: string | null;
-  subscriptionStatus: 'none' | 'active' | 'past_due' | 'canceled' | string;
+  subscriptionStatus: AuthSubscriptionStatus;
   access: AuthAccountAccess;
 }
 
 export interface AuthMembership {
-  role: 'owner' | string;
+  role: AuthMembershipRole;
 }
 
 export interface AuthOnboarding {
@@ -120,7 +159,7 @@ export interface CodeRequestResponse {
 export interface AuthSession {
   accessToken: string;
   refreshToken: string;
-  tokenType: 'Bearer' | string;
+  tokenType: AuthTokenType;
   me: CurrentMe;
 }
 
