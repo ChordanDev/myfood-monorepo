@@ -439,6 +439,19 @@ export async function updateSlotCookingTimes(
   );
 }
 
+/**
+ * Refresh the access/refresh token pair.
+ *
+ * Trade-off (acknowledged by 4R review): the back rotates refresh tokens on
+ * every successful /auth/refresh. If the first request succeeds server-side
+ * (rotates the token) but the response is lost to a network blip, the retry
+ * uses the now-stale refresh token. The back rejects it as
+ * `refresh_token_invalid`, and `restoreSessionWithFreshMe` clears the local
+ * session. The user is silently signed out.
+ *
+ * This is a known and accepted trade-off. The alternative (no retry on
+ * refresh) would mean a single dropped packet always forces re-login.
+ */
 export async function refreshTokens(refreshToken: string): Promise<RefreshResponse> {
   const tokens = await postJson<RefreshResponse>(
     '/api/auth/refresh',

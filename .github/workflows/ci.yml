@@ -20,6 +20,18 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      # The contract test in `src/services/__tests__/authErrorCodeContract.test.ts`
+      # resolves the back source from a sibling of the front checkout. In CI
+      # the developer's local `my_food_back` directory is not present, so we
+      # clone the back to `../progra-3-back` to satisfy the resolver. Local
+      # devs do not need this — the resolver still finds `my_food_back`.
+      - name: Checkout backend (sibling)
+        uses: actions/checkout@v4
+        with:
+          repository: ChordanDev/progra-3-back
+          path: ../progra-3-back
+          fetch-depth: 1
+
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
