@@ -23,14 +23,27 @@ jobs:
       # The contract test in `src/services/__tests__/authErrorCodeContract.test.ts`
       # resolves the back source from a sibling of the front checkout. In CI
       # the developer's local `my_food_back` directory is not present, so we
-      # clone the back to `../progra-3-back` to satisfy the resolver. Local
-      # devs do not need this — the resolver still finds `my_food_back`.
+      # clone the back to satisfy the resolver. The runner restricts
+      # `actions/checkout` paths to the workspace, so we clone to
+      # `./siblings/progra-3-back` (allowed — workspace-relative) and then
+      # expose it as a monorepo-root sibling via a symlink. The resolver
+      # walks 4 `..` up from the test file to the monorepo root and looks
+      # for `progra-3-back/lib` there. Local devs do not need this — the
+      # resolver still finds `my_food_back`.
       - name: Checkout backend (sibling)
         uses: actions/checkout@v4
         with:
           repository: ChordanDev/progra-3-back
-          path: ../progra-3-back
+          path: ./siblings/progra-3-back
           fetch-depth: 1
+
+      - name: Expose backend as a workspace sibling
+        run: |
+          # $GITHUB_WORKSPACE/.. is the monorepo root in this CI layout
+          # (/home/runner/work/progra-3-front), which is what the resolver
+          # walks up to from the test file. Symlink the in-workspace clone
+          # there so the resolver's `progra-3-back/lib` candidate hits.
+          ln -s "$GITHUB_WORKSPACE/siblings/progra-3-back" "$GITHUB_WORKSPACE/../progra-3-back"
 
       - name: Setup Node
         uses: actions/setup-node@v4
