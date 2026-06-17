@@ -1,6 +1,12 @@
 import type { CurrentMe } from '@/features/auth/types/auth';
 import * as authService from '../authService';
 
+const mockNewRequestId = jest.fn(() => '123e4567-e89b-42d3-a456-426614174000');
+
+jest.mock('../requestId', () => ({
+  newRequestId: () => mockNewRequestId(),
+}));
+
 const mockSecureStore = new Map<string, string>();
 
 jest.mock('expo-secure-store', () => ({
@@ -41,13 +47,21 @@ function mockJsonResponse(payload: unknown, ok = true, status = ok ? 200 : 400) 
   } as Response);
 }
 
+function fetchHeadersAt(callIndex: number): HeadersInit | undefined {
+  return (fetchMock.mock.calls[callIndex]?.[1] as RequestInit | undefined)?.headers;
+}
+
+const UUID_V4_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+const fetchMock = jest.fn();
+
 describe('authService', () => {
-  const fetchMock = jest.fn();
   const originalApiUrl = process.env.EXPO_PUBLIC_API_URL;
 
   beforeEach(() => {
     mockSecureStore.clear();
     fetchMock.mockReset();
+    mockNewRequestId.mockClear();
     global.fetch = fetchMock;
     process.env.EXPO_PUBLIC_API_URL = 'https://api.example.test';
   });
@@ -75,6 +89,113 @@ describe('authService', () => {
       })
     );
     expect(response.resendAvailableInSeconds).toBe(60);
+  });
+
+  it('sends a UUID v4 X-Request-Id header on each API request', async () => {
+    mockNewRequestId
+      .mockReturnValueOnce('123e4567-e89b-42d3-a456-426614174000')
+      .mockReturnValueOnce('987e6543-e21b-42d3-b456-426614174999');
+    fetchMock
+      .mockReturnValueOnce(mockJsonResponse(me))
+      .mockReturnValueOnce(mockJsonResponse({ status: 'code_sent', expiresInSeconds: 600 }));
+
+    await authService.getMe('access-1');
+    await authService.requestVerificationCode('user@example.com', 'login');
+
+    const firstHeaders = fetchHeadersAt(0);
+    const secondHeaders = fetchHeadersAt(1);
+
+    expect(firstHeaders).toEqual(
+      expect.objectContaining({ 'X-Request-Id': '123e4567-e89b-42d3-a456-426614174000' })
+    );
+    expect(secondHeaders).toEqual(
+      expect.objectContaining({ 'X-Request-Id': '987e6543-e21b-42d3-b456-426614174999' })
+    );
+    expect((firstHeaders as Record<string, string>)['X-Request-Id']).toMatch(UUID_V4_REGEX);
+    expect((secondHeaders as Record<string, string>)['X-Request-Id']).toMatch(UUID_V4_REGEX);
+    expect(mockNewRequestId).toHaveBeenCalledTimes(2);
+  });
+
+  it('lets explicit caller headers override the generated X-Request-Id', async () => {
+    mockNewRequestId.mockReturnValueOnce('123e4567-e89b-42d3-a456-426614174000');
+    fetchMock.mockReturnValueOnce(mockJsonResponse(me));
+
+    await authService.getMe('access-1', {
+      headers: { 'X-Request-Id': '987e6543-e21b-42d3-b456-426614174999' },
+    });
+
+    expect(fetchHeadersAt(0)).toEqual(
+      expect.objectContaining({ 'X-Request-Id': '987e6543-e21b-42d3-b456-426614174999' })
+    );
+  });
+
+  it('forwards caller headers in getUserPreferences', async () => {
+    mockNewRequestId.mockReturnValueOnce('123e4567-e89b-42d3-a456-426614174000');
+    fetchMock.mockReturnValueOnce(
+      mockJsonResponse({ dislikedIngredients: [], likedIngredients: [] })
+    );
+
+    await authService.getUserPreferences('access-1', {
+      headers: { 'X-Custom-Header': 'custom-value' },
+    });
+
+    expect(fetchHeadersAt(0)).toEqual(
+      expect.objectContaining({
+        Authorization: 'Bearer access-1',
+        'X-Custom-Header': 'custom-value',
+      })
+    );
+  });
+
+  it('forwards caller headers in getSlotCookingTimes', async () => {
+    mockNewRequestId.mockReturnValueOnce('123e4567-e89b-42d3-a456-426614174000');
+    fetchMock.mockReturnValueOnce(
+      mockJsonResponse({
+        breakfast: null,
+        lunch: null,
+        dinner: null,
+        snack: null,
+      })
+    );
+
+    await authService.getSlotCookingTimes('access-1', {
+      headers: { 'X-Custom-Header': 'custom-value' },
+    });
+
+    expect(fetchHeadersAt(0)).toEqual(
+      expect.objectContaining({
+        Authorization: 'Bearer access-1',
+        'X-Custom-Header': 'custom-value',
+      })
+    );
+  });
+
+  it('strips a caller-supplied Authorization header so the auth layer keeps ownership', async () => {
+    mockNewRequestId.mockReturnValueOnce('123e4567-e89b-42d3-a456-426614174000');
+    fetchMock.mockReturnValueOnce(mockJsonResponse(me));
+
+    await authService.getMe('access-1', {
+      // Caller attempts to override the Bearer token. The defensive guard
+      // MUST drop this field so the server still receives the correct token.
+      headers: { Authorization: 'Bearer attacker-controlled-token' },
+    });
+
+    const sentHeaders = fetchHeadersAt(0) as Record<string, string>;
+    expect(sentHeaders.Authorization).toBe('Bearer access-1');
+    expect(sentHeaders.Authorization).not.toBe('Bearer attacker-controlled-token');
+  });
+
+  it('strips a lowercase caller-supplied authorization header (case-insensitive)', async () => {
+    mockNewRequestId.mockReturnValueOnce('123e4567-e89b-42d3-a456-426614174000');
+    fetchMock.mockReturnValueOnce(mockJsonResponse(me));
+
+    await authService.getMe('access-1', {
+      headers: { authorization: 'Bearer attacker-controlled-token' },
+    });
+
+    const sentHeaders = fetchHeadersAt(0) as Record<string, string>;
+    expect(sentHeaders.Authorization).toBe('Bearer access-1');
+    expect(sentHeaders.authorization).toBeUndefined();
   });
 
   it('stores access token, refresh token, and me after signup verification', async () => {
@@ -429,6 +550,9 @@ describe('authService', () => {
 
   describe('single-attempt retry on transient errors', () => {
     it('retries getMe once on a transient network error and returns the successful response', async () => {
+      mockNewRequestId
+        .mockReturnValueOnce('111e4567-e89b-42d3-a456-426614174000')
+        .mockReturnValueOnce('222e4567-e89b-42d3-a456-426614174000');
       fetchMock
         .mockRejectedValueOnce(new Error('offline'))
         .mockReturnValueOnce(mockJsonResponse(me));
@@ -440,6 +564,14 @@ describe('authService', () => {
       // Both attempts MUST hit /api/me with a fresh AbortController signal.
       expect(fetchMock.mock.calls[0]?.[0]).toBe('https://api.example.test/api/me');
       expect(fetchMock.mock.calls[1]?.[0]).toBe('https://api.example.test/api/me');
+      // The retry MUST use a fresh X-Request-Id so server-side traces can
+      // distinguish the two attempts and avoid deduplicating them.
+      const firstId = (fetchHeadersAt(0) as Record<string, string>)['X-Request-Id'];
+      const secondId = (fetchHeadersAt(1) as Record<string, string>)['X-Request-Id'];
+      expect(firstId).toBe('111e4567-e89b-42d3-a456-426614174000');
+      expect(secondId).toBe('222e4567-e89b-42d3-a456-426614174000');
+      expect(secondId).not.toBe(firstId);
+      expect(mockNewRequestId).toHaveBeenCalledTimes(2);
     });
 
     it('retries refreshTokens once on a transient network error', async () => {

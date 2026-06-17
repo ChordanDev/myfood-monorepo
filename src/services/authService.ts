@@ -12,6 +12,7 @@ import type {
   UserPreferences,
   UserPreferencesPayload,
 } from '@/features/auth/types/auth';
+import { newRequestId } from './requestId';
 import { secureStorage } from './secureStorage';
 
 const ACCESS_TOKEN_KEY = 'auth_access_token';
@@ -198,9 +199,15 @@ async function apiRequest<T>(
         ...options,
         headers: {
           Accept: 'application/json',
+          'X-Request-Id': newRequestId(),
           ...(options.body ? { 'Content-Type': 'application/json' } : {}),
           ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
-          ...options.headers,
+          // `Authorization` is owned by the auth layer. A caller could try
+          // to smuggle a different Bearer token (or accidentally re-send a
+          // stale one) via `options.headers`. Strip it silently — do NOT
+          // throw — so non-credential overrides (e.g. `X-Request-Id`,
+          // `Accept-Language`) keep working.
+          ...stripAuthorizationHeader(options.headers),
         },
         signal: controller.signal,
       });
@@ -231,6 +238,41 @@ async function apiRequest<T>(
     }
     throw error;
   }
+}
+
+/**
+ * Return caller-supplied headers as a plain record with the `Authorization`
+ * key removed (case-insensitive). Used by `apiRequest` to prevent a caller
+ * from overriding the Bearer token managed by the auth layer.
+ */
+function stripAuthorizationHeader(headers: HeadersInit | undefined): Record<string, string> {
+  const result: Record<string, string> = {};
+  if (!headers) return result;
+
+  if (Array.isArray(headers)) {
+    for (const [key, value] of headers) {
+      if (key.toLowerCase() !== 'authorization') {
+        result[key] = value;
+      }
+    }
+    return result;
+  }
+
+  if (typeof (headers as Headers).forEach === 'function') {
+    (headers as Headers).forEach((value, key) => {
+      if (key.toLowerCase() !== 'authorization') {
+        result[key] = value;
+      }
+    });
+    return result;
+  }
+
+  for (const [key, value] of Object.entries(headers as Record<string, string>)) {
+    if (key.toLowerCase() !== 'authorization') {
+      result[key] = value;
+    }
+  }
+  return result;
 }
 
 function isAbortError(error: unknown): boolean {
@@ -367,12 +409,23 @@ export interface RequestOptions {
    * for idempotent endpoints (GETs and refresh). Defaults to false.
    */
   retry?: boolean;
+  /**
+   * Optional headers for advanced callers. When the same key is set in
+   * `headers` and in the generated defaults (e.g. `Accept`,
+   * `Content-Type`, `X-Request-Id`), the caller value wins.
+   *
+   * Note: the `Authorization` header is **owned by the auth layer**. Any
+   * caller-supplied `Authorization` (case-insensitive) is silently dropped
+   * — `apiRequest` re-applies the Bearer token from the active session so
+   * the server always sees the right credential.
+   */
+  headers?: HeadersInit;
 }
 
 export async function getMe(accessToken: string, options?: RequestOptions): Promise<CurrentMe> {
   return apiRequest<CurrentMe>(
     '/api/me',
-    { method: 'GET' },
+    { method: 'GET', headers: options?.headers },
     accessToken,
     options?.timeoutMs,
     options?.retry ?? true
@@ -392,7 +445,7 @@ export async function getUserPreferences(
 ): Promise<UserPreferences> {
   return apiRequest<UserPreferences>(
     '/api/me/preferences',
-    { method: 'GET' },
+    { method: 'GET', headers: options?.headers },
     accessToken,
     options?.timeoutMs,
     options?.retry ?? true
@@ -419,7 +472,7 @@ export async function getSlotCookingTimes(
 ): Promise<SlotCookingTimes> {
   return apiRequest<SlotCookingTimes>(
     '/api/me/slot-cooking-times',
-    { method: 'GET' },
+    { method: 'GET', headers: options?.headers },
     accessToken,
     options?.timeoutMs,
     options?.retry ?? true
