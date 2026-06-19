@@ -22,10 +22,14 @@
 /* eslint-disable @typescript-eslint/no-require-imports */
 
 import * as React from 'react';
+import { Alert } from 'react-native';
 import { act, create } from 'react-test-renderer';
 import type { CurrentMe, AuthContextValue } from '@/features/auth/types/auth';
 import { AuthContext } from '@/features/auth/context/AuthContext';
 import { OnboardingScreen } from '@/features/preferences/screens/OnboardingScreen';
+
+const mockRouterReplace = jest.fn();
+const mockRouterPush = jest.fn();
 
 jest.mock('expo-router', () => {
   const ReactMock = require('react');
@@ -34,7 +38,7 @@ jest.mock('expo-router', () => {
       const value = typeof href === 'string' ? href : href.pathname;
       return ReactMock.createElement('RedirectMock', { testID: 'redirect' }, value);
     },
-    useRouter: () => ({ replace: jest.fn(), push: jest.fn() }),
+    useRouter: () => ({ replace: mockRouterReplace, push: mockRouterPush }),
   };
 });
 
@@ -47,10 +51,13 @@ jest.mock('expo-linear-gradient', () => {
 jest.mock('@/context/RecipeThemeContext', () => ({
   useRecipeTheme: () => ({
     theme: {
+      appBg: '#eee',
       icon: '#000',
       colorMedium: '#111',
+      colorLight: '#ddd',
       textBlack: '#fff',
       textLight: '#aaa',
+      textMedium: '#999',
       primaryAccent: '#ff0',
       colorBlack: '#000',
       colorDark: '#111',
@@ -148,11 +155,31 @@ function renderOnboardingWithValue(value: AuthContextValue) {
   return { tree: tree! };
 }
 
+function renderOnboardingPreviewWithValue(value: AuthContextValue) {
+  let tree: ReturnType<typeof create> | null = null;
+  act(() => {
+    tree = create(
+      React.createElement(
+        AuthContext.Provider,
+        { value },
+        React.createElement(OnboardingScreen, { previewMode: true })
+      )
+    );
+  });
+  return { tree: tree! };
+}
+
 function updateOnboardingWithValue(tree: ReturnType<typeof create>, value: AuthContextValue) {
   act(() => {
     tree.update(
       React.createElement(AuthContext.Provider, { value }, React.createElement(OnboardingScreen))
     );
+  });
+}
+
+function unmountTree(tree: ReturnType<typeof create>) {
+  act(() => {
+    tree.unmount();
   });
 }
 
@@ -173,12 +200,72 @@ function findRedirectHref(root: any): string | null {
   return walk(root);
 }
 
+function textContent(node: any): string {
+  return (node.children ?? [])
+    .map((child: unknown) => {
+      if (typeof child === 'string') return child;
+      if (child && typeof child === 'object') return textContent(child);
+      return '';
+    })
+    .join('');
+}
+
+function findButtonByText(root: any, text: string) {
+  return root.find(
+    (node: any) => node.props.accessibilityRole === 'button' && textContent(node).includes(text)
+  );
+}
+
 describe('OnboardingScreen — post-completion redirect stabilization (Judgment Day C2 follow-up)', () => {
+  beforeEach(() => {
+    mockRouterReplace.mockClear();
+    mockRouterPush.mockClear();
+    jest.spyOn(Alert, 'alert').mockImplementation(() => undefined);
+  });
+
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
+
+  it('renders in preview mode without redirecting when unauthenticated', () => {
+    const { tree } = renderOnboardingPreviewWithValue(buildContext(null));
+    expect(findRedirectHref(tree.root)).toBeNull();
+    unmountTree(tree);
+  });
+
+  it('does not complete onboarding or replace navigation when preview submit is pressed', async () => {
+    const completeOnboarding = jest.fn();
+    const me = makeMe({
+      user: { id: 'user-1', email: 'user@example.com', displayName: 'Preview User' },
+    });
+    const { tree } = renderOnboardingPreviewWithValue(buildContext(me, { completeOnboarding }));
+
+    await act(async () => {
+      await findButtonByText(tree.root, 'Guardar preferencias').props.onPress();
+    });
+
+    expect(completeOnboarding).not.toHaveBeenCalled();
+    expect(mockRouterReplace).not.toHaveBeenCalled();
+    unmountTree(tree);
+  });
+
+  it('does not sign out when preview close-session action is pressed', () => {
+    const signOut = jest.fn();
+    const { tree } = renderOnboardingPreviewWithValue(buildContext(makeMe(), { signOut }));
+
+    act(() => {
+      findButtonByText(tree.root, 'Cerrar sesión').props.onPress?.();
+    });
+
+    expect(signOut).not.toHaveBeenCalled();
+    unmountTree(tree);
+  });
+
   it('renders the form (no redirect) when isComplete=false initially', () => {
     const me = makeMe({ onboarding: { isComplete: false } });
     const { tree } = renderOnboardingWithValue(buildContext(me, { isComplete: false }));
     expect(findRedirectHref(tree.root)).toBeNull();
-    tree.unmount();
+    unmountTree(tree);
   });
 
   it('redirects to "/" when isComplete flips false -> true (the optimistic window)', () => {
@@ -188,6 +275,6 @@ describe('OnboardingScreen — post-completion redirect stabilization (Judgment 
 
     updateOnboardingWithValue(tree, buildContext(me, { isComplete: true }));
     expect(findRedirectHref(tree.root)).toBe('/');
-    tree.unmount();
+    unmountTree(tree);
   });
 });

@@ -122,11 +122,9 @@ function renderIndexScreenWithValue(value: AuthContextValue) {
   return { tree: tree! };
 }
 
-function updateIndexScreenWithValue(tree: ReturnType<typeof create>, value: AuthContextValue) {
+function unmountTree(tree: ReturnType<typeof create>) {
   act(() => {
-    tree.update(
-      React.createElement(AuthContext.Provider, { value }, React.createElement(IndexScreen))
-    );
+    tree.unmount();
   });
 }
 
@@ -147,19 +145,39 @@ function findRedirectHref(root: any): string | null {
   return walk(root);
 }
 
+function hasNodeType(root: any, type: string): boolean {
+  function walk(node: any): boolean {
+    if (node?.type === type) return true;
+    const children = node?.children ?? [];
+    for (const child of children) {
+      if (typeof child === 'string' || child === null || child === undefined) continue;
+      if (walk(child)) return true;
+    }
+    return false;
+  }
+  return walk(root);
+}
+
 describe('IndexScreen — redirect ping-pong with OnboardingScreen (Judgment Day C2 follow-up)', () => {
+  it('renders AuthLandingScreen instead of redirecting to onboarding when unauthenticated', () => {
+    const { tree } = renderIndexScreenWithValue(buildContext(null));
+    expect(findRedirectHref(tree.root)).toBeNull();
+    expect(hasNodeType(tree.root, 'AuthLandingMock')).toBe(true);
+    unmountTree(tree);
+  });
+
   it('routes to /onboarding when the user is authenticated but not complete (initial state)', () => {
     const me = makeMe({ onboarding: { isComplete: false } });
     const { tree } = renderIndexScreenWithValue(buildContext(me));
     expect(findRedirectHref(tree.root)).toBe('/onboarding');
-    tree.unmount();
+    unmountTree(tree);
   });
 
   it('routes to /onboarding when isComplete=false (initial / pre-submit state)', () => {
     const me = makeMe({ onboarding: { isComplete: false } });
     const { tree } = renderIndexScreenWithValue(buildContext(me, { isComplete: false }));
     expect(findRedirectHref(tree.root)).toBe('/onboarding');
-    tree.unmount();
+    unmountTree(tree);
   });
 
   it('routes to /(tabs)/home (NOT /onboarding) when isComplete=true even if me.onboarding.isComplete is still false (the optimistic window)', () => {
@@ -177,7 +195,7 @@ describe('IndexScreen — redirect ping-pong with OnboardingScreen (Judgment Day
     const me = makeMe({ onboarding: { isComplete: false } });
     const { tree } = renderIndexScreenWithValue(buildContext(me, { isComplete: true }));
     expect(findRedirectHref(tree.root)).toBe('/(tabs)/home');
-    tree.unmount();
+    unmountTree(tree);
   });
 
   // The previous "stays on /(tabs)/home when me reference changes"

@@ -85,6 +85,10 @@ export function AuthLandingScreen() {
     }
   }, [isRequestingLoginCode, loginEmail, requestVerificationCode, router]);
 
+  const handleOpenOnboardingPreview = useCallback(() => {
+    router.push('/onboarding-preview');
+  }, [router]);
+
   // Estabiliza la referencia para evitar re-renders en AuthCredentialsForm.
   const handleCredentialsChange = useCallback(({ email }: { email: string }) => {
     setLoginEmail(email);
@@ -138,6 +142,12 @@ export function AuthLandingScreen() {
             variant="secondary"
             metrics={metrics}
             onPress={openRegisterModal}
+          />
+          <AuthButton
+            title="Ver preview onboarding"
+            variant="secondary"
+            metrics={metrics}
+            onPress={handleOpenOnboardingPreview}
           />
           <SocialLogin metrics={metrics} />
         </View>

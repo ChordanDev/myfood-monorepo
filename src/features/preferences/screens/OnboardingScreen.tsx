@@ -5,7 +5,7 @@ import {
   Pressable,
   ScrollView,
   Text,
-  TextInput,
+  useWindowDimensions,
   View,
 } from 'react-native';
 import { Redirect, useRouter } from 'expo-router';
@@ -20,14 +20,14 @@ import type {
   MealSlot,
   SlotCookingTime,
 } from '@/features/auth/types/auth';
+import type { DietCode, HardRestrictionCode } from '@/features/preferences/constants/catalog';
+import { COOKING_SKILLS } from '@/features/preferences/constants/onboardingOptions';
 import {
-  DIET_CODES,
-  DIET_LABELS,
-  HARD_RESTRICTION_CODES,
-  HARD_RESTRICTION_LABELS,
-  type DietCode,
-  type HardRestrictionCode,
-} from '@/features/preferences/constants/catalog';
+  HouseholdSection,
+  MealTimesSection,
+  OnboardingHero,
+  PreferencesSection,
+} from '@/features/preferences/components/onboarding';
 import {
   OnboardingValidationError,
   buildOnboardingPayload,
@@ -35,68 +35,21 @@ import {
 } from '@/features/preferences/utils/onboardingPayload';
 import { canSubmitOnboarding } from '@/features/preferences/utils/onboardingSubmitGate';
 import { parseListInput } from '@/features/preferences/utils/parseListInput';
+import {
+  buildSlot,
+  buildSlotForm,
+  defaultSlot,
+  type SlotFormState,
+  type SlotMode,
+} from '@/features/preferences/utils/onboardingSlot';
 
-const COOKING_SKILLS: readonly CookingSkill[] = ['beginner', 'intermediate', 'advanced'];
-const HUNGER_LEVELS: readonly HungerLevel[] = ['light', 'normal', 'strong'];
-const MEAL_SLOTS: readonly MealSlot[] = ['breakfast', 'lunch', 'dinner'];
-
-// Preset minute buckets shown in the UI. The spec requires serialization as
-// integer minutes, so the buckets are simply integer values.
-const SLOT_PRESET_BUCKETS: readonly number[] = [0, 10, 20, 30, 45, 60];
-
-const SLOT_LABELS: Record<MealSlot, string> = {
-  breakfast: 'Desayuno',
-  lunch: 'Almuerzo',
-  dinner: 'Cena',
-};
-
-type SlotMode = 'noCook' | 'preset' | 'custom';
-
-function buildSlot(mode: SlotMode, value: number, hunger: HungerLevel): SlotCookingTime {
-  // Spec contract: no cook -> 0, preset -> bucket integer, custom -> integer minutes.
-  if (mode === 'noCook') {
-    return { cookingTimeMinutes: 0, hungerLevel: hunger };
-  }
-  if (mode === 'custom') {
-    const safe = Math.max(0, Math.floor(value));
-    return { cookingTimeMinutes: safe, hungerLevel: hunger };
-  }
-  return { cookingTimeMinutes: Math.max(0, Math.floor(value)), hungerLevel: hunger };
+interface OnboardingScreenProps {
+  previewMode?: boolean;
 }
 
-function defaultSlot(mode: SlotMode = 'noCook'): SlotCookingTime {
-  return { cookingTimeMinutes: mode === 'noCook' ? 0 : 30, hungerLevel: 'normal' };
-}
-
-interface SlotFormState {
-  mode: SlotMode;
-  preset: number;
-  customText: string;
-  hunger: HungerLevel;
-}
-
-function buildSlotForm(slot: SlotCookingTime): SlotFormState {
-  if (slot.cookingTimeMinutes === 0) {
-    return { mode: 'noCook', preset: 30, customText: '', hunger: slot.hungerLevel };
-  }
-  if (SLOT_PRESET_BUCKETS.includes(slot.cookingTimeMinutes)) {
-    return {
-      mode: 'preset',
-      preset: slot.cookingTimeMinutes,
-      customText: '',
-      hunger: slot.hungerLevel,
-    };
-  }
-  return {
-    mode: 'custom',
-    preset: 30,
-    customText: String(slot.cookingTimeMinutes),
-    hunger: slot.hungerLevel,
-  };
-}
-
-export function OnboardingScreen() {
+export function OnboardingScreen({ previewMode = false }: OnboardingScreenProps) {
   const router = useRouter();
+  const { width } = useWindowDimensions();
   const { theme } = useRecipeTheme();
   const { isAuthenticated, isLoading, isComplete, accessToken, completeOnboarding, user, signOut } =
     useAuth();
@@ -197,6 +150,11 @@ export function OnboardingScreen() {
       return;
     }
 
+    if (previewMode) {
+      Alert.alert('Modo preview', 'El formulario se renderiza sin guardar cambios.');
+      return;
+    }
+
     const formState: OnboardingFormState = {
       displayName: trimmedDisplayName,
       householdSize: householdSizeNumber ?? 1,
@@ -244,17 +202,18 @@ export function OnboardingScreen() {
     householdSizeNumber,
     isLoading,
     isValid,
+    previewMode,
     router,
     softPreferences,
     submitting,
     trimmedDisplayName,
   ]);
 
-  if (!isLoading && !isAuthenticated) {
+  if (!previewMode && !isLoading && !isAuthenticated) {
     return <Redirect href="/" />;
   }
 
-  if (!isLoading && isComplete) {
+  if (!previewMode && !isLoading && isComplete) {
     return <Redirect href="/" />;
   }
 
@@ -266,175 +225,93 @@ export function OnboardingScreen() {
   const submitDisabled = !canSubmitOnboarding({
     isLoading,
     isSubmitting: submitting,
-    hasAccessToken: accessToken !== null,
+    hasAccessToken: previewMode || accessToken !== null,
     isValid,
   });
 
+  const isCompact = width < 380;
+
   return (
     <LinearGradient
-      colors={[theme.colorBlack, theme.colorDark, theme.colorMedium]}
+      colors={[theme.appBg, '#D4CCAE', theme.appBg]}
       start={{ x: 0, y: 0 }}
-      end={{ x: 1, y: 1 }}
+      end={{ x: 0.8, y: 1 }}
       style={{ flex: 1 }}>
-      <NoisyBackground opacity={0.2} />
-      <SafeAreaContent>
+      <NoisyBackground opacity={0.28} />
+      <LinearGradient
+        pointerEvents="none"
+        colors={['rgba(10, 13, 7, 0.38)', 'rgba(10, 13, 7, 0)', 'rgba(10, 13, 7, 0.16)']}
+        locations={[0, 0.22, 1]}
+        style={{ bottom: 0, left: 0, position: 'absolute', right: 0, top: 0 }}
+      />
+      <SafeAreaContent overflowHidden={false}>
         <ScrollView
           contentInsetAdjustmentBehavior="automatic"
-          contentContainerStyle={{ paddingBottom: 40, gap: 24 }}
+          contentContainerStyle={{ paddingBottom: 32, gap: 18, paddingHorizontal: 12 }}
           keyboardShouldPersistTaps="handled">
-          <View className="px-7 pt-6">
-            <Text className="font-montserrat-bold text-[28px]" style={{ color: theme.textBlack }}>
-              Configurá tu cuenta
-            </Text>
-            <Text
-              className="font-inter-regular mt-2 text-sm"
-              style={{ color: theme.primaryAccent }}>
-              Necesitamos unos datos para personalizar tus comidas. Podés editarlos más tarde desde
-              el perfil.
-            </Text>
-          </View>
+          <OnboardingHero isCompact={isCompact} theme={theme} />
 
-          <View className="px-7" style={{ gap: 16 }}>
-            <Text className="font-montserrat-semibold text-lg" style={{ color: theme.textBlack }}>
-              Tu perfil
-            </Text>
+          <HouseholdSection
+            cookingSkill={cookingSkill}
+            displayName={displayName}
+            householdSize={householdSize}
+            householdSizeNumber={householdSizeNumber}
+            onCookingSkillChange={setCookingSkill}
+            onDisplayNameChange={setDisplayName}
+            onHouseholdSizeChange={setHouseholdSize}
+            theme={theme}
+          />
 
-            <FieldLabel theme={theme} text="Nombre para mostrar" />
-            <TextInput
-              accessibilityLabel="displayName"
-              value={displayName}
-              onChangeText={setDisplayName}
-              maxLength={60}
-              placeholder="Cómo te llamamos"
-              placeholderTextColor={theme.textLight}
-              className="font-inter-regular rounded-2xl px-4 py-3 text-base"
-              style={{ backgroundColor: theme.icon, color: theme.colorMedium }}
-            />
+          <PreferencesSection
+            diet={diet}
+            hardRestrictions={hardRestrictions}
+            onDietChange={setDiet}
+            onSoftPreferencesChange={setSoftPreferences}
+            onToggleHardRestriction={handleToggleHardRestriction}
+            softPreferences={softPreferences}
+            theme={theme}
+          />
 
-            <FieldLabel theme={theme} text="Personas en casa (1-20)" />
-            <TextInput
-              accessibilityLabel="householdSize"
-              value={householdSize}
-              onChangeText={(text) => setHouseholdSize(text.replace(/[^0-9]/g, ''))}
-              keyboardType="number-pad"
-              maxLength={2}
-              className="font-inter-regular rounded-2xl px-4 py-3 text-base"
-              style={{ backgroundColor: theme.icon, color: theme.colorMedium }}
-            />
+          <MealTimesSection
+            onSlotCustomChange={handleSlotCustomChange}
+            onSlotHungerChange={handleSlotHungerChange}
+            onSlotModeChange={handleSlotModeChange}
+            onSlotPresetChange={handleSlotPresetChange}
+            slots={slots}
+            theme={theme}
+          />
 
-            <FieldLabel theme={theme} text="Tu experiencia cocinando" />
-            <View className="flex-row" style={{ gap: 8 }}>
-              {COOKING_SKILLS.map((skill) => (
-                <Chip
-                  key={skill}
-                  label={skill}
-                  selected={cookingSkill === skill}
-                  onPress={() => setCookingSkill(skill)}
-                  theme={theme}
-                />
-              ))}
-            </View>
-          </View>
-
-          <View className="px-7" style={{ gap: 16 }}>
-            <Text className="font-montserrat-semibold text-lg" style={{ color: theme.textBlack }}>
-              Tus preferencias
-            </Text>
-
-            <FieldLabel theme={theme} text="Dieta (opcional)" />
-            <View className="flex-row flex-wrap" style={{ gap: 8 }}>
-              <Chip
-                key="none"
-                label="Ninguna"
-                selected={diet === null}
-                onPress={() => setDiet(null)}
-                theme={theme}
-              />
-              {DIET_CODES.map((code) => (
-                <Chip
-                  key={code}
-                  label={DIET_LABELS[code]}
-                  selected={diet === code}
-                  onPress={() => setDiet(code)}
-                  theme={theme}
-                />
-              ))}
-            </View>
-
-            <FieldLabel theme={theme} text="Restricciones duras" />
-            <Text className="font-inter-regular text-xs" style={{ color: theme.primaryAccent }}>
-              Tocá para activar o desactivar.
-            </Text>
-            <View className="flex-row flex-wrap" style={{ gap: 8 }}>
-              {HARD_RESTRICTION_CODES.map((code) => (
-                <Chip
-                  key={code}
-                  label={HARD_RESTRICTION_LABELS[code]}
-                  selected={hardRestrictions.includes(code)}
-                  onPress={() => handleToggleHardRestriction(code)}
-                  theme={theme}
-                />
-              ))}
-            </View>
-
-            <FieldLabel theme={theme} text="Preferencias suaves (separadas por coma)" />
-            <TextInput
-              accessibilityLabel="softPreferences"
-              value={softPreferences}
-              onChangeText={setSoftPreferences}
-              placeholder="ej. cilantro, picante"
-              placeholderTextColor={theme.textLight}
-              className="font-inter-regular rounded-2xl px-4 py-3 text-base"
-              style={{ backgroundColor: theme.icon, color: theme.colorMedium }}
-            />
-          </View>
-
-          <View className="px-7" style={{ gap: 16 }}>
-            <Text className="font-montserrat-semibold text-lg" style={{ color: theme.textBlack }}>
-              Tiempos por comida
-            </Text>
-            <Text className="font-inter-regular text-xs" style={{ color: theme.primaryAccent }}>
-              Indicá cuántos minutos dedicás a cocinar cada comida. Si no cocinás, elegí “No
-              cocino”.
-            </Text>
-            {MEAL_SLOTS.map((slot) => (
-              <SlotEditor
-                key={slot}
-                slot={slot}
-                form={slots[slot]}
-                onModeChange={(mode) => handleSlotModeChange(slot, mode)}
-                onPresetChange={(value) => handleSlotPresetChange(slot, value)}
-                onCustomChange={(text) => handleSlotCustomChange(slot, text)}
-                onHungerChange={(hunger) => handleSlotHungerChange(slot, hunger)}
-              />
-            ))}
-          </View>
-
-          <View className="px-7" style={{ gap: 12 }}>
+          <View style={{ gap: 12, paddingHorizontal: 2 }}>
             <Pressable
               accessibilityRole="button"
               onPress={handleSubmit}
               disabled={submitDisabled}
-              className="items-center rounded-2xl py-4 active:opacity-90"
+              className="active:opacity-90"
               style={{
-                backgroundColor: theme.colorMedium,
+                alignItems: 'center',
+                backgroundColor: submitDisabled ? 'rgba(69, 64, 47, 0.58)' : theme.colorBlack,
+                borderColor: submitDisabled ? 'transparent' : theme.primaryAccent,
+                borderRadius: 32,
+                borderWidth: 3,
+                paddingHorizontal: 20,
+                paddingVertical: 16,
                 opacity: submitDisabled ? 0.6 : 1,
               }}>
               {submitting ? (
                 <ActivityIndicator size="small" color={theme.primaryAccent} />
               ) : (
                 <Text
-                  className="font-inter-semibold text-base"
-                  style={{ color: theme.primaryAccent }}>
-                  Guardar y continuar
+                  className="font-montserrat-bold text-base"
+                  style={{ color: theme.textLight, letterSpacing: 0.2 }}>
+                  Guardar preferencias
                 </Text>
               )}
             </Pressable>
             <Pressable
               accessibilityRole="button"
-              onPress={signOut}
+              onPress={previewMode ? undefined : signOut}
               className="items-center rounded-2xl py-3 active:opacity-80">
-              <Text className="font-inter-medium text-sm" style={{ color: theme.primaryAccent }}>
+              <Text className="font-inter-semibold text-sm" style={{ color: theme.colorMedium }}>
                 Cerrar sesión
               </Text>
             </Pressable>
@@ -442,138 +319,5 @@ export function OnboardingScreen() {
         </ScrollView>
       </SafeAreaContent>
     </LinearGradient>
-  );
-}
-
-interface ThemeLike {
-  icon: string;
-  colorMedium: string;
-  textBlack: string;
-  textLight: string;
-  primaryAccent: string;
-}
-
-function FieldLabel({ theme, text }: { theme: ThemeLike; text: string }) {
-  return (
-    <Text className="font-inter-semibold text-sm" style={{ color: theme.textBlack }}>
-      {text}
-    </Text>
-  );
-}
-
-function Chip({
-  label,
-  selected,
-  onPress,
-  theme,
-}: {
-  label: string;
-  selected: boolean;
-  onPress: () => void;
-  theme: ThemeLike;
-}) {
-  return (
-    <Pressable
-      accessibilityRole="button"
-      accessibilityState={{ selected }}
-      onPress={onPress}
-      className="items-center rounded-2xl px-4 py-3 active:opacity-80"
-      style={{
-        backgroundColor: selected ? theme.colorMedium : theme.icon,
-        borderWidth: 1,
-        borderColor: selected ? theme.colorMedium : 'transparent',
-      }}>
-      <Text
-        className="font-inter-medium text-sm"
-        style={{ color: selected ? theme.primaryAccent : theme.textBlack }}>
-        {label}
-      </Text>
-    </Pressable>
-  );
-}
-
-function SlotEditor({
-  slot,
-  form,
-  onModeChange,
-  onPresetChange,
-  onCustomChange,
-  onHungerChange,
-}: {
-  slot: MealSlot;
-  form: SlotFormState;
-  onModeChange: (mode: SlotMode) => void;
-  onPresetChange: (value: number) => void;
-  onCustomChange: (text: string) => void;
-  onHungerChange: (hunger: HungerLevel) => void;
-}) {
-  const theme = useRecipeTheme().theme as unknown as ThemeLike;
-
-  return (
-    <View className="rounded-3xl p-4" style={{ backgroundColor: theme.icon, gap: 12 }}>
-      <Text className="font-montserrat-semibold text-base" style={{ color: theme.colorMedium }}>
-        {SLOT_LABELS[slot]}
-      </Text>
-
-      <View className="flex-row" style={{ gap: 8 }}>
-        <Chip
-          label="No cocino"
-          selected={form.mode === 'noCook'}
-          onPress={() => onModeChange('noCook')}
-          theme={theme}
-        />
-        <Chip
-          label="Preset"
-          selected={form.mode === 'preset'}
-          onPress={() => onModeChange('preset')}
-          theme={theme}
-        />
-        <Chip
-          label="Custom"
-          selected={form.mode === 'custom'}
-          onPress={() => onModeChange('custom')}
-          theme={theme}
-        />
-      </View>
-
-      {form.mode === 'preset' ? (
-        <View className="flex-row flex-wrap" style={{ gap: 8 }}>
-          {SLOT_PRESET_BUCKETS.map((value) => (
-            <Chip
-              key={value}
-              label={`${value} min`}
-              selected={form.preset === value}
-              onPress={() => onPresetChange(value)}
-              theme={theme}
-            />
-          ))}
-        </View>
-      ) : null}
-
-      {form.mode === 'custom' ? (
-        <TextInput
-          accessibilityLabel={`${slot}-custom-minutes`}
-          value={form.customText}
-          onChangeText={onCustomChange}
-          keyboardType="number-pad"
-          placeholder="Minutos personalizados"
-          placeholderTextColor={theme.textLight}
-          className="font-inter-regular rounded-2xl px-4 py-3 text-base"
-          style={{ backgroundColor: theme.colorMedium, color: theme.primaryAccent }}
-        />
-      ) : null}
-
-      <View className="flex-row" style={{ gap: 8 }}>
-        {HUNGER_LEVELS.map((hunger) => (
-          <Chip
-            key={hunger}
-            label={hunger}
-            selected={form.hunger === hunger}
-            onPress={() => onHungerChange(hunger)}
-            theme={theme}
-          />
-        ))}
-      </View>
-    </View>
   );
 }
