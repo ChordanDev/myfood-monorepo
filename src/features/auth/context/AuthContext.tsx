@@ -238,20 +238,12 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
   const completeOnboarding = useCallback(
     async (payload: OnboardingCompletionRequest): Promise<OnboardingCompletionResponse> => {
-      const token = accessTokenRef.current;
-      if (!token) {
-        throw new authService.AuthApiError(
-          'unauthenticated',
-          'No active session to complete onboarding.'
-        );
-      }
-
       // Judgment Day C2: the POST result is the source of truth. The
       // follow-up refreshMe() is a soft read; if it fails the gate
       // must not flip the user back to the Onboarding screen because
       // the server already accepted the completion. The reconciliation
       // policy is unit-tested in `postCompletion.test.ts`.
-      const result = await authService.completeOnboarding(token, payload);
+      const result = await authService.completeOnboarding(payload);
 
       const session = await authService.persistOnboardingCompletionForStoredSession();
       if (session?.accessToken) {
@@ -286,51 +278,23 @@ export function AuthProvider({ children }: AuthProviderProps) {
   );
 
   const fetchUserPreferences = useCallback(async (): Promise<UserPreferences> => {
-    const token = accessTokenRef.current;
-    if (!token) {
-      throw new authService.AuthApiError(
-        'unauthenticated',
-        'No active session to read preferences.'
-      );
-    }
-    return authService.getUserPreferences(token);
+    return authService.getUserPreferences();
   }, []);
 
   const saveUserPreferences = useCallback(
     async (payload: UserPreferencesPayload): Promise<UserPreferences> => {
-      const token = accessTokenRef.current;
-      if (!token) {
-        throw new authService.AuthApiError(
-          'unauthenticated',
-          'No active session to save preferences.'
-        );
-      }
-      return authService.updateUserPreferences(token, payload);
+      return authService.updateUserPreferences(payload);
     },
     []
   );
 
   const fetchSlotCookingTimes = useCallback(async (): Promise<SlotCookingTimes> => {
-    const token = accessTokenRef.current;
-    if (!token) {
-      throw new authService.AuthApiError(
-        'unauthenticated',
-        'No active session to read slot cooking times.'
-      );
-    }
-    return authService.getSlotCookingTimes(token);
+    return authService.getSlotCookingTimes();
   }, []);
 
   const saveSlotCookingTimes = useCallback(
     async (payload: SlotCookingTimesPayload): Promise<SlotCookingTimes> => {
-      const token = accessTokenRef.current;
-      if (!token) {
-        throw new authService.AuthApiError(
-          'unauthenticated',
-          'No active session to save slot cooking times.'
-        );
-      }
-      return authService.updateSlotCookingTimes(token, payload);
+      return authService.updateSlotCookingTimes(payload);
     },
     []
   );

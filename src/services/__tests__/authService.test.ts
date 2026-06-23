@@ -574,19 +574,24 @@ describe('authService', () => {
       expect(mockNewRequestId).toHaveBeenCalledTimes(2);
     });
 
-    it('retries refreshTokens once on a transient network error', async () => {
-      fetchMock.mockRejectedValueOnce(new Error('offline')).mockReturnValueOnce(
-        mockJsonResponse({
-          accessToken: 'new-access',
-          refreshToken: 'new-refresh',
-          tokenType: 'Bearer',
-        })
-      );
+    it('does NOT retry refreshTokens when the first attempt hits a transient error', async () => {
+      fetchMock.mockRejectedValueOnce(new Error('offline'));
 
-      const result = await authService.refreshTokens('refresh-1');
+      await expect(authService.refreshTokens('refresh-1')).rejects.toMatchObject({
+        code: 'network_error',
+      });
 
-      expect(result.accessToken).toBe('new-access');
-      expect(fetchMock).toHaveBeenCalledTimes(2);
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    });
+
+    it('throws a typed unauthenticated error when refreshing without a refresh token', async () => {
+      await expect(authService.refreshTokens()).rejects.toMatchObject({
+        name: 'AuthApiError',
+        code: 'unauthenticated',
+        status: 401,
+      });
+
+      expect(fetchMock).not.toHaveBeenCalled();
     });
 
     it('does NOT retry verifyCode when the first attempt hits a transient error (OTP could be consumed)', async () => {
@@ -633,6 +638,137 @@ describe('authService', () => {
       await expect(authService.getMe('access-1')).rejects.toMatchObject({ code: 'network_error' });
 
       expect(fetchMock).toHaveBeenCalledTimes(2);
+    });
+  });
+
+  describe('refresh coordination', () => {
+    it('deduplicates concurrent refreshTokens calls so a rotating refresh token is used once', async () => {
+      fetchMock.mockReturnValueOnce(
+        mockJsonResponse({
+          accessToken: 'new-access',
+          refreshToken: 'new-refresh',
+          tokenType: 'Bearer',
+        })
+      );
+
+      const [first, second] = await Promise.all([
+        authService.refreshTokens('refresh-1'),
+        authService.refreshTokens('refresh-1'),
+      ]);
+
+      expect(first).toEqual(second);
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      expect(fetchMock).toHaveBeenCalledWith(
+        'https://api.example.test/api/auth/refresh',
+        expect.objectContaining({
+          method: 'POST',
+          body: JSON.stringify({ refreshToken: 'refresh-1' }),
+        })
+      );
+    });
+
+    it('replays an authenticated client request once after a deduped refresh', async () => {
+      await authService.persistSession({
+        accessToken: 'old-access',
+        refreshToken: 'old-refresh',
+        tokenType: 'Bearer',
+        me,
+      });
+      fetchMock
+        .mockReturnValueOnce(
+          mockJsonResponse(
+            { error: { code: 'access_token_expired', message: 'expired' } },
+            false,
+            401
+          )
+        )
+        .mockReturnValueOnce(
+          mockJsonResponse({
+            accessToken: 'new-access',
+            refreshToken: 'new-refresh',
+            tokenType: 'Bearer',
+          })
+        )
+        .mockReturnValueOnce(
+          mockJsonResponse({ diet: null, hardRestrictions: [], softPreferences: [] })
+        );
+
+      const result = await authService.getUserPreferences();
+
+      expect(result).toEqual({ diet: null, hardRestrictions: [], softPreferences: [] });
+      expect(fetchMock).toHaveBeenCalledTimes(3);
+      expect(fetchMock.mock.calls[0]?.[0]).toBe('https://api.example.test/api/me/preferences');
+      expect(fetchMock.mock.calls[1]?.[0]).toBe('https://api.example.test/api/auth/refresh');
+      expect(fetchMock.mock.calls[2]?.[0]).toBe('https://api.example.test/api/me/preferences');
+      expect(fetchHeadersAt(2)).toEqual(
+        expect.objectContaining({ Authorization: 'Bearer new-access' })
+      );
+      await expect(authService.getStoredSession()).resolves.toMatchObject({
+        accessToken: 'new-access',
+        refreshToken: 'new-refresh',
+      });
+    });
+
+    it('deduplicates refresh and replays both concurrent authenticated 401 responses with the rotated access token', async () => {
+      await authService.persistSession({
+        accessToken: 'old-access',
+        refreshToken: 'old-refresh',
+        tokenType: 'Bearer',
+        me,
+      });
+      const prefs = { diet: null, hardRestrictions: [], softPreferences: [] };
+      fetchMock
+        .mockReturnValueOnce(
+          mockJsonResponse(
+            { error: { code: 'access_token_expired', message: 'expired' } },
+            false,
+            401
+          )
+        )
+        .mockReturnValueOnce(
+          mockJsonResponse({ error: { code: 'unauthenticated', message: 'expired' } }, false, 401)
+        )
+        .mockReturnValueOnce(
+          mockJsonResponse({
+            accessToken: 'new-access',
+            refreshToken: 'new-refresh',
+            tokenType: 'Bearer',
+          })
+        )
+        .mockReturnValueOnce(mockJsonResponse(prefs))
+        .mockReturnValueOnce(mockJsonResponse(prefs));
+
+      const [first, second] = await Promise.all([
+        authService.getUserPreferences(),
+        authService.getUserPreferences(),
+      ]);
+
+      expect(first).toEqual(prefs);
+      expect(second).toEqual(prefs);
+      expect(fetchMock).toHaveBeenCalledTimes(5);
+      expect(fetchMock.mock.calls.map((call) => call[0])).toEqual([
+        'https://api.example.test/api/me/preferences',
+        'https://api.example.test/api/me/preferences',
+        'https://api.example.test/api/auth/refresh',
+        'https://api.example.test/api/me/preferences',
+        'https://api.example.test/api/me/preferences',
+      ]);
+      expect(fetchHeadersAt(0)).toEqual(
+        expect.objectContaining({ Authorization: 'Bearer old-access' })
+      );
+      expect(fetchHeadersAt(1)).toEqual(
+        expect.objectContaining({ Authorization: 'Bearer old-access' })
+      );
+      expect(fetchHeadersAt(3)).toEqual(
+        expect.objectContaining({ Authorization: 'Bearer new-access' })
+      );
+      expect(fetchHeadersAt(4)).toEqual(
+        expect.objectContaining({ Authorization: 'Bearer new-access' })
+      );
+      await expect(authService.getStoredSession()).resolves.toMatchObject({
+        accessToken: 'new-access',
+        refreshToken: 'new-refresh',
+      });
     });
   });
 });
