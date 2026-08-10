@@ -28,18 +28,21 @@ export function AuthButton({
   const activeBg = isPrimary
     ? getColorWithOpacity('colorLight', 0.8)
     : getColorWithOpacity('colorMedium', 0.8);
-  const minHeight = Math.max(68, metrics.buttonFontSize + metrics.buttonVerticalPadding * 2);
+  const minHeight = Math.max(44, metrics.buttonFontSize + metrics.buttonVerticalPadding * 2);
 
   return (
     <View
       style={{
         width: '100%',
+        minHeight,
+        flexShrink: 0,
         marginTop: metrics.buttonTopMargin,
         paddingHorizontal: metrics.horizontalPadding,
       }}>
       <View
         style={{
           width: '100%',
+          height: minHeight,
           backgroundColor,
           borderRadius: metrics.buttonRadius,
           opacity: disabled ? 0.55 : 1,
@@ -53,23 +56,29 @@ export function AuthButton({
           accessibilityState={{ disabled }}
           style={({ pressed }) => ({
             width: '100%',
-            minHeight,
-            alignItems: 'center',
-            justifyContent: 'center',
+            height: minHeight,
             backgroundColor: pressed ? activeBg : 'transparent',
-            paddingVertical: metrics.buttonVerticalPadding,
             transform: [{ scale: pressed ? 0.97 : 1 }],
           })}>
-          <Text
+          <View
             style={{
               width: '100%',
-              textAlign: 'center',
-              fontSize: metrics.buttonFontSize,
-              color: textColor,
-            }}
-            className="font-inter-medium">
-            {title}
-          </Text>
+              height: '100%',
+              alignItems: 'center',
+              justifyContent: 'center',
+            }}>
+            <Text
+              style={{
+                textAlign: 'center',
+                includeFontPadding: false,
+                fontSize: metrics.buttonFontSize,
+                lineHeight: Math.round(metrics.buttonFontSize * 1.2),
+                color: textColor,
+              }}
+              className="font-inter-medium">
+              {title}
+            </Text>
+          </View>
         </Pressable>
       </View>
     </View>
