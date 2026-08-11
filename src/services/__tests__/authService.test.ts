@@ -57,6 +57,7 @@ const fetchMock = jest.fn();
 
 describe('authService', () => {
   const originalApiUrl = process.env.EXPO_PUBLIC_API_URL;
+  const originalCrypto = globalThis.crypto;
 
   beforeEach(() => {
     mockSecureStore.clear();
@@ -64,6 +65,13 @@ describe('authService', () => {
     mockNewRequestId.mockClear();
     global.fetch = fetchMock;
     process.env.EXPO_PUBLIC_API_URL = 'https://api.example.test';
+  });
+
+  afterEach(() => {
+    Object.defineProperty(globalThis, 'crypto', {
+      configurable: true,
+      value: originalCrypto,
+    });
   });
 
   afterAll(() => {
@@ -223,6 +231,31 @@ describe('authService', () => {
       refreshToken: 'refresh-1',
       me,
     });
+  });
+
+  it('reaches login verification when the React Native runtime has no crypto API', async () => {
+    Object.defineProperty(globalThis, 'crypto', {
+      configurable: true,
+      value: undefined,
+    });
+    fetchMock.mockReturnValueOnce(
+      mockJsonResponse({
+        accessToken: 'access-1',
+        refreshToken: 'refresh-1',
+        tokenType: 'Bearer',
+        me,
+      })
+    );
+
+    await authService.verifyAndSignIn('user@example.com', '123456');
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      'https://api.example.test/api/auth/login/verify-code',
+      expect.objectContaining({
+        method: 'POST',
+        body: expect.stringContaining('"code":"123456"'),
+      })
+    );
   });
 
   it('refreshes with rotation, persists the new refresh token, and then reloads /me', async () => {
@@ -489,6 +522,9 @@ describe('authService', () => {
     });
 
     it('produces a different UUID each time storage is empty', async () => {
+      mockNewRequestId
+        .mockReturnValueOnce('123e4567-e89b-42d3-a456-426614174000')
+        .mockReturnValueOnce('987e6543-e21b-42d3-b456-426614174999');
       // Two independent test runs (each starts with an empty mock store)
       // should produce two different UUIDs. UUID v4 has ~5.3×10³⁶
       // possible values, so a collision is astronomically unlikely.

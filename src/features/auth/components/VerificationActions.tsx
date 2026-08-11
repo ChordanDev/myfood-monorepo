@@ -20,6 +20,7 @@ export function VerificationActions({
   return (
     <View>
       <Pressable
+        testID="e2e-verify-code"
         onPress={onVerify}
         disabled={isVerifying}
         className="mt-5 items-center rounded-2xl py-4 active:opacity-90"

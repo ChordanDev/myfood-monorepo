@@ -11,6 +11,7 @@ export function VerificationCodeInput({ value, onChange }: VerificationCodeInput
   return (
     <View className="mt-8 rounded-2xl" style={{ backgroundColor: theme.icon }}>
       <TextInput
+        testID="e2e-verification-code"
         value={value}
         // Filtra a 6 digitos y evita caracteres no numericos.
         onChangeText={(text) => onChange(text.replace(/[^0-9]/g, '').slice(0, 6))}

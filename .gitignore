@@ -29,3 +29,6 @@ android
 .atl/
 .pi/
 .pi-lens/
+
+# Local Maestro reports, screenshots, videos, and command traces.
+e2e/artifacts/
