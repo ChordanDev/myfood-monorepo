@@ -23,12 +23,13 @@
 
 import { useMemo } from 'react';
 import { useAuth } from '@/features/auth/hooks/useAuth';
+import { isStartHomeBypassEnabled } from '@/navigation/start-home-bypass';
 import { resolveIndexGate, type IndexRoute } from './indexGate';
 
-export function useIndexRoute(): IndexRoute {
+export function useIndexRoute(startHomeBypassEnabled = isStartHomeBypassEnabled()): IndexRoute {
   const { isAuthenticated, isComplete, canUseApp } = useAuth();
   return useMemo(
-    () => resolveIndexGate({ isAuthenticated, isComplete, canUseApp }),
-    [isAuthenticated, isComplete, canUseApp]
+    () => resolveIndexGate({ isAuthenticated, isComplete, canUseApp }, startHomeBypassEnabled),
+    [isAuthenticated, isComplete, canUseApp, startHomeBypassEnabled]
   );
 }

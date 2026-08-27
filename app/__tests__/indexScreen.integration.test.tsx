@@ -159,10 +159,34 @@ function hasNodeType(root: any, type: string): boolean {
 }
 
 describe('IndexScreen — redirect ping-pong with OnboardingScreen (Judgment Day C2 follow-up)', () => {
-  it('renders AuthLandingScreen instead of redirecting to onboarding when unauthenticated', () => {
+  const originalStartHomeFlag = process.env.EXPO_PUBLIC_START_HOME;
+
+  beforeEach(() => {
+    delete process.env.EXPO_PUBLIC_START_HOME;
+  });
+
+  afterAll(() => {
+    if (originalStartHomeFlag === undefined) {
+      delete process.env.EXPO_PUBLIC_START_HOME;
+    } else {
+      process.env.EXPO_PUBLIC_START_HOME = originalStartHomeFlag;
+    }
+  });
+
+  it('renders AuthLandingScreen when unauthenticated and the development bypass is disabled', () => {
     const { tree } = renderIndexScreenWithValue(buildContext(null));
     expect(findRedirectHref(tree.root)).toBeNull();
     expect(hasNodeType(tree.root, 'AuthLandingMock')).toBe(true);
+    unmountTree(tree);
+  });
+
+  it('redirects unauthenticated users to Home when the development bypass is enabled', () => {
+    process.env.EXPO_PUBLIC_START_HOME = 'true';
+
+    const { tree } = renderIndexScreenWithValue(buildContext(null, { isLoading: true }));
+
+    expect(findRedirectHref(tree.root)).toBe('/(tabs)/home');
+    expect(hasNodeType(tree.root, 'AuthLandingMock')).toBe(false);
     unmountTree(tree);
   });
 

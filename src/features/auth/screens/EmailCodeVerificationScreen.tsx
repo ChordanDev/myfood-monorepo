@@ -33,7 +33,7 @@ export function EmailCodeVerificationScreen() {
     return Number.isFinite(rawCooldown) && rawCooldown > 0 ? rawCooldown : 45;
   }, [params.cooldown]);
   const { secondsLeft, canResend, restart } = useResendCooldown(initialCooldown);
-  const { inputAnimatedStyle } = useKeyboardAnimation();
+  const { inputAnimatedStyle } = useKeyboardAnimation({ mode: 'proportional' });
 
   const email = useMemo(() => resolveStringParam(params.email), [params.email]);
   const flow = useMemo(() => resolveVerificationFlow(params.flow), [params.flow]);

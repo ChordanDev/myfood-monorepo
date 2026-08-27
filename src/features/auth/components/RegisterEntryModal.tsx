@@ -34,6 +34,7 @@ export function RegisterEntryModal({
   const { theme } = useRecipeTheme();
   const { getColorWithOpacity } = useThemeColor();
   const { inputAnimatedStyle } = useKeyboardAnimation({
+    mode: 'proportional',
     enabled: visible,
     liftFactor: Platform.OS === 'android' ? 0.3 : 0.3,
     durationScale: 1.2,

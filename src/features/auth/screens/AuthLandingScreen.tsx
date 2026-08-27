@@ -28,6 +28,7 @@ export function AuthLandingScreen() {
   const router = useRouter();
   const [showRegisterModal, setShowRegisterModal] = useState(false);
   const { inputAnimatedStyle, isKeyboardOpen } = useKeyboardAnimation({
+    mode: 'proportional',
     enabled: !showRegisterModal,
   });
 

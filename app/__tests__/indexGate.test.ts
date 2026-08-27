@@ -8,13 +8,29 @@ describe('resolveIndexGate', () => {
   } as const;
 
   it('routes unauthenticated users to AuthLanding', () => {
-    const result = resolveIndexGate({
-      isAuthenticated: false,
-      isComplete: false,
-      canUseApp: false,
-    });
+    const result = resolveIndexGate(
+      {
+        isAuthenticated: false,
+        isComplete: false,
+        canUseApp: false,
+      },
+      false
+    );
 
     expect(result).toBe('AuthLanding');
+  });
+
+  it('routes unauthenticated users to Tabs when the development bypass is enabled', () => {
+    const result = resolveIndexGate(
+      {
+        isAuthenticated: false,
+        isComplete: false,
+        canUseApp: false,
+      },
+      true
+    );
+
+    expect(result).toBe('Tabs');
   });
 
   it('routes authenticated users with incomplete onboarding to Onboarding, even when locked', () => {

@@ -17,6 +17,8 @@ import { useRecipeTheme } from '../../src/context/RecipeThemeContext';
 import { useThemeColor } from '../../src/hooks/useThemeColor';
 import { useGradientCrossfade } from '../../src/hooks/useGradientCrossfade';
 import { useAnimatedThemeStyle } from '../../src/hooks/useAnimatedThemeStyle';
+import { resolveTabsGate } from '../../src/navigation/start-home-bypass';
+import { CUSTOM_TAB_BAR_CONTENT_HEIGHT } from '../../src/features/planner/constants';
 
 // Componente que anima cada botón de tab al ser seleccionado.
 const AnimatedTabButton = ({ isFocused, onPress, options }: any) => {
@@ -103,7 +105,7 @@ function CustomTabBar({
     <View
       className="absolute bottom-0 left-0 right-0 border-t-0"
       style={{
-        height: insets.bottom + 60,
+        height: insets.bottom + CUSTOM_TAB_BAR_CONTENT_HEIGHT,
         elevation: 0,
       }}>
       <LinearGradient
@@ -124,31 +126,33 @@ function CustomTabBar({
       </AnimatedView>
       <View className="h-[60px] flex-row items-center">
         {/* Mapeo de rutas a botones de tab */}
-        {state.routes.map((route, index) => {
-          const { options } = descriptors[route.key];
-          const isFocused = state.index === index;
+        {state.routes
+          .filter((route) => route.name !== 'planner')
+          .map((route) => {
+            const { options } = descriptors[route.key];
+            const isFocused = state.routes[state.index].key === route.key;
 
-          const onPress = () => {
-            const event = navigation.emit({
-              type: 'tabPress',
-              target: route.key,
-              canPreventDefault: true,
-            });
+            const onPress = () => {
+              const event = navigation.emit({
+                type: 'tabPress',
+                target: route.key,
+                canPreventDefault: true,
+              });
 
-            if (!isFocused && !event.defaultPrevented) {
-              navigation.navigate(route.name);
-            }
-          };
+              if (!isFocused && !event.defaultPrevented) {
+                navigation.navigate(route.name);
+              }
+            };
 
-          return (
-            <AnimatedTabButton
-              key={route.key}
-              isFocused={isFocused}
-              onPress={onPress}
-              options={options}
-            />
-          );
-        })}
+            return (
+              <AnimatedTabButton
+                key={route.key}
+                isFocused={isFocused}
+                onPress={onPress}
+                options={options}
+              />
+            );
+          })}
       </View>
     </View>
   );
@@ -157,9 +161,10 @@ function CustomTabBar({
 export default function TabsLayout() {
   const insets = useSafeAreaInsets();
   const { isAuthenticated, isLoading, canUseApp, isComplete } = useAuth();
+  const gate = resolveTabsGate({ isAuthenticated, isLoading, canUseApp, isComplete });
 
   // Muestra nada mientras se verifica la sesion inicial para evitar redirect falso
-  if (isLoading) {
+  if (gate === 'Loading') {
     return null;
   }
 
@@ -169,7 +174,7 @@ export default function TabsLayout() {
   // (e.g. from a push notification) would otherwise land here. The
   // individual screens also redirect as a second layer, but enforcing
   // it at the layout keeps the invariant obvious.
-  if (!isAuthenticated || !canUseApp || !isComplete) {
+  if (gate === 'RedirectToIndex') {
     return <Redirect href="/" />;
   }
 
@@ -216,6 +221,7 @@ export default function TabsLayout() {
           ),
         }}
       />
+      <Tabs.Screen name="planner" options={{ href: null }} />
     </Tabs>
   );
 }
