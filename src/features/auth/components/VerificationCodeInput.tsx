@@ -1,4 +1,4 @@
-import { TextInput, View } from 'react-native';
+import { StyleSheet, TextInput, View } from 'react-native';
 import { useRecipeTheme } from '@/context/RecipeThemeContext';
 
 interface VerificationCodeInputProps {
@@ -9,7 +9,7 @@ interface VerificationCodeInputProps {
 export function VerificationCodeInput({ value, onChange }: VerificationCodeInputProps) {
   const { theme } = useRecipeTheme();
   return (
-    <View className="mt-8 rounded-2xl" style={{ backgroundColor: theme.icon }}>
+    <View style={[styles.container, { backgroundColor: theme.icon }]}>
       <TextInput
         value={value}
         // Filtra a 6 digitos y evita caracteres no numericos.
@@ -23,9 +23,22 @@ export function VerificationCodeInput({ value, onChange }: VerificationCodeInput
         textContentType="oneTimeCode"
         accessibilityLabel="Código de verificación"
         accessibilityHint="Ingresa el código de 6 dígitos enviado a tu correo"
-        className="py-4 font-inter-semibold text-2xl tracking-[6px]"
-        style={{ color: theme.colorMedium }}
+        style={[styles.input, { color: theme.colorMedium }]}
       />
     </View>
   );
 }
+
+const styles = StyleSheet.create({
+  container: {
+    borderRadius: 14,
+    marginTop: 28,
+  },
+  input: {
+    fontFamily: 'Inter_600SemiBold',
+    fontSize: 21,
+    letterSpacing: 6,
+    lineHeight: 28,
+    paddingVertical: 14,
+  },
+});

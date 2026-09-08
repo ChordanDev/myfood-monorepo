@@ -62,7 +62,13 @@ export function PreferencesSection({
 
       <View style={{ gap: 6 }}>
         <FieldLabel theme={theme} text="Restricciones duras" />
-        <Text className="font-inter-regular text-xs" style={{ color: theme.colorMedium }}>
+        <Text
+          style={{
+            color: theme.colorMedium,
+            fontFamily: 'Inter_400Regular',
+            fontSize: 10.5,
+            lineHeight: 14,
+          }}>
           Tocá solo lo que no se puede negociar.
         </Text>
       </View>

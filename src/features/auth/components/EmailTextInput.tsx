@@ -3,32 +3,23 @@ import { EMAIL_MAX_LENGTH } from '../hooks';
 
 interface EmailTextInputProps extends Omit<
   TextInputProps,
-  | 'keyboardType'
-  | 'autoCapitalize'
-  | 'autoCorrect'
-  | 'maxLength'
-  | 'value'
-  | 'onChangeText'
-  | 'className'
+  'keyboardType' | 'autoCapitalize' | 'autoCorrect' | 'maxLength' | 'value' | 'onChangeText'
 > {
   value: string;
   onChangeText: (value: string) => void;
   androidDescenderFix?: boolean;
-  className?: string;
 }
 
 export function EmailTextInput({
   value,
   onChangeText,
   androidDescenderFix = false,
-  className,
   style,
   ...rest
 }: EmailTextInputProps) {
   return (
     <TextInput
       // Forza configuracion adecuada para emails.
-      className={className}
       value={value}
       onChangeText={onChangeText}
       keyboardType="email-address"

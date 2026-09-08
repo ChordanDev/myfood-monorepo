@@ -1,10 +1,10 @@
-// Config Babel para Expo con NativeWind y Reanimated.
+// Babel configuration for Expo and Reanimated.
 module.exports = function (api) {
   api.cache(true);
   const plugins = ['react-native-reanimated/plugin'];
 
   return {
-    presets: [['babel-preset-expo', { jsxImportSource: 'nativewind' }], 'nativewind/babel'],
+    presets: ['babel-preset-expo'],
 
     plugins,
   };

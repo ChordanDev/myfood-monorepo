@@ -72,10 +72,10 @@ export function AuthButton({
                 textAlign: 'center',
                 includeFontPadding: false,
                 fontSize: metrics.buttonFontSize,
+                fontFamily: 'Inter_500Medium',
                 lineHeight: Math.round(metrics.buttonFontSize * 1.2),
                 color: textColor,
-              }}
-              className="font-inter-medium">
+              }}>
               {title}
             </Text>
           </View>

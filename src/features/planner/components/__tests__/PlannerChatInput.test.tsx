@@ -1,7 +1,7 @@
 /* eslint-disable @typescript-eslint/no-require-imports */
 
 import React from 'react';
-import { Platform, StyleSheet, Text } from 'react-native';
+import { Platform, StyleSheet, Text, View } from 'react-native';
 import { act, create, ReactTestInstance } from 'react-test-renderer';
 import { useKeyboardAnimation } from '@/hooks/useKeyboardAnimation';
 import {
@@ -14,7 +14,7 @@ import {
   PLANNER_CHAT_INPUT_TEXT_LINE_HEIGHT,
   PLANNER_CHAT_INPUT_VERTICAL_INSET,
 } from '../../constants';
-import { PlannerChatInput } from '../PlannerChatInput';
+import { PLANNER_CHAT_INPUT_ICON_OPTICAL_OFFSET_Y, PlannerChatInput } from '../PlannerChatInput';
 
 const mockWithTiming = jest.fn((value: number, config?: unknown, callback?: unknown) => value);
 const mockUseReducedMotion = jest.fn(() => true);
@@ -31,12 +31,6 @@ jest.mock('expo-linear-gradient', () => {
   const { View } = require('react-native');
   return { LinearGradient: View };
 });
-
-jest.mock('lucide-react-native', () => ({
-  ArrowUp: () => null,
-  Mic: () => null,
-  Plus: () => null,
-}));
 
 jest.mock('react-native-safe-area-context', () => ({
   useSafeAreaInsets: () => ({ top: 0, right: 0, bottom: 34, left: 0 }),
@@ -367,7 +361,7 @@ describe('PlannerChatInput wrapping', () => {
     // replay the one-line and two-line content-size measurements it emits.
     const initialInput = getInput(tree!);
     const initialTextAreaStyle = StyleSheet.flatten(initialInput.parent!.props.style);
-    expect(initialInput.props.className ?? '').not.toContain('flex-1');
+    expect(StyleSheet.flatten(initialInput.props.style).flex).toBeUndefined();
     expect(initialTextAreaStyle).toEqual(
       expect.objectContaining({
         top:
@@ -821,6 +815,70 @@ describe('PlannerChatInput wrapping', () => {
   });
 });
 
+describe('PlannerChatInput icon optical alignment', () => {
+  it('applies the same inner translateY offset to all composer icons without changing pressable geometry', () => {
+    const props = {
+      isThinking: false,
+      onChangeText: jest.fn(),
+      onSubmit: jest.fn(),
+    };
+    let tree: ReturnType<typeof create>;
+
+    act(() => {
+      tree = create(<PlannerChatInput {...props} value="Short text" />);
+    });
+
+    const addMealDetailButton = tree!.root.findByProps({ accessibilityLabel: 'Add meal detail' });
+    const voiceInputButton = tree!.root.findByProps({ accessibilityLabel: 'Voice input' });
+    const sendMessageButton = tree!.root.findByProps({ accessibilityLabel: 'Send message' });
+
+    expect(sendMessageButton.props.testID).toBe('planner-composer-submit');
+
+    const addMealDetailIconWrapper = addMealDetailButton
+      .findAllByType(View)
+      .find((node) => StyleSheet.flatten(node.props.style)?.transform !== undefined);
+    const voiceInputIconWrapper = voiceInputButton
+      .findAllByType(View)
+      .find((node) => StyleSheet.flatten(node.props.style)?.transform !== undefined);
+    const sendMessageIconWrapper = sendMessageButton
+      .findAllByType(View)
+      .find((node) => StyleSheet.flatten(node.props.style)?.transform !== undefined);
+
+    expect(addMealDetailIconWrapper).toBeDefined();
+    expect(voiceInputIconWrapper).toBeDefined();
+    expect(sendMessageIconWrapper).toBeDefined();
+
+    expect(StyleSheet.flatten(addMealDetailButton.props.style)).toEqual(
+      expect.objectContaining({ height: 42, width: 42 })
+    );
+    expect(StyleSheet.flatten(voiceInputButton.props.style)).toEqual(
+      expect.objectContaining({ height: 42, width: 42 })
+    );
+    expect(StyleSheet.flatten(sendMessageButton.props.style)).toEqual(
+      expect.objectContaining({ height: 42, width: 42 })
+    );
+    expect(addMealDetailButton.props.hitSlop).toBe(8);
+    expect(voiceInputButton.props.hitSlop).toBe(8);
+    expect(sendMessageButton.props.hitSlop).toBe(8);
+
+    expect(StyleSheet.flatten(addMealDetailIconWrapper!.props.style)).toEqual(
+      expect.objectContaining({
+        transform: [{ translateY: PLANNER_CHAT_INPUT_ICON_OPTICAL_OFFSET_Y }],
+      })
+    );
+    expect(StyleSheet.flatten(voiceInputIconWrapper!.props.style)).toEqual(
+      expect.objectContaining({
+        transform: [{ translateY: PLANNER_CHAT_INPUT_ICON_OPTICAL_OFFSET_Y }],
+      })
+    );
+    expect(StyleSheet.flatten(sendMessageIconWrapper!.props.style)).toEqual(
+      expect.objectContaining({
+        transform: [{ translateY: PLANNER_CHAT_INPUT_ICON_OPTICAL_OFFSET_Y }],
+      })
+    );
+  });
+});
+
 describe('PlannerChatInput surface opacity', () => {
   const props = {
     onChangeText: jest.fn(),
@@ -843,7 +901,8 @@ describe('PlannerChatInput surface opacity', () => {
 
     expect(getSurfaceOpacity(tree!)).toBe(1);
     expect(
-      tree!.root.findByProps({ accessibilityLabel: 'Voice input' }).props.style
+      StyleSheet.flatten(tree!.root.findByProps({ accessibilityLabel: 'Voice input' }).props.style)
+        .opacity
     ).toBeUndefined();
     expect(StyleSheet.flatten(getInput(tree!).props.style).opacity).toBeUndefined();
 
@@ -853,7 +912,8 @@ describe('PlannerChatInput surface opacity', () => {
 
     expect(getSurfaceOpacity(tree!)).toBe(0.6);
     expect(
-      tree!.root.findByProps({ accessibilityLabel: 'Voice input' }).props.style
+      StyleSheet.flatten(tree!.root.findByProps({ accessibilityLabel: 'Voice input' }).props.style)
+        .opacity
     ).toBeUndefined();
     expect(StyleSheet.flatten(getInput(tree!).props.style).opacity).toBeUndefined();
   });
@@ -898,6 +958,83 @@ describe('PlannerChatInput surface opacity', () => {
     ).not.toHaveProperty('backgroundColor');
   });
 
+  it('keeps the composer geometry stable while the thinking effect is active', () => {
+    let tree: ReturnType<typeof create>;
+
+    act(() => {
+      tree = create(<PlannerChatInput {...props} value="" isThinking={false} />);
+    });
+
+    const readGeometry = () => {
+      const frame = tree!.root.findByProps({ testID: 'planner-composer-frame' });
+      const innerSurface = tree!.root.findByProps({ testID: 'planner-composer-inner-surface' });
+      const input = getInput(tree!);
+      const textArea = StyleSheet.flatten(input.parent!.props.style);
+      const controls = StyleSheet.flatten(
+        tree!.root.findByProps({ testID: 'planner-composer-controls' }).props.style
+      );
+      const frameStyle = StyleSheet.flatten(frame.props.style);
+
+      return {
+        height: frameStyle.height,
+        textTop: textArea.top,
+        controlsTop: frameStyle.height - controls.bottom - 48,
+        textPadding: StyleSheet.flatten(input.props.style).paddingVertical,
+        innerSurfaceContainsContent: innerSurface.findAllByProps({
+          testID: 'planner-composer-input',
+        }).length,
+      };
+    };
+
+    const idleGeometry = readGeometry();
+
+    act(() => {
+      tree!.update(<PlannerChatInput {...props} value="" isThinking />);
+    });
+
+    expect(readGeometry()).toEqual({
+      ...idleGeometry,
+      innerSurfaceContainsContent: 0,
+    });
+  });
+
+  it('keeps the focused input editable while thinking so submit does not dismiss the keyboard', () => {
+    let tree: ReturnType<typeof create>;
+
+    act(() => {
+      tree = create(<PlannerChatInput {...props} value="" isThinking />);
+    });
+
+    expect(getInput(tree!).props.editable).toBe(true);
+  });
+
+  it('keeps the visual layers behind interactive composer content', () => {
+    let tree: ReturnType<typeof create>;
+
+    act(() => {
+      tree = create(<PlannerChatInput {...props} value="" isThinking={false} />);
+    });
+
+    const frame = tree!.root.findByProps({ testID: 'planner-composer-frame' });
+    const gradient = tree!.root.findByProps({ testID: 'planner-composer-thinking-gradient' });
+    const innerSurface = tree!.root.findByProps({ testID: 'planner-composer-inner-surface' });
+    const input = getInput(tree!);
+
+    expect(innerSurface.props.pointerEvents).toBe('none');
+    expect(StyleSheet.flatten(innerSurface.props.style).zIndex).toBeUndefined();
+    const testIds = frame
+      .findAll((node) => typeof node.props.testID === 'string')
+      .map((node) => node.props.testID);
+
+    expect(testIds.indexOf(gradient.props.testID)).toBeLessThan(
+      testIds.indexOf(innerSurface.props.testID)
+    );
+    expect(testIds.indexOf(innerSurface.props.testID)).toBeLessThan(
+      testIds.indexOf(input.props.testID)
+    );
+    expect(innerSurface.findAllByProps({ testID: 'planner-composer-controls' })).toHaveLength(0);
+  });
+
   it('keeps controls in the bottom row while text switches from centered to multiline geometry', () => {
     const onHeightChange = jest.fn();
     const inputProps = {
@@ -912,7 +1049,7 @@ describe('PlannerChatInput surface opacity', () => {
       tree = create(<PlannerChatInput {...inputProps} value="Short text" />);
     });
 
-    const controls = tree!.root.findAllByProps({ className: 'absolute flex-row items-center' })[0];
+    const controls = tree!.root.findByProps({ testID: 'planner-composer-controls' });
     const plus = tree!.root.findByProps({ accessibilityLabel: 'Add meal detail' });
     const oneLineTextArea = StyleSheet.flatten(getInput(tree!).parent!.props.style);
 
@@ -958,9 +1095,7 @@ describe('PlannerChatInput surface opacity', () => {
       );
     });
 
-    const multilineControls = tree!.root.findAllByProps({
-      className: 'absolute flex-row items-center',
-    })[0];
+    const multilineControls = tree!.root.findByProps({ testID: 'planner-composer-controls' });
     const multilinePlus = tree!.root.findByProps({ accessibilityLabel: 'Add meal detail' });
     const multilineTextArea = StyleSheet.flatten(getInput(tree!).parent!.props.style);
     const multilineHeight =
@@ -1012,7 +1147,7 @@ describe('PlannerChatInput placeholder', () => {
       })
     );
     expect(input.props.placeholder).toBeUndefined();
-    expect(input.props.className).toContain('text-[17px]');
+    expect(StyleSheet.flatten(input.props.style).fontSize).toBe(17);
     expect(StyleSheet.flatten(input.props.style).opacity).toBeUndefined();
 
     act(() => {

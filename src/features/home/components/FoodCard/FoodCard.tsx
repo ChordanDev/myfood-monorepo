@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { Text, View, Pressable } from 'react-native';
+import { Text, View, Pressable, StyleSheet } from 'react-native';
 import Animated from 'react-native-reanimated';
 import Svg, { Defs, LinearGradient as SvgLinearGradient, Path, Stop } from 'react-native-svg';
 import { ShadowSurface } from '@/components';
@@ -52,8 +52,8 @@ export function FoodCard({
   const descriptionThemeStyle = useAnimatedThemeStyle({ color: theme.textLight });
 
   return (
-    <ShadowSurface className="h-full w-full">
-      <View className="relative h-full w-full">
+    <ShadowSurface style={styles.fill}>
+      <View style={[styles.fill, styles.relative]}>
         <Svg
           pointerEvents="none"
           width="100%"
@@ -76,33 +76,37 @@ export function FoodCard({
           <Path d={FOOD_CARD_SHAPE_PATH} fill={`url(#${FOOD_CARD_GRADIENT_ACTIVE_ID})`} />
         </Svg>
 
-        <View className="absolute inset-0 px-4 pt-3">
+        <View style={styles.content}>
           <Pressable
             onPress={() => setIsFavorite((prev) => !prev)}
-            className="absolute items-center justify-center"
-            style={{
-              right: '35%',
-              top: '5%',
-              width: layout.topIconBoxSize as any,
-              height: layout.topIconBoxSize as any,
-            }}>
+            style={[
+              styles.iconButton,
+              {
+                right: '35%',
+                top: '5%',
+                width: layout.topIconBoxSize as any,
+                height: layout.topIconBoxSize as any,
+              },
+            ]}>
             <FavoriteStarIcon isFilled={isFavorite} />
           </Pressable>
 
           <Pressable
             onPress={onPressSparkles}
             disabled={!hasMealData}
-            className="absolute items-center justify-center"
-            style={{
-              bottom: '8%',
-              right: '8%',
-              width: layout.bottomIconBoxSize as any,
-              height: layout.bottomIconBoxSize as any,
-              opacity: hasMealData ? 1 : 0.3,
-            }}>
+            style={[
+              styles.iconButton,
+              {
+                bottom: '8%',
+                right: '8%',
+                width: layout.bottomIconBoxSize as any,
+                height: layout.bottomIconBoxSize as any,
+                opacity: hasMealData ? 1 : 0.3,
+              },
+            ]}>
             <Animated.View
-              className="items-center justify-center"
               style={[
+                styles.iconCircle,
                 {
                   borderWidth: 1,
                   borderRadius: 999,
@@ -116,28 +120,34 @@ export function FoodCard({
           </Pressable>
 
           <View
-            className="absolute"
-            style={{
-              left: layout.dayLabelLeft as any,
-              top: '20%',
-              width: layout.dayLabelWidth as any,
-            }}>
+            style={[
+              styles.absolute,
+              {
+                left: layout.dayLabelLeft as any,
+                top: '20%',
+                width: layout.dayLabelWidth as any,
+              },
+            ]}>
             {topLeftLabel ? (
-              <Text className="text-center" style={{ letterSpacing: 1 }}>
+              <Text style={styles.dayLabel}>
                 <Text
                   adjustsFontSizeToFit
-                  className="font-montserrat-alt-bold"
-                  style={{ color: dayNameColor, fontSize: metrics.foodCardLabelFontSize }}>
+                  style={[
+                    styles.dayName,
+                    { color: dayNameColor, fontSize: metrics.foodCardLabelFontSize },
+                  ]}>
                   {topLeftLabel.dayName}
                 </Text>
                 {topLeftLabel.dayNumber ? (
                   <Text
                     adjustsFontSizeToFit
-                    className="font-montserrat-alt-black"
-                    style={{
-                      color: theme.primaryAccent,
-                      fontSize: metrics.foodCardNumberFontSize,
-                    }}>
+                    style={[
+                      styles.dayNumber,
+                      {
+                        color: theme.primaryAccent,
+                        fontSize: metrics.foodCardNumberFontSize,
+                      },
+                    ]}>
                     {' '}
                     {topLeftLabel.dayNumber}
                   </Text>
@@ -146,15 +156,17 @@ export function FoodCard({
             ) : null}
           </View>
           <View
-            className="absolute"
-            style={{
-              left: layout.descriptionLeft as any,
-              top: '50%',
-              width: layout.descriptionWidth as any,
-            }}>
+            style={[
+              styles.absolute,
+              {
+                left: layout.descriptionLeft as any,
+                top: '50%',
+                width: layout.descriptionWidth as any,
+              },
+            ]}>
             <Animated.Text
-              className="text-center font-inter-medium"
               style={[
+                styles.description,
                 {
                   fontSize: metrics.foodCardDescriptionFontSize as any,
                   lineHeight: metrics.foodCardDescriptionLineHeight as any,
@@ -170,3 +182,48 @@ export function FoodCard({
     </ShadowSurface>
   );
 }
+
+const styles = StyleSheet.create({
+  absolute: {
+    position: 'absolute',
+  },
+  content: {
+    bottom: 0,
+    left: 0,
+    paddingHorizontal: 14,
+    paddingTop: 10.5,
+    position: 'absolute',
+    right: 0,
+    top: 0,
+  },
+  dayLabel: {
+    letterSpacing: 1,
+    textAlign: 'center',
+  },
+  dayName: {
+    fontFamily: 'MontserratAlternates_700Bold',
+  },
+  dayNumber: {
+    fontFamily: 'MontserratAlternates_900Black',
+  },
+  description: {
+    fontFamily: 'Inter_500Medium',
+    textAlign: 'center',
+  },
+  fill: {
+    height: '100%',
+    width: '100%',
+  },
+  iconButton: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    position: 'absolute',
+  },
+  iconCircle: {
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  relative: {
+    position: 'relative',
+  },
+});

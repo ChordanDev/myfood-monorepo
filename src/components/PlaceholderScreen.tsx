@@ -1,4 +1,4 @@
-import { Text, View } from 'react-native';
+import { StyleSheet, Text, View } from 'react-native';
 import { COLORS } from '@/constants/theme';
 
 interface PlaceholderScreenProps {
@@ -10,12 +10,21 @@ interface PlaceholderScreenProps {
  */
 export function PlaceholderScreen({ title }: PlaceholderScreenProps) {
   return (
-    <View
-      className="flex-1 items-center justify-center"
-      style={{ backgroundColor: COLORS.bgDarkest }}>
-      <Text style={{ color: COLORS.textLight }} className="font-inter-medium text-base">
-        {title}
-      </Text>
+    <View style={[styles.screen, { backgroundColor: COLORS.bgDarkest }]}>
+      <Text style={[styles.title, { color: COLORS.textLight }]}>{title}</Text>
     </View>
   );
 }
+
+const styles = StyleSheet.create({
+  screen: {
+    alignItems: 'center',
+    flex: 1,
+    justifyContent: 'center',
+  },
+  title: {
+    fontFamily: 'Inter_500Medium',
+    fontSize: 14,
+    lineHeight: 21,
+  },
+});

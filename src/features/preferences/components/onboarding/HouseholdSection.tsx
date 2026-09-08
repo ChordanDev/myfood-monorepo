@@ -72,10 +72,16 @@ export function HouseholdSection({
               minWidth: 96,
               paddingHorizontal: 14,
             }}>
-            <Text className="font-montserrat-bold text-2xl" style={{ color: theme.colorDark }}>
+            <Text
+              style={{
+                color: theme.colorDark,
+                fontFamily: 'Montserrat_700Bold',
+                fontSize: 21,
+                lineHeight: 28,
+              }}>
               {householdSizeNumber ?? '—'}
             </Text>
-            <Text className="font-inter-medium text-[11px]" style={{ color: theme.colorMedium }}>
+            <Text style={{ color: theme.colorMedium, fontFamily: 'Inter_500Medium', fontSize: 11 }}>
               comensales
             </Text>
           </View>

@@ -1,4 +1,4 @@
-import { Pressable, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { useRecipeTheme } from '@/context/RecipeThemeContext';
 
 interface VerificationActionsProps {
@@ -22,10 +22,15 @@ export function VerificationActions({
       <Pressable
         onPress={onVerify}
         disabled={isVerifying}
-        className="mt-5 items-center rounded-2xl py-4 active:opacity-90"
-        style={{ backgroundColor: theme.colorLight, opacity: isVerifying ? 0.6 : 1 }}>
+        style={({ pressed }) => [
+          styles.verifyButton,
+          {
+            backgroundColor: theme.colorLight,
+            opacity: isVerifying ? 0.6 : pressed ? 0.9 : 1,
+          },
+        ]}>
         {/* CTA principal de verificacion. */}
-        <Text className="font-inter-semibold text-lg" style={{ color: theme.colorMedium }}>
+        <Text style={[styles.verifyLabel, { color: theme.colorMedium }]}>
           {isVerifying ? 'Verificando...' : 'Verificar código'}
         </Text>
       </Pressable>
@@ -33,10 +38,12 @@ export function VerificationActions({
       <Pressable
         disabled={isResending || secondsLeft > 0}
         onPress={onResend}
-        className="mt-4 items-center py-1">
+        style={styles.resendButton}>
         <Text
-          className="font-inter-medium"
-          style={{ color: theme.primaryAccent, opacity: isResending ? 0.6 : 1 }}>
+          style={[
+            styles.resendLabel,
+            { color: theme.primaryAccent, opacity: isResending ? 0.6 : 1 },
+          ]}>
           {/* Accion secundaria con cooldown. */}
           {isResending
             ? 'Reenviando...'
@@ -48,3 +55,25 @@ export function VerificationActions({
     </View>
   );
 }
+
+const styles = StyleSheet.create({
+  resendButton: {
+    alignItems: 'center',
+    marginTop: 14,
+    paddingVertical: 3.5,
+  },
+  resendLabel: {
+    fontFamily: 'Inter_500Medium',
+  },
+  verifyButton: {
+    alignItems: 'center',
+    borderRadius: 14,
+    marginTop: 17.5,
+    paddingVertical: 14,
+  },
+  verifyLabel: {
+    fontFamily: 'Inter_600SemiBold',
+    fontSize: 15.75,
+    lineHeight: 24.5,
+  },
+});

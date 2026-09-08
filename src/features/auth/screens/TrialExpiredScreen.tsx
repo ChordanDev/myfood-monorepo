@@ -1,4 +1,4 @@
-import { ActivityIndicator, Pressable, Text, View } from 'react-native';
+import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { NoisyBackground, SafeAreaContent } from '@/components';
 import { useRecipeTheme } from '@/context/RecipeThemeContext';
@@ -24,24 +24,15 @@ export function TrialExpiredScreen({
       style={{ flex: 1 }}>
       <NoisyBackground opacity={0.2} />
       <SafeAreaContent>
-        <View className="flex-1 justify-center px-7">
-          <View className="rounded-3xl px-6 py-8" style={{ backgroundColor: theme.icon }}>
-            <Text
-              className="text-center font-montserrat-bold text-[30px]"
-              style={{ color: theme.colorMedium }}>
-              Tu prueba terminó
-            </Text>
-            <Text
-              className="font-inter-regular mt-4 text-center text-base"
-              style={{ color: theme.textMedium }}>
+        <View style={styles.content}>
+          <View style={[styles.card, { backgroundColor: theme.icon }]}>
+            <Text style={[styles.title, { color: theme.colorMedium }]}>Tu prueba terminó</Text>
+            <Text style={[styles.body, { color: theme.textMedium }]}>
               Para seguir usando MyFood, necesitás activar tu cuenta cuando la suscripción esté
               disponible.
             </Text>
             {email ? (
-              <Text
-                selectable
-                className="mt-4 text-center font-inter-medium text-sm"
-                style={{ color: theme.textLight }}>
+              <Text selectable style={[styles.email, { color: theme.textLight }]}>
                 Sesión iniciada como {email}
               </Text>
             ) : null}
@@ -49,14 +40,17 @@ export function TrialExpiredScreen({
             <Pressable
               onPress={onSignOut}
               disabled={isSigningOut}
-              className="mt-7 items-center rounded-2xl py-4 active:opacity-90"
-              style={{ backgroundColor: theme.colorMedium, opacity: isSigningOut ? 0.6 : 1 }}>
+              style={({ pressed }) => [
+                styles.signOutButton,
+                {
+                  backgroundColor: theme.colorMedium,
+                  opacity: isSigningOut ? 0.6 : pressed ? 0.9 : 1,
+                },
+              ]}>
               {isSigningOut ? (
                 <ActivityIndicator size="small" color={theme.primaryAccent} />
               ) : (
-                <Text
-                  className="font-inter-semibold text-base"
-                  style={{ color: theme.primaryAccent }}>
+                <Text style={[styles.signOutLabel, { color: theme.primaryAccent }]}>
                   Cerrar sesión
                 </Text>
               )}
@@ -67,3 +61,46 @@ export function TrialExpiredScreen({
     </LinearGradient>
   );
 }
+
+const styles = StyleSheet.create({
+  body: {
+    fontFamily: 'Inter_400Regular',
+    fontSize: 14,
+    lineHeight: 21,
+    marginTop: 14,
+    textAlign: 'center',
+  },
+  card: {
+    borderRadius: 21,
+    paddingHorizontal: 21,
+    paddingVertical: 28,
+  },
+  content: {
+    flex: 1,
+    justifyContent: 'center',
+    paddingHorizontal: 24.5,
+  },
+  email: {
+    fontFamily: 'Inter_500Medium',
+    fontSize: 12.25,
+    lineHeight: 17.5,
+    marginTop: 14,
+    textAlign: 'center',
+  },
+  signOutButton: {
+    alignItems: 'center',
+    borderRadius: 14,
+    marginTop: 24.5,
+    paddingVertical: 14,
+  },
+  signOutLabel: {
+    fontFamily: 'Inter_600SemiBold',
+    fontSize: 14,
+    lineHeight: 21,
+  },
+  title: {
+    fontFamily: 'Montserrat_700Bold',
+    fontSize: 30,
+    textAlign: 'center',
+  },
+});

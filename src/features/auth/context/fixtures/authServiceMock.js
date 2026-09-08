@@ -1,9 +1,7 @@
 // Jest manual mock for @/services/authService used by the
 // AuthContext optimistic-latch tests. Lives in its own CommonJS file
 // so the test file's hoisted `jest.mock` factory only references
-// `require(...)` (which jest's static analyzer allows) and not
-// module-scope `const`s that might collide with the babel-auto-injected
-// `_ReactNativeCSSInterop` import at the top of the test file.
+// `require(...)`, which Jest's static analyzer allows.
 
 /* global jest */
 

@@ -1,4 +1,4 @@
-import { View } from 'react-native';
+import { StyleSheet, View } from 'react-native';
 import Animated from 'react-native-reanimated';
 import { TitleMetrics } from '@/utils/responsive';
 import { useRecipeTheme } from '@/context/RecipeThemeContext';
@@ -15,17 +15,27 @@ export function TitlePrimary({ text, metrics }: TitleProps) {
 
   return (
     <View
-      className="items-center justify-start"
-      style={{
-        marginBottom: metrics.titleBottomSpacing,
-        marginTop: metrics.titleTopSpacing,
-      }}>
+      style={[
+        styles.container,
+        {
+          marginBottom: metrics.titleBottomSpacing,
+          marginTop: metrics.titleTopSpacing,
+        },
+      ]}>
       {/* Titulo principal ajustado por metricas responsivas. */}
-      <Animated.Text
-        style={[{ fontSize: metrics.titleFontSize }, titleStyle]}
-        className="font-montserrat-bold">
+      <Animated.Text style={[styles.title, { fontSize: metrics.titleFontSize }, titleStyle]}>
         {text}
       </Animated.Text>
     </View>
   );
 }
+
+const styles = StyleSheet.create({
+  container: {
+    alignItems: 'center',
+    justifyContent: 'flex-start',
+  },
+  title: {
+    fontFamily: 'Montserrat_700Bold',
+  },
+});

@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { ActivityIndicator, Alert, Pressable, Text, View } from 'react-native';
+import { ActivityIndicator, Alert, Pressable, StyleSheet, Text, View } from 'react-native';
 import Animated from 'react-native-reanimated';
 import { useLocalSearchParams, useRouter, Redirect } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -115,16 +115,10 @@ export function EmailCodeVerificationScreen() {
       style={{ flex: 1 }}>
       <NoisyBackground opacity={0.2} />
       <SafeAreaContent>
-        <Animated.View className="h-full w-full justify-between" style={inputAnimatedStyle}>
-          <View className="flex-1 justify-center px-7">
-            <Text
-              className="text-center font-montserrat-bold text-[34px]"
-              style={{ color: theme.textBlack }}>
-              Verifica tu correo
-            </Text>
-            <Text
-              className="font-inter-regular mt-3 text-center text-base"
-              style={{ color: theme.primaryAccent }}>
+        <Animated.View style={[styles.animatedContent, inputAnimatedStyle]}>
+          <View style={styles.content}>
+            <Text style={[styles.title, { color: theme.textBlack }]}>Verifica tu correo</Text>
+            <Text style={[styles.subtitle, { color: theme.primaryAccent }]}>
               Enviamos un código de 6 dígitos a {maskedEmail}.
             </Text>
 
@@ -138,14 +132,12 @@ export function EmailCodeVerificationScreen() {
             />
 
             {isVerifying ? (
-              <View className="mt-6 items-center py-1">
+              <View style={styles.backAction}>
                 <ActivityIndicator size="small" color={theme.primaryAccent} />
               </View>
             ) : (
-              <Pressable onPress={() => router.back()} className="mt-6 items-center py-1">
-                <Text className="font-inter-regular" style={{ color: theme.textBlack }}>
-                  Cambiar correo
-                </Text>
+              <Pressable onPress={() => router.back()} style={styles.backAction}>
+                <Text style={[styles.backLabel, { color: theme.textBlack }]}>Cambiar correo</Text>
               </Pressable>
             )}
           </View>
@@ -154,3 +146,36 @@ export function EmailCodeVerificationScreen() {
     </LinearGradient>
   );
 }
+
+const styles = StyleSheet.create({
+  animatedContent: {
+    height: '100%',
+    justifyContent: 'space-between',
+    width: '100%',
+  },
+  backAction: {
+    alignItems: 'center',
+    marginTop: 21,
+    paddingVertical: 3.5,
+  },
+  backLabel: {
+    fontFamily: 'Inter_400Regular',
+  },
+  content: {
+    flex: 1,
+    justifyContent: 'center',
+    paddingHorizontal: 24.5,
+  },
+  subtitle: {
+    fontFamily: 'Inter_400Regular',
+    fontSize: 14,
+    lineHeight: 21,
+    marginTop: 10.5,
+    textAlign: 'center',
+  },
+  title: {
+    fontFamily: 'Montserrat_700Bold',
+    fontSize: 34,
+    textAlign: 'center',
+  },
+});

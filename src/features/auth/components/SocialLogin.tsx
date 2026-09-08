@@ -10,8 +10,8 @@ interface SocialLoginProps {
 export function SocialLogin({ metrics }: SocialLoginProps) {
   return (
     <View
-      className="items-center"
       style={{
+        alignItems: 'center',
         paddingHorizontal: metrics.horizontalPadding,
         marginBottom: metrics.socialBottomMargin,
       }}>

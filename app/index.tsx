@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { ActivityIndicator, View } from 'react-native';
+import { ActivityIndicator, StyleSheet, View } from 'react-native';
 import { Redirect } from 'expo-router';
 import { AuthLandingScreen, TrialExpiredScreen, useAuth } from '../src/features/auth';
 import { COLORS } from '../src/constants/theme';
@@ -48,9 +48,7 @@ export default function IndexScreen() {
   // Mientras se restaura la sesion, muestra un spinner.
   if (isLoading) {
     return (
-      <View
-        className="flex-1 items-center justify-center"
-        style={{ backgroundColor: COLORS.bgDarkest }}>
+      <View style={[styles.loading, { backgroundColor: COLORS.bgDarkest }]}>
         <ActivityIndicator size="small" color={COLORS.accentYellow} />
       </View>
     );
@@ -76,3 +74,11 @@ export default function IndexScreen() {
 
   return <AuthLandingScreen />;
 }
+
+const styles = StyleSheet.create({
+  loading: {
+    alignItems: 'center',
+    flex: 1,
+    justifyContent: 'center',
+  },
+});

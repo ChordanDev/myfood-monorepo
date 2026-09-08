@@ -9,7 +9,6 @@ import {
   TextInputContentSizeChangeEventData,
   View,
 } from 'react-native';
-import { ArrowUp, Mic, Plus } from 'lucide-react-native';
 import Animated, {
   cancelAnimation,
   useSharedValue,
@@ -26,6 +25,7 @@ import { useRecipeTheme } from '@/context/RecipeThemeContext';
 import { useKeyboardAnimation } from '@/hooks/useKeyboardAnimation';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { withOpacity } from '@/utils/colors';
+import { ArrowUp, Mic, Plus } from 'lucide-react-native';
 import {
   CUSTOM_TAB_BAR_CONTENT_HEIGHT,
   PLANNER_CHAT_INPUT_CLEARANCE,
@@ -50,6 +50,7 @@ const PLANNER_CHAT_INPUT_MIN_RADIUS = 28;
 const PLANNER_CHAT_INPUT_MAX_RADIUS = 20;
 const PLANNER_CHAT_INPUT_ONE_LINE_LEFT_INSET = 56;
 const PLANNER_CHAT_INPUT_MULTILINE_CONTENT_INSET = 16;
+export const PLANNER_CHAT_INPUT_ICON_OPTICAL_OFFSET_Y = -3;
 const PLANNER_CHAT_INPUT_CONTROL_TOP_OFFSET =
   PLANNER_CHAT_INPUT_VERTICAL_INSET +
   (PLANNER_CHAT_INPUT_CONTROL_ROW_HEIGHT - PLANNER_CHAT_INPUT_TEXT_LINE_HEIGHT) / 2;
@@ -305,8 +306,8 @@ export function PlannerChatInput({
   return (
     <Animated.View
       testID="planner-composer-wrapper"
-      className="absolute bottom-0 w-full px-4"
       style={[
+        styles.wrapper,
         {
           paddingBottom:
             insets.bottom + CUSTOM_TAB_BAR_CONTENT_HEIGHT + PLANNER_CHAT_INPUT_CLEARANCE,
@@ -315,8 +316,8 @@ export function PlannerChatInput({
       ]}>
       <Animated.View
         testID="planner-composer-frame"
-        className="relative w-full items-center justify-center overflow-hidden"
         style={[
+          styles.frame,
           {
             borderCurve: 'continuous',
           },
@@ -328,8 +329,11 @@ export function PlannerChatInput({
         <Animated.View
           testID="planner-composer-thinking-gradient"
           pointerEvents="none"
-          className="absolute aspect-square w-[160%]"
-          style={[reduceMotion ? undefined : animatedStyle, gradientStyle]}>
+          style={[
+            styles.thinkingGradient,
+            reduceMotion ? undefined : animatedStyle,
+            gradientStyle,
+          ]}>
           <LinearGradient
             colors={['#EF7C60', '#F0C85C', '#77B79D', '#6286C5', '#B572A8', '#EF7C60']}
             locations={[0, 0.2, 0.4, 0.6, 0.8, 1]}
@@ -341,8 +345,9 @@ export function PlannerChatInput({
 
         <Animated.View
           testID="planner-composer-inner-surface"
-          className="absolute z-10 overflow-hidden"
+          pointerEvents="none"
           style={[
+            styles.innerSurface,
             {
               borderCurve: 'continuous',
             },
@@ -357,160 +362,209 @@ export function PlannerChatInput({
               surfaceTintStyle,
             ]}
           />
-
-          <View
-            style={{
-              position: 'absolute',
-              top: isMultiline
-                ? PLANNER_CHAT_INPUT_VERTICAL_INSET
-                : PLANNER_CHAT_INPUT_CONTROL_TOP_OFFSET,
-              bottom: isMultiline ? PLANNER_CHAT_INPUT_MULTILINE_TEXT_BOTTOM_OFFSET : undefined,
-              right: isMultiline ? PLANNER_CHAT_INPUT_MULTILINE_CONTENT_INSET : inputRightInset,
-              left: textAreaHorizontalInset,
-            }}>
-            {!value ? (
-              <View
-                testID="planner-composer-placeholder"
-                pointerEvents="none"
-                accessibilityElementsHidden
-                importantForAccessibility="no-hide-descendants"
-                style={{
-                  position: 'absolute',
-                  top: (PLANNER_CHAT_INPUT_TEXT_LINE_HEIGHT - 20) / 2,
-                  right: textInputHorizontalPadding,
-                  left: textInputHorizontalPadding,
-                }}>
-                <Text
-                  style={{
-                    color: withOpacity(theme.textLight, 0.6),
-                    fontSize: 15,
-                    lineHeight: 20,
-                  }}>
-                  Decile a la IA lo que te gustaria
-                </Text>
-              </View>
-            ) : null}
-            <TextInput
-              testID="planner-composer-input"
-              value={value}
-              onChangeText={onChangeText}
-              editable={!isThinking}
-              multiline
-              scrollEnabled={inputHeight >= PLANNER_CHAT_INPUT_MAX_HEIGHT}
-              submitBehavior="newline"
-              textAlignVertical={isMultiline ? 'top' : 'center'}
-              className="text-[17px]"
-              style={{
-                color: theme.appBg,
-                height: textInputViewportHeight,
-                lineHeight: PLANNER_CHAT_INPUT_TEXT_LINE_HEIGHT,
-                paddingHorizontal: textInputHorizontalPadding,
-                paddingVertical: 0,
-              }}
-            />
-          </View>
-
-          <View
-            testID="planner-composer-multiline-measurement"
-            pointerEvents="none"
-            accessibilityElementsHidden
-            importantForAccessibility="no-hide-descendants"
-            style={{
-              position: 'absolute',
-              top: PLANNER_CHAT_INPUT_VERTICAL_INSET,
-              right: PLANNER_CHAT_INPUT_MULTILINE_CONTENT_INSET,
-              left: PLANNER_CHAT_INPUT_MULTILINE_CONTENT_INSET,
-              opacity: 0,
-            }}>
-            <TextInput
-              testID="planner-composer-multiline-measurement-input"
-              value={value}
-              onContentSizeChange={handleMultilineMeasurementContentSizeChange}
-              accessible={false}
-              editable={false}
-              multiline
-              scrollEnabled={false}
-              textAlignVertical="top"
-              className="text-[17px]"
-              style={{
-                lineHeight: PLANNER_CHAT_INPUT_TEXT_LINE_HEIGHT,
-                paddingHorizontal: 0,
-                paddingVertical: 0,
-              }}
-            />
-          </View>
-
-          <View
-            testID="planner-composer-control-safe-measurement"
-            pointerEvents="none"
-            accessibilityElementsHidden
-            importantForAccessibility="no-hide-descendants"
-            style={{
-              position: 'absolute',
-              top: PLANNER_CHAT_INPUT_CONTROL_TOP_OFFSET,
-              right: inputRightInset,
-              left: PLANNER_CHAT_INPUT_ONE_LINE_LEFT_INSET,
-              opacity: 0,
-            }}>
-            <TextInput
-              testID="planner-composer-control-safe-input"
-              value={value}
-              onContentSizeChange={handleControlSafeContentSizeChange}
-              accessible={false}
-              editable={false}
-              multiline
-              scrollEnabled={false}
-              className="text-[17px]"
-              style={{
-                lineHeight: PLANNER_CHAT_INPUT_TEXT_LINE_HEIGHT,
-                maxHeight: PLANNER_CHAT_INPUT_TEXT_LINE_HEIGHT * PLANNER_CHAT_INPUT_MAX_LINES,
-                paddingHorizontal: 16,
-                paddingVertical: 0,
-              }}
-            />
-          </View>
-
-          <View
-            className="absolute items-center justify-center"
-            style={{ bottom: PLANNER_CHAT_INPUT_VERTICAL_INSET, left: 8 }}>
-            <Pressable
-              accessibilityLabel="Add meal detail"
-              accessibilityRole="button"
-              className="h-12 w-12 items-center justify-center"
-              hitSlop={8}>
-              <Plus size={24} color={theme.appBg} strokeWidth={2.5} />
-            </Pressable>
-          </View>
-
-          <View
-            className="absolute flex-row items-center"
-            style={{ right: 8, bottom: PLANNER_CHAT_INPUT_VERTICAL_INSET }}>
-            <Pressable
-              accessibilityLabel="Voice input"
-              accessibilityRole="button"
-              className="h-12 w-12 items-center justify-center"
-              hitSlop={8}>
-              <Mic size={22} color={theme.appBg} strokeWidth={2} />
-            </Pressable>
-
-            <Animated.View
-              pointerEvents={hasText ? 'auto' : 'none'}
-              className="h-12 overflow-hidden"
-              style={sendContainerStyle}>
-              <Pressable
-                accessibilityLabel="Send message"
-                accessibilityRole="button"
-                disabled={!canSubmit}
-                onPress={onSubmit}
-                className="h-12 w-12 items-center justify-center"
-                hitSlop={8}
-                style={{ opacity: canSubmit ? 1 : 0.45 }}>
-                <ArrowUp size={24} color={theme.appBg} strokeWidth={2.5} />
-              </Pressable>
-            </Animated.View>
-          </View>
         </Animated.View>
+
+        <View
+          style={{
+            position: 'absolute',
+            top: isMultiline
+              ? PLANNER_CHAT_INPUT_VERTICAL_INSET
+              : PLANNER_CHAT_INPUT_CONTROL_TOP_OFFSET,
+            bottom: isMultiline ? PLANNER_CHAT_INPUT_MULTILINE_TEXT_BOTTOM_OFFSET : undefined,
+            right: isMultiline ? PLANNER_CHAT_INPUT_MULTILINE_CONTENT_INSET : inputRightInset,
+            left: textAreaHorizontalInset,
+          }}>
+          {!value ? (
+            <View
+              testID="planner-composer-placeholder"
+              pointerEvents="none"
+              accessibilityElementsHidden
+              importantForAccessibility="no-hide-descendants"
+              style={{
+                position: 'absolute',
+                top: (PLANNER_CHAT_INPUT_TEXT_LINE_HEIGHT - 20) / 2,
+                right: textInputHorizontalPadding,
+                left: textInputHorizontalPadding,
+              }}>
+              <Text
+                style={{
+                  color: withOpacity(theme.textLight, 0.6),
+                  fontSize: 15,
+                  lineHeight: 20,
+                }}>
+                Decile a la IA lo que te gustaria
+              </Text>
+            </View>
+          ) : null}
+          <TextInput
+            testID="planner-composer-input"
+            value={value}
+            onChangeText={onChangeText}
+            editable
+            multiline
+            scrollEnabled={inputHeight >= PLANNER_CHAT_INPUT_MAX_HEIGHT}
+            submitBehavior="newline"
+            textAlignVertical={isMultiline ? 'top' : 'center'}
+            style={{
+              color: theme.appBg,
+              fontSize: 17,
+              height: textInputViewportHeight,
+              lineHeight: PLANNER_CHAT_INPUT_TEXT_LINE_HEIGHT,
+              paddingHorizontal: textInputHorizontalPadding,
+              paddingVertical: 0,
+            }}
+          />
+        </View>
+
+        <View
+          testID="planner-composer-multiline-measurement"
+          pointerEvents="none"
+          accessibilityElementsHidden
+          importantForAccessibility="no-hide-descendants"
+          style={{
+            position: 'absolute',
+            top: PLANNER_CHAT_INPUT_VERTICAL_INSET,
+            right: PLANNER_CHAT_INPUT_MULTILINE_CONTENT_INSET,
+            left: PLANNER_CHAT_INPUT_MULTILINE_CONTENT_INSET,
+            opacity: 0,
+          }}>
+          <TextInput
+            testID="planner-composer-multiline-measurement-input"
+            value={value}
+            onContentSizeChange={handleMultilineMeasurementContentSizeChange}
+            accessible={false}
+            editable={false}
+            multiline
+            scrollEnabled={false}
+            textAlignVertical="top"
+            style={{
+              fontSize: 17,
+              lineHeight: PLANNER_CHAT_INPUT_TEXT_LINE_HEIGHT,
+              paddingHorizontal: 0,
+              paddingVertical: 0,
+            }}
+          />
+        </View>
+
+        <View
+          testID="planner-composer-control-safe-measurement"
+          pointerEvents="none"
+          accessibilityElementsHidden
+          importantForAccessibility="no-hide-descendants"
+          style={{
+            position: 'absolute',
+            top: PLANNER_CHAT_INPUT_CONTROL_TOP_OFFSET,
+            right: inputRightInset,
+            left: PLANNER_CHAT_INPUT_ONE_LINE_LEFT_INSET,
+            opacity: 0,
+          }}>
+          <TextInput
+            testID="planner-composer-control-safe-input"
+            value={value}
+            onContentSizeChange={handleControlSafeContentSizeChange}
+            accessible={false}
+            editable={false}
+            multiline
+            scrollEnabled={false}
+            style={{
+              fontSize: 17,
+              lineHeight: PLANNER_CHAT_INPUT_TEXT_LINE_HEIGHT,
+              maxHeight: PLANNER_CHAT_INPUT_TEXT_LINE_HEIGHT * PLANNER_CHAT_INPUT_MAX_LINES,
+              paddingHorizontal: 16,
+              paddingVertical: 0,
+            }}
+          />
+        </View>
+
+        <View style={[styles.leftControl, { bottom: PLANNER_CHAT_INPUT_VERTICAL_INSET, left: 8 }]}>
+          <Pressable
+            accessibilityLabel="Add meal detail"
+            accessibilityRole="button"
+            style={styles.controlButton}
+            hitSlop={8}>
+            <View style={{ transform: [{ translateY: PLANNER_CHAT_INPUT_ICON_OPTICAL_OFFSET_Y }] }}>
+              <Plus size={24} color={theme.appBg} strokeWidth={2.5} />
+            </View>
+          </Pressable>
+        </View>
+
+        <View
+          testID="planner-composer-controls"
+          style={[styles.controls, { right: 8, bottom: PLANNER_CHAT_INPUT_VERTICAL_INSET }]}>
+          <Pressable
+            accessibilityLabel="Voice input"
+            accessibilityRole="button"
+            style={styles.controlButton}
+            hitSlop={8}>
+            <View style={{ transform: [{ translateY: PLANNER_CHAT_INPUT_ICON_OPTICAL_OFFSET_Y }] }}>
+              <Mic size={22} color={theme.appBg} strokeWidth={2} />
+            </View>
+          </Pressable>
+
+          <Animated.View
+            pointerEvents={hasText ? 'auto' : 'none'}
+            style={[styles.sendContainer, sendContainerStyle]}>
+            <Pressable
+              testID="planner-composer-submit"
+              accessibilityLabel="Send message"
+              accessibilityRole="button"
+              disabled={!canSubmit}
+              onPress={onSubmit}
+              hitSlop={8}
+              style={[styles.controlButton, { opacity: canSubmit ? 1 : 0.45 }]}>
+              <View
+                style={{ transform: [{ translateY: PLANNER_CHAT_INPUT_ICON_OPTICAL_OFFSET_Y }] }}>
+                <ArrowUp size={24} color={theme.appBg} strokeWidth={2.5} />
+              </View>
+            </Pressable>
+          </Animated.View>
+        </View>
       </Animated.View>
     </Animated.View>
   );
 }
+
+const styles = StyleSheet.create({
+  controlButton: {
+    alignItems: 'center',
+    height: 42,
+    justifyContent: 'center',
+    width: 42,
+  },
+  controls: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    position: 'absolute',
+  },
+  frame: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    overflow: 'hidden',
+    position: 'relative',
+    width: '100%',
+  },
+  innerSurface: {
+    overflow: 'hidden',
+    position: 'absolute',
+  },
+  leftControl: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    position: 'absolute',
+  },
+  sendContainer: {
+    height: 42,
+    overflow: 'hidden',
+  },
+  thinkingGradient: {
+    aspectRatio: 1,
+    position: 'absolute',
+    width: '160%',
+  },
+  wrapper: {
+    bottom: 0,
+    paddingHorizontal: 14,
+    position: 'absolute',
+    width: '100%',
+  },
+});

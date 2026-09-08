@@ -130,14 +130,16 @@ export function HomeScreen() {
       <SafeAreaContent includeBottom={false} style={{ flex: 1 }}>
         <TitlePrimary text="COMIDAS" metrics={metrics} />
         <View
-          className="w-full flex-1"
-          style={{
-            paddingHorizontal: metrics.horizontalPadding,
-            paddingBottom: metrics.bottomPadding + tabBarHeight,
-            gap: metrics.sectionGap,
-          }}>
-          <View className="h-3/6 flex-shrink" style={{ gap: metrics.rowGap }}>
-            <View className="relative flex-1 flex-row items-start" style={{ gap: metrics.rowGap }}>
+          style={[
+            styles.content,
+            {
+              paddingHorizontal: metrics.horizontalPadding,
+              paddingBottom: metrics.bottomPadding + tabBarHeight,
+              gap: metrics.sectionGap,
+            },
+          ]}>
+          <View style={[styles.topSection, { gap: metrics.rowGap }]}>
+            <View style={[styles.mealRow, { gap: metrics.rowGap }]}>
               {isTodaySelected ? (
                 <FloatingFoodImage
                   source={foodImageSource}
@@ -167,9 +169,7 @@ export function HomeScreen() {
                   onPressSparkles={handlePressSparkles}
                 />
               </View>
-              <View
-                className="items-start self-end"
-                style={{ width: `${metrics.sideColumnPercent}%` }}>
+              <View style={[styles.sideColumn, { width: `${metrics.sideColumnPercent}%` }]}>
                 {isTodaySelected ? (
                   <AddCircleButton
                     size={metrics.addButtonSize}
@@ -178,7 +178,7 @@ export function HomeScreen() {
                 ) : null}
               </View>
             </View>
-            <View className="min-w-full">
+            <View style={styles.switcherRow}>
               <FoodTypeSwitcher
                 value={selectedMealType}
                 availableTypes={availableMealTypes}
@@ -187,7 +187,7 @@ export function HomeScreen() {
               />
             </View>
           </View>
-          <View className="mt-auto h-3/6 w-full">
+          <View style={styles.calendarSection}>
             <Calendar
               planByDate={planByDate}
               selectedDate={selectedDate}
@@ -206,6 +206,32 @@ export function HomeScreen() {
 }
 
 const styles = StyleSheet.create({
+  calendarSection: {
+    height: '50%',
+    marginTop: 'auto',
+    width: '100%',
+  },
+  content: {
+    flex: 1,
+    width: '100%',
+  },
   screen: { flex: 1 },
   gradient: { flex: 1 },
+  mealRow: {
+    alignItems: 'flex-start',
+    flex: 1,
+    flexDirection: 'row',
+    position: 'relative',
+  },
+  sideColumn: {
+    alignItems: 'flex-start',
+    alignSelf: 'flex-end',
+  },
+  switcherRow: {
+    minWidth: '100%',
+  },
+  topSection: {
+    flexShrink: 1,
+    height: '50%',
+  },
 });

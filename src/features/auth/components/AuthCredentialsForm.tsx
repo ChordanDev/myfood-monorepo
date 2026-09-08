@@ -34,11 +34,11 @@ export function AuthCredentialsForm({
   return (
     <View style={{ paddingHorizontal: metrics.formHorizontalPadding }}>
       <View
-        className="w-full"
         style={{
           backgroundColor: theme.icon,
           borderRadius: metrics.formContainerRadius,
           overflow: 'hidden',
+          width: '100%',
         }}>
         <EmailTextInput
           value={email}
@@ -54,13 +54,13 @@ export function AuthCredentialsForm({
         />
       </View>
 
-      <View className="items-center" style={{ paddingTop: showEmailError ? 6 : 0 }}>
+      <View style={{ alignItems: 'center', paddingTop: showEmailError ? 6 : 0 }}>
         <InputErrorText
           visible={showEmailError}
           text="Ingresa un correo válido (ejemplo@dominio.com)."
-          className="font-inter-medium"
           style={{
             color: theme.primaryAccent,
+            fontFamily: 'Inter_500Medium',
             fontSize: metrics.formErrorFontSize,
             textAlign: 'center',
           }}

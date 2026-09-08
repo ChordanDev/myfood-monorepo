@@ -19,8 +19,7 @@ jest.mock('expo-secure-store', () => ({
   }),
 }));
 
-// Mock react-native-safe-area-context to bypass the nativewind
-// SafeAreaProvider shim that reads Platform.OS at module load.
+// Keep safe-area behavior deterministic in the provider test harness.
 jest.mock('react-native-safe-area-context', () => ({
   SafeAreaProvider: ({ children }: { children: unknown }) => children,
   SafeAreaConsumer: ({ children }: { children: unknown }) => children,

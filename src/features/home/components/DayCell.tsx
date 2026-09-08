@@ -1,5 +1,5 @@
 import { memo, useMemo } from 'react';
-import { Pressable, View } from 'react-native';
+import { Pressable, StyleSheet, View } from 'react-native';
 import Animated from 'react-native-reanimated';
 import * as Haptics from 'expo-haptics';
 import { useRecipeTheme } from '@/context/RecipeThemeContext';
@@ -93,7 +93,7 @@ export const DayCell = memo(
           }}
           hitSlop={8}
           disabled={!isSelectable}
-          className="active:scale-95"
+          style={({ pressed }) => ({ transform: [{ scale: pressed ? 0.95 : 1 }] })}
           accessibilityRole="button"
           accessibilityState={{ disabled: !isSelectable }}>
           <Animated.View
@@ -108,9 +108,7 @@ export const DayCell = memo(
               },
               circleStyle,
             ]}>
-            <Animated.Text
-              style={[{ fontSize: dayFontSize }, textStyle]}
-              className="font-inter-semibold">
+            <Animated.Text style={[styles.dayText, { fontSize: dayFontSize }, textStyle]}>
               {dayDate.getDate()}
             </Animated.Text>
           </Animated.View>
@@ -119,3 +117,9 @@ export const DayCell = memo(
     );
   }
 );
+
+const styles = StyleSheet.create({
+  dayText: {
+    fontFamily: 'Inter_600SemiBold',
+  },
+});

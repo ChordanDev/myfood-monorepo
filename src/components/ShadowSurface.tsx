@@ -14,12 +14,11 @@ const SOFT_SHADOW_STYLE: ViewStyle = {
 
 type ShadowSurfaceProps = PropsWithChildren<ViewProps> & {
   style?: StyleProp<ViewStyle>;
-  className?: string;
 };
 
-export function ShadowSurface({ children, style, className, ...viewProps }: ShadowSurfaceProps) {
+export function ShadowSurface({ children, style, ...viewProps }: ShadowSurfaceProps) {
   return (
-    <View className={className} style={[SOFT_SHADOW_STYLE, style]} {...viewProps}>
+    <View style={[SOFT_SHADOW_STYLE, style]} {...viewProps}>
       {children}
     </View>
   );

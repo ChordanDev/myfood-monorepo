@@ -11,7 +11,12 @@ export function CarouselImages({ images, metrics }: CarouselImagesProps) {
   const centerIndex = Math.floor(images.length / 2);
 
   return (
-    <View className="items-center justify-center" style={{ height: metrics.carouselHeight }}>
+    <View
+      style={{
+        alignItems: 'center',
+        height: metrics.carouselHeight,
+        justifyContent: 'center',
+      }}>
       {images.map((source, index) => {
         const diff = index - centerIndex;
         const distance = Math.abs(diff);
@@ -25,12 +30,12 @@ export function CarouselImages({ images, metrics }: CarouselImagesProps) {
           <Image
             key={`food-image-${index}`}
             source={source}
-            className="absolute"
             style={{
               width: size,
               height: size,
               borderRadius: size / 2,
               opacity: diff === 0 ? 1 : 0.8,
+              position: 'absolute',
               transform: [{ translateX }],
               zIndex: 10 - distance,
             }}

@@ -26,13 +26,6 @@
 // public API only (no internal-state peeking). They use controlled
 // mocks of `@/services/authService` to drive the post-completion flow.
 //
-// Note on test file style: the NativeWind babel plugin auto-injects a
-// `react-native-css-interop` import whenever a file uses
-// `React.createElement(...)`, which then runs `Appearance.getColorScheme`
-// at import time and breaks unit tests. To avoid that, this file imports
-// `createElement` under a non-`createElement` alias and uses that alias
-// everywhere. The babel plugin only matches the literal name.
-
 /* eslint-disable @typescript-eslint/no-require-imports */
 
 import { createElement as h } from 'react';
@@ -50,9 +43,7 @@ const mockAuthService = jest.requireMock('@/services/authService');
 // Mocked surface of @/services/authService. Each test wires its own
 // behavior; defaults are fail-loud so a missing mock is obvious.
 // Lives in a separate CommonJS file so the hoisted jest.mock factory
-// only references `require(...)` (which jest's static analyzer
-// allows) instead of an in-scope `const` that could collide with the
-// babel-auto-injected `_ReactNativeCSSInterop` import.
+// only references `require(...)`, which Jest's static analyzer allows.
 jest.mock('@/services/authService', () => require('../fixtures/authServiceMock'));
 
 // Mock expo-secure-store — AuthProvider never touches it but the real
@@ -63,21 +54,8 @@ jest.mock('expo-secure-store', () => ({
   deleteItemAsync: jest.fn().mockResolvedValue(undefined),
 }));
 
-// Stub the NativeWind interop so the babel-auto-injected call to
-// `ReactNativeCSSInterop.createInteropElement(...)` becomes a passthrough
-// `createElement(...)` call. AuthContext.tsx is a JSX file, so the
-// babel plugin auto-injects the import on it as well — this mock
-// catches both injection sites (the test file itself and the source
-// module under test). The factory body is delegated to a separate
-// CommonJS file so the hoisted jest.mock factory only references
-// `require(...)` (which jest's static analyzer allows).
-jest.mock('react-native-css-interop', () => require('../fixtures/cssInteropMock'));
-
-// Mock react-native so the NativeWind babel auto-injection (which fires
-// on the `AuthContext.tsx` source file because it contains JSX) does not
-// try to read `Appearance.getColorScheme()` or
-// `AccessibilityInfo.isReduceMotionEnabled()` at import time.
-// AuthProvider itself only subscribes to AppState.
+// AuthProvider itself only subscribes to AppState; keep the native surface
+// deterministic so these tests remain focused on provider behavior.
 jest.mock('react-native', () => ({
   AppState: {
     addEventListener: () => ({ remove: () => undefined }),

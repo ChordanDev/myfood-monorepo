@@ -46,10 +46,22 @@ export function SlotEditor({
       }}>
       <View style={{ alignItems: 'center', flexDirection: 'row', justifyContent: 'space-between' }}>
         <View>
-          <Text className="font-montserrat-bold text-lg" style={{ color: theme.textLight }}>
+          <Text
+            style={{
+              color: theme.textLight,
+              fontFamily: 'Montserrat_700Bold',
+              fontSize: 15.75,
+              lineHeight: 24.5,
+            }}>
             {SLOT_LABELS[slot]}
           </Text>
-          <Text className="font-inter-medium text-xs" style={{ color: theme.textMedium }}>
+          <Text
+            style={{
+              color: theme.textMedium,
+              fontFamily: 'Inter_500Medium',
+              fontSize: 10.5,
+              lineHeight: 14,
+            }}>
             Tiempo + nivel de hambre
           </Text>
         </View>
@@ -62,7 +74,13 @@ export function SlotEditor({
             justifyContent: 'center',
             width: 44,
           }}>
-          <Text className="font-montserrat-bold text-xl" style={{ color: theme.primaryAccent }}>
+          <Text
+            style={{
+              color: theme.primaryAccent,
+              fontFamily: 'Montserrat_700Bold',
+              fontSize: 17.5,
+              lineHeight: 24.5,
+            }}>
             {form.mode === 'noCook'
               ? '0'
               : form.mode === 'custom'

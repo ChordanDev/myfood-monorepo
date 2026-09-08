@@ -4,6 +4,7 @@ import {
   Alert,
   Pressable,
   ScrollView,
+  StyleSheet,
   Text,
   useWindowDimensions,
   View,
@@ -286,23 +287,18 @@ export function OnboardingScreen({ previewMode = false }: OnboardingScreenProps)
               accessibilityRole="button"
               onPress={handleSubmit}
               disabled={submitDisabled}
-              className="active:opacity-90"
-              style={{
-                alignItems: 'center',
-                backgroundColor: submitDisabled ? 'rgba(69, 64, 47, 0.58)' : theme.colorBlack,
-                borderColor: submitDisabled ? 'transparent' : theme.primaryAccent,
-                borderRadius: 32,
-                borderWidth: 3,
-                paddingHorizontal: 20,
-                paddingVertical: 16,
-                opacity: submitDisabled ? 0.6 : 1,
-              }}>
+              style={({ pressed }) => [
+                styles.submitButton,
+                {
+                  backgroundColor: submitDisabled ? 'rgba(69, 64, 47, 0.58)' : theme.colorBlack,
+                  borderColor: submitDisabled ? 'transparent' : theme.primaryAccent,
+                  opacity: submitDisabled ? 0.6 : pressed ? 0.9 : 1,
+                },
+              ]}>
               {submitting ? (
                 <ActivityIndicator size="small" color={theme.primaryAccent} />
               ) : (
-                <Text
-                  className="font-montserrat-bold text-base"
-                  style={{ color: theme.textLight, letterSpacing: 0.2 }}>
+                <Text style={[styles.submitLabel, { color: theme.textLight }]}>
                   Guardar preferencias
                 </Text>
               )}
@@ -310,10 +306,8 @@ export function OnboardingScreen({ previewMode = false }: OnboardingScreenProps)
             <Pressable
               accessibilityRole="button"
               onPress={previewMode ? undefined : signOut}
-              className="items-center rounded-2xl py-3 active:opacity-80">
-              <Text className="font-inter-semibold text-sm" style={{ color: theme.colorMedium }}>
-                Cerrar sesión
-              </Text>
+              style={({ pressed }) => [styles.signOutButton, { opacity: pressed ? 0.8 : 1 }]}>
+              <Text style={[styles.signOutLabel, { color: theme.colorMedium }]}>Cerrar sesión</Text>
             </Pressable>
           </View>
         </ScrollView>
@@ -321,3 +315,29 @@ export function OnboardingScreen({ previewMode = false }: OnboardingScreenProps)
     </LinearGradient>
   );
 }
+
+const styles = StyleSheet.create({
+  signOutButton: {
+    alignItems: 'center',
+    borderRadius: 14,
+    paddingVertical: 10.5,
+  },
+  signOutLabel: {
+    fontFamily: 'Inter_600SemiBold',
+    fontSize: 12.25,
+    lineHeight: 17.5,
+  },
+  submitButton: {
+    alignItems: 'center',
+    borderRadius: 32,
+    borderWidth: 3,
+    paddingHorizontal: 20,
+    paddingVertical: 16,
+  },
+  submitLabel: {
+    fontFamily: 'Montserrat_700Bold',
+    fontSize: 14,
+    letterSpacing: 0.2,
+    lineHeight: 21,
+  },
+});

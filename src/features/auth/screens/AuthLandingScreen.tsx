@@ -101,11 +101,15 @@ export function AuthLandingScreen() {
       <NoisyBackground opacity={0.2} />
 
       <SafeAreaContent>
-        <View className="items-center" style={{ flex: 5, overflow: 'hidden' }}>
+        <View style={{ alignItems: 'center', flex: 5, overflow: 'hidden' }}>
           <TopFadeMask enabled={isKeyboardOpen} fadeSize={50}>
-            <View className="flex-1">
-              <Animated.View className="h-full w-full justify-between" style={inputAnimatedStyle}>
-                <View className="items-center">
+            <View style={{ flex: 1 }}>
+              <Animated.View
+                style={[
+                  { height: '100%', justifyContent: 'space-between', width: '100%' },
+                  inputAnimatedStyle,
+                ]}>
+                <View style={{ alignItems: 'center' }}>
                   {/* Encabezado visual con marca y carrusel. */}
                   <TitlePrimary text="MyFood" metrics={metrics} />
                   <CarouselImages images={AUTH_FOOD_IMAGES} metrics={metrics} />
@@ -132,7 +136,7 @@ export function AuthLandingScreen() {
           </TopFadeMask>
         </View>
 
-        <View className="justify-between" style={{ flex: 3 }}>
+        <View style={{ flex: 3, justifyContent: 'space-between' }}>
           {/* Accesos alternativos al registro y login social. */}
           <AuthButton
             title="Crear una cuenta"

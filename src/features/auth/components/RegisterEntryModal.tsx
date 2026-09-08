@@ -6,6 +6,7 @@ import {
   Text,
   View,
   Platform,
+  StyleSheet,
   useWindowDimensions,
 } from 'react-native';
 
@@ -76,44 +77,42 @@ export function RegisterEntryModal({
       visible={visible}
       onRequestClose={handleClose}
       statusBarTranslucent>
-      <View
-        className="flex-1 items-center justify-center bg-black/60"
-        style={{ paddingHorizontal: modalHorizontalPadding }}>
-        <Pressable className="absolute inset-0" onPress={handleClose} />
+      <View style={[styles.backdrop, { paddingHorizontal: modalHorizontalPadding }]}>
+        <Pressable style={StyleSheet.absoluteFill} onPress={handleClose} />
 
         <Animated.View
-          style={[inputAnimatedStyle, { maxHeight: modalMaxHeight, backgroundColor: theme.icon }]}
-          className="w-full max-w-[440px] overflow-hidden rounded-3xl">
+          style={[
+            styles.modal,
+            inputAnimatedStyle,
+            { maxHeight: modalMaxHeight, backgroundColor: theme.icon },
+          ]}>
           <ScrollView
             bounces={false}
             showsVerticalScrollIndicator={false}
             keyboardShouldPersistTaps="handled"
             contentContainerStyle={{ paddingHorizontal: 20, paddingTop: 24, paddingBottom: 20 }}>
-            <Text
-              className="text-center font-montserrat-bold text-xl"
-              style={{ color: theme.colorMedium }}>
-              Creá tu cuenta
-            </Text>
-            <Text
-              className="font-inter-regular mt-2 text-center"
-              style={{ color: theme.textMedium }}>
+            <Text style={[styles.title, { color: theme.colorMedium }]}>Creá tu cuenta</Text>
+            <Text style={[styles.subtitle, { color: theme.textMedium }]}>
               Ingresá tu correo y acepta los términos para recibir un código de verificación.
             </Text>
 
             <View
-              className="mt-5 rounded-xl"
-              style={{ backgroundColor: getColorWithOpacity('icon', 0.8) }}>
+              style={[
+                styles.emailContainer,
+                { backgroundColor: getColorWithOpacity('icon', 0.8) },
+              ]}>
               <EmailTextInput
                 value={registerEmail}
                 onChangeText={setRegisterEmail}
                 placeholder="tuemail@dominio.com"
                 placeholderTextColor={theme.textLight}
                 androidDescenderFix
-                className="font-inter-regular px-4"
                 style={{
                   color: theme.textBlack,
+                  fontFamily: 'Inter_400Regular',
                   fontSize: 14,
                   height: 48,
+                  paddingHorizontal: 14,
                   ...(Platform.OS === 'ios' ? { paddingTop: 12, paddingBottom: 12 } : null),
                 }}
               />
@@ -122,26 +121,23 @@ export function RegisterEntryModal({
             <InputErrorText
               visible={showEmailError}
               text="Ingresa un correo v\u00e1lido para continuar."
-              className="mt-2 font-inter-medium text-sm"
-              style={{ color: theme.primaryAccentIntense }}
+              style={{ color: theme.primaryAccentIntense, marginTop: 7 }}
             />
 
-            <Pressable
-              className="mt-4 flex-row items-center"
-              onPress={() => setAcceptedTerms((prev) => !prev)}>
+            <Pressable onPress={() => setAcceptedTerms((prev) => !prev)} style={styles.termsRow}>
               <View
-                className="h-6 w-6 items-center justify-center rounded-md border"
-                style={{
-                  borderColor: acceptedTerms ? theme.colorMedium : theme.textLight,
-                  backgroundColor: acceptedTerms ? theme.colorMedium : 'transparent',
-                }}>
+                style={[
+                  styles.checkbox,
+                  {
+                    borderColor: acceptedTerms ? theme.colorMedium : theme.textLight,
+                    backgroundColor: acceptedTerms ? theme.colorMedium : 'transparent',
+                  },
+                ]}>
                 {acceptedTerms ? (
-                  <Text className="text-xs" style={{ color: theme.icon }}>
-                    ✓
-                  </Text>
+                  <Text style={[styles.checkmark, { color: theme.icon }]}>✓</Text>
                 ) : null}
               </View>
-              <Text className="font-inter-regular ml-3 flex-1" style={{ color: theme.colorMedium }}>
+              <Text style={[styles.termsLabel, { color: theme.colorMedium }]}>
                 Acepto términos y condiciones.
               </Text>
             </Pressable>
@@ -149,33 +145,27 @@ export function RegisterEntryModal({
             <InputErrorText
               visible={termsTouched && isValidRegisterEmail && !acceptedTerms}
               text="Debes aceptar los términos para crear tu cuenta."
-              className="mt-2 font-inter-medium text-sm"
-              style={{ color: theme.primaryAccentIntense }}
+              style={{ color: theme.primaryAccentIntense, marginTop: 7 }}
             />
 
-            <View className="mt-6">
+            <View style={styles.actions}>
               <Pressable
                 onPress={handleContinue}
                 disabled={isContinueDisabled}
-                className="w-full items-center rounded-2xl py-3 active:opacity-90"
-                style={{
-                  backgroundColor: theme.colorMedium,
-                  opacity: isContinueDisabled ? 0.55 : 1,
-                }}>
-                <Text
-                  className="font-inter-semibold text-base"
-                  style={{ color: theme.primaryAccent }}>
+                style={({ pressed }) => [
+                  styles.continueButton,
+                  {
+                    backgroundColor: theme.colorMedium,
+                    opacity: isContinueDisabled ? 0.55 : pressed ? 0.9 : 1,
+                  },
+                ]}>
+                <Text style={[styles.continueLabel, { color: theme.primaryAccent }]}>
                   {isSubmitting ? 'Enviando código...' : 'Continuar'}
                 </Text>
               </Pressable>
 
-              <Pressable
-                disabled={isSubmitting}
-                onPress={handleClose}
-                className="mt-3 items-center py-1">
-                <Text className="font-inter-medium text-sm" style={{ color: theme.textMedium }}>
-                  Cancelar
-                </Text>
+              <Pressable disabled={isSubmitting} onPress={handleClose} style={styles.cancelButton}>
+                <Text style={[styles.cancelLabel, { color: theme.textMedium }]}>Cancelar</Text>
               </Pressable>
             </View>
           </ScrollView>
@@ -184,3 +174,79 @@ export function RegisterEntryModal({
     </Modal>
   );
 }
+
+const styles = StyleSheet.create({
+  actions: {
+    marginTop: 21,
+  },
+  backdrop: {
+    alignItems: 'center',
+    backgroundColor: 'rgba(0, 0, 0, 0.6)',
+    flex: 1,
+    justifyContent: 'center',
+  },
+  cancelButton: {
+    alignItems: 'center',
+    marginTop: 10.5,
+    paddingVertical: 3.5,
+  },
+  cancelLabel: {
+    fontFamily: 'Inter_500Medium',
+    fontSize: 12.25,
+    lineHeight: 17.5,
+  },
+  checkbox: {
+    alignItems: 'center',
+    borderRadius: 5.25,
+    borderWidth: 1,
+    height: 21,
+    justifyContent: 'center',
+    width: 21,
+  },
+  checkmark: {
+    fontSize: 10.5,
+    lineHeight: 14,
+  },
+  continueButton: {
+    alignItems: 'center',
+    borderRadius: 14,
+    paddingVertical: 10.5,
+    width: '100%',
+  },
+  continueLabel: {
+    fontFamily: 'Inter_600SemiBold',
+    fontSize: 14,
+    lineHeight: 21,
+  },
+  emailContainer: {
+    borderRadius: 10.5,
+    marginTop: 17.5,
+  },
+  modal: {
+    borderRadius: 21,
+    maxWidth: 440,
+    overflow: 'hidden',
+    width: '100%',
+  },
+  subtitle: {
+    fontFamily: 'Inter_400Regular',
+    marginTop: 7,
+    textAlign: 'center',
+  },
+  termsLabel: {
+    flex: 1,
+    fontFamily: 'Inter_400Regular',
+    marginLeft: 10.5,
+  },
+  termsRow: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    marginTop: 14,
+  },
+  title: {
+    fontFamily: 'Montserrat_700Bold',
+    fontSize: 17.5,
+    lineHeight: 24.5,
+    textAlign: 'center',
+  },
+});

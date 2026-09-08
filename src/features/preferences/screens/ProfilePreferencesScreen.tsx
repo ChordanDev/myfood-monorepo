@@ -4,6 +4,7 @@ import {
   Alert,
   Pressable,
   ScrollView,
+  StyleSheet,
   Text,
   TextInput,
   View,
@@ -255,60 +256,51 @@ export function ProfilePreferencesScreen() {
           contentInsetAdjustmentBehavior="automatic"
           contentContainerStyle={{ paddingBottom: 40, gap: 24 }}
           keyboardShouldPersistTaps="handled">
-          <View className="px-7 pt-6">
-            <Text className="font-montserrat-bold text-[28px]" style={{ color: theme.textBlack }}>
-              Tu perfil
-            </Text>
+          <View style={styles.header}>
+            <Text style={[styles.screenTitle, { color: theme.textBlack }]}>Tu perfil</Text>
             {user ? (
-              <Text
-                selectable
-                className="font-inter-regular mt-1 text-sm"
-                style={{ color: theme.primaryAccent }}>
+              <Text selectable style={[styles.headerDetail, { color: theme.primaryAccent }]}>
                 {user.email}
               </Text>
             ) : null}
             {me?.user.displayName ? (
-              <Text className="mt-1 font-inter-medium text-sm" style={{ color: theme.textLight }}>
+              <Text style={[styles.headerName, { color: theme.textLight }]}>
                 Nombre: {me.user.displayName}
               </Text>
             ) : null}
           </View>
 
           {loadState.status === 'loading' ? (
-            <View className="items-center py-6">
+            <View style={styles.loading}>
               <ActivityIndicator size="small" color={theme.primaryAccent} />
             </View>
           ) : null}
 
           {loadState.status === 'error' ? (
-            <View className="px-7" style={{ gap: 12 }}>
-              <Text className="font-inter-semibold text-sm" style={{ color: theme.primaryAccent }}>
+            <View style={[styles.section, { gap: 12 }]}>
+              <Text style={[styles.errorText, { color: theme.primaryAccent }]}>
                 No pudimos cargar tus datos. Reintentá antes de guardar para no sobrescribir el
                 servidor.
               </Text>
               <Pressable
                 accessibilityRole="button"
                 onPress={loadData}
-                className="items-center rounded-2xl py-3 active:opacity-80"
-                style={{ backgroundColor: theme.icon }}>
-                <Text className="font-inter-medium text-sm" style={{ color: theme.textBlack }}>
-                  Reintentar
-                </Text>
+                style={({ pressed }) => [
+                  styles.secondaryButton,
+                  { backgroundColor: theme.icon, opacity: pressed ? 0.8 : 1 },
+                ]}>
+                <Text style={[styles.mediumLabel, { color: theme.textBlack }]}>Reintentar</Text>
               </Pressable>
             </View>
           ) : null}
 
           {loadState.status === 'ready' ? (
             <>
-              <View className="px-7" style={{ gap: 16 }}>
-                <Text
-                  className="font-montserrat-semibold text-lg"
-                  style={{ color: theme.textBlack }}>
-                  Preferencias
-                </Text>
+              <View style={[styles.section, { gap: 16 }]}>
+                <Text style={[styles.sectionTitle, { color: theme.textBlack }]}>Preferencias</Text>
 
                 <FieldLabel theme={typedTheme} text="Dieta" />
-                <View className="flex-row flex-wrap" style={{ gap: 8 }}>
+                <View style={[styles.wrapRow, { gap: 8 }]}>
                   <Chip
                     key="none"
                     label="Ninguna"
@@ -328,7 +320,7 @@ export function ProfilePreferencesScreen() {
                 </View>
 
                 <FieldLabel theme={typedTheme} text="Restricciones duras" />
-                <View className="flex-row flex-wrap" style={{ gap: 8 }}>
+                <View style={[styles.wrapRow, { gap: 8 }]}>
                   {HARD_RESTRICTION_CODES.map((code) => (
                     <Chip
                       key={code}
@@ -347,15 +339,12 @@ export function ProfilePreferencesScreen() {
                   onChangeText={setSoftPreferences}
                   placeholder="ej. cilantro, picante"
                   placeholderTextColor={theme.textLight}
-                  className="font-inter-regular rounded-2xl px-4 py-3 text-base"
-                  style={{ backgroundColor: theme.icon, color: theme.colorMedium }}
+                  style={[styles.input, { backgroundColor: theme.icon, color: theme.colorMedium }]}
                 />
               </View>
 
-              <View className="px-7" style={{ gap: 16 }}>
-                <Text
-                  className="font-montserrat-semibold text-lg"
-                  style={{ color: theme.textBlack }}>
+              <View style={[styles.section, { gap: 16 }]}>
+                <Text style={[styles.sectionTitle, { color: theme.textBlack }]}>
                   Tiempos por comida
                 </Text>
                 {MEAL_SLOTS.map((slot) => (
@@ -369,22 +358,22 @@ export function ProfilePreferencesScreen() {
                 ))}
               </View>
 
-              <View className="px-7" style={{ gap: 12 }}>
+              <View style={[styles.section, { gap: 12 }]}>
                 <Pressable
                   accessibilityRole="button"
                   onPress={handleSave}
                   disabled={loadState.saving}
-                  className="items-center rounded-2xl py-4 active:opacity-90"
-                  style={{
-                    backgroundColor: theme.colorMedium,
-                    opacity: loadState.saving ? 0.6 : 1,
-                  }}>
+                  style={({ pressed }) => [
+                    styles.primaryButton,
+                    {
+                      backgroundColor: theme.colorMedium,
+                      opacity: loadState.saving ? 0.6 : pressed ? 0.9 : 1,
+                    },
+                  ]}>
                   {loadState.saving ? (
                     <ActivityIndicator size="small" color={theme.primaryAccent} />
                   ) : (
-                    <Text
-                      className="font-inter-semibold text-base"
-                      style={{ color: theme.primaryAccent }}>
+                    <Text style={[styles.primaryLabel, { color: theme.primaryAccent }]}>
                       Guardar cambios
                     </Text>
                   )}
@@ -392,10 +381,8 @@ export function ProfilePreferencesScreen() {
                 <Pressable
                   accessibilityRole="button"
                   onPress={signOut}
-                  className="items-center rounded-2xl py-3 active:opacity-80">
-                  <Text
-                    className="font-inter-medium text-sm"
-                    style={{ color: theme.primaryAccent }}>
+                  style={({ pressed }) => [styles.secondaryButton, { opacity: pressed ? 0.8 : 1 }]}>
+                  <Text style={[styles.mediumLabel, { color: theme.primaryAccent }]}>
                     Cerrar sesión
                   </Text>
                 </Pressable>
@@ -409,11 +396,7 @@ export function ProfilePreferencesScreen() {
 }
 
 function FieldLabel({ theme, text }: { theme: ThemeLike; text: string }) {
-  return (
-    <Text className="font-inter-semibold text-sm" style={{ color: theme.textBlack }}>
-      {text}
-    </Text>
-  );
+  return <Text style={[styles.fieldLabel, { color: theme.textBlack }]}>{text}</Text>;
 }
 
 function Chip({
@@ -432,15 +415,16 @@ function Chip({
       accessibilityRole="button"
       accessibilityState={{ selected }}
       onPress={onPress}
-      className="items-center rounded-2xl px-4 py-3 active:opacity-80"
-      style={{
-        backgroundColor: selected ? theme.colorMedium : theme.icon,
-        borderWidth: 1,
-        borderColor: selected ? theme.colorMedium : 'transparent',
-      }}>
+      style={({ pressed }) => [
+        styles.chip,
+        {
+          backgroundColor: selected ? theme.colorMedium : theme.icon,
+          borderColor: selected ? theme.colorMedium : 'transparent',
+          opacity: pressed ? 0.8 : 1,
+        },
+      ]}>
       <Text
-        className="font-inter-medium text-sm"
-        style={{ color: selected ? theme.primaryAccent : theme.textBlack }}>
+        style={[styles.mediumLabel, { color: selected ? theme.primaryAccent : theme.textBlack }]}>
         {label}
       </Text>
     </Pressable>
@@ -462,10 +446,8 @@ function SlotEditor({
   const typedTheme = theme as unknown as ThemeLike;
 
   return (
-    <View className="rounded-3xl p-4" style={{ backgroundColor: theme.icon, gap: 12 }}>
-      <Text className="font-montserrat-semibold text-base" style={{ color: theme.colorMedium }}>
-        {SLOT_LABELS[slot]}
-      </Text>
+    <View style={[styles.slotCard, { backgroundColor: theme.icon }]}>
+      <Text style={[styles.slotTitle, { color: theme.colorMedium }]}>{SLOT_LABELS[slot]}</Text>
 
       <FieldLabel theme={typedTheme} text="Minutos de cocina (0 = no cocina)" />
       <TextInput
@@ -474,11 +456,10 @@ function SlotEditor({
         onChangeText={onMinutesChange}
         keyboardType="number-pad"
         maxLength={3}
-        className="font-inter-regular rounded-2xl px-4 py-3 text-base"
-        style={{ backgroundColor: theme.colorMedium, color: theme.primaryAccent }}
+        style={[styles.input, { backgroundColor: theme.colorMedium, color: theme.primaryAccent }]}
       />
 
-      <View className="flex-row" style={{ gap: 8 }}>
+      <View style={[styles.row, { gap: 8 }]}>
         {HUNGER_LEVELS.map((hunger) => (
           <Chip
             key={hunger}
@@ -492,3 +473,100 @@ function SlotEditor({
     </View>
   );
 }
+
+const styles = StyleSheet.create({
+  chip: {
+    alignItems: 'center',
+    borderRadius: 14,
+    borderWidth: 1,
+    paddingHorizontal: 14,
+    paddingVertical: 10.5,
+  },
+  errorText: {
+    fontFamily: 'Inter_600SemiBold',
+    fontSize: 12.25,
+    lineHeight: 17.5,
+  },
+  fieldLabel: {
+    fontFamily: 'Inter_600SemiBold',
+    fontSize: 12.25,
+    lineHeight: 17.5,
+  },
+  header: {
+    paddingHorizontal: 24.5,
+    paddingTop: 21,
+  },
+  headerDetail: {
+    fontFamily: 'Inter_400Regular',
+    fontSize: 12.25,
+    lineHeight: 17.5,
+    marginTop: 3.5,
+  },
+  headerName: {
+    fontFamily: 'Inter_500Medium',
+    fontSize: 12.25,
+    lineHeight: 17.5,
+    marginTop: 3.5,
+  },
+  input: {
+    borderRadius: 14,
+    fontFamily: 'Inter_400Regular',
+    fontSize: 14,
+    lineHeight: 21,
+    paddingHorizontal: 14,
+    paddingVertical: 10.5,
+  },
+  loading: {
+    alignItems: 'center',
+    paddingVertical: 21,
+  },
+  mediumLabel: {
+    fontFamily: 'Inter_500Medium',
+    fontSize: 12.25,
+    lineHeight: 17.5,
+  },
+  primaryButton: {
+    alignItems: 'center',
+    borderRadius: 14,
+    paddingVertical: 14,
+  },
+  primaryLabel: {
+    fontFamily: 'Inter_600SemiBold',
+    fontSize: 14,
+    lineHeight: 21,
+  },
+  row: {
+    flexDirection: 'row',
+  },
+  screenTitle: {
+    fontFamily: 'Montserrat_700Bold',
+    fontSize: 28,
+  },
+  secondaryButton: {
+    alignItems: 'center',
+    borderRadius: 14,
+    paddingVertical: 10.5,
+  },
+  section: {
+    paddingHorizontal: 24.5,
+  },
+  sectionTitle: {
+    fontFamily: 'Montserrat_600SemiBold',
+    fontSize: 15.75,
+    lineHeight: 24.5,
+  },
+  slotCard: {
+    borderRadius: 21,
+    gap: 12,
+    padding: 14,
+  },
+  slotTitle: {
+    fontFamily: 'Montserrat_600SemiBold',
+    fontSize: 14,
+    lineHeight: 21,
+  },
+  wrapRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+  },
+});

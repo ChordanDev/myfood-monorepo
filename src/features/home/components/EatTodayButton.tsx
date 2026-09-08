@@ -1,5 +1,5 @@
 import { useEffect } from 'react';
-import { Pressable, useWindowDimensions } from 'react-native';
+import { Pressable, StyleSheet, useWindowDimensions } from 'react-native';
 import { BlurMask, Canvas, RoundedRect } from '@shopify/react-native-skia';
 import Animated, {
   Easing,
@@ -79,17 +79,23 @@ export function EatTodayButton({
       onPress={onPress}
       accessibilityRole="button"
       accessibilityLabel="Comer hoy"
-      className="absolute items-center justify-center active:scale-95"
-      style={{
-        left: `${leftPercent}%`,
-        top: `${topPercent}%`,
-        transform: [{ translateX: -buttonWidth / 2 }, { translateY: -buttonHeight / 2 }],
-        width: buttonWidth,
-        height: buttonHeight,
+      style={({ pressed }) => ({
+        alignItems: 'center',
         borderRadius,
-        zIndex: 10,
+        height: buttonHeight,
+        justifyContent: 'center',
+        left: `${leftPercent}%`,
         overflow: 'visible',
-      }}>
+        position: 'absolute',
+        top: `${topPercent}%`,
+        transform: [
+          { translateX: -buttonWidth / 2 },
+          { translateY: -buttonHeight / 2 },
+          { scale: pressed ? 0.95 : 1 },
+        ],
+        width: buttonWidth,
+        zIndex: 10,
+      })}>
       <Animated.View
         pointerEvents="none"
         style={[
@@ -129,11 +135,17 @@ export function EatTodayButton({
           backgroundColor: 'transparent',
         }}
       />
-      <Animated.Text
-        className="text-center font-montserrat-semibold leading-tight"
-        style={[{ fontSize: 13, letterSpacing: 0.8 }, textThemeStyle]}>
+      <Animated.Text style={[styles.label, { fontSize: 13, letterSpacing: 0.8 }, textThemeStyle]}>
         COMERLO HOY
       </Animated.Text>
     </Pressable>
   );
 }
+
+const styles = StyleSheet.create({
+  label: {
+    fontFamily: 'Montserrat_600SemiBold',
+    lineHeight: 16.25,
+    textAlign: 'center',
+  },
+});

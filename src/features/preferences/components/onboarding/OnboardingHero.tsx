@@ -22,7 +22,13 @@ export function OnboardingHero({ isCompact, theme }: OnboardingHeroProps) {
             paddingHorizontal: 16,
             paddingVertical: 10,
           }}>
-          <Text className="font-inter-semibold text-xs" style={{ color: theme.primaryAccent }}>
+          <Text
+            style={{
+              color: theme.primaryAccent,
+              fontFamily: 'Inter_600SemiBold',
+              fontSize: 10.5,
+              lineHeight: 14,
+            }}>
             ONBOARDING
           </Text>
         </View>
@@ -33,7 +39,13 @@ export function OnboardingHero({ isCompact, theme }: OnboardingHeroProps) {
             paddingHorizontal: 16,
             paddingVertical: 10,
           }}>
-          <Text className="font-inter-semibold text-xs" style={{ color: theme.textLight }}>
+          <Text
+            style={{
+              color: theme.textLight,
+              fontFamily: 'Inter_600SemiBold',
+              fontSize: 10.5,
+              lineHeight: 14,
+            }}>
             3 pasos
           </Text>
         </View>
@@ -41,13 +53,24 @@ export function OnboardingHero({ isCompact, theme }: OnboardingHeroProps) {
 
       <View style={{ alignItems: 'center', gap: 12 }}>
         <Text
-          className="text-center font-montserrat-bold"
-          style={{ color: theme.textBlack, fontSize: isCompact ? 42 : 48, letterSpacing: -1.6 }}>
+          style={{
+            color: theme.textBlack,
+            fontFamily: 'Montserrat_700Bold',
+            fontSize: isCompact ? 42 : 48,
+            letterSpacing: -1.6,
+            textAlign: 'center',
+          }}>
           TU COCINA
         </Text>
         <Text
-          className="text-center font-inter-semibold text-base"
-          style={{ color: theme.colorMedium, lineHeight: 23, maxWidth: 320 }}>
+          style={{
+            color: theme.colorMedium,
+            fontFamily: 'Inter_600SemiBold',
+            fontSize: 14,
+            lineHeight: 23,
+            maxWidth: 320,
+            textAlign: 'center',
+          }}>
           Armemos un perfil para que la IA piense como alguien que conoce tu casa, no como un
           buscador de recetas cualquiera.
         </Text>
@@ -77,15 +100,33 @@ export function OnboardingHero({ isCompact, theme }: OnboardingHeroProps) {
             width: 120,
           }}
         />
-        <Text className="font-montserrat-bold text-xl" style={{ color: theme.textLight }}>
+        <Text
+          style={{
+            color: theme.textLight,
+            fontFamily: 'Montserrat_700Bold',
+            fontSize: 17.5,
+            lineHeight: 24.5,
+          }}>
           Comer mejor,
         </Text>
-        <Text className="font-montserrat-bold text-xl" style={{ color: theme.primaryAccent }}>
+        <Text
+          style={{
+            color: theme.primaryAccent,
+            fontFamily: 'Montserrat_700Bold',
+            fontSize: 17.5,
+            lineHeight: 24.5,
+          }}>
           sin adivinar
         </Text>
         <Text
-          className="font-inter-medium text-sm"
-          style={{ color: theme.textMedium, lineHeight: 20, marginTop: 12, maxWidth: 210 }}>
+          style={{
+            color: theme.textMedium,
+            fontFamily: 'Inter_500Medium',
+            fontSize: 12.25,
+            lineHeight: 20,
+            marginTop: 12,
+            maxWidth: 210,
+          }}>
           Contanos gustos, restricciones y tiempos. Nosotros convertimos eso en decisiones.
         </Text>
         <View
@@ -102,7 +143,13 @@ export function OnboardingHero({ isCompact, theme }: OnboardingHeroProps) {
             right: 16,
             width: 56,
           }}>
-          <Text className="font-montserrat-bold text-3xl" style={{ color: theme.primaryAccent }}>
+          <Text
+            style={{
+              color: theme.primaryAccent,
+              fontFamily: 'Montserrat_700Bold',
+              fontSize: 26.25,
+              lineHeight: 31.5,
+            }}>
             +
           </Text>
         </View>

@@ -1,5 +1,5 @@
 import { type ReactNode } from 'react';
-import { Text, View } from 'react-native';
+import { StyleSheet, Text, View } from 'react-native';
 
 export interface OnboardingTheme {
   appBg: string;
@@ -40,17 +40,9 @@ export function OnboardingSectionCard({
         padding: 18,
       }}>
       <View style={{ gap: 6 }}>
-        <Text className="font-inter-bold text-xs" style={{ color: theme.primaryAccent }}>
-          {kicker.toUpperCase()}
-        </Text>
-        <Text className="font-montserrat-bold text-2xl" style={{ color: theme.textBlack }}>
-          {title}
-        </Text>
-        <Text
-          className="font-inter-medium text-sm"
-          style={{ color: theme.colorMedium, lineHeight: 20 }}>
-          {subtitle}
-        </Text>
+        <Text style={[styles.kicker, { color: theme.primaryAccent }]}>{kicker.toUpperCase()}</Text>
+        <Text style={[styles.title, { color: theme.textBlack }]}>{title}</Text>
+        <Text style={[styles.subtitle, { color: theme.colorMedium }]}>{subtitle}</Text>
       </View>
       <View style={{ gap: 14 }}>{children}</View>
     </View>
@@ -72,9 +64,28 @@ export function inputStyle(theme: OnboardingTheme) {
 }
 
 export function FieldLabel({ theme, text }: { theme: OnboardingTheme; text: string }) {
-  return (
-    <Text className="font-inter-bold text-sm" style={{ color: theme.textBlack }}>
-      {text}
-    </Text>
-  );
+  return <Text style={[styles.fieldLabel, { color: theme.textBlack }]}>{text}</Text>;
 }
+
+const styles = StyleSheet.create({
+  fieldLabel: {
+    fontFamily: 'Inter_700Bold',
+    fontSize: 12.25,
+    lineHeight: 17.5,
+  },
+  kicker: {
+    fontFamily: 'Inter_700Bold',
+    fontSize: 10.5,
+    lineHeight: 14,
+  },
+  subtitle: {
+    fontFamily: 'Inter_500Medium',
+    fontSize: 12.25,
+    lineHeight: 20,
+  },
+  title: {
+    fontFamily: 'Montserrat_700Bold',
+    fontSize: 21,
+    lineHeight: 28,
+  },
+});

@@ -1,4 +1,4 @@
-import { Pressable, View } from 'react-native';
+import { Pressable, StyleSheet, View } from 'react-native';
 import { SvgXml } from 'react-native-svg';
 import { APPLE_SVG, FACEBOOK_SVG, GOOGLE_SVG } from '@/constants/svgIcons';
 
@@ -14,28 +14,37 @@ export function SocialLoginIcons({
   gap = 64,
 }: SocialLoginIconsProps) {
   return (
-    <View className="flex-row items-center justify-center" style={{ gap }}>
+    <View style={[styles.container, { gap }]}>
       <Pressable
-        className="items-center justify-center"
         accessibilityRole="button"
         accessibilityLabel="Iniciar sesión con Google"
-        style={{ width: containerSize, height: containerSize }}>
+        style={[styles.button, { width: containerSize, height: containerSize }]}>
         <SvgXml xml={GOOGLE_SVG} width={iconSize} height={iconSize} />
       </Pressable>
       <Pressable
-        className="items-center justify-center"
         accessibilityRole="button"
         accessibilityLabel="Iniciar sesión con Facebook"
-        style={{ width: containerSize, height: containerSize }}>
+        style={[styles.button, { width: containerSize, height: containerSize }]}>
         <SvgXml xml={FACEBOOK_SVG} width={iconSize} height={iconSize} />
       </Pressable>
       <Pressable
-        className="items-center justify-center"
         accessibilityRole="button"
         accessibilityLabel="Iniciar sesión con Apple"
-        style={{ width: containerSize, height: containerSize }}>
+        style={[styles.button, { width: containerSize, height: containerSize }]}>
         <SvgXml xml={APPLE_SVG} width={iconSize} height={iconSize} />
       </Pressable>
     </View>
   );
 }
+
+const styles = StyleSheet.create({
+  button: {
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  container: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    justifyContent: 'center',
+  },
+});

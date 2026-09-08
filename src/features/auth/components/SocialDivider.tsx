@@ -1,4 +1,4 @@
-import { Text, View } from 'react-native';
+import { StyleSheet, Text, View } from 'react-native';
 import { AuthLandingMetrics } from '@/features/auth/utils/responsive';
 import { useRecipeTheme } from '@/context/RecipeThemeContext';
 
@@ -10,17 +10,17 @@ interface SocialDividerProps {
 export function SocialDivider({ metrics, label = 'Iniciar sesión con' }: SocialDividerProps) {
   const { theme } = useRecipeTheme();
   return (
-    <View className="items-center">
+    <View style={styles.container}>
       <Text
-        style={{ fontSize: metrics.socialLabelFontSize, color: theme.textMedium }}
-        className="mb-3 font-inter-medium">
+        style={[styles.label, { fontSize: metrics.socialLabelFontSize, color: theme.textMedium }]}>
         {/* Etiqueta sobre las opciones sociales. */}
         {label}
       </Text>
       <View
-        className="h-px opacity-50"
         style={{
           backgroundColor: theme.primaryAccent,
+          height: 1,
+          opacity: 0.5,
           width: metrics.socialDividerWidth,
           marginBottom: metrics.socialDividerBottomMargin,
         }}
@@ -28,3 +28,13 @@ export function SocialDivider({ metrics, label = 'Iniciar sesión con' }: Social
     </View>
   );
 }
+
+const styles = StyleSheet.create({
+  container: {
+    alignItems: 'center',
+  },
+  label: {
+    fontFamily: 'Inter_500Medium',
+    marginBottom: 10.5,
+  },
+});

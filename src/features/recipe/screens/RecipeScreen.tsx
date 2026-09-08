@@ -86,7 +86,7 @@ export function RecipeScreen() {
   };
 
   return (
-    <View className="flex-1" style={[styles.screen, { backgroundColor: theme.background[1] }]}>
+    <View style={[styles.screen, { backgroundColor: theme.background[1] }]}>
       <LinearGradient colors={previousBackground} style={StyleSheet.absoluteFill} />
       <Animated.View style={[StyleSheet.absoluteFill, animatedThemeStyle]}>
         <LinearGradient colors={theme.background} style={styles.backgroundGradient} />

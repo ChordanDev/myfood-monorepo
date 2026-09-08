@@ -1,12 +1,6 @@
-// Carga global de estilos para NativeWind.
-// El import es un side-effect CSS usado por NativeWind; TypeScript puede quejarse
-// de no encontrar declaraciones de tipo para archivos .css, así que ignoramos
-// el chequeo TS aquí.
-// @ts-ignore: Implicit side-effect import of CSS for NativeWind
-import '../global.css';
 import { Stack } from 'expo-router';
 import { useFonts } from 'expo-font';
-import { ActivityIndicator, Text, View } from 'react-native';
+import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import {
@@ -47,9 +41,7 @@ export default function RootLayout() {
   // Evita una pantalla en blanco mientras cargan las fuentes.
   if (!fontsLoaded && !fontError) {
     return (
-      <View
-        className="flex-1 items-center justify-center"
-        style={{ backgroundColor: COLORS.bgDarkest }}>
+      <View style={[styles.centeredScreen, { backgroundColor: COLORS.bgDarkest }]}>
         <ActivityIndicator size="small" color={COLORS.accentYellow} />
       </View>
     );
@@ -58,15 +50,11 @@ export default function RootLayout() {
   // Muestra un error visible si las fuentes no pudieron cargarse.
   if (fontError) {
     return (
-      <View
-        className="flex-1 items-center justify-center px-6"
-        style={{ backgroundColor: COLORS.bgDarkest }}>
-        <Text className="text-lg font-bold" style={{ color: COLORS.accentOrange }}>
+      <View style={[styles.errorScreen, { backgroundColor: COLORS.bgDarkest }]}>
+        <Text style={[styles.errorTitle, { color: COLORS.accentOrange }]}>
           Error cargando fuentes
         </Text>
-        <Text className="mt-2 text-center text-sm" style={{ color: COLORS.textLight }}>
-          {fontError.message}
-        </Text>
+        <Text style={[styles.errorMessage, { color: COLORS.textLight }]}>{fontError.message}</Text>
       </View>
     );
   }
@@ -83,3 +71,28 @@ export default function RootLayout() {
     </GestureHandlerRootView>
   );
 }
+
+const styles = StyleSheet.create({
+  centeredScreen: {
+    alignItems: 'center',
+    flex: 1,
+    justifyContent: 'center',
+  },
+  errorScreen: {
+    alignItems: 'center',
+    flex: 1,
+    justifyContent: 'center',
+    paddingHorizontal: 21,
+  },
+  errorTitle: {
+    fontSize: 15.75,
+    fontWeight: '700',
+    lineHeight: 24.5,
+  },
+  errorMessage: {
+    fontSize: 12.25,
+    lineHeight: 17.5,
+    marginTop: 7,
+    textAlign: 'center',
+  },
+});

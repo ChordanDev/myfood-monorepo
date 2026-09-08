@@ -67,11 +67,8 @@ const AnimatedTabButton = ({ isFocused, onPress, options }: any) => {
   });
 
   return (
-    <Pressable onPress={onPress} className="h-full flex-1 items-center justify-center">
-      <Animated.View
-        className="absolute h-10 rounded-[20px] border"
-        style={[animatedOvalStyle, ovalThemeStyle]}
-      />
+    <Pressable onPress={onPress} style={styles.tabButton}>
+      <Animated.View style={[styles.tabIndicator, animatedOvalStyle, ovalThemeStyle]} />
       <Animated.View style={animatedIconStyle}>
         {/* Icono de la tab que fue previamente definido en TabsLayout */}
         {options.tabBarIcon &&
@@ -103,11 +100,13 @@ function CustomTabBar({
 
   return (
     <View
-      className="absolute bottom-0 left-0 right-0 border-t-0"
-      style={{
-        height: insets.bottom + CUSTOM_TAB_BAR_CONTENT_HEIGHT,
-        elevation: 0,
-      }}>
+      style={[
+        styles.tabBar,
+        {
+          height: insets.bottom + CUSTOM_TAB_BAR_CONTENT_HEIGHT,
+          elevation: 0,
+        },
+      ]}>
       <LinearGradient
         colors={previousTabBarBackgroundColors}
         locations={[0.61, 1]}
@@ -124,7 +123,7 @@ function CustomTabBar({
           style={{ flex: 1 }}
         />
       </AnimatedView>
-      <View className="h-[60px] flex-row items-center">
+      <View style={styles.tabBarContent}>
         {/* Mapeo de rutas a botones de tab */}
         {state.routes
           .filter((route) => route.name !== 'planner')
@@ -157,6 +156,33 @@ function CustomTabBar({
     </View>
   );
 }
+
+const styles = StyleSheet.create({
+  tabBar: {
+    borderTopWidth: 0,
+    bottom: 0,
+    left: 0,
+    position: 'absolute',
+    right: 0,
+  },
+  tabBarContent: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    height: 60,
+  },
+  tabButton: {
+    alignItems: 'center',
+    flex: 1,
+    height: '100%',
+    justifyContent: 'center',
+  },
+  tabIndicator: {
+    borderRadius: 20,
+    borderWidth: 1,
+    height: 40,
+    position: 'absolute',
+  },
+});
 
 export default function TabsLayout() {
   const insets = useSafeAreaInsets();

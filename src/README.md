@@ -47,6 +47,6 @@ src/features/[feature-name]/
 
 ### Inicio Rápido
 
-El punto de entrada es `app/_layout.tsx` que configura el Stack Navigator y carga `global.css`.
+El punto de entrada es `app/_layout.tsx`, que configura el Stack Navigator.
 
 Las rutas se definen en carpetas bajo `app/` siguiendo las convenciones de Expo Router.

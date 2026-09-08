@@ -1,4 +1,4 @@
-import { Pressable, ScrollView, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import Animated from 'react-native-reanimated';
 import { ShadowSurface } from '@/components';
 import { DayCell } from './DayCell';
@@ -43,11 +43,9 @@ export function Calendar({
   const dividerStyle = useAnimatedThemeStyle({ backgroundColor: theme.colorDark });
 
   return (
-    <ShadowSurface className="w-full rounded-3xl" style={{ flex: 1, borderRadius: 24 }}>
-      <Animated.View
-        className="w-full overflow-hidden rounded-3xl"
-        style={[{ flex: 1 }, surfaceStyle]}>
-        <View className="mb-3 flex-row items-center justify-center gap-6 px-1">
+    <ShadowSurface style={styles.shadowSurface}>
+      <Animated.View style={[styles.surface, surfaceStyle]}>
+        <View style={styles.header}>
           <Pressable
             onPress={handlePrevMonth}
             hitSlop={10}
@@ -56,9 +54,7 @@ export function Calendar({
             style={{ opacity: isPrevDisabled ? 0.35 : 1 }}>
             <Animated.Text style={[{ fontSize: navFontSize }, textDarkStyle]}>{'<'}</Animated.Text>
           </Pressable>
-          <Animated.Text
-            className="font-inter-bold"
-            style={[{ fontSize: monthFontSize }, textDarkStyle]}>
+          <Animated.Text style={[styles.monthLabel, { fontSize: monthFontSize }, textDarkStyle]}>
             {monthLabel}
           </Animated.Text>
           <Pressable
@@ -71,7 +67,7 @@ export function Calendar({
           </Pressable>
         </View>
 
-        <View className="mb-2 flex-row px-1">
+        <View style={styles.weekdays}>
           {WEEKDAYS.map((label, index) => (
             <Animated.Text
               key={`${label}-${index}`}
@@ -82,13 +78,13 @@ export function Calendar({
                   fontSize: weekdayFontSize,
                 },
                 textDarkStyle,
-              ]}
-              className="font-inter-semibold">
+                styles.weekdayLabel,
+              ]}>
               {label}
             </Animated.Text>
           ))}
         </View>
-        <Animated.View className="h-px w-full opacity-30" style={dividerStyle} />
+        <Animated.View style={[styles.divider, dividerStyle]} />
         <ScrollView
           style={{ flex: 1 }}
           contentContainerStyle={{ paddingBottom: 8, flexGrow: 1 }}
@@ -96,7 +92,7 @@ export function Calendar({
           bounces={true}
           alwaysBounceVertical={false}
           nestedScrollEnabled>
-          <View className="relative flex-row flex-wrap px-1 pt-2">
+          <View style={styles.monthGrid}>
             {monthGrid.map((cell) => {
               const dayDate = cell.date;
               const dateString = formatDateKey(dayDate);
@@ -133,3 +129,48 @@ export function Calendar({
     </ShadowSurface>
   );
 }
+
+const styles = StyleSheet.create({
+  divider: {
+    height: 1,
+    opacity: 0.3,
+    width: '100%',
+  },
+  header: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 21,
+    justifyContent: 'center',
+    marginBottom: 10.5,
+    paddingHorizontal: 3.5,
+  },
+  monthGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    paddingHorizontal: 3.5,
+    paddingTop: 7,
+    position: 'relative',
+  },
+  monthLabel: {
+    fontFamily: 'Inter_700Bold',
+  },
+  shadowSurface: {
+    borderRadius: 24,
+    flex: 1,
+    width: '100%',
+  },
+  surface: {
+    borderRadius: 21,
+    flex: 1,
+    overflow: 'hidden',
+    width: '100%',
+  },
+  weekdayLabel: {
+    fontFamily: 'Inter_600SemiBold',
+  },
+  weekdays: {
+    flexDirection: 'row',
+    marginBottom: 7,
+    paddingHorizontal: 3.5,
+  },
+});

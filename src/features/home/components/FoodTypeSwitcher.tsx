@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Pressable, LayoutChangeEvent } from 'react-native';
+import { Pressable, LayoutChangeEvent, StyleSheet } from 'react-native';
 import Animated, {
   useAnimatedStyle,
   useSharedValue,
@@ -60,16 +60,17 @@ const SwitcherItem = ({
       onPress={onPress}
       onLayout={onLayout}
       disabled={isUnavailable}
-      className="flex-1 items-center justify-center rounded-3xl"
       accessibilityState={{ disabled: isUnavailable, selected: isActive }}
-      style={{
-        opacity: isUnavailable && !isActive ? 0.35 : 1,
-        paddingVertical: metrics.switcherItemPaddingVertical,
-        // Eliminamos el padding horizontal aquí para que el flex-1 distribuya el espacio real uniformemente
-      }}>
+      style={[
+        styles.item,
+        {
+          opacity: isUnavailable && !isActive ? 0.35 : 1,
+          paddingVertical: metrics.switcherItemPaddingVertical,
+          // Eliminamos el padding horizontal aquí para que el flex-1 distribuya el espacio real uniformemente
+        },
+      ]}>
       <Animated.Text
-        className="font-inter-semibold"
-        style={[{ fontSize: metrics.switcherFontSize, zIndex: 1 }, textStyle]}>
+        style={[styles.itemLabel, { fontSize: metrics.switcherFontSize, zIndex: 1 }, textStyle]}>
         {MEAL_TYPE_LABEL[mealType]}
       </Animated.Text>
     </Pressable>
@@ -148,13 +149,13 @@ export function FoodTypeSwitcher({
 
   return (
     <ShadowSurface
-      className="flex-row rounded-3xl"
-      style={{
-        padding: metrics.switcherPadding,
-        borderRadius: metrics.switcherRadius,
-        position: 'relative',
-        overflow: 'hidden',
-      }}>
+      style={[
+        styles.container,
+        {
+          padding: metrics.switcherPadding,
+          borderRadius: metrics.switcherRadius,
+        },
+      ]}>
       <Animated.View
         pointerEvents="none"
         style={[
@@ -194,3 +195,21 @@ export function FoodTypeSwitcher({
     </ShadowSurface>
   );
 }
+
+const styles = StyleSheet.create({
+  container: {
+    borderRadius: 21,
+    flexDirection: 'row',
+    overflow: 'hidden',
+    position: 'relative',
+  },
+  item: {
+    alignItems: 'center',
+    borderRadius: 21,
+    flex: 1,
+    justifyContent: 'center',
+  },
+  itemLabel: {
+    fontFamily: 'Inter_600SemiBold',
+  },
+});

@@ -64,14 +64,17 @@ export function AddCircleButton({ size = DEFAULT_BUTTON_SIZE, onPress }: AddCirc
         onPress={onPress}
         accessibilityRole="button"
         accessibilityLabel="Agregar"
-        className="items-center justify-center active:scale-95"
-        style={{
-          width: buttonSize,
-          height: buttonSize,
-          borderRadius: radius,
-          overflow: 'hidden',
+        testID="home-open-planner"
+        style={({ pressed }) => ({
+          alignItems: 'center',
           backgroundColor: 'transparent',
-        }}>
+          borderRadius: radius,
+          height: buttonSize,
+          justifyContent: 'center',
+          overflow: 'hidden',
+          transform: [{ scale: pressed ? 0.95 : 1 }],
+          width: buttonSize,
+        })}>
         <Animated.View style={animatedGradientStyle}>
           <LinearGradient
             colors={[

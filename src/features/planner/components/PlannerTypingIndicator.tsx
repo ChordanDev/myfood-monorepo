@@ -1,5 +1,5 @@
 import { useEffect } from 'react';
-import { LayoutChangeEvent, View } from 'react-native';
+import { LayoutChangeEvent, StyleSheet, View } from 'react-native';
 import Animated, {
   cancelAnimation,
   Easing,
@@ -32,13 +32,23 @@ export function PlannerTypingIndicator({ onLayout }: PlannerTypingIndicatorProps
       accessibilityLiveRegion="polite"
       pointerEvents="none"
       onLayout={onLayout}
-      className="max-w-[94%] flex-row items-center gap-1 px-1">
+      style={styles.container}>
       {Array.from({ length: DOT_COUNT }, (_, index) => (
         <PlannerTypingDot key={index} index={index} color={theme.textBlack} />
       ))}
     </View>
   );
 }
+
+const styles = StyleSheet.create({
+  container: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 3.5,
+    maxWidth: '94%',
+    paddingHorizontal: 3.5,
+  },
+});
 
 function PlannerTypingDot({ index, color }: { index: number; color: string }) {
   const reduceMotion = useReducedMotion();

@@ -29,9 +29,8 @@ import { AuthContext } from '../../src/features/auth/context/AuthContext';
 import IndexScreen from '../index';
 
 // Mock the modules imported by `app/index.tsx` and its dependencies.
-// We use only React.createElement (no JSX) so the babel preset does
-// not inject `react-native-css-interop` references that would conflict
-// with jest.mock hoisting.
+// We use React.createElement so the mocked providers remain explicit and
+// compatible with Jest mock hoisting.
 jest.mock('expo-router', () => {
   // The mocked Redirect captures the href so the test can assert the
   // route the screen would have rendered.
