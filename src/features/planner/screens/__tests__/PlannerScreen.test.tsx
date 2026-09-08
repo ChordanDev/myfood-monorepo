@@ -241,7 +241,7 @@ describe('PlannerScreen settled turn anchoring', () => {
     act(() => jest.advanceTimersByTime(16));
     expect(scrollTo).toHaveBeenCalledTimes(1);
 
-    act(() => jest.advanceTimersByTime(3000));
+    act(() => jest.runOnlyPendingTimers());
 
     expect(tree.root.findAllByProps({ testID: 'planner-typing-indicator' })).toHaveLength(0);
     expect(
@@ -301,7 +301,7 @@ describe('PlannerScreen settled turn anchoring', () => {
     act(() => jest.advanceTimersByTime(16));
     expect(scrollTo).toHaveBeenCalledTimes(1);
 
-    act(() => jest.advanceTimersByTime(3000));
+    act(() => jest.runOnlyPendingTimers());
     scrollTo.mockClear();
     submitMessage(tree, 'Second request');
 
