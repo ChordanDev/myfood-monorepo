@@ -70,6 +70,7 @@ jest.mock('react-native', () => ({
     addEventListener: () => ({ remove: () => undefined }),
     removeEventListener: () => undefined,
   },
+  TurboModuleRegistry: { get: () => null },
   Dimensions: {
     get: () => ({ window: { width: 1024, height: 768, scale: 1, fontScale: 1 } }),
     addEventListener: () => ({ remove: () => undefined }),
@@ -126,6 +127,7 @@ function AuthProbe({
   // Update the sink in the same render so the sink value tracks the
   // probe exactly. Without this, sibling probes can render in
   // different commits and the sink can lag the probe.
+  // eslint-disable-next-line react-hooks/immutability -- Test harness exposes the latest context value to assertions.
   sink.v = auth;
   return null;
 }

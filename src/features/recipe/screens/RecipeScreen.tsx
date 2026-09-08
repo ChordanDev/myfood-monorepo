@@ -41,6 +41,7 @@ export function RecipeScreen() {
 
     setPreviousBackground(previousBackgroundValue);
     previousBackgroundRef.current = nextBackground;
+    // eslint-disable-next-line react-hooks/immutability -- Resets the Reanimated transition before animating the new background.
     themeTransitionProgress.value = 0;
     themeTransitionProgress.value = withTiming(1, {
       duration: 450,

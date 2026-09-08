@@ -45,6 +45,7 @@ let windowDimensions = { width: 390, height: 844, scale: 3, fontScale: 1 };
 let hookResult: ReturnType<typeof useKeyboardAnimation>;
 
 function HookHarness({ options }: { options: KeyboardAnimationOptions }) {
+  // eslint-disable-next-line react-hooks/globals -- Test harness captures the hook result for assertions.
   hookResult = useKeyboardAnimation(options);
   return null;
 }

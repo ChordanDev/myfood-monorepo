@@ -892,6 +892,21 @@ describe('PlannerChatInput surface opacity', () => {
     ).opacity;
   }
 
+  it('gives the composer inner surface a defined absolute fill style', () => {
+    let tree: ReturnType<typeof create>;
+
+    act(() => {
+      tree = create(<PlannerChatInput {...props} isThinking={false} />);
+    });
+
+    const surface = tree!.root.findByProps({ testID: 'planner-composer-surface' });
+
+    expect(surface.props.style).toBeDefined();
+    expect(StyleSheet.flatten(surface.props.style)).toEqual(
+      expect.objectContaining({ bottom: 0, left: 0, position: 'absolute', right: 0, top: 0 })
+    );
+  });
+
   it('keeps the idle surface opaque and reduces only the surface while thinking', () => {
     let tree: ReturnType<typeof create>;
 

@@ -1,4 +1,6 @@
-import { resolveIndexGate } from '../indexGate';
+/// <reference types="jest" />
+
+import { resolveIndexGate } from '@/navigation/indexGate';
 
 describe('resolveIndexGate', () => {
   const baseState = {

@@ -15,7 +15,9 @@
 // This file documents the contract the gate MUST respect so the two
 // screens always agree.
 
-import { resolveIndexGate, type IndexGateInput } from '../indexGate';
+/// <reference types="jest" />
+
+import { resolveIndexGate, type IndexGateInput } from '@/navigation/indexGate';
 
 describe('resolveIndexGate — agreement contract (Judgment Day C2 follow-up)', () => {
   // Three equivalent inputs, expressed in the two ways the screens read them.

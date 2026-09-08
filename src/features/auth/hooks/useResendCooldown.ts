@@ -19,6 +19,7 @@ export function useResendCooldown(initialSeconds = 45): UseResendCooldownResult 
   }, []);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- Synchronizes cooldown when its initial duration changes.
     setSecondsLeft(initialSeconds);
   }, [initialSeconds]);
 

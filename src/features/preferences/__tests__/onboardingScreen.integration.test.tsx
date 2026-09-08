@@ -48,6 +48,18 @@ jest.mock('expo-linear-gradient', () => {
   };
 });
 
+jest.mock('@/features/auth', () => {
+  const ReactMock = require('react');
+  const mockAuthContext = require('@/features/auth/context/AuthContext').AuthContext;
+  return {
+    useAuth: () => {
+      const ctx = ReactMock.useContext(mockAuthContext);
+      if (!ctx) throw new Error('useAuth must be used inside AuthProvider');
+      return ctx;
+    },
+  };
+});
+
 jest.mock('@/context/RecipeThemeContext', () => ({
   useRecipeTheme: () => ({
     theme: {

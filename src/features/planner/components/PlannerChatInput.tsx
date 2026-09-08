@@ -137,6 +137,7 @@ export function PlannerChatInput({
     cancelAnimation(rotation);
 
     if (isThinking && !reduceMotion) {
+      // eslint-disable-next-line react-hooks/immutability -- Starts the Reanimated thinking indicator outside render.
       rotation.value = withRepeat(
         withTiming(360, { duration: 2600, easing: Easing.linear }),
         0,
@@ -357,7 +358,7 @@ export function PlannerChatInput({
             testID="planner-composer-surface"
             pointerEvents="none"
             style={[
-              StyleSheet.absoluteFillObject,
+              StyleSheet.absoluteFill,
               { backgroundColor: theme.colorDark },
               surfaceTintStyle,
             ]}

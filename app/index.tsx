@@ -4,7 +4,7 @@ import { Redirect } from 'expo-router';
 import { AuthLandingScreen, TrialExpiredScreen, useAuth } from '../src/features/auth';
 import { COLORS } from '../src/constants/theme';
 import { isStartHomeBypassEnabled } from '../src/navigation/start-home-bypass';
-import { useIndexRoute } from './useIndexRoute';
+import { useIndexRoute } from '@/navigation/useIndexRoute';
 
 export default function IndexScreen() {
   // Redirige segun el estado de autenticacion real y el gate de trial.

@@ -46,6 +46,7 @@ export function useCalendarState(
     }
 
     if (currentMonthIndex === -1) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- Aligns the displayed month with the available meal-plan range.
       setCurrentMonth(parseMonthKey(allowedMonthKeys[0]));
     }
   }, [allowedMonthKeys, currentMonthIndex, hasAllowedMonths]);

@@ -1,3 +1,5 @@
+/// <reference types="jest" />
+
 // Smoke test for the new useIndexRoute hook.
 // Will be expanded once the redirect-ping-pong integration test
 // harness is in place.
@@ -7,7 +9,7 @@ import { act, create } from 'react-test-renderer';
 import type { CurrentMe, AuthContextValue } from '@/features/auth/types/auth';
 import { AuthContext } from '@/features/auth/context/AuthContext';
 import { useAuth } from '@/features/auth/hooks/useAuth';
-import { useIndexRoute } from '../useIndexRoute';
+import { useIndexRoute } from '@/navigation/useIndexRoute';
 
 interface RouteCapture {
   route: ReturnType<typeof useIndexRoute>;

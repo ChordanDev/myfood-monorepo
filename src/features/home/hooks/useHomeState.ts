@@ -27,6 +27,7 @@ export function useHomeState() {
 
   useEffect(() => {
     if (selectedDate === null && availableDateKeys.length > 0) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- Initializes selection when meal-plan dates become available.
       setSelectedDate(getInitialSelectedDate(availableDateKeys, todayKey));
     }
   }, [availableDateKeys, selectedDate, todayKey]);
@@ -43,6 +44,7 @@ export function useHomeState() {
 
   useEffect(() => {
     if (!selectedMealType || !availableMealTypes.includes(selectedMealType)) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- Keeps the selected meal type valid for the selected date.
       setSelectedMealType(getClosestHomeMealType(availableMealTypes, new Date()));
     }
   }, [availableMealTypes, selectedDate, selectedMealType]);

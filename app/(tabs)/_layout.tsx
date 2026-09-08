@@ -2,8 +2,8 @@ import React, { useEffect } from 'react';
 import { View, Pressable, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
-import { Redirect, Tabs } from 'expo-router';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { Redirect } from 'expo-router';
+import { Tabs, type BottomTabBarProps } from 'expo-router/js-tabs';
 import Animated, {
   useAnimatedStyle,
   withTiming,
@@ -11,7 +11,6 @@ import Animated, {
   Easing,
   withSequence,
 } from 'react-native-reanimated';
-import { BottomTabBarProps } from '@react-navigation/bottom-tabs';
 import { useAuth } from '../../src/features/auth';
 import { useRecipeTheme } from '../../src/context/RecipeThemeContext';
 import { useThemeColor } from '../../src/hooks/useThemeColor';
@@ -88,7 +87,7 @@ function CustomTabBar({
   descriptors, // Descriptores de cada ruta que incluyen opciones como el icono
   navigation, // Objeto de navegación para manejar la navegación entre tabs
   insets,
-}: BottomTabBarProps & { insets: any }) {
+}: BottomTabBarProps) {
   const { theme } = useRecipeTheme();
   const tabBarBackgroundColors: [string, string] = [theme.colorDark, theme.colorBlack];
   const {
@@ -112,9 +111,9 @@ function CustomTabBar({
         locations={[0.61, 1]}
         start={{ x: 0, y: 0 }}
         end={{ x: 0, y: 1 }}
-        style={StyleSheet.absoluteFillObject}
+        style={StyleSheet.absoluteFill}
       />
-      <AnimatedView style={[StyleSheet.absoluteFillObject, animatedTabBarBackgroundStyle]}>
+      <AnimatedView style={[StyleSheet.absoluteFill, animatedTabBarBackgroundStyle]}>
         <LinearGradient
           colors={currentTabBarBackgroundColors}
           locations={[0.61, 1]}
@@ -185,7 +184,6 @@ const styles = StyleSheet.create({
 });
 
 export default function TabsLayout() {
-  const insets = useSafeAreaInsets();
   const { isAuthenticated, isLoading, canUseApp, isComplete } = useAuth();
   const gate = resolveTabsGate({ isAuthenticated, isLoading, canUseApp, isComplete });
 
@@ -206,7 +204,7 @@ export default function TabsLayout() {
 
   return (
     <Tabs
-      tabBar={(props) => <CustomTabBar {...props} insets={insets} />}
+      tabBar={(props) => <CustomTabBar {...props} />}
       screenOptions={{
         headerShown: false,
       }}>

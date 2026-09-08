@@ -24,6 +24,7 @@ export function useGradientCrossfade(colors: GradientColors) {
 
     if (!hasChanged) return;
 
+    // eslint-disable-next-line react-hooks/immutability -- Resets the Reanimated crossfade before animating new colors.
     progress.value = 0;
     setPreviousColors(current);
     currentColorsRef.current = colors;
