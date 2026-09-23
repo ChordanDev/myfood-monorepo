@@ -6,7 +6,7 @@
     "android:start": "expo start --android",
     "ios": "expo run:ios",
     "ios:start": "expo start --ios",
-    "ios:e2e": "APP_VARIANT=e2e EXPO_PUBLIC_API_URL=http://127.0.0.1:4000 expo run:ios",
+    "ios:e2e": "APP_VARIANT=e2e EXPO_PUBLIC_START_HOME=false EXPO_PUBLIC_API_URL=http://127.0.0.1:4000 expo run:ios",
     "start": "expo start",
     "start:visual": "EXPO_PUBLIC_START_HOME=true expo start",
     "prebuild": "expo prebuild",
