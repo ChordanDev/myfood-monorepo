@@ -20,6 +20,7 @@ export function VerificationActions({
   return (
     <View>
       <Pressable
+        testID="e2e-verify-code"
         onPress={onVerify}
         disabled={isVerifying}
         style={({ pressed }) => [

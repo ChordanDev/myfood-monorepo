@@ -1,5 +1,6 @@
 import type { AuthSession, CurrentMe, StoredAuthSession } from '@/features/auth/types/auth';
 import { secureStorage } from '@/services/secureStorage';
+import { newRequestId } from '@/services/requestId';
 
 export const ACCESS_TOKEN_KEY = 'auth_access_token';
 export const REFRESH_TOKEN_KEY = 'auth_refresh_token';
@@ -102,7 +103,7 @@ export async function getDeviceId(): Promise<string> {
   const existing = await secureStorage.getItem(DEVICE_ID_KEY);
   if (existing) return existing;
 
-  const randomId = globalThis.crypto.randomUUID();
+  const randomId = newRequestId();
   await secureStorage.setItem(DEVICE_ID_KEY, randomId);
   return randomId;
 }

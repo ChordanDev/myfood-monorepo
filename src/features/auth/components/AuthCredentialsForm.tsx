@@ -41,6 +41,7 @@ export function AuthCredentialsForm({
           width: '100%',
         }}>
         <EmailTextInput
+          testID="e2e-login-email"
           value={email}
           onChangeText={setEmail}
           placeholder="Correo electrónico"

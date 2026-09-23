@@ -247,6 +247,7 @@ export function OnboardingScreen({ previewMode = false }: OnboardingScreenProps)
       />
       <SafeAreaContent overflowHidden={false}>
         <ScrollView
+          testID="e2e-onboarding-screen"
           contentInsetAdjustmentBehavior="automatic"
           contentContainerStyle={{ paddingBottom: 32, gap: 18, paddingHorizontal: 12 }}
           keyboardShouldPersistTaps="handled">

@@ -1,0 +1,20 @@
+appId: com.myfood.e2e
+name: Login and verification against local E2E API
+---
+- launchApp:
+    clearState: true
+- tapOn:
+    id: e2e-login-email
+- inputText: ${E2E_LOGIN_EMAIL}
+- tapOn:
+    id: e2e-request-login-code
+- tapOn:
+    id: e2e-verification-code
+- inputText: ${E2E_LOGIN_CODE}
+- tapOn:
+    id: e2e-verify-code
+- extendedWaitUntil:
+    visible: Sesión iniciada
+- tapOn: OK
+- assertVisible:
+    id: e2e-onboarding-screen

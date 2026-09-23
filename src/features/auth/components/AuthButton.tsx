@@ -7,6 +7,7 @@ interface AuthButtonProps {
   title: string;
   variant: 'primary' | 'secondary';
   metrics: AuthLandingMetrics;
+  testID?: string;
   onPress?: () => void;
   disabled?: boolean;
 }
@@ -15,6 +16,7 @@ export function AuthButton({
   title,
   variant,
   metrics,
+  testID,
   onPress,
   disabled = false,
 }: AuthButtonProps) {
@@ -49,6 +51,7 @@ export function AuthButton({
           overflow: 'hidden',
         }}>
         <Pressable
+          testID={testID}
           onPress={onPress}
           disabled={disabled}
           accessibilityRole="button"

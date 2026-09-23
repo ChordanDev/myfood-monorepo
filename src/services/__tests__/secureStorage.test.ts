@@ -1,13 +1,13 @@
 import { Platform } from 'react-native';
 import { secureStorage } from '../secureStorage';
 
+import * as SecureStore from 'expo-secure-store';
+
 jest.mock('expo-secure-store', () => ({
   getItemAsync: jest.fn(),
   setItemAsync: jest.fn(),
   deleteItemAsync: jest.fn(),
 }));
-
-import * as SecureStore from 'expo-secure-store';
 
 type LocalStorageMock = {
   getItem: jest.Mock;

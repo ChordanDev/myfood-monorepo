@@ -3,12 +3,17 @@
   "version": "1.0.0",
   "scripts": {
     "android": "expo run:android",
+    "android:start": "expo start --android",
     "ios": "expo run:ios",
+    "ios:start": "expo start --ios",
+    "ios:e2e": "APP_VARIANT=e2e EXPO_PUBLIC_API_URL=http://127.0.0.1:4000 expo run:ios",
     "start": "expo start",
     "start:visual": "EXPO_PUBLIC_START_HOME=true expo start",
     "prebuild": "expo prebuild",
     "lint": "eslint \"**/*.{js,jsx,ts,tsx}\" && prettier -c \"**/*.{js,jsx,ts,tsx,json}\"",
     "format": "eslint \"**/*.{js,jsx,ts,tsx}\" --fix && prettier \"**/*.{js,jsx,ts,tsx,json}\" --write",
+    "e2e:maestro": "sh ./scripts/run-maestro-e2e-macos.sh",
+    "e2e:maestro:restore": "sh ./scripts/run-maestro-e2e-macos.sh restore",
     "web": "expo start --web",
     "test": "jest"
   },

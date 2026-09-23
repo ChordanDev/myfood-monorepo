@@ -127,6 +127,7 @@ export function AuthLandingScreen() {
                     title={isRequestingLoginCode ? 'Enviando código...' : 'Iniciar Sesión'}
                     variant="primary"
                     metrics={metrics}
+                    testID="e2e-request-login-code"
                     disabled={!isCredentialsValid || isRequestingLoginCode}
                     onPress={handleLogin}
                   />
