@@ -69,7 +69,7 @@ proposal in `docs/design/screens/Main.dc.html` (sand `#B9553B`, olive `#C94F3D`)
 - [x] T2 Domain: skipped state, pending predicates, selectable past days.
       Route: delegated writer (domain + store + two test files). Test-first
       with jest: `localMealPlan.test.ts`, `useMealPlanStore.test.ts`.
-- [ ] T3 Home UI: pending day cell and the confirmation row. Route: delegated
+- [x] T3 Home UI: pending day cell and the confirmation row. Route: delegated
       writer (new components, `DayCell`, `Calendar`, `useHomeState`,
       `HomeScreen`). Test-first with jest + React Native Testing Library for
       the day cell colors, the confirmation card actions and the selection
@@ -79,9 +79,9 @@ proposal in `docs/design/screens/Main.dc.html` (sand `#B9553B`, olive `#C94F3D`)
 
 - [ ] `alert` exists in the shared contract (`meal-app-docs`) and in
       `RecipeThemeConfig` before it is used.
-- [ ] Pending day: `alert` fill at 70 % plus `alert` border; selected: 2px
+- [x] Pending day: `alert` fill at 70 % plus `alert` border; selected: 2px
       `colorMedium` border.
-- [ ] A past day whose meals are all confirmed is no longer shown as pending
+- [x] A past day whose meals are all confirmed is no longer shown as pending
       nor selectable.
 - [x] Tests cover `isSelectableMealDate` and the new state.
 
@@ -122,6 +122,54 @@ proposal in `docs/design/screens/Main.dc.html` (sand `#B9553B`, olive `#C94F3D`)
   shows up yet; `eatToday` and `getDefaultHomeMealType` still read `isCooked`
   only.
 
+- 2026-10-06: T3 done in two work units, 1163 changed lines (618 of them
+  tests, about 70 a re-indent of the existing Home row); running total 1482,
+  above the ~400 delivery budget, so the chain strategy has to be asked before
+  any PR.
+  - ef8819c (`feat(home): mark pending past days in the calendar`), 212 lines:
+    `DayCell.isPendingConfirmation` (`alert` at 70 % plus `alert` border, 2px
+    `colorMedium` ring when selected, `!` glyph, label `6, comida sin
+    confirmar`), `isPendingDate` wrapper in `utils/calendarDate.ts`, `Calendar`
+    passing the flag, and `MOCK_MEAL_PLAN` with a pending yesterday (mp7, mp8)
+    and a confirmed day before (mp9, mp10). RED first: 3 of the 5 new `DayCell`
+    tests failed (fill, selected ring, glyph and label); the 2 that passed pin
+    behavior that must not change. The mock test was checked against the
+    reverted mock and failed there.
+  - 3d02838 (`feat(home): confirm a past meal from the Home screen`), 951
+    lines: `getHomeMealSummaries` in the domain, `useHomeState` exposing
+    `isPendingConfirmationDay` and `selectedDayMeals`, pending-only
+    `availableMealTypes`, first pending meal on opening a pending day, and the
+    return to the default date after the last confirmation; new
+    `PendingDayCard` and `CookedConfirmationCard`; `HomeScreen` rendering both
+    instead of the meal row on a pending day and calling `markAsCooked` /
+    `markAsSkipped`. RED first: the 9 `useHomeState` tests and the 2
+    `getHomeMealSummaries` tests failed, and both card suites could not import
+    their component. GREEN: 69 / 69 in `src/features/home`.
+  - Route: delegated writer. No testing library is installed, so the hook and
+    the components are tested with `react-test-renderer` and a hook harness,
+    as the rest of the repository does.
+  - Decisions taken while implementing: the default date (app open and the
+    fallback after the last confirmation) ignores past days, so it is today
+    when today has a plan, otherwise the first planned upcoming day, otherwise
+    today; the day card lists every Home meal of the day, confirmed ones
+    included; the button border is `icon` at 30 %, the tint the other pills
+    use.
+  - Observed checks on 3d02838: `npx tsc --noEmit` 22 errors, all in the four
+    known baseline files; `npx jest` 38 suites / 425 tests passed, 1 suite /
+    2 tests failed (`authErrorCodeContract.test.ts`, known baseline);
+    `npm run lint` 0 errors, 7 warnings in files not touched, prettier clean;
+    `npx prettier -c docs/THEMING.md` clean.
+  - Not verified: the screen was not run on a device or simulator, so sizes,
+    spacing and the gradient of the two cards are unchecked against the
+    reference. `HomeScreen` has no test; its wiring is covered by the
+    typecheck only.
+  - Left as is: after the selection returns to today the calendar keeps
+    showing the month the user navigated to (`useCalendarState`, outside the
+    T3 edit surface); `eatToday` and `getDefaultHomeMealType` still read
+    `isCooked` only.
+
 ## Next step
 
-T3.
+Run Home on a device against `docs/design/screens/Home-Pendiente.reference.webp`,
+update the shared contract in `meal-app-docs`, and ask for the chain strategy
+before opening a PR.
