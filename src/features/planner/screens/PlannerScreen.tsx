@@ -257,7 +257,9 @@ export const PlannerScreen = () => {
           paddingBottom: contentBottomClearance,
           gap: 28,
         }}
-        contentInsetAdjustmentBehavior="automatic"
+        // The bottom clearance already includes the safe area. Letting iOS add it again makes the
+        // list scroll that much past the anchored turn.
+        contentInsetAdjustmentBehavior="never"
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
         onLayout={handleScrollViewportLayout}
