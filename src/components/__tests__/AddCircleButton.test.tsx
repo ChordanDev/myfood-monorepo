@@ -4,6 +4,7 @@ import React from 'react';
 import { StyleSheet, View } from 'react-native';
 import { act, create } from 'react-test-renderer';
 import { LinearGradient } from 'expo-linear-gradient';
+import { Svg } from 'react-native-svg';
 import { AddCircleButton } from '../AddCircleButton';
 
 jest.mock('expo-linear-gradient', () => {
@@ -13,10 +14,6 @@ jest.mock('expo-linear-gradient', () => {
     LinearGradient: ({ style }: { style: object }) => <View style={style} />,
   };
 });
-
-jest.mock('react-native-svg', () => ({
-  SvgXml: () => null,
-}));
 
 jest.mock('react-native-reanimated', () => {
   const { View } = require('react-native');
@@ -66,5 +63,18 @@ describe('AddCircleButton', () => {
     expect(StyleSheet.flatten(gradient.props.style)).toEqual(
       expect.objectContaining({ bottom: 0, left: 0, position: 'absolute', right: 0, top: 0 })
     );
+  });
+
+  it('draws the plus glyph in the palette accent', () => {
+    let tree: ReturnType<typeof create>;
+
+    act(() => {
+      tree = create(<AddCircleButton />);
+    });
+
+    const glyph = tree!.root.findByType(Svg);
+
+    expect(glyph.props.stroke).toBe('currentColor');
+    expect(glyph.props.color).toBe('#ff6600');
   });
 });
