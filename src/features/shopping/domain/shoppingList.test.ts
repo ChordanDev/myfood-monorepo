@@ -2,6 +2,7 @@ import type { Ingredient, MealPlanEntry, RecipeIngredient } from '@/types/domain
 import type { ManualShoppingListItem, ShoppingListInput, ShoppingListItem } from '../types';
 import {
   deriveShoppingList,
+  getCartItems,
   getDefaultUntilDate,
   getPlannedItemId,
   getShoppingCounters,
@@ -46,7 +47,7 @@ function buildInput(overrides: Partial<ShoppingListInput> = {}): ShoppingListInp
     recipes: [buildRecipe('flan', [{ ingredientId: 'milk', amount: 500 }])],
     ingredients: [MILK, TOMATO],
     inventory: [],
-    purchases: {},
+    cartIds: [],
     removedIds: [],
     manualItems: [],
     ...overrides,
@@ -158,33 +159,54 @@ describe('deriveShoppingList', () => {
     expect(items).toEqual([]);
   });
 
-  it('keeps a purchased item with its amount once the purchase is in the inventory', () => {
-    // 200 ml were in stock, the missing 300 ml were bought and added to the inventory.
+  it('lists a row that was put in the cart as in the cart, for the same amount', () => {
+    const items = deriveShoppingList(buildInput({ cartIds: ['planned:milk'] }));
+
+    expect(summarize(items)).toEqual([['planned:milk', 500, 'in_cart']]);
+  });
+
+  it('keeps the other rows needed while one of them is in the cart', () => {
     const items = deriveShoppingList(
       buildInput({
-        inventory: [{ ingredientId: 'milk', amount: 500 }],
-        purchases: { 'planned:milk': 300 },
+        recipes: [
+          buildRecipe('flan', [
+            { ingredientId: 'milk', amount: 500 },
+            { ingredientId: 'tomato', amount: 2 },
+          ]),
+        ],
+        cartIds: ['planned:tomato'],
       })
     );
 
-    expect(summarize(items)).toEqual([['planned:milk', 300, 'purchased']]);
+    expect(summarize(items)).toEqual([
+      ['planned:milk', 500, 'needed'],
+      ['planned:tomato', 2, 'in_cart'],
+    ]);
+  });
+
+  it('follows the shortfall of a row in the cart when the stock or the plan changes', () => {
+    const items = deriveShoppingList(
+      buildInput({
+        recipes: [buildRecipe('flan', [{ ingredientId: 'milk', amount: 800 }])],
+        inventory: [{ ingredientId: 'milk', amount: 300 }],
+        cartIds: ['planned:milk'],
+      })
+    );
+
+    expect(summarize(items)).toEqual([['planned:milk', 500, 'in_cart']]);
   });
 
   it.each([
-    ['needs the rest when the plan outgrew the purchase', 800, 500, 300, 'needed'],
-    ['needs it all again when the stock no longer backs the record', 500, 0, 500, 'needed'],
-    ['stays purchased after one of its meals was cooked', 250, 250, 500, 'purchased'],
-    ['stays purchased when the stock covers the plan exactly', 500, 500, 500, 'purchased'],
-  ])('with a 500 ml purchase record, %s', (_case, planned, stock, amountToBuy, status) => {
-    const items = deriveShoppingList(
-      buildInput({
-        recipes: [buildRecipe('flan', [{ ingredientId: 'milk', amount: planned }])],
-        inventory: [{ ingredientId: 'milk', amount: stock }],
-        purchases: { 'planned:milk': 500 },
-      })
-    );
+    ['the stock covers the plan', { inventory: [{ ingredientId: 'milk', amount: 500 }] }],
+    ['its meal was cooked', { entries: [buildEntry('e1', '2026-10-10', 'flan', true)] }],
+    [
+      'its meal falls after the until date',
+      { entries: [buildEntry('e1', '2026-10-13', 'flan')], untilDate: '2026-10-12' },
+    ],
+  ])('does not list a row in the cart once %s', (_case, overrides) => {
+    const items = deriveShoppingList(buildInput({ ...overrides, cartIds: ['planned:milk'] }));
 
-    expect(summarize(items)).toEqual([['planned:milk', amountToBuy, status]]);
+    expect(items).toEqual([]);
   });
 
   it('does not list a shortfall that rounds to nothing at display precision', () => {
@@ -198,43 +220,15 @@ describe('deriveShoppingList', () => {
     expect(items).toEqual([]);
   });
 
-  it('drops a purchase whose meal falls after the until date', () => {
-    const items = deriveShoppingList(
-      buildInput({
-        entries: [buildEntry('e1', '2026-10-13', 'flan')],
-        inventory: [{ ingredientId: 'milk', amount: 500 }],
-        purchases: { 'planned:milk': 500 },
-        untilDate: '2026-10-12',
-      })
-    );
-
-    expect(items).toEqual([]);
-  });
-
-  it('drops a purchase whose ingredient no uncooked meal needs anymore', () => {
-    const items = deriveShoppingList(
-      buildInput({
-        entries: [buildEntry('e1', '2026-10-10', 'flan', true)],
-        purchases: { 'planned:milk': 300 },
-      })
-    );
-
-    expect(items).toEqual([]);
-  });
-
   it('keeps removed items in the output, flagged as removed', () => {
     const items = deriveShoppingList(buildInput({ removedIds: ['planned:milk'] }));
 
     expect(summarize(items)).toEqual([['planned:milk', 500, 'removed']]);
   });
 
-  it('flags a removed item as removed even when it was purchased', () => {
+  it('flags a removed item as removed even when its id is in the cart', () => {
     const items = deriveShoppingList(
-      buildInput({
-        inventory: [{ ingredientId: 'milk', amount: 500 }],
-        purchases: { 'planned:milk': 500 },
-        removedIds: ['planned:milk'],
-      })
+      buildInput({ cartIds: ['planned:milk'], removedIds: ['planned:milk'] })
     );
 
     expect(summarize(items)).toEqual([['planned:milk', 500, 'removed']]);
@@ -242,7 +236,7 @@ describe('deriveShoppingList', () => {
 
   it('passes manual items through after the planned ones, with their own status', () => {
     const paper = buildManualItem('manual-1', 'Papel de cocina');
-    const soap = buildManualItem('manual-2', 'Jabón', 'purchased');
+    const soap = buildManualItem('manual-2', 'Jabón', 'in_cart');
 
     const items = deriveShoppingList(buildInput({ manualItems: [paper, soap] }));
 
@@ -300,7 +294,7 @@ describe('getDefaultUntilDate', () => {
 });
 
 describe('getShoppingCounters', () => {
-  it('counts total and purchased over the non-removed items, and the removed ones apart', () => {
+  it('counts the listed rows, the ones in the cart among them, and the removed ones apart', () => {
     const items = deriveShoppingList(
       buildInput({
         entries: [buildEntry('e1', '2026-10-10', 'flan'), buildEntry('e2', '2026-10-11', 'salad')],
@@ -308,18 +302,59 @@ describe('getShoppingCounters', () => {
           buildRecipe('flan', [{ ingredientId: 'milk', amount: 500 }]),
           buildRecipe('salad', [{ ingredientId: 'tomato', amount: 2 }]),
         ],
-        // The milk was bought, so it is in stock.
-        inventory: [{ ingredientId: 'milk', amount: 500 }],
-        purchases: { 'planned:milk': 500 },
+        cartIds: ['planned:milk'],
         removedIds: ['planned:tomato'],
         manualItems: [
           buildManualItem('manual-1', 'Papel de cocina'),
-          buildManualItem('manual-2', 'Jabón', 'purchased'),
+          buildManualItem('manual-2', 'Jabón', 'in_cart'),
           buildManualItem('manual-3', 'Velas', 'removed'),
         ],
       })
     );
 
-    expect(getShoppingCounters(items)).toEqual({ total: 3, purchased: 2, removed: 2 });
+    expect(getShoppingCounters(items)).toEqual({ total: 3, inCart: 2, removed: 2 });
+  });
+
+  it('does not count an id in the cart whose row no longer exists', () => {
+    const items = deriveShoppingList(
+      buildInput({
+        inventory: [{ ingredientId: 'milk', amount: 500 }],
+        cartIds: ['planned:milk', 'planned:ghost'],
+      })
+    );
+
+    expect(getShoppingCounters(items)).toEqual({ total: 0, inCart: 0, removed: 0 });
+  });
+});
+
+describe('getCartItems', () => {
+  it('returns the planned and the manual rows in the cart, in list order', () => {
+    const soap = buildManualItem('manual-2', 'Jabón', 'in_cart');
+    const items = deriveShoppingList(
+      buildInput({
+        recipes: [
+          buildRecipe('flan', [
+            { ingredientId: 'milk', amount: 500 },
+            { ingredientId: 'tomato', amount: 2 },
+          ]),
+        ],
+        cartIds: ['planned:tomato'],
+        manualItems: [buildManualItem('manual-1', 'Papel de cocina'), soap],
+      })
+    );
+
+    expect(getCartItems(items).map((item) => item.id)).toEqual(['planned:tomato', 'manual-2']);
+  });
+
+  it('leaves out a removed row, even with its id still in the cart', () => {
+    const items = deriveShoppingList(
+      buildInput({
+        cartIds: ['planned:milk'],
+        removedIds: ['planned:milk'],
+        manualItems: [buildManualItem('manual-3', 'Velas', 'removed')],
+      })
+    );
+
+    expect(getCartItems(items)).toEqual([]);
   });
 });

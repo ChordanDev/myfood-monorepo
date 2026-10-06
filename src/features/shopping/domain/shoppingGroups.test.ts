@@ -137,9 +137,9 @@ describe('groupItemsByCategory', () => {
     ]);
   });
 
-  it('leaves out removed and manual items, and keeps purchased ones', () => {
+  it('leaves out removed and manual items, and keeps the ones in the cart', () => {
     const items = [
-      buildPlannedItem('milk', 'lacteos', 1, 'purchased'),
+      buildPlannedItem('milk', 'lacteos', 1, 'in_cart'),
       buildPlannedItem('tomato', 'verduras', 1, 'removed'),
       buildManualItem('manual-1'),
     ];
@@ -196,7 +196,7 @@ describe('groupItemsBySupermarket', () => {
 describe('getManualItems', () => {
   it('lists the manual items that are not removed, in list order', () => {
     const paper = buildManualItem('manual-1');
-    const soap = buildManualItem('manual-2', 'purchased');
+    const soap = buildManualItem('manual-2', 'in_cart');
     const items = [
       buildPlannedItem('milk', 'lacteos'),
       paper,

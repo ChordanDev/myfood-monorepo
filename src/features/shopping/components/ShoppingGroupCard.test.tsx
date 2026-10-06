@@ -143,7 +143,7 @@ describe('ShoppingGroupCard', () => {
   });
 
   it('renders the group title, the mark-all label and one row per item, in order', () => {
-    const { root } = renderCard(vegetables(['needed', 'purchased']));
+    const { root } = renderCard(vegetables(['needed', 'in_cart']));
 
     expect(getTexts(root)).toEqual([
       'Verduras',
@@ -162,8 +162,8 @@ describe('ShoppingGroupCard', () => {
 
   it.each<[ShoppingItemStatus, ShoppingItemStatus]>([
     ['needed', 'needed'],
-    ['needed', 'purchased'],
-    ['purchased', 'needed'],
+    ['needed', 'in_cart'],
+    ['in_cart', 'needed'],
   ])('leaves "Marcar todos" unchecked while the rows are %s and %s', (...statuses) => {
     const { root } = renderCard(vegetables(statuses));
     const header = getCheckbox(root, HEADER_LABEL);
@@ -172,8 +172,8 @@ describe('ShoppingGroupCard', () => {
     expect(header.findAllByType(Check)).toEqual([]);
   });
 
-  it('checks "Marcar todos" once every row is purchased', () => {
-    const { root } = renderCard(vegetables(['purchased', 'purchased']));
+  it('checks "Marcar todos" once every row is in the cart', () => {
+    const { root } = renderCard(vegetables(['in_cart', 'in_cart']));
     const header = getCheckbox(root, HEADER_LABEL);
 
     expect(header.props.accessibilityState).toEqual({ checked: true });
@@ -181,11 +181,11 @@ describe('ShoppingGroupCard', () => {
   });
 
   it('checks "Marcar todos" at once, without crossfading its box', () => {
-    renderCard(vegetables(['needed', 'purchased']));
+    renderCard(vegetables(['needed', 'in_cart']));
     const [unchecked] = getCheckboxImmediateKeys();
     jest.mocked(useAnimatedThemeStyle).mockClear();
 
-    renderCard(vegetables(['purchased', 'purchased']));
+    renderCard(vegetables(['in_cart', 'in_cart']));
     const [checked] = getCheckboxImmediateKeys();
 
     expect(unchecked).toBeDefined();
@@ -194,7 +194,7 @@ describe('ShoppingGroupCard', () => {
   });
 
   it('sits on the light surface of the palette, animated with it', () => {
-    const { root } = renderCard(vegetables(['needed', 'purchased']));
+    const { root } = renderCard(vegetables(['needed', 'in_cart']));
 
     expect(getViewStyles(root)).toContainEqual(
       expect.objectContaining({ backgroundColor: mockTheme.colorLight, borderRadius: 21 })
@@ -204,7 +204,7 @@ describe('ShoppingGroupCard', () => {
   });
 
   it('keeps the touch area of "Marcar todos" clear of the first row', () => {
-    const { root } = renderCard(vegetables(['needed', 'purchased']));
+    const { root } = renderCard(vegetables(['needed', 'in_cart']));
     const { hitSlop } = getCheckbox(root, HEADER_LABEL).props;
     // The header is the only block of the card that is spaced from what follows it.
     const [gapToFirstRow] = getViewStyles(root).flatMap((style) => style.marginBottom ?? []);
@@ -214,7 +214,7 @@ describe('ShoppingGroupCard', () => {
   });
 
   it('reports the group key when "Marcar todos" is pressed, with a light haptic', () => {
-    const { root, onToggleAll, onToggleItem } = renderCard(vegetables(['needed', 'purchased']));
+    const { root, onToggleAll, onToggleItem } = renderCard(vegetables(['needed', 'in_cart']));
 
     act(() => {
       getCheckbox(root, HEADER_LABEL).props.onPress();
@@ -227,7 +227,7 @@ describe('ShoppingGroupCard', () => {
   });
 
   it('reports the id of a pressed row', () => {
-    const { root, onToggleAll, onToggleItem } = renderCard(vegetables(['needed', 'purchased']));
+    const { root, onToggleAll, onToggleItem } = renderCard(vegetables(['needed', 'in_cart']));
 
     act(() => {
       getCheckbox(root, '2 u · Tomate, Sin precio').props.onPress();
@@ -240,7 +240,7 @@ describe('ShoppingGroupCard', () => {
 
   it('reports the id of a long-pressed row to remove it', () => {
     const { root, onRemoveItem, onToggleItem, onToggleAll } = renderCard(
-      vegetables(['needed', 'purchased'])
+      vegetables(['needed', 'in_cart'])
     );
 
     act(() => {

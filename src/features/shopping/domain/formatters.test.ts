@@ -1,5 +1,6 @@
 import type { ManualShoppingListItem, PlannedShoppingListItem } from '../types';
 import {
+  formatCartButtonLabel,
   formatCountersLabel,
   formatItemMetaLine,
   formatItemNameLine,
@@ -125,20 +126,34 @@ describe('row lines', () => {
 });
 
 describe('formatCountersLabel', () => {
-  it('writes how many items are listed and how many of them are purchased', () => {
-    expect(formatCountersLabel({ total: 14, purchased: 3, removed: 0 })).toBe(
-      '14 ítems · 3 comprados'
+  it('writes how many items are listed and how many of them are in the cart', () => {
+    expect(formatCountersLabel({ total: 4, inCart: 2, removed: 0 })).toBe(
+      '4 ítems · 2 en el carrito'
     );
-    expect(formatCountersLabel({ total: 0, purchased: 0, removed: 2 })).toBe(
-      '0 ítems · 0 comprados'
+    expect(formatCountersLabel({ total: 0, inCart: 0, removed: 2 })).toBe(
+      '0 ítems · 0 en el carrito'
     );
   });
 
-  it('uses the singular for one item and for one purchase', () => {
-    expect(formatCountersLabel({ total: 1, purchased: 1, removed: 0 })).toBe('1 ítem · 1 comprado');
-    expect(formatCountersLabel({ total: 2, purchased: 1, removed: 0 })).toBe(
-      '2 ítems · 1 comprado'
+  it('uses the singular for one item; the cart part has a single form', () => {
+    expect(formatCountersLabel({ total: 1, inCart: 1, removed: 0 })).toBe(
+      '1 ítem · 1 en el carrito'
     );
+    expect(formatCountersLabel({ total: 2, inCart: 1, removed: 0 })).toBe(
+      '2 ítems · 1 en el carrito'
+    );
+  });
+});
+
+describe('formatCartButtonLabel', () => {
+  it('says the cart is empty', () => {
+    expect(formatCartButtonLabel(0)).toBe('Ver carrito, vacío');
+  });
+
+  it('counts the rows in the cart, in the singular for one', () => {
+    expect(formatCartButtonLabel(1)).toBe('Ver carrito, 1 ítem');
+    expect(formatCartButtonLabel(2)).toBe('Ver carrito, 2 ítems');
+    expect(formatCartButtonLabel(12)).toBe('Ver carrito, 12 ítems');
   });
 });
 

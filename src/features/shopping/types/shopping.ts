@@ -8,7 +8,9 @@ import type {
 
 export type ShoppingItemSource = 'planned_meal' | 'manual';
 
-export type ShoppingItemStatus = 'needed' | 'purchased' | 'removed';
+// `in_cart` is a row the user marked and has not confirmed yet. A confirmed row has no status:
+// it leaves the list.
+export type ShoppingItemStatus = 'needed' | 'in_cart' | 'removed';
 
 interface ShoppingListItemBase {
   id: string; // Stable across derivations
@@ -28,22 +30,17 @@ export interface PlannedShoppingListItem extends ShoppingListItemBase {
 // Added by hand: a name only, with no ingredient, quantity, unit or category.
 export interface ManualShoppingListItem extends ShoppingListItemBase {
   source: 'manual';
-  // Only on a removed item: the status it had, which restoring gives back. Optional, so an
-  // item stored as removed before this was recorded is still valid; it restores as needed.
-  statusBeforeRemoval?: Exclude<ShoppingItemStatus, 'removed'>;
 }
 
 export type ShoppingListItem = PlannedShoppingListItem | ManualShoppingListItem;
-
-// Planned item id -> amount bought. The store adds that same amount to the inventory.
-export type PurchaseRecords = Record<string, number>;
 
 export type ShoppingListInput = {
   entries: MealPlanEntry[];
   recipes: Pick<MasterRecipe, 'id' | 'ingredients'>[];
   ingredients: Ingredient[];
   inventory: InventoryItem[];
-  purchases: PurchaseRecords;
+  // Ids of the planned items in the cart. A manual item carries that in its own status.
+  cartIds: string[];
   removedIds: string[];
   manualItems: ManualShoppingListItem[];
   // Inclusive 'YYYY-MM-DD' key. Without it the whole plan counts.
@@ -71,8 +68,9 @@ export type ShoppingGroup = {
   items: PlannedShoppingListItem[];
 };
 
+// `total` and `inCart` count the listed rows; the removed ones are counted apart.
 export type ShoppingCounters = {
   total: number;
-  purchased: number;
+  inCart: number;
   removed: number;
 };

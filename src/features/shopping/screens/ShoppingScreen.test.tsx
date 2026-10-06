@@ -1,7 +1,7 @@
 /* eslint-disable @typescript-eslint/no-require-imports */
 
 import React from 'react';
-import { ScrollView, StyleSheet, Text, TextInput } from 'react-native';
+import { ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { act, create, ReactTestInstance } from 'react-test-renderer';
 import type { MasterRecipe, MealPlanEntry } from '@/types/domain';
 import { CUSTOM_TAB_BAR_CONTENT_HEIGHT } from '@/features/planner/constants';
@@ -25,12 +25,32 @@ jest.mock('react-native-reanimated', () => {
   return {
     __esModule: true,
     default: { Text, View },
-    Easing: { out: (curve: unknown) => curve, quad: 'quad' },
+    cancelAnimation: jest.fn(),
+    Easing: { linear: 'linear', out: (curve: unknown) => curve, quad: 'quad' },
     useAnimatedStyle: (factory: () => object) => factory(),
     useSharedValue: (value: number) => ({ value }),
+    withRepeat: (value: number) => value,
     withTiming: (value: number) => value,
   };
 });
+
+jest.mock('expo-linear-gradient', () => {
+  const { View } = require('react-native');
+
+  return {
+    LinearGradient: ({ style }: { style: object }) => <View style={style} />,
+  };
+});
+
+// iOS keeps the children of a modal mounted while it fades out; the stock Jest mock drops
+// them at once. A test turns this on to press what is still on screen during that fade.
+let mockKeepsChildrenWhileHidden = false;
+
+jest.mock('react-native/Libraries/Modal/Modal', () => ({
+  __esModule: true,
+  default: ({ visible, children }: { visible: boolean; children: React.ReactNode }) =>
+    visible || mockKeepsChildrenWhileHidden ? children : null,
+}));
 
 // Only what the screen uses: the barrel would load every shared component.
 jest.mock('@/components', () => ({
@@ -40,11 +60,19 @@ jest.mock('@/components', () => ({
   ShadowSurface: jest.requireActual('@/components/ShadowSurface').ShadowSurface,
 }));
 
-jest.mock('lucide-react-native', () => ({ Calendar: 'Calendar', Check: 'Check', Plus: 'Plus' }));
+jest.mock('lucide-react-native', () => ({
+  Calendar: 'Calendar',
+  Check: 'Check',
+  Plus: 'Plus',
+  ShoppingCart: 'ShoppingCart',
+  X: 'X',
+}));
 
 jest.mock('expo-haptics', () => ({
   ImpactFeedbackStyle: { Light: 'light', Medium: 'medium' },
+  NotificationFeedbackType: { Success: 'success' },
   impactAsync: jest.fn(),
+  notificationAsync: jest.fn(),
 }));
 
 jest.mock('@/hooks/useKeyboardAnimation', () => ({
@@ -102,8 +130,9 @@ function renderScreen(): ReactTestInstance {
   return tree!.root;
 }
 
+// The badge of the cart button holds a number: every text is read as a string.
 function getTexts(root: ReactTestInstance): string[] {
-  return root.findAllByType(Text).map((node) => node.props.children as string);
+  return root.findAllByType(Text).map((node) => String(node.props.children));
 }
 
 function getPressables(root: ReactTestInstance, role: 'button' | 'checkbox') {
@@ -156,6 +185,45 @@ function addManualItem(root: ReactTestInstance, name: string) {
   });
 }
 
+// Presses a button by the text it shows: the actions of a sheet have no label of their own.
+function pressText(root: ReactTestInstance, text: string) {
+  const target = getPressables(root, 'button').find((button) => getTexts(button).includes(text));
+
+  if (!target) {
+    throw new Error(`No button showing "${text}"`);
+  }
+
+  act(() => {
+    target.props.onPress();
+  });
+}
+
+const CART_TITLE = 'Tu carrito';
+const CART_EMPTY_HINT = 'Todavía no marcaste nada.';
+const CONFIRM = 'Marcar como comprado';
+
+function isCartSheetOpen(root: ReactTestInstance) {
+  return getTexts(root).includes(CART_TITLE);
+}
+
+// What the cart sheet shows, from its title to its last action.
+function getCartSheetTexts(root: ReactTestInstance) {
+  const texts = getTexts(root);
+
+  return texts.slice(texts.indexOf(CART_TITLE), texts.indexOf('Cancelar') + 1);
+}
+
+function getCheckedLabels(root: ReactTestInstance) {
+  return getPressables(root, 'checkbox')
+    .filter((checkbox) => checkbox.props.accessibilityState.checked)
+    .map((checkbox) => checkbox.props.accessibilityLabel);
+}
+
+function stockOf(ingredientId: string) {
+  return useInventoryStore.getState().items.find((item) => item.ingredientId === ingredientId)
+    ?.amount;
+}
+
 const EMPTY_LABEL = 'No hay nada para comprar';
 const MANUAL_TITLE = 'Agregados a mano';
 const MANUAL_HINT = 'Todavía no agregaste nada.';
@@ -168,6 +236,7 @@ function getImmediateKeys() {
 }
 
 beforeEach(() => {
+  mockKeepsChildrenWhileHidden = false;
   jest.mocked(useAnimatedThemeStyle).mockClear();
   useMealPlanStore.setState({
     entries: PLAN,
@@ -175,9 +244,10 @@ beforeEach(() => {
   });
   useInventoryStore.setState({ items: [], ingredients: MOCK_INGREDIENTS });
   useShoppingListStore.setState({
-    purchases: {},
+    cartIds: [],
     removedIds: [],
     manualItems: [],
+    lastManualItemSequence: 0,
     groupingMode: 'category',
   });
 });
@@ -196,7 +266,7 @@ describe('ShoppingScreen', () => {
       'Por categoría',
       'Por súper',
       'COMPRAS',
-      '3 ítems · 0 comprados',
+      '3 ítems · 0 en el carrito',
       'Verduras',
       'Marcar todos',
       '100 g · Espinaca',
@@ -212,30 +282,38 @@ describe('ShoppingScreen', () => {
     ]);
   });
 
-  it('shows the date as plain text: the buttons are the grouping options and the add one', () => {
+  it('shows the date as plain text: the buttons are the grouping options, the add one and the cart', () => {
     const root = renderScreen();
 
     expect(getPressables(root, 'button').map((button) => button.props.accessibilityLabel)).toEqual([
       'Por categoría',
       'Por súper',
       'Agregar a la lista',
+      'Ver carrito, vacío',
     ]);
   });
 
-  it('marks the pressed row as purchased and updates the counter', () => {
+  it('puts the pressed row in the cart, counts it and leaves the inventory alone', () => {
     const root = renderScreen();
 
     press(root, 'checkbox', '2 u · Tomate, Coto · $1.100');
 
-    expect(getTexts(root)).toContain('3 ítems · 1 comprado');
-    expect(
-      getPressables(root, 'checkbox')
-        .filter((checkbox) => checkbox.props.accessibilityState.checked)
-        .map((checkbox) => checkbox.props.accessibilityLabel)
-    ).toEqual(['2 u · Tomate, Coto · $1.100']);
+    expect(getTexts(root)).toContain('3 ítems · 1 en el carrito');
+    expect(getCheckedLabels(root)).toEqual(['2 u · Tomate, Coto · $1.100']);
+    expect(useInventoryStore.getState().items).toEqual([]);
   });
 
-  it('applies the purchased look of the pressed row at once, and of no other row', () => {
+  it('takes the row back out of the cart when it is pressed again', () => {
+    const root = renderScreen();
+    press(root, 'checkbox', '2 u · Tomate, Coto · $1.100');
+
+    press(root, 'checkbox', '2 u · Tomate, Coto · $1.100');
+
+    expect(getTexts(root)).toContain('3 ítems · 0 en el carrito');
+    expect(getCheckedLabels(root)).toEqual([]);
+  });
+
+  it('applies the in-cart look of the pressed row at once, and of no other row', () => {
     const root = renderScreen();
     const before = getImmediateKeys();
     jest.mocked(useAnimatedThemeStyle).mockClear();
@@ -250,21 +328,23 @@ describe('ShoppingScreen', () => {
     expect(after.filter((key, index) => key !== before[index])).toHaveLength(3);
   });
 
-  it('marks a whole group from its "Marcar todos"', () => {
+  it('puts a whole group in the cart from its "Marcar todos", and takes it out again', () => {
     const root = renderScreen();
 
     press(root, 'checkbox', 'Marcar todos, Verduras');
 
-    expect(getTexts(root)).toContain('3 ítems · 2 comprados');
-    expect(
-      getPressables(root, 'checkbox')
-        .filter((checkbox) => checkbox.props.accessibilityState.checked)
-        .map((checkbox) => checkbox.props.accessibilityLabel)
-    ).toEqual([
+    expect(getTexts(root)).toContain('3 ítems · 2 en el carrito');
+    expect(getCheckedLabels(root)).toEqual([
       'Marcar todos, Verduras',
       '100 g · Espinaca, Sin precio',
       '2 u · Tomate, Coto · $1.100',
     ]);
+    expect(useInventoryStore.getState().items).toEqual([]);
+
+    press(root, 'checkbox', 'Marcar todos, Verduras');
+
+    expect(getTexts(root)).toContain('3 ítems · 0 en el carrito');
+    expect(getCheckedLabels(root)).toEqual([]);
   });
 
   it('regroups by supermarket from the switcher', () => {
@@ -277,14 +357,171 @@ describe('ShoppingScreen', () => {
     expect(getTexts(root)).not.toContain('Verduras');
   });
 
-  it('clears the tab bar itself, without letting iOS add the safe area again', () => {
+  it('clears the tab bar and the cart button itself, without letting iOS add the safe area again', () => {
     const root = renderScreen();
     const list = root.findByType(ScrollView);
 
     expect(list.props.contentInsetAdjustmentBehavior).toBe('never');
+    // Tab bar, a gap, the 56 pt button and a gap: the last checkbox scrolls clear of it.
     expect(StyleSheet.flatten(list.props.contentContainerStyle).paddingBottom).toBe(
-      34 + CUSTOM_TAB_BAR_CONTENT_HEIGHT + 14
+      34 + CUSTOM_TAB_BAR_CONTENT_HEIGHT + 14 + 56 + 14
     );
+  });
+
+  describe('the floating cart button', () => {
+    function getCartButtonLabel(root: ReactTestInstance) {
+      return getPressables(root, 'button')
+        .map((button) => button.props.accessibilityLabel as string | undefined)
+        .find((label) => label?.startsWith('Ver carrito'));
+    }
+
+    it('floats at the bottom right, above the tab bar, without blocking the list', () => {
+      const root = renderScreen();
+      const [holder] = root
+        .findAllByType(View)
+        .filter((view) => view.props.testID === 'shopping-cart-button');
+
+      expect(StyleSheet.flatten(holder.props.style)).toEqual({
+        bottom: 34 + CUSTOM_TAB_BAR_CONTENT_HEIGHT + 14,
+        position: 'absolute',
+        right: 14,
+      });
+      expect(holder.props.pointerEvents).toBe('box-none');
+    });
+
+    it('is there with an empty cart and with an empty list', () => {
+      useMealPlanStore.setState({ entries: [] });
+
+      const root = renderScreen();
+
+      expect(getCartButtonLabel(root)).toBe('Ver carrito, vacío');
+    });
+
+    it('counts the rows in the cart, planned and manual, in its label and in its badge', () => {
+      const root = renderScreen();
+      addManualItem(root, 'Velas');
+
+      press(root, 'checkbox', '2 u · Tomate, Coto · $1.100');
+      expect(getCartButtonLabel(root)).toBe('Ver carrito, 1 ítem');
+      expect(getTexts(root).at(-1)).toBe('1');
+
+      press(root, 'checkbox', 'Velas, Sin precio');
+      expect(getCartButtonLabel(root)).toBe('Ver carrito, 2 ítems');
+      expect(getTexts(root).at(-1)).toBe('2');
+
+      press(root, 'checkbox', '2 u · Tomate, Coto · $1.100');
+      press(root, 'checkbox', 'Velas, Sin precio');
+      expect(getCartButtonLabel(root)).toBe('Ver carrito, vacío');
+      // No badge again: the last text on screen is the meta line of the manual row.
+      expect(getTexts(root).at(-1)).toBe('Sin precio');
+    });
+  });
+
+  describe('the cart sheet', () => {
+    it('opens from the floating button with the rows that were marked', () => {
+      const root = renderScreen();
+      addManualItem(root, 'Velas');
+      press(root, 'checkbox', '2 u · Tomate, Coto · $1.100');
+      press(root, 'checkbox', 'Velas, Sin precio');
+      expect(isCartSheetOpen(root)).toBe(false);
+
+      press(root, 'button', 'Ver carrito, 2 ítems');
+
+      expect(getCartSheetTexts(root)).toEqual([
+        CART_TITLE,
+        '2 u · Tomate',
+        'Coto · $1.100',
+        'Velas',
+        'Sin precio',
+        CONFIRM,
+        'Cancelar',
+      ]);
+    });
+
+    it('opens on a hint, with nothing to confirm, while the cart is empty', () => {
+      const root = renderScreen();
+
+      press(root, 'button', 'Ver carrito, vacío');
+
+      expect(getCartSheetTexts(root)).toEqual([CART_TITLE, CART_EMPTY_HINT, CONFIRM, 'Cancelar']);
+    });
+
+    it('buys the cart on "Marcar como comprado": the sheet closes and the rows are gone', () => {
+      const root = renderScreen();
+      addManualItem(root, 'Velas');
+      addManualItem(root, 'Hielo');
+      press(root, 'checkbox', '2 u · Tomate, Coto · $1.100');
+      press(root, 'checkbox', 'Velas, Sin precio');
+      press(root, 'button', 'Ver carrito, 2 ítems');
+
+      pressText(root, CONFIRM);
+
+      expect(isCartSheetOpen(root)).toBe(false);
+      expect(stockOf('i3')).toBe(2);
+      expect(stockOf('i2')).toBeUndefined();
+      const texts = getTexts(root);
+      expect(texts).not.toContain('2 u · Tomate');
+      expect(texts).not.toContain('Velas');
+      expect(texts).toContain('3 ítems · 0 en el carrito');
+      expect(texts.slice(texts.indexOf(MANUAL_TITLE))).toEqual([
+        MANUAL_TITLE,
+        'Hielo',
+        'Sin precio',
+      ]);
+      expect(getCheckedLabels(root)).toEqual([]);
+      expect(useShoppingListStore.getState().manualItems.map((item) => item.name)).toEqual([
+        'Hielo',
+      ]);
+    });
+
+    it('buys once when "Marcar como comprado" is pressed again while the sheet fades out', () => {
+      mockKeepsChildrenWhileHidden = true;
+      const root = renderScreen();
+      press(root, 'checkbox', '200 g · Pollo (Pechuga), Día · $1.520');
+      press(root, 'button', 'Ver carrito, 1 ítem');
+      pressText(root, CONFIRM);
+
+      // A row marked behind the closing sheet must not be bought by the late press.
+      press(root, 'checkbox', '2 u · Tomate, Coto · $1.100');
+      pressText(root, CONFIRM);
+
+      expect(stockOf('i2')).toBe(200);
+      expect(stockOf('i3')).toBeUndefined();
+      expect(getTexts(root)).toContain('2 ítems · 1 en el carrito');
+    });
+
+    it('takes a single row out of the cart from the sheet, and leaves it on the list', () => {
+      const root = renderScreen();
+      press(root, 'checkbox', 'Marcar todos, Verduras');
+      press(root, 'button', 'Ver carrito, 2 ítems');
+
+      press(root, 'button', 'Sacar del carrito, 2 u · Tomate');
+
+      expect(getCartSheetTexts(root)).toEqual([
+        CART_TITLE,
+        '100 g · Espinaca',
+        'Sin precio',
+        CONFIRM,
+        'Cancelar',
+      ]);
+      expect(getCheckedLabels(root)).toEqual(['100 g · Espinaca, Sin precio']);
+      expect(getTexts(root)).toContain('3 ítems · 1 en el carrito');
+      expect(useInventoryStore.getState().items).toEqual([]);
+    });
+
+    it.each(['Cancelar', 'Cerrar'])('closes from "%s" without buying anything', (name) => {
+      const root = renderScreen();
+      press(root, 'checkbox', '2 u · Tomate, Coto · $1.100');
+      press(root, 'button', 'Ver carrito, 1 ítem');
+
+      if (name === 'Cerrar') press(root, 'button', name);
+      else pressText(root, name);
+
+      expect(isCartSheetOpen(root)).toBe(false);
+      expect(useInventoryStore.getState().items).toEqual([]);
+      expect(getTexts(root)).toContain('3 ítems · 1 en el carrito');
+      expect(getCheckedLabels(root)).toEqual(['2 u · Tomate, Coto · $1.100']);
+    });
   });
 
   it('says there is nothing to buy, with no date, above the manual card when the plan is empty', () => {
@@ -296,7 +533,7 @@ describe('ShoppingScreen', () => {
       'Por categoría',
       'Por súper',
       'COMPRAS',
-      '0 ítems · 0 comprados',
+      '0 ítems · 0 en el carrito',
       EMPTY_LABEL,
       MANUAL_TITLE,
       MANUAL_HINT,
@@ -315,7 +552,7 @@ describe('ShoppingScreen', () => {
       'Por categoría',
       'Por súper',
       'COMPRAS',
-      '1 ítem · 0 comprados',
+      '1 ítem · 0 en el carrito',
       MANUAL_TITLE,
       'Velas',
       'Sin precio',
@@ -368,7 +605,7 @@ describe('ShoppingScreen', () => {
         'Papel de cocina',
         'Sin precio',
       ]);
-      expect(texts).toContain('4 ítems · 0 comprados');
+      expect(texts).toContain('4 ítems · 0 en el carrito');
       expect(isAddSheetOpen(root)).toBe(false);
     });
 
@@ -392,7 +629,8 @@ describe('ShoppingScreen', () => {
 
       press(root, 'checkbox', 'Velas, Sin precio');
 
-      expect(getTexts(root)).toContain('4 ítems · 1 comprado');
+      expect(getTexts(root)).toContain('4 ítems · 1 en el carrito');
+      expect(getCheckedLabels(root)).toEqual(['Velas, Sin precio']);
     });
   });
 
@@ -412,7 +650,7 @@ describe('ShoppingScreen', () => {
       longPress(root, '2 u · Tomate, Coto · $1.100');
 
       expect(getTexts(root)).not.toContain('2 u · Tomate');
-      expect(getTexts(root)).toContain('2 ítems · 0 comprados');
+      expect(getTexts(root)).toContain('2 ítems · 0 en el carrito');
       expect(restoreLabels(root)).toEqual(['1 quitado · Restaurar']);
       // The line is the last thing on the list, under the manual card.
       expect(getTexts(root).at(-1)).toBe('1 quitado · Restaurar');
@@ -438,7 +676,7 @@ describe('ShoppingScreen', () => {
       press(root, 'button', '2 quitados · Restaurar');
 
       expect(getTexts(root)).toEqual(expect.arrayContaining(['2 u · Tomate', 'Velas']));
-      expect(getTexts(root)).toContain('4 ítems · 0 comprados');
+      expect(getTexts(root)).toContain('4 ítems · 0 en el carrito');
       expect(restoreLabels(root)).toEqual([]);
     });
 
@@ -451,7 +689,7 @@ describe('ShoppingScreen', () => {
       const texts = getTexts(root);
       expect(texts.slice(texts.indexOf('COMPRAS'))).toEqual([
         'COMPRAS',
-        '0 ítems · 0 comprados',
+        '0 ítems · 0 en el carrito',
         EMPTY_LABEL,
         MANUAL_TITLE,
         MANUAL_HINT,

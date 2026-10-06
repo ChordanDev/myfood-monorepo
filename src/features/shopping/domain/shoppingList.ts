@@ -50,16 +50,16 @@ function getStockAmounts({ inventory }: ShoppingListInput) {
  * Builds the list from the plan: one planned item per ingredient, in order of first
  * appearance, followed by the manual items untouched.
  *
- * The shortfall (planned minus stock) always wins: while it is positive the item is needed
- * for that amount, whatever was bought before. A purchase lands in the inventory, so once
- * the stock covers the plan the item would vanish; its purchase record keeps it listed as
- * purchased, with the recorded amount.
+ * A planned item exists exactly while the plan has a shortfall (planned minus stock), for
+ * that amount. Being in the cart only changes its status: a confirmed purchase lands in the
+ * inventory, the shortfall closes and the item leaves the list by itself.
  */
 export function deriveShoppingList(input: ShoppingListInput): ShoppingListItem[] {
   const ingredientById = new Map(
     input.ingredients.map((ingredient) => [ingredient.id, ingredient])
   );
   const stockAmounts = getStockAmounts(input);
+  const cartIds = new Set(input.cartIds);
   const removedIds = new Set(input.removedIds);
   const plannedItems: PlannedShoppingListItem[] = [];
 
@@ -68,12 +68,11 @@ export function deriveShoppingList(input: ShoppingListInput): ShoppingListItem[]
     if (!ingredient) continue;
 
     const id = getPlannedItemId(ingredientId);
-    const shortfall = roundAmount(plannedAmount - (stockAmounts.get(ingredientId) ?? 0));
-    const isPurchased = shortfall <= 0;
-    const amountToBuy = isPurchased ? roundAmount(input.purchases[id] ?? 0) : shortfall;
+    const amountToBuy = roundAmount(plannedAmount - (stockAmounts.get(ingredientId) ?? 0));
     if (amountToBuy <= 0) continue;
 
-    let status: ShoppingItemStatus = isPurchased ? 'purchased' : 'needed';
+    // Removed wins: a row taken off the list is not in the cart, whatever the cart says.
+    let status: ShoppingItemStatus = cartIds.has(id) ? 'in_cart' : 'needed';
     if (removedIds.has(id)) status = 'removed';
 
     plannedItems.push({
@@ -91,12 +90,17 @@ export function deriveShoppingList(input: ShoppingListInput): ShoppingListItem[]
   return [...plannedItems, ...input.manualItems];
 }
 
+// Rows of the cart, planned and manual, in the order of the list.
+export function getCartItems(items: ShoppingListItem[]): ShoppingListItem[] {
+  return items.filter((item) => item.status === 'in_cart');
+}
+
 export function getShoppingCounters(items: ShoppingListItem[]): ShoppingCounters {
   const removed = items.filter((item) => item.status === 'removed').length;
 
   return {
     total: items.length - removed,
-    purchased: items.filter((item) => item.status === 'purchased').length,
+    inCart: getCartItems(items).length,
     removed,
   };
 }

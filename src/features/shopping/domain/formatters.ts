@@ -45,9 +45,14 @@ function pluralize(count: number, singular: string) {
   return `${count} ${singular}${count === 1 ? '' : 's'}`;
 }
 
-// The purchased count agrees with "ítem", so it needs no gender of its own.
-export function formatCountersLabel({ total, purchased }: ShoppingCounters) {
-  return `${pluralize(total, 'ítem')}${SEPARATOR}${pluralize(purchased, 'comprado')}`;
+// Only the item count has a singular: "en el carrito" reads the same for one and for many.
+export function formatCountersLabel({ total, inCart }: ShoppingCounters) {
+  return `${pluralize(total, 'ítem')}${SEPARATOR}${inCart} en el carrito`;
+}
+
+// What the floating cart button says to a screen reader.
+export function formatCartButtonLabel(cartCount: number) {
+  return `Ver carrito, ${cartCount === 0 ? 'vacío' : pluralize(cartCount, 'ítem')}`;
 }
 
 // Line under the cards that brings the removed items back.

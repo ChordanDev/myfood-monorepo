@@ -4,6 +4,7 @@ import {
   deriveShoppingList,
   formatUntilLabel,
   getBestOffer,
+  getCartItems,
   getDefaultUntilDate,
   getManualItems,
   getShoppingCounters,
@@ -38,20 +39,19 @@ function groupItems(
 
 /**
  * The list as the stores hold it right now. Actions run on it instead of on the rendered
- * rows: the store trusts the row it is handed, so a `needed` row from a stale render,
- * marked twice, would be added to the inventory twice.
+ * rows: a row from a stale render may have changed status, amount, or left the list since.
  */
 function readFreshList() {
   const { entries, recipes } = useMealPlanStore.getState();
   const { items: inventory, ingredients } = useInventoryStore.getState();
-  const { purchases, removedIds, manualItems, groupingMode, offers } =
+  const { cartIds, removedIds, manualItems, groupingMode, offers } =
     useShoppingListStore.getState();
   const items = deriveItems({
     entries,
     recipes,
     ingredients,
     inventory,
-    purchases,
+    cartIds,
     removedIds,
     manualItems,
   });
@@ -76,7 +76,7 @@ export function useShoppingList() {
   const recipes = useMealPlanStore((state) => state.recipes);
   const inventory = useInventoryStore((state) => state.items);
   const ingredients = useInventoryStore((state) => state.ingredients);
-  const purchases = useShoppingListStore((state) => state.purchases);
+  const cartIds = useShoppingListStore((state) => state.cartIds);
   const removedIds = useShoppingListStore((state) => state.removedIds);
   const manualItems = useShoppingListStore((state) => state.manualItems);
   const groupingMode = useShoppingListStore((state) => state.groupingMode);
@@ -94,11 +94,11 @@ export function useShoppingList() {
         recipes,
         ingredients,
         inventory,
-        purchases,
+        cartIds,
         removedIds,
         manualItems,
       }),
-    [entries, recipes, ingredients, inventory, purchases, removedIds, manualItems]
+    [entries, recipes, ingredients, inventory, cartIds, removedIds, manualItems]
   );
 
   const groups = useMemo(
@@ -110,24 +110,40 @@ export function useShoppingList() {
   // Rows of "Agregados a mano". The store keeps the removed ones; these are the listed ones.
   const listedManualItems = useMemo(() => getManualItems(items), [items]);
 
+  // Rows the cart sheet lists: derived with the rest, so each one carries the amount it is
+  // missing now, and a row that left the list is not among them.
+  const cartItems = useMemo(() => getCartItems(items), [items]);
+
+  // Marking a row only moves it in or out of the cart; the inventory is not touched.
   const toggleItem = useCallback((itemId: string) => {
     const item = readFreshList().items.find((candidate) => candidate.id === itemId);
     if (!item) return;
 
-    const { markPurchased, unmarkPurchased } = useShoppingListStore.getState();
-    if (item.status === 'needed') markPurchased(item);
-    else if (item.status === 'purchased') unmarkPurchased(item);
+    const { addToCart, takeOutOfCart } = useShoppingListStore.getState();
+    if (item.status === 'needed') addToCart([item.id]);
+    else if (item.status === 'in_cart') takeOutOfCart([item.id]);
   }, []);
 
-  // "Marcar todos": buys what is still needed; with nothing left to buy, it undoes the group.
+  // "Marcar todos": puts what is still needed in the cart; with the whole group already in
+  // it, takes the group back out.
   const toggleGroup = useCallback((groupKey: string) => {
     const group = readFreshList().groups.find((candidate) => candidate.key === groupKey);
     if (!group) return;
 
-    const { markAllPurchased, unmarkAllPurchased } = useShoppingListStore.getState();
-    const neededItems = group.items.filter((item) => item.status === 'needed');
-    if (neededItems.length > 0) markAllPurchased(neededItems);
-    else unmarkAllPurchased(group.items);
+    const { addToCart, takeOutOfCart } = useShoppingListStore.getState();
+    const neededIds = group.items.filter((item) => item.status === 'needed').map(({ id }) => id);
+    if (neededIds.length > 0) addToCart(neededIds);
+    else takeOutOfCart(group.items.map(({ id }) => id));
+  }, []);
+
+  // Not a toggle: pressed twice from the cart sheet, the row is out, not back in.
+  const takeOutOfCart = useCallback((itemId: string) => {
+    useShoppingListStore.getState().takeOutOfCart([itemId]);
+  }, []);
+
+  // "Marcar como comprado": buys the cart for what each row is missing at this moment.
+  const confirmPurchase = useCallback(() => {
+    useShoppingListStore.getState().confirmPurchase(readFreshList().items);
   }, []);
 
   // Only a row that is still listed can be removed: one that left the list since the render
@@ -148,8 +164,12 @@ export function useShoppingList() {
     bestOffers,
     counters,
     manualItems: listedManualItems,
+    cartItems,
+    cartCount: counters.inCart,
     toggleItem,
     toggleGroup,
+    takeOutOfCart,
+    confirmPurchase,
     addManualItem,
     removeItem,
     restoreRemoved,

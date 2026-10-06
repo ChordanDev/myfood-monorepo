@@ -31,7 +31,7 @@ export function ShoppingGroupCard({
   onToggleAll,
 }: ShoppingGroupCardProps) {
   const { theme } = useRecipeTheme();
-  const isAllPurchased = group.items.every((item) => item.status === 'purchased');
+  const isAllInCart = group.items.every((item) => item.status === 'in_cart');
   const markAllStyle = useAnimatedThemeStyle({ color: withOpacity(theme.textBlack, 0.6) });
 
   return (
@@ -47,12 +47,12 @@ export function ShoppingGroupCard({
           hitSlop={MARK_ALL_HIT_SLOP}
           accessibilityRole="checkbox"
           accessibilityLabel={`${MARK_ALL_LABEL}, ${group.title}`}
-          accessibilityState={{ checked: isAllPurchased }}
+          accessibilityState={{ checked: isAllInCart }}
           style={({ pressed }) => [styles.markAll, pressed && styles.pressed]}>
           <Animated.Text style={[styles.markAllLabel, markAllStyle]}>
             {MARK_ALL_LABEL}
           </Animated.Text>
-          <ShoppingCheckbox checked={isAllPurchased} />
+          <ShoppingCheckbox checked={isAllInCart} />
         </Pressable>
       }>
       {group.items.map((item) => (

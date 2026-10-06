@@ -13,17 +13,22 @@ import {
   getPlannedItemId,
   groupItemsBySupermarket,
 } from '../domain';
-import type { PlannedShoppingListItem, ShoppingListItem } from '../types';
-import { useShoppingListStore } from './useShoppingListStore';
+import type { ManualShoppingListItem, PlannedShoppingListItem, ShoppingListItem } from '../types';
+import { migrateShoppingListState, useShoppingListStore } from './useShoppingListStore';
 
 jest.mock('@react-native-async-storage/async-storage', () =>
   jest.requireActual('@react-native-async-storage/async-storage/jest/async-storage-mock')
 );
 
+const STORAGE_KEY = 'shopping-list-storage';
+
 const CHICKEN = 'i2';
 const RICE = 'i1';
 const TOMATO = 'i3';
-const PASTA = 'i6';
+
+const CHICKEN_ID = getPlannedItemId(CHICKEN);
+const RICE_ID = getPlannedItemId(RICE);
+const TOMATO_ID = getPlannedItemId(TOMATO);
 
 function plannedItem(overrides: Partial<PlannedShoppingListItem> = {}): PlannedShoppingListItem {
   const ingredientId = overrides.ingredientId ?? CHICKEN;
@@ -41,6 +46,14 @@ function plannedItem(overrides: Partial<PlannedShoppingListItem> = {}): PlannedS
   };
 }
 
+function manualItem(
+  sequence: number,
+  name: string,
+  status: ManualShoppingListItem['status'] = 'needed'
+): ManualShoppingListItem {
+  return { id: `manual:${sequence}`, source: 'manual', status, name };
+}
+
 function stockOf(ingredientId: string) {
   return useInventoryStore.getState().items.find((item) => item.ingredientId === ingredientId)
     ?.amount;
@@ -48,128 +61,152 @@ function stockOf(ingredientId: string) {
 
 const shopping = () => useShoppingListStore.getState();
 
+const manualStatuses = () => shopping().manualItems.map((item) => [item.name, item.status]);
+
 function resetStores() {
   useShoppingListStore.setState({
-    purchases: {},
+    cartIds: [],
     removedIds: [],
     manualItems: [],
+    lastManualItemSequence: 0,
     groupingMode: 'category',
   });
   useInventoryStore.setState({ items: [{ ingredientId: RICE, amount: 500 }] });
 }
 
-// Everything a purchase can change, to compare two ways of reaching the same state.
-function snapshot() {
-  const { purchases, removedIds, manualItems } = shopping();
-  return { purchases, removedIds, manualItems, inventory: useInventoryStore.getState().items };
-}
-
 beforeEach(resetStores);
 
-describe('marking a planned item as purchased', () => {
-  it('adds the amount to buy to the inventory and records the purchase', () => {
-    const item = plannedItem({ amountToBuy: 600 });
+describe('putting items in the cart', () => {
+  it('lists a planned id in the cart without touching the inventory', () => {
+    const inventoryBefore = useInventoryStore.getState().items;
 
-    shopping().markPurchased(item);
+    shopping().addToCart([CHICKEN_ID]);
 
-    expect(stockOf(CHICKEN)).toBe(600);
-    expect(shopping().purchases).toEqual({ [item.id]: 600 });
+    expect(shopping().cartIds).toEqual([CHICKEN_ID]);
+    expect(useInventoryStore.getState().items).toBe(inventoryBefore);
   });
 
-  it('adds on top of the stock the inventory already holds', () => {
-    shopping().markPurchased(plannedItem({ ingredientId: RICE, amountToBuy: 100 }));
+  it('moves a manual item to the cart in its own status, not in the id list', () => {
+    shopping().addManualItem('Servilletas');
+    shopping().addManualItem('Velas');
+    const inventoryBefore = useInventoryStore.getState().items;
 
-    expect(stockOf(RICE)).toBe(600);
+    shopping().addToCart(['manual:2']);
+
+    expect(manualStatuses()).toEqual([
+      ['Servilletas', 'needed'],
+      ['Velas', 'in_cart'],
+    ]);
+    expect(shopping().cartIds).toEqual([]);
+    expect(useInventoryStore.getState().items).toBe(inventoryBefore);
   });
 
-  it('overwrites the record when the item is needed again and bought again', () => {
-    const item = plannedItem({ amountToBuy: 600 });
-    shopping().markPurchased(item);
+  it('takes several ids at once, planned and manual', () => {
+    shopping().addManualItem('Servilletas');
 
-    shopping().markPurchased(plannedItem({ amountToBuy: 200 }));
+    shopping().addToCart([CHICKEN_ID, 'manual:1', TOMATO_ID]);
 
-    expect(shopping().purchases).toEqual({ [item.id]: 200 });
-    expect(stockOf(CHICKEN)).toBe(800);
+    expect(shopping().cartIds).toEqual([CHICKEN_ID, TOMATO_ID]);
+    expect(manualStatuses()).toEqual([['Servilletas', 'in_cart']]);
   });
 
-  it.each(['purchased', 'removed'] as const)('ignores an item that is %s', (status) => {
-    shopping().markPurchased(plannedItem({ status }));
+  it('never lists an id twice', () => {
+    shopping().addToCart([CHICKEN_ID]);
 
-    expect(stockOf(CHICKEN)).toBeUndefined();
-    expect(shopping().purchases).toEqual({});
+    shopping().addToCart([CHICKEN_ID, TOMATO_ID, TOMATO_ID]);
+
+    expect(shopping().cartIds).toEqual([CHICKEN_ID, TOMATO_ID]);
+  });
+
+  it('ignores a row that was removed from the list', () => {
+    shopping().addManualItem('Servilletas');
+    shopping().removeItem(shopping().manualItems[0]);
+    shopping().removeItem(plannedItem());
+
+    shopping().addToCart([CHICKEN_ID, 'manual:1']);
+
+    expect(shopping().cartIds).toEqual([]);
+    expect(manualStatuses()).toEqual([['Servilletas', 'removed']]);
+  });
+
+  it('keeps the slice it has nothing to change in', () => {
+    shopping().addManualItem('Servilletas');
+    shopping().addToCart([CHICKEN_ID]);
+    const { cartIds, manualItems } = shopping();
+
+    shopping().addToCart([TOMATO_ID]);
+    expect(shopping().manualItems).toBe(manualItems);
+
+    shopping().addToCart(['manual:1', CHICKEN_ID]);
+    expect(shopping().cartIds).not.toBe(cartIds);
+    const cartIdsAfter = shopping().cartIds;
+
+    shopping().addToCart([CHICKEN_ID, 'manual:1']);
+    expect(shopping().cartIds).toBe(cartIdsAfter);
   });
 });
 
-describe('unmarking a purchased planned item', () => {
-  // The derivation lists a purchased row with the recorded amount.
-  const purchased = (item: PlannedShoppingListItem) =>
-    plannedItem({ ...item, status: 'purchased' });
-
-  it('returns the inventory to the amount it held before the purchase', () => {
-    const item = plannedItem({ ingredientId: RICE, amountToBuy: 100 });
-    shopping().markPurchased(item);
-
-    shopping().unmarkPurchased(purchased(item));
-
-    expect(stockOf(RICE)).toBe(500);
-    expect(shopping().purchases).toEqual({});
+describe('taking items out of the cart', () => {
+  beforeEach(() => {
+    shopping().addManualItem('Servilletas');
+    shopping().addManualItem('Velas');
+    shopping().addToCart([CHICKEN_ID, TOMATO_ID, 'manual:1', 'manual:2']);
   });
 
-  it('drops the inventory entry the purchase created', () => {
-    const item = plannedItem({ amountToBuy: 600 });
-    shopping().markPurchased(item);
+  it('takes a planned id out and leaves the others in', () => {
+    shopping().takeOutOfCart([CHICKEN_ID]);
 
-    shopping().unmarkPurchased(purchased(item));
-
-    expect(stockOf(CHICKEN)).toBeUndefined();
+    expect(shopping().cartIds).toEqual([TOMATO_ID]);
+    expect(manualStatuses()).toEqual([
+      ['Servilletas', 'in_cart'],
+      ['Velas', 'in_cart'],
+    ]);
   });
 
-  it('removes only what is left when part of the stock was consumed', () => {
-    const item = plannedItem({ amountToBuy: 600 });
-    shopping().markPurchased(item);
-    useInventoryStore.getState().removeItem(CHICKEN, 450);
+  it('returns a manual item to needed', () => {
+    shopping().takeOutOfCart(['manual:2']);
 
-    shopping().unmarkPurchased(purchased(item));
-
-    expect(stockOf(CHICKEN)).toBeUndefined();
-    expect(useInventoryStore.getState().items).toEqual([{ ingredientId: RICE, amount: 500 }]);
-    expect(shopping().purchases).toEqual({});
+    expect(manualStatuses()).toEqual([
+      ['Servilletas', 'in_cart'],
+      ['Velas', 'needed'],
+    ]);
+    expect(shopping().cartIds).toEqual([CHICKEN_ID, TOMATO_ID]);
   });
 
-  it('removes the recorded amount, not the one the row carries', () => {
-    const item = plannedItem({ ingredientId: RICE, amountToBuy: 100 });
-    shopping().markPurchased(item);
+  it('takes several ids out at once, planned and manual', () => {
+    shopping().takeOutOfCart([TOMATO_ID, 'manual:1', CHICKEN_ID, 'manual:2']);
 
-    shopping().unmarkPurchased(purchased({ ...item, amountToBuy: 400 }));
-
-    expect(stockOf(RICE)).toBe(500);
+    expect(shopping().cartIds).toEqual([]);
+    expect(manualStatuses()).toEqual([
+      ['Servilletas', 'needed'],
+      ['Velas', 'needed'],
+    ]);
   });
 
-  it('keeps the other purchase records', () => {
-    const chicken = plannedItem({ amountToBuy: 600 });
-    const rice = plannedItem({ ingredientId: RICE, amountToBuy: 100 });
-    shopping().markPurchased(chicken);
-    shopping().markPurchased(rice);
+  it('ignores an id that is not in the cart, keeping both slices as they were', () => {
+    shopping().takeOutOfCart(['manual:1']);
+    const { cartIds, manualItems } = shopping();
 
-    shopping().unmarkPurchased(purchased(chicken));
+    shopping().takeOutOfCart([RICE_ID, 'manual:1', 'manual:9']);
 
-    expect(shopping().purchases).toEqual({ [rice.id]: 100 });
+    expect(shopping().cartIds).toBe(cartIds);
+    expect(shopping().manualItems).toBe(manualItems);
   });
 
-  it.each(['needed', 'removed'] as const)('ignores an item that is %s', (status) => {
-    const item = plannedItem({ ingredientId: RICE, amountToBuy: 100 });
-    shopping().markPurchased(item);
+  it('does not bring a removed manual item back', () => {
+    shopping().removeItem(shopping().manualItems[0]);
 
-    shopping().unmarkPurchased(plannedItem({ ...item, status }));
+    shopping().takeOutOfCart(['manual:1']);
 
-    expect(stockOf(RICE)).toBe(600);
-    expect(shopping().purchases).toEqual({ [item.id]: 100 });
+    expect(manualStatuses()[0]).toEqual(['Servilletas', 'removed']);
   });
 
-  it('ignores a purchased row that has no record', () => {
-    shopping().unmarkPurchased(plannedItem({ ingredientId: RICE, status: 'purchased' }));
+  it('never touches the inventory', () => {
+    const inventoryBefore = useInventoryStore.getState().items;
 
-    expect(stockOf(RICE)).toBe(500);
+    shopping().takeOutOfCart([CHICKEN_ID, 'manual:1']);
+
+    expect(useInventoryStore.getState().items).toBe(inventoryBefore);
   });
 });
 
@@ -178,7 +215,7 @@ describe('adding a manual item', () => {
     shopping().addManualItem('  Servilletas ');
 
     expect(shopping().manualItems).toEqual([
-      { id: expect.any(String), source: 'manual', status: 'needed', name: 'Servilletas' },
+      { id: 'manual:1', source: 'manual', status: 'needed', name: 'Servilletas' },
     ]);
   });
 
@@ -186,6 +223,7 @@ describe('adding a manual item', () => {
     shopping().addManualItem(name);
 
     expect(shopping().manualItems).toEqual([]);
+    expect(shopping().lastManualItemSequence).toBe(0);
   });
 
   it('gives every item its own id, even after one was removed', () => {
@@ -194,8 +232,11 @@ describe('adding a manual item', () => {
     shopping().removeItem(shopping().manualItems[0]);
     shopping().addManualItem('Carbón');
 
-    const ids = shopping().manualItems.map((item) => item.id);
-    expect(new Set(ids).size).toBe(3);
+    expect(shopping().manualItems.map((item) => item.id)).toEqual([
+      'manual:1',
+      'manual:2',
+      'manual:3',
+    ]);
   });
 
   it('never produces an id a planned item could have', () => {
@@ -205,12 +246,31 @@ describe('adding a manual item', () => {
     expect(shopping().manualItems[0].id.startsWith('planned:')).toBe(false);
   });
 
-  it('keeps numbering after the highest id when the items were restored out of order', () => {
+  it('never reuses the id of an item a confirmed purchase deleted', () => {
+    shopping().addManualItem('Servilletas');
+    shopping().addManualItem('Velas');
+    shopping().addToCart(['manual:1', 'manual:2']);
+    shopping().confirmPurchase([]);
+    expect(shopping().manualItems).toEqual([]);
+
+    shopping().addManualItem('Carbón');
+
+    expect(shopping().manualItems.map((item) => item.id)).toEqual(['manual:3']);
+  });
+
+  it('counts on from the stored counter when no item is left to read it from', () => {
+    useShoppingListStore.setState({ manualItems: [], lastManualItemSequence: 5 });
+
+    shopping().addManualItem('Carbón');
+
+    expect(shopping().manualItems.map((item) => item.id)).toEqual(['manual:6']);
+    expect(shopping().lastManualItemSequence).toBe(6);
+  });
+
+  it('keeps numbering after the highest stored id when the counter is behind it', () => {
     useShoppingListStore.setState({
-      manualItems: [
-        { id: 'manual:7', source: 'manual', status: 'needed', name: 'Velas' },
-        { id: 'manual:2', source: 'manual', status: 'removed', name: 'Servilletas' },
-      ],
+      manualItems: [manualItem(7, 'Velas'), manualItem(2, 'Servilletas', 'removed')],
+      lastManualItemSequence: 0,
     });
 
     shopping().addManualItem('Carbón');
@@ -220,6 +280,7 @@ describe('adding a manual item', () => {
       'manual:2',
       'manual:8',
     ]);
+    expect(shopping().lastManualItemSequence).toBe(8);
   });
 });
 
@@ -240,72 +301,35 @@ describe('removing an item', () => {
 
     shopping().removeItem(napkins);
 
-    expect(shopping().manualItems).toEqual([
-      { ...napkins, status: 'removed', statusBeforeRemoval: 'needed' },
-      candles,
-    ]);
+    expect(shopping().manualItems).toEqual([{ ...napkins, status: 'removed' }, candles]);
     expect(shopping().removedIds).toEqual([]);
   });
 
-  it('touches neither the inventory nor the purchase records', () => {
-    const item = plannedItem({ amountToBuy: 600 });
-    shopping().markPurchased(item);
+  it('takes a planned row out of the cart, and only that one', () => {
+    shopping().addToCart([CHICKEN_ID, TOMATO_ID]);
 
-    shopping().removeItem(plannedItem({ ...item, status: 'purchased' }));
+    shopping().removeItem(plannedItem({ status: 'in_cart' }));
 
-    expect(stockOf(CHICKEN)).toBe(600);
-    expect(shopping().purchases).toEqual({ [item.id]: 600 });
-  });
-});
-
-describe('a planned item that was removed from the list', () => {
-  // Rows captured before the removal still say `needed` or `purchased`.
-  it('is not bought by marking a stale needed row', () => {
-    const staleRow = plannedItem({ amountToBuy: 600 });
-    shopping().removeItem(staleRow);
-
-    shopping().markPurchased(staleRow);
-
-    expect(stockOf(CHICKEN)).toBeUndefined();
-    expect(shopping().purchases).toEqual({});
+    expect(shopping().cartIds).toEqual([TOMATO_ID]);
+    expect(shopping().removedIds).toEqual([CHICKEN_ID]);
   });
 
-  it('keeps its purchase when a stale purchased row is unmarked', () => {
-    const item = plannedItem({ ingredientId: RICE, amountToBuy: 100 });
-    shopping().markPurchased(item);
-    const staleRow = plannedItem({ ...item, status: 'purchased' });
-    shopping().removeItem(staleRow);
+  it('takes a manual row out of the cart', () => {
+    shopping().addManualItem('Servilletas');
+    shopping().addToCart(['manual:1']);
 
-    shopping().unmarkPurchased(staleRow);
+    shopping().removeItem(shopping().manualItems[0]);
 
-    expect(stockOf(RICE)).toBe(600);
-    expect(shopping().purchases).toEqual({ [item.id]: 100 });
+    expect(manualStatuses()).toEqual([['Servilletas', 'removed']]);
   });
 
-  it('is skipped by the bulk actions too', () => {
-    const bought = plannedItem({ ingredientId: RICE, amountToBuy: 100 });
-    shopping().markPurchased(bought);
-    const staleRows = [
-      plannedItem({ amountToBuy: 600 }),
-      plannedItem({ ...bought, status: 'purchased' }),
-    ];
-    staleRows.forEach((row) => shopping().removeItem(row));
-    const before = snapshot();
+  it('never touches the inventory', () => {
+    shopping().addToCart([RICE_ID]);
+    const inventoryBefore = useInventoryStore.getState().items;
 
-    shopping().markAllPurchased(staleRows);
-    shopping().unmarkAllPurchased(staleRows);
+    shopping().removeItem(plannedItem({ ingredientId: RICE, status: 'in_cart' }));
 
-    expect(snapshot()).toEqual(before);
-  });
-
-  it('can be bought again once the removed items are restored', () => {
-    const row = plannedItem({ amountToBuy: 600 });
-    shopping().removeItem(row);
-    shopping().restoreRemovedItems();
-
-    shopping().markPurchased(row);
-
-    expect(stockOf(CHICKEN)).toBe(600);
+    expect(useInventoryStore.getState().items).toBe(inventoryBefore);
   });
 });
 
@@ -313,243 +337,196 @@ describe('restoring the removed items', () => {
   it('clears the removed ids and returns the removed manual items to needed', () => {
     shopping().addManualItem('Servilletas');
     shopping().addManualItem('Velas');
-    const [napkins, candles] = shopping().manualItems;
-    shopping().markPurchased(candles);
-    shopping().removeItem(napkins);
+    shopping().addToCart(['manual:2']);
+    shopping().removeItem(shopping().manualItems[0]);
     shopping().removeItem(plannedItem());
 
     shopping().restoreRemovedItems();
 
     expect(shopping().removedIds).toEqual([]);
-    expect(shopping().manualItems).toEqual([
-      { ...napkins, status: 'needed' },
-      { ...candles, status: 'purchased' },
+    expect(manualStatuses()).toEqual([
+      ['Servilletas', 'needed'],
+      ['Velas', 'in_cart'],
     ]);
   });
 
-  describe('of manual items', () => {
-    // A manual item in the given status, removed from the list.
-    function removeManualItem(status: 'needed' | 'purchased') {
-      shopping().addManualItem('Velas');
-      if (status === 'purchased') shopping().markPurchased(shopping().manualItems[0]);
-      const [item] = shopping().manualItems;
-      shopping().removeItem(item);
-
-      return item;
-    }
-
-    it.each(['needed', 'purchased'] as const)(
-      'gives a %s item back exactly as it was before it was removed',
-      (status) => {
-        const item = removeManualItem(status);
-
-        shopping().restoreRemovedItems();
-
-        // Strict: the status it is restored from is not left behind, not even as undefined.
-        expect(shopping().manualItems).toStrictEqual([item]);
-        expect(item.status).toBe(status);
-      }
-    );
-
-    it('keeps the status of a purchased item that is removed a second time', () => {
-      removeManualItem('purchased');
-      shopping().removeItem(shopping().manualItems[0]);
-
-      shopping().restoreRemovedItems();
-
-      expect(shopping().manualItems[0].status).toBe('purchased');
-    });
-
-    it('restores as needed an item stored as removed before its status was recorded', () => {
-      useShoppingListStore.setState({
-        manualItems: [{ id: 'manual:1', source: 'manual', status: 'removed', name: 'Velas' }],
-      });
-
-      shopping().restoreRemovedItems();
-
-      expect(shopping().manualItems).toStrictEqual([
-        { id: 'manual:1', source: 'manual', status: 'needed', name: 'Velas' },
-      ]);
-    });
-
-    it('can be removed and restored again, following the status it has each time', () => {
-      removeManualItem('purchased');
-      shopping().restoreRemovedItems();
-      shopping().unmarkPurchased(shopping().manualItems[0]);
-      shopping().removeItem(shopping().manualItems[0]);
-
-      shopping().restoreRemovedItems();
-
-      expect(shopping().manualItems[0].status).toBe('needed');
-    });
-
-    it('stores the status before the removal next to the removed item', () => {
-      removeManualItem('purchased');
-
-      const [, value] = jest.mocked(AsyncStorage.setItem).mock.lastCall ?? [];
-
-      expect(JSON.parse(value ?? '').state.manualItems).toEqual([
-        {
-          id: 'manual:1',
-          source: 'manual',
-          status: 'removed',
-          name: 'Velas',
-          statusBeforeRemoval: 'purchased',
-        },
-      ]);
-    });
-  });
-});
-
-describe('marking and unmarking a manual item', () => {
-  it('marks it as purchased without touching the inventory', () => {
+  it('brings a row that was removed from the cart back as needed, not into the cart', () => {
     shopping().addManualItem('Servilletas');
-    const [napkins] = shopping().manualItems;
-    const inventoryBefore = useInventoryStore.getState().items;
-
-    shopping().markPurchased(napkins);
-
-    expect(shopping().manualItems).toEqual([{ ...napkins, status: 'purchased' }]);
-    expect(useInventoryStore.getState().items).toBe(inventoryBefore);
-    expect(shopping().purchases).toEqual({});
-  });
-
-  it('returns it to needed when unmarked', () => {
-    shopping().addManualItem('Servilletas');
-    shopping().markPurchased(shopping().manualItems[0]);
-    expect(shopping().manualItems[0].status).toBe('purchased');
-    const inventoryBefore = useInventoryStore.getState().items;
-
-    shopping().unmarkPurchased(shopping().manualItems[0]);
-
-    expect(shopping().manualItems[0].status).toBe('needed');
-    expect(useInventoryStore.getState().items).toBe(inventoryBefore);
-  });
-
-  it('does not bring a removed item back by marking or unmarking it', () => {
-    shopping().addManualItem('Servilletas');
+    shopping().addToCart([CHICKEN_ID, 'manual:1']);
+    shopping().removeItem(plannedItem({ status: 'in_cart' }));
     shopping().removeItem(shopping().manualItems[0]);
-    const [removed] = shopping().manualItems;
 
-    shopping().markPurchased(removed);
-    shopping().unmarkPurchased(removed);
+    shopping().restoreRemovedItems();
 
-    expect(shopping().manualItems).toEqual([removed]);
-  });
-
-  it('trusts its own status over a stale row', () => {
-    shopping().addManualItem('Servilletas');
-    shopping().addManualItem('Velas');
-    const [staleNeeded, candles] = shopping().manualItems;
-    shopping().markPurchased(candles);
-    const stalePurchased = shopping().manualItems[1];
-    shopping().removeItem(staleNeeded);
-    shopping().removeItem(stalePurchased);
-
-    shopping().markPurchased(staleNeeded);
-    shopping().unmarkPurchased(stalePurchased);
-
-    expect(shopping().manualItems.map((item) => item.status)).toEqual(['removed', 'removed']);
-  });
-
-  it('does not unmark an item that is still needed', () => {
-    shopping().addManualItem('Servilletas');
-    const [napkins] = shopping().manualItems;
-
-    shopping().unmarkPurchased(napkins);
-
-    expect(shopping().manualItems).toEqual([napkins]);
+    expect(shopping().cartIds).toEqual([]);
+    expect(shopping().manualItems).toEqual([manualItem(1, 'Servilletas')]);
   });
 });
 
-describe('bulk actions', () => {
-  // A mixed group: two needed planned rows, one already purchased, one removed, and manual
-  // items in every status.
-  function arrangeGroup(): ShoppingListItem[] {
-    resetStores();
-    const bought = plannedItem({ ingredientId: TOMATO, amountToBuy: 6, unit: 'unidades' });
-    shopping().markPurchased(bought);
-    ['Servilletas', 'Velas', 'Carbón'].forEach(shopping().addManualItem);
-    const [napkins, candles, charcoal] = shopping().manualItems;
-    shopping().markPurchased(candles);
-    shopping().removeItem(charcoal);
+describe('confirming the purchase', () => {
+  const ingredients: Ingredient[] = [
+    { id: RICE, name: 'Arroz Blanco', category: 'despensa', basePrice: 2, unit: 'gramos' },
+    { id: CHICKEN, name: 'Pollo (Pechuga)', category: 'proteinas', basePrice: 10, unit: 'gramos' },
+    { id: TOMATO, name: 'Tomate', category: 'verduras', basePrice: 500, unit: 'unidades' },
+  ];
+  // Three meals: 600 g of chicken and 6 tomatoes (none in stock), 300 g of rice (500 g in stock).
+  const recipeIngredients: RecipeIngredient[] = [
+    { ingredientId: CHICKEN, amount: 200 },
+    { ingredientId: RICE, amount: 100 },
+    { ingredientId: TOMATO, amount: 2 },
+  ];
+  const meal = (id: string, isCooked = false): MealPlanEntry => ({
+    id,
+    date: '2026-10-06',
+    type: 'almuerzo',
+    recipeId: 'r1',
+    isCooked,
+  });
+  const threeMeals = [meal('mp1'), meal('mp2'), meal('mp3')];
 
-    return [
-      plannedItem({ amountToBuy: 600 }),
-      plannedItem({ ingredientId: RICE, amountToBuy: 100 }),
-      { ...bought, status: 'purchased' },
-      plannedItem({ ingredientId: PASTA, amountToBuy: 360, status: 'removed' }),
-      napkins,
-      ...shopping().manualItems.slice(1),
-    ];
+  // The list as it is derived at the moment of the call.
+  function derive(entries: MealPlanEntry[] = threeMeals) {
+    const { cartIds, removedIds, manualItems } = shopping();
+
+    return deriveShoppingList({
+      entries,
+      recipes: [{ id: 'r1', ingredients: recipeIngredients }],
+      ingredients,
+      inventory: useInventoryStore.getState().items,
+      cartIds,
+      removedIds,
+      manualItems,
+    });
   }
 
-  it('marks every needed item and leaves the rest as it was', () => {
-    const items = arrangeGroup();
+  const summary = (items: ShoppingListItem[]) =>
+    items.map((item) =>
+      item.source === 'manual'
+        ? [item.name, item.status]
+        : [item.ingredientId, item.status, item.amountToBuy]
+    );
 
-    shopping().markAllPurchased(items);
+  it('adds the shortfall of every planned row in the cart to the inventory', () => {
+    shopping().addToCart([CHICKEN_ID, TOMATO_ID]);
 
-    expect(shopping().purchases).toEqual({
-      [getPlannedItemId(TOMATO)]: 6,
-      [getPlannedItemId(CHICKEN)]: 600,
-      [getPlannedItemId(RICE)]: 100,
-    });
+    shopping().confirmPurchase(derive());
+
     expect(stockOf(CHICKEN)).toBe(600);
-    expect(stockOf(RICE)).toBe(600);
     expect(stockOf(TOMATO)).toBe(6);
-    expect(stockOf(PASTA)).toBeUndefined();
-    expect(shopping().manualItems.map((item) => item.status)).toEqual([
-      'purchased',
-      'purchased',
-      'removed',
+    expect(stockOf(RICE)).toBe(500);
+  });
+
+  it('leaves the rows that are not in the cart to buy', () => {
+    shopping().addToCart([CHICKEN_ID]);
+
+    shopping().confirmPurchase(derive());
+
+    expect(stockOf(TOMATO)).toBeUndefined();
+    expect(summary(derive())).toEqual([[TOMATO, 'needed', 6]]);
+  });
+
+  it('adds the amount the row has now, on top of what is in stock', () => {
+    shopping().addToCart([CHICKEN_ID]);
+    // 150 g arrive from somewhere else after the row went into the cart.
+    useInventoryStore.getState().addItem(CHICKEN, 150);
+
+    shopping().confirmPurchase(derive());
+
+    expect(stockOf(CHICKEN)).toBe(600);
+  });
+
+  it('empties the cart, so the bought rows leave the list', () => {
+    shopping().addToCart([CHICKEN_ID, TOMATO_ID]);
+    expect(summary(derive())).toEqual([
+      [CHICKEN, 'in_cart', 600],
+      [TOMATO, 'in_cart', 6],
+    ]);
+
+    shopping().confirmPurchase(derive());
+
+    expect(shopping().cartIds).toEqual([]);
+    expect(derive()).toEqual([]);
+  });
+
+  it('deletes the manual items in the cart for good and keeps the others', () => {
+    ['Servilletas', 'Velas', 'Carbón'].forEach((name) => shopping().addManualItem(name));
+    shopping().addToCart(['manual:1']);
+    shopping().removeItem(shopping().manualItems[2]);
+    const inventoryBefore = useInventoryStore.getState().items;
+
+    shopping().confirmPurchase(derive());
+
+    expect(shopping().manualItems).toEqual([
+      manualItem(2, 'Velas'),
+      manualItem(3, 'Carbón', 'removed'),
+    ]);
+    // A manual item has no ingredient: nothing reaches the inventory.
+    expect(useInventoryStore.getState().items).toBe(inventoryBefore);
+    shopping().restoreRemovedItems();
+    expect(manualStatuses()).toEqual([
+      ['Velas', 'needed'],
+      ['Carbón', 'needed'],
     ]);
   });
 
-  it('marks all exactly as marking the items one by one would', () => {
-    shopping().markAllPurchased(arrangeGroup());
-    const afterBulk = snapshot();
+  it('drops the ids whose row no longer exists without touching the inventory', () => {
+    // The rice is covered by the stock, and no meal needs the ghost.
+    shopping().addToCart([RICE_ID, 'planned:ghost', CHICKEN_ID]);
+    const afterCooking = [meal('mp1', true), meal('mp2', true), meal('mp3', true)];
+    const inventoryBefore = useInventoryStore.getState().items;
 
-    arrangeGroup().forEach((item) => shopping().markPurchased(item));
+    shopping().confirmPurchase(derive(afterCooking));
 
-    expect(afterBulk).toEqual(snapshot());
+    expect(useInventoryStore.getState().items).toBe(inventoryBefore);
+    expect(shopping().cartIds).toEqual([]);
   });
 
-  it('unmarks every purchased item and leaves the rest as it was', () => {
-    const items = arrangeGroup();
+  it('buys only the rows whose id the store holds in the cart, whatever status they carry', () => {
+    const staleRows = [plannedItem({ status: 'in_cart' })];
 
-    shopping().unmarkAllPurchased(items);
+    shopping().confirmPurchase(staleRows);
 
-    expect(shopping().purchases).toEqual({});
-    expect(useInventoryStore.getState().items).toEqual([{ ingredientId: RICE, amount: 500 }]);
-    expect(shopping().manualItems.map((item) => item.status)).toEqual([
-      'needed',
-      'needed',
-      'removed',
+    expect(stockOf(CHICKEN)).toBeUndefined();
+  });
+
+  it('does not buy a removed row whose id is still in the cart', () => {
+    useShoppingListStore.setState({ cartIds: [CHICKEN_ID], removedIds: [CHICKEN_ID] });
+
+    shopping().confirmPurchase(derive());
+
+    expect(stockOf(CHICKEN)).toBeUndefined();
+    expect(shopping().removedIds).toEqual([CHICKEN_ID]);
+  });
+
+  it('adds once when it is confirmed twice with the same rows', () => {
+    shopping().addManualItem('Servilletas');
+    shopping().addToCart([CHICKEN_ID, 'manual:1']);
+    const rows = derive();
+
+    shopping().confirmPurchase(rows);
+    shopping().confirmPurchase(rows);
+
+    expect(stockOf(CHICKEN)).toBe(600);
+    expect(shopping().manualItems).toEqual([]);
+  });
+
+  it('changes nothing while the cart is empty', () => {
+    shopping().addManualItem('Servilletas');
+    const inventoryBefore = useInventoryStore.getState().items;
+
+    shopping().confirmPurchase(derive());
+
+    expect(useInventoryStore.getState().items).toBe(inventoryBefore);
+    expect(manualStatuses()).toEqual([['Servilletas', 'needed']]);
+    expect(summary(derive()).slice(0, 2)).toEqual([
+      [CHICKEN, 'needed', 600],
+      [TOMATO, 'needed', 6],
     ]);
-  });
-
-  it('unmarks all exactly as unmarking the items one by one would', () => {
-    shopping().unmarkAllPurchased(arrangeGroup());
-    const afterBulk = snapshot();
-
-    arrangeGroup().forEach((item) => shopping().unmarkPurchased(item));
-
-    expect(afterBulk).toEqual(snapshot());
-  });
-
-  it('undoes a bulk mark with a bulk unmark of the purchased rows', () => {
-    const needed = [plannedItem({ amountToBuy: 600 }), plannedItem({ ingredientId: RICE })];
-    const before = snapshot();
-    shopping().markAllPurchased(needed);
-
-    shopping().unmarkAllPurchased(needed.map((item) => ({ ...item, status: 'purchased' })));
-
-    expect(snapshot()).toEqual(before);
   });
 });
 
 describe('immutable updates', () => {
-  type Slice = 'purchases' | 'removedIds' | 'manualItems';
+  type Slice = 'cartIds' | 'removedIds' | 'manualItems';
 
   // Runs the action and checks that the slice was replaced by a new value while the previous
   // one was left exactly as it was, so a subscriber comparing references sees the change.
@@ -563,25 +540,27 @@ describe('immutable updates', () => {
     expect(previous).toEqual(previousContent);
   }
 
-  const purchasedRice = () => {
-    const item = plannedItem({ ingredientId: RICE, amountToBuy: 100 });
-    shopping().markPurchased(item);
-    return plannedItem({ ...item, status: 'purchased' });
-  };
-
-  describe('of the purchase records', () => {
+  describe('of the cart ids', () => {
     beforeEach(() => {
-      shopping().markPurchased(plannedItem({ ingredientId: TOMATO, amountToBuy: 6 }));
+      shopping().addToCart([TOMATO_ID]);
     });
 
-    it('replaces them when a planned item is marked', () => {
-      expectReplaced('purchases', () => shopping().markPurchased(plannedItem()));
+    it('replaces them when a planned item goes in', () => {
+      expectReplaced('cartIds', () => shopping().addToCart([CHICKEN_ID]));
     });
 
-    it('replaces them when a planned item is unmarked', () => {
-      const row = purchasedRice();
+    it('replaces them when a planned item comes out', () => {
+      expectReplaced('cartIds', () => shopping().takeOutOfCart([TOMATO_ID]));
+    });
 
-      expectReplaced('purchases', () => shopping().unmarkPurchased(row));
+    it('replaces them when a planned item in the cart is removed', () => {
+      expectReplaced('cartIds', () =>
+        shopping().removeItem(plannedItem({ ingredientId: TOMATO, status: 'in_cart' }))
+      );
+    });
+
+    it('replaces them when the purchase is confirmed', () => {
+      expectReplaced('cartIds', () => shopping().confirmPurchase([]));
     });
   });
 
@@ -602,7 +581,7 @@ describe('immutable updates', () => {
   describe('of the manual items', () => {
     beforeEach(() => {
       ['Servilletas', 'Velas', 'Carbón'].forEach((name) => shopping().addManualItem(name));
-      shopping().markPurchased(shopping().manualItems[1]);
+      shopping().addToCart(['manual:2']);
       shopping().removeItem(shopping().manualItems[2]);
     });
 
@@ -610,16 +589,12 @@ describe('immutable updates', () => {
       expectReplaced('manualItems', () => shopping().addManualItem('Hielo'));
     });
 
-    it('replaces them when an item is marked', () => {
-      const [needed] = shopping().manualItems;
-
-      expectReplaced('manualItems', () => shopping().markPurchased(needed));
+    it('replaces them when an item goes into the cart', () => {
+      expectReplaced('manualItems', () => shopping().addToCart(['manual:1']));
     });
 
-    it('replaces them when an item is unmarked', () => {
-      const [, purchased] = shopping().manualItems;
-
-      expectReplaced('manualItems', () => shopping().unmarkPurchased(purchased));
+    it('replaces them when an item comes out of the cart', () => {
+      expectReplaced('manualItems', () => shopping().takeOutOfCart(['manual:2']));
     });
 
     it('replaces them when an item is removed', () => {
@@ -631,6 +606,10 @@ describe('immutable updates', () => {
     it('replaces them when the removed items are restored', () => {
       expectReplaced('manualItems', () => shopping().restoreRemovedItems());
     });
+
+    it('replaces them when the purchase is confirmed', () => {
+      expectReplaced('manualItems', () => shopping().confirmPurchase([]));
+    });
   });
 });
 
@@ -641,110 +620,6 @@ describe('grouping mode', () => {
     shopping().setGroupingMode('supermarket');
 
     expect(shopping().groupingMode).toBe('supermarket');
-  });
-});
-
-describe('the list derived from the store and the inventory', () => {
-  const ingredients: Ingredient[] = [
-    { id: RICE, name: 'Arroz Blanco', category: 'despensa', basePrice: 2, unit: 'gramos' },
-    { id: CHICKEN, name: 'Pollo (Pechuga)', category: 'proteinas', basePrice: 10, unit: 'gramos' },
-  ];
-  // Three meals: 600 g of chicken (none in stock) and 300 g of rice (500 g in stock).
-  const recipeIngredients: RecipeIngredient[] = [
-    { ingredientId: CHICKEN, amount: 200 },
-    { ingredientId: RICE, amount: 100 },
-  ];
-  const meal = (id: string, isCooked = false): MealPlanEntry => ({
-    id,
-    date: '2026-10-06',
-    type: 'almuerzo',
-    recipeId: 'r1',
-    isCooked,
-  });
-  const threeMeals = [meal('mp1'), meal('mp2'), meal('mp3')];
-
-  function derive(entries: MealPlanEntry[] = threeMeals) {
-    const { purchases, removedIds, manualItems } = shopping();
-
-    return deriveShoppingList({
-      entries,
-      recipes: [{ id: 'r1', ingredients: recipeIngredients }],
-      ingredients,
-      inventory: useInventoryStore.getState().items,
-      purchases,
-      removedIds,
-      manualItems,
-    });
-  }
-
-  const summary = (items: ShoppingListItem[]) =>
-    items.map((item) =>
-      item.source === 'manual'
-        ? [item.name, item.status]
-        : [item.ingredientId, item.status, item.amountToBuy]
-    );
-
-  it('turns a needed row into purchased when marked and back into needed when unmarked', () => {
-    expect(summary(derive())).toEqual([[CHICKEN, 'needed', 600]]);
-
-    shopping().markPurchased(derive()[0]);
-    expect(summary(derive())).toEqual([[CHICKEN, 'purchased', 600]]);
-
-    shopping().unmarkPurchased(derive()[0]);
-    expect(summary(derive())).toEqual([[CHICKEN, 'needed', 600]]);
-    expect(stockOf(CHICKEN)).toBeUndefined();
-  });
-
-  it('undoes only the latest purchase of a row the plan outgrew', () => {
-    const fourMeals = [...threeMeals, meal('mp4')];
-    shopping().markPurchased(derive()[0]);
-    expect(summary(derive(fourMeals))).toEqual([[CHICKEN, 'needed', 200]]);
-
-    shopping().markPurchased(derive(fourMeals)[0]);
-    expect(summary(derive(fourMeals))).toEqual([[CHICKEN, 'purchased', 200]]);
-
-    shopping().unmarkPurchased(derive(fourMeals)[0]);
-    expect(summary(derive(fourMeals))).toEqual([[CHICKEN, 'needed', 200]]);
-    expect(stockOf(CHICKEN)).toBe(600);
-  });
-
-  it('unmarks a purchase that was partly cooked without leaving negative stock', () => {
-    shopping().markPurchased(derive()[0]);
-    // Cooking the first meal consumes 200 g of the 600 g that were bought.
-    useInventoryStore.getState().removeItem(CHICKEN, 200);
-    const afterCooking = [meal('mp1', true), meal('mp2'), meal('mp3')];
-    expect(summary(derive(afterCooking))).toEqual([[CHICKEN, 'purchased', 600]]);
-
-    shopping().unmarkPurchased(derive(afterCooking)[0]);
-
-    expect(stockOf(CHICKEN)).toBeUndefined();
-    expect(summary(derive(afterCooking))).toEqual([[CHICKEN, 'needed', 400]]);
-  });
-
-  it('marks and unmarks the whole derived list in bulk', () => {
-    shopping().addManualItem('Servilletas');
-    const before = snapshot();
-
-    shopping().markAllPurchased(derive());
-    expect(summary(derive())).toEqual([
-      [CHICKEN, 'purchased', 600],
-      ['Servilletas', 'purchased'],
-    ]);
-
-    shopping().unmarkAllPurchased(derive());
-    expect(summary(derive())).toEqual([
-      [CHICKEN, 'needed', 600],
-      ['Servilletas', 'needed'],
-    ]);
-    expect(snapshot()).toEqual(before);
-  });
-
-  it('lists a removed row as removed until the removed items are restored', () => {
-    shopping().removeItem(derive()[0]);
-    expect(summary(derive())).toEqual([[CHICKEN, 'removed', 600]]);
-
-    shopping().restoreRemovedItems();
-    expect(summary(derive())).toEqual([[CHICKEN, 'needed', 600]]);
   });
 });
 
@@ -795,7 +670,7 @@ describe('seeded supermarket offers', () => {
       recipes: MOCK_MASTER_RECIPES,
       ingredients: MOCK_INGREDIENTS,
       inventory: MOCK_INVENTORY,
-      purchases: {},
+      cartIds: [],
       removedIds: [],
       manualItems: [],
     });
@@ -813,21 +688,157 @@ describe('seeded supermarket offers', () => {
 describe('persistence', () => {
   it('stores the user state under its own key, without the offers', () => {
     shopping().addManualItem('Servilletas');
-    shopping().markPurchased(plannedItem({ amountToBuy: 600 }));
+    shopping().addToCart([CHICKEN_ID]);
     shopping().removeItem(plannedItem({ ingredientId: RICE }));
     shopping().setGroupingMode('supermarket');
 
     const [key, value] = jest.mocked(AsyncStorage.setItem).mock.lastCall ?? [];
 
-    expect(key).toBe('shopping-list-storage');
+    expect(key).toBe(STORAGE_KEY);
     expect(JSON.parse(value ?? '')).toEqual({
-      version: 1,
+      version: 2,
       state: {
-        purchases: { [getPlannedItemId(CHICKEN)]: 600 },
-        removedIds: [getPlannedItemId(RICE)],
-        manualItems: [{ id: 'manual:1', source: 'manual', status: 'needed', name: 'Servilletas' }],
+        cartIds: [CHICKEN_ID],
+        removedIds: [RICE_ID],
+        manualItems: [manualItem(1, 'Servilletas')],
+        lastManualItemSequence: 1,
         groupingMode: 'supermarket',
       },
+    });
+  });
+
+  describe('of a list stored by version 1', () => {
+    // What version 1 wrote: purchase records by item id, and manual items that stayed
+    // `purchased` forever and remembered the status they were removed with.
+    const VERSION_1_STATE = {
+      purchases: { [CHICKEN_ID]: 600, [TOMATO_ID]: 2 },
+      removedIds: [RICE_ID],
+      manualItems: [
+        { id: 'manual:1', source: 'manual', status: 'needed', name: 'Servilletas' },
+        { id: 'manual:2', source: 'manual', status: 'purchased', name: 'Velas' },
+        {
+          id: 'manual:3',
+          source: 'manual',
+          status: 'removed',
+          statusBeforeRemoval: 'purchased',
+          name: 'Carbón',
+        },
+        { id: 'manual:9', source: 'manual', status: 'purchased', name: 'Hielo' },
+      ],
+      groupingMode: 'supermarket',
+    };
+
+    const MIGRATED_STATE = {
+      cartIds: [],
+      removedIds: [RICE_ID],
+      manualItems: [manualItem(1, 'Servilletas'), manualItem(3, 'Carbón', 'removed')],
+      // The purchased items are dropped, and their ids are still never handed out again.
+      lastManualItemSequence: 9,
+      groupingMode: 'supermarket',
+    };
+
+    it('drops the purchases and the purchased manual items, and seeds the id counter', () => {
+      expect(migrateShoppingListState(VERSION_1_STATE)).toEqual(MIGRATED_STATE);
+    });
+
+    it('is upgraded by the store when it reads the storage, and written back as version 2', async () => {
+      await AsyncStorage.setItem(
+        STORAGE_KEY,
+        JSON.stringify({ version: 1, state: VERSION_1_STATE })
+      );
+
+      await useShoppingListStore.persist.rehydrate();
+
+      const { cartIds, removedIds, manualItems, lastManualItemSequence, groupingMode } = shopping();
+      expect({ cartIds, removedIds, manualItems, lastManualItemSequence, groupingMode }).toEqual(
+        MIGRATED_STATE
+      );
+      expect(shopping()).not.toHaveProperty('purchases');
+      // The stock those purchases added is already in the inventory: it is left as it is.
+      expect(useInventoryStore.getState().items).toEqual([{ ingredientId: RICE, amount: 500 }]);
+      expect(JSON.parse((await AsyncStorage.getItem(STORAGE_KEY)) ?? '')).toEqual({
+        version: 2,
+        state: MIGRATED_STATE,
+      });
+
+      shopping().addManualItem('Fósforos');
+      expect(shopping().manualItems.at(-1)?.id).toBe('manual:10');
+    });
+  });
+
+  describe('of a stored list it does not fully understand', () => {
+    it('keeps only its own fields, and only the manual items in a status it knows', () => {
+      const migrated = migrateShoppingListState({
+        purchases: { [CHICKEN_ID]: { amount: 600, purchasedOn: '2026-10-05' } },
+        cartIds: [CHICKEN_ID, 7, null, CHICKEN_ID],
+        removedIds: 'planned:i1',
+        manualItems: [
+          { id: 'manual:4', source: 'manual', status: 'in_cart', name: 'Velas', purchasedOn: 'x' },
+          { id: 'manual:5', source: 'manual', status: 'expired', name: 'Hielo' },
+          { id: 'manual:6', source: 'manual', status: 'needed' },
+          { id: 12, source: 'manual', status: 'needed', name: 'Carbón' },
+          { id: 'planned:i3', source: 'manual', status: 'needed', name: 'Tomate' },
+          'Servilletas',
+          null,
+        ],
+        lastManualItemSequence: 2,
+        groupingMode: 'by-aisle',
+        offers: [{ ingredientId: 'i1', supermarket: 'Coto', unitPrice: 1 }],
+        somethingElse: true,
+      });
+
+      expect(migrated).toEqual({
+        cartIds: [CHICKEN_ID],
+        removedIds: [],
+        manualItems: [manualItem(4, 'Velas', 'in_cart')],
+        lastManualItemSequence: 6,
+        groupingMode: 'category',
+      });
+    });
+
+    it('keeps a stored counter that is ahead of the stored items', () => {
+      const migrated = migrateShoppingListState({
+        manualItems: [manualItem(3, 'Velas')],
+        lastManualItemSequence: 8,
+      });
+
+      expect(migrated.lastManualItemSequence).toBe(8);
+    });
+
+    it.each([
+      ['nothing', undefined],
+      ['null', null],
+      ['a string', 'shopping'],
+      ['a list', [1, 2]],
+      ['an empty object', {}],
+      ['a counter that is not a count', { lastManualItemSequence: 'NaN' }],
+      ['a negative counter', { lastManualItemSequence: -4 }],
+      ['a fractional counter', { lastManualItemSequence: 2.5 }],
+    ])('starts from an empty list when it finds %s', (_case, stored) => {
+      expect(migrateShoppingListState(stored)).toEqual({
+        cartIds: [],
+        removedIds: [],
+        manualItems: [],
+        lastManualItemSequence: 0,
+        groupingMode: 'category',
+      });
+    });
+
+    it('hydrates a malformed version 1 payload without throwing or keeping what it dropped', async () => {
+      await AsyncStorage.setItem(
+        STORAGE_KEY,
+        JSON.stringify({
+          version: 1,
+          state: { purchases: 'none', manualItems: { 0: 'Velas' }, removedIds: [RICE_ID, 3] },
+        })
+      );
+
+      await useShoppingListStore.persist.rehydrate();
+
+      expect(shopping().manualItems).toEqual([]);
+      expect(shopping().removedIds).toEqual([RICE_ID]);
+      expect(shopping().cartIds).toEqual([]);
+      expect(shopping()).not.toHaveProperty('purchases');
     });
   });
 });

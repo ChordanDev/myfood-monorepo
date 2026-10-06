@@ -49,7 +49,7 @@ function manualItem(sequence: number, name: string, status: ShoppingItemStatus =
   return { id: `manual:${sequence}`, source: 'manual', status, name } as ManualShoppingListItem;
 }
 
-const ITEMS = [manualItem(1, 'Papel de cocina'), manualItem(2, 'Velas', 'purchased')];
+const ITEMS = [manualItem(1, 'Papel de cocina'), manualItem(2, 'Velas', 'in_cart')];
 
 function renderCard(items: ManualShoppingListItem[]) {
   const onToggleItem = jest.fn();

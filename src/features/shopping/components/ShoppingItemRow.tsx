@@ -21,23 +21,24 @@ const REMOVE_ACTION = 'remove';
 const ACCESSIBILITY_ACTIONS = [{ name: REMOVE_ACTION, label: 'Quitar de la lista' }];
 
 const META_OPACITY = 0.6;
-const PURCHASED_OPACITY = 0.45;
+// A row in the cart is struck through and dimmed: marked, not bought yet.
+const IN_CART_OPACITY = 0.45;
 
 export function ShoppingItemRow({ item, bestOffer, onToggle, onRemove }: ShoppingItemRowProps) {
   const { theme } = useRecipeTheme();
-  const isPurchased = item.status === 'purchased';
+  const isInCart = item.status === 'in_cart';
   const nameLine = formatItemNameLine(item);
   const metaLine = formatItemMetaLine(bestOffer);
-  const purchasedColor = withOpacity(theme.textBlack, PURCHASED_OPACITY);
+  const inCartColor = withOpacity(theme.textBlack, IN_CART_OPACITY);
 
   // Marking a row is a state change, not a palette change: it must not crossfade.
   const nameStyle = useAnimatedThemeStyle(
-    { color: isPurchased ? purchasedColor : theme.textBlack },
-    { immediateKey: isPurchased }
+    { color: isInCart ? inCartColor : theme.textBlack },
+    { immediateKey: isInCart }
   );
   const metaStyle = useAnimatedThemeStyle(
-    { color: isPurchased ? purchasedColor : withOpacity(theme.textBlack, META_OPACITY) },
-    { immediateKey: isPurchased }
+    { color: isInCart ? inCartColor : withOpacity(theme.textBlack, META_OPACITY) },
+    { immediateKey: isInCart }
   );
 
   return (
@@ -55,7 +56,7 @@ export function ShoppingItemRow({ item, bestOffer, onToggle, onRemove }: Shoppin
       accessibilityRole="checkbox"
       // An explicit label replaces the text of the children, so it carries both lines.
       accessibilityLabel={`${nameLine}, ${metaLine}`}
-      accessibilityState={{ checked: isPurchased }}
+      accessibilityState={{ checked: isInCart }}
       accessibilityHint="Mantené presionado para quitarlo de la lista."
       accessibilityActions={ACCESSIBILITY_ACTIONS}
       onAccessibilityAction={(event) => {
@@ -63,17 +64,20 @@ export function ShoppingItemRow({ item, bestOffer, onToggle, onRemove }: Shoppin
       }}
       style={({ pressed }) => [styles.row, pressed && styles.pressed]}>
       <View style={styles.lines}>
-        <Animated.Text style={[styles.name, isPurchased && styles.purchasedName, nameStyle]}>
+        <Animated.Text style={[styles.name, isInCart && styles.inCartName, nameStyle]}>
           {nameLine}
         </Animated.Text>
         <Animated.Text style={[styles.meta, metaStyle]}>{metaLine}</Animated.Text>
       </View>
-      <ShoppingCheckbox checked={isPurchased} />
+      <ShoppingCheckbox checked={isInCart} />
     </Pressable>
   );
 }
 
 const styles = StyleSheet.create({
+  inCartName: {
+    textDecorationLine: 'line-through',
+  },
   lines: {
     flex: 1,
   },
@@ -89,9 +93,6 @@ const styles = StyleSheet.create({
   },
   pressed: {
     opacity: 0.6,
-  },
-  purchasedName: {
-    textDecorationLine: 'line-through',
   },
   row: {
     alignItems: 'center',

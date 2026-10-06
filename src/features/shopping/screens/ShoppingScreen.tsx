@@ -8,7 +8,10 @@ import { CUSTOM_TAB_BAR_CONTENT_HEIGHT } from '@/features/planner/constants';
 import { useAnimatedThemeStyle } from '@/hooks/useAnimatedThemeStyle';
 import { withOpacity } from '@/utils/colors';
 import {
+  SHOPPING_CART_BUTTON_SIZE,
   ShoppingAddItemSheet,
+  ShoppingCartButton,
+  ShoppingCartSheet,
   ShoppingDatePill,
   ShoppingGroupCard,
   ShoppingManualCard,
@@ -37,16 +40,25 @@ export function ShoppingScreen() {
     bestOffers,
     counters,
     manualItems,
+    cartItems,
+    cartCount,
     toggleItem,
     toggleGroup,
+    takeOutOfCart,
+    confirmPurchase,
     addManualItem,
     removeItem,
     restoreRemoved,
   } = useShoppingList();
   const [isAddSheetVisible, setIsAddSheetVisible] = useState(false);
+  const [isCartSheetVisible, setIsCartSheetVisible] = useState(false);
   const isListEmpty = groups.length === 0 && manualItems.length === 0;
   // The tab bar floats over the screen, so the content clears it by hand.
   const tabBarHeight = insets.bottom + CUSTOM_TAB_BAR_CONTENT_HEIGHT;
+  // The cart button floats over the list, one gap above the tab bar.
+  const cartButtonBottom = tabBarHeight + LIST_GAP;
+  // The list ends one gap above the button, so the last checkbox scrolls clear of it.
+  const listBottomPadding = cartButtonBottom + SHOPPING_CART_BUTTON_SIZE + LIST_GAP;
 
   const groundStyle = useAnimatedThemeStyle({ backgroundColor: theme.appBg });
   const titleStyle = useAnimatedThemeStyle({ color: theme.textDark });
@@ -78,7 +90,7 @@ export function ShoppingScreen() {
 
         <ScrollView
           style={styles.screen}
-          contentContainerStyle={[styles.list, { paddingBottom: tabBarHeight + LIST_GAP }]}
+          contentContainerStyle={[styles.list, { paddingBottom: listBottomPadding }]}
           // The bottom clearance already includes the safe area. Letting iOS add it again
           // would leave that much empty space under the last card.
           contentInsetAdjustmentBehavior="never"
@@ -110,16 +122,35 @@ export function ShoppingScreen() {
           ) : null}
         </ScrollView>
       </SafeAreaContent>
+      {/* Always on screen, even with an empty cart. Only the button takes touches. */}
+      <View
+        testID="shopping-cart-button"
+        pointerEvents="box-none"
+        style={[styles.cartButton, { bottom: cartButtonBottom }]}>
+        <ShoppingCartButton count={cartCount} onPress={() => setIsCartSheetVisible(true)} />
+      </View>
       <ShoppingAddItemSheet
         visible={isAddSheetVisible}
         onAdd={addManualItem}
         onClose={() => setIsAddSheetVisible(false)}
+      />
+      <ShoppingCartSheet
+        visible={isCartSheetVisible}
+        items={cartItems}
+        bestOffers={bestOffers}
+        onTakeOut={takeOutOfCart}
+        onConfirm={confirmPurchase}
+        onClose={() => setIsCartSheetVisible(false)}
       />
     </Animated.View>
   );
 }
 
 const styles = StyleSheet.create({
+  cartButton: {
+    position: 'absolute',
+    right: HORIZONTAL_PADDING,
+  },
   counter: {
     fontFamily: 'Inter_500Medium',
     fontSize: 12,

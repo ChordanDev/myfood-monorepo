@@ -73,6 +73,17 @@ function toggleGroup(groupKey: string) {
   });
 }
 
+function confirmPurchase() {
+  act(() => {
+    shoppingList.confirmPurchase();
+  });
+}
+
+const cartIds = () => useShoppingListStore.getState().cartIds;
+
+// Names of the rows the cart sheet lists.
+const cartNames = () => shoppingList.cartItems.map((item) => item.name);
+
 beforeEach(() => {
   useMealPlanStore.setState({
     entries: PLAN,
@@ -83,9 +94,10 @@ beforeEach(() => {
     ingredients: MOCK_INGREDIENTS,
   });
   useShoppingListStore.setState({
-    purchases: {},
+    cartIds: [],
     removedIds: [],
     manualItems: [],
+    lastManualItemSequence: 0,
     groupingMode: 'category',
   });
 });
@@ -106,7 +118,7 @@ describe('useShoppingList', () => {
       ['Verduras', ['Espinaca: needed', 'Tomate: needed']],
       ['Proteínas', ['Pollo (Pechuga): needed']],
     ]);
-    expect(shoppingList.counters).toEqual({ total: 3, purchased: 0, removed: 0 });
+    expect(shoppingList.counters).toEqual({ total: 3, inCart: 0, removed: 0 });
   });
 
   it('has no date and nothing to list when the plan is empty', () => {
@@ -117,7 +129,7 @@ describe('useShoppingList', () => {
     expect(shoppingList.untilDate).toBeUndefined();
     expect(shoppingList.untilLabel).toBeUndefined();
     expect(shoppingList.groups).toEqual([]);
-    expect(shoppingList.counters).toEqual({ total: 0, purchased: 0, removed: 0 });
+    expect(shoppingList.counters).toEqual({ total: 0, inCart: 0, removed: 0 });
   });
 
   it('resolves the best offer of every row that has one', () => {
@@ -151,36 +163,32 @@ describe('useShoppingList', () => {
   });
 
   describe('toggling a row', () => {
-    it('marks a needed row as purchased and stocks the inventory with its amount', () => {
+    it('puts a needed row in the cart and leaves the inventory as it was', () => {
       renderShoppingList();
+      const inventoryBefore = useInventoryStore.getState().items;
 
       toggleItem('planned:i2');
 
       expect(listedGroups()).toEqual([
         ['Verduras', ['Espinaca: needed', 'Tomate: needed']],
-        ['Proteínas', ['Pollo (Pechuga): purchased']],
+        ['Proteínas', ['Pollo (Pechuga): in_cart']],
       ]);
-      expect(stockOf(CHICKEN)).toBe(200);
-      expect(useShoppingListStore.getState().purchases).toEqual({ 'planned:i2': 200 });
-      expect(shoppingList.counters).toEqual({ total: 3, purchased: 1, removed: 0 });
+      expect(useInventoryStore.getState().items).toBe(inventoryBefore);
+      expect(shoppingList.counters).toEqual({ total: 3, inCart: 1, removed: 0 });
     });
 
-    it('returns a purchased row to needed and takes its amount back out of the inventory', () => {
+    it('takes a row in the cart back out', () => {
       renderShoppingList();
       toggleItem('planned:i2');
 
       toggleItem('planned:i2');
 
-      expect(listedGroups()).toEqual([
-        ['Verduras', ['Espinaca: needed', 'Tomate: needed']],
-        ['Proteínas', ['Pollo (Pechuga): needed']],
-      ]);
-      expect(stockOf(CHICKEN)).toBeUndefined();
-      expect(useShoppingListStore.getState().purchases).toEqual({});
-      expect(shoppingList.counters).toEqual({ total: 3, purchased: 0, removed: 0 });
+      expect(listedGroups()[1]).toEqual(['Proteínas', ['Pollo (Pechuga): needed']]);
+      expect(cartIds()).toEqual([]);
+      expect(shoppingList.counters).toEqual({ total: 3, inCart: 0, removed: 0 });
     });
 
-    it('marks then unmarks when toggled twice from one stale render, never stocking twice', () => {
+    it('goes in and back out when toggled twice from one stale render', () => {
       renderShoppingList();
       const { toggleItem: staleToggleItem } = shoppingList;
 
@@ -189,42 +197,40 @@ describe('useShoppingList', () => {
         staleToggleItem('planned:i2');
       });
 
-      expect(stockOf(CHICKEN)).toBeUndefined();
-      expect(useShoppingListStore.getState().purchases).toEqual({});
+      expect(cartIds()).toEqual([]);
       expect(listedGroups()[1]).toEqual(['Proteínas', ['Pollo (Pechuga): needed']]);
     });
 
     it('ignores an id that is not on the list', () => {
       renderShoppingList();
-      const inventoryBefore = useInventoryStore.getState().items;
 
+      // The rice is covered by the stock, so it has no row.
       toggleItem('planned:i1');
       toggleItem('planned:unknown');
 
-      expect(useInventoryStore.getState().items).toBe(inventoryBefore);
-      expect(useShoppingListStore.getState().purchases).toEqual({});
+      expect(cartIds()).toEqual([]);
+      expect(shoppingList.counters.inCart).toBe(0);
     });
   });
 
   describe('"Marcar todos" on a group', () => {
-    it('marks only the rows that are still needed, and leaves the other groups alone', () => {
+    it('puts the rows that are still needed in the cart, and leaves the other groups alone', () => {
       renderShoppingList();
       toggleItem('planned:i3');
+      const inventoryBefore = useInventoryStore.getState().items;
 
       toggleGroup('verduras');
 
       expect(listedGroups()).toEqual([
-        ['Verduras', ['Espinaca: purchased', 'Tomate: purchased']],
+        ['Verduras', ['Espinaca: in_cart', 'Tomate: in_cart']],
         ['Proteínas', ['Pollo (Pechuga): needed']],
       ]);
-      // The tomato was already bought: it is not stocked a second time.
-      expect(stockOf(TOMATO)).toBe(2);
-      expect(stockOf(SPINACH)).toBe(100);
-      expect(stockOf(CHICKEN)).toBeUndefined();
-      expect(shoppingList.counters).toEqual({ total: 3, purchased: 2, removed: 0 });
+      expect(cartIds()).toEqual(['planned:i3', 'planned:i7']);
+      expect(useInventoryStore.getState().items).toBe(inventoryBefore);
+      expect(shoppingList.counters).toEqual({ total: 3, inCart: 2, removed: 0 });
     });
 
-    it('unmarks every row once the whole group is purchased', () => {
+    it('takes every row out once the whole group is in the cart', () => {
       renderShoppingList();
       toggleGroup('verduras');
       toggleItem('planned:i2');
@@ -233,12 +239,9 @@ describe('useShoppingList', () => {
 
       expect(listedGroups()).toEqual([
         ['Verduras', ['Espinaca: needed', 'Tomate: needed']],
-        ['Proteínas', ['Pollo (Pechuga): purchased']],
+        ['Proteínas', ['Pollo (Pechuga): in_cart']],
       ]);
-      expect(stockOf(TOMATO)).toBeUndefined();
-      expect(stockOf(SPINACH)).toBeUndefined();
-      expect(stockOf(CHICKEN)).toBe(200);
-      expect(shoppingList.counters).toEqual({ total: 3, purchased: 1, removed: 0 });
+      expect(shoppingList.counters).toEqual({ total: 3, inCart: 1, removed: 0 });
     });
 
     it('works on a supermarket group too', () => {
@@ -249,12 +252,12 @@ describe('useShoppingList', () => {
 
       expect(listedGroups()).toEqual([
         ['Coto', ['Tomate: needed']],
-        ['Día', ['Pollo (Pechuga): purchased']],
+        ['Día', ['Pollo (Pechuga): in_cart']],
         ['Sin súper', ['Espinaca: needed']],
       ]);
     });
 
-    it('marks then unmarks when pressed twice from one stale render, never stocking twice', () => {
+    it('goes in and back out when pressed twice from one stale render', () => {
       renderShoppingList();
       const { toggleGroup: staleToggleGroup } = shoppingList;
 
@@ -263,8 +266,7 @@ describe('useShoppingList', () => {
         staleToggleGroup('verduras');
       });
 
-      expect(useInventoryStore.getState().items).toEqual([{ ingredientId: RICE, amount: 500 }]);
-      expect(useShoppingListStore.getState().purchases).toEqual({});
+      expect(cartIds()).toEqual([]);
     });
 
     it('ignores a group that is not listed in the current mode', () => {
@@ -272,7 +274,183 @@ describe('useShoppingList', () => {
 
       toggleGroup('supermarket:Día');
 
-      expect(useShoppingListStore.getState().purchases).toEqual({});
+      expect(cartIds()).toEqual([]);
+    });
+  });
+
+  describe('the cart', () => {
+    it('is empty until a row is marked', () => {
+      renderShoppingList();
+
+      expect(shoppingList.cartItems).toEqual([]);
+      expect(shoppingList.cartCount).toBe(0);
+    });
+
+    it('holds the marked rows, planned and manual, with the amount and the offer they have now', () => {
+      useShoppingListStore.setState({
+        manualItems: [{ id: 'manual:1', source: 'manual', status: 'needed', name: 'Servilletas' }],
+      });
+      renderShoppingList();
+      toggleItem('planned:i2');
+      toggleItem('manual:1');
+
+      // Half the chicken turns up at home before the purchase is confirmed.
+      act(() => {
+        useInventoryStore.getState().addItem(CHICKEN, 100);
+      });
+
+      expect(cartNames()).toEqual(['Pollo (Pechuga)', 'Servilletas']);
+      expect(shoppingList.cartCount).toBe(2);
+      expect(shoppingList.cartItems[0]).toEqual(
+        expect.objectContaining({ id: 'planned:i2', amountToBuy: 100, status: 'in_cart' })
+      );
+      expect(shoppingList.bestOffers['planned:i2']).toEqual({
+        supermarket: 'Día',
+        unitPrice: 7.6,
+        price: 760,
+      });
+    });
+
+    it('lets go of a row that left the list while it was in the cart', () => {
+      renderShoppingList();
+      toggleItem('planned:i7');
+      toggleItem('planned:i2');
+
+      act(() => {
+        useMealPlanStore.getState().markAsCooked('mp2');
+      });
+
+      expect(cartNames()).toEqual(['Pollo (Pechuga)']);
+      expect(shoppingList.cartCount).toBe(1);
+      expect(shoppingList.counters).toEqual({ total: 2, inCart: 1, removed: 0 });
+    });
+
+    it('takes a single row out by id, and is safe to call twice for the same row', () => {
+      renderShoppingList();
+      toggleGroup('verduras');
+      const { takeOutOfCart: staleTakeOutOfCart } = shoppingList;
+
+      act(() => {
+        staleTakeOutOfCart('planned:i3');
+        staleTakeOutOfCart('planned:i3');
+      });
+
+      expect(cartNames()).toEqual(['Espinaca']);
+      expect(listedGroups()[0]).toEqual(['Verduras', ['Espinaca: in_cart', 'Tomate: needed']]);
+    });
+
+    it('takes a manual row out too', () => {
+      useShoppingListStore.setState({
+        manualItems: [{ id: 'manual:1', source: 'manual', status: 'in_cart', name: 'Servilletas' }],
+      });
+      renderShoppingList();
+
+      act(() => {
+        shoppingList.takeOutOfCart('manual:1');
+      });
+
+      expect(shoppingList.manualItems.map((item) => item.status)).toEqual(['needed']);
+      expect(shoppingList.cartCount).toBe(0);
+    });
+  });
+
+  describe('confirming the purchase', () => {
+    it('stocks the inventory with what each planned row in the cart is missing', () => {
+      renderShoppingList();
+      toggleItem('planned:i2');
+      toggleItem('planned:i3');
+
+      confirmPurchase();
+
+      expect(stockOf(CHICKEN)).toBe(200);
+      expect(stockOf(TOMATO)).toBe(2);
+      expect(stockOf(SPINACH)).toBeUndefined();
+      expect(stockOf(RICE)).toBe(500);
+    });
+
+    it('takes the bought rows off the list and empties the cart', () => {
+      renderShoppingList();
+      toggleItem('planned:i2');
+      toggleItem('planned:i3');
+
+      confirmPurchase();
+
+      expect(listedGroups()).toEqual([['Verduras', ['Espinaca: needed']]]);
+      expect(shoppingList.cartItems).toEqual([]);
+      expect(shoppingList.cartCount).toBe(0);
+      expect(shoppingList.counters).toEqual({ total: 1, inCart: 0, removed: 0 });
+      expect(cartIds()).toEqual([]);
+    });
+
+    it('deletes the manual rows in the cart and keeps the ones that are not', () => {
+      renderShoppingList();
+      act(() => {
+        shoppingList.addManualItem('Servilletas');
+        shoppingList.addManualItem('Velas');
+      });
+      toggleItem('manual:1');
+      const inventoryBefore = useInventoryStore.getState().items;
+
+      confirmPurchase();
+
+      expect(shoppingList.manualItems.map((item) => item.name)).toEqual(['Velas']);
+      expect(useShoppingListStore.getState().manualItems.map((item) => item.id)).toEqual([
+        'manual:2',
+      ]);
+      expect(useInventoryStore.getState().items).toBe(inventoryBefore);
+      expect(shoppingList.counters).toEqual({ total: 4, inCart: 0, removed: 0 });
+    });
+
+    it('buys the amount that is missing when it is confirmed, not when the row was marked', () => {
+      renderShoppingList();
+      toggleItem('planned:i2');
+      const { confirmPurchase: staleConfirmPurchase } = shoppingList;
+
+      act(() => {
+        // 150 g arrive from another screen before the press lands.
+        useInventoryStore.getState().addItem(CHICKEN, 150);
+        staleConfirmPurchase();
+      });
+
+      expect(stockOf(CHICKEN)).toBe(200);
+    });
+
+    it('stocks once when it is confirmed twice from one stale render', () => {
+      renderShoppingList();
+      toggleItem('planned:i2');
+      const { confirmPurchase: staleConfirmPurchase } = shoppingList;
+
+      act(() => {
+        staleConfirmPurchase();
+        staleConfirmPurchase();
+      });
+
+      expect(stockOf(CHICKEN)).toBe(200);
+    });
+
+    it('drops a row that left the list since it was marked, without stocking it', () => {
+      renderShoppingList();
+      toggleItem('planned:i7');
+      toggleItem('planned:i2');
+
+      act(() => {
+        useMealPlanStore.getState().markAsCooked('mp2');
+      });
+      confirmPurchase();
+
+      expect(stockOf(SPINACH)).toBeUndefined();
+      expect(stockOf(CHICKEN)).toBe(200);
+      expect(cartIds()).toEqual([]);
+    });
+
+    it('does nothing to the inventory while the cart is empty', () => {
+      renderShoppingList();
+      const inventoryBefore = useInventoryStore.getState().items;
+
+      confirmPurchase();
+
+      expect(useInventoryStore.getState().items).toBe(inventoryBefore);
+      expect(shoppingList.counters).toEqual({ total: 3, inCart: 0, removed: 0 });
     });
   });
 
@@ -292,10 +470,10 @@ describe('useShoppingList', () => {
       ['Verduras', ['Espinaca: needed']],
       ['Proteínas', ['Pollo (Pechuga): needed']],
     ]);
-    expect(shoppingList.counters).toEqual({ total: 3, purchased: 0, removed: 2 });
+    expect(shoppingList.counters).toEqual({ total: 3, inCart: 0, removed: 2 });
   });
 
-  it('toggles a manual item without touching the inventory', () => {
+  it('toggles a manual item in and out of the cart without touching the inventory', () => {
     useShoppingListStore.setState({
       manualItems: [{ id: 'manual:1', source: 'manual', status: 'needed', name: 'Servilletas' }],
     });
@@ -304,7 +482,8 @@ describe('useShoppingList', () => {
 
     toggleItem('manual:1');
 
-    expect(shoppingList.manualItems.map((item) => item.status)).toEqual(['purchased']);
+    expect(shoppingList.manualItems.map((item) => item.status)).toEqual(['in_cart']);
+    expect(shoppingList.counters).toEqual({ total: 4, inCart: 1, removed: 0 });
     expect(useInventoryStore.getState().items).toBe(inventoryBefore);
 
     toggleItem('manual:1');
@@ -324,7 +503,7 @@ describe('useShoppingList', () => {
         ['Verduras', ['Tomate: needed']],
         ['Proteínas', ['Pollo (Pechuga): needed']],
       ]);
-      expect(shoppingList.counters).toEqual({ total: 2, purchased: 0, removed: 0 });
+      expect(shoppingList.counters).toEqual({ total: 2, inCart: 0, removed: 0 });
     });
 
     it('drops a row once the inventory covers what the plan needs', () => {
@@ -361,7 +540,7 @@ describe('useShoppingList', () => {
       expect(shoppingList.manualItems).toEqual([
         { id: expect.any(String), source: 'manual', status: 'needed', name: 'Papel de cocina' },
       ]);
-      expect(shoppingList.counters).toEqual({ total: 4, purchased: 0, removed: 0 });
+      expect(shoppingList.counters).toEqual({ total: 4, inCart: 0, removed: 0 });
     });
 
     it.each(['', '   '])('ignores the blank name "%s"', (name) => {
@@ -392,7 +571,7 @@ describe('useShoppingList', () => {
         ['Verduras', ['Espinaca: needed']],
         ['Proteínas', ['Pollo (Pechuga): needed']],
       ]);
-      expect(shoppingList.counters).toEqual({ total: 2, purchased: 0, removed: 1 });
+      expect(shoppingList.counters).toEqual({ total: 2, inCart: 0, removed: 1 });
     });
 
     it('takes a manual row off the list', () => {
@@ -405,29 +584,35 @@ describe('useShoppingList', () => {
       removeItem(shoppingList.manualItems[0].id);
 
       expect(shoppingList.manualItems.map((item) => item.name)).toEqual(['Velas']);
-      expect(shoppingList.counters).toEqual({ total: 4, purchased: 0, removed: 1 });
+      expect(shoppingList.counters).toEqual({ total: 4, inCart: 0, removed: 1 });
     });
 
-    it('leaves the inventory and the purchase of a row that was already bought', () => {
+    it('takes a row that was in the cart out of it, without touching the inventory', () => {
       renderShoppingList();
       toggleItem('planned:i2');
+      const inventoryBefore = useInventoryStore.getState().items;
 
       removeItem('planned:i2');
 
-      expect(stockOf(CHICKEN)).toBe(200);
-      expect(useShoppingListStore.getState().purchases).toEqual({ 'planned:i2': 200 });
-      expect(shoppingList.counters).toEqual({ total: 2, purchased: 0, removed: 1 });
+      expect(cartIds()).toEqual([]);
+      expect(shoppingList.cartItems).toEqual([]);
+      expect(useInventoryStore.getState().items).toBe(inventoryBefore);
+      expect(shoppingList.counters).toEqual({ total: 2, inCart: 0, removed: 1 });
     });
 
-    it('keeps a removed row out of the row and group toggles', () => {
+    it('keeps a removed row out of the row and group toggles, and out of a purchase', () => {
       renderShoppingList();
       removeItem('planned:i3');
 
       toggleItem('planned:i3');
       toggleGroup('verduras');
 
+      expect(cartIds()).toEqual(['planned:i7']);
+
+      confirmPurchase();
+
       expect(stockOf(TOMATO)).toBeUndefined();
-      expect(useShoppingListStore.getState().purchases).toEqual({ 'planned:i7': 100 });
+      expect(stockOf(SPINACH)).toBe(100);
     });
 
     it('counts a row removed twice from one stale render only once', () => {
@@ -458,22 +643,26 @@ describe('useShoppingList', () => {
       expect(shoppingList.counters.removed).toBe(0);
     });
 
-    it('brings every removed row back when they are restored', () => {
+    it('brings every removed row back as needed when they are restored', () => {
       renderShoppingList();
       act(() => {
         shoppingList.addManualItem('Servilletas');
       });
+      toggleItem('planned:i3');
+      toggleItem('manual:1');
       removeItem('planned:i3');
-      removeItem(shoppingList.manualItems[0].id);
-      expect(shoppingList.counters).toEqual({ total: 2, purchased: 0, removed: 2 });
+      removeItem('manual:1');
+      expect(shoppingList.counters).toEqual({ total: 2, inCart: 0, removed: 2 });
 
       act(() => {
         shoppingList.restoreRemoved();
       });
 
       expect(listedGroups()[0]).toEqual(['Verduras', ['Espinaca: needed', 'Tomate: needed']]);
-      expect(shoppingList.manualItems.map((item) => item.name)).toEqual(['Servilletas']);
-      expect(shoppingList.counters).toEqual({ total: 4, purchased: 0, removed: 0 });
+      expect(shoppingList.manualItems.map((item) => `${item.name}: ${item.status}`)).toEqual([
+        'Servilletas: needed',
+      ]);
+      expect(shoppingList.counters).toEqual({ total: 4, inCart: 0, removed: 0 });
     });
   });
 });

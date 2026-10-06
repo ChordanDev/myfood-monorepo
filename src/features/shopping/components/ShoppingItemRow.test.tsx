@@ -166,8 +166,8 @@ describe('ShoppingItemRow', () => {
     expect(root.findAllByType(Check)).toEqual([]);
   });
 
-  it('strikes through and dims a purchased item, and checks its checkbox', () => {
-    const { root } = renderRow({ ...CHEESE, status: 'purchased' }, CHEESE_OFFER);
+  it('strikes through and dims an item in the cart, and checks its checkbox', () => {
+    const { root } = renderRow({ ...CHEESE, status: 'in_cart' }, CHEESE_OFFER);
     const [name, meta] = getLineStyles(root);
     const dimmed = withOpacity(mockTheme.textBlack, 0.45);
 
@@ -187,7 +187,7 @@ describe('ShoppingItemRow', () => {
   });
 
   it.each(['name', 'meta', 'checkbox'] as const)(
-    'applies the purchased look of the %s at once, without crossfading',
+    'applies the in-cart look of the %s at once, without crossfading',
     (part) => {
       const { tree, onToggle } = renderRow(CHEESE, CHEESE_OFFER);
       const needed = getImmediateKeys();
@@ -196,18 +196,18 @@ describe('ShoppingItemRow', () => {
       act(() => {
         tree.update(
           <ShoppingItemRow
-            item={{ ...CHEESE, status: 'purchased' }}
+            item={{ ...CHEESE, status: 'in_cart' }}
             bestOffer={CHEESE_OFFER}
             onToggle={onToggle}
             onRemove={jest.fn()}
           />
         );
       });
-      const purchased = getImmediateKeys();
+      const inCart = getImmediateKeys();
 
       expect(needed[part]).toBeDefined();
-      expect(purchased[part]).toBeDefined();
-      expect(purchased[part]).not.toBe(needed[part]);
+      expect(inCart[part]).toBeDefined();
+      expect(inCart[part]).not.toBe(needed[part]);
     }
   );
 
@@ -240,8 +240,8 @@ describe('ShoppingItemRow', () => {
     expect(getCheckboxRow(root).props.accessibilityLabel).toBe('300 g · Queso cremoso, Sin precio');
   });
 
-  it('is a checked checkbox once the item is purchased', () => {
-    const { root } = renderRow({ ...CHEESE, status: 'purchased' }, CHEESE_OFFER);
+  it('is a checked checkbox once the item is in the cart', () => {
+    const { root } = renderRow({ ...CHEESE, status: 'in_cart' }, CHEESE_OFFER);
 
     expect(getCheckboxRow(root).props.accessibilityState).toEqual({ checked: true });
   });
