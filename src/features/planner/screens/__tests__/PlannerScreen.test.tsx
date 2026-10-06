@@ -212,7 +212,8 @@ describe('PlannerScreen settled turn anchoring', () => {
 
     const scrollView = getScrollView(tree);
     expect(scrollView.props.testID).toBe('planner-conversation-list');
-    expect(scrollView.props.contentInsetAdjustmentBehavior).toBe('automatic');
+    // The bottom clearance already includes the safe area, so iOS must not add it a second time.
+    expect(scrollView.props.contentInsetAdjustmentBehavior).toBe('never');
     expect(scrollView.props.keyboardShouldPersistTaps).toBe('handled');
     expect(StyleSheet.flatten(scrollView.props.style)).toEqual({
       marginTop: 21,
