@@ -73,7 +73,10 @@ export function HomeScreen() {
 
   const handleOpenRecipe = () => {
     if (selectedMeal?.recipeId) {
-      router.push(`/recipe/${selectedMeal.recipeId}`);
+      router.push({
+        pathname: '/recipe/[id]',
+        params: { id: selectedMeal.recipeId, entryId: selectedMeal.id },
+      });
     }
   };
 

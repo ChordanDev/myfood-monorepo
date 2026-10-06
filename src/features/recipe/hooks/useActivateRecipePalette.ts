@@ -1,0 +1,26 @@
+import { useEffect, useLayoutEffect, useRef } from 'react';
+import { useRecipeTheme } from '@/context/RecipeThemeContext';
+import type { RecipeThemeConfig } from '@/types/domain';
+
+/**
+ * Draws the screen in the recipe's own palette while it is mounted, and hands the app back the
+ * palette it had before. Home only applies a meal palette for today, so without this a recipe
+ * opened from another day would be drawn in the fallback palette.
+ */
+export function useActivateRecipePalette(palette: RecipeThemeConfig | undefined): void {
+  const { theme, setRecipeTheme } = useRecipeTheme();
+  // Captured on the first render only: later renders already see the recipe palette.
+  const paletteBeforeMountRef = useRef(theme);
+
+  // A layout effect, so the first painted frame already uses the recipe palette. The effect only
+  // depends on the recipe palette, never on the active one, so activating it cannot loop.
+  useLayoutEffect(() => {
+    if (palette) setRecipeTheme(palette);
+  }, [palette, setRecipeTheme]);
+
+  useEffect(() => {
+    const paletteBeforeMount = paletteBeforeMountRef.current;
+
+    return () => setRecipeTheme(paletteBeforeMount);
+  }, [setRecipeTheme]);
+}
