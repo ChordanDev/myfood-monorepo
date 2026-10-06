@@ -78,7 +78,9 @@ proposal in `docs/design/screens/Main.dc.html` (sand `#B9553B`, olive `#C94F3D`)
 ## Acceptance criteria
 
 - [ ] `alert` exists in the shared contract (`meal-app-docs`) and in
-      `RecipeThemeConfig` before it is used.
+      `RecipeThemeConfig` before it is used. In `RecipeThemeConfig` since
+      bafe98e; the shared contract is committed on a local branch (ee10ecb)
+      and stays unchecked until that branch is merged.
 - [x] Pending day: `alert` fill at 70 % plus `alert` border; selected: 2px
       `colorMedium` border.
 - [x] A past day whose meals are all confirmed is no longer shown as pending
@@ -167,9 +169,28 @@ proposal in `docs/design/screens/Main.dc.html` (sand `#B9553B`, olive `#C94F3D`)
     showing the month the user navigated to (`useCalendarState`, outside the
     T3 edit surface); `eatToday` and `getDefaultHomeMealType` still read
     `isCooked` only.
+- 2026-10-06: shared contract written in `meal-app-docs`, branch
+  `docs/alert-theme-token`, commit ee10ecb (section 3.1.6 of
+  `docs/PRD_RECIPE_EXPERIENCE.md`). Local only: not pushed, not merged.
+- 2026-10-06: Home run on the iPhone 17 Pro simulator against the reference.
+  - Found: the day card collapsed to a narrow strip. Switching from the meal
+    row to the pending row reused the native views, and the confirmation
+    column kept the meal card's 75 % width (measured 277.67 of a 370 pt row
+    with `flex: 1`). Fixed in b60c6cb with distinct row keys; measured
+    191.67 / 164.33 afterwards (7 : 6). No runnable RED: the stale width only
+    exists in the native view tree.
+  - Observed after the fix: pending day shows `!` on the `alert` fill and a
+    2px `colorMedium` ring when selected; ✗ on the first meal moves to the
+    next pending meal; ✓ on the last one returns the selection to today and
+    the day is no longer pending. No errors or warnings in Metro.
+  - Checks on b60c6cb: `npx tsc --noEmit` 22 errors (baseline); `npx jest`
+    38 suites / 425 tests passed, 1 suite / 2 tests failed (baseline);
+    prettier and eslint clean on `HomeScreen.tsx`.
+  - Not verified: Android, and the Olive palette on a pending day (non-today
+    days use the default palette, a known gap in `docs/THEMING.md`).
 
 ## Next step
 
-Run Home on a device against `docs/design/screens/Home-Pendiente.reference.webp`,
-update the shared contract in `meal-app-docs`, and ask for the chain strategy
-before opening a PR.
+Ask for the chain strategy before opening a PR (about 1490 authored changed
+lines, 620 of them tests), and merge `docs/alert-theme-token` in
+`meal-app-docs` first.
