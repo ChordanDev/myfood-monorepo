@@ -1,6 +1,6 @@
 import type { ShoppingListItem, UnitType } from '@/types/domain';
 import { LARGE_UNIT_FACTOR, NO_PRICE_LABEL, SHORT_MONTHS, UNIT_LABEL } from '../constants';
-import type { BestOffer } from '../types';
+import type { BestOffer, ShoppingCounters } from '../types';
 import { roundAmount } from './amounts';
 
 const SEPARATOR = ' · ';
@@ -39,4 +39,13 @@ export function formatItemNameLine(item: ShoppingListItem) {
 export function formatItemMetaLine(offer: BestOffer | undefined) {
   if (!offer) return NO_PRICE_LABEL;
   return `${offer.supermarket}${SEPARATOR}${formatPrice(offer.price)}`;
+}
+
+function pluralize(count: number, singular: string) {
+  return `${count} ${singular}${count === 1 ? '' : 's'}`;
+}
+
+// The purchased count agrees with "ítem", so it needs no gender of its own.
+export function formatCountersLabel({ total, purchased }: ShoppingCounters) {
+  return `${pluralize(total, 'ítem')}${SEPARATOR}${pluralize(purchased, 'comprado')}`;
 }

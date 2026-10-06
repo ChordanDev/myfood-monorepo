@@ -1,5 +1,6 @@
 import type { ManualShoppingListItem, PlannedShoppingListItem } from '@/types/domain';
 import {
+  formatCountersLabel,
   formatItemMetaLine,
   formatItemNameLine,
   formatPrice,
@@ -119,5 +120,23 @@ describe('row lines', () => {
 
   it('says there is no price when there is no offer', () => {
     expect(formatItemMetaLine(undefined)).toBe('Sin precio');
+  });
+});
+
+describe('formatCountersLabel', () => {
+  it('writes how many items are listed and how many of them are purchased', () => {
+    expect(formatCountersLabel({ total: 14, purchased: 3, removed: 0 })).toBe(
+      '14 ítems · 3 comprados'
+    );
+    expect(formatCountersLabel({ total: 0, purchased: 0, removed: 2 })).toBe(
+      '0 ítems · 0 comprados'
+    );
+  });
+
+  it('uses the singular for one item and for one purchase', () => {
+    expect(formatCountersLabel({ total: 1, purchased: 1, removed: 0 })).toBe('1 ítem · 1 comprado');
+    expect(formatCountersLabel({ total: 2, purchased: 1, removed: 0 })).toBe(
+      '2 ítems · 1 comprado'
+    );
   });
 });
