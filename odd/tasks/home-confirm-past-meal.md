@@ -188,6 +188,12 @@ proposal in `docs/design/screens/Main.dc.html` (sand `#B9553B`, olive `#C94F3D`)
     prettier and eslint clean on `HomeScreen.tsx`.
   - Not verified: Android, and the Olive palette on a pending day (non-today
     days use the default palette, a known gap in `docs/THEMING.md`).
+- 2026-10-06: user change accepted after trying the build: a past day whose
+  meals are all confirmed loses the planned circle and reads like a day
+  without a plan. Done in bd9336a, test-first with a new `Calendar.test.tsx`
+  (RED: `isPlanned` was true for a confirmed past day; GREEN: 72 / 72 in
+  `src/features/home`). Observed on the simulator, including the live
+  transition after confirming the last meal of the day.
 
 ## Next step
 
