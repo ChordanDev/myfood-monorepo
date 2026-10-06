@@ -43,6 +43,7 @@ export interface RecipeThemeConfig {
   textMedium: string;
   textLight: string;
   primaryAccentIntense: string;
+  alert: string;
 }
 
 export interface MasterRecipe {

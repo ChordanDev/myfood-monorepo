@@ -53,6 +53,7 @@ The same tokens in the two palettes that exist today:
 | `appBg`         | `#E1D8BA`      | `#BCBFA7`            |
 | `primaryAccent` | `#E69447`      | `#EF9432`            |
 | `icon`          | `#C4BC9C`      | `#D8D98B`            |
+| `alert`         | `#B9553B`      | `#C94F3D`            |
 
 ## Token roles
 
@@ -68,6 +69,7 @@ Names describe the job a color does, not its hue.
 | `icon`                 | Icons and state tints on dark surfaces | Tab icons, active pill (15% fill + 30% border), planned day (70%)     |
 | `primaryAccent`        | Emphasis                               | Selected day (70%), "HOY", Planner header icon and label              |
 | `primaryAccentIntense` | Stronger accent for glows and rings    | Add-button ring, "COMERLO HOY" glow, sheet button borders             |
+| `alert`                | Destructive and attention actions      | Sign-out row label                                                    |
 | `textBlack`            | Body text on light surfaces            | Chat text, day numbers (45% when disabled)                            |
 | `textDark`             | Titles and labels on light surfaces    | Screen title, calendar header and weekdays                            |
 | `textMedium`           | Secondary text on dark surfaces        | Active switcher label, weekday on the meal card                       |
@@ -87,11 +89,11 @@ these relationships are not.
 - **Dark-on-light pairs** stay readable (4.5:1): `textBlack` and `textDark` on `appBg` and on `colorLight`.
 - **Light-on-dark pairs** stay readable (4.5:1): `textLight`, `textMedium`, `icon` and `primaryAccent` on `colorDark` and `colorBlack`; `appBg` on `colorDark`.
 - **Selected day:** `textBlack` stays readable on `primaryAccent` at 70% over `colorLight`.
-- **Completeness:** all twelve required tokens are set. The provider back-fills missing ones from the default palette, which silently mixes two palettes.
+- **Completeness:** all thirteen required tokens are set. The provider back-fills missing ones from the default palette, which silently mixes two palettes.
 
 ## Checklist for a new palette
 
-- [ ] All twelve required tokens defined
+- [ ] All thirteen required tokens defined
 - [ ] Lightness order holds
 - [ ] The four contrast rules hold
 - [ ] Home (with today selected) and Planner both checked with the palette active
