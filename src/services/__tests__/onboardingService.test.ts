@@ -283,4 +283,47 @@ describe('authService onboarding/preferences/slot-cooking-times endpoints', () =
       status: 404,
     });
   });
+
+  it('rejects a successful profile update that comes back with an empty body', async () => {
+    fetchMock.mockReturnValueOnce(
+      Promise.resolve({ ok: true, status: 204, text: () => Promise.resolve('') } as Response)
+    );
+
+    const update = authService.updateProfile('access-1', profilePayload);
+
+    await expect(update).rejects.toBeInstanceOf(authService.AuthApiError);
+    await expect(update).rejects.toMatchObject({ code: 'unknown_error' });
+  });
+
+  it.each([
+    ['is not wrapped in a user', { id: 'user-1', email: 'user@example.com', ...profilePayload }],
+    ['has a user without an id', { user: { email: 'user@example.com', ...profilePayload } }],
+    ['has a user with an empty id', { user: { ...profileResponse.user, id: '' } }],
+    ['has a user that is not an object', { user: 'user-1' }],
+  ])('rejects a profile update response that %s', async (_case, body) => {
+    fetchMock.mockReturnValueOnce(mockJsonResponse(body));
+
+    const update = authService.updateProfile('access-1', profilePayload);
+
+    await expect(update).rejects.toBeInstanceOf(authService.AuthApiError);
+    await expect(update).rejects.toMatchObject({ code: 'unknown_error' });
+  });
+
+  it('fills the profile fields the update response omits with null', async () => {
+    fetchMock.mockReturnValueOnce(
+      mockJsonResponse({ user: { id: 'user-1', email: 'user@example.com' } })
+    );
+
+    const result = await authService.updateProfile('access-1', profilePayload);
+
+    expect(result).toEqual({
+      user: {
+        id: 'user-1',
+        email: 'user@example.com',
+        displayName: null,
+        householdSize: null,
+        cookingSkill: null,
+      },
+    });
+  });
 });

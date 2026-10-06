@@ -202,6 +202,55 @@ describe('AuthContext — updateProfile', () => {
     unmount();
   });
 
+  it('does not bring me back when the user signed out before the update resolved', async () => {
+    const { latest, unmount } = await renderSignedIn(makeMe());
+    let resolveUpdate: (value: ProfileUpdateResponse) => void = () => undefined;
+    mockAuthService.updateProfile.mockReturnValue(
+      new Promise<ProfileUpdateResponse>((resolve) => {
+        resolveUpdate = resolve;
+      })
+    );
+
+    let pendingUpdate: Promise<ProfileUpdateResponse> | undefined;
+    await act(async () => {
+      pendingUpdate = latest().updateProfile(payload);
+      await latest().signOut();
+    });
+    expect(latest().me).toBeNull();
+
+    await act(async () => {
+      resolveUpdate(response);
+      await expect(pendingUpdate).resolves.toEqual(response);
+    });
+    await flush();
+
+    expect(latest().me).toBeNull();
+    expect(latest().isAuthenticated).toBe(false);
+
+    unmount();
+  });
+
+  it('leaves me untouched when the update answers for a different user', async () => {
+    const { latest, renders, unmount } = await renderSignedIn(makeMe());
+    const otherUserResponse: ProfileUpdateResponse = {
+      user: { ...response.user, id: 'user-2', email: 'other@example.com' },
+    };
+    mockAuthService.updateProfile.mockResolvedValue(otherUserResponse);
+    const meBefore = latest().me;
+    const rendersBefore = renders.length;
+
+    await act(async () => {
+      await expect(latest().updateProfile(payload)).resolves.toEqual(otherUserResponse);
+    });
+    await flush();
+
+    expect(latest().me).toBe(meBefore);
+    expect(latest().me).toEqual(makeMe());
+    expect(renders.length).toBe(rendersBefore);
+
+    unmount();
+  });
+
   it('applies a refreshed me whose only change is a profile field', async () => {
     const { latest, unmount } = await renderSignedIn(makeMe());
     const refreshedMe = makeMe({ householdSize: 4, cookingSkill: 'advanced' });

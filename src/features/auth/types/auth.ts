@@ -57,12 +57,14 @@ export interface OnboardingCompletionResponse {
 // onboarding profile step.
 export type ProfileUpdatePayload = OnboardingProfile;
 
+// The profile fields are nullable like on AuthUser: the client fills a
+// field the server answer omits with null instead of trusting it.
 export interface ProfileUpdateUser {
   id: string;
   email: string;
-  displayName: string;
-  householdSize: number;
-  cookingSkill: CookingSkill;
+  displayName: string | null;
+  householdSize: number | null;
+  cookingSkill: CookingSkill | null;
 }
 
 export interface ProfileUpdateResponse {
