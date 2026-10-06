@@ -26,7 +26,7 @@ import { Alert } from 'react-native';
 import { act, create } from 'react-test-renderer';
 import type { CurrentMe, AuthContextValue } from '@/features/auth/types/auth';
 import { AuthContext } from '@/features/auth/context/AuthContext';
-import { OnboardingScreen } from '@/features/preferences/screens/OnboardingScreen';
+import { OnboardingScreen } from '@/features/onboarding/screens/OnboardingScreen';
 
 const mockRouterReplace = jest.fn();
 const mockRouterPush = jest.fn();
@@ -101,12 +101,12 @@ jest.mock('@/features/preferences/constants/catalog', () => ({
   isValidHardRestrictionCode: () => true,
 }));
 
-jest.mock('@/features/preferences/utils/onboardingPayload', () => ({
+jest.mock('@/features/onboarding/utils/onboardingPayload', () => ({
   buildOnboardingPayload: jest.fn(),
   OnboardingValidationError: class extends Error {},
 }));
 
-jest.mock('@/features/preferences/utils/onboardingSubmitGate', () => ({
+jest.mock('@/features/onboarding/utils/onboardingSubmitGate', () => ({
   canSubmitOnboarding: () => true,
 }));
 

@@ -17,11 +17,19 @@ literals, which `docs/THEMING.md` forbids.
 
 ## Scope
 
-- `src/features/preferences/screens/OnboardingScreen.tsx`
-- `src/features/preferences/components/onboarding/**`
-- `src/features/preferences/utils/onboardingSteps.ts` (new),
-  `src/features/preferences/utils/onboardingSlot.ts`
-- `src/features/preferences/__tests__/**` (onboarding tests only)
+Paths as they are after T5. T1 to T3 were written under
+`src/features/preferences/` and moved by T5.
+
+- `src/features/onboarding/screens/OnboardingScreen.tsx`
+- `src/features/onboarding/components/**` (flat, with its `index.ts`)
+- `src/features/onboarding/utils/` (`onboardingPayload.ts`,
+  `onboardingSlot.ts`, `onboardingSteps.ts`, `onboardingSubmitGate.ts`)
+- `src/features/onboarding/constants/onboardingOptions.ts`
+- `src/features/onboarding/__tests__/**` and `src/features/onboarding/index.ts`
+- `src/features/preferences/utils/preferencesPayload.ts` and its test (T4);
+  `ProfilePreferencesScreen.tsx` and `src/features/preferences/index.ts`
+- `app/onboarding.tsx`, `app/onboarding-preview.tsx` and the path read by
+  `src/features/auth/__tests__/maestroSelectors.contract.test.ts`
 - `docs/THEMING.md` ("Open decisions" entry for onboarding)
 
 ## Constraints
@@ -92,7 +100,7 @@ never the reverse.
       its exact contract (same `OnboardingValidationError` field and message).
       Route: delegated. Existing payload tests are the safety net and are only
       re-pointed, never weakened.
-- [ ] T5 Move onboarding into `src/features/onboarding/` with `git mv`
+- [x] T5 Move onboarding into `src/features/onboarding/` with `git mv`
       (`screens/`, flat `components/`, `utils/`, `constants/`, `__tests__/`,
       `index.ts`), update imports, jest mock paths, the Maestro contract test
       path, the route files and the `docs/THEMING.md` path. Route: delegated.
@@ -110,12 +118,15 @@ Out of scope: the shared top-level folders (`src/components`, `src/services`,
 
 ## Checks
 
-- `npx jest src/features/preferences src/features/auth/__tests__/maestroSelectors.contract.test.ts`
+- `npx jest src/features/preferences src/features/onboarding src/features/auth/__tests__/maestroSelectors.contract.test.ts`
 - `npx jest` (full suite at closure)
 - `npm run lint`
 - `npx tsc --noEmit`
-- `rg -n "#[0-9A-Fa-f]{3,8}\b|rgba?\(" src/features/preferences/components/onboarding src/features/preferences/screens/OnboardingScreen.tsx`
-  returns only allowed `#000000` shadow colors.
+- `rg -n "#[0-9A-Fa-f]{3,8}\b|rgba?\(" src/features/onboarding -g '!**/__tests__/**'`
+  returns only allowed `#000000` shadow colors. Tests are excluded because
+  their mock palettes are palette definitions.
+- `rg -n "features/onboarding" src/features/preferences` returns nothing
+  (preferences never imports onboarding).
 
 ## Progress and evidence
 
@@ -177,8 +188,8 @@ commit that follows it.
   Per commit, this document included: 2fbf0af 401 + 4, 73db74c 1240 + 456,
   06f5c19 332 + 444. Slice boundaries are the three commits; the chain
   strategy is still to be asked before any pull request is planned.
-- T4 done. Before the edit the focused check ran 11 suites, 90 tests. A
-  characterization test was added first and passed against the untouched
+- T4 done in 0eb380d. Before the edit the focused check ran 11 suites, 90
+  tests. A characterization test was added first and passed against the untouched
   builder: invalid preferences reach the caller as `OnboardingValidationError`
   with field `preferences.diet` / `preferences.hardRestrictions` and the
   original messages. After the split it still passes. The two
@@ -188,8 +199,21 @@ commit that follows it.
   onboarding, Maestro contract): 12 suites, 92 tests passed, none removed.
   Lint and tsc unchanged from the baseline. `profileScreen.integration.test`
   does not mock the payload module and needed no change.
+- T5 done. 24 files moved with `git mv` (screen, 12 component files, 4 utils,
+  the options constant, 6 tests); only import and `jest.mock` paths changed
+  inside them. Added `src/features/onboarding/index.ts`; `preferences/index.ts`
+  no longer exports the screen; the two route files, the Maestro contract
+  path and the `docs/THEMING.md` path follow. Nothing left in preferences
+  used `onboardingOptions`, so it moved too. Focused check: 12 suites, 92
+  tests passed, the same count as after T4. Lint and tsc unchanged from the
+  baseline (the 12 tsc errors in `maestroSelectors.contract.test.ts` are the
+  pre-existing ones).
+  - `rg -n "features/onboarding" src/features/preferences`: no match.
+  - The literal search over the whole `src/features/onboarding` now matches
+    24 lines, all of them the mock palettes of the two screen tests, which
+    moved in with the feature. Outside `__tests__` it matches nothing.
 
 ## Next step
 
-T5. After that: visual pass on a device, then decide the chain strategy and
-open the pull request.
+Visual pass on a device, then decide the chain strategy and open the pull
+request. No task is left open.

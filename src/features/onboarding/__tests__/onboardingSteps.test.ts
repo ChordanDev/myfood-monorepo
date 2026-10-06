@@ -1,5 +1,5 @@
 import type { CookingSkill, HungerLevel } from '@/features/auth/types/auth';
-import type { DietCode, HardRestrictionCode } from '../constants/catalog';
+import type { DietCode, HardRestrictionCode } from '@/features/preferences/constants/catalog';
 import type { SlotFormState } from '../utils/onboardingSlot';
 import {
   ONBOARDING_STEPS,

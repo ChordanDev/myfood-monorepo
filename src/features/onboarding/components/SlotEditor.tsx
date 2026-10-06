@@ -3,19 +3,19 @@ import { Pressable, Text, type TextInput, View } from 'react-native';
 import type { HungerLevel, MealSlot } from '@/features/auth/types/auth';
 import type { RecipeThemeConfig } from '@/types/domain';
 import { withOpacity } from '@/utils/colors';
-import { OnboardingChoiceChip } from '@/features/preferences/components/onboarding/OnboardingChoiceChip';
+import { OnboardingChoiceChip } from '@/features/onboarding/components/OnboardingChoiceChip';
 import {
   OnboardingField,
   OnboardingFieldHint,
-} from '@/features/preferences/components/onboarding/OnboardingField';
-import { OnboardingTextInput } from '@/features/preferences/components/onboarding/OnboardingTextInput';
+} from '@/features/onboarding/components/OnboardingField';
+import { OnboardingTextInput } from '@/features/onboarding/components/OnboardingTextInput';
 import {
   HUNGER_LEVEL_LABELS,
   HUNGER_LEVELS,
   SLOT_LABELS,
   SLOT_PRESET_BUCKETS,
-} from '@/features/preferences/constants/onboardingOptions';
-import type { SlotFormState, SlotMode } from '@/features/preferences/utils/onboardingSlot';
+} from '@/features/onboarding/constants/onboardingOptions';
+import type { SlotFormState, SlotMode } from '@/features/onboarding/utils/onboardingSlot';
 
 interface SlotEditorProps {
   slot: MealSlot;

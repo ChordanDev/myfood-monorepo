@@ -5,12 +5,12 @@ import type { RecipeThemeConfig } from '@/types/domain';
 import {
   COOKING_SKILL_LABELS,
   COOKING_SKILLS,
-} from '@/features/preferences/constants/onboardingOptions';
-import { MAX_DISPLAY_NAME_LENGTH } from '@/features/preferences/utils/onboardingSteps';
-import { HouseholdSizeStepper } from '@/features/preferences/components/onboarding/HouseholdSizeStepper';
-import { OnboardingChoiceChip } from '@/features/preferences/components/onboarding/OnboardingChoiceChip';
-import { OnboardingField } from '@/features/preferences/components/onboarding/OnboardingField';
-import { OnboardingTextInput } from '@/features/preferences/components/onboarding/OnboardingTextInput';
+} from '@/features/onboarding/constants/onboardingOptions';
+import { MAX_DISPLAY_NAME_LENGTH } from '@/features/onboarding/utils/onboardingSteps';
+import { HouseholdSizeStepper } from '@/features/onboarding/components/HouseholdSizeStepper';
+import { OnboardingChoiceChip } from '@/features/onboarding/components/OnboardingChoiceChip';
+import { OnboardingField } from '@/features/onboarding/components/OnboardingField';
+import { OnboardingTextInput } from '@/features/onboarding/components/OnboardingTextInput';
 
 interface HouseholdStepProps {
   cookingSkill: CookingSkill;

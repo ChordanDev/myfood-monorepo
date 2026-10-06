@@ -1,9 +1,9 @@
 import { View } from 'react-native';
 import type { HungerLevel, MealSlot } from '@/features/auth/types/auth';
 import type { RecipeThemeConfig } from '@/types/domain';
-import { MEAL_SLOTS } from '@/features/preferences/constants/onboardingOptions';
-import { SlotEditor } from '@/features/preferences/components/onboarding/SlotEditor';
-import type { SlotFormState, SlotMode } from '@/features/preferences/utils/onboardingSlot';
+import { MEAL_SLOTS } from '@/features/onboarding/constants/onboardingOptions';
+import { SlotEditor } from '@/features/onboarding/components/SlotEditor';
+import type { SlotFormState, SlotMode } from '@/features/onboarding/utils/onboardingSlot';
 
 interface MealTimesStepProps {
   onSlotCustomChange: (slot: MealSlot, text: string) => void;

@@ -9,12 +9,12 @@ import {
   type DietCode,
   type HardRestrictionCode,
 } from '@/features/preferences/constants/catalog';
-import { OnboardingChoiceChip } from '@/features/preferences/components/onboarding/OnboardingChoiceChip';
+import { OnboardingChoiceChip } from '@/features/onboarding/components/OnboardingChoiceChip';
 import {
   OnboardingField,
   OnboardingFieldHint,
-} from '@/features/preferences/components/onboarding/OnboardingField';
-import { OnboardingTextInput } from '@/features/preferences/components/onboarding/OnboardingTextInput';
+} from '@/features/onboarding/components/OnboardingField';
+import { OnboardingTextInput } from '@/features/onboarding/components/OnboardingTextInput';
 
 interface PreferencesStepProps {
   diet: DietCode | null;

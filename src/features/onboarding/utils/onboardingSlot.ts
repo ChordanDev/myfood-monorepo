@@ -1,5 +1,5 @@
 import type { HungerLevel, SlotCookingTime } from '@/features/auth/types/auth';
-import { SLOT_PRESET_BUCKETS } from '@/features/preferences/constants/onboardingOptions';
+import { SLOT_PRESET_BUCKETS } from '@/features/onboarding/constants/onboardingOptions';
 
 export type SlotMode = 'noCook' | 'preset' | 'custom';
 

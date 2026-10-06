@@ -1,4 +1,4 @@
-import { OnboardingScreen } from '@/features/preferences';
+import { OnboardingScreen } from '@/features/onboarding';
 
 export default function OnboardingPreviewRoute() {
   return <OnboardingScreen previewMode />;

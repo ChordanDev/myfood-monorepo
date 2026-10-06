@@ -6,7 +6,7 @@ import {
   MAX_HOUSEHOLD_SIZE,
   MIN_HOUSEHOLD_SIZE,
   clampHouseholdSize,
-} from '@/features/preferences/utils/onboardingSteps';
+} from '@/features/onboarding/utils/onboardingSteps';
 
 interface HouseholdSizeStepperProps {
   value: number;

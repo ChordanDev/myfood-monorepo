@@ -146,5 +146,5 @@ cross-project change: update the shared docs first (see
   static colors.
 
 Decided: **onboarding** uses the default palette through tokens, like any other
-screen. `src/features/preferences/components/onboarding/` and `OnboardingScreen`
-carry no color literal.
+screen. No component or screen under `src/features/onboarding/` carries a color
+literal; the only hex values there are the mock palettes of its tests.

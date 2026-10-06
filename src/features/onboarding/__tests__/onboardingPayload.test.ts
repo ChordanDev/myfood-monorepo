@@ -3,7 +3,7 @@ import {
   HARD_RESTRICTION_CODES,
   isValidDietCode,
   isValidHardRestrictionCode,
-} from '../constants/catalog';
+} from '@/features/preferences/constants/catalog';
 import { OnboardingValidationError, buildOnboardingPayload } from '../utils/onboardingPayload';
 import type { OnboardingFormState } from '../utils/onboardingPayload';
 

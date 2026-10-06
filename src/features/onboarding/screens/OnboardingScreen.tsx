@@ -15,13 +15,13 @@ import {
   OnboardingProgress,
   OnboardingStepHeading,
   PreferencesStep,
-} from '@/features/preferences/components/onboarding';
+} from '@/features/onboarding/components';
 import {
   OnboardingValidationError,
   buildOnboardingPayload,
   type OnboardingFormState,
-} from '@/features/preferences/utils/onboardingPayload';
-import { canSubmitOnboarding } from '@/features/preferences/utils/onboardingSubmitGate';
+} from '@/features/onboarding/utils/onboardingPayload';
+import { canSubmitOnboarding } from '@/features/onboarding/utils/onboardingSubmitGate';
 import { parseListInput } from '@/features/preferences/utils/parseListInput';
 import {
   buildSlotForm,
@@ -29,7 +29,7 @@ import {
   slotFormToCookingTime,
   type SlotFormState,
   type SlotMode,
-} from '@/features/preferences/utils/onboardingSlot';
+} from '@/features/onboarding/utils/onboardingSlot';
 import {
   ONBOARDING_STEPS,
   getNextStep,
@@ -38,7 +38,7 @@ import {
   validateOnboardingStep,
   type OnboardingDraft,
   type OnboardingStep,
-} from '@/features/preferences/utils/onboardingSteps';
+} from '@/features/onboarding/utils/onboardingSteps';
 
 interface OnboardingScreenProps {
   previewMode?: boolean;

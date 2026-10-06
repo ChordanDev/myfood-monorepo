@@ -13,8 +13,8 @@ import { Alert, BackHandler } from 'react-native';
 import { act, create, type ReactTestInstance, type ReactTestRenderer } from 'react-test-renderer';
 import type { AuthContextValue, CurrentMe } from '@/features/auth/types/auth';
 import { AuthContext } from '@/features/auth/context/AuthContext';
-import { OnboardingScreen } from '@/features/preferences/screens/OnboardingScreen';
-import { buildOnboardingPayload } from '@/features/preferences/utils/onboardingPayload';
+import { OnboardingScreen } from '@/features/onboarding/screens/OnboardingScreen';
+import { buildOnboardingPayload } from '@/features/onboarding/utils/onboardingPayload';
 
 const mockRouterReplace = jest.fn();
 
