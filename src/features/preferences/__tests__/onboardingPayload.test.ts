@@ -4,11 +4,7 @@ import {
   isValidDietCode,
   isValidHardRestrictionCode,
 } from '../constants/catalog';
-import {
-  OnboardingValidationError,
-  buildOnboardingPayload,
-  buildPreferencesPayload,
-} from '../utils/onboardingPayload';
+import { OnboardingValidationError, buildOnboardingPayload } from '../utils/onboardingPayload';
 import type { OnboardingFormState } from '../utils/onboardingPayload';
 
 const baseState: OnboardingFormState = {
@@ -159,30 +155,39 @@ describe('buildOnboardingPayload', () => {
       })
     ).toThrow(OnboardingValidationError);
   });
-});
 
-describe('buildPreferencesPayload', () => {
-  it('returns the same validation as the onboarding helper', () => {
-    const payload = buildPreferencesPayload({
-      diet: 'vegetarian',
-      hardRestrictions: ['dairy', 'egg'],
-      softPreferences: ['mushrooms'],
+  it('reports invalid preferences with the onboarding error, field and message', () => {
+    const captureError = (preferences: OnboardingFormState['preferences']) => {
+      try {
+        buildOnboardingPayload({ ...baseState, preferences });
+      } catch (error) {
+        return error;
+      }
+      return null;
+    };
+
+    const dietError = captureError({
+      diet: 'paleo' as unknown as null,
+      hardRestrictions: [],
+      softPreferences: [],
+    });
+    expect(dietError).toBeInstanceOf(OnboardingValidationError);
+    expect(dietError).toMatchObject({
+      name: 'OnboardingValidationError',
+      field: 'preferences.diet',
+      message: 'Unknown diet code.',
     });
 
-    expect(payload).toEqual({
-      diet: 'vegetarian',
-      hardRestrictions: ['dairy', 'egg'],
-      softPreferences: ['mushrooms'],
+    const restrictionError = captureError({
+      diet: null,
+      hardRestrictions: ['gluten', 'mango' as unknown as 'peanut'],
+      softPreferences: [],
     });
-  });
-
-  it('rejects an unknown diet code', () => {
-    expect(() =>
-      buildPreferencesPayload({
-        diet: 'keto' as unknown as null,
-        hardRestrictions: [],
-        softPreferences: [],
-      })
-    ).toThrow(OnboardingValidationError);
+    expect(restrictionError).toBeInstanceOf(OnboardingValidationError);
+    expect(restrictionError).toMatchObject({
+      name: 'OnboardingValidationError',
+      field: 'preferences.hardRestrictions',
+      message: 'Unknown hard restriction code: mango',
+    });
   });
 });

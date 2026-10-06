@@ -30,9 +30,9 @@ import {
   type HardRestrictionCode,
 } from '@/features/preferences/constants/catalog';
 import {
-  OnboardingValidationError,
+  PreferencesValidationError,
   buildPreferencesPayload,
-} from '@/features/preferences/utils/onboardingPayload';
+} from '@/features/preferences/utils/preferencesPayload';
 import {
   canSave,
   initialLoadState,
@@ -184,7 +184,7 @@ export function ProfilePreferencesScreen() {
     try {
       payload = buildPayload();
     } catch (error) {
-      if (error instanceof OnboardingValidationError) {
+      if (error instanceof PreferencesValidationError) {
         Alert.alert('Revisá el formulario', error.message);
         return;
       }

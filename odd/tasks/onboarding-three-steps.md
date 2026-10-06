@@ -76,6 +76,31 @@ The mockup (`docs/design/screens/Onboarding.dc.html`) covers step 1 only.
       (same writer). No behavioral RED: proof is a literal search over the
       onboarding folder plus the existing tests.
 
+### Feature-first follow-up (requested after T3)
+
+The wizard was built where the old screen lived, inside `features/preferences`,
+while `features/onboarding` only holds the API client. The user asked for a
+feature-first layout: onboarding owns its screen, components, utils, constants
+and tests. Dependency direction is one way, onboarding imports preferences,
+never the reverse.
+
+- [x] T4 Split the payload module. `ProfilePreferencesScreen` imports
+      `utils/onboardingPayload`, so moving that file as-is would make the two
+      features import each other. The preference half (`buildPreferencesPayload`,
+      preference validation, its form type and error) becomes
+      `preferences/utils/preferencesPayload.ts`; `buildOnboardingPayload` keeps
+      its exact contract (same `OnboardingValidationError` field and message).
+      Route: delegated. Existing payload tests are the safety net and are only
+      re-pointed, never weakened.
+- [ ] T5 Move onboarding into `src/features/onboarding/` with `git mv`
+      (`screens/`, flat `components/`, `utils/`, `constants/`, `__tests__/`,
+      `index.ts`), update imports, jest mock paths, the Maestro contract test
+      path, the route files and the `docs/THEMING.md` path. Route: delegated.
+      Pure move: no behavior change, proof is the unchanged test count.
+
+Out of scope: the shared top-level folders (`src/components`, `src/services`,
+`src/hooks`, ...) and other features; five worktrees are open on them.
+
 ## Acceptance criteria
 
 - [x] Final payload is still `OnboardingCompletionRequest`, no contract change.
@@ -152,8 +177,19 @@ commit that follows it.
   Per commit, this document included: 2fbf0af 401 + 4, 73db74c 1240 + 456,
   06f5c19 332 + 444. Slice boundaries are the three commits; the chain
   strategy is still to be asked before any pull request is planned.
+- T4 done. Before the edit the focused check ran 11 suites, 90 tests. A
+  characterization test was added first and passed against the untouched
+  builder: invalid preferences reach the caller as `OnboardingValidationError`
+  with field `preferences.diet` / `preferences.hardRestrictions` and the
+  original messages. After the split it still passes. The two
+  `buildPreferencesPayload` cases moved to `preferencesPayload.test.ts`; the
+  one that names the error class now names `PreferencesValidationError`, and
+  a field-and-message case was added next to it. Focused check (preferences,
+  onboarding, Maestro contract): 12 suites, 92 tests passed, none removed.
+  Lint and tsc unchanged from the baseline. `profileScreen.integration.test`
+  does not mock the payload module and needed no change.
 
 ## Next step
 
-Visual pass on a device, then decide the chain strategy and open the pull
-request. No task is left open.
+T5. After that: visual pass on a device, then decide the chain strategy and
+open the pull request.

@@ -5,7 +5,8 @@
 // unit-tested without rendering React or making network calls. The form
 // UI never sends a free-text value for `diet` or `hardRestrictions`;
 // instead it only stores catalog codes and the helper validates them
-// before the POST.
+// before the POST. The preference half of that validation is owned by
+// `preferencesPayload.ts`, which the profile screen uses on its own.
 
 import type {
   CookingSkill,
@@ -14,30 +15,19 @@ import type {
   OnboardingCompletionRequest,
   SlotCookingTime,
   SlotCookingTimesPayload,
-  UserPreferences,
   UserPreferencesPayload,
 } from '@/features/auth/types/auth';
 import {
-  isValidDietCode,
-  isValidHardRestrictionCode,
-  type DietCode,
-  type HardRestrictionCode,
-} from '@/features/preferences/constants/catalog';
-
-export interface OnboardingFormDietState {
-  /** Selected diet code from the catalog, or null when the user picked none. */
-  diet: DietCode | null;
-  /** Selected hard-restriction codes from the catalog. */
-  hardRestrictions: HardRestrictionCode[];
-  /** Free-form soft preferences (NOT catalog-restricted by spec). */
-  softPreferences: string[];
-}
+  PreferencesValidationError,
+  validatePreferences,
+  type PreferencesFormState,
+} from '@/features/preferences/utils/preferencesPayload';
 
 export interface OnboardingFormState {
   displayName: string;
   householdSize: number;
   cookingSkill: CookingSkill;
-  preferences: OnboardingFormDietState;
+  preferences: PreferencesFormState;
   slotCookingTimes: Record<MealSlot, SlotCookingTime>;
 }
 
@@ -49,19 +39,6 @@ export class OnboardingValidationError extends Error {
     super(message);
     this.name = 'OnboardingValidationError';
   }
-}
-
-function sanitizeSoftPreferences(raw: readonly string[]): string[] {
-  const seen = new Set<string>();
-  const out: string[] = [];
-  for (const entry of raw) {
-    const trimmed = entry.trim();
-    if (trimmed.length === 0) continue;
-    if (seen.has(trimmed)) continue;
-    seen.add(trimmed);
-    out.push(trimmed);
-  }
-  return out;
 }
 
 function validateProfile(state: OnboardingFormState): void {
@@ -101,36 +78,23 @@ function validateSlot(slot: MealSlot, value: SlotCookingTime): void {
   }
 }
 
-function validatePreferences(state: OnboardingFormDietState): UserPreferencesPayload {
-  if (state.diet !== null && !isValidDietCode(state.diet)) {
-    throw new OnboardingValidationError('preferences.diet', 'Unknown diet code.');
-  }
-
-  const seen = new Set<HardRestrictionCode>();
-  const validated: HardRestrictionCode[] = [];
-  for (const code of state.hardRestrictions) {
-    if (!isValidHardRestrictionCode(code)) {
-      throw new OnboardingValidationError(
-        'preferences.hardRestrictions',
-        `Unknown hard restriction code: ${String(code)}`
-      );
+// Callers of the onboarding builder only know `OnboardingValidationError`, so
+// a preferences failure is rethrown as one, with the same field and message.
+function validateOnboardingPreferences(state: PreferencesFormState): UserPreferencesPayload {
+  try {
+    return validatePreferences(state);
+  } catch (error) {
+    if (error instanceof PreferencesValidationError) {
+      throw new OnboardingValidationError(error.field, error.message);
     }
-    if (seen.has(code)) continue;
-    seen.add(code);
-    validated.push(code);
+    throw error;
   }
-
-  return {
-    diet: state.diet,
-    hardRestrictions: validated,
-    softPreferences: sanitizeSoftPreferences(state.softPreferences),
-  };
 }
 
 export function buildOnboardingPayload(state: OnboardingFormState): OnboardingCompletionRequest {
   validateProfile(state);
 
-  const preferences = validatePreferences(state.preferences);
+  const preferences = validateOnboardingPreferences(state.preferences);
 
   const slots: SlotCookingTimesPayload = {
     breakfast: state.slotCookingTimes.breakfast,
@@ -148,10 +112,4 @@ export function buildOnboardingPayload(state: OnboardingFormState): OnboardingCo
     preferences,
     slotCookingTimes: slots,
   };
-}
-
-// Profile (post-onboarding) preferences update. Same validation as
-// onboarding but without the profile/slot fields.
-export function buildPreferencesPayload(state: OnboardingFormDietState): UserPreferences {
-  return validatePreferences(state);
 }
