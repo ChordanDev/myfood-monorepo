@@ -18,7 +18,14 @@
     "test": "jest"
   },
   "jest": {
-    "preset": "jest-expo"
+    "preset": "jest-expo",
+    "testPathIgnorePatterns": [
+      "/node_modules/",
+      "<rootDir>/.claude/"
+    ],
+    "modulePathIgnorePatterns": [
+      "<rootDir>/.claude/"
+    ]
   },
   "dependencies": {
     "@expo-google-fonts/inter": "^0.4.2",
