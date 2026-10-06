@@ -99,8 +99,10 @@ export function Calendar({
               const isSelectable = isSelectableDate(dateString, planByDate, today);
               const isSelected = activeSelectedDate === dateString;
               const isToday = dateString === todayKey;
-              const isPlanned = Boolean(planByDate[dateString]?.length);
               const isPendingConfirmation = isPendingDate(dateString, planByDate, today);
+              // A past day with nothing left to confirm reads like a day without a plan.
+              const isSettledPastDay = dayDate < today && !isPendingConfirmation;
+              const isPlanned = Boolean(planByDate[dateString]?.length) && !isSettledPastDay;
 
               const textColor = isSelected
                 ? theme.textBlack
