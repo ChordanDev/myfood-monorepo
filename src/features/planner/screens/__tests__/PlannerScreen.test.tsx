@@ -9,6 +9,7 @@ import {
 import { PlannerScreen } from '../PlannerScreen';
 
 const mockUseReducedMotion = jest.fn(() => false);
+const mockTypingIndicatorRender = jest.fn();
 
 jest.mock('react-native', () => {
   const ReactMock = jest.requireActual('react') as typeof import('react');
@@ -50,7 +51,10 @@ jest.mock('../../components', () => ({
   ...(() => {
     const { Text: MockText } = jest.requireActual('react-native') as typeof import('react-native');
     return {
-      PlannerTypingIndicator: () => <MockText testID="planner-typing-indicator" />,
+      PlannerTypingIndicator: () => {
+        mockTypingIndicatorRender();
+        return <MockText testID="planner-typing-indicator" />;
+      },
     };
   })(),
   PlannerHeader: 'PlannerHeader',
@@ -105,6 +109,76 @@ function reportCommittedTurnLayout(tree: ReturnType<typeof create>) {
     });
     getScrollView(tree).props.onContentSizeChange(390, 510 + spacerHeight + 196);
   });
+}
+
+interface TurnLayout {
+  activeTurnY: number;
+  trailingSpaceY: number;
+}
+
+function renderLaidOutHarness(): ScrollHarness {
+  const harness = renderHarness();
+
+  act(() => {
+    jest.advanceTimersByTime(16);
+    getScrollView(harness.tree).props.onLayout({ nativeEvent: { layout: { height: 700 } } });
+  });
+
+  return harness;
+}
+
+function getTrailingSpace(tree: ReturnType<typeof create>): ReactTestInstance {
+  return tree.root.findByProps({ testID: 'planner-turn-trailing-space' });
+}
+
+function getTrailingSpaceHeight(tree: ReturnType<typeof create>): number {
+  return StyleSheet.flatten(getTrailingSpace(tree).props.style).height;
+}
+
+function getBottomClearance(tree: ReturnType<typeof create>): number {
+  return getScrollView(tree).props.contentContainerStyle.paddingBottom;
+}
+
+function reportActiveTurnY(tree: ReturnType<typeof create>, y: number) {
+  act(() => {
+    tree.root.findByProps({ testID: 'planner-active-turn-message' }).props.onLayout({
+      nativeEvent: { layout: { y } },
+    });
+  });
+}
+
+function reportTrailingSpaceY(
+  tree: ReturnType<typeof create>,
+  y: number,
+  height = getTrailingSpaceHeight(tree)
+) {
+  act(() => {
+    getTrailingSpace(tree).props.onLayout({ nativeEvent: { layout: { y, height } } });
+  });
+}
+
+// The content ends with the trailing space and the bottom clearance, as rendered right now.
+function getContentHeight(tree: ReturnType<typeof create>, trailingSpaceY: number): number {
+  return trailingSpaceY + getTrailingSpaceHeight(tree) + getBottomClearance(tree);
+}
+
+function reportContentHeight(tree: ReturnType<typeof create>, height: number) {
+  act(() => {
+    getScrollView(tree).props.onContentSizeChange(390, height);
+  });
+}
+
+function reportTurnLayout(tree: ReturnType<typeof create>, layout: TurnLayout) {
+  reportActiveTurnY(tree, layout.activeTurnY);
+  reportTrailingSpaceY(tree, layout.trailingSpaceY);
+  reportContentHeight(tree, getContentHeight(tree, layout.trailingSpaceY));
+}
+
+// While it reserves anything, the trailing space makes the content exactly as tall as the anchored
+// offset needs (the active turn 16dp below the top of the 700dp viewport), so nothing scrolls past.
+function expectAnchoredOffsetToBeTheFurthest(tree: ReturnType<typeof create>, layout: TurnLayout) {
+  expect(getTrailingSpaceHeight(tree)).toBeGreaterThan(0);
+  expect(getContentHeight(tree, layout.trailingSpaceY)).toBe(layout.activeTurnY - 16 + 700);
 }
 
 beforeEach(() => {
@@ -188,7 +262,7 @@ describe('PlannerScreen settled turn anchoring', () => {
 
     const activeTurn = tree.root.findByProps({ testID: 'planner-active-turn-message' });
     act(() => {
-      getScrollView(tree).props.onContentSizeChange(390, 1109);
+      getScrollView(tree).props.onContentSizeChange(390, 1108);
       activeTurn.props.onLayout({ nativeEvent: { layout: { y: 426 } } });
     });
     expect(scrollTo).not.toHaveBeenCalled();
@@ -216,7 +290,7 @@ describe('PlannerScreen settled turn anchoring', () => {
     act(() => tree.unmount());
   });
 
-  it('keeps viewport-derived trailing extent after typing becomes a short reply', () => {
+  it('gives a short reply the room it takes from the trailing extent', () => {
     const { tree, scrollTo } = renderHarness();
 
     act(() => {
@@ -232,24 +306,23 @@ describe('PlannerScreen settled turn anchoring', () => {
       PLANNER_CHAT_INPUT_CLEARANCE +
       28;
     const expectedTrailingExtent = 700 - expectedBottomClearance - 16;
-    expect(
-      StyleSheet.flatten(
-        tree.root.findByProps({ testID: 'planner-turn-trailing-space' }).props.style
-      ).height
-    ).toBe(expectedTrailingExtent);
+    expect(getTrailingSpaceHeight(tree)).toBe(expectedTrailingExtent);
 
-    reportCommittedTurnLayout(tree);
+    // A 54dp message, the 28dp list gap, a 24dp typing indicator and the gap again.
+    reportTurnLayout(tree, { activeTurnY: 426, trailingSpaceY: 560 });
     act(() => jest.advanceTimersByTime(16));
     expect(scrollTo).toHaveBeenCalledTimes(1);
+    expect(getTrailingSpaceHeight(tree)).toBe(expectedTrailingExtent - 134);
+    expectAnchoredOffsetToBeTheFurthest(tree, { activeTurnY: 426, trailingSpaceY: 560 });
 
     act(() => jest.runOnlyPendingTimers());
 
     expect(tree.root.findAllByProps({ testID: 'planner-typing-indicator' })).toHaveLength(0);
-    expect(
-      StyleSheet.flatten(
-        tree.root.findByProps({ testID: 'planner-turn-trailing-space' }).props.style
-      ).height
-    ).toBe(expectedTrailingExtent);
+    // The 52dp reply takes the place of the typing indicator.
+    reportTrailingSpaceY(tree, 588);
+    expect(getTrailingSpaceHeight(tree)).toBe(expectedTrailingExtent - 162);
+    expectAnchoredOffsetToBeTheFurthest(tree, { activeTurnY: 426, trailingSpaceY: 588 });
+    expect(getContentHeight(tree, 588)).toBe(1110);
     expect(scrollTo).toHaveBeenCalledTimes(1);
 
     const renderedText = tree.root.findAllByType(Text).map((node) => node.props.children);
@@ -362,6 +435,284 @@ describe('PlannerScreen settled turn anchoring', () => {
     act(() => jest.advanceTimersByTime(16));
 
     expect(scrollTo).toHaveBeenCalledWith({ y: 410, animated: false });
+    act(() => tree.unmount());
+  });
+
+  it('anchors when pixel rounding leaves the content half a point short', () => {
+    const { tree, scrollTo } = renderLaidOutHarness();
+
+    submitMessage(tree, 'Plan dinner');
+    reportActiveTurnY(tree, 426);
+    reportTrailingSpaceY(tree, 560);
+    // The anchored offset needs 410 + 700.
+    reportContentHeight(tree, 1109.5);
+    act(() => jest.advanceTimersByTime(16));
+
+    expect(scrollTo).toHaveBeenCalledTimes(1);
+    expect(scrollTo).toHaveBeenCalledWith({ y: 410, animated: true });
+    act(() => tree.unmount());
+  });
+
+  it('does not anchor while the content is two points short', () => {
+    const { tree, scrollTo } = renderLaidOutHarness();
+
+    submitMessage(tree, 'Plan dinner');
+    reportActiveTurnY(tree, 426);
+    reportTrailingSpaceY(tree, 560);
+    reportContentHeight(tree, 1108);
+    act(() => jest.advanceTimersByTime(32));
+
+    expect(scrollTo).not.toHaveBeenCalled();
+    act(() => tree.unmount());
+  });
+
+  it('applies the same rounding tolerance on the frame that issues the scroll', () => {
+    const { tree, scrollTo } = renderLaidOutHarness();
+
+    submitMessage(tree, 'Plan dinner');
+    reportActiveTurnY(tree, 426);
+    reportTrailingSpaceY(tree, 560);
+
+    // The content shrinks between the readiness check and the frame it scheduled.
+    reportContentHeight(tree, 1110);
+    reportContentHeight(tree, 1108);
+    act(() => jest.advanceTimersByTime(16));
+    expect(scrollTo).not.toHaveBeenCalled();
+
+    reportContentHeight(tree, 1110);
+    reportContentHeight(tree, 1109.5);
+    act(() => jest.advanceTimersByTime(16));
+    expect(scrollTo).toHaveBeenCalledTimes(1);
+    expect(scrollTo).toHaveBeenCalledWith({ y: 410, animated: true });
+
+    act(() => tree.unmount());
+  });
+});
+
+describe('PlannerScreen turn trailing space', () => {
+  it('reserves nothing before the first send', () => {
+    const { tree } = renderLaidOutHarness();
+
+    reportTrailingSpaceY(tree, 426);
+
+    expect(getTrailingSpaceHeight(tree)).toBe(0);
+    act(() => tree.unmount());
+  });
+
+  it.each([
+    { measured: 'neither row', activeTurnY: null, trailingSpaceY: null },
+    { measured: 'only the active turn', activeTurnY: 426, trailingSpaceY: null },
+    { measured: 'only the trailing space', activeTurnY: null, trailingSpaceY: 560 },
+  ])('reserves the full extent while $measured is measured', ({ activeTurnY, trailingSpaceY }) => {
+    const { tree } = renderLaidOutHarness();
+
+    // Laid out before the send, where the new message is about to go.
+    reportTrailingSpaceY(tree, 426);
+    submitMessage(tree, 'Plan dinner');
+    if (activeTurnY !== null) reportActiveTurnY(tree, activeTurnY);
+    if (trailingSpaceY !== null) reportTrailingSpaceY(tree, trailingSpaceY);
+
+    // The usable viewport (700 - 192) below the 16dp anchor inset.
+    expect(getTrailingSpaceHeight(tree)).toBe(492);
+    act(() => tree.unmount());
+  });
+
+  it('reserves only what the turn leaves empty once both rows are measured', () => {
+    const { tree, scrollTo } = renderLaidOutHarness();
+
+    submitMessage(tree, 'Plan dinner');
+    // A 54dp message, the 28dp list gap, a 24dp typing indicator and the gap again.
+    reportActiveTurnY(tree, 426);
+    reportTrailingSpaceY(tree, 560);
+
+    expect(getBottomClearance(tree)).toBe(192);
+    expect(getTrailingSpaceHeight(tree)).toBe(358);
+    expectAnchoredOffsetToBeTheFurthest(tree, { activeTurnY: 426, trailingSpaceY: 560 });
+
+    // The content is now exactly as tall as the anchored offset needs.
+    reportContentHeight(tree, getContentHeight(tree, 560));
+    act(() => jest.advanceTimersByTime(16));
+    expect(scrollTo).toHaveBeenCalledTimes(1);
+    expect(scrollTo).toHaveBeenCalledWith({ y: 410, animated: true });
+    expect(getContentHeight(tree, 560) - 700).toBe(scrollTo.mock.calls[0][0].y);
+
+    act(() => tree.unmount());
+  });
+
+  it('keeps the content height when the reply replaces the typing indicator', () => {
+    const { tree } = renderLaidOutHarness();
+
+    submitMessage(tree, 'Plan dinner');
+    reportTurnLayout(tree, { activeTurnY: 426, trailingSpaceY: 560 });
+    const contentHeightWhileThinking = getContentHeight(tree, 560);
+
+    act(() => jest.runOnlyPendingTimers());
+    expect(tree.root.findAllByProps({ testID: 'planner-typing-indicator' })).toHaveLength(0);
+    // The 52dp reply is 28dp taller than the typing indicator.
+    reportTrailingSpaceY(tree, 588);
+
+    expect(getTrailingSpaceHeight(tree)).toBe(330);
+    expect(getContentHeight(tree, 588)).toBe(contentHeightWhileThinking);
+    expectAnchoredOffsetToBeTheFurthest(tree, { activeTurnY: 426, trailingSpaceY: 588 });
+
+    act(() => tree.unmount());
+  });
+
+  it('keeps reserving until the turn fills the usable viewport', () => {
+    const { tree } = renderLaidOutHarness();
+
+    submitMessage(tree, 'Plan dinner');
+    reportActiveTurnY(tree, 426);
+    reportTrailingSpaceY(tree, 917);
+
+    expect(getTrailingSpaceHeight(tree)).toBe(1);
+    expectAnchoredOffsetToBeTheFurthest(tree, { activeTurnY: 426, trailingSpaceY: 917 });
+    act(() => tree.unmount());
+  });
+
+  it.each([918, 1500])(
+    'reserves nothing below a turn that ends at %p, past the usable viewport',
+    (trailingSpaceY) => {
+      const { tree } = renderLaidOutHarness();
+
+      submitMessage(tree, 'Plan dinner');
+      reportActiveTurnY(tree, 426);
+      reportTrailingSpaceY(tree, trailingSpaceY);
+
+      expect(getTrailingSpaceHeight(tree)).toBe(0);
+      act(() => tree.unmount());
+    }
+  );
+
+  it('keeps the anchored offset the furthest one when the composer height changes', () => {
+    const { tree } = renderLaidOutHarness();
+
+    submitMessage(tree, 'Plan dinner');
+    reportActiveTurnY(tree, 426);
+    reportTrailingSpaceY(tree, 560);
+    expect(getTrailingSpaceHeight(tree)).toBe(358);
+
+    const composer = tree.root.findByProps({ value: '', isThinking: true });
+    act(() => {
+      composer.props.onHeightChange(180);
+    });
+    expect(getBottomClearance(tree)).toBe(300);
+    expect(getTrailingSpaceHeight(tree)).toBe(250);
+    expectAnchoredOffsetToBeTheFurthest(tree, { activeTurnY: 426, trailingSpaceY: 560 });
+
+    act(() => {
+      composer.props.onHeightChange(312);
+    });
+    expect(getBottomClearance(tree)).toBe(432);
+    expect(getTrailingSpaceHeight(tree)).toBe(118);
+    expectAnchoredOffsetToBeTheFurthest(tree, { activeTurnY: 426, trailingSpaceY: 560 });
+
+    act(() => {
+      composer.props.onHeightChange(PLANNER_CHAT_INPUT_MIN_HEIGHT);
+    });
+    expect(getTrailingSpaceHeight(tree)).toBe(358);
+    expectAnchoredOffsetToBeTheFurthest(tree, { activeTurnY: 426, trailingSpaceY: 560 });
+
+    act(() => tree.unmount());
+  });
+
+  it('reserves nothing once a taller composer leaves the turn no spare room', () => {
+    const { tree } = renderLaidOutHarness();
+
+    submitMessage(tree, 'Plan dinner');
+    // A 360dp turn fits the 492dp below the anchor with 132dp to spare.
+    reportActiveTurnY(tree, 426);
+    reportTrailingSpaceY(tree, 786);
+    expect(getTrailingSpaceHeight(tree)).toBe(132);
+    expectAnchoredOffsetToBeTheFurthest(tree, { activeTurnY: 426, trailingSpaceY: 786 });
+
+    // A 312dp composer leaves 252dp below the anchor.
+    act(() => {
+      tree.root.findByProps({ value: '', isThinking: true }).props.onHeightChange(312);
+    });
+    expect(getTrailingSpaceHeight(tree)).toBe(0);
+
+    // No usable viewport is left at all.
+    act(() => {
+      tree.root.findByProps({ value: '', isThinking: true }).props.onHeightChange(600);
+    });
+    expect(getTrailingSpaceHeight(tree)).toBe(0);
+
+    act(() => tree.unmount());
+  });
+
+  it('falls back to the full extent when another message is sent', () => {
+    const { tree, scrollTo } = renderLaidOutHarness();
+
+    submitMessage(tree, 'First request');
+    const firstTurnLayout = tree.root.findByProps({
+      testID: 'planner-active-turn-message',
+    }).props.onLayout;
+    reportTurnLayout(tree, { activeTurnY: 426, trailingSpaceY: 560 });
+    act(() => jest.runOnlyPendingTimers());
+    reportTrailingSpaceY(tree, 588);
+    expect(getTrailingSpaceHeight(tree)).toBe(330);
+    scrollTo.mockClear();
+
+    submitMessage(tree, 'Second request');
+    expect(getTrailingSpaceHeight(tree)).toBe(492);
+
+    // Layouts left over from the first turn do not size the second one.
+    act(() => {
+      firstTurnLayout({ nativeEvent: { layout: { y: 426 } } });
+    });
+    reportTrailingSpaceY(tree, 588);
+    expect(getTrailingSpaceHeight(tree)).toBe(492);
+
+    // The second message goes where the trailing space was.
+    reportActiveTurnY(tree, 588);
+    expect(getTrailingSpaceHeight(tree)).toBe(492);
+
+    reportTrailingSpaceY(tree, 722);
+    expect(getTrailingSpaceHeight(tree)).toBe(358);
+    expectAnchoredOffsetToBeTheFurthest(tree, { activeTurnY: 588, trailingSpaceY: 722 });
+
+    reportContentHeight(tree, getContentHeight(tree, 722));
+    act(() => jest.advanceTimersByTime(16));
+    expect(scrollTo).toHaveBeenCalledTimes(1);
+    expect(scrollTo).toHaveBeenCalledWith({ y: 572, animated: true });
+
+    act(() => tree.unmount());
+  });
+
+  it('keeps sizing the trailing space after a user drag cancels the anchor', () => {
+    const { tree, scrollTo } = renderLaidOutHarness();
+
+    submitMessage(tree, 'Plan dinner');
+    act(() => {
+      getScrollView(tree).props.onScrollBeginDrag();
+    });
+    reportTurnLayout(tree, { activeTurnY: 426, trailingSpaceY: 560 });
+    act(() => jest.advanceTimersByTime(16));
+
+    expect(getTrailingSpaceHeight(tree)).toBe(358);
+    expect(scrollTo).not.toHaveBeenCalled();
+    act(() => tree.unmount());
+  });
+
+  it('does not feed the height it gives the trailing space back into the reservation', () => {
+    const { tree } = renderLaidOutHarness();
+
+    submitMessage(tree, 'Plan dinner');
+    reportActiveTurnY(tree, 426);
+    // First laid out with the full reservation it was rendered with.
+    reportTrailingSpaceY(tree, 560, 492);
+    expect(getTrailingSpaceHeight(tree)).toBe(358);
+
+    // The native side lays the trailing space out again for every height it is given.
+    mockTypingIndicatorRender.mockClear();
+    reportTrailingSpaceY(tree, 560, 358);
+    reportTrailingSpaceY(tree, 560, 0);
+    reportTrailingSpaceY(tree, 560, 492);
+    reportActiveTurnY(tree, 426);
+
+    expect(getTrailingSpaceHeight(tree)).toBe(358);
+    expect(mockTypingIndicatorRender).not.toHaveBeenCalled();
     act(() => tree.unmount());
   });
 });
