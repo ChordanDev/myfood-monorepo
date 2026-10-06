@@ -1,4 +1,9 @@
-import type { CookingSkill, HungerLevel, MealSlot } from '@/features/auth/types/auth';
+import type {
+  AuthAccountType,
+  CookingSkill,
+  HungerLevel,
+  MealSlot,
+} from '@/features/auth/types/auth';
 
 export const COOKING_SKILLS: readonly CookingSkill[] = ['beginner', 'intermediate', 'advanced'];
 export const HUNGER_LEVELS: readonly HungerLevel[] = ['light', 'normal', 'strong'];
@@ -24,4 +29,10 @@ export const HUNGER_LEVEL_LABELS: Record<HungerLevel, string> = {
   light: 'Liviano',
   normal: 'Normal',
   strong: 'Abundante',
+};
+
+export const ACCOUNT_TYPE_LABELS: Record<AuthAccountType, string> = {
+  individual: 'Individual',
+  family: 'Familiar',
+  family_plus: 'Familiar Plus',
 };
