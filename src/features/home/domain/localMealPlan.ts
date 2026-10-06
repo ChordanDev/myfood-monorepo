@@ -52,6 +52,15 @@ export function getClosestHomeMealType(availableMealTypes: HomeMealType[], now: 
   });
 }
 
+export function getDefaultHomeMealType(entries: MealPlanEntry[], now: Date): HomeMealType | null {
+  const uncookedMealTypes = getAvailableHomeMealTypes(entries.filter((entry) => !entry.isCooked));
+
+  return (
+    getClosestHomeMealType(uncookedMealTypes, now) ??
+    getClosestHomeMealType(getAvailableHomeMealTypes(entries), now)
+  );
+}
+
 export function getSelectedLocalMeal(
   entries: MealPlanEntry[],
   recipes: MasterRecipe[],

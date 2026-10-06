@@ -10,21 +10,6 @@ import Animated, {
   withTiming,
 } from 'react-native-reanimated';
 import { useAnimatedThemeStyle } from '@/hooks/useAnimatedThemeStyle';
-import type { HomeMealType } from '../domain/localMealPlan';
-
-export type EatTodayDestinationType = Extract<HomeMealType, 'almuerzo' | 'cena'>;
-
-export const EAT_TODAY_DESTINATION_TYPES: EatTodayDestinationType[] = ['almuerzo', 'cena'];
-
-export const EAT_TODAY_CUTOFF_MINUTES: Record<EatTodayDestinationType, number> = {
-  almuerzo: 15 * 60,
-  cena: 22 * 60,
-};
-
-export const EAT_TODAY_LABEL: Record<EatTodayDestinationType, string> = {
-  almuerzo: 'Mediodía',
-  cena: 'Cena',
-};
 
 interface EatTodayButtonProps {
   leftPercent: number;

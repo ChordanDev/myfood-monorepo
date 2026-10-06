@@ -4,7 +4,7 @@ import { useMealPlanStore } from '@/store';
 import {
   buildLocalMealPlanByDate,
   getAvailableHomeMealTypes,
-  getClosestHomeMealType,
+  getDefaultHomeMealType,
   getInitialSelectedDate,
   getSelectedLocalMeal,
 } from '../domain/localMealPlan';
@@ -45,9 +45,9 @@ export function useHomeState() {
   useEffect(() => {
     if (!selectedMealType || !availableMealTypes.includes(selectedMealType)) {
       // eslint-disable-next-line react-hooks/set-state-in-effect -- Keeps the selected meal type valid for the selected date.
-      setSelectedMealType(getClosestHomeMealType(availableMealTypes, new Date()));
+      setSelectedMealType(getDefaultHomeMealType(mealsForSelectedDate, new Date()));
     }
-  }, [availableMealTypes, selectedDate, selectedMealType]);
+  }, [availableMealTypes, mealsForSelectedDate, selectedDate, selectedMealType]);
 
   const selectedMeal = useMemo(() => {
     return getSelectedLocalMeal(mealsForSelectedDate, recipes, selectedMealType);

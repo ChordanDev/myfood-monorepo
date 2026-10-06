@@ -2,16 +2,9 @@ import { Alert, StyleSheet, View } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
 import { AddCircleButton, NoisyBackground, SafeAreaContent, TitlePrimary } from '@/components';
-import {
-  Calendar,
-  EatTodayButton,
-  EAT_TODAY_CUTOFF_MINUTES,
-  EAT_TODAY_DESTINATION_TYPES,
-  EAT_TODAY_LABEL,
-  FloatingFoodImage,
-  FoodTypeSwitcher,
-} from '../components';
+import { Calendar, EatTodayButton, FloatingFoodImage, FoodTypeSwitcher } from '../components';
 import { FoodCard } from '../components/FoodCard';
+import { EAT_TODAY_LABEL, getAvailableEatTodayDestinations } from '../domain/eatToday';
 import { useHomeResponsiveScale } from '../hooks/useHomeResponsiveScale';
 import { useHomeState } from '../hooks/useHomeState';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -59,25 +52,15 @@ export function HomeScreen() {
     }
   };
 
-  const getAvailableEatTodayDestinations = () => {
-    const now = new Date();
-    const currentMinutes = now.getHours() * 60 + now.getMinutes();
-    const todayEntries = planByDate[todayKey] ?? [];
-
-    return EAT_TODAY_DESTINATION_TYPES.filter((mealType) => {
-      const cutoffMinutes = EAT_TODAY_CUTOFF_MINUTES[mealType];
-      const todayEntry = todayEntries.find((entry) => entry.type === mealType);
-
-      return currentMinutes < cutoffMinutes && !todayEntry?.isCooked;
-    });
-  };
-
   const handleEatToday = () => {
     if (!selectedDate || !selectedMeal || !selectedMealType || isTodaySelected) {
       return;
     }
 
-    const availableDestinations = getAvailableEatTodayDestinations();
+    const availableDestinations = getAvailableEatTodayDestinations(
+      planByDate[todayKey] ?? [],
+      new Date()
+    );
 
     if (!availableDestinations.length) {
       Alert.alert(
