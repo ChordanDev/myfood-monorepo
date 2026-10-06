@@ -10,11 +10,11 @@ import type { CookingSkill, HungerLevel, MealSlot } from '@/features/auth/types/
 import type { DietCode, HardRestrictionCode } from '@/features/preferences/constants/catalog';
 import {
   HouseholdStep,
-  MealTimesSection,
+  MealTimesStep,
   OnboardingFooter,
   OnboardingProgress,
   OnboardingStepHeading,
-  PreferencesSection,
+  PreferencesStep,
 } from '@/features/preferences/components/onboarding';
 import {
   OnboardingValidationError,
@@ -336,7 +336,7 @@ export function OnboardingScreen({ previewMode = false }: OnboardingScreenProps)
           ) : null}
 
           {step === 'preferences' ? (
-            <PreferencesSection
+            <PreferencesStep
               diet={diet}
               hardRestrictions={hardRestrictions}
               onDietChange={editing(setDiet)}
@@ -348,7 +348,7 @@ export function OnboardingScreen({ previewMode = false }: OnboardingScreenProps)
           ) : null}
 
           {step === 'mealTimes' ? (
-            <MealTimesSection
+            <MealTimesStep
               onSlotCustomChange={editing(handleSlotCustomChange)}
               onSlotHungerChange={editing(handleSlotHungerChange)}
               onSlotModeChange={editing(handleSlotModeChange)}

@@ -70,7 +70,7 @@ The mockup (`docs/design/screens/Onboarding.dc.html`) covers step 1 only.
       control, step 1 to the mockup with the diners stepper. Steps 2 and 3
       render the existing sections. Route: delegated (screen plus components
       plus tests). Test-first: step-navigation tests RED before the rewrite.
-- [ ] T3 Palette-only steps 2 and 3. Restyle preferences and meal-time
+- [x] T3 Palette-only steps 2 and 3. Restyle preferences and meal-time
       components to the step 1 language, remove every color literal and the
       unused hero/section card, update `docs/THEMING.md`. Route: delegated
       (same writer). No behavioral RED: proof is a literal search over the
@@ -78,10 +78,10 @@ The mockup (`docs/design/screens/Onboarding.dc.html`) covers step 1 only.
 
 ## Acceptance criteria
 
-- [ ] Final payload is still `OnboardingCompletionRequest`, no contract change.
-- [ ] Per-step validation; invalid data never advances.
-- [ ] Default palette, no color literal in onboarding files.
-- [ ] `onboardingPayload.test.ts` green and step-navigation tests added.
+- [x] Final payload is still `OnboardingCompletionRequest`, no contract change.
+- [x] Per-step validation; invalid data never advances.
+- [x] Default palette, no color literal in onboarding files.
+- [x] `onboardingPayload.test.ts` green and step-navigation tests added.
 
 ## Checks
 
@@ -113,8 +113,8 @@ commit that follows it.
   suite ran no test because the module it imports did not exist yet). GREEN:
   2 suites, 28 tests passed. Focused check: 10 suites, 80 tests passed. Lint
   and tsc unchanged from the baseline.
-- T2 done. RED: the 9 cases of `onboardingScreen.steps.test.tsx` failed
-  against the single-scroll screen (no "Paso 1 de 3", no CONTINUAR, no
+- T2 done in 73db74c. RED: the 9 cases of `onboardingScreen.steps.test.tsx`
+  failed against the single-scroll screen (no "Paso 1 de 3", no CONTINUAR, no
   "Nombre para mostrar" input). GREEN: 9 passed. The integration test keeps
   its five cases: its mocks gained `ShadowSurface`, the two catalog guards and
   the two palette tokens the screen now reads, and the preview case walks
@@ -129,7 +129,26 @@ commit that follows it.
     target that focuses its input; the scroll view remounts per step so each
     step starts at the top; `ShadowSurface` supplies the mockup's card and
     button shadow.
+- T3 done. Proof: the literal search (hex, `rgb()`/`rgba()`, `'transparent'`)
+  over the onboarding folder and `OnboardingScreen.tsx` returns nothing, not
+  even a shadow color, because the shadow comes from the shared
+  `ShadowSurface`. Removed `OnboardingChip`, `OnboardingSegmentChip` and
+  `OnboardingSectionCard` (the hero and `HouseholdSection` left in T2);
+  nothing outside the onboarding folder imported them. `docs/THEMING.md`
+  records onboarding as decided and keeps auth open.
+  - One behavior change, test-first: the "0 min" quick preset is no longer
+    offered, since step 3 rejects it and "No cocino" already means zero. RED
+    observed by disabling the filter (the list came back with "0 min"), GREEN
+    with it restored.
+  - Closure checks: `npx jest` 38 suites, 37 passed, 1 failed; 417 tests, 415
+    passed, 2 failed, the same two baseline failures in
+    `authErrorCodeContract.test.ts`. Focused check: 11 suites, 90 tests
+    passed. `npm run lint`: 0 errors, the 7 baseline warnings, Prettier clean.
+    `npx tsc --noEmit`: the 22 baseline errors, none new.
+  - Not verified on a simulator: layout, keyboard behavior and the look of
+    steps 2 and 3 (which have no mockup) need a visual pass.
 
 ## Next step
 
-T3.
+Visual pass on a device, then decide the chain strategy and open the pull
+request. No task is left open.

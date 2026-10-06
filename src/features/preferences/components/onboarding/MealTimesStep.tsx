@@ -1,35 +1,30 @@
+import { View } from 'react-native';
 import type { HungerLevel, MealSlot } from '@/features/auth/types/auth';
+import type { RecipeThemeConfig } from '@/types/domain';
 import { MEAL_SLOTS } from '@/features/preferences/constants/onboardingOptions';
-import {
-  OnboardingSectionCard,
-  type OnboardingTheme,
-} from '@/features/preferences/components/onboarding/OnboardingSectionCard';
 import { SlotEditor } from '@/features/preferences/components/onboarding/SlotEditor';
 import type { SlotFormState, SlotMode } from '@/features/preferences/utils/onboardingSlot';
 
-interface MealTimesSectionProps {
+interface MealTimesStepProps {
   onSlotCustomChange: (slot: MealSlot, text: string) => void;
   onSlotHungerChange: (slot: MealSlot, hunger: HungerLevel) => void;
   onSlotModeChange: (slot: MealSlot, mode: SlotMode) => void;
   onSlotPresetChange: (slot: MealSlot, value: number) => void;
   slots: Record<MealSlot, SlotFormState>;
-  theme: OnboardingTheme;
+  theme: RecipeThemeConfig;
 }
 
-export function MealTimesSection({
+// Step 3, "Tiempos por comida": one card per meal of the day.
+export function MealTimesStep({
   onSlotCustomChange,
   onSlotHungerChange,
   onSlotModeChange,
   onSlotPresetChange,
   slots,
   theme,
-}: MealTimesSectionProps) {
+}: MealTimesStepProps) {
   return (
-    <OnboardingSectionCard
-      kicker="Por último, rutina real"
-      subtitle="Elegí tiempo y hambre por comida. Mejor una respuesta honesta que un plan imposible."
-      theme={theme}
-      title="Tiempos por comida">
+    <View style={{ gap: 14 }}>
       {MEAL_SLOTS.map((slot) => (
         <SlotEditor
           key={slot}
@@ -42,6 +37,6 @@ export function MealTimesSection({
           theme={theme}
         />
       ))}
-    </OnboardingSectionCard>
+    </View>
   );
 }

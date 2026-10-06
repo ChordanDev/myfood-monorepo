@@ -387,6 +387,19 @@ describe('OnboardingScreen — three steps', () => {
     expect(inlineError(root)).toBeNull();
   });
 
+  it('offers only quick times the step accepts: no "0 min" preset', () => {
+    const { root } = renderOnboarding();
+    goToMealTimes(root);
+
+    pressChip(root, 'Rápido', 0);
+
+    const presets = root
+      .findAll((node) => node.props.accessibilityRole === 'radio')
+      .map(textContent)
+      .filter((label) => label.endsWith(' min'));
+    expect([...new Set(presets)]).toEqual(['10 min', '20 min', '30 min', '45 min', '60 min']);
+  });
+
   it('submits the payload built by buildOnboardingPayload and leaves for "/"', async () => {
     const completeOnboarding = jest.fn().mockResolvedValue(undefined);
     const { root } = renderOnboarding({ completeOnboarding });

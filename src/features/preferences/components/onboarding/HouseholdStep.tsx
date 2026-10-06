@@ -1,8 +1,7 @@
 import { useRef } from 'react';
-import { TextInput, View } from 'react-native';
+import { type TextInput, View } from 'react-native';
 import type { CookingSkill } from '@/features/auth/types/auth';
 import type { RecipeThemeConfig } from '@/types/domain';
-import { withOpacity } from '@/utils/colors';
 import {
   COOKING_SKILL_LABELS,
   COOKING_SKILLS,
@@ -11,6 +10,7 @@ import { MAX_DISPLAY_NAME_LENGTH } from '@/features/preferences/utils/onboarding
 import { HouseholdSizeStepper } from '@/features/preferences/components/onboarding/HouseholdSizeStepper';
 import { OnboardingChoiceChip } from '@/features/preferences/components/onboarding/OnboardingChoiceChip';
 import { OnboardingField } from '@/features/preferences/components/onboarding/OnboardingField';
+import { OnboardingTextInput } from '@/features/preferences/components/onboarding/OnboardingTextInput';
 
 interface HouseholdStepProps {
   cookingSkill: CookingSkill;
@@ -40,7 +40,7 @@ export function HouseholdStep({
         label="Nombre para mostrar"
         onPress={() => nameInputRef.current?.focus()}
         theme={theme}>
-        <TextInput
+        <OnboardingTextInput
           ref={nameInputRef}
           accessibilityLabel="Nombre para mostrar"
           autoCapitalize="words"
@@ -48,16 +48,9 @@ export function HouseholdStep({
           maxLength={MAX_DISPLAY_NAME_LENGTH}
           onChangeText={onDisplayNameChange}
           placeholder="Cómo te llamamos"
-          placeholderTextColor={withOpacity(theme.textBlack, 0.45)}
           returnKeyType="done"
-          selectionColor={theme.colorDark}
-          style={{
-            color: theme.textBlack,
-            fontFamily: 'Inter_600SemiBold',
-            fontSize: 20,
-            padding: 0,
-          }}
           textContentType="name"
+          theme={theme}
           value={displayName}
         />
       </OnboardingField>

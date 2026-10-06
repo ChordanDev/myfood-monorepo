@@ -51,6 +51,21 @@ export function OnboardingField({
   );
 }
 
+// A line of help under the label, or the caption of a group inside a card.
+export function OnboardingFieldHint({ text, theme }: { text: string; theme: RecipeThemeConfig }) {
+  return (
+    <Text
+      style={{
+        color: withOpacity(theme.textBlack, 0.8),
+        fontFamily: 'Inter_500Medium',
+        fontSize: 13,
+        lineHeight: 18,
+      }}>
+      {text}
+    </Text>
+  );
+}
+
 export function OnboardingFieldLabel({ text, theme }: { text: string; theme: RecipeThemeConfig }) {
   return (
     <Text
