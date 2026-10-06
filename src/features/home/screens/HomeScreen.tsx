@@ -158,8 +158,9 @@ export function HomeScreen() {
             },
           ]}>
           <View style={[styles.topSection, { gap: metrics.rowGap }]}>
+            {/* Distinct keys remount the row: reusing the meal row's views kept its percent column width. */}
             {isPendingConfirmationDay && selectedDate ? (
-              <View style={[styles.pendingRow, { gap: metrics.rowGap }]}>
+              <View key="pending-row" style={[styles.pendingRow, { gap: metrics.rowGap }]}>
                 <View style={styles.pendingDayColumn}>
                   <PendingDayCard
                     selectedDate={selectedDate}
@@ -176,7 +177,7 @@ export function HomeScreen() {
                 </View>
               </View>
             ) : (
-              <View style={[styles.mealRow, { gap: metrics.rowGap }]}>
+              <View key="meal-row" style={[styles.mealRow, { gap: metrics.rowGap }]}>
                 {isTodaySelected ? (
                   <FloatingFoodImage
                     source={foodImageSource}
