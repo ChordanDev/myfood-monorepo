@@ -44,6 +44,7 @@ export const MOCK_MASTER_RECIPES: MasterRecipe[] = [
       textMedium: '#D8D98B',
       textLight: '#F5F3D4',
       primaryAccentIntense: '#FF8400',
+      alert: '#C94F3D',
     },
   },
   {
@@ -78,6 +79,7 @@ export const MOCK_MASTER_RECIPES: MasterRecipe[] = [
       textMedium: '#D8D98B',
       textLight: '#F5F3D4',
       primaryAccentIntense: '#FF8400',
+      alert: '#C94F3D',
     },
   },
 ];
