@@ -283,7 +283,6 @@ export const PlannerScreen = () => {
         isThinking={isThinking}
         onChangeText={setInput}
         onHeightChange={setComposerHeight}
-        onRenderedHeightChange={setComposerHeight}
         onSubmit={sendMessage}
       />
     </View>
