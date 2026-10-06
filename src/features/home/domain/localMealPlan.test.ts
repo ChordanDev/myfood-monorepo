@@ -36,6 +36,23 @@ describe('mock meal plan date keys', () => {
     expect(mockMealPlan![0].date).toBe(todayKey);
     expect(isSelectableMealDate(todayKey, planByDate, today, parseDateKey)).toBe(true);
   });
+
+  it('ships yesterday as a pending day and the day before as an already confirmed one', () => {
+    let mockMealPlan: typeof import('@/mocks/domainMocks').MOCK_MEAL_PLAN;
+
+    jest.isolateModules(() => {
+      ({ MOCK_MEAL_PLAN: mockMealPlan } = jest.requireActual('@/mocks/domainMocks'));
+    });
+
+    const today = startOfDay(new Date());
+    const planByDate = buildLocalMealPlanByDate(mockMealPlan!);
+
+    expect(planByDate['2026-08-24'].map((entry) => entry.type)).toEqual(['almuerzo', 'cena']);
+    expect(isPendingConfirmationDate('2026-08-24', planByDate, today, parseDateKey)).toBe(true);
+    expect(planByDate['2026-08-23']).toHaveLength(2);
+    expect(isPendingConfirmationDate('2026-08-23', planByDate, today, parseDateKey)).toBe(false);
+    expect(isSelectableMealDate('2026-08-23', planByDate, today, parseDateKey)).toBe(false);
+  });
 });
 
 describe('getDefaultHomeMealType', () => {

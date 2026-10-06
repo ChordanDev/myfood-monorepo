@@ -64,7 +64,7 @@ Names describe the job a color does, not its hue.
 | `appBg`                | Screen ground                          | Screen background; text and icons inside the composer                 |
 | `colorBlack`           | Deepest surface                        | Tab bar gradient end, Planner header pills                            |
 | `colorDark`            | Main dark surface                      | Meal switcher, composer, bottom sheet, Home top fade, dividers at 30% |
-| `colorMedium`          | Mid tone between dark and light        | Meal card gradient start, "today" ring on a day cell                  |
+| `colorMedium`          | Mid tone between dark and light        | Meal card gradient start, day cell ring ("today", selected pending)   |
 | `colorLight`           | Light surface sitting on the ground    | Calendar, user chat bubble                                            |
 | `icon`                 | Icons and state tints on dark surfaces | Tab icons, active pill (15% fill + 30% border), planned day (70%)     |
 | `primaryAccent`        | Emphasis                               | Selected day (70%), "HOY", Planner header icon and label              |

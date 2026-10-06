@@ -4,7 +4,7 @@ import { ShadowSurface } from '@/components';
 import { DayCell } from './DayCell';
 import { useCalendarState } from '../hooks/useCalendarState';
 import { CALENDAR_DEFAULTS, MONTHS, WEEKDAYS } from '../constants/calendar';
-import { formatDateKey, isSelectableDate } from '../utils/calendarDate';
+import { formatDateKey, isPendingDate, isSelectableDate } from '../utils/calendarDate';
 import type { CalendarProps } from '../types/calendar';
 
 import { useRecipeTheme } from '@/context/RecipeThemeContext';
@@ -100,6 +100,7 @@ export function Calendar({
               const isSelected = activeSelectedDate === dateString;
               const isToday = dateString === todayKey;
               const isPlanned = Boolean(planByDate[dateString]?.length);
+              const isPendingConfirmation = isPendingDate(dateString, planByDate, today);
 
               const textColor = isSelected
                 ? theme.textBlack
@@ -116,6 +117,7 @@ export function Calendar({
                   isSelected={isSelected}
                   isToday={isToday}
                   isPlanned={isPlanned}
+                  isPendingConfirmation={isPendingConfirmation}
                   daySize={daySize}
                   dayFontSize={dayFontSize}
                   textColor={textColor}
