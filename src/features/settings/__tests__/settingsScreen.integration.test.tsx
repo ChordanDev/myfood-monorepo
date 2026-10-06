@@ -16,7 +16,7 @@ import type {
   SlotCookingTimes,
   UserPreferences,
 } from '@/features/auth/types/auth';
-import { SettingsScreen } from '@/features/preferences/screens/SettingsScreen';
+import { SettingsScreen } from '../screens/SettingsScreen';
 import type { RecipeThemeConfig } from '@/types/domain';
 import { withOpacity } from '@/utils/colors';
 

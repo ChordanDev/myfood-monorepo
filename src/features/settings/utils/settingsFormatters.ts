@@ -17,10 +17,10 @@ import {
   isValidHardRestrictionCode,
 } from '@/features/preferences/constants/catalog';
 import {
-  ACCOUNT_TYPE_LABELS,
   COOKING_SKILL_LABELS,
   HUNGER_LEVEL_LABELS,
 } from '@/features/preferences/constants/onboardingOptions';
+import { ACCOUNT_TYPE_LABELS } from '../constants/settingsLabels';
 
 const MAX_INITIALS = 2;
 const MS_PER_DAY = 24 * 60 * 60 * 1000;

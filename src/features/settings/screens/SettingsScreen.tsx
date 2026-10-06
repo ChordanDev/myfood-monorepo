@@ -6,20 +6,17 @@ import { NoisyBackground, SafeAreaContent, TitlePrimary } from '@/components';
 import { useRecipeTheme } from '@/context/RecipeThemeContext';
 import { useAuth } from '@/features/auth';
 import { CUSTOM_TAB_BAR_CONTENT_HEIGHT } from '@/features/planner/constants';
-import {
-  AccountCard,
-  LoadErrorNotice,
-  SettingsGroup,
-  SettingsRow,
-} from '@/features/preferences/components/settings';
 import { MEAL_SLOTS, SLOT_LABELS } from '@/features/preferences/constants/onboardingOptions';
+import { useGradientCrossfade } from '@/hooks/useGradientCrossfade';
+import { getTitleMetrics } from '@/utils/responsive';
+import { AccountCard, LoadErrorNotice, SettingsGroup, SettingsRow } from '../components';
 import {
   LOADING_VALUE_LABEL,
   PREFERENCE_FIELD_LABELS,
   PROFILE_FIELD_LABELS,
   UNAVAILABLE_VALUE_LABEL,
-} from '@/features/preferences/constants/settingsLabels';
-import { useSettingsState } from '@/features/preferences/hooks/useSettingsState';
+} from '../constants/settingsLabels';
+import { useSettingsState } from '../hooks/useSettingsState';
 import {
   formatCookingSkillSummary,
   formatDietSummary,
@@ -32,9 +29,7 @@ import {
   formatTrialPill,
   getInitials,
   getTrialState,
-} from '@/features/preferences/utils/settingsFormatters';
-import { useGradientCrossfade } from '@/hooks/useGradientCrossfade';
-import { getTitleMetrics } from '@/utils/responsive';
+} from '../utils/settingsFormatters';
 
 const CONTENT_BOTTOM_SPACING = 24;
 

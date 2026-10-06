@@ -8,7 +8,7 @@ import {
   loadSucceeded,
   startLoading,
   type LoadState,
-} from '@/features/preferences/utils/profileLoadState';
+} from '../utils/profileLoadState';
 
 // A slot the server left out falls back to the onboarding default instead
 // of crashing the row that formats it.
