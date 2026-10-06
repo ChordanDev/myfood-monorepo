@@ -48,9 +48,9 @@ Out of scope: real AI service, chat history persistence, the leftovers prompt af
 ## Tasks
 
 - [x] **T0 — `alert` token.** Cherry-pick of `bafe98e` from `feat/home-confirm-past-meal`. Route: inline (mechanical). Commit `a432783`.
-- [ ] **T1 — Ingredient resolver and stock status.** `src/features/recipe/domain/recipeIngredients.ts` with colocated tests, RED first. Route: delegated writer (with T2, T3).
-- [ ] **T2 — Shopping requests port.** `src/store/useShoppingRequestsStore.ts` with store tests, RED first.
-- [ ] **T3 — Entry resolution, chat gate and chat model.** `src/features/recipe/domain/recipeEntry.ts` and `recipeChat.ts` (messages, quick actions, `voseo` mock replies, inventory-aware offer), colocated tests, RED first.
+- [x] **T1 — Ingredient resolver and stock status.** `src/features/recipe/domain/recipeIngredients.ts` with colocated tests, RED first. Route: delegated writer (with T2, T3). Commit `0597978`.
+- [x] **T2 — Shopping requests port.** `src/store/useShoppingRequestsStore.ts` with store tests, RED first. Commit `a42f206`.
+- [x] **T3 — Entry resolution, chat gate and chat model.** `src/features/recipe/domain/recipeEntry.ts` and `recipeChat.ts` (messages, quick actions, `voseo` mock replies, inventory-aware offer), colocated tests, RED first. Commit `1f08708`.
 - [ ] **T4 — Screen layout.** Header, ingredients card, preparation card, `TopGradientBackground`, palette activation, Home passes `entryId`, legacy theme hook and `RECIPE_THEMES` deleted. Route: delegated writer (with T5). Component tests for the ingredient row states and the header actions.
 - [ ] **T5 — Assistant chat.** Composer props on `PlannerChatInput`, chat section with bubbles and quick-action chips, disabled state off today. Component tests for the gate and the quick actions.
 - [ ] **T6 — Docs.** Remove `src/features/recipe/` from the known gaps in `docs/THEMING.md`; record progress here.
