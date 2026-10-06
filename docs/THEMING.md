@@ -113,9 +113,6 @@ Existing code that does not follow this rule yet. Do not copy these patterns.
 
 | Where                                                                                 | Problem                                                                                                     |
 | ------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
-| `src/constants/svgIcons.ts` (`PLUS_SVG`)                                              | Stroke fixed to `#FFB63C`; ignores the palette                                                              |
-| `src/features/home/components/EatTodayButton.tsx`                                     | Border fixed to `#000000`                                                                                   |
-| `src/features/home/components/FoodCard/constants.ts`                                  | `FOOD_CARD_ICON_COLOR` literal, unused                                                                      |
 | `src/features/recipe/` (`RecipeScreen`, `types/themes.ts`, `hooks/useRecipeTheme.ts`) | A second, older theme shape (`RecipeTheme`) plus literals                                                   |
 | `src/constants/theme.ts` (`COLORS`, `GRADIENTS`)                                      | Static colors used by auth; its header comment says all colors belong there, which this document supersedes |
 | `src/features/home/hooks/useHomeRecipeTheme.ts`                                       | The meal palette is applied only when today is selected; other days use the default                         |
