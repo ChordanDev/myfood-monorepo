@@ -129,7 +129,7 @@ commit that follows it.
     target that focuses its input; the scroll view remounts per step so each
     step starts at the top; `ShadowSurface` supplies the mockup's card and
     button shadow.
-- T3 done. Proof: the literal search (hex, `rgb()`/`rgba()`, `'transparent'`)
+- T3 done in 06f5c19. Proof: the literal search (hex, `rgb()`/`rgba()`, `'transparent'`)
   over the onboarding folder and `OnboardingScreen.tsx` returns nothing, not
   even a shadow color, because the shadow comes from the shared
   `ShadowSurface`. Removed `OnboardingChip`, `OnboardingSegmentChip` and
@@ -147,6 +147,11 @@ commit that follows it.
     `npx tsc --noEmit`: the 22 baseline errors, none new.
   - Not verified on a simulator: layout, keyboard behavior and the look of
     steps 2 and 3 (which have no mockup) need a visual pass.
+- Size, from `git diff --shortstat 3c3f359 06f5c19 -- src docs`: 26 files,
+  1874 insertions and 857 deletions, well above the forecast of about 900.
+  Per commit, this document included: 2fbf0af 401 + 4, 73db74c 1240 + 456,
+  06f5c19 332 + 444. Slice boundaries are the three commits; the chain
+  strategy is still to be asked before any pull request is planned.
 
 ## Next step
 
