@@ -11,7 +11,8 @@ import {
 import type { HomeMealType } from '../domain/localMealPlan';
 
 export function useHomeState() {
-  const { entries, recipes } = useMealPlanStore();
+  const entries = useMealPlanStore((state) => state.entries);
+  const recipes = useMealPlanStore((state) => state.recipes);
   const todayKey = formatDateKey(new Date());
 
   const planByDate = useMemo(() => {
