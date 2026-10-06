@@ -3,8 +3,6 @@ export const FOOD_CARD_SHAPE_PATH =
 
 export const FOOD_CARD_GRADIENT_ACTIVE_ID = 'foodCardGradientActive';
 
-export const FOOD_CARD_ICON_COLOR = '#D8D98B';
-
 export const FOOD_CARD_TOP_ICON_SCALE = 1.15;
 export const FOOD_CARD_BOTTOM_ICON_SCALE = 1.1;
 

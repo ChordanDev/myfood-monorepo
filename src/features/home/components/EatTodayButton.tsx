@@ -43,6 +43,7 @@ export function EatTodayButton({
   const glowColor = borderColor ?? backgroundColor;
   const breath = useSharedValue(0);
   const textThemeStyle = useAnimatedThemeStyle({ color: textColor });
+  const outlineThemeStyle = useAnimatedThemeStyle({ borderColor: textColor });
 
   useEffect(() => {
     breath.value = withRepeat(
@@ -108,17 +109,19 @@ export function EatTodayButton({
       </Animated.View>
       <Animated.View
         pointerEvents="none"
-        style={{
-          position: 'absolute',
-          top: 0,
-          right: 0,
-          bottom: 0,
-          left: 0,
-          borderRadius,
-          borderWidth: 2,
-          borderColor: '#000000',
-          backgroundColor: 'transparent',
-        }}
+        style={[
+          {
+            position: 'absolute',
+            top: 0,
+            right: 0,
+            bottom: 0,
+            left: 0,
+            borderRadius,
+            borderWidth: 2,
+            backgroundColor: 'transparent',
+          },
+          outlineThemeStyle,
+        ]}
       />
       <Animated.Text style={[styles.label, { fontSize: 13, letterSpacing: 0.8 }, textThemeStyle]}>
         COMERLO HOY
