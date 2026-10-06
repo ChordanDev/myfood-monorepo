@@ -323,6 +323,32 @@ describe('PlannerChatInput submission', () => {
 
     expect(onSubmit).toHaveBeenCalledTimes(1);
   });
+
+  it('reveals the send control only while there is text to send', () => {
+    const { tree, update } = renderComposer({ value: '' });
+    const getSendContainer = () =>
+      tree.root.findByProps({ testID: 'planner-composer-submit' }).parent!;
+    const getSendContainerStyle = () => StyleSheet.flatten(getSendContainer().props.style);
+
+    expect(getSendContainer().props.pointerEvents).toBe('none');
+    expect(getSendContainerStyle()).toEqual(expect.objectContaining({ width: 0, opacity: 0 }));
+
+    update({ value: '   ' });
+
+    expect(getSendContainer().props.pointerEvents).toBe('none');
+    expect(getSendContainerStyle()).toEqual(expect.objectContaining({ width: 0, opacity: 0 }));
+
+    update({ value: 'Plan' });
+
+    expect(getSendContainer().props.pointerEvents).toBe('auto');
+    expect(getSendContainerStyle()).toEqual(expect.objectContaining({ width: 48, opacity: 1 }));
+
+    // Sending clears the draft, which hides the control again.
+    update({ value: '' });
+
+    expect(getSendContainer().props.pointerEvents).toBe('none');
+    expect(getSendContainerStyle()).toEqual(expect.objectContaining({ width: 0, opacity: 0 }));
+  });
 });
 
 describe('PlannerChatInput keyboard lift', () => {
@@ -428,6 +454,34 @@ describe('PlannerChatInput layout mode', () => {
 
     expect(getContentStyle(tree)).toEqual(INLINE_CONTENT_STYLE);
     expect(getInputStyle(tree).maxHeight).toBe(PLANNER_CHAT_INPUT_TEXT_LINE_HEIGHT * 2);
+  });
+
+  it('keeps the measured line count across value changes until the probe reports again', () => {
+    const { tree, update } = renderComposer({ value: WRAPPING_TEXT });
+
+    reportProbeLines(tree, 3);
+    expect(getContentStyle(tree)).toEqual(STACKED_CONTENT_STYLE);
+
+    // The native emitter drops an unchanged line list, so a JS-side reset is never corrected.
+    update({ value: `${WRAPPING_TEXT} and more` });
+    expect(getContentStyle(tree)).toEqual(STACKED_CONTENT_STYLE);
+
+    update({ value: 'Short text' });
+    expect(getContentStyle(tree)).toEqual(STACKED_CONTENT_STYLE);
+
+    reportProbeLines(tree, 1);
+    expect(getContentStyle(tree)).toEqual(INLINE_CONTENT_STYLE_WITH_SEND);
+  });
+
+  it('does not reset the measured line count when the value is cleared', () => {
+    const { tree, update } = renderComposer({ value: WRAPPING_TEXT });
+
+    reportProbeLines(tree, 3);
+    update({ value: '' });
+    expect(getContentStyle(tree)).toEqual(INLINE_CONTENT_STYLE);
+
+    update({ value: WRAPPING_TEXT });
+    expect(getContentStyle(tree)).toEqual(STACKED_CONTENT_STYLE);
   });
 
   it('keeps the bottom control row reserved in both layout modes', () => {
@@ -631,7 +685,8 @@ describe('PlannerChatInput frame height', () => {
   it('pins the content and tweens the frame toward the measured height on iOS', () => {
     setPlatformOS('ios');
     mockUseReducedMotion.mockReturnValue(false);
-    const { tree, update } = renderComposer({ value: 'Short text' });
+    const onHeightChange = jest.fn();
+    const { tree, update } = renderComposer({ onHeightChange, value: 'Short text' });
     mockWithTiming.mockClear();
 
     expect(getFrameStyle(tree).height).toBe(PLANNER_CHAT_INPUT_MIN_HEIGHT);
@@ -650,6 +705,15 @@ describe('PlannerChatInput frame height', () => {
 
     update({ value: WRAPPING_TEXT });
     reportProbeLines(tree, 3);
+    expect(getContentStyle(tree)).toEqual({
+      position: 'absolute',
+      top: 0,
+      left: 0,
+      right: 0,
+      paddingHorizontal: 16,
+      paddingTop: PLANNER_CHAT_INPUT_VERTICAL_INSET,
+      paddingBottom: PLANNER_CHAT_INPUT_CONTROL_ROW_HEIGHT + PLANNER_CHAT_INPUT_VERTICAL_INSET,
+    });
     reportContentHeight(tree, 155.43);
 
     expect(mockWithTiming).toHaveBeenCalledTimes(1);
@@ -667,6 +731,7 @@ describe('PlannerChatInput frame height', () => {
       easing: expect.any(Function),
     });
     expect(getFrameStyle(tree).height).toBe(83.62);
+    expect(onHeightChange.mock.calls).toEqual([[83.62], [155.43], [83.62]]);
   });
 
   it('keeps the height strategy chosen at mount for the lifetime of the instance', () => {
