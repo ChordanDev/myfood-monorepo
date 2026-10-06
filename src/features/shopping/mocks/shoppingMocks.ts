@@ -1,4 +1,4 @@
-import type { SupermarketOffer } from '@/features/shopping/types';
+import type { SupermarketOffer } from '../types';
 
 // The price-per-supermarket contract is not defined yet (issue #44). Until a backend serves
 // it, this file is the single place the offers come from: replace it, nothing else.

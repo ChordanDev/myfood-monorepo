@@ -6,7 +6,8 @@ import { act, create, ReactTestInstance } from 'react-test-renderer';
 import type { MasterRecipe, MealPlanEntry } from '@/types/domain';
 import { CUSTOM_TAB_BAR_CONTENT_HEIGHT } from '@/features/planner/constants';
 import { MOCK_INGREDIENTS } from '@/mocks/domainMocks';
-import { useInventoryStore, useMealPlanStore, useShoppingListStore } from '@/store';
+import { useInventoryStore, useMealPlanStore } from '@/store';
+import { useShoppingListStore } from '../store';
 import { ShoppingScreen } from './ShoppingScreen';
 
 jest.mock('@react-native-async-storage/async-storage', () =>

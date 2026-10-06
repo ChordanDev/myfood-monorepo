@@ -1,11 +1,11 @@
+import type { Ingredient, UnitType } from '@/types/domain';
 import type {
-  Ingredient,
   ManualShoppingListItem,
   PlannedShoppingListItem,
+  ShoppingGroup,
   ShoppingItemStatus,
-  UnitType,
-} from '@/types/domain';
-import type { ShoppingGroup, SupermarketOffer } from '../types';
+  SupermarketOffer,
+} from '../types';
 import {
   getBestOffer,
   getManualItems,

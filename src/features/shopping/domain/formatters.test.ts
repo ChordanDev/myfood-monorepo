@@ -1,4 +1,4 @@
-import type { ManualShoppingListItem, PlannedShoppingListItem } from '@/types/domain';
+import type { ManualShoppingListItem, PlannedShoppingListItem } from '../types';
 import {
   formatCountersLabel,
   formatItemMetaLine,

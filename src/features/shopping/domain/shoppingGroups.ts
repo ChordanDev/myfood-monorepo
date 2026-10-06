@@ -1,8 +1,3 @@
-import type {
-  ManualShoppingListItem,
-  PlannedShoppingListItem,
-  ShoppingListItem,
-} from '@/types/domain';
 import {
   CATEGORY_ORDER,
   CATEGORY_TITLE,
@@ -10,7 +5,14 @@ import {
   NO_SUPERMARKET_GROUP_KEY,
   NO_SUPERMARKET_TITLE,
 } from '../constants';
-import type { BestOffer, ShoppingGroup, SupermarketOffer } from '../types';
+import type {
+  BestOffer,
+  ManualShoppingListItem,
+  PlannedShoppingListItem,
+  ShoppingGroup,
+  ShoppingListItem,
+  SupermarketOffer,
+} from '../types';
 
 // Cheapest offer for the item; the first one listed wins a tie.
 export function getBestOffer(

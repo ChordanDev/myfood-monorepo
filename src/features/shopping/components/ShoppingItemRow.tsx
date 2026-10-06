@@ -1,12 +1,11 @@
 import { Pressable, StyleSheet, View } from 'react-native';
 import Animated from 'react-native-reanimated';
 import * as Haptics from 'expo-haptics';
-import type { ShoppingListItem } from '@/types/domain';
 import { useRecipeTheme } from '@/context/RecipeThemeContext';
 import { useAnimatedThemeStyle } from '@/hooks/useAnimatedThemeStyle';
 import { withOpacity } from '@/utils/colors';
 import { formatItemMetaLine, formatItemNameLine } from '../domain';
-import type { BestOffer } from '../types';
+import type { BestOffer, ShoppingListItem } from '../types';
 import { ShoppingCheckbox } from './ShoppingCheckbox';
 
 export interface ShoppingItemRowProps {

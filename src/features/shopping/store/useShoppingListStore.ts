@@ -1,14 +1,16 @@
 import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
-import type { ManualShoppingListItem, ShoppingItemStatus, ShoppingListItem } from '@/types/domain';
+import { useInventoryStore } from '@/store';
+import { safeAsyncStorage } from '@/utils/safeAsyncStorage';
+import { MOCK_SUPERMARKET_OFFERS } from '../mocks';
 import type {
+  ManualShoppingListItem,
   PurchaseRecords,
   ShoppingGroupingMode,
+  ShoppingItemStatus,
+  ShoppingListItem,
   SupermarketOffer,
-} from '@/features/shopping/types';
-import { MOCK_SUPERMARKET_OFFERS } from '@/mocks/shoppingMocks';
-import { safeAsyncStorage } from '@/utils/safeAsyncStorage';
-import { useInventoryStore } from './useInventoryStore';
+} from '../types';
 
 // Manual ids never collide with the planned ones, which are `planned:<ingredientId>`.
 const MANUAL_ID_PREFIX = 'manual:';

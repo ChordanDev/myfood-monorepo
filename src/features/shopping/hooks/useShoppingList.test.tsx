@@ -2,7 +2,8 @@ import React from 'react';
 import { act, create } from 'react-test-renderer';
 import type { MasterRecipe, MealPlanEntry } from '@/types/domain';
 import { MOCK_INGREDIENTS } from '@/mocks/domainMocks';
-import { useInventoryStore, useMealPlanStore, useShoppingListStore } from '@/store';
+import { useInventoryStore, useMealPlanStore } from '@/store';
+import { useShoppingListStore } from '../store';
 import { useShoppingList } from './useShoppingList';
 
 jest.mock('@react-native-async-storage/async-storage', () =>

@@ -1,6 +1,6 @@
-import type { ShoppingListItem, UnitType } from '@/types/domain';
+import type { UnitType } from '@/types/domain';
 import { LARGE_UNIT_FACTOR, NO_PRICE_LABEL, SHORT_MONTHS, UNIT_LABEL } from '../constants';
-import type { BestOffer, ShoppingCounters } from '../types';
+import type { BestOffer, ShoppingCounters, ShoppingListItem } from '../types';
 import { roundAmount } from './amounts';
 
 const SEPARATOR = ' · ';

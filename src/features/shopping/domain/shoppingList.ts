@@ -1,10 +1,11 @@
+import type { MealPlanEntry } from '@/types/domain';
 import type {
-  MealPlanEntry,
   PlannedShoppingListItem,
+  ShoppingCounters,
   ShoppingItemStatus,
+  ShoppingListInput,
   ShoppingListItem,
-} from '@/types/domain';
-import type { ShoppingCounters, ShoppingListInput } from '../types';
+} from '../types';
 import { roundAmount } from './amounts';
 
 export function getPlannedItemId(ingredientId: string) {

@@ -5,8 +5,12 @@ import { Text } from 'react-native';
 import { act, create, ReactTestInstance } from 'react-test-renderer';
 import * as Haptics from 'expo-haptics';
 import { Check } from 'lucide-react-native';
-import type { PlannedShoppingListItem, ShoppingItemStatus } from '@/types/domain';
-import type { BestOffer, ShoppingGroup } from '../types';
+import type {
+  BestOffer,
+  PlannedShoppingListItem,
+  ShoppingGroup,
+  ShoppingItemStatus,
+} from '../types';
 import { ShoppingGroupCard } from './ShoppingGroupCard';
 
 jest.mock('react-native-reanimated', () => {

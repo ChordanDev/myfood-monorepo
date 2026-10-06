@@ -1,24 +1,19 @@
-import type {
-  Ingredient,
-  MealPlanEntry,
-  PlannedShoppingListItem,
-  RecipeIngredient,
-  ShoppingListItem,
-} from '@/types/domain';
+import type { Ingredient, MealPlanEntry, RecipeIngredient } from '@/types/domain';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import {
-  deriveShoppingList,
-  getBestOffer,
-  getPlannedItemId,
-  groupItemsBySupermarket,
-} from '@/features/shopping/domain';
 import {
   MOCK_INGREDIENTS,
   MOCK_INVENTORY,
   MOCK_MASTER_RECIPES,
   MOCK_MEAL_PLAN,
 } from '@/mocks/domainMocks';
-import { useInventoryStore } from './useInventoryStore';
+import { useInventoryStore } from '@/store';
+import {
+  deriveShoppingList,
+  getBestOffer,
+  getPlannedItemId,
+  groupItemsBySupermarket,
+} from '../domain';
+import type { PlannedShoppingListItem, ShoppingListItem } from '../types';
 import { useShoppingListStore } from './useShoppingListStore';
 
 jest.mock('@react-native-async-storage/async-storage', () =>

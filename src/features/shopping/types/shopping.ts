@@ -1,11 +1,36 @@
 import type {
   Ingredient,
   InventoryItem,
-  ManualShoppingListItem,
   MasterRecipe,
   MealPlanEntry,
-  PlannedShoppingListItem,
+  UnitType,
 } from '@/types/domain';
+
+export type ShoppingItemSource = 'planned_meal' | 'manual';
+
+export type ShoppingItemStatus = 'needed' | 'purchased' | 'removed';
+
+interface ShoppingListItemBase {
+  id: string; // Stable across derivations
+  name: string;
+  status: ShoppingItemStatus;
+}
+
+// Derived from the plan: one item per ingredient, carrying the amount still missing.
+export interface PlannedShoppingListItem extends ShoppingListItemBase {
+  source: 'planned_meal';
+  ingredientId: string;
+  amountToBuy: number;
+  unit: UnitType;
+  category: Ingredient['category'];
+}
+
+// Added by hand: a name only, with no ingredient, quantity, unit or category.
+export interface ManualShoppingListItem extends ShoppingListItemBase {
+  source: 'manual';
+}
+
+export type ShoppingListItem = PlannedShoppingListItem | ManualShoppingListItem;
 
 // Planned item id -> amount bought. The store adds that same amount to the inventory.
 export type PurchaseRecords = Record<string, number>;

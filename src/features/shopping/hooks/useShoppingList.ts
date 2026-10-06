@@ -1,6 +1,5 @@
 import { useCallback, useMemo } from 'react';
-import { useInventoryStore, useMealPlanStore, useShoppingListStore } from '@/store';
-import type { ShoppingListItem } from '@/types/domain';
+import { useInventoryStore, useMealPlanStore } from '@/store';
 import {
   deriveShoppingList,
   formatUntilLabel,
@@ -11,10 +10,12 @@ import {
   groupItemsByCategory,
   groupItemsBySupermarket,
 } from '../domain';
+import { useShoppingListStore } from '../store';
 import type {
   BestOffer,
   ShoppingGroupingMode,
   ShoppingListInput,
+  ShoppingListItem,
   SupermarketOffer,
 } from '../types';
 

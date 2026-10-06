@@ -1,11 +1,5 @@
-import type {
-  Ingredient,
-  ManualShoppingListItem,
-  MealPlanEntry,
-  RecipeIngredient,
-  ShoppingListItem,
-} from '@/types/domain';
-import type { ShoppingListInput } from '../types';
+import type { Ingredient, MealPlanEntry, RecipeIngredient } from '@/types/domain';
+import type { ManualShoppingListItem, ShoppingListInput, ShoppingListItem } from '../types';
 import {
   deriveShoppingList,
   getDefaultUntilDate,
