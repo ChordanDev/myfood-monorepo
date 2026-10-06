@@ -27,6 +27,8 @@ export interface HomeMetrics extends TitleMetrics {
   foodCardNumberFontSize: number;
   foodCardDescriptionFontSize: number;
   foodCardDescriptionLineHeight: number;
+  pendingCardRadius: number;
+  confirmButtonSize: number;
   switcherPadding: number;
   switcherRadius: number;
   switcherItemPaddingVertical: number;
@@ -69,6 +71,8 @@ export function getHomeMetrics(width: number, height: number): HomeMetrics {
     foodCardNumberFontSize: scaleByBucket(phoneSize, [18, 19, 20, 21]),
     foodCardDescriptionFontSize,
     foodCardDescriptionLineHeight: clamp(foodCardDescriptionFontSize * 1.7, 18, 28),
+    pendingCardRadius: 30,
+    confirmButtonSize: scaleByBucket(phoneSize, [38, 40, 42, 44]),
     switcherPadding: scaleByBucket(phoneSize, [6, 7, 8, 9]),
     switcherRadius: 24,
     switcherItemPaddingVertical: clamp(8 * compactFactor, 6, 10),

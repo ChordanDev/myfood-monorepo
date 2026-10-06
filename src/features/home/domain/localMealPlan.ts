@@ -10,6 +10,12 @@ export type LocalMealSelection = MealPlanEntry & {
   theme?: RecipeThemeConfig;
 };
 
+export type HomeMealSummary = {
+  id: string;
+  type: HomeMealType;
+  name: string;
+};
+
 const ORDERED_HOME_MEAL_TYPES: HomeMealType[] = ['desayuno', 'almuerzo', 'cena'];
 
 const MEAL_TYPE_MINUTES: Record<HomeMealType, number> = {
@@ -86,6 +92,21 @@ export function getSelectedLocalMeal(
   };
 }
 
+export function getHomeMealSummaries(
+  entries: MealPlanEntry[],
+  recipes: MasterRecipe[]
+): HomeMealSummary[] {
+  return ORDERED_HOME_MEAL_TYPES.flatMap((type) =>
+    entries
+      .filter((entry) => entry.type === type)
+      .map((entry) => ({
+        id: entry.id,
+        type,
+        name: recipes.find((recipe) => recipe.id === entry.recipeId)?.name ?? 'Receta sin nombre',
+      }))
+  );
+}
+
 export function getAllowedMonthKeys(planByDate: LocalMealPlanByDate) {
   const monthKeys = Object.keys(planByDate)
     .filter((dateKey) => Boolean(planByDate[dateKey]?.length))
@@ -94,12 +115,41 @@ export function getAllowedMonthKeys(planByDate: LocalMealPlanByDate) {
   return Array.from(new Set(monthKeys)).sort();
 }
 
+export function isMealConfirmed(entry: MealPlanEntry) {
+  return entry.isCooked || Boolean(entry.isSkipped);
+}
+
+export function getPendingConfirmationEntries(entries: MealPlanEntry[]) {
+  return ORDERED_HOME_MEAL_TYPES.flatMap((type) =>
+    entries.filter((entry) => entry.type === type && !isMealConfirmed(entry))
+  );
+}
+
+export function getPendingHomeMealType(entries: MealPlanEntry[]): HomeMealType | null {
+  return getAvailableHomeMealTypes(getPendingConfirmationEntries(entries))[0] ?? null;
+}
+
+export function isPendingConfirmationDate(
+  dateString: string,
+  planByDate: LocalMealPlanByDate,
+  today: Date,
+  parseDateKey: (dateString: string) => Date
+) {
+  return (
+    parseDateKey(dateString) < today &&
+    getPendingConfirmationEntries(planByDate[dateString] ?? []).length > 0
+  );
+}
+
 export function isSelectableMealDate(
   dateString: string,
   planByDate: LocalMealPlanByDate,
   today: Date,
   parseDateKey: (dateString: string) => Date
 ) {
-  const dayDate = parseDateKey(dateString);
-  return dayDate >= today && Boolean(planByDate[dateString]?.length);
+  if (parseDateKey(dateString) < today) {
+    return isPendingConfirmationDate(dateString, planByDate, today, parseDateKey);
+  }
+
+  return Boolean(planByDate[dateString]?.length);
 }

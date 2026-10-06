@@ -19,6 +19,7 @@ const DEFAULT_THEME: RecipeThemeConfig = {
   textMedium: '#C4BC9C',
   textLight: '#EDE8D5',
   primaryAccentIntense: '#45402F',
+  alert: '#B9553B',
 };
 
 const RecipeThemeContext = createContext<RecipeThemeContextType | undefined>(undefined);
@@ -45,6 +46,7 @@ export function RecipeThemeProvider({ children }: { children: ReactNode }) {
       textMedium: currentTheme.textMedium || DEFAULT_THEME.textMedium,
       textLight: currentTheme.textLight || DEFAULT_THEME.textLight,
       primaryAccentIntense: currentTheme.primaryAccentIntense || DEFAULT_THEME.primaryAccentIntense,
+      alert: currentTheme.alert || DEFAULT_THEME.alert,
     };
   }, [currentTheme]);
 

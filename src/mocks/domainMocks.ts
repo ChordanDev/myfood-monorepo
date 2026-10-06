@@ -44,6 +44,7 @@ export const MOCK_MASTER_RECIPES: MasterRecipe[] = [
       textMedium: '#D8D98B',
       textLight: '#F5F3D4',
       primaryAccentIntense: '#FF8400',
+      alert: '#C94F3D',
     },
   },
   {
@@ -78,6 +79,7 @@ export const MOCK_MASTER_RECIPES: MasterRecipe[] = [
       textMedium: '#D8D98B',
       textLight: '#F5F3D4',
       primaryAccentIntense: '#FF8400',
+      alert: '#C94F3D',
     },
   },
 ];
@@ -145,5 +147,34 @@ export const MOCK_MEAL_PLAN: MealPlanEntry[] = [
     type: 'almuerzo',
     recipeId: 'r2',
     isCooked: false,
+  },
+  // Past days: yesterday is still waiting for a confirmation, the day before is already confirmed.
+  {
+    id: 'mp7',
+    date: formatDateKey(addDays(today, -1)),
+    type: 'almuerzo',
+    recipeId: 'r1',
+    isCooked: false,
+  },
+  {
+    id: 'mp8',
+    date: formatDateKey(addDays(today, -1)),
+    type: 'cena',
+    recipeId: 'r2',
+    isCooked: false,
+  },
+  {
+    id: 'mp9',
+    date: formatDateKey(addDays(today, -2)),
+    type: 'almuerzo',
+    recipeId: 'r2',
+    isCooked: true,
+  },
+  {
+    id: 'mp10',
+    date: formatDateKey(addDays(today, -2)),
+    type: 'cena',
+    recipeId: 'r1',
+    isCooked: true,
   },
 ];
