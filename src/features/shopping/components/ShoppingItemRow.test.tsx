@@ -5,6 +5,7 @@ import { StyleSheet, Text } from 'react-native';
 import { act, create, ReactTestInstance } from 'react-test-renderer';
 import * as Haptics from 'expo-haptics';
 import { Check } from 'lucide-react-native';
+import { useAnimatedThemeStyle } from '@/hooks/useAnimatedThemeStyle';
 import { withOpacity } from '@/utils/colors';
 import type { BestOffer, PlannedShoppingListItem, ShoppingListItem } from '../types';
 import { ShoppingItemRow } from './ShoppingItemRow';
@@ -32,8 +33,9 @@ jest.mock('@/context/RecipeThemeContext', () => ({
   useRecipeTheme: () => ({ theme: mockTheme }),
 }));
 
+// Returns the colors as the style and records the options, so `immediateKey` can be asserted.
 jest.mock('@/hooks/useAnimatedThemeStyle', () => ({
-  useAnimatedThemeStyle: (colors: object) => colors,
+  useAnimatedThemeStyle: jest.fn((colors: object) => colors),
 }));
 
 const CHEESE: PlannedShoppingListItem = {
@@ -57,7 +59,21 @@ function renderRow(item: ShoppingListItem, bestOffer?: BestOffer) {
     tree = create(<ShoppingItemRow item={item} bestOffer={bestOffer} onToggle={onToggle} />);
   });
 
-  return { root: tree!.root, onToggle };
+  return { tree: tree!, root: tree!.root, onToggle };
+}
+
+// The `immediateKey` each animated part of the row was last rendered with. A part whose key
+// changes between two renders applies its new colors at once instead of crossfading.
+function getImmediateKeys() {
+  const calls = jest.mocked(useAnimatedThemeStyle).mock.calls;
+  const [name, meta] = calls.filter(([colors]) => 'color' in colors);
+  const [checkbox] = calls.filter(([colors]) => 'backgroundColor' in colors);
+
+  return {
+    name: name[1]?.immediateKey,
+    meta: meta[1]?.immediateKey,
+    checkbox: checkbox[1]?.immediateKey,
+  };
 }
 
 function getTexts(root: ReactTestInstance): string[] {
@@ -86,6 +102,7 @@ function getCheckboxStyle(root: ReactTestInstance) {
 describe('ShoppingItemRow', () => {
   beforeEach(() => {
     jest.mocked(Haptics.impactAsync).mockClear();
+    jest.mocked(useAnimatedThemeStyle).mockClear();
   });
 
   it('renders the quantity and name line above the supermarket and price line', () => {
@@ -142,6 +159,30 @@ describe('ShoppingItemRow', () => {
     ]);
   });
 
+  it.each(['name', 'meta', 'checkbox'] as const)(
+    'applies the purchased look of the %s at once, without crossfading',
+    (part) => {
+      const { tree, onToggle } = renderRow(CHEESE, CHEESE_OFFER);
+      const needed = getImmediateKeys();
+      jest.mocked(useAnimatedThemeStyle).mockClear();
+
+      act(() => {
+        tree.update(
+          <ShoppingItemRow
+            item={{ ...CHEESE, status: 'purchased' }}
+            bestOffer={CHEESE_OFFER}
+            onToggle={onToggle}
+          />
+        );
+      });
+      const purchased = getImmediateKeys();
+
+      expect(needed[part]).toBeDefined();
+      expect(purchased[part]).toBeDefined();
+      expect(purchased[part]).not.toBe(needed[part]);
+    }
+  );
+
   it('reports the id of the pressed item, with a light haptic', () => {
     const { root, onToggle } = renderRow(CHEESE, CHEESE_OFFER);
 
@@ -154,15 +195,21 @@ describe('ShoppingItemRow', () => {
     expect(Haptics.impactAsync).toHaveBeenCalledWith(Haptics.ImpactFeedbackStyle.Light);
   });
 
-  it('is one checkbox named after the item and unchecked while it is needed', () => {
+  it('is one checkbox that reads both lines and is unchecked while the item is needed', () => {
     const { root } = renderRow(CHEESE, CHEESE_OFFER);
 
     expect(getCheckboxRow(root).props).toEqual(
       expect.objectContaining({
-        accessibilityLabel: '300 g · Queso cremoso',
+        accessibilityLabel: '300 g · Queso cremoso, Día · $3.200',
         accessibilityState: { checked: false },
       })
     );
+  });
+
+  it('reads that there is no price when the item has no offer', () => {
+    const { root } = renderRow(CHEESE);
+
+    expect(getCheckboxRow(root).props.accessibilityLabel).toBe('300 g · Queso cremoso, Sin precio');
   });
 
   it('is a checked checkbox once the item is purchased', () => {

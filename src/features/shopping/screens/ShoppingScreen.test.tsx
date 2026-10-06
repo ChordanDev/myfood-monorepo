@@ -6,6 +6,7 @@ import { act, create, ReactTestInstance } from 'react-test-renderer';
 import type { MasterRecipe, MealPlanEntry } from '@/types/domain';
 import { CUSTOM_TAB_BAR_CONTENT_HEIGHT } from '@/features/planner/constants';
 import { MOCK_INGREDIENTS } from '@/mocks/domainMocks';
+import { useAnimatedThemeStyle } from '@/hooks/useAnimatedThemeStyle';
 import { useInventoryStore, useMealPlanStore } from '@/store';
 import { useShoppingListStore } from '../store';
 import { ShoppingScreen } from './ShoppingScreen';
@@ -64,8 +65,9 @@ jest.mock('@/context/RecipeThemeContext', () => ({
   }),
 }));
 
+// Returns the colors as the style and records the options, so `immediateKey` can be asserted.
 jest.mock('@/hooks/useAnimatedThemeStyle', () => ({
-  useAnimatedThemeStyle: (colors: object) => colors,
+  useAnimatedThemeStyle: jest.fn((colors: object) => colors),
 }));
 
 // Chicken and tomato on the 6th, spinach on the 12th. Nothing is in stock.
@@ -119,7 +121,15 @@ function press(root: ReactTestInstance, role: 'button' | 'checkbox', label: stri
   });
 }
 
+// The `immediateKey` of every style that has one, in render order: the rows and checkboxes.
+function getImmediateKeys() {
+  return jest
+    .mocked(useAnimatedThemeStyle)
+    .mock.calls.flatMap(([, options]) => (options ? [options.immediateKey] : []));
+}
+
 beforeEach(() => {
+  jest.mocked(useAnimatedThemeStyle).mockClear();
   useMealPlanStore.setState({
     entries: PLAN,
     recipes: RECIPES as MasterRecipe[],
@@ -173,14 +183,29 @@ describe('ShoppingScreen', () => {
   it('marks the pressed row as purchased and updates the counter', () => {
     const root = renderScreen();
 
-    press(root, 'checkbox', '2 u · Tomate');
+    press(root, 'checkbox', '2 u · Tomate, Coto · $1.100');
 
     expect(getTexts(root)).toContain('3 ítems · 1 comprado');
     expect(
       getPressables(root, 'checkbox')
         .filter((checkbox) => checkbox.props.accessibilityState.checked)
         .map((checkbox) => checkbox.props.accessibilityLabel)
-    ).toEqual(['2 u · Tomate']);
+    ).toEqual(['2 u · Tomate, Coto · $1.100']);
+  });
+
+  it('applies the purchased look of the pressed row at once, and of no other row', () => {
+    const root = renderScreen();
+    const before = getImmediateKeys();
+    jest.mocked(useAnimatedThemeStyle).mockClear();
+
+    press(root, 'checkbox', '2 u · Tomate, Coto · $1.100');
+    const after = getImmediateKeys();
+
+    // Two group checkboxes and three rows of two lines and a checkbox each.
+    expect(before).toHaveLength(11);
+    expect(after).toHaveLength(11);
+    // Only the name, the meta and the checkbox of the pressed row change their key.
+    expect(after.filter((key, index) => key !== before[index])).toHaveLength(3);
   });
 
   it('marks a whole group from its "Marcar todos"', () => {
@@ -193,7 +218,11 @@ describe('ShoppingScreen', () => {
       getPressables(root, 'checkbox')
         .filter((checkbox) => checkbox.props.accessibilityState.checked)
         .map((checkbox) => checkbox.props.accessibilityLabel)
-    ).toEqual(['Marcar todos, Verduras', '100 g · Espinaca', '2 u · Tomate']);
+    ).toEqual([
+      'Marcar todos, Verduras',
+      '100 g · Espinaca, Sin precio',
+      '2 u · Tomate, Coto · $1.100',
+    ]);
   });
 
   it('regroups by supermarket from the switcher', () => {

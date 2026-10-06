@@ -11,6 +11,12 @@ import { ShoppingItemRow } from './ShoppingItemRow';
 
 const MARK_ALL_LABEL = 'Marcar todos';
 
+// Space between the header and the first row.
+const HEADER_GAP = 6;
+// Brings the 24 pt box up to a 44 pt target. Below it the slop stops at the first row,
+// which would otherwise win the overlap and be toggled by a tap meant for the header.
+const MARK_ALL_HIT_SLOP = { top: 10, right: 10, bottom: HEADER_GAP, left: 10 };
+
 export interface ShoppingGroupCardProps {
   group: ShoppingGroup;
   // Best offer of each row, keyed by item id. A row without an entry has no price.
@@ -38,13 +44,13 @@ export function ShoppingGroupCard({
           <Animated.Text accessibilityRole="header" style={[styles.title, titleStyle]}>
             {group.title}
           </Animated.Text>
-          {/* Label and box are one control; the slop brings the 24 pt box up to a 44 pt target. */}
+          {/* Label and box are one control. */}
           <Pressable
             onPress={() => {
               Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
               onToggleAll(group.key);
             }}
-            hitSlop={10}
+            hitSlop={MARK_ALL_HIT_SLOP}
             accessibilityRole="checkbox"
             accessibilityLabel={`${MARK_ALL_LABEL}, ${group.title}`}
             accessibilityState={{ checked: isAllPurchased }}
@@ -73,7 +79,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     flexDirection: 'row',
     gap: 10,
-    marginBottom: 6,
+    marginBottom: HEADER_GAP,
   },
   markAll: {
     alignItems: 'center',

@@ -21,6 +21,7 @@ export function ShoppingItemRow({ item, bestOffer, onToggle }: ShoppingItemRowPr
   const { theme } = useRecipeTheme();
   const isPurchased = item.status === 'purchased';
   const nameLine = formatItemNameLine(item);
+  const metaLine = formatItemMetaLine(bestOffer);
   const purchasedColor = withOpacity(theme.textBlack, PURCHASED_OPACITY);
 
   // Marking a row is a state change, not a palette change: it must not crossfade.
@@ -41,16 +42,15 @@ export function ShoppingItemRow({ item, bestOffer, onToggle }: ShoppingItemRowPr
         onToggle(item.id);
       }}
       accessibilityRole="checkbox"
-      accessibilityLabel={nameLine}
+      // An explicit label replaces the text of the children, so it carries both lines.
+      accessibilityLabel={`${nameLine}, ${metaLine}`}
       accessibilityState={{ checked: isPurchased }}
       style={({ pressed }) => [styles.row, pressed && styles.pressed]}>
       <View style={styles.lines}>
         <Animated.Text style={[styles.name, isPurchased && styles.purchasedName, nameStyle]}>
           {nameLine}
         </Animated.Text>
-        <Animated.Text style={[styles.meta, metaStyle]}>
-          {formatItemMetaLine(bestOffer)}
-        </Animated.Text>
+        <Animated.Text style={[styles.meta, metaStyle]}>{metaLine}</Animated.Text>
       </View>
       <ShoppingCheckbox checked={isPurchased} />
     </Pressable>

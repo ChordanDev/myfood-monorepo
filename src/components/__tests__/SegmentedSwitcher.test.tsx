@@ -158,6 +158,21 @@ describe('SegmentedSwitcher', () => {
     expect(getTexts(root)).toEqual(['Por categoría', 'Por súper']);
   });
 
+  it('keeps every label on one line, shrinking it to fit a narrow option', () => {
+    const { root } = renderSwitcher('category');
+
+    const labels = root.findAllByType(Text).map(({ props }) => ({
+      numberOfLines: props.numberOfLines,
+      adjustsFontSizeToFit: props.adjustsFontSizeToFit,
+      minimumFontScale: props.minimumFontScale,
+    }));
+
+    expect(labels).toEqual([
+      { numberOfLines: 1, adjustsFontSizeToFit: true, minimumFontScale: 0.8 },
+      { numberOfLines: 1, adjustsFontSizeToFit: true, minimumFontScale: 0.8 },
+    ]);
+  });
+
   it('exposes every option as a button and marks only the current value as selected', () => {
     const { root } = renderSwitcher('supermarket');
 

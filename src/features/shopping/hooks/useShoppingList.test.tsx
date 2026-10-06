@@ -311,4 +311,42 @@ describe('useShoppingList', () => {
 
     expect(shoppingList.manualItems.map((item) => item.status)).toEqual(['needed']);
   });
+
+  describe('when another screen changes a store', () => {
+    it('drops the rows of a meal that gets cooked', () => {
+      renderShoppingList();
+
+      act(() => {
+        useMealPlanStore.getState().markAsCooked('mp2');
+      });
+
+      expect(listedGroups()).toEqual([
+        ['Verduras', ['Tomate: needed']],
+        ['Proteínas', ['Pollo (Pechuga): needed']],
+      ]);
+      expect(shoppingList.counters).toEqual({ total: 2, purchased: 0, removed: 0 });
+    });
+
+    it('drops a row once the inventory covers what the plan needs', () => {
+      renderShoppingList();
+
+      act(() => {
+        useInventoryStore.getState().addItem(CHICKEN, 200);
+      });
+
+      expect(listedGroups()).toEqual([['Verduras', ['Espinaca: needed', 'Tomate: needed']]]);
+      expect(shoppingList.bestOffers).not.toHaveProperty('planned:i2');
+    });
+
+    it('lists a row again, for what is missing, when the inventory runs short', () => {
+      renderShoppingList();
+
+      act(() => {
+        useInventoryStore.getState().removeItem(RICE, 450);
+      });
+
+      expect(listedGroups()).toContainEqual(['Despensa', ['Arroz Blanco: needed']]);
+      expect(shoppingList.groups.at(-1)?.items[0].amountToBuy).toBe(50);
+    });
+  });
 });

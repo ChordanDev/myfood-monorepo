@@ -45,6 +45,8 @@ const INDICATOR_RADIUS = 20;
 const INDICATOR_WIDTH_RATIO = 0.92;
 const INDICATOR_FADE_DURATION = 200;
 const INDICATOR_SLIDE_CONFIG = { duration: 300, easing: Easing.out(Easing.quad) };
+// A label that does not fit its option shrinks down to this scale before it is cut.
+const LABEL_MIN_FONT_SCALE = 0.8;
 
 interface SwitcherOptionProps {
   label: string;
@@ -67,7 +69,14 @@ function SwitcherOption({ label, isSelected, onPress, onLayout }: SwitcherOption
       accessibilityLabel={label}
       accessibilityState={{ selected: isSelected }}
       style={styles.option}>
-      <Animated.Text style={[styles.optionLabel, labelThemeStyle]}>{label}</Animated.Text>
+      {/* One line always: a wrapped label would make the whole switcher taller. */}
+      <Animated.Text
+        numberOfLines={1}
+        adjustsFontSizeToFit
+        minimumFontScale={LABEL_MIN_FONT_SCALE}
+        style={[styles.optionLabel, labelThemeStyle]}>
+        {label}
+      </Animated.Text>
     </Pressable>
   );
 }
