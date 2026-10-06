@@ -199,9 +199,11 @@ commit that follows it.
   onboarding, Maestro contract): 12 suites, 92 tests passed, none removed.
   Lint and tsc unchanged from the baseline. `profileScreen.integration.test`
   does not mock the payload module and needed no change.
-- T5 done. 24 files moved with `git mv` (screen, 12 component files, 4 utils,
-  the options constant, 6 tests); only import and `jest.mock` paths changed
-  inside them. Added `src/features/onboarding/index.ts`; `preferences/index.ts`
+- T5 done in 12f45aa. 24 files moved with `git mv` (screen, 12 component
+  files, 4 utils, the options constant, 6 tests); only import and `jest.mock`
+  paths changed inside them. Git reports 23 as renames; the components
+  `index.ts` shows as delete plus add because every one of its lines is an
+  import path. Added `src/features/onboarding/index.ts`; `preferences/index.ts`
   no longer exports the screen; the two route files, the Maestro contract
   path and the `docs/THEMING.md` path follow. Nothing left in preferences
   used `onboardingOptions`, so it moved too. Focused check: 12 suites, 92
