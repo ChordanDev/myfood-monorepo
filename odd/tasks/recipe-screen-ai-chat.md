@@ -41,7 +41,7 @@ Out of scope: real AI service, chat history persistence, the leftovers prompt af
 4. **"En stock":** inventory amount for the ingredient is at least the recipe amount. Otherwise "Falta". An ingredient already requested shows "En la lista" and is not pressable.
 5. **Display:** units `gramos` → `g`, `mililitros` → `ml`, `unidades` → `u`; names in sentence case; unknown catalog ids fall back to a neutral label and count as missing.
 6. **Palette:** the screen activates the recipe's own `theme` through `setRecipeTheme` while mounted and restores the previous palette on leave, so a future-day recipe is not drawn in the fallback palette.
-7. **Composer:** `PlannerChatInput` gains optional props (`placeholder`, `disabled`, `bottomOffset`, `testIDPrefix`) with defaults that preserve the planner's behavior; the recipe screen imports it across features. Moving it to a shared folder is left out to avoid churn on its mechanism-locked tests.
+7. **Composer:** `PlannerChatInput` gains optional props (`placeholder`, `disabled`, `restingBottomGap`, `testIDPrefix`) with defaults that preserve the planner's behavior; the recipe screen imports it across features. Moving it to a shared folder is left out to avoid churn on its mechanism-locked tests.
 8. **Mark as cooked:** header check calls `useMealPlanStore.markAsCooked(entry.id)` and goes back, as today. Disabled without an entry or when already cooked.
 9. **Top gradient:** new shared `src/components/TopGradientBackground.tsx` built on `useGradientCrossfade`; Home keeps its inline copy for now to avoid conflicts with #46.
 
@@ -51,16 +51,16 @@ Out of scope: real AI service, chat history persistence, the leftovers prompt af
 - [x] **T1 — Ingredient resolver and stock status.** `src/features/recipe/domain/recipeIngredients.ts` with colocated tests, RED first. Route: delegated writer (with T2, T3). Commit `0597978`.
 - [x] **T2 — Shopping requests port.** `src/store/useShoppingRequestsStore.ts` with store tests, RED first. Commit `a42f206`.
 - [x] **T3 — Entry resolution, chat gate and chat model.** `src/features/recipe/domain/recipeEntry.ts` and `recipeChat.ts` (messages, quick actions, `voseo` mock replies, inventory-aware offer), colocated tests, RED first. Commit `1f08708`.
-- [ ] **T4 — Screen layout.** Header, ingredients card, preparation card, `TopGradientBackground`, palette activation, Home passes `entryId`, legacy theme hook and `RECIPE_THEMES` deleted. Route: delegated writer (with T5). Component tests for the ingredient row states and the header actions.
-- [ ] **T5 — Assistant chat.** Composer props on `PlannerChatInput`, chat section with bubbles and quick-action chips, disabled state off today. Component tests for the gate and the quick actions.
-- [ ] **T6 — Docs.** Remove `src/features/recipe/` from the known gaps in `docs/THEMING.md`; record progress here.
+- [x] **T4 — Screen layout.** Header, ingredients card, preparation card, `TopGradientBackground`, palette activation, Home passes `entryId`, legacy theme hook and `RECIPE_THEMES` deleted. Route: delegated writer (with T5). Component tests for the ingredient row states and the header actions. Commit `ec06650`.
+- [x] **T5 — Assistant chat.** Composer props on `PlannerChatInput`, chat section with bubbles and quick-action chips, disabled state off today. Component tests for the gate and the quick actions. Commit `02d49fc`.
+- [x] **T6 — Docs.** Remove `src/features/recipe/` from the known gaps in `docs/THEMING.md`; record progress here.
 
 ## Acceptance criteria
 
-- [ ] Chat enabled only for today's recipes; disabled on other days.
-- [ ] Mark as cooked reachable from any scroll position.
-- [ ] Recipe palette via `useRecipeTheme()` from the context; legacy hook and `RECIPE_THEMES` removed.
-- [ ] Tests for the ingredient resolver and the inventory status.
+- [x] Chat enabled only for today's recipes; disabled on other days.
+- [x] Mark as cooked reachable from any scroll position.
+- [x] Recipe palette via `useRecipeTheme()` from the context; legacy hook and `RECIPE_THEMES` removed.
+- [x] Tests for the ingredient resolver and the inventory status.
 
 ## Checks
 
@@ -74,6 +74,25 @@ Out of scope: real AI service, chat history persistence, the leftovers prompt af
 
 - 2026-10-06: worktree created, dependencies installed, CodeGraph initialized. T0 done (`a432783`). RDD is off for this clone (`clone_local`), so verification follows the tier table of `gentle-ai review assess`.
 
+- 2026-10-06: T4–T5 done by one delegated writer. `npx jest src/features/recipe src/features/planner src/store/useShoppingRequestsStore.test.ts`: 14 suites, 275 tests passed (re-run by the parent). `npm test`: 516 passed, 2 failed, both in `src/services/__tests__/authErrorCodeContract.test.ts` (untouched, known on the base). `npx tsc --noEmit`: 22 errors, same as the base, none in touched files. `npm run lint`: 0 errors. Color-literal search: only `#000000` as a shadow. No importer of the legacy theme hook remains. Existing planner composer tests untouched and green; 6 cases added for the new props. `gentle-ai review assess` on `01d3480..02d49fc`: `medium`, `slice_budget_reached`; no native review because RDD is off for this clone.
+- 2026-10-06: T6 done: the recipe row was removed from the known gaps in `docs/THEMING.md`.
+- Acceptance criteria are checked from automated tests and code reading. **Pending:** no run on a simulator or device yet.
+
+## Known limits
+
+- Not verified visually. To check on device: header shadow and pill ellipsis, the scroll clip under the header, the disabled composer (its placeholder likely wraps to two lines), the bottom fade with a multi-line composer, chips at large font scale, Android elevation order.
+- As on the planner, the scroll padding does not grow with the keyboard: with the keyboard open the newest message can sit behind it until dismissed.
+- A recipe opened from another day activates its palette for the whole app while mounted; Home, mounted underneath, may crossfade back visibly on pop. Only the top gradient animates; cards switch instantly.
+- "Falta · agregar" on an ingredient outside the catalog creates a request named "Ingrediente desconocido".
+- Mark as cooked always calls `router.back()`; a deep link without a back stack is not handled.
+- `PlannerChatInput` and `PlannerTypingIndicator` are imported across features.
+- Assistant replies are a deterministic mock that ignores the question; chat history is not persisted.
+- Merge seams: `useShoppingRequestsStore` is to be replaced by #44's store; the `alert` commit is a cherry-pick of #46's.
+
+## Slices for delivery
+
+Chain strategy not chosen yet. Natural boundaries: A = `a432783` (token, shared with #46); B = `0597978`, `a42f206`, `1f08708` (domain and port, 1239 lines, mostly tests); C = `ec06650` (screen); D = `02d49fc` (chat and composer props).
+
 ## Next step
 
-T1–T3 (domain and stores, test-first), then T4–T5 (UI).
+Visual check on a simulator, then the owner chooses the chain strategy before any pull request.
