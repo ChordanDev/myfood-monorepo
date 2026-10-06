@@ -453,7 +453,7 @@ describe('PlannerChatInput layout mode', () => {
     update({ value: '' });
 
     expect(getContentStyle(tree)).toEqual(INLINE_CONTENT_STYLE);
-    expect(getInputStyle(tree).maxHeight).toBe(PLANNER_CHAT_INPUT_TEXT_LINE_HEIGHT * 2);
+    expect(getInputStyle(tree).maxHeight).toBe(PLANNER_CHAT_INPUT_TEXT_LINE_HEIGHT);
   });
 
   it('keeps the measured line count across value changes until the probe reports again', () => {
@@ -648,6 +648,55 @@ describe('PlannerChatInput native line height', () => {
     reportProbeLines(tree, 2, 130);
 
     expect(getInputStyle(tree).maxHeight).toBe(260);
+  });
+});
+
+// iOS measures the commit that clears the value with the text the native input still holds and
+// does not measure it again, so the empty input cannot be left room for a second line.
+describe('PlannerChatInput empty input', () => {
+  it('holds the empty input at exactly one native line', () => {
+    const { tree } = renderComposer({ value: '' });
+
+    expect(getInputStyle(tree).minHeight).toBe(PLANNER_CHAT_INPUT_TEXT_LINE_HEIGHT);
+    expect(getInputStyle(tree).maxHeight).toBe(PLANNER_CHAT_INPUT_TEXT_LINE_HEIGHT);
+
+    reportProbeLines(tree, 1, 27.81);
+
+    expect(getInputStyle(tree).minHeight).toBe(27.81);
+    expect(getInputStyle(tree).maxHeight).toBe(27.81);
+  });
+
+  it('restores the two-line inline cap on the first typed character', () => {
+    const { tree, update } = renderComposer({ value: '' });
+
+    update({ value: 'P' });
+
+    expect(getInputStyle(tree).minHeight).toBe(PLANNER_CHAT_INPUT_TEXT_LINE_HEIGHT);
+    expect(getInputStyle(tree).maxHeight).toBe(PLANNER_CHAT_INPUT_TEXT_LINE_HEIGHT * 2);
+  });
+
+  it('collapses to one line as soon as a value at the line cap is cleared', () => {
+    const cappedHeight = PLANNER_CHAT_INPUT_TEXT_LINE_HEIGHT * PLANNER_CHAT_INPUT_MAX_LINES;
+    const { tree, update } = renderComposer({ value: WRAPPING_TEXT });
+
+    reportProbeLines(tree, PLANNER_CHAT_INPUT_MAX_LINES + 2);
+    reportInputHeight(tree, cappedHeight);
+
+    expect(getContentStyle(tree)).toEqual(STACKED_CONTENT_STYLE);
+    expect(getInputStyle(tree).maxHeight).toBe(cappedHeight);
+
+    // Sending clears the value before the probe or the native input report again.
+    update({ value: '' });
+
+    expect(getInputStyle(tree).minHeight).toBe(PLANNER_CHAT_INPUT_TEXT_LINE_HEIGHT);
+    expect(getInputStyle(tree).maxHeight).toBe(PLANNER_CHAT_INPUT_TEXT_LINE_HEIGHT);
+  });
+
+  it('does not treat a whitespace-only value as empty', () => {
+    const { tree } = renderComposer({ value: '   ' });
+
+    expect(getInputStyle(tree).minHeight).toBe(PLANNER_CHAT_INPUT_TEXT_LINE_HEIGHT);
+    expect(getInputStyle(tree).maxHeight).toBe(PLANNER_CHAT_INPUT_TEXT_LINE_HEIGHT * 2);
   });
 });
 

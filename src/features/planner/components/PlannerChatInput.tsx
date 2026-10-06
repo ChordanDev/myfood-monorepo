@@ -361,7 +361,10 @@ export function PlannerChatInput({
                 fontSize: PLANNER_CHAT_INPUT_TEXT_FONT_SIZE,
                 lineHeight: PLANNER_CHAT_INPUT_TEXT_LINE_HEIGHT,
                 minHeight: lineHeight,
-                maxHeight: inputMaxHeight,
+                // iOS measures the commit that clears the value with the text the native input
+                // still holds, and nothing measures it again until the next edit. An empty input
+                // is therefore exactly one line.
+                maxHeight: value === '' ? lineHeight : inputMaxHeight,
                 padding: 0,
               }}
             />
