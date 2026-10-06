@@ -106,7 +106,7 @@ these relationships are not.
 | ------------------------------------------------------------------ | ------------------------------------------------------------------- |
 | Values inside a palette definition                                 | That is where colors live                                           |
 | `#000000` as `shadowColor`, `rgba(0, 0, 0, …)` as a modal backdrop | Neutral, independent of the meal                                    |
-| The multicolor "thinking" gradient in `PlannerChatInput`           | Fixed today; treated as palette-independent until decided otherwise |
+| The multicolor "thinking" gradient in `ChatComposer`               | Fixed today; treated as palette-independent until decided otherwise |
 
 Everything else in a component, style or SVG string is a bug.
 

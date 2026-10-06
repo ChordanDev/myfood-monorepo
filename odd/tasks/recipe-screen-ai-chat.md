@@ -109,10 +109,18 @@ Decisions (they supersede design decisions 1, 7 and 9 on file placement only):
 
 Tasks:
 
-- [ ] **T7 — Recipe owns its seams.** Move the shopping requests store and its test to `src/features/recipe/store/`, move the gradient into the recipe components, add `src/features/recipe/index.ts`, route imports the barrel. Route: delegated writer (with T8).
-- [ ] **T8 — `assistant-chat` feature.** Move and rename the composer, typing indicator, layout resolver, constants and their tests; planner and recipe consume the barrel; planner passes the resting gap and its test id prefix. Planner behavior and e2e test ids unchanged.
-- [ ] **T9 — Docs.** Update names in `docs/THEMING.md`; record progress here.
+- [x] **T7 — Recipe owns its seams.** Move the shopping requests store and its test to `src/features/recipe/store/`, move the gradient into the recipe components, add `src/features/recipe/index.ts`, route imports the barrel. Route: delegated writer (with T8). Commit `68ebdbf`.
+- [x] **T8 — `assistant-chat` feature.** Move and rename the composer, typing indicator, layout resolver, constants and their tests; planner and recipe consume the barrel; planner passes the resting gap and its test id prefix. Planner behavior and e2e test ids unchanged. Commit `1dbf285`.
+- [x] **T9 — Docs.** Update names in `docs/THEMING.md`; record progress here.
+
+Evidence (2026-10-06): behavior-preserving refactor, all nine moves detected as renames. `npx jest src/features/recipe src/features/planner src/features/assistant-chat`: 14 suites, 277 tests passed (275 before, plus 2 new tests pinning the composer defaults and the planner's gap and test id prefix; re-run by the parent). `npm test`: 518 passed, the same 2 known failures. `npx tsc --noEmit`: 22 errors, same as the base. `npm run lint`: 0 errors. No deep cross-feature import remains in recipe, planner or assistant-chat except `formatDateKey` from `home/utils`. The Maestro ids `planner-composer-input`, `planner-composer-submit` and `planner-typing-indicator` still resolve on the planner screen.
+
+Left open by the restructure:
+
+- Two screen tests reach `@/features/assistant-chat/constants` through `jest.requireActual`, because requiring the real barrel crashes under their partial reanimated mock.
+- `ChatComposer` keeps the planner's default placeholder and `ChatTypingIndicator` keeps planner-prefixed test ids (Maestro depends on them).
+- `CUSTOM_TAB_BAR_CONTENT_HEIGHT` stays in `planner/constants` because `app/(tabs)/_layout.tsx` imports it from there.
 
 ## Next step
 
-T7–T8 (delegated), then T9. After that: visual check on a simulator, then the owner chooses the chain strategy before any pull request.
+Visual check on a simulator, then the owner chooses the chain strategy before any pull request.
