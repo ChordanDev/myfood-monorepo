@@ -72,11 +72,31 @@ export interface MealPlanEntry {
   isCooked: boolean;
 }
 
-export interface ShoppingListItem {
+export type ShoppingItemSource = 'planned_meal' | 'manual';
+
+export type ShoppingItemStatus = 'needed' | 'purchased' | 'removed';
+
+interface ShoppingListItemBase {
+  id: string; // Stable across derivations
+  name: string;
+  status: ShoppingItemStatus;
+}
+
+// Derived from the plan: one item per ingredient, carrying the amount still missing.
+export interface PlannedShoppingListItem extends ShoppingListItemBase {
+  source: 'planned_meal';
   ingredientId: string;
   amountToBuy: number;
-  isPurchased: boolean;
+  unit: UnitType;
+  category: Ingredient['category'];
 }
+
+// Added by hand: a name only, with no ingredient, quantity, unit or category.
+export interface ManualShoppingListItem extends ShoppingListItemBase {
+  source: 'manual';
+}
+
+export type ShoppingListItem = PlannedShoppingListItem | ManualShoppingListItem;
 
 export type BudgetLevel = 'muy barato' | 'estándar' | 'premium';
 
