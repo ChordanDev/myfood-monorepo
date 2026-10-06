@@ -158,10 +158,11 @@ describe('PlannerScreen settled turn anchoring', () => {
 
     const composer = tree.root.findByProps({ value: '', isThinking: false });
     expect(composer.props.onHeightChange).toEqual(expect.any(Function));
-    expect(composer.props.onRenderedHeightChange).toEqual(expect.any(Function));
+    // The composer reports its height through a single prop.
+    expect(composer.props).not.toHaveProperty('onRenderedHeightChange');
 
     act(() => {
-      composer.props.onRenderedHeightChange(180);
+      composer.props.onHeightChange(180);
     });
     expect(getScrollView(tree).props.contentContainerStyle.paddingBottom).toBe(
       180 + 20 + CUSTOM_TAB_BAR_CONTENT_HEIGHT + PLANNER_CHAT_INPUT_CLEARANCE + 28
