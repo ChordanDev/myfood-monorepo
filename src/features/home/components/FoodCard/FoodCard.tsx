@@ -20,7 +20,7 @@ interface FoodCardProps {
   metrics: HomeMetrics;
   isFavorite: boolean;
   onToggleFavorite?: () => void;
-  onPressSparkles?: () => void;
+  onOpenRecipe?: () => void;
 }
 
 export function FoodCard({
@@ -30,7 +30,7 @@ export function FoodCard({
   metrics,
   isFavorite,
   onToggleFavorite,
-  onPressSparkles,
+  onOpenRecipe,
 }: FoodCardProps) {
   const hasMealData = Boolean(mealType || description?.trim());
   const descriptionText = description?.trim() ?? '';
@@ -56,7 +56,12 @@ export function FoodCard({
 
   return (
     <ShadowSurface style={styles.fill}>
-      <View style={[styles.fill, styles.relative]}>
+      <Pressable
+        onPress={onOpenRecipe}
+        disabled={!hasMealData}
+        accessibilityRole="button"
+        accessibilityLabel="Ver receta"
+        style={[styles.fill, styles.relative]}>
         <Svg
           pointerEvents="none"
           width="100%"
@@ -97,7 +102,7 @@ export function FoodCard({
           </Pressable>
 
           <Pressable
-            onPress={onPressSparkles}
+            onPress={onOpenRecipe}
             disabled={!hasMealData}
             style={[
               styles.iconButton,
@@ -183,7 +188,7 @@ export function FoodCard({
             </Animated.Text>
           </View>
         </View>
-      </View>
+      </Pressable>
     </ShadowSurface>
   );
 }

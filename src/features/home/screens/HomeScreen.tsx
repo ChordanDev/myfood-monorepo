@@ -59,7 +59,7 @@ export function HomeScreen() {
     }
   };
 
-  const handlePressSparkles = () => {
+  const handleOpenRecipe = () => {
     if (selectedMeal?.recipeId) {
       router.push(`/recipe/${selectedMeal.recipeId}`);
     }
@@ -164,7 +164,7 @@ export function HomeScreen() {
                   metrics={metrics}
                   isFavorite={isSelectedMealFavorite}
                   onToggleFavorite={handleToggleFavorite}
-                  onPressSparkles={handlePressSparkles}
+                  onOpenRecipe={handleOpenRecipe}
                 />
               </View>
               <View style={[styles.sideColumn, { width: `${metrics.sideColumnPercent}%` }]}>
