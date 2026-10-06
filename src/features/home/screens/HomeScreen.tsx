@@ -22,6 +22,8 @@ export function HomeScreen() {
   const insets = useSafeAreaInsets();
   const tabBarHeight = insets.bottom + 60;
   const eatToday = useMealPlanStore((state) => state.eatToday);
+  const favoriteRecipeIds = useMealPlanStore((state) => state.favoriteRecipeIds);
+  const toggleFavoriteRecipe = useMealPlanStore((state) => state.toggleFavoriteRecipe);
 
   const {
     selectedDate,
@@ -45,6 +47,17 @@ export function HomeScreen() {
     animatedStyle: animatedBackgroundStyle,
     AnimatedView,
   } = useGradientCrossfade(backgroundColors);
+
+  const selectedRecipeId = selectedMeal?.recipeId;
+  const isSelectedMealFavorite = Boolean(
+    selectedRecipeId && favoriteRecipeIds.includes(selectedRecipeId)
+  );
+
+  const handleToggleFavorite = () => {
+    if (selectedRecipeId) {
+      toggleFavoriteRecipe(selectedRecipeId);
+    }
+  };
 
   const handlePressSparkles = () => {
     if (selectedMeal?.recipeId) {
@@ -149,6 +162,8 @@ export function HomeScreen() {
                   description={selectedMealDescription}
                   selectedDate={selectedDate}
                   metrics={metrics}
+                  isFavorite={isSelectedMealFavorite}
+                  onToggleFavorite={handleToggleFavorite}
                   onPressSparkles={handlePressSparkles}
                 />
               </View>

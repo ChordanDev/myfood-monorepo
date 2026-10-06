@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useMemo } from 'react';
 import { Text, View, Pressable, StyleSheet } from 'react-native';
 import Animated from 'react-native-reanimated';
 import Svg, { Defs, LinearGradient as SvgLinearGradient, Path, Stop } from 'react-native-svg';
@@ -18,6 +18,8 @@ interface FoodCardProps {
   description: string | null;
   selectedDate: string | null;
   metrics: HomeMetrics;
+  isFavorite: boolean;
+  onToggleFavorite?: () => void;
   onPressSparkles?: () => void;
 }
 
@@ -26,9 +28,10 @@ export function FoodCard({
   description,
   selectedDate,
   metrics,
+  isFavorite,
+  onToggleFavorite,
   onPressSparkles,
 }: FoodCardProps) {
-  const [isFavorite, setIsFavorite] = useState(false);
   const hasMealData = Boolean(mealType || description?.trim());
   const descriptionText = description?.trim() ?? '';
   const { getColorWithOpacity, theme } = useThemeColor();
@@ -78,7 +81,8 @@ export function FoodCard({
 
         <View style={styles.content}>
           <Pressable
-            onPress={() => setIsFavorite((prev) => !prev)}
+            onPress={onToggleFavorite}
+            disabled={!hasMealData}
             style={[
               styles.iconButton,
               {
@@ -86,6 +90,7 @@ export function FoodCard({
                 top: '5%',
                 width: layout.topIconBoxSize as any,
                 height: layout.topIconBoxSize as any,
+                opacity: hasMealData ? 1 : 0.3,
               },
             ]}>
             <FavoriteStarIcon isFilled={isFavorite} />

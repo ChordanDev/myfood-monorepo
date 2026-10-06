@@ -15,9 +15,11 @@ interface EatTodayParams {
 interface MealPlanState {
   entries: MealPlanEntry[];
   recipes: MasterRecipe[];
+  favoriteRecipeIds: string[];
   setPlan: (entries: MealPlanEntry[]) => void;
   markAsCooked: (entryId: string) => void;
   eatToday: (params: EatTodayParams) => void;
+  toggleFavoriteRecipe: (recipeId: string) => void;
   getEntryByDateAndType: (date: string, type: string) => MealPlanEntry | undefined;
   getRecipeById: (id: string) => MasterRecipe | undefined;
 }
@@ -27,6 +29,7 @@ export const useMealPlanStore = create<MealPlanState>()(
     (set, get) => ({
       entries: MOCK_MEAL_PLAN,
       recipes: MOCK_MASTER_RECIPES,
+      favoriteRecipeIds: [],
       setPlan: (entries) => set({ entries }),
       markAsCooked: (entryId) => {
         const entry = get().entries.find((e) => e.id === entryId);
@@ -77,6 +80,13 @@ export const useMealPlanStore = create<MealPlanState>()(
             }),
           };
         });
+      },
+      toggleFavoriteRecipe: (recipeId) => {
+        set((state) => ({
+          favoriteRecipeIds: state.favoriteRecipeIds.includes(recipeId)
+            ? state.favoriteRecipeIds.filter((id) => id !== recipeId)
+            : [...state.favoriteRecipeIds, recipeId],
+        }));
       },
       getEntryByDateAndType: (date, type) => {
         return get().entries.find((e) => e.date === date && e.type === type);
