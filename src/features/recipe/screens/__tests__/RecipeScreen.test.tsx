@@ -1,13 +1,16 @@
 import React from 'react';
-import { Text } from 'react-native';
+import { ScrollView, StyleSheet, Text } from 'react-native';
 import { act, create, type ReactTestRenderer } from 'react-test-renderer';
 import { formatDateKey } from '@/features/home/utils/calendarDate';
+import { PLANNER_CHAT_INPUT_MIN_HEIGHT } from '@/features/planner/constants';
 import { useInventoryStore, useMealPlanStore } from '@/store';
 import { useShoppingRequestsStore } from '@/store/useShoppingRequestsStore';
 import type { MasterRecipe, MealPlanEntry, RecipeThemeConfig } from '@/types/domain';
+import { RECIPE_CHAT_REPLY_DELAY_MS } from '../../hooks/useRecipeChat';
 import { RecipeScreen } from '../RecipeScreen';
 
 const mockBack = jest.fn();
+const mockScrollToEnd = jest.fn();
 let mockRouteParams: { id: string; entryId?: string };
 
 jest.mock('@react-native-async-storage/async-storage', () =>
@@ -29,6 +32,39 @@ jest.mock('@/components', () => ({
 
 jest.mock('@/components/TopGradientBackground', () => ({
   TopGradientBackground: () => null,
+}));
+
+// The scroll view is replaced by a host node, so the test can hand it a `scrollToEnd` to observe.
+jest.mock('react-native', () => {
+  const ReactMock = jest.requireActual('react') as typeof import('react');
+  const ReactNative = jest.requireActual('react-native') as typeof import('react-native');
+  const MockScrollView = (props: React.ComponentProps<typeof ReactNative.ScrollView>) =>
+    ReactMock.createElement('RCTScrollView', props, props.children);
+
+  MockScrollView.displayName = 'ScrollView';
+
+  return Object.defineProperty(Object.create(ReactNative), 'ScrollView', {
+    value: MockScrollView,
+    enumerable: true,
+  });
+});
+
+jest.mock('expo-linear-gradient', () => ({
+  LinearGradient: 'LinearGradient',
+}));
+
+jest.mock('react-native-reanimated', () => ({
+  useReducedMotion: () => false,
+}));
+
+// The composer and the typing indicator are covered by their own suites; here they are host nodes
+// whose props show what the screen asks of them.
+jest.mock('@/features/planner/components/PlannerChatInput', () => ({
+  PlannerChatInput: 'PlannerChatInput',
+}));
+
+jest.mock('@/features/planner/components/PlannerTypingIndicator', () => ({
+  PlannerTypingIndicator: 'PlannerTypingIndicator',
 }));
 
 jest.mock('@/context/RecipeThemeContext', () => ({
@@ -85,10 +121,36 @@ let mountedTree: ReactTestRenderer | null = null;
 
 function renderScreen() {
   act(() => {
-    mountedTree = create(<RecipeScreen />);
+    mountedTree = create(<RecipeScreen />, {
+      createNodeMock: (element) =>
+        element.type === 'RCTScrollView' ? { scrollToEnd: mockScrollToEnd } : null,
+    });
   });
 
   return mountedTree!;
+}
+
+function getComposer(tree: ReactTestRenderer) {
+  return tree.root.findByProps({ testIDPrefix: 'recipe-composer' });
+}
+
+function getScrollView(tree: ReactTestRenderer) {
+  return tree.root.findByType(ScrollView);
+}
+
+function ask(tree: ReactTestRenderer, question: string) {
+  act(() => {
+    getComposer(tree).props.onChangeText(question);
+  });
+  act(() => {
+    getComposer(tree).props.onSubmit();
+  });
+}
+
+function waitForReply() {
+  act(() => {
+    jest.advanceTimersByTime(RECIPE_CHAT_REPLY_DELAY_MS);
+  });
 }
 
 function renderedTexts(tree: ReactTestRenderer): string[] {
@@ -107,7 +169,9 @@ function press(tree: ReactTestRenderer, testID: string) {
 
 describe('RecipeScreen', () => {
   beforeEach(() => {
+    jest.useFakeTimers();
     mockBack.mockClear();
+    mockScrollToEnd.mockClear();
     mockRouteParams = { id: 'r1', entryId: 'e-today' };
     useMealPlanStore.setState({ entries: [entry()], recipes: [RECIPE], favoriteRecipeIds: [] });
     useInventoryStore.setState({
@@ -127,6 +191,7 @@ describe('RecipeScreen', () => {
       mountedTree?.unmount();
     });
     mountedTree = null;
+    jest.useRealTimers();
   });
 
   it('shows the recipe name, its ingredients with their stock state and its steps', () => {
@@ -230,5 +295,145 @@ describe('RecipeScreen', () => {
     press(tree, 'recipe-header-back');
 
     expect(mockBack).toHaveBeenCalledTimes(1);
+  });
+  describe('assistant chat', () => {
+    const QUESTION = '¿Puedo hacerla más liviana?';
+
+    it('invites the user to ask about the recipe on the day it is planned', () => {
+      const composer = getComposer(renderScreen());
+
+      expect(composer.props.disabled).toBe(false);
+      expect(composer.props.placeholder).toBe('Preguntale a la IA sobre la receta');
+    });
+
+    it('sits on the bottom safe area, since this route has no tab bar', () => {
+      expect(getComposer(renderScreen()).props.restingBottomGap).toBe(14);
+    });
+
+    it('disables the composer on any other day and keeps the recipe readable', () => {
+      useMealPlanStore.setState({ entries: [entry({ id: 'e-other', date: OTHER_DAY })] });
+      mockRouteParams = { id: 'r1', entryId: 'e-other' };
+      const tree = renderScreen();
+      const composer = getComposer(tree);
+
+      expect(composer.props.disabled).toBe(true);
+      expect(composer.props.placeholder).toBe('El chat se habilita el día de la receta');
+      expect(renderedTexts(tree)).toEqual(
+        expect.arrayContaining(['Asistente de cocina', 'Arroz blanco', 'Cocinar el arroz.'])
+      );
+    });
+
+    it('sends nothing while the chat is disabled', () => {
+      useMealPlanStore.setState({ entries: [entry({ id: 'e-other', date: OTHER_DAY })] });
+      mockRouteParams = { id: 'r1', entryId: 'e-other' };
+      const tree = renderScreen();
+
+      ask(tree, QUESTION);
+      waitForReply();
+
+      expect(renderedTexts(tree)).not.toContain(QUESTION);
+      expect(tree.root.findAllByType('PlannerTypingIndicator' as never)).toHaveLength(0);
+    });
+
+    it('disables the composer when the recipe has no planned meal', () => {
+      useMealPlanStore.setState({ entries: [] });
+
+      expect(getComposer(renderScreen()).props.disabled).toBe(true);
+    });
+
+    it('shows the question, then the typing indicator, then the assistant reply', () => {
+      const tree = renderScreen();
+
+      ask(tree, QUESTION);
+
+      expect(renderedTexts(tree)).toContain(QUESTION);
+      expect(getComposer(tree).props.value).toBe('');
+      expect(getComposer(tree).props.isThinking).toBe(true);
+      expect(tree.root.findAllByType('PlannerTypingIndicator' as never)).toHaveLength(1);
+
+      waitForReply();
+
+      expect(getComposer(tree).props.isThinking).toBe(false);
+      expect(tree.root.findAllByType('PlannerTypingIndicator' as never)).toHaveLength(0);
+      expect(renderedTexts(tree).some((text) => text.includes('¿lo agrego a compras?'))).toBe(true);
+      expect(renderedTexts(tree)).toEqual(
+        expect.arrayContaining(['Sí, agregalo', 'No hace falta'])
+      );
+    });
+
+    it('adds the offered ingredient to the shopping requests when the user confirms', () => {
+      const tree = renderScreen();
+
+      ask(tree, QUESTION);
+      waitForReply();
+      press(tree, 'recipe-chat-action-turn-1-assistant-confirm_add');
+
+      expect(useShoppingRequestsStore.getState().requests).toEqual([
+        expect.objectContaining({ ingredientId: 'i2', amount: 200, unit: 'gramos' }),
+      ]);
+      expect(tree.root.findAllByProps({ testID: 'recipe-ingredient-add-i2' })).toHaveLength(0);
+      expect(renderedTexts(tree)).toContain('En la lista');
+      expect(
+        tree.root.findAllByProps({ testID: 'recipe-chat-action-turn-1-assistant-confirm_add' })
+      ).toHaveLength(0);
+      expect(
+        tree.root.findAllByProps({ testID: 'recipe-chat-action-turn-1-assistant-dismiss_add' })
+      ).toHaveLength(0);
+    });
+
+    it('adds nothing when the user dismisses the offer', () => {
+      const tree = renderScreen();
+
+      ask(tree, QUESTION);
+      waitForReply();
+      press(tree, 'recipe-chat-action-turn-1-assistant-dismiss_add');
+
+      expect(useShoppingRequestsStore.getState().requests).toEqual([]);
+      expect(
+        tree.root.findAllByProps({ testID: 'recipe-chat-action-turn-1-assistant-dismiss_add' })
+      ).toHaveLength(0);
+      expect(findButton(tree, 'recipe-ingredient-add-i2')).toBeTruthy();
+    });
+
+    it('scrolls to the end once a new message has been laid out', () => {
+      const tree = renderScreen();
+
+      act(() => {
+        getScrollView(tree).props.onContentSizeChange(390, 600);
+      });
+
+      expect(mockScrollToEnd).not.toHaveBeenCalled();
+
+      ask(tree, QUESTION);
+      act(() => {
+        getScrollView(tree).props.onContentSizeChange(390, 700);
+      });
+
+      expect(mockScrollToEnd).toHaveBeenCalledTimes(1);
+      expect(mockScrollToEnd).toHaveBeenCalledWith({ animated: true });
+
+      waitForReply();
+      act(() => {
+        getScrollView(tree).props.onContentSizeChange(390, 900);
+      });
+
+      expect(mockScrollToEnd).toHaveBeenCalledTimes(2);
+    });
+
+    it('keeps the end of the conversation clear of the composer as it grows', () => {
+      const tree = renderScreen();
+      const getBottomPadding = () =>
+        StyleSheet.flatten(getScrollView(tree).props.contentContainerStyle).paddingBottom;
+      const restingPadding = getBottomPadding();
+
+      // Bottom inset, gap under the composer, the composer itself and the reach of the fade.
+      expect(restingPadding).toBe(34 + 14 + PLANNER_CHAT_INPUT_MIN_HEIGHT + 30);
+
+      act(() => {
+        getComposer(tree).props.onHeightChange(PLANNER_CHAT_INPUT_MIN_HEIGHT + 48);
+      });
+
+      expect(getBottomPadding()).toBe(restingPadding + 48);
+    });
   });
 });

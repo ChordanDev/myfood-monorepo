@@ -1253,3 +1253,90 @@ describe('PlannerChatInput placeholder', () => {
     expect(getPlaceholderStyle().height).toBe(27.81);
   });
 });
+
+describe('PlannerChatInput reuse outside the planner', () => {
+  it('shows the placeholder it is given instead of the planner one', () => {
+    const { tree } = renderComposer({ placeholder: 'Preguntale a la IA sobre la receta' });
+    const placeholder = tree.root.findByProps({ testID: 'planner-composer-placeholder' });
+
+    expect(placeholder.findByType(Text).props.children).toBe('Preguntale a la IA sobre la receta');
+  });
+
+  it('rests on the gap it is given when the route has no tab bar', () => {
+    const { tree } = renderComposer({ restingBottomGap: 14 });
+
+    expect(useKeyboardAnimation).toHaveBeenLastCalledWith({
+      mode: 'geometry',
+      restingBottomOffset: 34 + 14,
+      clearance: PLANNER_CHAT_INPUT_CLEARANCE,
+      bottomInset: 34,
+    });
+    expect(
+      StyleSheet.flatten(tree.root.findByProps({ testID: 'planner-composer-wrapper' }).props.style)
+        .paddingBottom
+    ).toBe(34 + 14);
+  });
+
+  it('names its nodes after the prefix it is given', () => {
+    const { tree } = renderComposer({ testIDPrefix: 'recipe-composer', value: 'Hola' });
+    const testIDs = tree.root
+      .findAll((node) => typeof node.type === 'string' && typeof node.props.testID === 'string')
+      .map((node) => node.props.testID);
+
+    expect(testIDs).toEqual(
+      expect.arrayContaining([
+        'recipe-composer-wrapper',
+        'recipe-composer-frame',
+        'recipe-composer-content',
+        'recipe-composer-input',
+        'recipe-composer-submit',
+      ])
+    );
+    expect(testIDs.filter((testID) => testID.startsWith('planner-composer'))).toEqual([]);
+  });
+
+  it('is fully interactive and undimmed unless it is disabled', () => {
+    const { tree } = renderComposer({ value: 'Hola' });
+
+    expect(getInput(tree).props.editable).toBe(true);
+    expect(tree.root.findByProps({ accessibilityLabel: 'Send message' }).props.disabled).toBe(
+      false
+    );
+    expect(
+      tree.root.findByProps({ accessibilityLabel: 'Voice input' }).props.disabled
+    ).toBeUndefined();
+    expect(
+      tree.root.findByProps({ accessibilityLabel: 'Add meal detail' }).props.disabled
+    ).toBeUndefined();
+    expect(getFrameStyle(tree).opacity).toBeUndefined();
+  });
+
+  it('cannot be typed in or submitted, and is dimmed, while disabled', () => {
+    const onSubmit = jest.fn();
+    const { tree } = renderComposer({
+      disabled: true,
+      onSubmit,
+      placeholder: 'El chat se habilita el día de la receta',
+      value: 'Hola',
+    });
+    const input = getInput(tree);
+
+    expect(input.props.editable).toBe(false);
+    expect(input.props.accessibilityState).toEqual({ disabled: true });
+    expect(tree.root.findByProps({ accessibilityLabel: 'Send message' }).props.disabled).toBe(true);
+    expect(tree.root.findByProps({ accessibilityLabel: 'Voice input' }).props.disabled).toBe(true);
+    expect(tree.root.findByProps({ accessibilityLabel: 'Add meal detail' }).props.disabled).toBe(
+      true
+    );
+    expect(getFrameStyle(tree).opacity).toBeLessThan(1);
+  });
+
+  it('announces why it is disabled, since the visible placeholder is hidden from assistive tech', () => {
+    const { tree } = renderComposer({
+      disabled: true,
+      placeholder: 'El chat se habilita el día de la receta',
+    });
+
+    expect(getInput(tree).props.accessibilityLabel).toBe('El chat se habilita el día de la receta');
+  });
+});

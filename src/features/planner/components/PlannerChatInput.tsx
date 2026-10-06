@@ -44,7 +44,24 @@ interface PlannerChatInputProps {
   onChangeText: (value: string) => void;
   onHeightChange?: (height: number) => void;
   onSubmit: () => void;
+  /** Hint shown while the input is empty. Defaults to the planner's. */
+  placeholder?: string;
+  /** Blocks typing and every control, and dims the composer. */
+  disabled?: boolean;
+  /**
+   * Gap between the bottom safe-area inset and the composer at rest. Defaults to the room the tab
+   * bar takes plus the planner clearance; a route without a tab bar passes its own gap.
+   */
+  restingBottomGap?: number;
+  /** Prefix of every testID, so a second screen can tell its composer apart. */
+  testIDPrefix?: string;
 }
+
+const PLANNER_CHAT_INPUT_PLACEHOLDER = 'Decile a la IA lo que te gustaria';
+const PLANNER_CHAT_INPUT_RESTING_BOTTOM_GAP =
+  CUSTOM_TAB_BAR_CONTENT_HEIGHT + PLANNER_CHAT_INPUT_CLEARANCE;
+const PLANNER_CHAT_INPUT_TEST_ID_PREFIX = 'planner-composer';
+const PLANNER_CHAT_INPUT_DISABLED_OPACITY = 0.5;
 
 const PLANNER_CHAT_INPUT_MIN_RADIUS = 28;
 const PLANNER_CHAT_INPUT_MAX_RADIUS = 20;
@@ -67,14 +84,18 @@ export function PlannerChatInput({
   onChangeText,
   onHeightChange,
   onSubmit,
+  placeholder = PLANNER_CHAT_INPUT_PLACEHOLDER,
+  disabled = false,
+  restingBottomGap = PLANNER_CHAT_INPUT_RESTING_BOTTOM_GAP,
+  testIDPrefix = PLANNER_CHAT_INPUT_TEST_ID_PREFIX,
 }: PlannerChatInputProps) {
   const insets = useSafeAreaInsets();
   const { theme } = useRecipeTheme();
   const { fontScale } = useWindowDimensions();
+  const restingBottomOffset = insets.bottom + restingBottomGap;
   const { inputAnimatedStyle } = useKeyboardAnimation({
     mode: 'geometry',
-    restingBottomOffset:
-      insets.bottom + CUSTOM_TAB_BAR_CONTENT_HEIGHT + PLANNER_CHAT_INPUT_CLEARANCE,
+    restingBottomOffset,
     clearance: PLANNER_CHAT_INPUT_CLEARANCE,
     bottomInset: insets.bottom,
   });
@@ -90,7 +111,9 @@ export function PlannerChatInput({
   const [animateHeight] = useState(() => Platform.OS === 'ios' && !reduceMotion);
   const hasText = value.trim().length > 0;
   const sendVisibility = useSharedValue(Number(hasText));
-  const canSubmit = hasText && !isThinking;
+  const canSubmit = hasText && !isThinking && !disabled;
+  // Left undefined while enabled, so the auxiliary buttons render exactly as they always did.
+  const auxiliaryDisabled = disabled ? true : undefined;
 
   // The probe reports the native line height. Android scales it non-linearly, so the scaled
   // constant is only the fallback until the first report.
@@ -232,26 +255,20 @@ export function PlannerChatInput({
 
   return (
     <Animated.View
-      testID="planner-composer-wrapper"
-      style={[
-        styles.wrapper,
-        {
-          paddingBottom:
-            insets.bottom + CUSTOM_TAB_BAR_CONTENT_HEIGHT + PLANNER_CHAT_INPUT_CLEARANCE,
-        },
-        inputAnimatedStyle,
-      ]}>
+      testID={`${testIDPrefix}-wrapper`}
+      style={[styles.wrapper, { paddingBottom: restingBottomOffset }, inputAnimatedStyle]}>
       <Animated.View
-        testID="planner-composer-frame"
+        testID={`${testIDPrefix}-frame`}
         style={[
           styles.frame,
           {
             borderCurve: 'continuous',
           },
+          disabled ? styles.frameDisabled : undefined,
           frameStyle,
         ]}>
         <Animated.View
-          testID="planner-composer-thinking-gradient"
+          testID={`${testIDPrefix}-thinking-gradient`}
           pointerEvents="none"
           style={[
             styles.thinkingGradient,
@@ -268,7 +285,7 @@ export function PlannerChatInput({
         </Animated.View>
 
         <Animated.View
-          testID="planner-composer-inner-surface"
+          testID={`${testIDPrefix}-inner-surface`}
           pointerEvents="none"
           style={[
             styles.innerSurface,
@@ -278,7 +295,7 @@ export function PlannerChatInput({
             innerSurfaceStyle,
           ]}>
           <Animated.View
-            testID="planner-composer-surface"
+            testID={`${testIDPrefix}-surface`}
             pointerEvents="none"
             style={[
               StyleSheet.absoluteFill,
@@ -303,7 +320,7 @@ export function PlannerChatInput({
             opacity: 0,
           }}>
           <Text
-            testID="planner-composer-layout-probe"
+            testID={`${testIDPrefix}-layout-probe`}
             onTextLayout={handleProbeTextLayout}
             textBreakStrategy="simple"
             android_hyphenationFrequency="none"
@@ -313,7 +330,7 @@ export function PlannerChatInput({
         </View>
 
         <View
-          testID="planner-composer-content"
+          testID={`${testIDPrefix}-content`}
           onLayout={handleContentLayout}
           style={[
             animateHeight ? styles.contentPinned : styles.contentInFlow,
@@ -328,7 +345,7 @@ export function PlannerChatInput({
           <View>
             {!value ? (
               <View
-                testID="planner-composer-placeholder"
+                testID={`${testIDPrefix}-placeholder`}
                 pointerEvents="none"
                 accessibilityElementsHidden
                 importantForAccessibility="no-hide-descendants"
@@ -339,18 +356,22 @@ export function PlannerChatInput({
                     fontSize: 15,
                     lineHeight: 20,
                   }}>
-                  Decile a la IA lo que te gustaria
+                  {placeholder}
                 </Text>
               </View>
             ) : null}
             {/* The native input owns its height. The blank placeholder makes it measure exactly one
                 native line while empty; the visible placeholder is the overlay above. */}
             <TextInput
-              testID="planner-composer-input"
+              testID={`${testIDPrefix}-input`}
               value={value}
               onChangeText={onChangeText}
               onLayout={handleInputLayout}
-              editable
+              editable={!disabled}
+              // The visible placeholder is hidden from assistive tech, so a disabled input has to
+              // carry the reason itself.
+              accessibilityLabel={disabled ? placeholder : undefined}
+              accessibilityState={disabled ? { disabled: true } : undefined}
               multiline
               placeholder=" "
               scrollEnabled={isAtCap}
@@ -376,6 +397,7 @@ export function PlannerChatInput({
           <Pressable
             accessibilityLabel="Add meal detail"
             accessibilityRole="button"
+            disabled={auxiliaryDisabled}
             style={styles.controlButton}
             hitSlop={8}>
             <View style={{ transform: [{ translateY: PLANNER_CHAT_INPUT_ICON_OPTICAL_OFFSET_Y }] }}>
@@ -385,11 +407,12 @@ export function PlannerChatInput({
         </View>
 
         <View
-          testID="planner-composer-controls"
+          testID={`${testIDPrefix}-controls`}
           style={[styles.controls, { right: 8, bottom: PLANNER_CHAT_INPUT_VERTICAL_INSET }]}>
           <Pressable
             accessibilityLabel="Voice input"
             accessibilityRole="button"
+            disabled={auxiliaryDisabled}
             style={styles.controlButton}
             hitSlop={8}>
             <View style={{ transform: [{ translateY: PLANNER_CHAT_INPUT_ICON_OPTICAL_OFFSET_Y }] }}>
@@ -401,7 +424,7 @@ export function PlannerChatInput({
             pointerEvents={hasText ? 'auto' : 'none'}
             style={[styles.sendContainer, sendContainerStyle]}>
             <Pressable
-              testID="planner-composer-submit"
+              testID={`${testIDPrefix}-submit`}
               accessibilityLabel="Send message"
               accessibilityRole="button"
               disabled={!canSubmit}
@@ -453,6 +476,9 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
     position: 'relative',
     width: '100%',
+  },
+  frameDisabled: {
+    opacity: PLANNER_CHAT_INPUT_DISABLED_OPACITY,
   },
   innerSurface: {
     overflow: 'hidden',

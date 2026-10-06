@@ -6,7 +6,8 @@ import {
   selectRequestedIngredientIds,
   useShoppingRequestsStore,
 } from '@/store/useShoppingRequestsStore';
-import { canMarkAsCooked, resolveRecipeEntry } from '../domain/recipeEntry';
+import type { RecipeChatOffer } from '../domain/recipeChat';
+import { canMarkAsCooked, isRecipeChatEnabled, resolveRecipeEntry } from '../domain/recipeEntry';
 import { resolveRecipeIngredients, type RecipeIngredientRow } from '../domain/recipeIngredients';
 
 type RecipeRouteParams = {
@@ -77,14 +78,20 @@ export function useRecipeScreen() {
     });
   }, []);
 
+  const handleAddOffer = useCallback((offer: RecipeChatOffer) => {
+    useShoppingRequestsStore.getState().requestIngredient(offer);
+  }, []);
+
   return {
     recipe,
     rows,
     isFavorite: favoriteRecipeIds.includes(recipeId),
     canMarkAsCooked: canMarkAsCooked(entry),
+    isChatEnabled: isRecipeChatEnabled(entry, todayKey),
     handleBack,
     handleToggleFavorite,
     handleMarkAsCooked,
     handleRequestIngredient,
+    handleAddOffer,
   };
 }

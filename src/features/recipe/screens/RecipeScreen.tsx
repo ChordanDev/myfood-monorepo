@@ -1,14 +1,21 @@
+import { useState } from 'react';
 import { ScrollView, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { TopGradientBackground } from '@/components/TopGradientBackground';
 import { useRecipeTheme } from '@/context/RecipeThemeContext';
+import { PlannerChatInput } from '@/features/planner/components/PlannerChatInput';
+import { PLANNER_CHAT_INPUT_MIN_HEIGHT } from '@/features/planner/constants';
 import {
+  RecipeBottomFade,
+  RecipeChatSection,
   RecipeHeader,
   RecipeIngredientsCard,
   RecipeNotFound,
   RecipePreparationCard,
 } from '../components';
 import {
+  RECIPE_BOTTOM_FADE_REACH,
+  RECIPE_COMPOSER_BOTTOM_GAP,
   RECIPE_CONTENT_TOP_PADDING,
   RECIPE_HEADER_CLIP_GAP,
   RECIPE_HEADER_HEIGHT,
@@ -16,10 +23,11 @@ import {
   RECIPE_SCREEN_SIDE_PADDING,
   RECIPE_SECTION_GAP,
 } from '../constants';
+import { RECIPE_CHAT_DISABLED_PLACEHOLDER, RECIPE_CHAT_PLACEHOLDER } from '../domain/recipeChat';
 import { useActivateRecipePalette } from '../hooks/useActivateRecipePalette';
+import { useRecipeChat } from '../hooks/useRecipeChat';
 import { useRecipeScreen } from '../hooks/useRecipeScreen';
-
-const CONTENT_BOTTOM_PADDING = 24;
+import { useScrollToEndOnAppend } from '../hooks/useScrollToEndOnAppend';
 
 export function RecipeScreen() {
   const insets = useSafeAreaInsets();
@@ -29,15 +37,32 @@ export function RecipeScreen() {
     rows,
     isFavorite,
     canMarkAsCooked,
+    isChatEnabled,
     handleBack,
     handleToggleFavorite,
     handleMarkAsCooked,
     handleRequestIngredient,
+    handleAddOffer,
   } = useRecipeScreen();
+  const chat = useRecipeChat({
+    recipeName: recipe?.name ?? '',
+    rows,
+    isEnabled: isChatEnabled,
+    onAddOffer: handleAddOffer,
+  });
+  const { scrollViewRef, handleContentSizeChange } = useScrollToEndOnAppend(
+    chat.messages.length,
+    chat.isThinking
+  );
+  const [composerHeight, setComposerHeight] = useState(PLANNER_CHAT_INPUT_MIN_HEIGHT);
 
   useActivateRecipePalette(recipe?.theme);
 
   const headerTop = Math.max(insets.top, RECIPE_HEADER_MIN_TOP);
+  // From the bottom edge of the screen up to where the fade over the composer ends. The scroll
+  // content is padded by the same amount, so its last line rests just above the fade.
+  const bottomOverlayHeight =
+    insets.bottom + RECIPE_COMPOSER_BOTTOM_GAP + composerHeight + RECIPE_BOTTOM_FADE_REACH;
 
   if (!recipe) return <RecipeNotFound top={headerTop} onBack={handleBack} />;
 
@@ -46,22 +71,41 @@ export function RecipeScreen() {
       <TopGradientBackground />
 
       <ScrollView
+        ref={scrollViewRef}
         testID="recipe-scroll"
         style={[
           styles.scroll,
           { marginTop: headerTop + RECIPE_HEADER_HEIGHT + RECIPE_HEADER_CLIP_GAP },
         ]}
-        contentContainerStyle={[
-          styles.content,
-          { paddingBottom: insets.bottom + CONTENT_BOTTOM_PADDING },
-        ]}
+        contentContainerStyle={[styles.content, { paddingBottom: bottomOverlayHeight }]}
         // The paddings already include the safe area; iOS must not add it a second time.
         contentInsetAdjustmentBehavior="never"
         keyboardShouldPersistTaps="handled"
-        showsVerticalScrollIndicator={false}>
+        showsVerticalScrollIndicator={false}
+        onContentSizeChange={handleContentSizeChange}>
         <RecipeIngredientsCard rows={rows} onRequestIngredient={handleRequestIngredient} />
         <RecipePreparationCard steps={recipe.steps} />
+        <RecipeChatSection
+          messages={chat.messages}
+          isThinking={chat.isThinking}
+          onQuickAction={chat.answerQuickAction}
+        />
       </ScrollView>
+
+      <RecipeBottomFade height={bottomOverlayHeight} />
+
+      {/* The composer lifts itself over the keyboard, as it does on the planner. */}
+      <PlannerChatInput
+        value={chat.input}
+        isThinking={chat.isThinking}
+        onChangeText={chat.setInput}
+        onHeightChange={setComposerHeight}
+        onSubmit={chat.sendMessage}
+        placeholder={isChatEnabled ? RECIPE_CHAT_PLACEHOLDER : RECIPE_CHAT_DISABLED_PLACEHOLDER}
+        disabled={!isChatEnabled}
+        restingBottomGap={RECIPE_COMPOSER_BOTTOM_GAP}
+        testIDPrefix="recipe-composer"
+      />
 
       <RecipeHeader
         top={headerTop}

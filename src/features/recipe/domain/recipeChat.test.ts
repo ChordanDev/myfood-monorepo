@@ -60,6 +60,17 @@ const TOMATO_MISSING = buildRow({
   status: 'missing',
 });
 const TOMATO_REQUESTED: RecipeIngredientRow = { ...TOMATO_MISSING, status: 'requested' };
+/** A recipe line whose id is not in the catalog: it has no unit and always counts as missing. */
+const UNKNOWN_MISSING = buildRow({
+  ingredientId: 'ghost',
+  name: 'Ingrediente desconocido',
+  quantityLabel: '3',
+  requiredAmount: 3,
+  availableAmount: 0,
+  missingAmount: 3,
+  unit: null,
+  status: 'missing',
+});
 
 function reply(rows: RecipeIngredientRow[], question = '¿Puedo hacerla más liviana?') {
   return buildAssistantReply({ question, recipeName: RECIPE_NAME, rows });
@@ -125,23 +136,23 @@ describe('buildAssistantReply', () => {
     expect(answer.offer?.ingredientId).toBe('i2');
   });
 
-  it('leaves the unit out of the offer when the ingredient has none', () => {
-    const unknown = buildRow({
-      ingredientId: 'ghost',
-      name: 'Ingrediente desconocido',
-      quantityLabel: '3',
-      requiredAmount: 3,
-      availableAmount: 0,
-      missingAmount: 3,
-      unit: null,
-      status: 'missing',
-    });
+  it('never offers an ingredient that is not in the catalog', () => {
+    const answer = reply([UNKNOWN_MISSING]);
 
-    expect(reply([unknown]).offer).toEqual({
-      name: 'Ingrediente desconocido',
-      ingredientId: 'ghost',
-      amount: 3,
+    expect(answer.offer).toBeUndefined();
+    expect(answer.text).not.toContain('compras');
+  });
+
+  it('skips an unknown ingredient and offers the first known one still missing', () => {
+    const answer = reply([UNKNOWN_MISSING, CHICKEN_MISSING]);
+
+    expect(answer.offer).toEqual({
+      name: 'Pollo (pechuga)',
+      ingredientId: 'i2',
+      amount: 150,
+      unit: 'gramos',
     });
+    expect(answer.text).toContain('pollo (pechuga)');
   });
 });
 

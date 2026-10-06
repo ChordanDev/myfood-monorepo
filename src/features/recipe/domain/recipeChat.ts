@@ -43,32 +43,43 @@ type BuildAssistantReplyArgs = {
   rows: RecipeIngredientRow[];
 };
 
-function toOffer(row: RecipeIngredientRow): RecipeChatOffer {
+/** A row the assistant can offer: short in the inventory, not requested yet and in the catalog. */
+type OfferableRow = RecipeIngredientRow & { unit: UnitType };
+
+/**
+ * An id missing from the catalog has no trustworthy name or unit, so it is never offered: the
+ * assistant would be asking to buy an "unknown ingredient".
+ */
+function isOfferable(row: RecipeIngredientRow): row is OfferableRow {
+  return row.status === 'missing' && row.unit !== null;
+}
+
+function toOffer(row: OfferableRow): RecipeChatOffer {
   return {
     name: row.name,
     ingredientId: row.ingredientId,
     amount: row.missingAmount,
-    ...(row.unit ? { unit: row.unit } : {}),
+    unit: row.unit,
   };
 }
 
 /**
  * Deterministic stand-in for the assistant, written in Rioplatense `voseo`.
  *
- * When the inventory is short of an ingredient that was not requested yet, the reply closes by
- * offering to add the first one to the shopping list.
+ * When the inventory is short of a catalog ingredient that was not requested yet, the reply closes
+ * by offering to add the first one to the shopping list.
  */
 export function buildAssistantReply({
   recipeName,
   rows,
 }: BuildAssistantReplyArgs): RecipeChatReply {
   const advice = `Sí, podés adaptar ${recipeName} a tu gusto. Usá lo que ya tenés en casa y probá ajustar las cantidades de a poco.`;
-  const missingRow = rows.find((row) => row.status === 'missing');
-  if (!missingRow) return { text: advice };
+  const offerableRow = rows.find(isOfferable);
+  if (!offerableRow) return { text: advice };
 
   return {
-    text: `${advice} No tenés ${missingRow.name.toLowerCase()} en el inventario, ¿lo agrego a compras?`,
-    offer: toOffer(missingRow),
+    text: `${advice} No tenés ${offerableRow.name.toLowerCase()} en el inventario, ¿lo agrego a compras?`,
+    offer: toOffer(offerableRow),
   };
 }
 
