@@ -349,4 +349,131 @@ describe('useShoppingList', () => {
       expect(shoppingList.groups.at(-1)?.items[0].amountToBuy).toBe(50);
     });
   });
+
+  describe('adding a manual item', () => {
+    it('lists the trimmed name as a needed item and counts it', () => {
+      renderShoppingList();
+
+      act(() => {
+        shoppingList.addManualItem('  Papel de cocina ');
+      });
+
+      expect(shoppingList.manualItems).toEqual([
+        { id: expect.any(String), source: 'manual', status: 'needed', name: 'Papel de cocina' },
+      ]);
+      expect(shoppingList.counters).toEqual({ total: 4, purchased: 0, removed: 0 });
+    });
+
+    it.each(['', '   '])('ignores the blank name "%s"', (name) => {
+      renderShoppingList();
+
+      act(() => {
+        shoppingList.addManualItem(name);
+      });
+
+      expect(shoppingList.manualItems).toEqual([]);
+      expect(shoppingList.counters.total).toBe(3);
+    });
+  });
+
+  describe('removing a row', () => {
+    function removeItem(itemId: string) {
+      act(() => {
+        shoppingList.removeItem(itemId);
+      });
+    }
+
+    it('takes a planned row off its group and the total, and counts it as removed', () => {
+      renderShoppingList();
+
+      removeItem('planned:i3');
+
+      expect(listedGroups()).toEqual([
+        ['Verduras', ['Espinaca: needed']],
+        ['Proteínas', ['Pollo (Pechuga): needed']],
+      ]);
+      expect(shoppingList.counters).toEqual({ total: 2, purchased: 0, removed: 1 });
+    });
+
+    it('takes a manual row off the list', () => {
+      renderShoppingList();
+      act(() => {
+        shoppingList.addManualItem('Servilletas');
+        shoppingList.addManualItem('Velas');
+      });
+
+      removeItem(shoppingList.manualItems[0].id);
+
+      expect(shoppingList.manualItems.map((item) => item.name)).toEqual(['Velas']);
+      expect(shoppingList.counters).toEqual({ total: 4, purchased: 0, removed: 1 });
+    });
+
+    it('leaves the inventory and the purchase of a row that was already bought', () => {
+      renderShoppingList();
+      toggleItem('planned:i2');
+
+      removeItem('planned:i2');
+
+      expect(stockOf(CHICKEN)).toBe(200);
+      expect(useShoppingListStore.getState().purchases).toEqual({ 'planned:i2': 200 });
+      expect(shoppingList.counters).toEqual({ total: 2, purchased: 0, removed: 1 });
+    });
+
+    it('keeps a removed row out of the row and group toggles', () => {
+      renderShoppingList();
+      removeItem('planned:i3');
+
+      toggleItem('planned:i3');
+      toggleGroup('verduras');
+
+      expect(stockOf(TOMATO)).toBeUndefined();
+      expect(useShoppingListStore.getState().purchases).toEqual({ 'planned:i7': 100 });
+    });
+
+    it('counts a row removed twice from one stale render only once', () => {
+      renderShoppingList();
+      const { removeItem: staleRemoveItem } = shoppingList;
+
+      act(() => {
+        staleRemoveItem('planned:i3');
+        staleRemoveItem('planned:i3');
+      });
+
+      expect(useShoppingListStore.getState().removedIds).toEqual(['planned:i3']);
+      expect(shoppingList.counters.removed).toBe(1);
+    });
+
+    it('ignores a row that left the list after the render it was pressed on', () => {
+      renderShoppingList();
+      const { removeItem: staleRemoveItem } = shoppingList;
+
+      act(() => {
+        // Cooking the spinach meal takes its row off the list before the press lands.
+        useMealPlanStore.getState().markAsCooked('mp2');
+        staleRemoveItem('planned:i7');
+        staleRemoveItem('planned:unknown');
+      });
+
+      expect(useShoppingListStore.getState().removedIds).toEqual([]);
+      expect(shoppingList.counters.removed).toBe(0);
+    });
+
+    it('brings every removed row back when they are restored', () => {
+      renderShoppingList();
+      act(() => {
+        shoppingList.addManualItem('Servilletas');
+      });
+      removeItem('planned:i3');
+      removeItem(shoppingList.manualItems[0].id);
+      expect(shoppingList.counters).toEqual({ total: 2, purchased: 0, removed: 2 });
+
+      act(() => {
+        shoppingList.restoreRemoved();
+      });
+
+      expect(listedGroups()[0]).toEqual(['Verduras', ['Espinaca: needed', 'Tomate: needed']]);
+      expect(shoppingList.manualItems.map((item) => item.name)).toEqual(['Servilletas']);
+      expect(shoppingList.counters).toEqual({ total: 4, purchased: 0, removed: 0 });
+    });
+  });
 });

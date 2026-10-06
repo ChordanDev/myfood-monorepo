@@ -82,6 +82,8 @@ export function useShoppingList() {
   const groupingMode = useShoppingListStore((state) => state.groupingMode);
   const offers = useShoppingListStore((state) => state.offers);
   const setGroupingMode = useShoppingListStore((state) => state.setGroupingMode);
+  const addManualItem = useShoppingListStore((state) => state.addManualItem);
+  const restoreRemoved = useShoppingListStore((state) => state.restoreRemovedItems);
 
   const untilDate = useMemo(() => getDefaultUntilDate(entries), [entries]);
 
@@ -128,6 +130,15 @@ export function useShoppingList() {
     else unmarkAllPurchased(group.items);
   }, []);
 
+  // Only a row that is still listed can be removed: one that left the list since the render
+  // it was pressed on (its meal was cooked, say) is not there to take off.
+  const removeItem = useCallback((itemId: string) => {
+    const item = readFreshList().items.find((candidate) => candidate.id === itemId);
+    if (!item) return;
+
+    useShoppingListStore.getState().removeItem(item);
+  }, []);
+
   return {
     untilDate,
     untilLabel: untilDate === undefined ? undefined : formatUntilLabel(untilDate),
@@ -139,5 +150,8 @@ export function useShoppingList() {
     manualItems: listedManualItems,
     toggleItem,
     toggleGroup,
+    addManualItem,
+    removeItem,
+    restoreRemoved,
   };
 }

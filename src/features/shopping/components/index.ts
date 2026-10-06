@@ -1,5 +1,9 @@
 // Components of the shopping feature.
+export { ShoppingAddItemSheet } from './ShoppingAddItemSheet';
+export { ShoppingCard } from './ShoppingCard';
 export { ShoppingCheckbox } from './ShoppingCheckbox';
 export { ShoppingDatePill } from './ShoppingDatePill';
 export { ShoppingGroupCard } from './ShoppingGroupCard';
 export { ShoppingItemRow } from './ShoppingItemRow';
+export { ShoppingManualCard } from './ShoppingManualCard';
+export { ShoppingRestoreLine } from './ShoppingRestoreLine';

@@ -19,7 +19,7 @@ jest.mock('react-native-reanimated', () => {
 jest.mock('lucide-react-native', () => ({ Check: 'Check' }));
 
 jest.mock('expo-haptics', () => ({
-  ImpactFeedbackStyle: { Light: 'light' },
+  ImpactFeedbackStyle: { Light: 'light', Medium: 'medium' },
   impactAsync: jest.fn(),
 }));
 
@@ -53,13 +53,40 @@ const CHEESE_OFFER: BestOffer = { supermarket: 'Día', unitPrice: 10.67, price: 
 
 function renderRow(item: ShoppingListItem, bestOffer?: BestOffer) {
   const onToggle = jest.fn();
+  const onRemove = jest.fn();
   let tree: ReturnType<typeof create>;
 
   act(() => {
-    tree = create(<ShoppingItemRow item={item} bestOffer={bestOffer} onToggle={onToggle} />);
+    tree = create(
+      <ShoppingItemRow item={item} bestOffer={bestOffer} onToggle={onToggle} onRemove={onRemove} />
+    );
   });
 
-  return { tree: tree!, root: tree!.root, onToggle };
+  return { tree: tree!, root: tree!.root, onToggle, onRemove };
+}
+
+// Drives the row through the touch responder, as a finger would: down, hold, up.
+function touchRow(root: ReactTestInstance, holdMs: number) {
+  const [target] = root.findAll(
+    (node) => typeof node.type === 'string' && typeof node.props.onResponderGrant === 'function'
+  );
+  const touch = { pageX: 10, pageY: 10, locationX: 10, locationY: 10, timestamp: 0 };
+  // Without a responder target the press is dropped before it reaches the handlers.
+  const event = {
+    currentTarget: 1,
+    nativeEvent: { ...touch, touches: [touch], changedTouches: [touch] },
+    persist: () => {},
+  };
+
+  act(() => {
+    target.props.onResponderGrant(event);
+  });
+  act(() => {
+    jest.advanceTimersByTime(holdMs);
+  });
+  act(() => {
+    target.props.onResponderRelease(event);
+  });
 }
 
 // The `immediateKey` each animated part of the row was last rendered with. A part whose key
@@ -172,6 +199,7 @@ describe('ShoppingItemRow', () => {
             item={{ ...CHEESE, status: 'purchased' }}
             bestOffer={CHEESE_OFFER}
             onToggle={onToggle}
+            onRemove={jest.fn()}
           />
         );
       });
@@ -216,5 +244,72 @@ describe('ShoppingItemRow', () => {
     const { root } = renderRow({ ...CHEESE, status: 'purchased' }, CHEESE_OFFER);
 
     expect(getCheckboxRow(root).props.accessibilityState).toEqual({ checked: true });
+  });
+
+  describe('removing', () => {
+    beforeEach(() => {
+      jest.useFakeTimers();
+    });
+
+    afterEach(() => {
+      jest.useRealTimers();
+    });
+
+    it('toggles on a tap', () => {
+      const { root, onToggle, onRemove } = renderRow(CHEESE, CHEESE_OFFER);
+
+      touchRow(root, 50);
+
+      expect(onToggle).toHaveBeenCalledTimes(1);
+      expect(onRemove).not.toHaveBeenCalled();
+    });
+
+    it('reports the id of a long-pressed item, with a medium haptic, and does not toggle it', () => {
+      const { root, onToggle, onRemove } = renderRow(CHEESE, CHEESE_OFFER);
+
+      touchRow(root, 1000);
+
+      expect(onRemove).toHaveBeenCalledTimes(1);
+      expect(onRemove).toHaveBeenCalledWith('planned:cheese');
+      expect(onToggle).not.toHaveBeenCalled();
+      expect(Haptics.impactAsync).toHaveBeenCalledTimes(1);
+      expect(Haptics.impactAsync).toHaveBeenCalledWith(Haptics.ImpactFeedbackStyle.Medium);
+    });
+
+    it('offers the removal as an accessibility action, for those who cannot long-press', () => {
+      const { root, onToggle, onRemove } = renderRow(CHEESE, CHEESE_OFFER);
+      const row = getCheckboxRow(root);
+
+      expect(row.props.accessibilityActions).toEqual([
+        { name: 'remove', label: 'Quitar de la lista' },
+      ]);
+
+      act(() => {
+        row.props.onAccessibilityAction({ nativeEvent: { actionName: 'remove' } });
+      });
+
+      expect(onRemove).toHaveBeenCalledTimes(1);
+      expect(onRemove).toHaveBeenCalledWith('planned:cheese');
+      expect(onToggle).not.toHaveBeenCalled();
+    });
+
+    it('ignores an accessibility action it does not offer', () => {
+      const { root, onToggle, onRemove } = renderRow(CHEESE, CHEESE_OFFER);
+
+      act(() => {
+        getCheckboxRow(root).props.onAccessibilityAction({ nativeEvent: { actionName: 'escape' } });
+      });
+
+      expect(onRemove).not.toHaveBeenCalled();
+      expect(onToggle).not.toHaveBeenCalled();
+    });
+
+    it('hints that a long press removes the item', () => {
+      const { root } = renderRow(CHEESE, CHEESE_OFFER);
+
+      expect(getCheckboxRow(root).props.accessibilityHint).toBe(
+        'Mantené presionado para quitarlo de la lista.'
+      );
+    });
   });
 });

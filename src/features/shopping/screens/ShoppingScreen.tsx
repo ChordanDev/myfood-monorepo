@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { ScrollView, StyleSheet, View } from 'react-native';
 import Animated from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -6,7 +7,13 @@ import { useRecipeTheme } from '@/context/RecipeThemeContext';
 import { CUSTOM_TAB_BAR_CONTENT_HEIGHT } from '@/features/planner/constants';
 import { useAnimatedThemeStyle } from '@/hooks/useAnimatedThemeStyle';
 import { withOpacity } from '@/utils/colors';
-import { ShoppingDatePill, ShoppingGroupCard } from '../components';
+import {
+  ShoppingAddItemSheet,
+  ShoppingDatePill,
+  ShoppingGroupCard,
+  ShoppingManualCard,
+  ShoppingRestoreLine,
+} from '../components';
 import { formatCountersLabel } from '../domain';
 import { useShoppingList } from '../hooks/useShoppingList';
 import type { ShoppingGroupingMode } from '../types';
@@ -29,9 +36,15 @@ export function ShoppingScreen() {
     groups,
     bestOffers,
     counters,
+    manualItems,
     toggleItem,
     toggleGroup,
+    addManualItem,
+    removeItem,
+    restoreRemoved,
   } = useShoppingList();
+  const [isAddSheetVisible, setIsAddSheetVisible] = useState(false);
+  const isListEmpty = groups.length === 0 && manualItems.length === 0;
   // The tab bar floats over the screen, so the content clears it by hand.
   const tabBarHeight = insets.bottom + CUSTOM_TAB_BAR_CONTENT_HEIGHT;
 
@@ -63,32 +76,45 @@ export function ShoppingScreen() {
           </Animated.Text>
         </View>
 
-        {groups.length > 0 ? (
-          <ScrollView
-            style={styles.screen}
-            contentContainerStyle={[styles.list, { paddingBottom: tabBarHeight + LIST_GAP }]}
-            // The bottom clearance already includes the safe area. Letting iOS add it again
-            // would leave that much empty space under the last card.
-            contentInsetAdjustmentBehavior="never"
-            showsVerticalScrollIndicator={false}>
-            {groups.map((group) => (
-              <ShoppingGroupCard
-                key={group.key}
-                group={group}
-                bestOffers={bestOffers}
-                onToggleItem={toggleItem}
-                onToggleAll={toggleGroup}
-              />
-            ))}
-          </ScrollView>
-        ) : (
-          <View style={[styles.emptyState, { paddingBottom: tabBarHeight }]}>
+        <ScrollView
+          style={styles.screen}
+          contentContainerStyle={[styles.list, { paddingBottom: tabBarHeight + LIST_GAP }]}
+          // The bottom clearance already includes the safe area. Letting iOS add it again
+          // would leave that much empty space under the last card.
+          contentInsetAdjustmentBehavior="never"
+          showsVerticalScrollIndicator={false}>
+          {isListEmpty ? (
             <Animated.Text style={[styles.emptyLabel, mutedStyle]}>
               No hay nada para comprar
             </Animated.Text>
-          </View>
-        )}
+          ) : null}
+          {groups.map((group) => (
+            <ShoppingGroupCard
+              key={group.key}
+              group={group}
+              bestOffers={bestOffers}
+              onToggleItem={toggleItem}
+              onRemoveItem={removeItem}
+              onToggleAll={toggleGroup}
+            />
+          ))}
+          {/* Always last and always there: it is where a manual item is added from. */}
+          <ShoppingManualCard
+            items={manualItems}
+            onToggleItem={toggleItem}
+            onRemoveItem={removeItem}
+            onAdd={() => setIsAddSheetVisible(true)}
+          />
+          {counters.removed > 0 ? (
+            <ShoppingRestoreLine removedCount={counters.removed} onRestore={restoreRemoved} />
+          ) : null}
+        </ScrollView>
       </SafeAreaContent>
+      <ShoppingAddItemSheet
+        visible={isAddSheetVisible}
+        onAdd={addManualItem}
+        onClose={() => setIsAddSheetVisible(false)}
+      />
     </Animated.View>
   );
 }
@@ -103,13 +129,8 @@ const styles = StyleSheet.create({
     fontFamily: 'Inter_500Medium',
     fontSize: 14,
     lineHeight: 20,
+    paddingVertical: 24,
     textAlign: 'center',
-  },
-  emptyState: {
-    alignItems: 'center',
-    flex: 1,
-    justifyContent: 'center',
-    paddingHorizontal: HORIZONTAL_PADDING,
   },
   header: {
     alignItems: 'center',

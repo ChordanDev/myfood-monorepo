@@ -5,6 +5,7 @@ import {
   formatItemNameLine,
   formatPrice,
   formatQuantity,
+  formatRemovedLabel,
   formatUntilLabel,
 } from './formatters';
 
@@ -138,5 +139,16 @@ describe('formatCountersLabel', () => {
     expect(formatCountersLabel({ total: 2, purchased: 1, removed: 0 })).toBe(
       '2 ítems · 1 comprado'
     );
+  });
+});
+
+describe('formatRemovedLabel', () => {
+  it('offers to restore the one item that was removed', () => {
+    expect(formatRemovedLabel(1)).toBe('1 quitado · Restaurar');
+  });
+
+  it('uses the plural for several removed items', () => {
+    expect(formatRemovedLabel(2)).toBe('2 quitados · Restaurar');
+    expect(formatRemovedLabel(11)).toBe('11 quitados · Restaurar');
   });
 });

@@ -49,3 +49,8 @@ function pluralize(count: number, singular: string) {
 export function formatCountersLabel({ total, purchased }: ShoppingCounters) {
   return `${pluralize(total, 'ítem')}${SEPARATOR}${pluralize(purchased, 'comprado')}`;
 }
+
+// Line under the cards that brings the removed items back.
+export function formatRemovedLabel(removed: number) {
+  return `${pluralize(removed, 'quitado')}${SEPARATOR}Restaurar`;
+}

@@ -12,12 +12,18 @@ export interface ShoppingItemRowProps {
   item: ShoppingListItem;
   bestOffer?: BestOffer;
   onToggle: (itemId: string) => void;
+  onRemove: (itemId: string) => void;
 }
+
+// The long press has no visible affordance, so the same removal is offered as an action to
+// screen-reader and switch users.
+const REMOVE_ACTION = 'remove';
+const ACCESSIBILITY_ACTIONS = [{ name: REMOVE_ACTION, label: 'Quitar de la lista' }];
 
 const META_OPACITY = 0.6;
 const PURCHASED_OPACITY = 0.45;
 
-export function ShoppingItemRow({ item, bestOffer, onToggle }: ShoppingItemRowProps) {
+export function ShoppingItemRow({ item, bestOffer, onToggle, onRemove }: ShoppingItemRowProps) {
   const { theme } = useRecipeTheme();
   const isPurchased = item.status === 'purchased';
   const nameLine = formatItemNameLine(item);
@@ -41,10 +47,20 @@ export function ShoppingItemRow({ item, bestOffer, onToggle }: ShoppingItemRowPr
         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
         onToggle(item.id);
       }}
+      // A press that became a long press is not reported as a press too, so it never toggles.
+      onLongPress={() => {
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+        onRemove(item.id);
+      }}
       accessibilityRole="checkbox"
       // An explicit label replaces the text of the children, so it carries both lines.
       accessibilityLabel={`${nameLine}, ${metaLine}`}
       accessibilityState={{ checked: isPurchased }}
+      accessibilityHint="Mantené presionado para quitarlo de la lista."
+      accessibilityActions={ACCESSIBILITY_ACTIONS}
+      onAccessibilityAction={(event) => {
+        if (event.nativeEvent.actionName === REMOVE_ACTION) onRemove(item.id);
+      }}
       style={({ pressed }) => [styles.row, pressed && styles.pressed]}>
       <View style={styles.lines}>
         <Animated.Text style={[styles.name, isPurchased && styles.purchasedName, nameStyle]}>

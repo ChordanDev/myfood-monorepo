@@ -28,7 +28,7 @@ jest.mock('@/components', () => ({
 jest.mock('lucide-react-native', () => ({ Check: 'Check' }));
 
 jest.mock('expo-haptics', () => ({
-  ImpactFeedbackStyle: { Light: 'light' },
+  ImpactFeedbackStyle: { Light: 'light', Medium: 'medium' },
   impactAsync: jest.fn(),
 }));
 
@@ -82,6 +82,7 @@ const BEST_OFFERS: Record<string, BestOffer> = {
 
 function renderCard(group: ShoppingGroup) {
   const onToggleItem = jest.fn();
+  const onRemoveItem = jest.fn();
   const onToggleAll = jest.fn();
   let tree: ReturnType<typeof create>;
 
@@ -91,12 +92,13 @@ function renderCard(group: ShoppingGroup) {
         group={group}
         bestOffers={BEST_OFFERS}
         onToggleItem={onToggleItem}
+        onRemoveItem={onRemoveItem}
         onToggleAll={onToggleAll}
       />
     );
   });
 
-  return { root: tree!.root, onToggleItem, onToggleAll };
+  return { root: tree!.root, onToggleItem, onRemoveItem, onToggleAll };
 }
 
 function getViewStyles(root: ReactTestInstance) {
@@ -233,6 +235,21 @@ describe('ShoppingGroupCard', () => {
 
     expect(onToggleItem).toHaveBeenCalledTimes(1);
     expect(onToggleItem).toHaveBeenCalledWith('planned:tomato');
+    expect(onToggleAll).not.toHaveBeenCalled();
+  });
+
+  it('reports the id of a long-pressed row to remove it', () => {
+    const { root, onRemoveItem, onToggleItem, onToggleAll } = renderCard(
+      vegetables(['needed', 'purchased'])
+    );
+
+    act(() => {
+      getCheckbox(root, '2 u · Tomate, Sin precio').props.onLongPress();
+    });
+
+    expect(onRemoveItem).toHaveBeenCalledTimes(1);
+    expect(onRemoveItem).toHaveBeenCalledWith('planned:tomato');
+    expect(onToggleItem).not.toHaveBeenCalled();
     expect(onToggleAll).not.toHaveBeenCalled();
   });
 });
