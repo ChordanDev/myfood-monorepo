@@ -21,6 +21,12 @@ export interface GeometryKeyboardAnimationOptions extends KeyboardAnimationCommo
   mode: 'geometry';
   restingBottomOffset: number;
   clearance?: number;
+  /**
+   * Bottom safe-area inset of the container. Android reports the keyboard height above the
+   * navigation bar, so the lift adds this inset to reach the bottom of the container. iOS lifts
+   * from the keyboard frame and ignores it.
+   */
+  bottomInset?: number;
   liftFactor?: never;
 }
 
@@ -29,6 +35,7 @@ export interface ProportionalKeyboardAnimationOptions extends KeyboardAnimationC
   liftFactor?: number;
   restingBottomOffset?: never;
   clearance?: never;
+  bottomInset?: never;
 }
 
 export type KeyboardAnimationOptions =
@@ -56,6 +63,26 @@ export function calculateBottomAnchoredKeyboardLift({
   return Math.max(0, targetBottom + clearance - keyboardTop);
 }
 
+export interface KeyboardHeightGeometry {
+  keyboardHeight: number;
+  bottomInset?: number;
+  restingBottomOffset: number;
+  clearance?: number;
+}
+
+export function calculateKeyboardHeightLift({
+  keyboardHeight,
+  bottomInset = 0,
+  restingBottomOffset,
+  clearance = 0,
+}: KeyboardHeightGeometry) {
+  if (![keyboardHeight, bottomInset, restingBottomOffset, clearance].every(Number.isFinite)) {
+    return 0;
+  }
+
+  return Math.max(0, keyboardHeight + bottomInset + clearance - restingBottomOffset);
+}
+
 export function useKeyboardAnimation(options: KeyboardAnimationOptions) {
   const isIOS = Platform.OS === 'ios';
   const { width: windowWidth, height: windowHeight } = useWindowDimensions();
@@ -66,6 +93,7 @@ export function useKeyboardAnimation(options: KeyboardAnimationOptions) {
   const mode = options.mode;
   const restingBottomOffset = mode === 'geometry' ? options.restingBottomOffset : 0;
   const clearance = mode === 'geometry' ? (options.clearance ?? 0) : 0;
+  const bottomInset = mode === 'geometry' ? (options.bottomInset ?? 0) : 0;
   const liftFactor = mode === 'proportional' ? (options.liftFactor ?? 0.4) : 0;
   const durationScale = options.durationScale ?? 1;
   const fallbackDuration = options.fallbackDuration ?? (isIOS ? 240 : 320);
@@ -133,11 +161,20 @@ export function useKeyboardAnimation(options: KeyboardAnimationOptions) {
       if (isOpen) {
         if (mode === 'proportional') {
           commandedLift = height * liftFactor;
-        } else {
+        } else if (isIOS) {
           commandedLift = calculateBottomAnchoredKeyboardLift({
             closedWindowHeight: closedWindowMetricsRef.current.height,
             restingBottomOffset,
             keyboardTop,
+            clearance,
+          });
+        } else {
+          // The Android window height can leave out the system bars the container is drawn
+          // behind, so the lift comes from the keyboard height the event reports instead.
+          commandedLift = calculateKeyboardHeightLift({
+            keyboardHeight: height,
+            bottomInset,
+            restingBottomOffset,
             clearance,
           });
         }
@@ -163,6 +200,7 @@ export function useKeyboardAnimation(options: KeyboardAnimationOptions) {
       hideSubscription.remove();
     };
   }, [
+    bottomInset,
     clearance,
     durationScale,
     enabled,

@@ -76,6 +76,7 @@ export function PlannerChatInput({
     restingBottomOffset:
       insets.bottom + CUSTOM_TAB_BAR_CONTENT_HEIGHT + PLANNER_CHAT_INPUT_CLEARANCE,
     clearance: PLANNER_CHAT_INPUT_CLEARANCE,
+    bottomInset: insets.bottom,
   });
   const reduceMotion = useReducedMotion();
   const rotation = useSharedValue(0);

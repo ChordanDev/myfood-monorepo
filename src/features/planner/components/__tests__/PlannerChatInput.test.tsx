@@ -370,6 +370,8 @@ describe('PlannerChatInput keyboard lift', () => {
       mode: 'geometry',
       restingBottomOffset: 34 + CUSTOM_TAB_BAR_CONTENT_HEIGHT + PLANNER_CHAT_INPUT_CLEARANCE,
       clearance: PLANNER_CHAT_INPUT_CLEARANCE,
+      // The bottom safe-area inset, which Android leaves out of the keyboard height it reports.
+      bottomInset: 34,
     });
     expect(
       StyleSheet.flatten(tree!.root.findByProps({ testID: 'planner-composer-wrapper' }).props.style)

@@ -5,6 +5,7 @@ import { Keyboard, KeyboardEvent, Platform, useWindowDimensions } from 'react-na
 import { act, create } from 'react-test-renderer';
 import {
   calculateBottomAnchoredKeyboardLift,
+  calculateKeyboardHeightLift,
   KeyboardAnimationOptions,
   useKeyboardAnimation,
 } from '../useKeyboardAnimation';
@@ -115,6 +116,40 @@ describe('calculateBottomAnchoredKeyboardLift', () => {
   });
 });
 
+describe('calculateKeyboardHeightLift', () => {
+  const geometry = {
+    keyboardHeight: 300,
+    bottomInset: 24,
+    restingBottomOffset: 96,
+    clearance: 12,
+  };
+
+  it('lifts by the keyboard height and the bottom inset above the resting offset', () => {
+    expect(calculateKeyboardHeightLift(geometry)).toBe(240);
+  });
+
+  it('defaults the bottom inset and the clearance to zero', () => {
+    expect(calculateKeyboardHeightLift({ keyboardHeight: 300, restingBottomOffset: 96 })).toBe(204);
+  });
+
+  it('returns zero when the requested clearance exactly meets the keyboard', () => {
+    expect(calculateKeyboardHeightLift({ ...geometry, keyboardHeight: 60 })).toBe(0);
+  });
+
+  it('returns zero when the keyboard is shorter than the resting offset', () => {
+    expect(calculateKeyboardHeightLift({ ...geometry, keyboardHeight: 40 })).toBe(0);
+  });
+
+  it.each(['keyboardHeight', 'bottomInset', 'restingBottomOffset', 'clearance'] as const)(
+    'returns zero when %s is not finite',
+    (input) => {
+      for (const value of [Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY]) {
+        expect(calculateKeyboardHeightLift({ ...geometry, [input]: value })).toBe(0);
+      }
+    }
+  );
+});
+
 describe('useKeyboardAnimation', () => {
   beforeEach(() => {
     Object.defineProperty(Platform, 'OS', { configurable: true, value: 'ios' });
@@ -216,5 +251,113 @@ describe('useKeyboardAnimation', () => {
     expect(translateY()).toBe(0);
 
     act(() => tree.unmount());
+  });
+
+  it('keeps the iOS frame geometry when a bottom inset is supplied', () => {
+    const tree = renderHook({ ...geometryOptions, bottomInset: 34 });
+
+    act(() => listeners.keyboardWillShow?.(keyboardEvent(509, 335)));
+
+    expect(translateY()).toBe(-241);
+
+    act(() => tree.unmount());
+  });
+
+  it('preserves the proportional calculation on Android', () => {
+    Object.defineProperty(Platform, 'OS', { configurable: true, value: 'android' });
+    const tree = renderHook({ mode: 'proportional', liftFactor: 0.4 });
+
+    act(() => listeners.keyboardDidShow?.(keyboardEvent(520, 300)));
+
+    expect(translateY()).toBe(-120);
+
+    act(() => tree.unmount());
+  });
+
+  describe('Android geometry', () => {
+    // An 844dp edge-to-edge container over a 24dp navigation bar. The keyboard top is 324dp above
+    // the container bottom, and the event reports the 300dp that stand above the navigation bar.
+    const androidGeometryOptions = {
+      mode: 'geometry',
+      restingBottomOffset: 96,
+      clearance: 12,
+      bottomInset: 24,
+    } as const;
+
+    beforeEach(() => {
+      Object.defineProperty(Platform, 'OS', { configurable: true, value: 'android' });
+      // Window metrics that leave the navigation bar out, so they are shorter than the container.
+      windowDimensions = { ...windowDimensions, height: 820 };
+    });
+
+    it('lifts by the keyboard height and the bottom inset above the resting offset', () => {
+      const tree = renderHook(androidGeometryOptions);
+
+      act(() => listeners.keyboardDidShow?.(keyboardEvent(520, 300)));
+
+      expect(translateY()).toBe(-240);
+      expect(hookResult.isKeyboardOpen).toBe(true);
+
+      act(() => tree.unmount());
+    });
+
+    it.each([
+      { windowHeight: 844, screenY: 520 },
+      { windowHeight: 820, screenY: 520 },
+      { windowHeight: 796, screenY: 544 },
+      { windowHeight: 520, screenY: 496 },
+    ])(
+      'ignores a window $windowHeight tall and a keyboard top at $screenY',
+      ({ windowHeight, screenY }) => {
+        windowDimensions = { ...windowDimensions, height: windowHeight };
+        const tree = renderHook(androidGeometryOptions);
+
+        act(() => listeners.keyboardDidShow?.(keyboardEvent(screenY, 300)));
+
+        expect(translateY()).toBe(-240);
+
+        act(() => tree.unmount());
+      }
+    );
+
+    it('follows the keyboard height when it changes while the keyboard stays open', () => {
+      const tree = renderHook(androidGeometryOptions);
+
+      act(() => listeners.keyboardDidShow?.(keyboardEvent(520, 300)));
+      expect(translateY()).toBe(-240);
+
+      // Android emits keyboardDidShow again when, for example, the emoji panel opens.
+      act(() => listeners.keyboardDidShow?.(keyboardEvent(472, 348)));
+      expect(translateY()).toBe(-288);
+
+      act(() => tree.unmount());
+    });
+
+    it('uses the latest bottom inset', () => {
+      const tree = renderHook(androidGeometryOptions);
+
+      act(() => {
+        tree.update(<HookHarness options={{ ...androidGeometryOptions, bottomInset: 48 }} />);
+      });
+      act(() => listeners.keyboardDidShow?.(keyboardEvent(520, 300)));
+
+      expect(translateY()).toBe(-264);
+
+      act(() => tree.unmount());
+    });
+
+    it('restores exactly to zero on hide', () => {
+      const tree = renderHook(androidGeometryOptions);
+
+      act(() => listeners.keyboardDidShow?.(keyboardEvent(520, 300)));
+      expect(translateY()).toBe(-240);
+
+      act(() => listeners.keyboardDidHide?.(keyboardEvent(844, 0)));
+
+      expect(translateY()).toBe(0);
+      expect(hookResult.isKeyboardOpen).toBe(false);
+
+      act(() => tree.unmount());
+    });
   });
 });
