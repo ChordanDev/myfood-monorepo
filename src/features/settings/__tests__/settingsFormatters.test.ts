@@ -1,5 +1,6 @@
 import {
   formatCookingSkillSummary,
+  formatCookingTime,
   formatDietSummary,
   formatDisplayNameSummary,
   formatHardRestrictionsSummary,
@@ -222,6 +223,13 @@ describe('formatCookingSkillSummary', () => {
 
   it('shows a placeholder when the skill is unknown', () => {
     expect(formatCookingSkillSummary(null)).toBe('Sin definir');
+  });
+});
+
+describe('formatCookingTime', () => {
+  it('shows the minutes, or that the user does not cook', () => {
+    expect(formatCookingTime(45)).toBe('45 min');
+    expect(formatCookingTime(0)).toBe('No cocino');
   });
 });
 

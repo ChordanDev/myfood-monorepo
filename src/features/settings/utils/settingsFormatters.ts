@@ -122,9 +122,12 @@ export function formatCookingSkillSummary(cookingSkill: CookingSkill | null): st
   return COOKING_SKILL_LABELS[cookingSkill];
 }
 
+export function formatCookingTime(cookingTimeMinutes: number): string {
+  return cookingTimeMinutes === 0 ? 'No cocino' : `${cookingTimeMinutes} min`;
+}
+
 export function formatSlotSummary(slot: SlotCookingTime): string {
-  const time = slot.cookingTimeMinutes === 0 ? 'No cocino' : `${slot.cookingTimeMinutes} min`;
-  return `${time} · ${HUNGER_LEVEL_LABELS[slot.hungerLevel]}`;
+  return `${formatCookingTime(slot.cookingTimeMinutes)} · ${HUNGER_LEVEL_LABELS[slot.hungerLevel]}`;
 }
 
 // The API types diet and restrictions as plain strings. A code the catalog

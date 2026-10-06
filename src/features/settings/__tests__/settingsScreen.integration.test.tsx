@@ -9,16 +9,20 @@
 import * as React from 'react';
 import { StyleSheet, Text } from 'react-native';
 import { act, create, type ReactTestInstance } from 'react-test-renderer';
+import { ApiError } from '@/api/errors';
 import { AuthContext } from '@/features/auth/context/AuthContext';
 import type {
   AuthContextValue,
   CurrentMe,
+  ProfileUpdatePayload,
   SlotCookingTimes,
+  SlotCookingTimesPayload,
   UserPreferences,
+  UserPreferencesPayload,
 } from '@/features/auth/types/auth';
-import { SettingsScreen } from '../screens/SettingsScreen';
 import type { RecipeThemeConfig } from '@/types/domain';
 import { withOpacity } from '@/utils/colors';
+import { SettingsScreen } from '../screens/SettingsScreen';
 
 // `Required` so a token added to the contract breaks this fixture at compile time.
 const mockTheme: Required<RecipeThemeConfig> = {
@@ -149,13 +153,31 @@ function buildContext(me: CurrentMe, overrides: Partial<AuthContextValue>): Auth
     refreshMe: jest.fn(),
     completeOnboarding: jest.fn(),
     fetchUserPreferences: jest.fn(() => Promise.resolve(savedPreferences)),
-    saveUserPreferences: jest.fn(),
+    saveUserPreferences: jest.fn((payload: UserPreferencesPayload) => Promise.resolve(payload)),
     fetchSlotCookingTimes: jest.fn(() => Promise.resolve(savedSlotTimes)),
-    saveSlotCookingTimes: jest.fn(),
+    saveSlotCookingTimes: jest.fn((payload: SlotCookingTimesPayload) => Promise.resolve(payload)),
     updateProfile: jest.fn(),
     requestVerificationCode: jest.fn(),
     sendVerificationCode: jest.fn(),
     ...overrides,
+  };
+}
+
+function createMeStore(initial: CurrentMe) {
+  let current = initial;
+  const listeners = new Set<() => void>();
+  return {
+    get: () => current,
+    set: (next: CurrentMe) => {
+      current = next;
+      listeners.forEach((listener) => listener());
+    },
+    subscribe: (listener: () => void) => {
+      listeners.add(listener);
+      return () => {
+        listeners.delete(listener);
+      };
+    },
   };
 }
 
@@ -173,15 +195,29 @@ interface RenderOptions {
 }
 
 async function renderScreen({ me = makeMe(), context = {} }: RenderOptions = {}) {
-  const value = buildContext(me, context);
-  let tree: ReturnType<typeof create> | null = null;
+  const meStore = createMeStore(me);
+  const value = buildContext(me, {
+    // Like the real provider: a saved profile is reflected on `me`.
+    updateProfile: jest.fn(async (payload: ProfileUpdatePayload) => {
+      const user = { ...meStore.get().user, ...payload };
+      meStore.set({ ...meStore.get(), user });
+      return { user };
+    }),
+    ...context,
+  });
 
-  await act(async () => {
-    tree = create(
-      <AuthContext.Provider value={value}>
+  function Harness() {
+    const currentMe = React.useSyncExternalStore(meStore.subscribe, meStore.get);
+    return (
+      <AuthContext.Provider value={{ ...value, me: currentMe, user: currentMe.user }}>
         <SettingsScreen />
       </AuthContext.Provider>
     );
+  }
+
+  let tree: ReturnType<typeof create> | null = null;
+  await act(async () => {
+    tree = create(<Harness />);
   });
   await flushEffects();
 
@@ -250,6 +286,35 @@ async function press(root: ReactTestInstance, testID: string) {
 
 function rowLabel(root: ReactTestInstance, testID: string): string {
   return getHost(root, testID).props.accessibilityLabel;
+}
+
+function getInput(root: ReactTestInstance, testID: string): ReactTestInstance {
+  const input = root.findAll(
+    (node) => node.props.testID === testID && typeof node.props.onChangeText === 'function'
+  )[0];
+  if (!input) throw new Error(`No input with testID "${testID}"`);
+  return input;
+}
+
+async function typeInto(root: ReactTestInstance, testID: string, text: string) {
+  const input = getInput(root, testID);
+  await act(async () => {
+    input.props.onChangeText(text);
+  });
+}
+
+function isSheetOpen(root: ReactTestInstance): boolean {
+  return queryHost(root, 'settings-sheet') !== null;
+}
+
+function chipIsSelected(root: ReactTestInstance, testID: string): boolean {
+  return getButton(root, testID).props.accessibilityState.selected;
+}
+
+function expectNoRawCodes(node: ReactTestInstance) {
+  for (const text of getTexts(node)) {
+    expect(text).not.toMatch(RAW_CODES);
+  }
 }
 
 describe('SettingsScreen', () => {
@@ -481,6 +546,537 @@ describe('SettingsScreen', () => {
 
       expect(getHost(root, 'redirect').props.href).toBe('/');
       expect(queryHost(root, 'settings-account-card')).toBeNull();
+    });
+  });
+
+  describe('editing the profile', () => {
+    it('saves the name with the full profile payload and updates the row', async () => {
+      const { root, context } = await renderScreen();
+
+      await press(root, 'settings-row-display-name');
+
+      const sheet = getHost(root, 'settings-sheet');
+      expect(getTexts(sheet)).toContain('Nombre para mostrar');
+      expect(getInput(root, 'settings-input-display-name').props.value).toBe('Lucca Giordana');
+      expect(getInput(root, 'settings-input-display-name').props.maxLength).toBe(60);
+      // Every other field is known, so only the name is asked for.
+      expect(queryHost(root, 'settings-stepper-value')).toBeNull();
+      expect(queryButton(root, 'settings-chip-cooking-skill-advanced')).toBeNull();
+
+      await typeInto(root, 'settings-input-display-name', '  Lucca  ');
+      await press(root, 'settings-sheet-save');
+
+      expect(context.updateProfile).toHaveBeenCalledTimes(1);
+      expect(context.updateProfile).toHaveBeenCalledWith({
+        displayName: 'Lucca',
+        householdSize: 2,
+        cookingSkill: 'intermediate',
+      });
+      expect(isSheetOpen(root)).toBe(false);
+      expect(rowLabel(root, 'settings-row-display-name')).toBe('Nombre para mostrar, Lucca');
+      expect(getTexts(getHost(root, 'settings-account-card'))).toEqual(
+        expect.arrayContaining(['L', 'Lucca'])
+      );
+    });
+
+    it('also asks for the fields the backend did not send, so the payload is complete', async () => {
+      const { root, context } = await renderScreen({
+        me: makeMe({ user: { householdSize: null, cookingSkill: null } }),
+      });
+
+      await press(root, 'settings-row-display-name');
+
+      expect(queryHost(root, 'settings-missing-fields-note')).not.toBeNull();
+      expect(getTexts(getHost(root, 'settings-sheet'))).toEqual(
+        expect.arrayContaining(['Personas en casa', 'Experiencia cocinando'])
+      );
+      expect(getHost(root, 'settings-stepper-value').props.children).toBe('Sin definir');
+
+      // Saving with the gaps still open points at the first one and sends nothing.
+      await press(root, 'settings-sheet-save');
+      expect(context.updateProfile).not.toHaveBeenCalled();
+      expect(getHost(root, 'settings-field-error-household-size').props.children).toBe(
+        'Indicá cuántas personas son en casa, de 1 a 20.'
+      );
+
+      await press(root, 'settings-stepper-increment');
+      await press(root, 'settings-stepper-increment');
+      expect(getHost(root, 'settings-stepper-value').props.children).toBe('2 comensales');
+      expect(queryHost(root, 'settings-field-error-household-size')).toBeNull();
+
+      await press(root, 'settings-sheet-save');
+      expect(context.updateProfile).not.toHaveBeenCalled();
+      expect(getHost(root, 'settings-field-error-cooking-skill').props.children).toBe(
+        'Elegí tu experiencia cocinando.'
+      );
+
+      await press(root, 'settings-chip-cooking-skill-advanced');
+      await press(root, 'settings-sheet-save');
+
+      expect(context.updateProfile).toHaveBeenCalledWith({
+        displayName: 'Lucca Giordana',
+        householdSize: 2,
+        cookingSkill: 'advanced',
+      });
+      expect(isSheetOpen(root)).toBe(false);
+      expect(rowLabel(root, 'settings-row-household-size')).toBe('Personas en casa, 2 comensales');
+      expect(rowLabel(root, 'settings-row-cooking-skill')).toBe(
+        'Experiencia cocinando, Cocino seguido'
+      );
+    });
+
+    it('edits the household size with a stepper that stays between 1 and 20', async () => {
+      const { root, context } = await renderScreen({
+        me: makeMe({ user: { householdSize: 19 } }),
+      });
+
+      await press(root, 'settings-row-household-size');
+      expect(getTexts(getHost(root, 'settings-sheet'))).toContain('Personas en casa');
+      // Only the row's own field: the name and the skill are already known.
+      expect(queryHost(root, 'settings-missing-fields-note')).toBeNull();
+      expect(queryHost(root, 'settings-input-display-name')).toBeNull();
+
+      await press(root, 'settings-stepper-increment');
+      expect(getHost(root, 'settings-stepper-value').props.children).toBe('20 comensales');
+      expect(getButton(root, 'settings-stepper-increment').props.disabled).toBe(true);
+
+      await press(root, 'settings-stepper-decrement');
+      await press(root, 'settings-stepper-decrement');
+      await press(root, 'settings-sheet-save');
+
+      expect(context.updateProfile).toHaveBeenCalledWith({
+        displayName: 'Lucca Giordana',
+        householdSize: 18,
+        cookingSkill: 'intermediate',
+      });
+      expect(rowLabel(root, 'settings-row-household-size')).toBe('Personas en casa, 18 comensales');
+    });
+
+    it('cannot step below one person', async () => {
+      const { root } = await renderScreen({ me: makeMe({ user: { householdSize: 1 } }) });
+
+      await press(root, 'settings-row-household-size');
+
+      expect(getHost(root, 'settings-stepper-value').props.children).toBe('1 comensal');
+      expect(getButton(root, 'settings-stepper-decrement').props.disabled).toBe(true);
+    });
+
+    it('edits the cooking skill with chips labelled in Spanish', async () => {
+      const { root, context } = await renderScreen();
+
+      await press(root, 'settings-row-cooking-skill');
+
+      const sheet = getHost(root, 'settings-sheet');
+      expect(getTexts(sheet)).toEqual(
+        expect.arrayContaining(['Estoy arrancando', 'Me defiendo', 'Cocino seguido'])
+      );
+      expectNoRawCodes(sheet);
+      expect(chipIsSelected(root, 'settings-chip-cooking-skill-intermediate')).toBe(true);
+      expect(chipIsSelected(root, 'settings-chip-cooking-skill-advanced')).toBe(false);
+
+      await press(root, 'settings-chip-cooking-skill-beginner');
+      await press(root, 'settings-sheet-save');
+
+      expect(context.updateProfile).toHaveBeenCalledWith({
+        displayName: 'Lucca Giordana',
+        householdSize: 2,
+        cookingSkill: 'beginner',
+      });
+      expect(rowLabel(root, 'settings-row-cooking-skill')).toBe(
+        'Experiencia cocinando, Estoy arrancando'
+      );
+    });
+
+    it('shows the validation message next to an empty name and saves nothing', async () => {
+      const { root, context } = await renderScreen();
+
+      await press(root, 'settings-row-display-name');
+      await typeInto(root, 'settings-input-display-name', '   ');
+      await press(root, 'settings-sheet-save');
+
+      expect(context.updateProfile).not.toHaveBeenCalled();
+      expect(isSheetOpen(root)).toBe(true);
+      expect(getHost(root, 'settings-field-error-display-name').props.children).toBe(
+        'Ingresá un nombre de 1 a 60 caracteres.'
+      );
+      expect(queryHost(root, 'settings-sheet-error')).toBeNull();
+    });
+
+    it('starts from the saved value again after a cancelled edit', async () => {
+      const { root, context } = await renderScreen();
+
+      await press(root, 'settings-row-display-name');
+      await typeInto(root, 'settings-input-display-name', 'Otro nombre');
+      await press(root, 'settings-sheet-cancel');
+
+      expect(isSheetOpen(root)).toBe(false);
+      expect(context.updateProfile).not.toHaveBeenCalled();
+      expect(rowLabel(root, 'settings-row-display-name')).toBe(
+        'Nombre para mostrar, Lucca Giordana'
+      );
+
+      await press(root, 'settings-row-display-name');
+      expect(getInput(root, 'settings-input-display-name').props.value).toBe('Lucca Giordana');
+    });
+
+    it('keeps the sheet open with the error when the save fails', async () => {
+      const { root } = await renderScreen({
+        context: {
+          updateProfile: jest.fn(() => Promise.reject(new ApiError('network_error', 'offline'))),
+        },
+      });
+
+      await press(root, 'settings-row-display-name');
+      await typeInto(root, 'settings-input-display-name', 'Lucca');
+      await press(root, 'settings-sheet-save');
+
+      expect(isSheetOpen(root)).toBe(true);
+      expect(getHost(root, 'settings-sheet-error').props.children).toBe(
+        'No pudimos conectar con el servidor. Revisá tu conexión.'
+      );
+      expect(getInput(root, 'settings-input-display-name').props.value).toBe('Lucca');
+      expect(getButton(root, 'settings-sheet-save').props.disabled).toBe(false);
+      expect(rowLabel(root, 'settings-row-display-name')).toBe(
+        'Nombre para mostrar, Lucca Giordana'
+      );
+      expect(getTexts(getHost(root, 'settings-account-card'))).toContain('Lucca Giordana');
+    });
+
+    it('disables save and shows progress while the save is in flight', async () => {
+      let failSave: () => void = () => {};
+      const updateProfile = jest.fn(
+        () =>
+          new Promise<never>((_resolve, reject) => {
+            failSave = () => reject(new ApiError('timeout', 'slow'));
+          })
+      );
+      const { root } = await renderScreen({ context: { updateProfile } });
+
+      await press(root, 'settings-row-display-name');
+      await press(root, 'settings-sheet-save');
+
+      const saveButton = getButton(root, 'settings-sheet-save');
+      expect(saveButton.props.disabled).toBe(true);
+      expect(saveButton.props.accessibilityState).toEqual({ disabled: true, busy: true });
+      expect(getTexts(saveButton)).toEqual(['Guardando…']);
+
+      // Neither a second save nor a cancel goes through mid-save.
+      await press(root, 'settings-sheet-save');
+      await press(root, 'settings-sheet-cancel');
+      expect(updateProfile).toHaveBeenCalledTimes(1);
+      expect(isSheetOpen(root)).toBe(true);
+
+      await act(async () => {
+        failSave();
+      });
+      await flushEffects();
+
+      expect(getTexts(getButton(root, 'settings-sheet-save'))).toEqual(['Guardar']);
+      expect(getButton(root, 'settings-sheet-save').props.disabled).toBe(false);
+    });
+  });
+
+  describe('editing preferences', () => {
+    it('saves the diet and leaves the other preferences untouched', async () => {
+      const { root, context } = await renderScreen();
+
+      await press(root, 'settings-row-diet');
+
+      const sheet = getHost(root, 'settings-sheet');
+      expect(getTexts(sheet)).toEqual(
+        expect.arrayContaining([
+          'Dieta',
+          'Sin preferencia',
+          'Omnívoro',
+          'Vegetariano',
+          'Vegano',
+          'Pescatariano',
+        ])
+      );
+      expectNoRawCodes(sheet);
+      expect(chipIsSelected(root, 'settings-chip-diet-vegetarian')).toBe(true);
+
+      await press(root, 'settings-chip-diet-vegan');
+      await press(root, 'settings-sheet-save');
+
+      expect(context.saveUserPreferences).toHaveBeenCalledTimes(1);
+      expect(context.saveUserPreferences).toHaveBeenCalledWith({
+        diet: 'vegan',
+        hardRestrictions: ['gluten', 'peanut'],
+        softPreferences: ['picante', 'comidas rápidas'],
+      });
+      expect(context.saveSlotCookingTimes).not.toHaveBeenCalled();
+      expect(isSheetOpen(root)).toBe(false);
+      expect(rowLabel(root, 'settings-row-diet')).toBe('Dieta, Vegano');
+      expect(rowLabel(root, 'settings-row-hard-restrictions')).toBe(
+        'Restricciones duras, Gluten, Maní'
+      );
+    });
+
+    it('can clear the diet', async () => {
+      const { root, context } = await renderScreen();
+
+      await press(root, 'settings-row-diet');
+      await press(root, 'settings-chip-diet-none');
+      await press(root, 'settings-sheet-save');
+
+      expect(context.saveUserPreferences).toHaveBeenCalledWith({
+        ...savedPreferences,
+        diet: null,
+      });
+      expect(rowLabel(root, 'settings-row-diet')).toBe('Dieta, Sin preferencia');
+    });
+
+    it('saves the hard restrictions picked from the catalog chips', async () => {
+      const { root, context } = await renderScreen();
+
+      await press(root, 'settings-row-hard-restrictions');
+      expect(chipIsSelected(root, 'settings-chip-hard-restriction-gluten')).toBe(true);
+      expect(chipIsSelected(root, 'settings-chip-hard-restriction-egg')).toBe(false);
+
+      await press(root, 'settings-chip-hard-restriction-gluten');
+      await press(root, 'settings-chip-hard-restriction-egg');
+      await press(root, 'settings-sheet-save');
+
+      expect(context.saveUserPreferences).toHaveBeenCalledWith({
+        ...savedPreferences,
+        hardRestrictions: ['peanut', 'egg'],
+      });
+      expect(rowLabel(root, 'settings-row-hard-restrictions')).toBe(
+        'Restricciones duras, Maní, Huevo'
+      );
+    });
+
+    it('never drops a restriction the catalog cannot show', async () => {
+      const { root, context } = await renderScreen({
+        context: {
+          fetchUserPreferences: jest.fn(() =>
+            Promise.resolve({ ...savedPreferences, hardRestrictions: ['sesame', 'gluten'] })
+          ),
+        },
+      });
+      expect(rowLabel(root, 'settings-row-hard-restrictions')).toBe(
+        'Restricciones duras, Gluten +1'
+      );
+
+      await press(root, 'settings-row-hard-restrictions');
+      for (const text of getTexts(getHost(root, 'settings-sheet'))) {
+        expect(text).not.toContain('sesame');
+      }
+      await press(root, 'settings-chip-hard-restriction-gluten');
+      await press(root, 'settings-sheet-save');
+
+      expect(context.saveUserPreferences).toHaveBeenCalledWith({
+        ...savedPreferences,
+        hardRestrictions: ['sesame'],
+      });
+      expect(rowLabel(root, 'settings-row-hard-restrictions')).toBe('Restricciones duras, +1');
+    });
+
+    it('saves the soft preferences typed as a comma list', async () => {
+      const { root, context } = await renderScreen();
+
+      await press(root, 'settings-row-soft-preferences');
+      expect(getInput(root, 'settings-input-soft-preferences').props.value).toBe(
+        'picante, comidas rápidas'
+      );
+
+      await typeInto(root, 'settings-input-soft-preferences', 'cilantro,  picante, ');
+      await press(root, 'settings-sheet-save');
+
+      expect(context.saveUserPreferences).toHaveBeenCalledWith({
+        ...savedPreferences,
+        softPreferences: ['cilantro', 'picante'],
+      });
+      expect(rowLabel(root, 'settings-row-soft-preferences')).toBe(
+        'Preferencias suaves, cilantro, picante'
+      );
+    });
+
+    it('keeps the sheet open and the row unchanged when the save fails, then retries', async () => {
+      const saveUserPreferences = jest
+        .fn<Promise<UserPreferences>, [UserPreferencesPayload]>()
+        .mockRejectedValueOnce(new ApiError('preferences_invalid', 'invalid'))
+        .mockImplementation((payload) => Promise.resolve(payload));
+      const { root } = await renderScreen({ context: { saveUserPreferences } });
+
+      await press(root, 'settings-row-diet');
+      await press(root, 'settings-chip-diet-vegan');
+      await press(root, 'settings-sheet-save');
+
+      expect(isSheetOpen(root)).toBe(true);
+      expect(getHost(root, 'settings-sheet-error').props.children).toBe(
+        'Tus preferencias no son válidas. Revisá los valores ingresados.'
+      );
+      expect(chipIsSelected(root, 'settings-chip-diet-vegan')).toBe(true);
+      expect(rowLabel(root, 'settings-row-diet')).toBe('Dieta, Vegetariano');
+
+      await press(root, 'settings-sheet-save');
+
+      expect(saveUserPreferences).toHaveBeenCalledTimes(2);
+      expect(isSheetOpen(root)).toBe(false);
+      expect(rowLabel(root, 'settings-row-diet')).toBe('Dieta, Vegano');
+    });
+  });
+
+  describe('editing a meal slot', () => {
+    it('saves the slot and leaves the other slots untouched', async () => {
+      const { root, context } = await renderScreen();
+
+      await press(root, 'settings-row-slot-lunch');
+
+      const sheet = getHost(root, 'settings-sheet');
+      expect(getTexts(sheet)).toEqual(
+        expect.arrayContaining([
+          'Almuerzo',
+          'No cocino',
+          '10 min',
+          '20 min',
+          '30 min',
+          '45 min',
+          '60 min',
+          'Liviano',
+          'Normal',
+          'Abundante',
+        ])
+      );
+      expectNoRawCodes(sheet);
+      expect(chipIsSelected(root, 'settings-chip-minutes-30')).toBe(true);
+      expect(chipIsSelected(root, 'settings-chip-hunger-normal')).toBe(true);
+
+      await press(root, 'settings-chip-minutes-60');
+      await press(root, 'settings-chip-hunger-strong');
+      await press(root, 'settings-sheet-save');
+
+      expect(context.saveSlotCookingTimes).toHaveBeenCalledTimes(1);
+      expect(context.saveSlotCookingTimes).toHaveBeenCalledWith({
+        breakfast: { cookingTimeMinutes: 0, hungerLevel: 'light' },
+        lunch: { cookingTimeMinutes: 60, hungerLevel: 'strong' },
+        dinner: { cookingTimeMinutes: 45, hungerLevel: 'strong' },
+      });
+      expect(context.saveUserPreferences).not.toHaveBeenCalled();
+      expect(isSheetOpen(root)).toBe(false);
+      expect(rowLabel(root, 'settings-row-slot-lunch')).toBe('Almuerzo, 60 min · Abundante');
+      expect(rowLabel(root, 'settings-row-slot-breakfast')).toBe('Desayuno, No cocino · Liviano');
+      expect(rowLabel(root, 'settings-row-slot-dinner')).toBe('Cena, 45 min · Abundante');
+    });
+
+    it('stores "No cocino" as zero minutes and keeps the hunger level', async () => {
+      const { root, context } = await renderScreen();
+
+      await press(root, 'settings-row-slot-dinner');
+      await press(root, 'settings-chip-minutes-0');
+      await press(root, 'settings-sheet-save');
+
+      expect(context.saveSlotCookingTimes).toHaveBeenCalledWith({
+        ...savedSlotTimes,
+        dinner: { cookingTimeMinutes: 0, hungerLevel: 'strong' },
+      });
+      expect(rowLabel(root, 'settings-row-slot-dinner')).toBe('Cena, No cocino · Abundante');
+    });
+
+    it('keeps a saved time that is not a preset unless the user changes it', async () => {
+      const customSlotTimes: SlotCookingTimes = {
+        ...savedSlotTimes,
+        lunch: { cookingTimeMinutes: 25, hungerLevel: 'normal' },
+      };
+      const { root, context } = await renderScreen({
+        context: { fetchSlotCookingTimes: jest.fn(() => Promise.resolve(customSlotTimes)) },
+      });
+
+      await press(root, 'settings-row-slot-lunch');
+      expect(chipIsSelected(root, 'settings-chip-minutes-25')).toBe(true);
+
+      await press(root, 'settings-chip-hunger-light');
+      await press(root, 'settings-sheet-save');
+
+      expect(context.saveSlotCookingTimes).toHaveBeenCalledWith({
+        ...savedSlotTimes,
+        lunch: { cookingTimeMinutes: 25, hungerLevel: 'light' },
+      });
+    });
+
+    it('keeps the sheet open and the row unchanged when the save fails', async () => {
+      const { root } = await renderScreen({
+        context: {
+          saveSlotCookingTimes: jest.fn(() =>
+            Promise.reject(new ApiError('slot_cooking_times_invalid', 'invalid'))
+          ),
+        },
+      });
+
+      await press(root, 'settings-row-slot-lunch');
+      await press(root, 'settings-chip-minutes-10');
+      await press(root, 'settings-sheet-save');
+
+      expect(isSheetOpen(root)).toBe(true);
+      expect(getHost(root, 'settings-sheet-error').props.children).toBe(
+        'Los tiempos de cocina no son válidos. Revisá los valores ingresados.'
+      );
+      expect(rowLabel(root, 'settings-row-slot-lunch')).toBe('Almuerzo, 30 min · Normal');
+    });
+  });
+
+  describe('editors over data that is not loaded', () => {
+    const DEPENDENT_ROWS = [
+      'settings-row-diet',
+      'settings-row-hard-restrictions',
+      'settings-row-soft-preferences',
+      'settings-row-slot-breakfast',
+      'settings-row-slot-lunch',
+      'settings-row-slot-dinner',
+    ];
+
+    it('stay closed after a failed load, while the profile rows still open', async () => {
+      const fetchUserPreferences = jest
+        .fn<Promise<UserPreferences>, []>()
+        .mockRejectedValueOnce(new Error('load failed'))
+        .mockResolvedValue(savedPreferences);
+      const { root, context } = await renderScreen({ context: { fetchUserPreferences } });
+
+      for (const testID of DEPENDENT_ROWS) {
+        expect(getButton(root, testID).props.disabled).toBe(true);
+        // Even a press that gets through must not open an editor over missing data.
+        await press(root, testID);
+        expect(isSheetOpen(root)).toBe(false);
+      }
+      expect(context.saveUserPreferences).not.toHaveBeenCalled();
+      expect(context.saveSlotCookingTimes).not.toHaveBeenCalled();
+
+      await press(root, 'settings-row-display-name');
+      expect(isSheetOpen(root)).toBe(true);
+      await press(root, 'settings-sheet-cancel');
+
+      await press(root, 'settings-load-retry');
+      for (const testID of DEPENDENT_ROWS) {
+        expect(getButton(root, testID).props.disabled).toBe(false);
+      }
+      await press(root, 'settings-row-diet');
+      expect(isSheetOpen(root)).toBe(true);
+    });
+
+    it('stay closed while the load is still in flight', async () => {
+      const { root } = await renderScreen({
+        context: {
+          fetchSlotCookingTimes: jest.fn(() => new Promise<SlotCookingTimes>(() => {})),
+        },
+      });
+
+      for (const testID of DEPENDENT_ROWS) {
+        expect(getButton(root, testID).props.disabled).toBe(true);
+        await press(root, testID);
+        expect(isSheetOpen(root)).toBe(false);
+      }
+    });
+  });
+
+  describe('row accessibility', () => {
+    it('exposes an editable row as a button labelled with its value', async () => {
+      const { root } = await renderScreen();
+
+      const row = getButton(root, 'settings-row-diet');
+      expect(row.props.accessibilityLabel).toBe('Dieta, Vegetariano');
+      expect(row.props.accessibilityState).toEqual({ disabled: false });
     });
   });
 });

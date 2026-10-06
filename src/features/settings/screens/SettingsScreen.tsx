@@ -9,7 +9,14 @@ import { CUSTOM_TAB_BAR_CONTENT_HEIGHT } from '@/features/planner/constants';
 import { MEAL_SLOTS, SLOT_LABELS } from '@/features/preferences/constants/onboardingOptions';
 import { useGradientCrossfade } from '@/hooks/useGradientCrossfade';
 import { getTitleMetrics } from '@/utils/responsive';
-import { AccountCard, LoadErrorNotice, SettingsGroup, SettingsRow } from '../components';
+import {
+  AccountCard,
+  LoadErrorNotice,
+  SettingsEditor,
+  SettingsGroup,
+  SettingsRow,
+  SettingsSheet,
+} from '../components';
 import {
   LOADING_VALUE_LABEL,
   PREFERENCE_FIELD_LABELS,
@@ -17,6 +24,7 @@ import {
   UNAVAILABLE_VALUE_LABEL,
 } from '../constants/settingsLabels';
 import { useSettingsState } from '../hooks/useSettingsState';
+import { getSettingsDraftTitle } from '../utils/settingsDraft';
 import {
   formatCookingSkillSummary,
   formatDietSummary,
@@ -36,7 +44,21 @@ const CONTENT_BOTTOM_SPACING = 24;
 export function SettingsScreen() {
   const { theme } = useRecipeTheme();
   const { isLoading, isAuthenticated, isComplete, canUseApp } = useAuth();
-  const { me, now, preferences, slotTimes, loadStatus, retryLoad, signOut } = useSettingsState();
+  const {
+    me,
+    now,
+    preferences,
+    slotTimes,
+    loadStatus,
+    retryLoad,
+    signOut,
+    sheet,
+    isSaving,
+    openEditor,
+    closeEditor,
+    changeDraft,
+    saveEditor,
+  } = useSettingsState();
   const { width, height } = useWindowDimensions();
   const insets = useSafeAreaInsets();
   const backgroundColors: [string, string] = [theme.colorDark, theme.appBg];
@@ -58,6 +80,8 @@ export function SettingsScreen() {
   const { user, account } = me;
   const displayName = user.displayName?.trim() || null;
   const pendingLabel = loadStatus === 'error' ? UNAVAILABLE_VALUE_LABEL : LOADING_VALUE_LABEL;
+  // Rows over data that is not loaded stay closed: an edit would save over it.
+  const canEditLoadedData = loadStatus === 'ready';
 
   return (
     <View style={[styles.screen, { backgroundColor: theme.appBg }]}>
@@ -103,16 +127,19 @@ export function SettingsScreen() {
               testID="settings-row-display-name"
               label={PROFILE_FIELD_LABELS.displayName}
               value={formatDisplayNameSummary(user.displayName)}
+              onPress={() => openEditor({ kind: 'profile', field: 'displayName' })}
             />
             <SettingsRow
               testID="settings-row-household-size"
               label={PROFILE_FIELD_LABELS.householdSize}
               value={formatHouseholdSummary(user.householdSize)}
+              onPress={() => openEditor({ kind: 'profile', field: 'householdSize' })}
             />
             <SettingsRow
               testID="settings-row-cooking-skill"
               label={PROFILE_FIELD_LABELS.cookingSkill}
               value={formatCookingSkillSummary(user.cookingSkill)}
+              onPress={() => openEditor({ kind: 'profile', field: 'cookingSkill' })}
             />
           </SettingsGroup>
 
@@ -123,6 +150,8 @@ export function SettingsScreen() {
               testID="settings-row-diet"
               label={PREFERENCE_FIELD_LABELS.diet}
               value={preferences ? formatDietSummary(preferences.diet) : pendingLabel}
+              disabled={!canEditLoadedData}
+              onPress={() => openEditor({ kind: 'diet' })}
             />
             <SettingsRow
               testID="settings-row-hard-restrictions"
@@ -132,6 +161,8 @@ export function SettingsScreen() {
                   ? formatHardRestrictionsSummary(preferences.hardRestrictions)
                   : pendingLabel
               }
+              disabled={!canEditLoadedData}
+              onPress={() => openEditor({ kind: 'hardRestrictions' })}
             />
             <SettingsRow
               testID="settings-row-soft-preferences"
@@ -141,6 +172,8 @@ export function SettingsScreen() {
                   ? formatSoftPreferencesSummary(preferences.softPreferences)
                   : pendingLabel
               }
+              disabled={!canEditLoadedData}
+              onPress={() => openEditor({ kind: 'softPreferences' })}
             />
           </SettingsGroup>
 
@@ -151,6 +184,8 @@ export function SettingsScreen() {
                 testID={`settings-row-slot-${slot}`}
                 label={SLOT_LABELS[slot]}
                 value={slotTimes ? formatSlotSummary(slotTimes[slot]) : pendingLabel}
+                disabled={!canEditLoadedData}
+                onPress={() => openEditor({ kind: 'slot', slot })}
               />
             ))}
           </SettingsGroup>
@@ -171,6 +206,21 @@ export function SettingsScreen() {
           </SettingsGroup>
         </ScrollView>
       </SafeAreaContent>
+      {sheet ? (
+        <SettingsSheet
+          visible={sheet.visible}
+          title={getSettingsDraftTitle(sheet.draft)}
+          saving={isSaving}
+          errorMessage={sheet.errorMessage}
+          onSave={saveEditor}
+          onClose={closeEditor}>
+          <SettingsEditor
+            draft={sheet.draft}
+            fieldError={sheet.fieldError}
+            onChange={changeDraft}
+          />
+        </SettingsSheet>
+      ) : null}
     </View>
   );
 }
