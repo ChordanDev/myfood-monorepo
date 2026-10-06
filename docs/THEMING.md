@@ -62,14 +62,14 @@ Names describe the job a color does, not its hue.
 | Token                  | Role                                   | Used today for                                                        |
 | ---------------------- | -------------------------------------- | --------------------------------------------------------------------- |
 | `appBg`                | Screen ground                          | Screen background; text and icons inside the composer                 |
-| `colorBlack`           | Deepest surface                        | Tab bar gradient end, Planner header pills                            |
+| `colorBlack`           | Deepest surface                        | Tab bar gradient end, Planner header pills, confirmation card         |
 | `colorDark`            | Main dark surface                      | Meal switcher, composer, bottom sheet, Home top fade, dividers at 30% |
-| `colorMedium`          | Mid tone between dark and light        | Meal card gradient start, day cell ring ("today", selected pending)   |
+| `colorMedium`          | Mid tone between dark and light        | Meal card gradient start, day cell rings, confirmation buttons        |
 | `colorLight`           | Light surface sitting on the ground    | Calendar, user chat bubble                                            |
 | `icon`                 | Icons and state tints on dark surfaces | Tab icons, active pill (15% fill + 30% border), planned day (70%)     |
-| `primaryAccent`        | Emphasis                               | Selected day (70%), "HOY", Planner header icon and label              |
+| `primaryAccent`        | Emphasis                               | Selected day (70%), "HOY", Planner header icon and label, ✓ icon      |
 | `primaryAccentIntense` | Stronger accent for glows and rings    | Add-button ring, "COMERLO HOY" glow, sheet button borders             |
-| `alert`                | Unconfirmed past meal                  | Pending day cell (70% fill + border)                                  |
+| `alert`                | Unconfirmed past meal                  | Pending day cell (70% fill + border), ✗ icon                          |
 | `textBlack`            | Body text on light surfaces            | Chat text, day numbers (45% when disabled)                            |
 | `textDark`             | Titles and labels on light surfaces    | Screen title, calendar header and weekdays                            |
 | `textMedium`           | Secondary text on dark surfaces        | Active switcher label, weekday on the meal card                       |

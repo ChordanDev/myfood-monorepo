@@ -10,6 +10,12 @@ export type LocalMealSelection = MealPlanEntry & {
   theme?: RecipeThemeConfig;
 };
 
+export type HomeMealSummary = {
+  id: string;
+  type: HomeMealType;
+  name: string;
+};
+
 const ORDERED_HOME_MEAL_TYPES: HomeMealType[] = ['desayuno', 'almuerzo', 'cena'];
 
 const MEAL_TYPE_MINUTES: Record<HomeMealType, number> = {
@@ -84,6 +90,21 @@ export function getSelectedLocalMeal(
     imageUrl: recipe?.imageUrl,
     theme: recipe?.theme,
   };
+}
+
+export function getHomeMealSummaries(
+  entries: MealPlanEntry[],
+  recipes: MasterRecipe[]
+): HomeMealSummary[] {
+  return ORDERED_HOME_MEAL_TYPES.flatMap((type) =>
+    entries
+      .filter((entry) => entry.type === type)
+      .map((entry) => ({
+        id: entry.id,
+        type,
+        name: recipes.find((recipe) => recipe.id === entry.recipeId)?.name ?? 'Receta sin nombre',
+      }))
+  );
 }
 
 export function getAllowedMonthKeys(planByDate: LocalMealPlanByDate) {

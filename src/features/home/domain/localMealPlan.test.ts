@@ -1,7 +1,8 @@
-import type { MealPlanEntry, MealType } from '@/types/domain';
+import type { MasterRecipe, MealPlanEntry, MealType } from '@/types/domain';
 import {
   buildLocalMealPlanByDate,
   getDefaultHomeMealType,
+  getHomeMealSummaries,
   getPendingConfirmationEntries,
   getPendingHomeMealType,
   isMealConfirmed,
@@ -285,5 +286,35 @@ describe('meal confirmation', () => {
       expect(isSelectable(todayKey, [])).toBe(false);
       expect(isSelectable(tomorrowKey, [])).toBe(false);
     });
+  });
+});
+
+describe('getHomeMealSummaries', () => {
+  function buildEntry(type: MealType, recipeId: string): MealPlanEntry {
+    return { id: `entry-${type}`, date: '2026-08-24', type, recipeId, isCooked: false };
+  }
+
+  const recipes = [
+    { id: 'recipe-soup', name: 'Sopa de pollo' },
+    { id: 'recipe-salad', name: 'Ensalada de tomate' },
+  ] as MasterRecipe[];
+
+  it('names the Home meals of a day in meal order', () => {
+    const entries = [
+      buildEntry('cena', 'recipe-soup'),
+      buildEntry('snack', 'recipe-salad'),
+      buildEntry('almuerzo', 'recipe-salad'),
+    ];
+
+    expect(getHomeMealSummaries(entries, recipes)).toEqual([
+      { id: 'entry-almuerzo', type: 'almuerzo', name: 'Ensalada de tomate' },
+      { id: 'entry-cena', type: 'cena', name: 'Sopa de pollo' },
+    ]);
+  });
+
+  it('uses a placeholder name when the recipe is unknown', () => {
+    expect(getHomeMealSummaries([buildEntry('cena', 'recipe-missing')], recipes)).toEqual([
+      { id: 'entry-cena', type: 'cena', name: 'Receta sin nombre' },
+    ]);
   });
 });
