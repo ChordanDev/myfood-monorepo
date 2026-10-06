@@ -1,0 +1,102 @@
+# onboarding-three-steps
+
+Issue: ChordanDev/progra-3-front#48 "Onboarding: rehacerlo en tres pasos reales".
+
+## Objective
+
+Turn `OnboardingScreen` into a real three-step wizard (Tu hogar, Preferencias,
+Tiempos por comida) with per-step validation, a progress bar, a fixed
+CONTINUAR button and palette-only colors.
+
+## Problem and why
+
+The screen is a single scroll that advertises "3 pasos" without having steps.
+Validation only covers the profile fields, an empty manual-minutes field is
+silently sent as 0, and the onboarding components carry around 20 color
+literals, which `docs/THEMING.md` forbids.
+
+## Scope
+
+- `src/features/preferences/screens/OnboardingScreen.tsx`
+- `src/features/preferences/components/onboarding/**`
+- `src/features/preferences/utils/onboardingSteps.ts` (new),
+  `src/features/preferences/utils/onboardingSlot.ts`
+- `src/features/preferences/__tests__/**` (onboarding tests only)
+- `docs/THEMING.md` ("Open decisions" entry for onboarding)
+
+## Constraints
+
+- `OnboardingCompletionRequest` and `buildOnboardingPayload` keep their
+  contract; `onboardingPayload.test.ts` is not edited and stays green.
+- No color literal; default (sand) palette through `RecipeThemeConfig` tokens
+  chosen by role, tints through `withOpacity`. No token added, renamed or
+  removed.
+- `testID="e2e-onboarding-screen"` stays as a literal in `OnboardingScreen.tsx`
+  (`maestroSelectors.contract.test.ts` and two Maestro flows depend on it).
+- `previewMode` behavior is preserved (no redirect, no submit, no sign-out).
+- Tests use `react-test-renderer`; `@testing-library/react-native` is not
+  installed and is not added.
+- Conventional commits, no AI attribution.
+- Worktree `my-expo-app-worktrees/onboarding-three-steps`, branch
+  `feat/onboarding-three-steps` from `origin/Develop` (db05b87).
+- RDD is off for this clone (`clone_local`); no native review is started.
+- Delivery strategy: `ask-on-risk`. Forecast is above 400 authored changed
+  lines (about 900), so the chain strategy is asked once before any pull
+  request is planned. Commits already follow the slice boundaries below.
+
+## Decisions taken without a mockup
+
+The mockup (`docs/design/screens/Onboarding.dc.html`) covers step 1 only.
+
+- Steps 2 and 3 reuse the step 1 visual language (field cards, labels, chips).
+- Steps 2 and 3 get a back control (chevron at the left of the progress row);
+  Android hardware back goes to the previous step. The mockup shows none
+  because step 1 has no previous step.
+- The fixed button reads CONTINUAR on steps 1 and 2 and FINALIZAR on step 3,
+  where it submits.
+- A failed attempt keeps the user on the step and shows an inline message
+  above the button instead of an alert.
+- Manual mode requires a whole number of minutes of at least 1.
+
+## Tasks
+
+- [ ] T1 Pure step logic. `onboardingSteps.ts`: step order, next/previous,
+      `validateOnboardingStep(step, draft)` returning a user-facing message or
+      null; household size clamp 1-20; `slotFormToCookingTime` in
+      `onboardingSlot.ts`. Route: delegated (util plus tests, prepares T2).
+      Test-first: RED on the new unit tests, then GREEN.
+- [ ] T2 Wizard shell and step 1. Step state, progress bar with "Paso N de 3",
+      fixed footer (primary button, inline error, "Cerrar sesión" text), back
+      control, step 1 to the mockup with the diners stepper. Steps 2 and 3
+      render the existing sections. Route: delegated (screen plus components
+      plus tests). Test-first: step-navigation tests RED before the rewrite.
+- [ ] T3 Palette-only steps 2 and 3. Restyle preferences and meal-time
+      components to the step 1 language, remove every color literal and the
+      unused hero/section card, update `docs/THEMING.md`. Route: delegated
+      (same writer). No behavioral RED: proof is a literal search over the
+      onboarding folder plus the existing tests.
+
+## Acceptance criteria
+
+- [ ] Final payload is still `OnboardingCompletionRequest`, no contract change.
+- [ ] Per-step validation; invalid data never advances.
+- [ ] Default palette, no color literal in onboarding files.
+- [ ] `onboardingPayload.test.ts` green and step-navigation tests added.
+
+## Checks
+
+- `npx jest src/features/preferences src/features/auth/__tests__/maestroSelectors.contract.test.ts`
+- `npx jest` (full suite at closure)
+- `npm run lint`
+- `npx tsc --noEmit`
+- `rg -n "#[0-9A-Fa-f]{3,8}\b|rgba?\(" src/features/preferences/components/onboarding src/features/preferences/screens/OnboardingScreen.tsx`
+  returns only allowed `#000000` shadow colors.
+
+## Progress and evidence
+
+- Not started. Baseline (full jest, lint, tsc on db05b87) is recorded by the
+  writer before the first edit.
+
+## Next step
+
+T1.
