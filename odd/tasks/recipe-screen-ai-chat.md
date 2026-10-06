@@ -93,6 +93,26 @@ Out of scope: real AI service, chat history persistence, the leftovers prompt af
 
 Chain strategy not chosen yet. Natural boundaries: A = `a432783` (token, shared with #46); B = `0597978`, `a42f206`, `1f08708` (domain and port, 1239 lines, mostly tests); C = `ec06650` (screen); D = `02d49fc` (chat and composer props).
 
+## Feature-first restructure (owner request, 2026-10-06)
+
+The owner asked for everything in this work to be organized feature-first. Scope: what this branch added or made cross-feature. Pre-existing shared layers (`src/store`, `src/context`, `src/utils`, `src/types`, `src/components`) are not moved here: five sibling branches are in flight on them.
+
+Evidence before the change: the branch added `src/store/useShoppingRequestsStore.ts` and `src/components/TopGradientBackground.tsx` to horizontal layers, and the recipe feature deep-imported planner internals (`PlannerChatInput`, `PlannerTypingIndicator`, `planner/constants`).
+
+Decisions (they supersede design decisions 1, 7 and 9 on file placement only):
+
+- The shopping requests port is the recipe's seam, so it lives in `src/features/recipe/store/`. `src/features/shopping/` belongs to #44 and is not touched.
+- The top gradient has one consumer, so it lives in the recipe feature as `RecipeTopGradient`.
+- The composer and typing indicator are used by two features, so they become their own feature, `src/features/assistant-chat/`, with a public barrel. Neutral names (`ChatComposer`, `ChatTypingIndicator`, `CHAT_COMPOSER_*`). The composer no longer knows the tab bar: the planner passes its resting gap.
+- Features are consumed through their root barrel (`@/features/recipe`, `@/features/assistant-chat`).
+- Left as is: `formatDateKey` stays in `home/utils` because #46 edits that file; Home's import of `recipe/utils/recipeImageSource` is pre-existing and `HomeScreen` is in flight in #46.
+
+Tasks:
+
+- [ ] **T7 — Recipe owns its seams.** Move the shopping requests store and its test to `src/features/recipe/store/`, move the gradient into the recipe components, add `src/features/recipe/index.ts`, route imports the barrel. Route: delegated writer (with T8).
+- [ ] **T8 — `assistant-chat` feature.** Move and rename the composer, typing indicator, layout resolver, constants and their tests; planner and recipe consume the barrel; planner passes the resting gap and its test id prefix. Planner behavior and e2e test ids unchanged.
+- [ ] **T9 — Docs.** Update names in `docs/THEMING.md`; record progress here.
+
 ## Next step
 
-Visual check on a simulator, then the owner chooses the chain strategy before any pull request.
+T7–T8 (delegated), then T9. After that: visual check on a simulator, then the owner chooses the chain strategy before any pull request.
