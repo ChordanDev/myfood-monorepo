@@ -66,7 +66,7 @@ proposal in `docs/design/screens/Main.dc.html` (sand `#B9553B`, olive `#C94F3D`)
       field on a type; proof is typecheck plus the full suite. Shared docs
       (`meal-app-docs`) edited by the parent on a separate branch of that
       repository.
-- [ ] T2 Domain: skipped state, pending predicates, selectable past days.
+- [x] T2 Domain: skipped state, pending predicates, selectable past days.
       Route: delegated writer (domain + store + two test files). Test-first
       with jest: `localMealPlan.test.ts`, `useMealPlanStore.test.ts`.
 - [ ] T3 Home UI: pending day cell and the confirmation row. Route: delegated
@@ -83,7 +83,7 @@ proposal in `docs/design/screens/Main.dc.html` (sand `#B9553B`, olive `#C94F3D`)
       `colorMedium` border.
 - [ ] A past day whose meals are all confirmed is no longer shown as pending
       nor selectable.
-- [ ] Tests cover `isSelectableMealDate` and the new state.
+- [x] Tests cover `isSelectableMealDate` and the new state.
 
 ## Checks
 
@@ -104,7 +104,24 @@ proposal in `docs/design/screens/Main.dc.html` (sand `#B9553B`, olive `#C94F3D`)
   (`authErrorCodeContract.test.ts`, known baseline); `npm run lint` 0 errors,
   7 warnings in files not touched, prettier clean. The `meal-app-docs` update
   is still pending on the parent.
+- 2026-10-06: T2 done in 6c8a7fb (`feat(home): add the skipped meal state and
+  pending past days`), 307 authored changed lines in `src` (running total 319).
+  `MealPlanEntry.isSkipped?`, domain API in `localMealPlan.ts`
+  (`isMealConfirmed`, `getPendingConfirmationEntries`,
+  `getPendingHomeMealType`, `isPendingConfirmationDate`, and
+  `isSelectableMealDate` now accepting pending past days), store action
+  `markAsSkipped`, and `markAsCooked` ignoring a skipped entry. RED observed
+  first: 17 of the 24 new tests failed (missing exports, `markAsSkipped` not a
+  function, pending past day not selectable, skipped entry still cooked); the 7
+  that passed pin behavior that must not change. GREEN: 34 / 34 in the two
+  focused files. Observed checks: `npx tsc --noEmit` 22 errors, all in the four
+  known baseline files; `npx jest` 34 suites / 401 tests passed, 1 suite /
+  2 tests failed (`authErrorCodeContract.test.ts`, known baseline);
+  `npm run lint` 0 errors, 7 warnings in files not touched, prettier clean.
+  Left as is, for T3 to decide: the mocks have no past entry, so no pending day
+  shows up yet; `eatToday` and `getDefaultHomeMealType` still read `isCooked`
+  only.
 
 ## Next step
 
-T2.
+T3.
