@@ -38,8 +38,20 @@ describe('resolveComposerMaxLines', () => {
     expect(resolveComposerMaxLines(1)).toBe(PLANNER_CHAT_INPUT_MAX_LINES);
   });
 
+  // 393dpi, 450dpi and 374dpi screens round the 24dp design line up to a whole pixel.
+  it.each([24.02, 24.18, 24.39])(
+    'keeps the design line count when pixel rounding makes a default line %pdp tall',
+    (lineHeight) => {
+      expect(resolveComposerMaxLines(lineHeight)).toBe(PLANNER_CHAT_INPUT_MAX_LINES);
+    }
+  );
+
+  it('drops a line once the font scale, not pixel rounding, makes the line taller', () => {
+    // 25.2dp is the native line at a 1.05 font scale.
+    expect(resolveComposerMaxLines(25.2)).toBe(9);
+  });
+
   it.each([
-    { lineHeight: 24.5, expected: 9 },
     { lineHeight: 26.4, expected: 9 },
     { lineHeight: 27.81, expected: 8 },
     { lineHeight: 31.2, expected: 7 },

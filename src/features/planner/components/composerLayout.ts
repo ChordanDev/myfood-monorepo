@@ -3,6 +3,9 @@ import { PLANNER_CHAT_INPUT_MAX_LINES, PLANNER_CHAT_INPUT_TEXT_LINE_HEIGHT } fro
 export type ComposerLayout = 'inline' | 'stacked';
 
 const COMPOSER_MIN_VISIBLE_LINES = 2;
+// A native line is rounded up to whole pixels, so at the default font scale it can be a fraction
+// of a point taller than the design line. Without this slack those screens would lose a line.
+const COMPOSER_LINE_ROUNDING_SLACK = 0.75;
 
 export function resolveComposerLayout(value: string, probeLines: number): ComposerLayout {
   // The probe reports after the commit, so its count is stale right after the value is cleared.
@@ -18,7 +21,9 @@ export function resolveComposerMaxLines(lineHeight: number): number {
 
   // Whole native lines that fit in the viewport the design reserves at the default font scale.
   const linesInDesignViewport = Math.floor(
-    (PLANNER_CHAT_INPUT_MAX_LINES * PLANNER_CHAT_INPUT_TEXT_LINE_HEIGHT) / lineHeight
+    (PLANNER_CHAT_INPUT_MAX_LINES *
+      (PLANNER_CHAT_INPUT_TEXT_LINE_HEIGHT + COMPOSER_LINE_ROUNDING_SLACK)) /
+      lineHeight
   );
 
   return Math.min(
