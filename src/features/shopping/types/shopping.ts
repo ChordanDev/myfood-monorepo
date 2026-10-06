@@ -28,6 +28,9 @@ export interface PlannedShoppingListItem extends ShoppingListItemBase {
 // Added by hand: a name only, with no ingredient, quantity, unit or category.
 export interface ManualShoppingListItem extends ShoppingListItemBase {
   source: 'manual';
+  // Only on a removed item: the status it had, which restoring gives back. Optional, so an
+  // item stored as removed before this was recorded is still valid; it restores as needed.
+  statusBeforeRemoval?: Exclude<ShoppingItemStatus, 'removed'>;
 }
 
 export type ShoppingListItem = PlannedShoppingListItem | ManualShoppingListItem;

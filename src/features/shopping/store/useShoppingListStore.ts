@@ -39,6 +39,22 @@ function moveManualItems(
   );
 }
 
+// Flags a manual item as removed, remembering the status to give back on restore. One that
+// is already removed is left alone, so removing it again does not lose that status.
+function removeManualItem(item: ManualShoppingListItem): ManualShoppingListItem {
+  if (item.status === 'removed') return item;
+  return { ...item, status: 'removed', statusBeforeRemoval: item.status };
+}
+
+// Returns a removed manual item to the status it was removed with. The field is dropped,
+// not blanked, so a restored item is stored exactly like one that was never removed.
+function restoreManualItem(item: ManualShoppingListItem): ManualShoppingListItem {
+  if (item.status !== 'removed') return item;
+
+  const { statusBeforeRemoval = 'needed', ...restoredItem } = item;
+  return { ...restoredItem, status: statusBeforeRemoval };
+}
+
 interface ShoppingListState {
   purchases: PurchaseRecords;
   removedIds: string[];
@@ -112,7 +128,7 @@ export const useShoppingListStore = create<ShoppingListState>()(
           if (item.source === 'manual') {
             return {
               manualItems: state.manualItems.map((manualItem) =>
-                manualItem.id === item.id ? { ...manualItem, status: 'removed' } : manualItem
+                manualItem.id === item.id ? removeManualItem(manualItem) : manualItem
               ),
             };
           }
@@ -124,7 +140,7 @@ export const useShoppingListStore = create<ShoppingListState>()(
       restoreRemovedItems: () => {
         set((state) => ({
           removedIds: [],
-          manualItems: moveManualItems(state.manualItems, 'removed', 'needed'),
+          manualItems: state.manualItems.map(restoreManualItem),
         }));
       },
       addManualItem: (name) => {

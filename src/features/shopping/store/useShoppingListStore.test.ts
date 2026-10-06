@@ -240,7 +240,10 @@ describe('removing an item', () => {
 
     shopping().removeItem(napkins);
 
-    expect(shopping().manualItems).toEqual([{ ...napkins, status: 'removed' }, candles]);
+    expect(shopping().manualItems).toEqual([
+      { ...napkins, status: 'removed', statusBeforeRemoval: 'needed' },
+      candles,
+    ]);
     expect(shopping().removedIds).toEqual([]);
   });
 
@@ -322,6 +325,79 @@ describe('restoring the removed items', () => {
       { ...napkins, status: 'needed' },
       { ...candles, status: 'purchased' },
     ]);
+  });
+
+  describe('of manual items', () => {
+    // A manual item in the given status, removed from the list.
+    function removeManualItem(status: 'needed' | 'purchased') {
+      shopping().addManualItem('Velas');
+      if (status === 'purchased') shopping().markPurchased(shopping().manualItems[0]);
+      const [item] = shopping().manualItems;
+      shopping().removeItem(item);
+
+      return item;
+    }
+
+    it.each(['needed', 'purchased'] as const)(
+      'gives a %s item back exactly as it was before it was removed',
+      (status) => {
+        const item = removeManualItem(status);
+
+        shopping().restoreRemovedItems();
+
+        // Strict: the status it is restored from is not left behind, not even as undefined.
+        expect(shopping().manualItems).toStrictEqual([item]);
+        expect(item.status).toBe(status);
+      }
+    );
+
+    it('keeps the status of a purchased item that is removed a second time', () => {
+      removeManualItem('purchased');
+      shopping().removeItem(shopping().manualItems[0]);
+
+      shopping().restoreRemovedItems();
+
+      expect(shopping().manualItems[0].status).toBe('purchased');
+    });
+
+    it('restores as needed an item stored as removed before its status was recorded', () => {
+      useShoppingListStore.setState({
+        manualItems: [{ id: 'manual:1', source: 'manual', status: 'removed', name: 'Velas' }],
+      });
+
+      shopping().restoreRemovedItems();
+
+      expect(shopping().manualItems).toStrictEqual([
+        { id: 'manual:1', source: 'manual', status: 'needed', name: 'Velas' },
+      ]);
+    });
+
+    it('can be removed and restored again, following the status it has each time', () => {
+      removeManualItem('purchased');
+      shopping().restoreRemovedItems();
+      shopping().unmarkPurchased(shopping().manualItems[0]);
+      shopping().removeItem(shopping().manualItems[0]);
+
+      shopping().restoreRemovedItems();
+
+      expect(shopping().manualItems[0].status).toBe('needed');
+    });
+
+    it('stores the status before the removal next to the removed item', () => {
+      removeManualItem('purchased');
+
+      const [, value] = jest.mocked(AsyncStorage.setItem).mock.lastCall ?? [];
+
+      expect(JSON.parse(value ?? '').state.manualItems).toEqual([
+        {
+          id: 'manual:1',
+          source: 'manual',
+          status: 'removed',
+          name: 'Velas',
+          statusBeforeRemoval: 'purchased',
+        },
+      ]);
+    });
   });
 });
 

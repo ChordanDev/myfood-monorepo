@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Modal, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import Animated from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -19,6 +19,8 @@ export function ShoppingAddItemSheet({ visible, onAdd, onClose }: ShoppingAddIte
   const { theme } = useRecipeTheme();
   const [name, setName] = useState('');
   const [wasVisible, setWasVisible] = useState(visible);
+  // A ref, not state: two submits can land before the first one has re-rendered anything.
+  const hasAddedRef = useRef(false);
   // The panel rests on the bottom edge of the window, so it rises by the whole keyboard.
   const { inputAnimatedStyle } = useKeyboardAnimation({
     mode: 'geometry',
@@ -33,13 +35,22 @@ export function ShoppingAddItemSheet({ visible, onAdd, onClose }: ShoppingAddIte
     if (visible) setName('');
   }
 
+  // Each opening accepts one add.
+  useEffect(() => {
+    if (visible) hasAddedRef.current = false;
+  }, [visible]);
+
   const trimmedName = name.trim();
   const canAdd = trimmedName.length > 0;
 
   // Shared by the button and the return key, which stays enabled on Android with no text.
+  // The name is kept after closing and iOS keeps the panel mounted while it fades out, so a
+  // second return or a late tap would add the same item again: one add per opening, and none
+  // once the sheet is closing.
   const handleAdd = () => {
-    if (!canAdd) return;
+    if (!visible || !canAdd || hasAddedRef.current) return;
 
+    hasAddedRef.current = true;
     onAdd(trimmedName);
     onClose();
   };

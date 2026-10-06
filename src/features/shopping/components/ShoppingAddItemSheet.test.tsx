@@ -17,6 +17,16 @@ jest.mock('react-native-reanimated', () => {
   return { __esModule: true, default: { Text, View } };
 });
 
+// iOS keeps the children of a modal mounted while it fades out; the stock Jest mock drops
+// them at once. A test turns this on to press what is still on screen during that fade.
+let mockKeepsChildrenWhileHidden = false;
+
+jest.mock('react-native/Libraries/Modal/Modal', () => ({
+  __esModule: true,
+  default: ({ visible, children }: { visible: boolean; children: React.ReactNode }) =>
+    visible || mockKeepsChildrenWhileHidden ? children : null,
+}));
+
 const mockKeyboardLift = { transform: [{ translateY: -300 }] };
 
 jest.mock('@/hooks/useKeyboardAnimation', () => ({
@@ -108,6 +118,7 @@ function submitFromKeyboard(root: ReactTestInstance) {
 describe('ShoppingAddItemSheet', () => {
   beforeEach(() => {
     jest.mocked(useKeyboardAnimation).mockClear();
+    mockKeepsChildrenWhileHidden = false;
   });
 
   it('asks for a name, with an add and a cancel action', () => {
@@ -247,6 +258,74 @@ describe('ShoppingAddItemSheet', () => {
         backgroundColor: mockTheme.primaryAccent,
         borderColor: mockTheme.primaryAccentIntense,
       })
+    );
+  });
+
+  describe('adding at most once per opening', () => {
+    it('adds once when the return key is pressed twice', () => {
+      const { root, onAdd, onClose } = renderSheet();
+      typeName(root, 'Velas');
+
+      submitFromKeyboard(root);
+      submitFromKeyboard(root);
+
+      expect(onAdd).toHaveBeenCalledTimes(1);
+      expect(onClose).toHaveBeenCalledTimes(1);
+    });
+
+    it('adds once when the return key is followed by "Agregar"', () => {
+      const { root, onAdd, onClose } = renderSheet();
+      typeName(root, 'Velas');
+
+      submitFromKeyboard(root);
+      press(root, 'Agregar');
+
+      expect(onAdd).toHaveBeenCalledTimes(1);
+      expect(onClose).toHaveBeenCalledTimes(1);
+    });
+
+    it('adds once when the second submit lands while it fades out', () => {
+      mockKeepsChildrenWhileHidden = true;
+      const { root, onAdd, setVisible } = renderSheet();
+      typeName(root, 'Velas');
+      submitFromKeyboard(root);
+      setVisible(false);
+
+      submitFromKeyboard(root);
+      press(root, 'Agregar');
+
+      expect(onAdd).toHaveBeenCalledTimes(1);
+    });
+
+    it('adds nothing from a submit that lands while it fades out after a cancel', () => {
+      mockKeepsChildrenWhileHidden = true;
+      const { root, onAdd, setVisible } = renderSheet();
+      typeName(root, 'Velas');
+      press(root, 'Cancelar');
+      setVisible(false);
+
+      submitFromKeyboard(root);
+      press(root, 'Agregar');
+
+      expect(onAdd).not.toHaveBeenCalled();
+    });
+
+    it.each([false, true])(
+      'adds again once it is reopened (children kept while hidden: %s)',
+      (keepsChildren) => {
+        mockKeepsChildrenWhileHidden = keepsChildren;
+        const { root, onAdd, setVisible } = renderSheet();
+        typeName(root, 'Velas');
+        submitFromKeyboard(root);
+        setVisible(false);
+
+        setVisible(true);
+        typeName(root, 'Hielo');
+        submitFromKeyboard(root);
+        submitFromKeyboard(root);
+
+        expect(onAdd.mock.calls).toEqual([['Velas'], ['Hielo']]);
+      }
     );
   });
 });
