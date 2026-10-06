@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  NativeSyntheticEvent,
+  LayoutChangeEvent,
   Platform,
   Pressable,
   StyleSheet,
   Text,
   TextInput,
-  TextInputContentSizeChangeEventData,
+  TextLayoutEvent,
+  useWindowDimensions,
   View,
 } from 'react-native';
 import Animated, {
@@ -31,87 +32,82 @@ import {
   PLANNER_CHAT_INPUT_CLEARANCE,
   PLANNER_CHAT_INPUT_CONTROL_ROW_HEIGHT,
   PLANNER_CHAT_INPUT_MAX_HEIGHT,
-  PLANNER_CHAT_INPUT_MAX_LINES,
   PLANNER_CHAT_INPUT_MIN_HEIGHT,
   PLANNER_CHAT_INPUT_TEXT_LINE_HEIGHT,
   PLANNER_CHAT_INPUT_VERTICAL_INSET,
 } from '../constants';
+import { resolveComposerLayout, resolveComposerMaxLines } from './composerLayout';
 
 interface PlannerChatInputProps {
   value: string;
   isThinking: boolean;
   onChangeText: (value: string) => void;
   onHeightChange?: (height: number) => void;
-  onRenderedHeightChange?: (height: number) => void;
   onSubmit: () => void;
 }
 
 const PLANNER_CHAT_INPUT_MIN_RADIUS = 28;
 const PLANNER_CHAT_INPUT_MAX_RADIUS = 20;
-const PLANNER_CHAT_INPUT_ONE_LINE_LEFT_INSET = 56;
-const PLANNER_CHAT_INPUT_MULTILINE_CONTENT_INSET = 16;
-export const PLANNER_CHAT_INPUT_ICON_OPTICAL_OFFSET_Y = -3;
-const PLANNER_CHAT_INPUT_CONTROL_TOP_OFFSET =
-  PLANNER_CHAT_INPUT_VERTICAL_INSET +
-  (PLANNER_CHAT_INPUT_CONTROL_ROW_HEIGHT - PLANNER_CHAT_INPUT_TEXT_LINE_HEIGHT) / 2;
-const PLANNER_CHAT_INPUT_MULTILINE_TEXT_BOTTOM_OFFSET =
+const PLANNER_CHAT_INPUT_TEXT_FONT_SIZE = 17;
+const PLANNER_CHAT_INPUT_LEFT_CONTROL_INSET = 56;
+const PLANNER_CHAT_INPUT_INLINE_TEXT_GAP = 16;
+const PLANNER_CHAT_INPUT_INLINE_LEFT_INSET =
+  PLANNER_CHAT_INPUT_LEFT_CONTROL_INSET + PLANNER_CHAT_INPUT_INLINE_TEXT_GAP;
+const PLANNER_CHAT_INPUT_INLINE_MAX_LINES = 2;
+const PLANNER_CHAT_INPUT_STACKED_CONTENT_INSET = 16;
+const PLANNER_CHAT_INPUT_STACKED_BOTTOM_INSET =
   PLANNER_CHAT_INPUT_CONTROL_ROW_HEIGHT + PLANNER_CHAT_INPUT_VERTICAL_INSET;
+// Keeps the probe narrower than the inline text box, so it never flips later than the input wraps.
+const PLANNER_CHAT_INPUT_PROBE_WIDTH_MARGIN = 2;
+export const PLANNER_CHAT_INPUT_ICON_OPTICAL_OFFSET_Y = -3;
 
 export function PlannerChatInput({
   value,
   isThinking,
   onChangeText,
   onHeightChange,
-  onRenderedHeightChange,
   onSubmit,
 }: PlannerChatInputProps) {
   const insets = useSafeAreaInsets();
   const { theme } = useRecipeTheme();
+  const { fontScale } = useWindowDimensions();
   const { inputAnimatedStyle } = useKeyboardAnimation({
     mode: 'geometry',
     restingBottomOffset:
       insets.bottom + CUSTOM_TAB_BAR_CONTENT_HEIGHT + PLANNER_CHAT_INPUT_CLEARANCE,
     clearance: PLANNER_CHAT_INPUT_CLEARANCE,
+    bottomInset: insets.bottom,
   });
   const reduceMotion = useReducedMotion();
   const rotation = useSharedValue(0);
   const thinkingProgress = useSharedValue(Number(isThinking));
   const composerHeight = useSharedValue(PLANNER_CHAT_INPUT_MIN_HEIGHT);
-  const reportedHeight = useRef(PLANNER_CHAT_INPUT_MIN_HEIGHT);
-  const controlSafeOneLineContentHeight = useRef(PLANNER_CHAT_INPUT_TEXT_LINE_HEIGHT);
-  const multilineMeasurementOneLineContentHeight = useRef(PLANNER_CHAT_INPUT_TEXT_LINE_HEIGHT);
-  const hasCalibratedControlSafeOneLineContentHeight = useRef(false);
-  const hasCalibratedMultilineMeasurementOneLineContentHeight = useRef(false);
-  const isMultilineRef = useRef(false);
-  const multilineMeasurementLines = useRef(1);
-  const [inputHeight, setInputHeight] = useState(PLANNER_CHAT_INPUT_MIN_HEIGHT);
-  const [isMultiline, setIsMultiline] = useState(false);
+  const reportedHeight = useRef<number | null>(null);
+  const [probeLines, setProbeLines] = useState(1);
+  const [measuredLineHeight, setMeasuredLineHeight] = useState<number | null>(null);
+  const [inputLayoutHeight, setInputLayoutHeight] = useState(0);
+  // Latched per instance: an animated height that appears or disappears later is never cleaned up.
+  const [animateHeight] = useState(() => Platform.OS === 'ios' && !reduceMotion);
   const hasText = value.trim().length > 0;
   const sendVisibility = useSharedValue(Number(hasText));
   const canSubmit = hasText && !isThinking;
 
-  const updateHeight = useCallback(
-    (nextHeight: number) => {
-      if (nextHeight === reportedHeight.current) return;
-
-      reportedHeight.current = nextHeight;
-      setInputHeight(nextHeight);
-      onHeightChange?.(nextHeight);
-    },
-    [onHeightChange]
-  );
-
-  const updateMultilineMode = useCallback(
-    (nextIsMultiline: boolean, nextHeight: number) => {
-      if (nextIsMultiline !== isMultilineRef.current) {
-        isMultilineRef.current = nextIsMultiline;
-        setIsMultiline(nextIsMultiline);
-      }
-
-      updateHeight(nextHeight);
-    },
-    [updateHeight]
-  );
+  // The probe reports the native line height. Android scales it non-linearly, so the scaled
+  // constant is only the fallback until the first report.
+  const lineHeight = measuredLineHeight ?? PLANNER_CHAT_INPUT_TEXT_LINE_HEIGHT * fontScale;
+  const layout = resolveComposerLayout(value, probeLines);
+  const maxLines = resolveComposerMaxLines(lineHeight);
+  const cappedHeight = maxLines * lineHeight;
+  // The inline cap keeps a paste from growing the pill tall before the probe stacks it.
+  const inputMaxHeight =
+    (layout === 'inline' ? PLANNER_CHAT_INPUT_INLINE_MAX_LINES : maxLines) * lineHeight;
+  // Half a point of slack absorbs the pixel rounding of the laid-out height.
+  const isAtCap = layout === 'stacked' && inputLayoutHeight >= cappedHeight - 0.5;
+  const inputRightInset = hasText ? 104 : 56;
+  const inlineRightInset = inputRightInset + PLANNER_CHAT_INPUT_INLINE_TEXT_GAP;
+  const inlineVerticalPadding =
+    PLANNER_CHAT_INPUT_VERTICAL_INSET +
+    Math.max(0, (PLANNER_CHAT_INPUT_CONTROL_ROW_HEIGHT - lineHeight) / 2);
 
   useEffect(() => {
     sendVisibility.value = reduceMotion
@@ -148,19 +144,38 @@ export function PlannerChatInput({
     return () => cancelAnimation(rotation);
   }, [isThinking, reduceMotion, rotation]);
 
-  useEffect(() => {
-    composerHeight.value =
-      Platform.OS === 'android' || reduceMotion
-        ? inputHeight
-        : withTiming(inputHeight, { duration: 180, easing: Easing.out(Easing.cubic) });
-  }, [composerHeight, inputHeight, reduceMotion]);
+  const handleProbeTextLayout = useCallback(({ nativeEvent }: TextLayoutEvent) => {
+    const firstLineHeight = nativeEvent.lines[0]?.height;
 
-  useEffect(() => {
-    if (!value) {
-      multilineMeasurementLines.current = 1;
-      updateMultilineMode(false, PLANNER_CHAT_INPUT_MIN_HEIGHT);
+    setProbeLines(Math.max(1, nativeEvent.lines.length));
+    if (Number.isFinite(firstLineHeight) && firstLineHeight > 0) {
+      setMeasuredLineHeight(firstLineHeight);
     }
-  }, [updateMultilineMode, value]);
+  }, []);
+
+  const handleInputLayout = useCallback(({ nativeEvent }: LayoutChangeEvent) => {
+    setInputLayoutHeight(nativeEvent.layout.height);
+  }, []);
+
+  const handleContentLayout = useCallback(
+    ({ nativeEvent }: LayoutChangeEvent) => {
+      const nextHeight = nativeEvent.layout.height;
+      const previousHeight = reportedHeight.current;
+
+      // During the iOS tween the content height flips by a device pixel; a real change is a line.
+      if (previousHeight !== null && Math.abs(nextHeight - previousHeight) < 1) return;
+
+      reportedHeight.current = nextHeight;
+      // The first measurement is assigned directly so a taller pill never mounts clipped.
+      composerHeight.set(
+        previousHeight === null || !animateHeight
+          ? nextHeight
+          : withTiming(nextHeight, { duration: 180, easing: Easing.out(Easing.cubic) })
+      );
+      onHeightChange?.(nextHeight);
+    },
+    [animateHeight, composerHeight, onHeightChange]
+  );
 
   const animatedStyle = useAnimatedStyle(() => ({
     transform: [{ rotateZ: `${rotation.value}deg` }],
@@ -175,15 +190,19 @@ export function PlannerChatInput({
     ],
   }));
 
-  const composerStyle = useAnimatedStyle(() => ({
-    height: composerHeight.value,
-    borderRadius: interpolate(
-      composerHeight.value,
+  const frameStyle = useAnimatedStyle(() => {
+    const height = composerHeight.get();
+    const borderRadius = interpolate(
+      height,
       [PLANNER_CHAT_INPUT_MIN_HEIGHT, PLANNER_CHAT_INPUT_MAX_HEIGHT],
       [PLANNER_CHAT_INPUT_MIN_RADIUS, PLANNER_CHAT_INPUT_MAX_RADIUS],
       Extrapolation.CLAMP
-    ),
-  }));
+    );
+
+    // Without the tween there is no height key at all: the frame is sized by its in-flow content
+    // in the same native layout pass as the input.
+    return animateHeight ? { height, borderRadius } : { borderRadius };
+  });
 
   const innerSurfaceStyle = useAnimatedStyle(() => {
     const thinkingInset = 2 * thinkingProgress.value;
@@ -195,7 +214,7 @@ export function PlannerChatInput({
       left: thinkingInset,
       borderRadius:
         interpolate(
-          composerHeight.value,
+          composerHeight.get(),
           [PLANNER_CHAT_INPUT_MIN_HEIGHT, PLANNER_CHAT_INPUT_MAX_HEIGHT],
           [PLANNER_CHAT_INPUT_MIN_RADIUS, PLANNER_CHAT_INPUT_MAX_RADIUS],
           Extrapolation.CLAMP
@@ -210,99 +229,6 @@ export function PlannerChatInput({
   const gradientStyle = useAnimatedStyle(() => ({
     opacity: thinkingProgress.value,
   }));
-
-  const getVisibleLines = useCallback(
-    (contentHeight: number, oneLineContentHeight: number) => {
-      const explicitLines = value.split('\n').length;
-      // Native content heights drift by subpixels, so snap the delta to the nearest whole line.
-      const measuredLineDelta = Math.round(
-        (contentHeight - oneLineContentHeight) / PLANNER_CHAT_INPUT_TEXT_LINE_HEIGHT
-      );
-      const measuredLines = Math.max(1, 1 + measuredLineDelta);
-
-      return Math.min(PLANNER_CHAT_INPUT_MAX_LINES, Math.max(explicitLines, measuredLines));
-    },
-    [value]
-  );
-
-  const handleControlSafeContentSizeChange = useCallback(
-    ({ nativeEvent }: NativeSyntheticEvent<TextInputContentSizeChangeEventData>) => {
-      const contentHeight = nativeEvent.contentSize.height;
-      const explicitLines = value.split('\n').length;
-
-      if (
-        !hasCalibratedControlSafeOneLineContentHeight.current &&
-        explicitLines === 1 &&
-        contentHeight > 0 &&
-        contentHeight < PLANNER_CHAT_INPUT_TEXT_LINE_HEIGHT * 2
-      ) {
-        controlSafeOneLineContentHeight.current = contentHeight;
-        hasCalibratedControlSafeOneLineContentHeight.current = true;
-      }
-
-      const controlSafeLines = getVisibleLines(
-        contentHeight,
-        controlSafeOneLineContentHeight.current
-      );
-
-      // This stable narrow input only decides whether text must move above the controls.
-      // The unconstrained full-width measurement owns multiline viewport height.
-      if (controlSafeLines === 1) {
-        updateMultilineMode(false, PLANNER_CHAT_INPUT_MIN_HEIGHT);
-      } else if (!isMultilineRef.current) {
-        const nextHeight =
-          PLANNER_CHAT_INPUT_CONTROL_ROW_HEIGHT +
-          PLANNER_CHAT_INPUT_VERTICAL_INSET * 2 +
-          multilineMeasurementLines.current * PLANNER_CHAT_INPUT_TEXT_LINE_HEIGHT;
-
-        updateMultilineMode(true, nextHeight);
-      }
-    },
-    [getVisibleLines, updateMultilineMode, value]
-  );
-
-  const handleMultilineMeasurementContentSizeChange = useCallback(
-    ({ nativeEvent }: NativeSyntheticEvent<TextInputContentSizeChangeEventData>) => {
-      const contentHeight = nativeEvent.contentSize.height;
-      const explicitLines = value.split('\n').length;
-
-      if (
-        !hasCalibratedMultilineMeasurementOneLineContentHeight.current &&
-        explicitLines === 1 &&
-        contentHeight > 0 &&
-        contentHeight < PLANNER_CHAT_INPUT_TEXT_LINE_HEIGHT * 2
-      ) {
-        multilineMeasurementOneLineContentHeight.current = contentHeight;
-        hasCalibratedMultilineMeasurementOneLineContentHeight.current = true;
-      }
-
-      const measuredLines = getVisibleLines(
-        contentHeight,
-        multilineMeasurementOneLineContentHeight.current
-      );
-
-      multilineMeasurementLines.current = measuredLines;
-      if (!isMultilineRef.current) return;
-
-      const heightForMeasuredLines =
-        PLANNER_CHAT_INPUT_CONTROL_ROW_HEIGHT +
-        PLANNER_CHAT_INPUT_VERTICAL_INSET * 2 +
-        measuredLines * PLANNER_CHAT_INPUT_TEXT_LINE_HEIGHT;
-      const nextHeight = Math.min(PLANNER_CHAT_INPUT_MAX_HEIGHT, heightForMeasuredLines);
-
-      updateHeight(nextHeight);
-    },
-    [getVisibleLines, updateHeight, value]
-  );
-
-  const inputRightInset = hasText ? 104 : 56;
-  const textAreaHorizontalInset = isMultiline
-    ? PLANNER_CHAT_INPUT_MULTILINE_CONTENT_INSET
-    : PLANNER_CHAT_INPUT_ONE_LINE_LEFT_INSET;
-  const textInputHorizontalPadding = isMultiline ? 0 : 16;
-  const textInputViewportHeight = isMultiline
-    ? inputHeight - PLANNER_CHAT_INPUT_CONTROL_ROW_HEIGHT - PLANNER_CHAT_INPUT_VERTICAL_INSET * 2
-    : PLANNER_CHAT_INPUT_TEXT_LINE_HEIGHT;
 
   return (
     <Animated.View
@@ -322,11 +248,8 @@ export function PlannerChatInput({
           {
             borderCurve: 'continuous',
           },
-          composerStyle,
-        ]}
-        onLayout={({ nativeEvent }) => {
-          onRenderedHeightChange?.(nativeEvent.layout.height);
-        }}>
+          frameStyle,
+        ]}>
         <Animated.View
           testID="planner-composer-thinking-gradient"
           pointerEvents="none"
@@ -365,116 +288,88 @@ export function PlannerChatInput({
           />
         </Animated.View>
 
+        {/* Measures the value at the inline width. Its geometry cannot depend on the layout mode or
+            the line height, and a height, flex or display constraint would truncate or skip the
+            native line measurement. */}
         <View
+          pointerEvents="none"
+          accessibilityElementsHidden
+          importantForAccessibility="no-hide-descendants"
           style={{
             position: 'absolute',
-            top: isMultiline
-              ? PLANNER_CHAT_INPUT_VERTICAL_INSET
-              : PLANNER_CHAT_INPUT_CONTROL_TOP_OFFSET,
-            bottom: isMultiline ? PLANNER_CHAT_INPUT_MULTILINE_TEXT_BOTTOM_OFFSET : undefined,
-            right: isMultiline ? PLANNER_CHAT_INPUT_MULTILINE_CONTENT_INSET : inputRightInset,
-            left: textAreaHorizontalInset,
+            top: 0,
+            left: PLANNER_CHAT_INPUT_INLINE_LEFT_INSET,
+            right: inlineRightInset + PLANNER_CHAT_INPUT_PROBE_WIDTH_MARGIN,
+            opacity: 0,
           }}>
-          {!value ? (
-            <View
-              testID="planner-composer-placeholder"
-              pointerEvents="none"
-              accessibilityElementsHidden
-              importantForAccessibility="no-hide-descendants"
+          <Text
+            testID="planner-composer-layout-probe"
+            onTextLayout={handleProbeTextLayout}
+            textBreakStrategy="simple"
+            android_hyphenationFrequency="none"
+            style={styles.probeText}>
+            {value || ' '}
+          </Text>
+        </View>
+
+        <View
+          testID="planner-composer-content"
+          onLayout={handleContentLayout}
+          style={[
+            animateHeight ? styles.contentPinned : styles.contentInFlow,
+            layout === 'stacked'
+              ? styles.contentStacked
+              : {
+                  paddingLeft: PLANNER_CHAT_INPUT_INLINE_LEFT_INSET,
+                  paddingRight: inlineRightInset,
+                  paddingVertical: inlineVerticalPadding,
+                },
+          ]}>
+          <View>
+            {!value ? (
+              <View
+                testID="planner-composer-placeholder"
+                pointerEvents="none"
+                accessibilityElementsHidden
+                importantForAccessibility="no-hide-descendants"
+                style={[styles.placeholder, { height: lineHeight }]}>
+                <Text
+                  style={{
+                    color: withOpacity(theme.textLight, 0.6),
+                    fontSize: 15,
+                    lineHeight: 20,
+                  }}>
+                  Decile a la IA lo que te gustaria
+                </Text>
+              </View>
+            ) : null}
+            {/* The native input owns its height. The blank placeholder makes it measure exactly one
+                native line while empty; the visible placeholder is the overlay above. */}
+            <TextInput
+              testID="planner-composer-input"
+              value={value}
+              onChangeText={onChangeText}
+              onLayout={handleInputLayout}
+              editable
+              multiline
+              placeholder=" "
+              scrollEnabled={isAtCap}
+              submitBehavior="newline"
+              textAlignVertical="top"
+              textBreakStrategy="simple"
               style={{
-                position: 'absolute',
-                top: (PLANNER_CHAT_INPUT_TEXT_LINE_HEIGHT - 20) / 2,
-                right: textInputHorizontalPadding,
-                left: textInputHorizontalPadding,
-              }}>
-              <Text
-                style={{
-                  color: withOpacity(theme.textLight, 0.6),
-                  fontSize: 15,
-                  lineHeight: 20,
-                }}>
-                Decile a la IA lo que te gustaria
-              </Text>
-            </View>
-          ) : null}
-          <TextInput
-            testID="planner-composer-input"
-            value={value}
-            onChangeText={onChangeText}
-            editable
-            multiline
-            scrollEnabled={inputHeight >= PLANNER_CHAT_INPUT_MAX_HEIGHT}
-            submitBehavior="newline"
-            textAlignVertical={isMultiline ? 'top' : 'center'}
-            style={{
-              color: theme.appBg,
-              fontSize: 17,
-              height: textInputViewportHeight,
-              lineHeight: PLANNER_CHAT_INPUT_TEXT_LINE_HEIGHT,
-              paddingHorizontal: textInputHorizontalPadding,
-              paddingVertical: 0,
-            }}
-          />
-        </View>
-
-        <View
-          testID="planner-composer-multiline-measurement"
-          pointerEvents="none"
-          accessibilityElementsHidden
-          importantForAccessibility="no-hide-descendants"
-          style={{
-            position: 'absolute',
-            top: PLANNER_CHAT_INPUT_VERTICAL_INSET,
-            right: PLANNER_CHAT_INPUT_MULTILINE_CONTENT_INSET,
-            left: PLANNER_CHAT_INPUT_MULTILINE_CONTENT_INSET,
-            opacity: 0,
-          }}>
-          <TextInput
-            testID="planner-composer-multiline-measurement-input"
-            value={value}
-            onContentSizeChange={handleMultilineMeasurementContentSizeChange}
-            accessible={false}
-            editable={false}
-            multiline
-            scrollEnabled={false}
-            textAlignVertical="top"
-            style={{
-              fontSize: 17,
-              lineHeight: PLANNER_CHAT_INPUT_TEXT_LINE_HEIGHT,
-              paddingHorizontal: 0,
-              paddingVertical: 0,
-            }}
-          />
-        </View>
-
-        <View
-          testID="planner-composer-control-safe-measurement"
-          pointerEvents="none"
-          accessibilityElementsHidden
-          importantForAccessibility="no-hide-descendants"
-          style={{
-            position: 'absolute',
-            top: PLANNER_CHAT_INPUT_CONTROL_TOP_OFFSET,
-            right: inputRightInset,
-            left: PLANNER_CHAT_INPUT_ONE_LINE_LEFT_INSET,
-            opacity: 0,
-          }}>
-          <TextInput
-            testID="planner-composer-control-safe-input"
-            value={value}
-            onContentSizeChange={handleControlSafeContentSizeChange}
-            accessible={false}
-            editable={false}
-            multiline
-            scrollEnabled={false}
-            style={{
-              fontSize: 17,
-              lineHeight: PLANNER_CHAT_INPUT_TEXT_LINE_HEIGHT,
-              maxHeight: PLANNER_CHAT_INPUT_TEXT_LINE_HEIGHT * PLANNER_CHAT_INPUT_MAX_LINES,
-              paddingHorizontal: 16,
-              paddingVertical: 0,
-            }}
-          />
+                color: theme.appBg,
+                fontSize: PLANNER_CHAT_INPUT_TEXT_FONT_SIZE,
+                lineHeight: PLANNER_CHAT_INPUT_TEXT_LINE_HEIGHT,
+                minHeight: lineHeight,
+                // iOS measures the commit that clears the value with the text the native input
+                // still holds, and nothing measures it again until the next edit. An empty input
+                // is therefore exactly one line.
+                maxHeight: value === '' ? lineHeight : inputMaxHeight,
+                padding: 0,
+              }}
+            />
+          </View>
         </View>
 
         <View style={[styles.leftControl, { bottom: PLANNER_CHAT_INPUT_VERTICAL_INSET, left: 8 }]}>
@@ -526,6 +421,21 @@ export function PlannerChatInput({
 }
 
 const styles = StyleSheet.create({
+  // The frame centres its children, so the in-flow content has to stretch to span its width.
+  contentInFlow: {
+    alignSelf: 'stretch',
+  },
+  contentPinned: {
+    left: 0,
+    position: 'absolute',
+    right: 0,
+    top: 0,
+  },
+  contentStacked: {
+    paddingBottom: PLANNER_CHAT_INPUT_STACKED_BOTTOM_INSET,
+    paddingHorizontal: PLANNER_CHAT_INPUT_STACKED_CONTENT_INSET,
+    paddingTop: PLANNER_CHAT_INPUT_VERTICAL_INSET,
+  },
   controlButton: {
     alignItems: 'center',
     height: 42,
@@ -552,6 +462,17 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     position: 'absolute',
+  },
+  placeholder: {
+    justifyContent: 'center',
+    left: 0,
+    position: 'absolute',
+    right: 0,
+    top: 0,
+  },
+  probeText: {
+    fontSize: PLANNER_CHAT_INPUT_TEXT_FONT_SIZE,
+    lineHeight: PLANNER_CHAT_INPUT_TEXT_LINE_HEIGHT,
   },
   sendContainer: {
     height: 42,

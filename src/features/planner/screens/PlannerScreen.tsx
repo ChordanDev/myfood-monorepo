@@ -10,6 +10,7 @@ import {
   PLANNER_CHAT_INPUT_CLEARANCE,
   PLANNER_CHAT_INPUT_MIN_HEIGHT,
 } from '../constants';
+import { resolveTurnTrailingSpace } from './turnAnchor';
 
 interface PlannerMessage {
   id: string;
@@ -39,6 +40,9 @@ const INITIAL_MESSAGES: PlannerMessage[] = [
 
 const MOCK_ASSISTANT_RESPONSE_DELAY_MS = 10000;
 const PLANNER_TURN_ANCHOR_TOP_INSET = 16;
+// The trailing space makes the content exactly as tall as the anchor needs, so pixel rounding
+// can report it a fraction short.
+const PLANNER_TURN_ANCHOR_REACH_TOLERANCE = 1;
 
 export const PlannerScreen = () => {
   const { theme } = useRecipeTheme();
@@ -60,6 +64,8 @@ export const PlannerScreen = () => {
   const [composerHeight, setComposerHeight] = useState(PLANNER_CHAT_INPUT_MIN_HEIGHT);
   const [activeTurnId, setActiveTurnId] = useState<string | null>(null);
   const [scrollViewportHeight, setScrollViewportHeight] = useState(0);
+  const [activeTurnY, setActiveTurnY] = useState<number | null>(null);
+  const [trailingSpaceY, setTrailingSpaceY] = useState<number | null>(null);
 
   const contentBottomClearance =
     composerHeight +
@@ -71,7 +77,12 @@ export const PlannerScreen = () => {
   const trailingExtentHeight =
     activeTurnId === null
       ? 0
-      : Math.max(0, usableScrollViewportHeight - PLANNER_TURN_ANCHOR_TOP_INSET);
+      : resolveTurnTrailingSpace({
+          usableViewportHeight: usableScrollViewportHeight,
+          topInset: PLANNER_TURN_ANCHOR_TOP_INSET,
+          activeTurnY,
+          trailingSpaceY,
+        });
 
   const cancelPendingScrollFrames = useCallback(() => {
     if (initialScrollFrameRef.current !== null) {
@@ -91,7 +102,7 @@ export const PlannerScreen = () => {
       pendingAnchor.anchorAttempted ||
       pendingAnchor.targetY === null ||
       scrollViewportHeightRef.current <= 0 ||
-      contentHeightRef.current <
+      contentHeightRef.current + PLANNER_TURN_ANCHOR_REACH_TOLERANCE <
         Math.max(0, pendingAnchor.targetY - PLANNER_TURN_ANCHOR_TOP_INSET) +
           scrollViewportHeightRef.current ||
       activeTurnIdRef.current !== pendingAnchor.messageId ||
@@ -109,7 +120,7 @@ export const PlannerScreen = () => {
         pendingAnchorRef.current !== pendingAnchor ||
         activeTurnIdRef.current !== pendingAnchor.messageId ||
         pendingAnchor.targetY === null ||
-        contentHeightRef.current <
+        contentHeightRef.current + PLANNER_TURN_ANCHOR_REACH_TOLERANCE <
           Math.max(0, pendingAnchor.targetY - PLANNER_TURN_ANCHOR_TOP_INSET) +
             scrollViewportHeightRef.current
       ) {
@@ -145,6 +156,8 @@ export const PlannerScreen = () => {
     };
     activeTurnIdRef.current = messageId;
     setActiveTurnId(messageId);
+    setActiveTurnY(null);
+    setTrailingSpaceY(null);
     setMessages([...messages, { id: messageId, author: 'user', text: message }]);
     setInput('');
     setIsThinking(true);
@@ -167,14 +180,23 @@ export const PlannerScreen = () => {
 
   const handleActiveTurnLayout = useCallback(
     (messageId: string, event: LayoutChangeEvent) => {
+      const { y } = event.nativeEvent.layout;
+      // The trailing space keeps following the turn after a drag has dropped the pending anchor.
+      if (activeTurnIdRef.current === messageId) setActiveTurnY(y);
+
       const pendingAnchor = pendingAnchorRef.current;
       if (pendingAnchor === null || pendingAnchor.messageId !== messageId) return;
 
-      pendingAnchor.targetY = event.nativeEvent.layout.y;
+      pendingAnchor.targetY = y;
       scheduleSettledAnchor();
     },
     [scheduleSettledAnchor]
   );
+
+  const handleTrailingSpaceLayout = useCallback((event: LayoutChangeEvent) => {
+    // Only the position is kept: it does not depend on the height this screen gives the view.
+    setTrailingSpaceY(event.nativeEvent.layout.y);
+  }, []);
 
   const handleContentSizeChange = useCallback(
     (_width: number, height: number) => {
@@ -235,7 +257,9 @@ export const PlannerScreen = () => {
           paddingBottom: contentBottomClearance,
           gap: 28,
         }}
-        contentInsetAdjustmentBehavior="automatic"
+        // The bottom clearance already includes the safe area. Letting iOS add it again makes the
+        // list scroll that much past the anchored turn.
+        contentInsetAdjustmentBehavior="never"
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
         onLayout={handleScrollViewportLayout}
@@ -274,6 +298,7 @@ export const PlannerScreen = () => {
         <View
           testID="planner-turn-trailing-space"
           pointerEvents="none"
+          onLayout={handleTrailingSpaceLayout}
           style={{ height: trailingExtentHeight }}
         />
       </ScrollView>
@@ -283,7 +308,6 @@ export const PlannerScreen = () => {
         isThinking={isThinking}
         onChangeText={setInput}
         onHeightChange={setComposerHeight}
-        onRenderedHeightChange={setComposerHeight}
         onSubmit={sendMessage}
       />
     </View>
