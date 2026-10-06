@@ -1,6 +1,6 @@
-// Pure state machine for the Profile tab load + save flow.
+// Pure state machine for the Settings screen load + save flow.
 //
-// Extracted from `app/(tabs)/profile.tsx` so the success/failure
+// Kept apart from `useSettingsState` so the success/failure
 // transitions can be unit-tested without rendering React. The
 // behavior maps to Judgment Day S2 (don't let a save overwrite the
 // server row with empty defaults) and S3 (don't run two parallel
