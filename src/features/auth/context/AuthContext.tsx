@@ -8,6 +8,8 @@ import type {
   CurrentMe,
   OnboardingCompletionRequest,
   OnboardingCompletionResponse,
+  ProfileUpdatePayload,
+  ProfileUpdateResponse,
   SlotCookingTimes,
   SlotCookingTimesPayload,
   UserPreferences,
@@ -15,6 +17,7 @@ import type {
 } from '../types/auth';
 import * as authService from '@/services/authService';
 import { isTransientAuthError } from '@/services/authService';
+import { withUpdatedProfile } from '../utils/currentMe';
 import { reconcileAfterCompletion } from '../utils/postCompletion';
 
 export const AuthContext = createContext<AuthContextValue | null>(null);
@@ -81,6 +84,8 @@ function areCurrentMeEquivalent(a: CurrentMe | null, b: CurrentMe | null): boole
   if (a.user.id !== b.user.id) return false;
   if (a.user.email !== b.user.email) return false;
   if (a.user.displayName !== b.user.displayName) return false;
+  if (a.user.householdSize !== b.user.householdSize) return false;
+  if (a.user.cookingSkill !== b.user.cookingSkill) return false;
   if (a.account.id !== b.account.id) return false;
   if (a.account.type !== b.account.type) return false;
   if (a.account.trialEndsAt !== b.account.trialEndsAt) return false;
@@ -299,6 +304,38 @@ export function AuthProvider({ children }: AuthProviderProps) {
     []
   );
 
+  const updateProfile = useCallback(
+    async (payload: ProfileUpdatePayload): Promise<ProfileUpdateResponse> => {
+      const result = await authService.updateProfile(payload);
+
+      // The PUT response is the source of truth for the edited fields,
+      // so `me` is patched from it instead of calling refreshMe(): a
+      // refresh rotates the tokens and can fail after the save already
+      // succeeded. The equivalence check keeps an unchanged profile
+      // from scheduling a render, like `applySession` does.
+      const currentMe = meRef.current;
+      if (currentMe && currentMe.user.id === result.user.id) {
+        const nextMe = withUpdatedProfile(currentMe, result.user);
+        if (!areCurrentMeEquivalent(currentMe, nextMe)) {
+          meRef.current = nextMe;
+          setMe(nextMe);
+        }
+      }
+
+      // Keeps an offline restart from showing the old profile. The
+      // server already accepted the save, so a storage failure here
+      // must not surface as a failed save.
+      try {
+        await authService.persistProfileForStoredSession(result.user);
+      } catch (error) {
+        console.warn('[AuthProvider] Error guardando el perfil en la sesión local:', error);
+      }
+
+      return result;
+    },
+    []
+  );
+
   const handleRevalidationError = useCallback(
     async (error: unknown) => {
       if (authService.isTransientAuthError(error)) return;
@@ -444,6 +481,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
       saveUserPreferences,
       fetchSlotCookingTimes,
       saveSlotCookingTimes,
+      updateProfile,
       requestVerificationCode,
       sendVerificationCode,
     }),
@@ -463,6 +501,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
       saveUserPreferences,
       fetchSlotCookingTimes,
       saveSlotCookingTimes,
+      updateProfile,
       requestVerificationCode,
       sendVerificationCode,
     ]

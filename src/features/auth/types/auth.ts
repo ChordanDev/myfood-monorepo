@@ -53,6 +53,22 @@ export interface OnboardingCompletionResponse {
   slotCookingTimes: SlotCookingTimes;
 }
 
+// Post-onboarding profile edit. Same fields and validation as the
+// onboarding profile step.
+export type ProfileUpdatePayload = OnboardingProfile;
+
+export interface ProfileUpdateUser {
+  id: string;
+  email: string;
+  displayName: string;
+  householdSize: number;
+  cookingSkill: CookingSkill;
+}
+
+export interface ProfileUpdateResponse {
+  user: ProfileUpdateUser;
+}
+
 export type AuthErrorCode =
   | 'invalid_email'
   | 'email_already_exists'
@@ -85,6 +101,10 @@ export interface AuthUser {
   id: string;
   email: string;
   displayName: string | null;
+  /** Null until the user sets it, or while the backend does not send it. */
+  householdSize: number | null;
+  /** Null until the user sets it, or while the backend does not send it. */
+  cookingSkill: CookingSkill | null;
 }
 
 export interface AuthAccountAccess {
@@ -202,6 +222,8 @@ export interface AuthContextValue extends AuthState {
   saveUserPreferences: (payload: UserPreferencesPayload) => Promise<UserPreferences>;
   fetchSlotCookingTimes: () => Promise<SlotCookingTimes>;
   saveSlotCookingTimes: (payload: SlotCookingTimesPayload) => Promise<SlotCookingTimes>;
+  /** Saves the editable profile fields and reflects them on `me`. */
+  updateProfile: (payload: ProfileUpdatePayload) => Promise<ProfileUpdateResponse>;
   requestVerificationCode: (email: string, flow: AuthFlow) => Promise<CodeRequestResponse>;
   /** Backwards-compatible helper; defaults to login when no flow is supplied. */
   sendVerificationCode: (email: string, flow?: AuthFlow) => Promise<CodeRequestResponse>;

@@ -30,7 +30,13 @@ jest.mock('react-native-safe-area-context', () => ({
 
 function makeMe(overrides: Partial<CurrentMe> = {}): CurrentMe {
   return {
-    user: { id: 'user-1', email: 'user@example.com', displayName: null },
+    user: {
+      id: 'user-1',
+      email: 'user@example.com',
+      displayName: null,
+      householdSize: null,
+      cookingSkill: null,
+    },
     account: {
       id: 'account-1',
       type: 'individual',

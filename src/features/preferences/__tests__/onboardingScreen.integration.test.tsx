@@ -112,7 +112,13 @@ jest.mock('react-native-safe-area-context', () => ({
 
 function makeMe(overrides: Partial<CurrentMe> = {}): CurrentMe {
   return {
-    user: { id: 'user-1', email: 'user@example.com', displayName: null },
+    user: {
+      id: 'user-1',
+      email: 'user@example.com',
+      displayName: null,
+      householdSize: null,
+      cookingSkill: null,
+    },
     account: {
       id: 'account-1',
       type: 'individual',
@@ -151,6 +157,7 @@ function buildContext(
     saveUserPreferences: jest.fn(),
     fetchSlotCookingTimes: jest.fn(),
     saveSlotCookingTimes: jest.fn(),
+    updateProfile: jest.fn(),
     requestVerificationCode: jest.fn(),
     sendVerificationCode: jest.fn(),
     ...overrides,
@@ -248,7 +255,13 @@ describe('OnboardingScreen — post-completion redirect stabilization (Judgment 
   it('does not complete onboarding or replace navigation when preview submit is pressed', async () => {
     const completeOnboarding = jest.fn();
     const me = makeMe({
-      user: { id: 'user-1', email: 'user@example.com', displayName: 'Preview User' },
+      user: {
+        id: 'user-1',
+        email: 'user@example.com',
+        displayName: 'Preview User',
+        householdSize: null,
+        cookingSkill: null,
+      },
     });
     const { tree } = renderOnboardingPreviewWithValue(buildContext(me, { completeOnboarding }));
 

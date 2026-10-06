@@ -9,6 +9,7 @@ export {
   getDeviceId,
   getStoredSession,
   persistOnboardingCompletionForStoredSession,
+  persistProfileForStoredSession,
   persistSession,
 } from '@/api/authTokenStore';
 export { refreshTokens, type RefreshResponse } from '@/api/authRefresh';
@@ -34,6 +35,7 @@ export { completeOnboarding } from '@/features/onboarding/api/onboardingApi';
 export {
   getSlotCookingTimes,
   getUserPreferences,
+  updateProfile,
   updateSlotCookingTimes,
   updateUserPreferences,
 } from '@/features/preferences/api/preferencesApi';

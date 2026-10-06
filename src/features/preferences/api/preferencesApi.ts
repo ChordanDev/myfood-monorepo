@@ -1,5 +1,7 @@
 import { apiClient } from '@/api/client';
 import type {
+  ProfileUpdatePayload,
+  ProfileUpdateResponse,
   SlotCookingTimes,
   SlotCookingTimesPayload,
   UserPreferences,
@@ -62,6 +64,24 @@ export function updateSlotCookingTimes(
   const payload = maybePayload ?? (accessTokenOrPayload as SlotCookingTimesPayload);
 
   return apiClient.put<SlotCookingTimes>('/api/me/slot-cooking-times', payload, {
+    auth: accessToken === undefined,
+    accessToken: accessToken as string | null | undefined,
+  });
+}
+
+export function updateProfile(payload: ProfileUpdatePayload): Promise<ProfileUpdateResponse>;
+export function updateProfile(
+  accessToken: string | null | undefined,
+  payload: ProfileUpdatePayload
+): Promise<ProfileUpdateResponse>;
+export function updateProfile(
+  accessTokenOrPayload: string | null | undefined | ProfileUpdatePayload,
+  maybePayload?: ProfileUpdatePayload
+): Promise<ProfileUpdateResponse> {
+  const accessToken = maybePayload === undefined ? undefined : accessTokenOrPayload;
+  const payload = maybePayload ?? (accessTokenOrPayload as ProfileUpdatePayload);
+
+  return apiClient.put<ProfileUpdateResponse>('/api/me/profile', payload, {
     auth: accessToken === undefined,
     accessToken: accessToken as string | null | undefined,
   });
