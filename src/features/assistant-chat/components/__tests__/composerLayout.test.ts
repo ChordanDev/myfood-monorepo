@@ -1,7 +1,7 @@
-import { PLANNER_CHAT_INPUT_MAX_LINES, PLANNER_CHAT_INPUT_TEXT_LINE_HEIGHT } from '../../constants';
+import { CHAT_COMPOSER_MAX_LINES, CHAT_COMPOSER_TEXT_LINE_HEIGHT } from '../../constants';
 import { resolveComposerLayout, resolveComposerMaxLines } from '../composerLayout';
 
-const DESIGN_VIEWPORT_HEIGHT = PLANNER_CHAT_INPUT_MAX_LINES * PLANNER_CHAT_INPUT_TEXT_LINE_HEIGHT;
+const DESIGN_VIEWPORT_HEIGHT = CHAT_COMPOSER_MAX_LINES * CHAT_COMPOSER_TEXT_LINE_HEIGHT;
 
 describe('resolveComposerLayout', () => {
   it.each([
@@ -28,21 +28,19 @@ describe('resolveComposerLayout', () => {
 
 describe('resolveComposerMaxLines', () => {
   it('keeps the design line count at the design line height', () => {
-    expect(resolveComposerMaxLines(PLANNER_CHAT_INPUT_TEXT_LINE_HEIGHT)).toBe(
-      PLANNER_CHAT_INPUT_MAX_LINES
-    );
+    expect(resolveComposerMaxLines(CHAT_COMPOSER_TEXT_LINE_HEIGHT)).toBe(CHAT_COMPOSER_MAX_LINES);
   });
 
   it('never exceeds the design line count for a shorter line', () => {
-    expect(resolveComposerMaxLines(20)).toBe(PLANNER_CHAT_INPUT_MAX_LINES);
-    expect(resolveComposerMaxLines(1)).toBe(PLANNER_CHAT_INPUT_MAX_LINES);
+    expect(resolveComposerMaxLines(20)).toBe(CHAT_COMPOSER_MAX_LINES);
+    expect(resolveComposerMaxLines(1)).toBe(CHAT_COMPOSER_MAX_LINES);
   });
 
   // 393dpi, 450dpi and 374dpi screens round the 24dp design line up to a whole pixel.
   it.each([24.02, 24.18, 24.39])(
     'keeps the design line count when pixel rounding makes a default line %pdp tall',
     (lineHeight) => {
-      expect(resolveComposerMaxLines(lineHeight)).toBe(PLANNER_CHAT_INPUT_MAX_LINES);
+      expect(resolveComposerMaxLines(lineHeight)).toBe(CHAT_COMPOSER_MAX_LINES);
     }
   );
 
@@ -74,7 +72,7 @@ describe('resolveComposerMaxLines', () => {
   it.each([Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY, 0, -24])(
     'falls back to the design line count for the unusable line height %p',
     (lineHeight) => {
-      expect(resolveComposerMaxLines(lineHeight)).toBe(PLANNER_CHAT_INPUT_MAX_LINES);
+      expect(resolveComposerMaxLines(lineHeight)).toBe(CHAT_COMPOSER_MAX_LINES);
     }
   );
 });

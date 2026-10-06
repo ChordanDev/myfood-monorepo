@@ -4,12 +4,14 @@ import { useReducedMotion } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { NoisyBackground } from '@/components';
 import { useRecipeTheme } from '@/context/RecipeThemeContext';
-import { PlannerChatInput, PlannerHeader, PlannerTypingIndicator } from '../components';
 import {
-  CUSTOM_TAB_BAR_CONTENT_HEIGHT,
-  PLANNER_CHAT_INPUT_CLEARANCE,
-  PLANNER_CHAT_INPUT_MIN_HEIGHT,
-} from '../constants';
+  CHAT_COMPOSER_CLEARANCE,
+  CHAT_COMPOSER_MIN_HEIGHT,
+  ChatComposer,
+  ChatTypingIndicator,
+} from '@/features/assistant-chat';
+import { PlannerHeader } from '../components';
+import { CUSTOM_TAB_BAR_CONTENT_HEIGHT } from '../constants';
 import { resolveTurnTrailingSpace } from './turnAnchor';
 
 interface PlannerMessage {
@@ -61,18 +63,14 @@ export const PlannerScreen = () => {
   const [messages, setMessages] = useState<PlannerMessage[]>(INITIAL_MESSAGES);
   const [input, setInput] = useState('');
   const [isThinking, setIsThinking] = useState(false);
-  const [composerHeight, setComposerHeight] = useState(PLANNER_CHAT_INPUT_MIN_HEIGHT);
+  const [composerHeight, setComposerHeight] = useState(CHAT_COMPOSER_MIN_HEIGHT);
   const [activeTurnId, setActiveTurnId] = useState<string | null>(null);
   const [scrollViewportHeight, setScrollViewportHeight] = useState(0);
   const [activeTurnY, setActiveTurnY] = useState<number | null>(null);
   const [trailingSpaceY, setTrailingSpaceY] = useState<number | null>(null);
 
   const contentBottomClearance =
-    composerHeight +
-    insets.bottom +
-    CUSTOM_TAB_BAR_CONTENT_HEIGHT +
-    PLANNER_CHAT_INPUT_CLEARANCE +
-    28;
+    composerHeight + insets.bottom + CUSTOM_TAB_BAR_CONTENT_HEIGHT + CHAT_COMPOSER_CLEARANCE + 28;
   const usableScrollViewportHeight = Math.max(0, scrollViewportHeight - contentBottomClearance);
   const trailingExtentHeight =
     activeTurnId === null
@@ -294,7 +292,7 @@ export const PlannerScreen = () => {
             </View>
           )
         )}
-        {isThinking ? <PlannerTypingIndicator /> : null}
+        {isThinking ? <ChatTypingIndicator /> : null}
         <View
           testID="planner-turn-trailing-space"
           pointerEvents="none"
@@ -303,12 +301,14 @@ export const PlannerScreen = () => {
         />
       </ScrollView>
 
-      <PlannerChatInput
+      <ChatComposer
         value={input}
         isThinking={isThinking}
         onChangeText={setInput}
         onHeightChange={setComposerHeight}
         onSubmit={sendMessage}
+        restingBottomGap={CUSTOM_TAB_BAR_CONTENT_HEIGHT + CHAT_COMPOSER_CLEARANCE}
+        testIDPrefix="planner-composer"
       />
     </View>
   );

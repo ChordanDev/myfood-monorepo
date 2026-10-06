@@ -2,7 +2,7 @@ import React from 'react';
 import { ScrollView, StyleSheet, Text } from 'react-native';
 import { act, create, type ReactTestRenderer } from 'react-test-renderer';
 import { formatDateKey } from '@/features/home/utils/calendarDate';
-import { PLANNER_CHAT_INPUT_MIN_HEIGHT } from '@/features/planner/constants';
+import { CHAT_COMPOSER_MIN_HEIGHT } from '@/features/assistant-chat';
 import { useInventoryStore, useMealPlanStore } from '@/store';
 import type { MasterRecipe, MealPlanEntry, RecipeThemeConfig } from '@/types/domain';
 import { RECIPE_CHAT_REPLY_DELAY_MS } from '../../hooks/useRecipeChat';
@@ -59,12 +59,10 @@ jest.mock('react-native-reanimated', () => ({
 
 // The composer and the typing indicator are covered by their own suites; here they are host nodes
 // whose props show what the screen asks of them.
-jest.mock('@/features/planner/components/PlannerChatInput', () => ({
-  PlannerChatInput: 'PlannerChatInput',
-}));
-
-jest.mock('@/features/planner/components/PlannerTypingIndicator', () => ({
-  PlannerTypingIndicator: 'PlannerTypingIndicator',
+jest.mock('@/features/assistant-chat', () => ({
+  ...jest.requireActual('@/features/assistant-chat/constants'),
+  ChatComposer: 'ChatComposer',
+  ChatTypingIndicator: 'ChatTypingIndicator',
 }));
 
 jest.mock('@/context/RecipeThemeContext', () => ({
@@ -332,7 +330,7 @@ describe('RecipeScreen', () => {
       waitForReply();
 
       expect(renderedTexts(tree)).not.toContain(QUESTION);
-      expect(tree.root.findAllByType('PlannerTypingIndicator' as never)).toHaveLength(0);
+      expect(tree.root.findAllByType('ChatTypingIndicator' as never)).toHaveLength(0);
     });
 
     it('disables the composer when the recipe has no planned meal', () => {
@@ -349,12 +347,12 @@ describe('RecipeScreen', () => {
       expect(renderedTexts(tree)).toContain(QUESTION);
       expect(getComposer(tree).props.value).toBe('');
       expect(getComposer(tree).props.isThinking).toBe(true);
-      expect(tree.root.findAllByType('PlannerTypingIndicator' as never)).toHaveLength(1);
+      expect(tree.root.findAllByType('ChatTypingIndicator' as never)).toHaveLength(1);
 
       waitForReply();
 
       expect(getComposer(tree).props.isThinking).toBe(false);
-      expect(tree.root.findAllByType('PlannerTypingIndicator' as never)).toHaveLength(0);
+      expect(tree.root.findAllByType('ChatTypingIndicator' as never)).toHaveLength(0);
       expect(renderedTexts(tree).some((text) => text.includes('¿lo agrego a compras?'))).toBe(true);
       expect(renderedTexts(tree)).toEqual(
         expect.arrayContaining(['Sí, agregalo', 'No hace falta'])
@@ -427,10 +425,10 @@ describe('RecipeScreen', () => {
       const restingPadding = getBottomPadding();
 
       // Bottom inset, gap under the composer, the composer itself and the reach of the fade.
-      expect(restingPadding).toBe(34 + 14 + PLANNER_CHAT_INPUT_MIN_HEIGHT + 30);
+      expect(restingPadding).toBe(34 + 14 + CHAT_COMPOSER_MIN_HEIGHT + 30);
 
       act(() => {
-        getComposer(tree).props.onHeightChange(PLANNER_CHAT_INPUT_MIN_HEIGHT + 48);
+        getComposer(tree).props.onHeightChange(CHAT_COMPOSER_MIN_HEIGHT + 48);
       });
 
       expect(getBottomPadding()).toBe(restingPadding + 48);

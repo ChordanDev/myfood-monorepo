@@ -1,11 +1,8 @@
 import React from 'react';
 import { KeyboardAvoidingView, ScrollView, StyleSheet, Text } from 'react-native';
 import { act, create, ReactTestInstance } from 'react-test-renderer';
-import {
-  CUSTOM_TAB_BAR_CONTENT_HEIGHT,
-  PLANNER_CHAT_INPUT_CLEARANCE,
-  PLANNER_CHAT_INPUT_MIN_HEIGHT,
-} from '../../constants';
+import { CHAT_COMPOSER_CLEARANCE, CHAT_COMPOSER_MIN_HEIGHT } from '@/features/assistant-chat';
+import { CUSTOM_TAB_BAR_CONTENT_HEIGHT } from '../../constants';
 import { PlannerScreen } from '../PlannerScreen';
 
 const mockUseReducedMotion = jest.fn(() => false);
@@ -48,17 +45,23 @@ jest.mock('react-native-reanimated', () => ({
 }));
 
 jest.mock('../../components', () => ({
+  PlannerHeader: 'PlannerHeader',
+}));
+
+// The real barrel would load the composer, which this suite's reanimated mock cannot evaluate, so
+// the constants come from their own module.
+jest.mock('@/features/assistant-chat', () => ({
+  ...jest.requireActual('@/features/assistant-chat/constants'),
   ...(() => {
     const { Text: MockText } = jest.requireActual('react-native') as typeof import('react-native');
     return {
-      PlannerTypingIndicator: () => {
+      ChatTypingIndicator: () => {
         mockTypingIndicatorRender();
         return <MockText testID="planner-typing-indicator" />;
       },
     };
   })(),
-  PlannerHeader: 'PlannerHeader',
-  PlannerChatInput: 'PlannerChatInput',
+  ChatComposer: 'ChatComposer',
 }));
 
 interface ScrollHarness {
@@ -221,11 +224,7 @@ describe('PlannerScreen settled turn anchoring', () => {
       paddingHorizontal: 17.5,
     });
     expect(scrollView.props.contentContainerStyle.paddingBottom).toBe(
-      PLANNER_CHAT_INPUT_MIN_HEIGHT +
-        20 +
-        CUSTOM_TAB_BAR_CONTENT_HEIGHT +
-        PLANNER_CHAT_INPUT_CLEARANCE +
-        28
+      CHAT_COMPOSER_MIN_HEIGHT + 20 + CUSTOM_TAB_BAR_CONTENT_HEIGHT + CHAT_COMPOSER_CLEARANCE + 28
     );
     expect(scrollView.props.onContentSizeChange).toEqual(expect.any(Function));
     expect(tree.root.findByProps({ testID: 'planner-initial-request-message' })).toBeDefined();
@@ -240,8 +239,21 @@ describe('PlannerScreen settled turn anchoring', () => {
       composer.props.onHeightChange(180);
     });
     expect(getScrollView(tree).props.contentContainerStyle.paddingBottom).toBe(
-      180 + 20 + CUSTOM_TAB_BAR_CONTENT_HEIGHT + PLANNER_CHAT_INPUT_CLEARANCE + 28
+      180 + 20 + CUSTOM_TAB_BAR_CONTENT_HEIGHT + CHAT_COMPOSER_CLEARANCE + 28
     );
+
+    act(() => tree.unmount());
+  });
+
+  it('rests the composer above the tab bar under the planner testID prefix', () => {
+    const { tree } = renderHarness();
+    const composer = tree.root.findByProps({ value: '', isThinking: false });
+
+    expect(composer.props.restingBottomGap).toBe(
+      CUSTOM_TAB_BAR_CONTENT_HEIGHT + CHAT_COMPOSER_CLEARANCE
+    );
+    expect(composer.props.restingBottomGap).toBe(72);
+    expect(composer.props.testIDPrefix).toBe('planner-composer');
 
     act(() => tree.unmount());
   });
@@ -301,11 +313,7 @@ describe('PlannerScreen settled turn anchoring', () => {
     submitMessage(tree, 'Plan dinner');
 
     const expectedBottomClearance =
-      PLANNER_CHAT_INPUT_MIN_HEIGHT +
-      20 +
-      CUSTOM_TAB_BAR_CONTENT_HEIGHT +
-      PLANNER_CHAT_INPUT_CLEARANCE +
-      28;
+      CHAT_COMPOSER_MIN_HEIGHT + 20 + CUSTOM_TAB_BAR_CONTENT_HEIGHT + CHAT_COMPOSER_CLEARANCE + 28;
     const expectedTrailingExtent = 700 - expectedBottomClearance - 16;
     expect(getTrailingSpaceHeight(tree)).toBe(expectedTrailingExtent);
 
@@ -609,7 +617,7 @@ describe('PlannerScreen turn trailing space', () => {
     expectAnchoredOffsetToBeTheFurthest(tree, { activeTurnY: 426, trailingSpaceY: 560 });
 
     act(() => {
-      composer.props.onHeightChange(PLANNER_CHAT_INPUT_MIN_HEIGHT);
+      composer.props.onHeightChange(CHAT_COMPOSER_MIN_HEIGHT);
     });
     expect(getTrailingSpaceHeight(tree)).toBe(358);
     expectAnchoredOffsetToBeTheFurthest(tree, { activeTurnY: 426, trailingSpaceY: 560 });

@@ -1,4 +1,4 @@
-import { PLANNER_CHAT_INPUT_MAX_LINES, PLANNER_CHAT_INPUT_TEXT_LINE_HEIGHT } from '../constants';
+import { CHAT_COMPOSER_MAX_LINES, CHAT_COMPOSER_TEXT_LINE_HEIGHT } from '../constants';
 
 export type ComposerLayout = 'inline' | 'stacked';
 
@@ -17,17 +17,16 @@ export function resolveComposerLayout(value: string, probeLines: number): Compos
 }
 
 export function resolveComposerMaxLines(lineHeight: number): number {
-  if (!Number.isFinite(lineHeight) || lineHeight <= 0) return PLANNER_CHAT_INPUT_MAX_LINES;
+  if (!Number.isFinite(lineHeight) || lineHeight <= 0) return CHAT_COMPOSER_MAX_LINES;
 
   // Whole native lines that fit in the viewport the design reserves at the default font scale.
   const linesInDesignViewport = Math.floor(
-    (PLANNER_CHAT_INPUT_MAX_LINES *
-      (PLANNER_CHAT_INPUT_TEXT_LINE_HEIGHT + COMPOSER_LINE_ROUNDING_SLACK)) /
+    (CHAT_COMPOSER_MAX_LINES * (CHAT_COMPOSER_TEXT_LINE_HEIGHT + COMPOSER_LINE_ROUNDING_SLACK)) /
       lineHeight
   );
 
   return Math.min(
-    PLANNER_CHAT_INPUT_MAX_LINES,
+    CHAT_COMPOSER_MAX_LINES,
     Math.max(COMPOSER_MIN_VISIBLE_LINES, linesInDesignViewport)
   );
 }

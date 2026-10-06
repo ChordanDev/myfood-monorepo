@@ -28,67 +28,64 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { withOpacity } from '@/utils/colors';
 import { ArrowUp, Mic, Plus } from 'lucide-react-native';
 import {
-  CUSTOM_TAB_BAR_CONTENT_HEIGHT,
-  PLANNER_CHAT_INPUT_CLEARANCE,
-  PLANNER_CHAT_INPUT_CONTROL_ROW_HEIGHT,
-  PLANNER_CHAT_INPUT_MAX_HEIGHT,
-  PLANNER_CHAT_INPUT_MIN_HEIGHT,
-  PLANNER_CHAT_INPUT_TEXT_LINE_HEIGHT,
-  PLANNER_CHAT_INPUT_VERTICAL_INSET,
+  CHAT_COMPOSER_CLEARANCE,
+  CHAT_COMPOSER_CONTROL_ROW_HEIGHT,
+  CHAT_COMPOSER_MAX_HEIGHT,
+  CHAT_COMPOSER_MIN_HEIGHT,
+  CHAT_COMPOSER_TEXT_LINE_HEIGHT,
+  CHAT_COMPOSER_VERTICAL_INSET,
 } from '../constants';
 import { resolveComposerLayout, resolveComposerMaxLines } from './composerLayout';
 
-interface PlannerChatInputProps {
+interface ChatComposerProps {
   value: string;
   isThinking: boolean;
   onChangeText: (value: string) => void;
   onHeightChange?: (height: number) => void;
   onSubmit: () => void;
-  /** Hint shown while the input is empty. Defaults to the planner's. */
+  /** Hint shown while the input is empty. Defaults to a generic one. */
   placeholder?: string;
   /** Blocks typing and every control, and dims the composer. */
   disabled?: boolean;
   /**
-   * Gap between the bottom safe-area inset and the composer at rest. Defaults to the room the tab
-   * bar takes plus the planner clearance; a route without a tab bar passes its own gap.
+   * Gap between the bottom safe-area inset and the composer at rest. Defaults to the composer
+   * clearance alone; a route with a tab bar adds the room the tab bar takes.
    */
   restingBottomGap?: number;
-  /** Prefix of every testID, so a second screen can tell its composer apart. */
+  /** Prefix of every testID, so each screen can tell its composer apart. */
   testIDPrefix?: string;
 }
 
-const PLANNER_CHAT_INPUT_PLACEHOLDER = 'Decile a la IA lo que te gustaria';
-const PLANNER_CHAT_INPUT_RESTING_BOTTOM_GAP =
-  CUSTOM_TAB_BAR_CONTENT_HEIGHT + PLANNER_CHAT_INPUT_CLEARANCE;
-const PLANNER_CHAT_INPUT_TEST_ID_PREFIX = 'planner-composer';
-const PLANNER_CHAT_INPUT_DISABLED_OPACITY = 0.5;
+const CHAT_COMPOSER_PLACEHOLDER = 'Decile a la IA lo que te gustaria';
+const CHAT_COMPOSER_TEST_ID_PREFIX = 'chat-composer';
+const CHAT_COMPOSER_DISABLED_OPACITY = 0.5;
 
-const PLANNER_CHAT_INPUT_MIN_RADIUS = 28;
-const PLANNER_CHAT_INPUT_MAX_RADIUS = 20;
-const PLANNER_CHAT_INPUT_TEXT_FONT_SIZE = 17;
-const PLANNER_CHAT_INPUT_LEFT_CONTROL_INSET = 56;
-const PLANNER_CHAT_INPUT_INLINE_TEXT_GAP = 16;
-const PLANNER_CHAT_INPUT_INLINE_LEFT_INSET =
-  PLANNER_CHAT_INPUT_LEFT_CONTROL_INSET + PLANNER_CHAT_INPUT_INLINE_TEXT_GAP;
-const PLANNER_CHAT_INPUT_INLINE_MAX_LINES = 2;
-const PLANNER_CHAT_INPUT_STACKED_CONTENT_INSET = 16;
-const PLANNER_CHAT_INPUT_STACKED_BOTTOM_INSET =
-  PLANNER_CHAT_INPUT_CONTROL_ROW_HEIGHT + PLANNER_CHAT_INPUT_VERTICAL_INSET;
+const CHAT_COMPOSER_MIN_RADIUS = 28;
+const CHAT_COMPOSER_MAX_RADIUS = 20;
+const CHAT_COMPOSER_TEXT_FONT_SIZE = 17;
+const CHAT_COMPOSER_LEFT_CONTROL_INSET = 56;
+const CHAT_COMPOSER_INLINE_TEXT_GAP = 16;
+const CHAT_COMPOSER_INLINE_LEFT_INSET =
+  CHAT_COMPOSER_LEFT_CONTROL_INSET + CHAT_COMPOSER_INLINE_TEXT_GAP;
+const CHAT_COMPOSER_INLINE_MAX_LINES = 2;
+const CHAT_COMPOSER_STACKED_CONTENT_INSET = 16;
+const CHAT_COMPOSER_STACKED_BOTTOM_INSET =
+  CHAT_COMPOSER_CONTROL_ROW_HEIGHT + CHAT_COMPOSER_VERTICAL_INSET;
 // Keeps the probe narrower than the inline text box, so it never flips later than the input wraps.
-const PLANNER_CHAT_INPUT_PROBE_WIDTH_MARGIN = 2;
-export const PLANNER_CHAT_INPUT_ICON_OPTICAL_OFFSET_Y = -3;
+const CHAT_COMPOSER_PROBE_WIDTH_MARGIN = 2;
+export const CHAT_COMPOSER_ICON_OPTICAL_OFFSET_Y = -3;
 
-export function PlannerChatInput({
+export function ChatComposer({
   value,
   isThinking,
   onChangeText,
   onHeightChange,
   onSubmit,
-  placeholder = PLANNER_CHAT_INPUT_PLACEHOLDER,
+  placeholder = CHAT_COMPOSER_PLACEHOLDER,
   disabled = false,
-  restingBottomGap = PLANNER_CHAT_INPUT_RESTING_BOTTOM_GAP,
-  testIDPrefix = PLANNER_CHAT_INPUT_TEST_ID_PREFIX,
-}: PlannerChatInputProps) {
+  restingBottomGap = CHAT_COMPOSER_CLEARANCE,
+  testIDPrefix = CHAT_COMPOSER_TEST_ID_PREFIX,
+}: ChatComposerProps) {
   const insets = useSafeAreaInsets();
   const { theme } = useRecipeTheme();
   const { fontScale } = useWindowDimensions();
@@ -96,13 +93,13 @@ export function PlannerChatInput({
   const { inputAnimatedStyle } = useKeyboardAnimation({
     mode: 'geometry',
     restingBottomOffset,
-    clearance: PLANNER_CHAT_INPUT_CLEARANCE,
+    clearance: CHAT_COMPOSER_CLEARANCE,
     bottomInset: insets.bottom,
   });
   const reduceMotion = useReducedMotion();
   const rotation = useSharedValue(0);
   const thinkingProgress = useSharedValue(Number(isThinking));
-  const composerHeight = useSharedValue(PLANNER_CHAT_INPUT_MIN_HEIGHT);
+  const composerHeight = useSharedValue(CHAT_COMPOSER_MIN_HEIGHT);
   const reportedHeight = useRef<number | null>(null);
   const [probeLines, setProbeLines] = useState(1);
   const [measuredLineHeight, setMeasuredLineHeight] = useState<number | null>(null);
@@ -117,20 +114,19 @@ export function PlannerChatInput({
 
   // The probe reports the native line height. Android scales it non-linearly, so the scaled
   // constant is only the fallback until the first report.
-  const lineHeight = measuredLineHeight ?? PLANNER_CHAT_INPUT_TEXT_LINE_HEIGHT * fontScale;
+  const lineHeight = measuredLineHeight ?? CHAT_COMPOSER_TEXT_LINE_HEIGHT * fontScale;
   const layout = resolveComposerLayout(value, probeLines);
   const maxLines = resolveComposerMaxLines(lineHeight);
   const cappedHeight = maxLines * lineHeight;
   // The inline cap keeps a paste from growing the pill tall before the probe stacks it.
   const inputMaxHeight =
-    (layout === 'inline' ? PLANNER_CHAT_INPUT_INLINE_MAX_LINES : maxLines) * lineHeight;
+    (layout === 'inline' ? CHAT_COMPOSER_INLINE_MAX_LINES : maxLines) * lineHeight;
   // Half a point of slack absorbs the pixel rounding of the laid-out height.
   const isAtCap = layout === 'stacked' && inputLayoutHeight >= cappedHeight - 0.5;
   const inputRightInset = hasText ? 104 : 56;
-  const inlineRightInset = inputRightInset + PLANNER_CHAT_INPUT_INLINE_TEXT_GAP;
+  const inlineRightInset = inputRightInset + CHAT_COMPOSER_INLINE_TEXT_GAP;
   const inlineVerticalPadding =
-    PLANNER_CHAT_INPUT_VERTICAL_INSET +
-    Math.max(0, (PLANNER_CHAT_INPUT_CONTROL_ROW_HEIGHT - lineHeight) / 2);
+    CHAT_COMPOSER_VERTICAL_INSET + Math.max(0, (CHAT_COMPOSER_CONTROL_ROW_HEIGHT - lineHeight) / 2);
 
   useEffect(() => {
     sendVisibility.value = reduceMotion
@@ -217,8 +213,8 @@ export function PlannerChatInput({
     const height = composerHeight.get();
     const borderRadius = interpolate(
       height,
-      [PLANNER_CHAT_INPUT_MIN_HEIGHT, PLANNER_CHAT_INPUT_MAX_HEIGHT],
-      [PLANNER_CHAT_INPUT_MIN_RADIUS, PLANNER_CHAT_INPUT_MAX_RADIUS],
+      [CHAT_COMPOSER_MIN_HEIGHT, CHAT_COMPOSER_MAX_HEIGHT],
+      [CHAT_COMPOSER_MIN_RADIUS, CHAT_COMPOSER_MAX_RADIUS],
       Extrapolation.CLAMP
     );
 
@@ -238,8 +234,8 @@ export function PlannerChatInput({
       borderRadius:
         interpolate(
           composerHeight.get(),
-          [PLANNER_CHAT_INPUT_MIN_HEIGHT, PLANNER_CHAT_INPUT_MAX_HEIGHT],
-          [PLANNER_CHAT_INPUT_MIN_RADIUS, PLANNER_CHAT_INPUT_MAX_RADIUS],
+          [CHAT_COMPOSER_MIN_HEIGHT, CHAT_COMPOSER_MAX_HEIGHT],
+          [CHAT_COMPOSER_MIN_RADIUS, CHAT_COMPOSER_MAX_RADIUS],
           Extrapolation.CLAMP
         ) - thinkingInset,
     };
@@ -315,8 +311,8 @@ export function PlannerChatInput({
           style={{
             position: 'absolute',
             top: 0,
-            left: PLANNER_CHAT_INPUT_INLINE_LEFT_INSET,
-            right: inlineRightInset + PLANNER_CHAT_INPUT_PROBE_WIDTH_MARGIN,
+            left: CHAT_COMPOSER_INLINE_LEFT_INSET,
+            right: inlineRightInset + CHAT_COMPOSER_PROBE_WIDTH_MARGIN,
             opacity: 0,
           }}>
           <Text
@@ -337,7 +333,7 @@ export function PlannerChatInput({
             layout === 'stacked'
               ? styles.contentStacked
               : {
-                  paddingLeft: PLANNER_CHAT_INPUT_INLINE_LEFT_INSET,
+                  paddingLeft: CHAT_COMPOSER_INLINE_LEFT_INSET,
                   paddingRight: inlineRightInset,
                   paddingVertical: inlineVerticalPadding,
                 },
@@ -380,8 +376,8 @@ export function PlannerChatInput({
               textBreakStrategy="simple"
               style={{
                 color: theme.appBg,
-                fontSize: PLANNER_CHAT_INPUT_TEXT_FONT_SIZE,
-                lineHeight: PLANNER_CHAT_INPUT_TEXT_LINE_HEIGHT,
+                fontSize: CHAT_COMPOSER_TEXT_FONT_SIZE,
+                lineHeight: CHAT_COMPOSER_TEXT_LINE_HEIGHT,
                 minHeight: lineHeight,
                 // iOS measures the commit that clears the value with the text the native input
                 // still holds, and nothing measures it again until the next edit. An empty input
@@ -393,14 +389,14 @@ export function PlannerChatInput({
           </View>
         </View>
 
-        <View style={[styles.leftControl, { bottom: PLANNER_CHAT_INPUT_VERTICAL_INSET, left: 8 }]}>
+        <View style={[styles.leftControl, { bottom: CHAT_COMPOSER_VERTICAL_INSET, left: 8 }]}>
           <Pressable
             accessibilityLabel="Add meal detail"
             accessibilityRole="button"
             disabled={auxiliaryDisabled}
             style={styles.controlButton}
             hitSlop={8}>
-            <View style={{ transform: [{ translateY: PLANNER_CHAT_INPUT_ICON_OPTICAL_OFFSET_Y }] }}>
+            <View style={{ transform: [{ translateY: CHAT_COMPOSER_ICON_OPTICAL_OFFSET_Y }] }}>
               <Plus size={24} color={theme.appBg} strokeWidth={2.5} />
             </View>
           </Pressable>
@@ -408,14 +404,14 @@ export function PlannerChatInput({
 
         <View
           testID={`${testIDPrefix}-controls`}
-          style={[styles.controls, { right: 8, bottom: PLANNER_CHAT_INPUT_VERTICAL_INSET }]}>
+          style={[styles.controls, { right: 8, bottom: CHAT_COMPOSER_VERTICAL_INSET }]}>
           <Pressable
             accessibilityLabel="Voice input"
             accessibilityRole="button"
             disabled={auxiliaryDisabled}
             style={styles.controlButton}
             hitSlop={8}>
-            <View style={{ transform: [{ translateY: PLANNER_CHAT_INPUT_ICON_OPTICAL_OFFSET_Y }] }}>
+            <View style={{ transform: [{ translateY: CHAT_COMPOSER_ICON_OPTICAL_OFFSET_Y }] }}>
               <Mic size={22} color={theme.appBg} strokeWidth={2} />
             </View>
           </Pressable>
@@ -431,8 +427,7 @@ export function PlannerChatInput({
               onPress={onSubmit}
               hitSlop={8}
               style={[styles.controlButton, { opacity: canSubmit ? 1 : 0.45 }]}>
-              <View
-                style={{ transform: [{ translateY: PLANNER_CHAT_INPUT_ICON_OPTICAL_OFFSET_Y }] }}>
+              <View style={{ transform: [{ translateY: CHAT_COMPOSER_ICON_OPTICAL_OFFSET_Y }] }}>
                 <ArrowUp size={24} color={theme.appBg} strokeWidth={2.5} />
               </View>
             </Pressable>
@@ -455,9 +450,9 @@ const styles = StyleSheet.create({
     top: 0,
   },
   contentStacked: {
-    paddingBottom: PLANNER_CHAT_INPUT_STACKED_BOTTOM_INSET,
-    paddingHorizontal: PLANNER_CHAT_INPUT_STACKED_CONTENT_INSET,
-    paddingTop: PLANNER_CHAT_INPUT_VERTICAL_INSET,
+    paddingBottom: CHAT_COMPOSER_STACKED_BOTTOM_INSET,
+    paddingHorizontal: CHAT_COMPOSER_STACKED_CONTENT_INSET,
+    paddingTop: CHAT_COMPOSER_VERTICAL_INSET,
   },
   controlButton: {
     alignItems: 'center',
@@ -478,7 +473,7 @@ const styles = StyleSheet.create({
     width: '100%',
   },
   frameDisabled: {
-    opacity: PLANNER_CHAT_INPUT_DISABLED_OPACITY,
+    opacity: CHAT_COMPOSER_DISABLED_OPACITY,
   },
   innerSurface: {
     overflow: 'hidden',
@@ -497,8 +492,8 @@ const styles = StyleSheet.create({
     top: 0,
   },
   probeText: {
-    fontSize: PLANNER_CHAT_INPUT_TEXT_FONT_SIZE,
-    lineHeight: PLANNER_CHAT_INPUT_TEXT_LINE_HEIGHT,
+    fontSize: CHAT_COMPOSER_TEXT_FONT_SIZE,
+    lineHeight: CHAT_COMPOSER_TEXT_LINE_HEIGHT,
   },
   sendContainer: {
     height: 42,

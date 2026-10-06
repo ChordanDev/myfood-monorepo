@@ -2,8 +2,7 @@ import { useState } from 'react';
 import { ScrollView, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRecipeTheme } from '@/context/RecipeThemeContext';
-import { PlannerChatInput } from '@/features/planner/components/PlannerChatInput';
-import { PLANNER_CHAT_INPUT_MIN_HEIGHT } from '@/features/planner/constants';
+import { CHAT_COMPOSER_MIN_HEIGHT, ChatComposer } from '@/features/assistant-chat';
 import {
   RecipeBottomFade,
   RecipeChatSection,
@@ -54,7 +53,7 @@ export function RecipeScreen() {
     chat.messages.length,
     chat.isThinking
   );
-  const [composerHeight, setComposerHeight] = useState(PLANNER_CHAT_INPUT_MIN_HEIGHT);
+  const [composerHeight, setComposerHeight] = useState(CHAT_COMPOSER_MIN_HEIGHT);
 
   useActivateRecipePalette(recipe?.theme);
 
@@ -95,7 +94,7 @@ export function RecipeScreen() {
       <RecipeBottomFade height={bottomOverlayHeight} />
 
       {/* The composer lifts itself over the keyboard, as it does on the planner. */}
-      <PlannerChatInput
+      <ChatComposer
         value={chat.input}
         isThinking={chat.isThinking}
         onChangeText={chat.setInput}

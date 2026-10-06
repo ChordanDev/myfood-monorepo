@@ -5,16 +5,15 @@ import { Platform, StyleSheet, Text, TextInput, View } from 'react-native';
 import { act, create, ReactTestInstance } from 'react-test-renderer';
 import { useKeyboardAnimation } from '@/hooks/useKeyboardAnimation';
 import {
-  CUSTOM_TAB_BAR_CONTENT_HEIGHT,
-  PLANNER_CHAT_INPUT_CLEARANCE,
-  PLANNER_CHAT_INPUT_CONTROL_ROW_HEIGHT,
-  PLANNER_CHAT_INPUT_MAX_HEIGHT,
-  PLANNER_CHAT_INPUT_MAX_LINES,
-  PLANNER_CHAT_INPUT_MIN_HEIGHT,
-  PLANNER_CHAT_INPUT_TEXT_LINE_HEIGHT,
-  PLANNER_CHAT_INPUT_VERTICAL_INSET,
+  CHAT_COMPOSER_CLEARANCE,
+  CHAT_COMPOSER_CONTROL_ROW_HEIGHT,
+  CHAT_COMPOSER_MAX_HEIGHT,
+  CHAT_COMPOSER_MAX_LINES,
+  CHAT_COMPOSER_MIN_HEIGHT,
+  CHAT_COMPOSER_TEXT_LINE_HEIGHT,
+  CHAT_COMPOSER_VERTICAL_INSET,
 } from '../../constants';
-import { PLANNER_CHAT_INPUT_ICON_OPTICAL_OFFSET_Y, PlannerChatInput } from '../PlannerChatInput';
+import { CHAT_COMPOSER_ICON_OPTICAL_OFFSET_Y, ChatComposer } from '../ChatComposer';
 
 const mockWithTiming = jest.fn((value: number, config?: unknown, callback?: unknown) => value);
 const mockUseReducedMotion = jest.fn(() => true);
@@ -109,7 +108,15 @@ jest.mock('@/context/RecipeThemeContext', () => ({
   }),
 }));
 
-type ComposerProps = React.ComponentProps<typeof PlannerChatInput>;
+type ComposerProps = React.ComponentProps<typeof ChatComposer>;
+
+// The suite renders the composer the way the tab bar route does: resting above a 60dp tab bar,
+// under that route's testID prefix. The defaults are covered by their own test.
+const TAB_BAR_CONTENT_HEIGHT = 60;
+const TAB_BAR_ROUTE_PROPS = {
+  restingBottomGap: TAB_BAR_CONTENT_HEIGHT + CHAT_COMPOSER_CLEARANCE,
+  testIDPrefix: 'planner-composer',
+};
 
 const WRAPPING_TEXT = 'A sentence long enough to represent text wrapping onto a second visual line';
 const INLINE_TEXT_LEFT_PADDING = 72;
@@ -129,8 +136,8 @@ const INLINE_CONTENT_STYLE_WITH_SEND = {
 const STACKED_CONTENT_STYLE = {
   alignSelf: 'stretch',
   paddingHorizontal: 16,
-  paddingTop: PLANNER_CHAT_INPUT_VERTICAL_INSET,
-  paddingBottom: PLANNER_CHAT_INPUT_CONTROL_ROW_HEIGHT + PLANNER_CHAT_INPUT_VERTICAL_INSET,
+  paddingTop: CHAT_COMPOSER_VERTICAL_INSET,
+  paddingBottom: CHAT_COMPOSER_CONTROL_ROW_HEIGHT + CHAT_COMPOSER_VERTICAL_INSET,
 };
 
 // Jest has no native layout, so every measurement the composer reacts to is replayed by hand.
@@ -142,7 +149,7 @@ function layoutEvent(height: number) {
   };
 }
 
-function textLayoutEvent(lineCount: number, lineHeight = PLANNER_CHAT_INPUT_TEXT_LINE_HEIGHT) {
+function textLayoutEvent(lineCount: number, lineHeight = CHAT_COMPOSER_TEXT_LINE_HEIGHT) {
   return {
     nativeEvent: {
       lines: Array.from({ length: lineCount }, (_, index) => ({
@@ -162,6 +169,7 @@ function textLayoutEvent(lineCount: number, lineHeight = PLANNER_CHAT_INPUT_TEXT
 
 function renderComposer(props: Partial<ComposerProps> = {}) {
   const composerProps: ComposerProps = {
+    ...TAB_BAR_ROUTE_PROPS,
     isThinking: false,
     onChangeText: jest.fn(),
     onSubmit: jest.fn(),
@@ -171,13 +179,13 @@ function renderComposer(props: Partial<ComposerProps> = {}) {
   let tree: ReturnType<typeof create>;
 
   act(() => {
-    tree = create(<PlannerChatInput {...composerProps} />);
+    tree = create(<ChatComposer {...composerProps} />);
   });
 
   const update = (nextProps: Partial<ComposerProps>) => {
     Object.assign(composerProps, nextProps);
     act(() => {
-      tree.update(<PlannerChatInput {...composerProps} />);
+      tree.update(<ChatComposer {...composerProps} />);
     });
   };
 
@@ -246,7 +254,7 @@ afterEach(() => {
   mockFontScale = 1;
 });
 
-describe('PlannerChatInput native input', () => {
+describe('ChatComposer native input', () => {
   it('renders a single TextInput that owns its height', () => {
     const { tree } = renderComposer({ value: 'Short text' });
 
@@ -269,9 +277,9 @@ describe('PlannerChatInput native input', () => {
     expect(inputStyle).toEqual({
       color: '#ffffff',
       fontSize: 17,
-      lineHeight: PLANNER_CHAT_INPUT_TEXT_LINE_HEIGHT,
-      minHeight: PLANNER_CHAT_INPUT_TEXT_LINE_HEIGHT,
-      maxHeight: PLANNER_CHAT_INPUT_TEXT_LINE_HEIGHT * 2,
+      lineHeight: CHAT_COMPOSER_TEXT_LINE_HEIGHT,
+      minHeight: CHAT_COMPOSER_TEXT_LINE_HEIGHT,
+      maxHeight: CHAT_COMPOSER_TEXT_LINE_HEIGHT * 2,
       padding: 0,
     });
   });
@@ -279,9 +287,9 @@ describe('PlannerChatInput native input', () => {
   it('keeps the native input free of a fixed height in every layout mode and at the line cap', () => {
     const { tree } = renderComposer({ value: WRAPPING_TEXT });
 
-    reportProbeLines(tree, PLANNER_CHAT_INPUT_MAX_LINES + 2);
-    reportInputHeight(tree, PLANNER_CHAT_INPUT_TEXT_LINE_HEIGHT * PLANNER_CHAT_INPUT_MAX_LINES);
-    reportContentHeight(tree, PLANNER_CHAT_INPUT_MAX_HEIGHT);
+    reportProbeLines(tree, CHAT_COMPOSER_MAX_LINES + 2);
+    reportInputHeight(tree, CHAT_COMPOSER_TEXT_LINE_HEIGHT * CHAT_COMPOSER_MAX_LINES);
+    reportContentHeight(tree, CHAT_COMPOSER_MAX_HEIGHT);
 
     expect(tree.root.findAllByType(TextInput)).toHaveLength(1);
     expect('height' in getInputStyle(tree)).toBe(false);
@@ -289,7 +297,7 @@ describe('PlannerChatInput native input', () => {
   });
 });
 
-describe('PlannerChatInput submission', () => {
+describe('ChatComposer submission', () => {
   it('forwards typed text to its owner', () => {
     const onChangeText = jest.fn();
     const { tree } = renderComposer({ onChangeText, value: 'Plan' });
@@ -351,13 +359,14 @@ describe('PlannerChatInput submission', () => {
   });
 });
 
-describe('PlannerChatInput keyboard lift', () => {
+describe('ChatComposer keyboard lift', () => {
   it('wires deterministic bottom-anchored geometry without a measurement anchor', () => {
     let tree: ReturnType<typeof create>;
 
     act(() => {
       tree = create(
-        <PlannerChatInput
+        <ChatComposer
+          {...TAB_BAR_ROUTE_PROPS}
           value=""
           isThinking={false}
           onChangeText={jest.fn()}
@@ -368,8 +377,8 @@ describe('PlannerChatInput keyboard lift', () => {
 
     expect(useKeyboardAnimation).toHaveBeenCalledWith({
       mode: 'geometry',
-      restingBottomOffset: 34 + CUSTOM_TAB_BAR_CONTENT_HEIGHT + PLANNER_CHAT_INPUT_CLEARANCE,
-      clearance: PLANNER_CHAT_INPUT_CLEARANCE,
+      restingBottomOffset: 34 + TAB_BAR_CONTENT_HEIGHT + CHAT_COMPOSER_CLEARANCE,
+      clearance: CHAT_COMPOSER_CLEARANCE,
       // The bottom safe-area inset, which Android leaves out of the keyboard height it reports.
       bottomInset: 34,
     });
@@ -389,20 +398,20 @@ describe('PlannerChatInput keyboard lift', () => {
   });
 });
 
-describe('PlannerChatInput layout mode', () => {
+describe('ChatComposer layout mode', () => {
   it('keeps one line of text inline between the controls', () => {
     const { tree, update } = renderComposer({ value: '' });
 
     expect(getContentStyle(tree)).toEqual(INLINE_CONTENT_STYLE);
     // One native line centred on the control row gives the resting pill height.
     expect(getContentStyle(tree).paddingVertical * 2 + getInputStyle(tree).minHeight).toBe(
-      PLANNER_CHAT_INPUT_MIN_HEIGHT
+      CHAT_COMPOSER_MIN_HEIGHT
     );
 
     update({ value: 'Short text' });
 
     expect(getContentStyle(tree)).toEqual(INLINE_CONTENT_STYLE_WITH_SEND);
-    expect(getInputStyle(tree).maxHeight).toBe(PLANNER_CHAT_INPUT_TEXT_LINE_HEIGHT * 2);
+    expect(getInputStyle(tree).maxHeight).toBe(CHAT_COMPOSER_TEXT_LINE_HEIGHT * 2);
   });
 
   it('does not reserve room for the send control while the value is only whitespace', () => {
@@ -423,14 +432,14 @@ describe('PlannerChatInput layout mode', () => {
 
     expect(getContentStyle(tree)).toEqual(STACKED_CONTENT_STYLE);
     expect(getInputStyle(tree).maxHeight).toBe(
-      PLANNER_CHAT_INPUT_TEXT_LINE_HEIGHT * PLANNER_CHAT_INPUT_MAX_LINES
+      CHAT_COMPOSER_TEXT_LINE_HEIGHT * CHAT_COMPOSER_MAX_LINES
     );
 
     update({ value: 'Short text' });
     reportProbeLines(tree, 1);
 
     expect(getContentStyle(tree)).toEqual(INLINE_CONTENT_STYLE_WITH_SEND);
-    expect(getInputStyle(tree).maxHeight).toBe(PLANNER_CHAT_INPUT_TEXT_LINE_HEIGHT * 2);
+    expect(getInputStyle(tree).maxHeight).toBe(CHAT_COMPOSER_TEXT_LINE_HEIGHT * 2);
   });
 
   it('stacks on an explicit newline before the probe reports anything', () => {
@@ -455,7 +464,7 @@ describe('PlannerChatInput layout mode', () => {
     update({ value: '' });
 
     expect(getContentStyle(tree)).toEqual(INLINE_CONTENT_STYLE);
-    expect(getInputStyle(tree).maxHeight).toBe(PLANNER_CHAT_INPUT_TEXT_LINE_HEIGHT);
+    expect(getInputStyle(tree).maxHeight).toBe(CHAT_COMPOSER_TEXT_LINE_HEIGHT);
   });
 
   it('keeps the measured line count across value changes until the probe reports again', () => {
@@ -500,10 +509,10 @@ describe('PlannerChatInput layout mode', () => {
     const inlineInsets = readControlInsets();
 
     expect(inlineInsets.controls).toEqual(
-      expect.objectContaining({ right: 8, bottom: PLANNER_CHAT_INPUT_VERTICAL_INSET })
+      expect.objectContaining({ right: 8, bottom: CHAT_COMPOSER_VERTICAL_INSET })
     );
     expect(inlineInsets.plus).toEqual(
-      expect.objectContaining({ left: 8, bottom: PLANNER_CHAT_INPUT_VERTICAL_INSET })
+      expect.objectContaining({ left: 8, bottom: CHAT_COMPOSER_VERTICAL_INSET })
     );
 
     update({ value: WRAPPING_TEXT });
@@ -512,12 +521,12 @@ describe('PlannerChatInput layout mode', () => {
     expect(readControlInsets()).toEqual(inlineInsets);
     // Stacked text ends exactly where the control row starts.
     expect(getContentStyle(tree).paddingBottom).toBe(
-      inlineInsets.controls.bottom + PLANNER_CHAT_INPUT_CONTROL_ROW_HEIGHT
+      inlineInsets.controls.bottom + CHAT_COMPOSER_CONTROL_ROW_HEIGHT
     );
   });
 });
 
-describe('PlannerChatInput layout probe', () => {
+describe('ChatComposer layout probe', () => {
   it('measures the value in a hidden text outside the content flow', () => {
     const { tree, update } = renderComposer({ value: '' });
 
@@ -530,7 +539,7 @@ describe('PlannerChatInput layout probe', () => {
     // Any height, flex or display constraint would truncate or skip the native line measurement.
     expect(StyleSheet.flatten(probe.props.style)).toEqual({
       fontSize: 17,
-      lineHeight: PLANNER_CHAT_INPUT_TEXT_LINE_HEIGHT,
+      lineHeight: CHAT_COMPOSER_TEXT_LINE_HEIGHT,
     });
     expect(probeWrapper.props.pointerEvents).toBe('none');
     expect(probeWrapper.props.accessibilityElementsHidden).toBe(true);
@@ -566,7 +575,7 @@ describe('PlannerChatInput layout probe', () => {
     expect(getProbeWrapperStyle(tree)).toEqual(inlineProbeWrapperStyle);
     expect(StyleSheet.flatten(getProbe(tree).props.style)).toEqual({
       fontSize: 17,
-      lineHeight: PLANNER_CHAT_INPUT_TEXT_LINE_HEIGHT,
+      lineHeight: CHAT_COMPOSER_TEXT_LINE_HEIGHT,
     });
 
     update({ value: '' });
@@ -579,12 +588,12 @@ describe('PlannerChatInput layout probe', () => {
   });
 });
 
-describe('PlannerChatInput native line height', () => {
+describe('ChatComposer native line height', () => {
   it('falls back to the scaled design line height before the probe reports', () => {
     mockFontScale = 1.3;
     const { tree, update } = renderComposer({ value: 'Short text' });
 
-    expect(getInputStyle(tree).lineHeight).toBe(PLANNER_CHAT_INPUT_TEXT_LINE_HEIGHT);
+    expect(getInputStyle(tree).lineHeight).toBe(CHAT_COMPOSER_TEXT_LINE_HEIGHT);
     expect(getInputStyle(tree).minHeight).toBeCloseTo(31.2, 5);
     expect(getInputStyle(tree).maxHeight).toBeCloseTo(62.4, 5);
     expect(getContentStyle(tree).paddingVertical).toBeCloseTo(20.4, 5);
@@ -601,7 +610,7 @@ describe('PlannerChatInput native line height', () => {
 
     reportProbeLines(tree, 1, 27.81);
 
-    expect(getInputStyle(tree).lineHeight).toBe(PLANNER_CHAT_INPUT_TEXT_LINE_HEIGHT);
+    expect(getInputStyle(tree).lineHeight).toBe(CHAT_COMPOSER_TEXT_LINE_HEIGHT);
     expect(getInputStyle(tree).minHeight).toBe(27.81);
     expect(getInputStyle(tree).maxHeight).toBeCloseTo(55.62, 5);
     expect(getContentStyle(tree).paddingVertical).toBeCloseTo(22.095, 5);
@@ -639,7 +648,7 @@ describe('PlannerChatInput native line height', () => {
 
     reportProbeLines(tree, 1, 60);
 
-    expect(getContentStyle(tree).paddingVertical).toBe(PLANNER_CHAT_INPUT_VERTICAL_INSET);
+    expect(getContentStyle(tree).paddingVertical).toBe(CHAT_COMPOSER_VERTICAL_INSET);
     expect(getInputStyle(tree).minHeight).toBe(60);
     expect(getInputStyle(tree).maxHeight).toBe(120);
   });
@@ -655,12 +664,12 @@ describe('PlannerChatInput native line height', () => {
 
 // iOS measures the commit that clears the value with the text the native input still holds and
 // does not measure it again, so the empty input cannot be left room for a second line.
-describe('PlannerChatInput empty input', () => {
+describe('ChatComposer empty input', () => {
   it('holds the empty input at exactly one native line', () => {
     const { tree } = renderComposer({ value: '' });
 
-    expect(getInputStyle(tree).minHeight).toBe(PLANNER_CHAT_INPUT_TEXT_LINE_HEIGHT);
-    expect(getInputStyle(tree).maxHeight).toBe(PLANNER_CHAT_INPUT_TEXT_LINE_HEIGHT);
+    expect(getInputStyle(tree).minHeight).toBe(CHAT_COMPOSER_TEXT_LINE_HEIGHT);
+    expect(getInputStyle(tree).maxHeight).toBe(CHAT_COMPOSER_TEXT_LINE_HEIGHT);
 
     reportProbeLines(tree, 1, 27.81);
 
@@ -673,15 +682,15 @@ describe('PlannerChatInput empty input', () => {
 
     update({ value: 'P' });
 
-    expect(getInputStyle(tree).minHeight).toBe(PLANNER_CHAT_INPUT_TEXT_LINE_HEIGHT);
-    expect(getInputStyle(tree).maxHeight).toBe(PLANNER_CHAT_INPUT_TEXT_LINE_HEIGHT * 2);
+    expect(getInputStyle(tree).minHeight).toBe(CHAT_COMPOSER_TEXT_LINE_HEIGHT);
+    expect(getInputStyle(tree).maxHeight).toBe(CHAT_COMPOSER_TEXT_LINE_HEIGHT * 2);
   });
 
   it('collapses to one line as soon as a value at the line cap is cleared', () => {
-    const cappedHeight = PLANNER_CHAT_INPUT_TEXT_LINE_HEIGHT * PLANNER_CHAT_INPUT_MAX_LINES;
+    const cappedHeight = CHAT_COMPOSER_TEXT_LINE_HEIGHT * CHAT_COMPOSER_MAX_LINES;
     const { tree, update } = renderComposer({ value: WRAPPING_TEXT });
 
-    reportProbeLines(tree, PLANNER_CHAT_INPUT_MAX_LINES + 2);
+    reportProbeLines(tree, CHAT_COMPOSER_MAX_LINES + 2);
     reportInputHeight(tree, cappedHeight);
 
     expect(getContentStyle(tree)).toEqual(STACKED_CONTENT_STYLE);
@@ -690,19 +699,19 @@ describe('PlannerChatInput empty input', () => {
     // Sending clears the value before the probe or the native input report again.
     update({ value: '' });
 
-    expect(getInputStyle(tree).minHeight).toBe(PLANNER_CHAT_INPUT_TEXT_LINE_HEIGHT);
-    expect(getInputStyle(tree).maxHeight).toBe(PLANNER_CHAT_INPUT_TEXT_LINE_HEIGHT);
+    expect(getInputStyle(tree).minHeight).toBe(CHAT_COMPOSER_TEXT_LINE_HEIGHT);
+    expect(getInputStyle(tree).maxHeight).toBe(CHAT_COMPOSER_TEXT_LINE_HEIGHT);
   });
 
   it('does not treat a whitespace-only value as empty', () => {
     const { tree } = renderComposer({ value: '   ' });
 
-    expect(getInputStyle(tree).minHeight).toBe(PLANNER_CHAT_INPUT_TEXT_LINE_HEIGHT);
-    expect(getInputStyle(tree).maxHeight).toBe(PLANNER_CHAT_INPUT_TEXT_LINE_HEIGHT * 2);
+    expect(getInputStyle(tree).minHeight).toBe(CHAT_COMPOSER_TEXT_LINE_HEIGHT);
+    expect(getInputStyle(tree).maxHeight).toBe(CHAT_COMPOSER_TEXT_LINE_HEIGHT * 2);
   });
 });
 
-describe('PlannerChatInput frame height', () => {
+describe('ChatComposer frame height', () => {
   it.each([
     { name: 'Android', platform: 'android', reduceMotion: false },
     { name: 'Android with reduced motion', platform: 'android', reduceMotion: true },
@@ -740,7 +749,7 @@ describe('PlannerChatInput frame height', () => {
     const { tree, update } = renderComposer({ onHeightChange, value: 'Short text' });
     mockWithTiming.mockClear();
 
-    expect(getFrameStyle(tree).height).toBe(PLANNER_CHAT_INPUT_MIN_HEIGHT);
+    expect(getFrameStyle(tree).height).toBe(CHAT_COMPOSER_MIN_HEIGHT);
     expect(getContentStyle(tree)).toEqual(
       expect.objectContaining({ position: 'absolute', top: 0, left: 0, right: 0 })
     );
@@ -762,8 +771,8 @@ describe('PlannerChatInput frame height', () => {
       left: 0,
       right: 0,
       paddingHorizontal: 16,
-      paddingTop: PLANNER_CHAT_INPUT_VERTICAL_INSET,
-      paddingBottom: PLANNER_CHAT_INPUT_CONTROL_ROW_HEIGHT + PLANNER_CHAT_INPUT_VERTICAL_INSET,
+      paddingTop: CHAT_COMPOSER_VERTICAL_INSET,
+      paddingBottom: CHAT_COMPOSER_CONTROL_ROW_HEIGHT + CHAT_COMPOSER_VERTICAL_INSET,
     });
     reportContentHeight(tree, 155.43);
 
@@ -814,12 +823,12 @@ describe('PlannerChatInput frame height', () => {
     expect(getFrameStyle(tree).borderRadius).toBe(28);
     expect(getInnerSurfaceStyle().borderRadius).toBe(28);
 
-    reportContentHeight(tree, (PLANNER_CHAT_INPUT_MIN_HEIGHT + PLANNER_CHAT_INPUT_MAX_HEIGHT) / 2);
+    reportContentHeight(tree, (CHAT_COMPOSER_MIN_HEIGHT + CHAT_COMPOSER_MAX_HEIGHT) / 2);
 
     expect(getFrameStyle(tree).borderRadius).toBe(24);
     expect(getInnerSurfaceStyle().borderRadius).toBe(24);
 
-    reportContentHeight(tree, PLANNER_CHAT_INPUT_MAX_HEIGHT);
+    reportContentHeight(tree, CHAT_COMPOSER_MAX_HEIGHT);
 
     expect(getFrameStyle(tree).borderRadius).toBe(20);
     expect(getInnerSurfaceStyle().borderRadius).toBe(20);
@@ -831,7 +840,7 @@ describe('PlannerChatInput frame height', () => {
   });
 });
 
-describe('PlannerChatInput height reporting', () => {
+describe('ChatComposer height reporting', () => {
   it('reports each distinct content height once', () => {
     const onHeightChange = jest.fn();
     const { tree } = renderComposer({ onHeightChange, value: 'Short text' });
@@ -888,18 +897,18 @@ describe('PlannerChatInput height reporting', () => {
   });
 });
 
-describe('PlannerChatInput internal scrolling', () => {
+describe('ChatComposer internal scrolling', () => {
   it('turns scrolling on only once the stacked input reaches its line cap', () => {
-    const cappedHeight = PLANNER_CHAT_INPUT_TEXT_LINE_HEIGHT * PLANNER_CHAT_INPUT_MAX_LINES;
+    const cappedHeight = CHAT_COMPOSER_TEXT_LINE_HEIGHT * CHAT_COMPOSER_MAX_LINES;
     const { tree } = renderComposer({ value: WRAPPING_TEXT });
 
     expect(getInput(tree).props.scrollEnabled).toBe(false);
 
     reportProbeLines(tree, 2);
-    reportInputHeight(tree, PLANNER_CHAT_INPUT_TEXT_LINE_HEIGHT * 2);
+    reportInputHeight(tree, CHAT_COMPOSER_TEXT_LINE_HEIGHT * 2);
     expect(getInput(tree).props.scrollEnabled).toBe(false);
 
-    reportInputHeight(tree, cappedHeight - PLANNER_CHAT_INPUT_TEXT_LINE_HEIGHT);
+    reportInputHeight(tree, cappedHeight - CHAT_COMPOSER_TEXT_LINE_HEIGHT);
     expect(getInput(tree).props.scrollEnabled).toBe(false);
 
     reportInputHeight(tree, cappedHeight - 0.6);
@@ -911,7 +920,7 @@ describe('PlannerChatInput internal scrolling', () => {
     reportInputHeight(tree, cappedHeight);
     expect(getInput(tree).props.scrollEnabled).toBe(true);
 
-    reportInputHeight(tree, cappedHeight - PLANNER_CHAT_INPUT_TEXT_LINE_HEIGHT);
+    reportInputHeight(tree, cappedHeight - CHAT_COMPOSER_TEXT_LINE_HEIGHT);
     expect(getInput(tree).props.scrollEnabled).toBe(false);
   });
 
@@ -931,10 +940,10 @@ describe('PlannerChatInput internal scrolling', () => {
   });
 
   it('never scrolls the inline input, even with a stale tall measurement', () => {
-    const cappedHeight = PLANNER_CHAT_INPUT_TEXT_LINE_HEIGHT * PLANNER_CHAT_INPUT_MAX_LINES;
+    const cappedHeight = CHAT_COMPOSER_TEXT_LINE_HEIGHT * CHAT_COMPOSER_MAX_LINES;
     const { tree, update } = renderComposer({ value: WRAPPING_TEXT });
 
-    reportProbeLines(tree, PLANNER_CHAT_INPUT_MAX_LINES + 1);
+    reportProbeLines(tree, CHAT_COMPOSER_MAX_LINES + 1);
     reportInputHeight(tree, cappedHeight);
     expect(getInput(tree).props.scrollEnabled).toBe(true);
 
@@ -950,9 +959,10 @@ describe('PlannerChatInput internal scrolling', () => {
   });
 });
 
-describe('PlannerChatInput icon optical alignment', () => {
+describe('ChatComposer icon optical alignment', () => {
   it('applies the same inner translateY offset to all composer icons without changing pressable geometry', () => {
     const props = {
+      ...TAB_BAR_ROUTE_PROPS,
       isThinking: false,
       onChangeText: jest.fn(),
       onSubmit: jest.fn(),
@@ -960,7 +970,7 @@ describe('PlannerChatInput icon optical alignment', () => {
     let tree: ReturnType<typeof create>;
 
     act(() => {
-      tree = create(<PlannerChatInput {...props} value="Short text" />);
+      tree = create(<ChatComposer {...props} value="Short text" />);
     });
 
     const addMealDetailButton = tree!.root.findByProps({ accessibilityLabel: 'Add meal detail' });
@@ -998,24 +1008,25 @@ describe('PlannerChatInput icon optical alignment', () => {
 
     expect(StyleSheet.flatten(addMealDetailIconWrapper!.props.style)).toEqual(
       expect.objectContaining({
-        transform: [{ translateY: PLANNER_CHAT_INPUT_ICON_OPTICAL_OFFSET_Y }],
+        transform: [{ translateY: CHAT_COMPOSER_ICON_OPTICAL_OFFSET_Y }],
       })
     );
     expect(StyleSheet.flatten(voiceInputIconWrapper!.props.style)).toEqual(
       expect.objectContaining({
-        transform: [{ translateY: PLANNER_CHAT_INPUT_ICON_OPTICAL_OFFSET_Y }],
+        transform: [{ translateY: CHAT_COMPOSER_ICON_OPTICAL_OFFSET_Y }],
       })
     );
     expect(StyleSheet.flatten(sendMessageIconWrapper!.props.style)).toEqual(
       expect.objectContaining({
-        transform: [{ translateY: PLANNER_CHAT_INPUT_ICON_OPTICAL_OFFSET_Y }],
+        transform: [{ translateY: CHAT_COMPOSER_ICON_OPTICAL_OFFSET_Y }],
       })
     );
   });
 });
 
-describe('PlannerChatInput surface opacity', () => {
+describe('ChatComposer surface opacity', () => {
   const props = {
+    ...TAB_BAR_ROUTE_PROPS,
     onChangeText: jest.fn(),
     onSubmit: jest.fn(),
     value: 'Plan a meal',
@@ -1031,7 +1042,7 @@ describe('PlannerChatInput surface opacity', () => {
     let tree: ReturnType<typeof create>;
 
     act(() => {
-      tree = create(<PlannerChatInput {...props} isThinking={false} />);
+      tree = create(<ChatComposer {...props} isThinking={false} />);
     });
 
     const surface = tree!.root.findByProps({ testID: 'planner-composer-surface' });
@@ -1046,7 +1057,7 @@ describe('PlannerChatInput surface opacity', () => {
     let tree: ReturnType<typeof create>;
 
     act(() => {
-      tree = create(<PlannerChatInput {...props} isThinking={false} />);
+      tree = create(<ChatComposer {...props} isThinking={false} />);
     });
 
     expect(getSurfaceOpacity(tree!)).toBe(1);
@@ -1057,7 +1068,7 @@ describe('PlannerChatInput surface opacity', () => {
     expect(StyleSheet.flatten(getInput(tree!).props.style).opacity).toBeUndefined();
 
     act(() => {
-      tree!.update(<PlannerChatInput {...props} isThinking />);
+      tree!.update(<ChatComposer {...props} isThinking />);
     });
 
     expect(getSurfaceOpacity(tree!)).toBe(0.6);
@@ -1072,7 +1083,7 @@ describe('PlannerChatInput surface opacity', () => {
     let tree: ReturnType<typeof create>;
 
     act(() => {
-      tree = create(<PlannerChatInput {...props} isThinking />);
+      tree = create(<ChatComposer {...props} isThinking />);
     });
 
     const gradient = tree!.root.findByProps({ testID: 'planner-composer-thinking-gradient' });
@@ -1089,7 +1100,7 @@ describe('PlannerChatInput surface opacity', () => {
     expect(getSurfaceOpacity(tree!)).toBe(0.6);
 
     act(() => {
-      tree!.update(<PlannerChatInput {...props} isThinking={false} />);
+      tree!.update(<ChatComposer {...props} isThinking={false} />);
     });
 
     const idleGradient = tree!.root.findByProps({ testID: 'planner-composer-thinking-gradient' });
@@ -1115,7 +1126,7 @@ describe('PlannerChatInput surface opacity', () => {
     const { tree, update } = renderComposer({ value: '' });
 
     reportProbeLines(tree, 1);
-    reportContentHeight(tree, PLANNER_CHAT_INPUT_MIN_HEIGHT);
+    reportContentHeight(tree, CHAT_COMPOSER_MIN_HEIGHT);
 
     const readGeometry = () => {
       const innerSurface = tree.root.findByProps({ testID: 'planner-composer-inner-surface' });
@@ -1129,7 +1140,7 @@ describe('PlannerChatInput surface opacity', () => {
         content: getContentStyle(tree),
         input: getInputStyle(tree),
         probeWrapper: getProbeWrapperStyle(tree),
-        controlsTop: frameHeight - controls.bottom - PLANNER_CHAT_INPUT_CONTROL_ROW_HEIGHT,
+        controlsTop: frameHeight - controls.bottom - CHAT_COMPOSER_CONTROL_ROW_HEIGHT,
         innerSurfaceContainsContent: innerSurface.findAllByProps({
           testID: 'planner-composer-input',
         }).length,
@@ -1138,8 +1149,8 @@ describe('PlannerChatInput surface opacity', () => {
 
     const idleGeometry = readGeometry();
 
-    expect(idleGeometry.frameHeight).toBe(PLANNER_CHAT_INPUT_MIN_HEIGHT);
-    expect(idleGeometry.controlsTop).toBe(PLANNER_CHAT_INPUT_VERTICAL_INSET);
+    expect(idleGeometry.frameHeight).toBe(CHAT_COMPOSER_MIN_HEIGHT);
+    expect(idleGeometry.controlsTop).toBe(CHAT_COMPOSER_VERTICAL_INSET);
     expect(idleGeometry.content.paddingVertical).toBe(24);
 
     update({ isThinking: true });
@@ -1154,7 +1165,7 @@ describe('PlannerChatInput surface opacity', () => {
     let tree: ReturnType<typeof create>;
 
     act(() => {
-      tree = create(<PlannerChatInput {...props} value="" isThinking />);
+      tree = create(<ChatComposer {...props} value="" isThinking />);
     });
 
     expect(getInput(tree!).props.editable).toBe(true);
@@ -1164,7 +1175,7 @@ describe('PlannerChatInput surface opacity', () => {
     let tree: ReturnType<typeof create>;
 
     act(() => {
-      tree = create(<PlannerChatInput {...props} value="" isThinking={false} />);
+      tree = create(<ChatComposer {...props} value="" isThinking={false} />);
     });
 
     const frame = tree!.root.findByProps({ testID: 'planner-composer-frame' });
@@ -1188,8 +1199,9 @@ describe('PlannerChatInput surface opacity', () => {
   });
 });
 
-describe('PlannerChatInput placeholder', () => {
+describe('ChatComposer placeholder', () => {
   const props = {
+    ...TAB_BAR_ROUTE_PROPS,
     isThinking: false,
     onChangeText: jest.fn(),
     onSubmit: jest.fn(),
@@ -1199,7 +1211,7 @@ describe('PlannerChatInput placeholder', () => {
     let tree: ReturnType<typeof create>;
 
     act(() => {
-      tree = create(<PlannerChatInput {...props} value="" />);
+      tree = create(<ChatComposer {...props} value="" />);
     });
 
     const placeholder = tree!.root.findByProps({ testID: 'planner-composer-placeholder' });
@@ -1223,7 +1235,7 @@ describe('PlannerChatInput placeholder', () => {
     expect(StyleSheet.flatten(input.props.style).opacity).toBeUndefined();
 
     act(() => {
-      tree!.update(<PlannerChatInput {...props} value="Plan a meal" />);
+      tree!.update(<ChatComposer {...props} value="Plan a meal" />);
     });
 
     expect(tree!.root.findAllByProps({ testID: 'planner-composer-placeholder' })).toHaveLength(0);
@@ -1244,7 +1256,7 @@ describe('PlannerChatInput placeholder', () => {
       top: 0,
       left: 0,
       right: 0,
-      height: PLANNER_CHAT_INPUT_TEXT_LINE_HEIGHT,
+      height: CHAT_COMPOSER_TEXT_LINE_HEIGHT,
       justifyContent: 'center',
     });
 
@@ -1254,8 +1266,8 @@ describe('PlannerChatInput placeholder', () => {
   });
 });
 
-describe('PlannerChatInput reuse outside the planner', () => {
-  it('shows the placeholder it is given instead of the planner one', () => {
+describe('ChatComposer screen-specific props', () => {
+  it('shows the placeholder it is given instead of the default one', () => {
     const { tree } = renderComposer({ placeholder: 'Preguntale a la IA sobre la receta' });
     const placeholder = tree.root.findByProps({ testID: 'planner-composer-placeholder' });
 
@@ -1268,7 +1280,7 @@ describe('PlannerChatInput reuse outside the planner', () => {
     expect(useKeyboardAnimation).toHaveBeenLastCalledWith({
       mode: 'geometry',
       restingBottomOffset: 34 + 14,
-      clearance: PLANNER_CHAT_INPUT_CLEARANCE,
+      clearance: CHAT_COMPOSER_CLEARANCE,
       bottomInset: 34,
     });
     expect(
@@ -1293,6 +1305,46 @@ describe('PlannerChatInput reuse outside the planner', () => {
       ])
     );
     expect(testIDs.filter((testID) => testID.startsWith('planner-composer'))).toEqual([]);
+  });
+
+  it('rests on the clearance alone and names its nodes chat-composer by default', () => {
+    let tree: ReturnType<typeof create>;
+
+    act(() => {
+      tree = create(
+        <ChatComposer
+          value="Hola"
+          isThinking={false}
+          onChangeText={jest.fn()}
+          onSubmit={jest.fn()}
+        />
+      );
+    });
+
+    const testIDs = tree!.root
+      .findAll((node) => typeof node.type === 'string' && typeof node.props.testID === 'string')
+      .map((node) => node.props.testID);
+
+    expect(useKeyboardAnimation).toHaveBeenLastCalledWith({
+      mode: 'geometry',
+      restingBottomOffset: 34 + CHAT_COMPOSER_CLEARANCE,
+      clearance: CHAT_COMPOSER_CLEARANCE,
+      bottomInset: 34,
+    });
+    expect(
+      StyleSheet.flatten(tree!.root.findByProps({ testID: 'chat-composer-wrapper' }).props.style)
+        .paddingBottom
+    ).toBe(34 + CHAT_COMPOSER_CLEARANCE);
+    expect(testIDs).toEqual(
+      expect.arrayContaining([
+        'chat-composer-wrapper',
+        'chat-composer-frame',
+        'chat-composer-content',
+        'chat-composer-input',
+        'chat-composer-submit',
+      ])
+    );
+    expect(testIDs.filter((testID) => !testID.startsWith('chat-composer'))).toEqual([]);
   });
 
   it('is fully interactive and undimmed unless it is disabled', () => {

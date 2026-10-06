@@ -1,7 +1,7 @@
 import { Fragment } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import { useRecipeTheme } from '@/context/RecipeThemeContext';
-import { PlannerTypingIndicator } from '@/features/planner/components/PlannerTypingIndicator';
+import { ChatTypingIndicator } from '@/features/assistant-chat';
 import { withOpacity } from '@/utils/colors';
 import type { RecipeChatAction, RecipeChatMessage } from '../domain/recipeChat';
 import { RecipeChatMessageItem } from './RecipeChatMessageItem';
@@ -45,7 +45,7 @@ export function RecipeChatSection({ messages, isThinking, onQuickAction }: Recip
               ) : null}
             </Fragment>
           ))}
-          {isThinking ? <PlannerTypingIndicator /> : null}
+          {isThinking ? <ChatTypingIndicator /> : null}
         </View>
       ) : null}
     </View>
