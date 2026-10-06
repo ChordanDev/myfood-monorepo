@@ -73,6 +73,8 @@ jest.mock('@/context/RecipeThemeContext', () => ({
       primaryAccent: '#ff0',
       colorBlack: '#000',
       colorDark: '#111',
+      textDark: '#222',
+      primaryAccentIntense: '#333',
     },
   }),
 }));
@@ -81,6 +83,7 @@ jest.mock('@/components', () => {
   return {
     NoisyBackground: () => null,
     SafeAreaContent: ({ children }: { children: unknown }) => children,
+    ShadowSurface: ({ children }: { children: unknown }) => children,
   };
 });
 
@@ -94,6 +97,8 @@ jest.mock('@/features/preferences/constants/catalog', () => ({
   DIET_LABELS: {},
   HARD_RESTRICTION_CODES: [],
   HARD_RESTRICTION_LABELS: {},
+  isValidDietCode: () => true,
+  isValidHardRestrictionCode: () => true,
 }));
 
 jest.mock('@/features/preferences/utils/onboardingPayload', () => ({
@@ -252,10 +257,14 @@ describe('OnboardingScreen — post-completion redirect stabilization (Judgment 
     });
     const { tree } = renderOnboardingPreviewWithValue(buildContext(me, { completeOnboarding }));
 
-    await act(async () => {
-      await findButtonByText(tree.root, 'Guardar preferencias').props.onPress();
-    });
+    // The submit action lives on the last of the three steps.
+    for (const label of ['CONTINUAR', 'CONTINUAR', 'FINALIZAR']) {
+      await act(async () => {
+        await findButtonByText(tree.root, label).props.onPress();
+      });
+    }
 
+    expect(Alert.alert).toHaveBeenCalledWith('Modo preview', expect.any(String));
     expect(completeOnboarding).not.toHaveBeenCalled();
     expect(mockRouterReplace).not.toHaveBeenCalled();
     unmountTree(tree);

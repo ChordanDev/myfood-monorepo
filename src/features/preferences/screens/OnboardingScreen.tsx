@@ -1,32 +1,19 @@
-import { useCallback, useMemo, useState } from 'react';
-import {
-  ActivityIndicator,
-  Alert,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Text,
-  useWindowDimensions,
-  View,
-} from 'react-native';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { Alert, BackHandler, ScrollView, StyleSheet, View } from 'react-native';
 import { Redirect, useRouter } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useAuth } from '@/features/auth';
 import { useRecipeTheme } from '@/context/RecipeThemeContext';
 import { NoisyBackground, SafeAreaContent } from '@/components';
 import { getAuthErrorMessage } from '@/services/authService';
-import type {
-  CookingSkill,
-  HungerLevel,
-  MealSlot,
-  SlotCookingTime,
-} from '@/features/auth/types/auth';
+import type { CookingSkill, HungerLevel, MealSlot } from '@/features/auth/types/auth';
 import type { DietCode, HardRestrictionCode } from '@/features/preferences/constants/catalog';
-import { COOKING_SKILLS } from '@/features/preferences/constants/onboardingOptions';
 import {
-  HouseholdSection,
+  HouseholdStep,
   MealTimesSection,
-  OnboardingHero,
+  OnboardingFooter,
+  OnboardingProgress,
+  OnboardingStepHeading,
   PreferencesSection,
 } from '@/features/preferences/components/onboarding';
 import {
@@ -37,26 +24,55 @@ import {
 import { canSubmitOnboarding } from '@/features/preferences/utils/onboardingSubmitGate';
 import { parseListInput } from '@/features/preferences/utils/parseListInput';
 import {
-  buildSlot,
   buildSlotForm,
   defaultSlot,
+  slotFormToCookingTime,
   type SlotFormState,
   type SlotMode,
 } from '@/features/preferences/utils/onboardingSlot';
+import {
+  ONBOARDING_STEPS,
+  getNextStep,
+  getPreviousStep,
+  getStepNumber,
+  validateOnboardingStep,
+  type OnboardingDraft,
+  type OnboardingStep,
+} from '@/features/preferences/utils/onboardingSteps';
 
 interface OnboardingScreenProps {
   previewMode?: boolean;
 }
 
+const STEP_COPY: Record<OnboardingStep, { title: string; subtitle: string }> = {
+  household: {
+    title: 'Tu hogar',
+    subtitle: 'Primero lo importante. La IA necesita contexto humano antes de sugerir recetas.',
+  },
+  preferences: {
+    title: 'Preferencias',
+    subtitle:
+      'Separá restricciones reales de preferencias blandas. Esa diferencia es clave para no sugerir mal.',
+  },
+  mealTimes: {
+    title: 'Tiempos por comida',
+    subtitle:
+      'Elegí tiempo y hambre por comida. Mejor una respuesta honesta que un plan imposible.',
+  },
+};
+
 export function OnboardingScreen({ previewMode = false }: OnboardingScreenProps) {
   const router = useRouter();
-  const { width } = useWindowDimensions();
   const { theme } = useRecipeTheme();
   const { isAuthenticated, isLoading, isComplete, accessToken, completeOnboarding, user, signOut } =
     useAuth();
 
+  const [step, setStep] = useState<OnboardingStep>(ONBOARDING_STEPS[0]);
+  // Why the last attempt to leave the step failed. Shown above the primary
+  // button until the user edits the step.
+  const [stepError, setStepError] = useState<string | null>(null);
   const [displayName, setDisplayName] = useState(user?.displayName ?? '');
-  const [householdSize, setHouseholdSize] = useState('1');
+  const [householdSize, setHouseholdSize] = useState(1);
   const [cookingSkill, setCookingSkill] = useState<CookingSkill>('beginner');
   const [diet, setDiet] = useState<DietCode | null>(null);
   const [hardRestrictions, setHardRestrictions] = useState<HardRestrictionCode[]>([]);
@@ -68,21 +84,52 @@ export function OnboardingScreen({ previewMode = false }: OnboardingScreenProps)
   }));
   const [submitting, setSubmitting] = useState(false);
 
-  const trimmedDisplayName = useMemo(() => displayName.trim(), [displayName]);
+  const draft = useMemo<OnboardingDraft>(
+    () => ({
+      displayName,
+      householdSize,
+      cookingSkill,
+      diet,
+      hardRestrictions,
+      softPreferences,
+      slots,
+    }),
+    [cookingSkill, diet, displayName, hardRestrictions, householdSize, slots, softPreferences]
+  );
 
-  const householdSizeNumber = useMemo(() => {
-    const parsed = Number.parseInt(householdSize, 10);
-    if (!Number.isFinite(parsed)) return null;
-    if (parsed < 1 || parsed > 20) return null;
-    return parsed;
-  }, [householdSize]);
+  const isValid = useMemo(
+    () => ONBOARDING_STEPS.every((entry) => validateOnboardingStep(entry, draft) === null),
+    [draft]
+  );
 
-  const isValid = useMemo(() => {
-    if (trimmedDisplayName.length < 1 || trimmedDisplayName.length > 60) return false;
-    if (householdSizeNumber === null) return false;
-    if (!COOKING_SKILLS.includes(cookingSkill)) return false;
-    return true;
-  }, [trimmedDisplayName, householdSizeNumber, cookingSkill]);
+  const previousStep = getPreviousStep(step);
+
+  const handleBack = useCallback(() => {
+    if (previousStep === null) return;
+    setStepError(null);
+    setStep(previousStep);
+  }, [previousStep]);
+
+  // Android hardware back walks the wizard backwards. On the first step the
+  // listener is not registered, so the system keeps its default behavior.
+  useEffect(() => {
+    if (previousStep === null) return undefined;
+    const subscription = BackHandler.addEventListener('hardwareBackPress', () => {
+      // A request in flight still belongs to the last step.
+      if (!submitting) handleBack();
+      return true;
+    });
+    return () => subscription.remove();
+  }, [handleBack, previousStep, submitting]);
+
+  // Wraps a change handler so that any edit dismisses the message left by a
+  // failed attempt to leave the step.
+  function editing<Args extends unknown[]>(apply: (...args: Args) => void) {
+    return (...args: Args) => {
+      setStepError(null);
+      apply(...args);
+    };
+  }
 
   const handleSlotModeChange = useCallback((slot: MealSlot, mode: SlotMode) => {
     setSlots((prev) => ({
@@ -118,36 +165,21 @@ export function OnboardingScreen({ previewMode = false }: OnboardingScreenProps)
     }));
   }, []);
 
-  const buildSlotPayload = useCallback(
-    (slot: MealSlot): SlotCookingTime => {
-      const form = slots[slot];
-      if (form.mode === 'noCook') {
-        return buildSlot('noCook', 0, form.hunger);
-      }
-      if (form.mode === 'custom') {
-        const parsed = Number.parseInt(form.customText, 10);
-        return buildSlot('custom', Number.isFinite(parsed) ? parsed : 0, form.hunger);
-      }
-      return buildSlot('preset', form.preset, form.hunger);
-    },
-    [slots]
-  );
-
   const handleToggleHardRestriction = useCallback((code: HardRestrictionCode) => {
     setHardRestrictions((prev) =>
       prev.includes(code) ? prev.filter((entry) => entry !== code) : [...prev, code]
     );
   }, []);
 
+  const hasAccessToken = previewMode || accessToken !== null;
+
   const handleSubmit = useCallback(async () => {
-    if (submitting) return;
-    if (isLoading) {
-      // Defense-in-depth: AuthContext hasn't hydrated yet, so we cannot send
-      // a request with a bearer token. Mirror the existing redirect logic.
-      return;
-    }
-    if (!isValid) {
-      Alert.alert('Faltan datos', 'Revisá los campos obligatorios antes de continuar.');
+    // Block submit until we have a token. The POST /api/onboarding/complete
+    // requires Authorization: Bearer ... and the gate flips only when /me
+    // reports isComplete=true. Sending before hydration would either fail
+    // with 401 or leave the user wedged on this screen. The rule is
+    // unit-tested in `onboardingSubmitGate.test.ts`.
+    if (!canSubmitOnboarding({ isLoading, isSubmitting: submitting, hasAccessToken, isValid })) {
       return;
     }
 
@@ -157,8 +189,8 @@ export function OnboardingScreen({ previewMode = false }: OnboardingScreenProps)
     }
 
     const formState: OnboardingFormState = {
-      displayName: trimmedDisplayName,
-      householdSize: householdSizeNumber ?? 1,
+      displayName: displayName.trim(),
+      householdSize,
       cookingSkill,
       preferences: {
         diet,
@@ -166,9 +198,9 @@ export function OnboardingScreen({ previewMode = false }: OnboardingScreenProps)
         softPreferences: parseListInput(softPreferences),
       },
       slotCookingTimes: {
-        breakfast: buildSlotPayload('breakfast'),
-        lunch: buildSlotPayload('lunch'),
-        dinner: buildSlotPayload('dinner'),
+        breakfast: slotFormToCookingTime(slots.breakfast),
+        lunch: slotFormToCookingTime(slots.lunch),
+        dinner: slotFormToCookingTime(slots.dinner),
       },
     };
 
@@ -195,20 +227,41 @@ export function OnboardingScreen({ previewMode = false }: OnboardingScreenProps)
       setSubmitting(false);
     }
   }, [
-    buildSlotPayload,
     completeOnboarding,
     cookingSkill,
     diet,
+    displayName,
     hardRestrictions,
-    householdSizeNumber,
+    hasAccessToken,
+    householdSize,
     isLoading,
     isValid,
     previewMode,
     router,
+    slots,
     softPreferences,
     submitting,
-    trimmedDisplayName,
   ]);
+
+  // The primary button: validates the step on screen, then moves on or, on
+  // the last step, submits.
+  const handlePrimaryPress = useCallback(async () => {
+    if (submitting) return;
+
+    const problem = validateOnboardingStep(step, draft);
+    if (problem !== null) {
+      setStepError(problem);
+      return;
+    }
+    setStepError(null);
+
+    const nextStep = getNextStep(step);
+    if (nextStep !== null) {
+      setStep(nextStep);
+      return;
+    }
+    await handleSubmit();
+  }, [draft, handleSubmit, step, submitting]);
 
   if (!previewMode && !isLoading && !isAuthenticated) {
     return <Redirect href="/" />;
@@ -218,127 +271,104 @@ export function OnboardingScreen({ previewMode = false }: OnboardingScreenProps)
     return <Redirect href="/" />;
   }
 
-  // Block submit until we have a token. The POST /api/onboarding/complete
-  // requires Authorization: Bearer ... and the gate flips only when /me
-  // reports isComplete=true. Sending before hydration would either fail
-  // with 401 or leave the user wedged on this screen. The rule is
-  // unit-tested in `onboardingSubmitGate.test.ts`.
-  const submitDisabled = !canSubmitOnboarding({
-    isLoading,
-    isSubmitting: submitting,
-    hasAccessToken: previewMode || accessToken !== null,
-    isValid,
-  });
-
-  const isCompact = width < 380;
+  const isLastStep = getNextStep(step) === null;
+  // The button stays pressable with invalid data so the press can explain
+  // what is missing. On the last step it also waits for the session, since
+  // that press sends the request.
+  const primaryDisabled =
+    submitting ||
+    (isLastStep &&
+      !canSubmitOnboarding({ isLoading, isSubmitting: submitting, hasAccessToken, isValid: true }));
 
   return (
-    <LinearGradient
-      colors={[theme.appBg, '#D4CCAE', theme.appBg]}
-      start={{ x: 0, y: 0 }}
-      end={{ x: 0.8, y: 1 }}
-      style={{ flex: 1 }}>
-      <NoisyBackground opacity={0.28} />
+    <View style={{ backgroundColor: theme.appBg, flex: 1 }}>
+      {/* Same ground as Home: a dark fade at the top of the screen ground, under the noise. */}
       <LinearGradient
         pointerEvents="none"
-        colors={['rgba(10, 13, 7, 0.38)', 'rgba(10, 13, 7, 0)', 'rgba(10, 13, 7, 0.16)']}
-        locations={[0, 0.22, 1]}
-        style={{ bottom: 0, left: 0, position: 'absolute', right: 0, top: 0 }}
+        colors={[theme.colorDark, theme.appBg]}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 0, y: 1 }}
+        locations={[0, 0.1]}
+        style={StyleSheet.absoluteFill}
       />
+      <NoisyBackground opacity={0.3} />
+      {/* SafeAreaContent pads both insets, so the scroll view must not adjust for them again. */}
       <SafeAreaContent overflowHidden={false}>
+        <View style={{ paddingHorizontal: 14, paddingTop: 1 }}>
+          <OnboardingProgress
+            currentStep={getStepNumber(step)}
+            onBack={previousStep === null ? undefined : handleBack}
+            theme={theme}
+            totalSteps={ONBOARDING_STEPS.length}
+          />
+        </View>
+
         <ScrollView
+          // Remounting per step starts every step at the top.
+          key={step}
           testID="e2e-onboarding-screen"
-          contentInsetAdjustmentBehavior="automatic"
-          contentContainerStyle={{ paddingBottom: 32, gap: 18, paddingHorizontal: 12 }}
-          keyboardShouldPersistTaps="handled">
-          <OnboardingHero isCompact={isCompact} theme={theme} />
-
-          <HouseholdSection
-            cookingSkill={cookingSkill}
-            displayName={displayName}
-            householdSize={householdSize}
-            householdSizeNumber={householdSizeNumber}
-            onCookingSkillChange={setCookingSkill}
-            onDisplayNameChange={setDisplayName}
-            onHouseholdSizeChange={setHouseholdSize}
+          automaticallyAdjustKeyboardInsets
+          contentContainerStyle={{
+            gap: 26,
+            paddingBottom: 24,
+            paddingHorizontal: 14,
+            paddingTop: 15,
+          }}
+          keyboardDismissMode="on-drag"
+          keyboardShouldPersistTaps="handled"
+          style={{ flex: 1 }}>
+          <OnboardingStepHeading
+            subtitle={STEP_COPY[step].subtitle}
             theme={theme}
+            title={STEP_COPY[step].title}
           />
 
-          <PreferencesSection
-            diet={diet}
-            hardRestrictions={hardRestrictions}
-            onDietChange={setDiet}
-            onSoftPreferencesChange={setSoftPreferences}
-            onToggleHardRestriction={handleToggleHardRestriction}
-            softPreferences={softPreferences}
-            theme={theme}
-          />
+          {step === 'household' ? (
+            <HouseholdStep
+              cookingSkill={cookingSkill}
+              displayName={displayName}
+              householdSize={householdSize}
+              onCookingSkillChange={editing(setCookingSkill)}
+              onDisplayNameChange={editing(setDisplayName)}
+              onHouseholdSizeChange={editing(setHouseholdSize)}
+              theme={theme}
+            />
+          ) : null}
 
-          <MealTimesSection
-            onSlotCustomChange={handleSlotCustomChange}
-            onSlotHungerChange={handleSlotHungerChange}
-            onSlotModeChange={handleSlotModeChange}
-            onSlotPresetChange={handleSlotPresetChange}
-            slots={slots}
-            theme={theme}
-          />
+          {step === 'preferences' ? (
+            <PreferencesSection
+              diet={diet}
+              hardRestrictions={hardRestrictions}
+              onDietChange={editing(setDiet)}
+              onSoftPreferencesChange={editing(setSoftPreferences)}
+              onToggleHardRestriction={editing(handleToggleHardRestriction)}
+              softPreferences={softPreferences}
+              theme={theme}
+            />
+          ) : null}
 
-          <View style={{ gap: 12, paddingHorizontal: 2 }}>
-            <Pressable
-              accessibilityRole="button"
-              onPress={handleSubmit}
-              disabled={submitDisabled}
-              style={({ pressed }) => [
-                styles.submitButton,
-                {
-                  backgroundColor: submitDisabled ? 'rgba(69, 64, 47, 0.58)' : theme.colorBlack,
-                  borderColor: submitDisabled ? 'transparent' : theme.primaryAccent,
-                  opacity: submitDisabled ? 0.6 : pressed ? 0.9 : 1,
-                },
-              ]}>
-              {submitting ? (
-                <ActivityIndicator size="small" color={theme.primaryAccent} />
-              ) : (
-                <Text style={[styles.submitLabel, { color: theme.textLight }]}>
-                  Guardar preferencias
-                </Text>
-              )}
-            </Pressable>
-            <Pressable
-              accessibilityRole="button"
-              onPress={previewMode ? undefined : signOut}
-              style={({ pressed }) => [styles.signOutButton, { opacity: pressed ? 0.8 : 1 }]}>
-              <Text style={[styles.signOutLabel, { color: theme.colorMedium }]}>Cerrar sesión</Text>
-            </Pressable>
-          </View>
+          {step === 'mealTimes' ? (
+            <MealTimesSection
+              onSlotCustomChange={editing(handleSlotCustomChange)}
+              onSlotHungerChange={editing(handleSlotHungerChange)}
+              onSlotModeChange={editing(handleSlotModeChange)}
+              onSlotPresetChange={editing(handleSlotPresetChange)}
+              slots={slots}
+              theme={theme}
+            />
+          ) : null}
         </ScrollView>
+
+        <OnboardingFooter
+          errorMessage={stepError}
+          isLastStep={isLastStep}
+          isSubmitting={submitting}
+          onPrimaryPress={handlePrimaryPress}
+          onSignOut={previewMode ? undefined : signOut}
+          primaryDisabled={primaryDisabled}
+          theme={theme}
+        />
       </SafeAreaContent>
-    </LinearGradient>
+    </View>
   );
 }
-
-const styles = StyleSheet.create({
-  signOutButton: {
-    alignItems: 'center',
-    borderRadius: 14,
-    paddingVertical: 10.5,
-  },
-  signOutLabel: {
-    fontFamily: 'Inter_600SemiBold',
-    fontSize: 12.25,
-    lineHeight: 17.5,
-  },
-  submitButton: {
-    alignItems: 'center',
-    borderRadius: 32,
-    borderWidth: 3,
-    paddingHorizontal: 20,
-    paddingVertical: 16,
-  },
-  submitLabel: {
-    fontFamily: 'Montserrat_700Bold',
-    fontSize: 14,
-    letterSpacing: 0.2,
-    lineHeight: 21,
-  },
-});

@@ -6,13 +6,21 @@ interface OnboardingChipProps {
   selected: boolean;
   onPress: () => void;
   theme: OnboardingTheme;
+  /** `radio` for one choice out of a group, `checkbox` when several can be on. */
+  role?: 'radio' | 'checkbox';
 }
 
-export function OnboardingChip({ label, selected, onPress, theme }: OnboardingChipProps) {
+export function OnboardingChip({
+  label,
+  selected,
+  onPress,
+  theme,
+  role = 'radio',
+}: OnboardingChipProps) {
   return (
     <Pressable
-      accessibilityRole="button"
-      accessibilityState={{ selected }}
+      accessibilityRole={role}
+      accessibilityState={{ checked: selected }}
       onPress={onPress}
       style={({ pressed }) => ({
         alignItems: 'center',

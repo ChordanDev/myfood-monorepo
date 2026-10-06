@@ -79,6 +79,7 @@ export function PreferencesSection({
             label={HARD_RESTRICTION_LABELS[code]}
             selected={hardRestrictions.includes(code)}
             onPress={() => onToggleHardRestriction(code)}
+            role="checkbox"
             theme={theme}
           />
         ))}
@@ -86,7 +87,7 @@ export function PreferencesSection({
 
       <FieldLabel theme={theme} text="Preferencias suaves (separadas por coma)" />
       <TextInput
-        accessibilityLabel="softPreferences"
+        accessibilityLabel="Preferencias suaves"
         value={softPreferences}
         onChangeText={onSoftPreferencesChange}
         placeholder="ej. cilantro, picante, comidas rápidas"

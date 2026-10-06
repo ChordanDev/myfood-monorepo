@@ -134,7 +134,7 @@ export function SlotEditor({
 
       {form.mode === 'custom' ? (
         <TextInput
-          accessibilityLabel={`${slot}-custom-minutes`}
+          accessibilityLabel={`Minutos de ${SLOT_LABELS[slot]}`}
           value={form.customText}
           onChangeText={onCustomChange}
           keyboardType="number-pad"

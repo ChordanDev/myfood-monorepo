@@ -16,8 +16,8 @@ export function OnboardingSegmentChip({
 }: OnboardingSegmentChipProps) {
   return (
     <Pressable
-      accessibilityRole="button"
-      accessibilityState={{ selected }}
+      accessibilityRole="radio"
+      accessibilityState={{ checked: selected }}
       onPress={onPress}
       style={({ pressed }) => ({
         alignItems: 'center',

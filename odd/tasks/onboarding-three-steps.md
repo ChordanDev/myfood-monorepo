@@ -65,7 +65,7 @@ The mockup (`docs/design/screens/Onboarding.dc.html`) covers step 1 only.
       null; household size clamp 1-20; `slotFormToCookingTime` in
       `onboardingSlot.ts`. Route: delegated (util plus tests, prepares T2).
       Test-first: RED on the new unit tests, then GREEN.
-- [ ] T2 Wizard shell and step 1. Step state, progress bar with "Paso N de 3",
+- [x] T2 Wizard shell and step 1. Step state, progress bar with "Paso N de 3",
       fixed footer (primary button, inline error, "Cerrar sesión" text), back
       control, step 1 to the mockup with the diners stepper. Steps 2 and 3
       render the existing sections. Route: delegated (screen plus components
@@ -108,11 +108,28 @@ commit that follows it.
   - `npx tsc --noEmit`: 22 errors, all missing node types, in
     `maestroSelectors.contract.test.ts` (12), `authErrorCodeContract.test.ts`
     (8), `authService.test.ts` (1) and `onboardingService.test.ts` (1).
-- T1 done. RED: `npx jest` on the two new files failed 2 suites, 5 tests
-  (`slotFormToCookingTime is not a function`; `onboardingSteps` could not be
-  resolved). GREEN: 2 suites, 28 tests passed. Focused check: 10 suites, 80
-  tests passed. Lint and tsc unchanged from the baseline.
+- T1 done in 2fbf0af. RED: `npx jest` on the two new files failed 2 suites,
+  5 tests (`slotFormToCookingTime is not a function`; the `onboardingSteps`
+  suite ran no test because the module it imports did not exist yet). GREEN:
+  2 suites, 28 tests passed. Focused check: 10 suites, 80 tests passed. Lint
+  and tsc unchanged from the baseline.
+- T2 done. RED: the 9 cases of `onboardingScreen.steps.test.tsx` failed
+  against the single-scroll screen (no "Paso 1 de 3", no CONTINUAR, no
+  "Nombre para mostrar" input). GREEN: 9 passed. The integration test keeps
+  its five cases: its mocks gained `ShadowSurface`, the two catalog guards and
+  the two palette tokens the screen now reads, and the preview case walks
+  CONTINUAR, CONTINUAR, FINALIZAR and asserts the "Modo preview" alert.
+  Focused check: 11 suites, 89 tests passed. Lint and tsc unchanged from the
+  baseline. Steps 2 and 3 still render the old section cards, with their
+  literals, until T3.
+  - Route: delegated writer. Not verified on a simulator.
+  - Choices inside the brief: chips are `radio`/`checkbox` with a `checked`
+    state, as the mockup's `role="radio"`; the progress bar reports
+    `min 0, max 3, now N`; "1 comensal" is singular; the name card is a touch
+    target that focuses its input; the scroll view remounts per step so each
+    step starts at the top; `ShadowSurface` supplies the mockup's card and
+    button shadow.
 
 ## Next step
 
-T2.
+T3.
