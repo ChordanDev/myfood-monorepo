@@ -197,6 +197,11 @@ proposal in `docs/design/screens/Main.dc.html` (sand `#B9553B`, olive `#C94F3D`)
 
 ## Next step
 
-Ask for the chain strategy before opening a PR (about 1490 authored changed
-lines, 620 of them tests), and merge `docs/alert-theme-token` in
-`meal-app-docs` first.
+Delivery decided by the user on 2026-10-06: merge the branch straight into
+`Develop` and close issue #46, no PR chain. Checks before the merge:
+`npx tsc --noEmit` 22 errors (baseline); `npx jest` 39 suites / 428 tests
+passed, 1 suite / 2 tests failed (baseline); `npm run lint` 0 errors.
+
+Still open: `docs/alert-theme-token` in `meal-app-docs` is local and unmerged,
+and the feature-first restructure of the global folders is tracked in a
+separate issue.
