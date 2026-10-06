@@ -1,7 +1,6 @@
 import { useState } from 'react';
 import { ScrollView, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { TopGradientBackground } from '@/components/TopGradientBackground';
 import { useRecipeTheme } from '@/context/RecipeThemeContext';
 import { PlannerChatInput } from '@/features/planner/components/PlannerChatInput';
 import { PLANNER_CHAT_INPUT_MIN_HEIGHT } from '@/features/planner/constants';
@@ -12,6 +11,7 @@ import {
   RecipeIngredientsCard,
   RecipeNotFound,
   RecipePreparationCard,
+  RecipeTopGradient,
 } from '../components';
 import {
   RECIPE_BOTTOM_FADE_REACH,
@@ -68,7 +68,7 @@ export function RecipeScreen() {
 
   return (
     <View style={[styles.screen, { backgroundColor: theme.appBg }]}>
-      <TopGradientBackground />
+      <RecipeTopGradient />
 
       <ScrollView
         ref={scrollViewRef}

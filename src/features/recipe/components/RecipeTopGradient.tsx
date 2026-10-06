@@ -2,7 +2,7 @@ import { StyleSheet, View } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRecipeTheme } from '@/context/RecipeThemeContext';
 import { useGradientCrossfade } from '@/hooks/useGradientCrossfade';
-import { NoisyBackground } from './NoisyBackground';
+import { NoisyBackground } from '@/components/NoisyBackground';
 
 const GRADIENT_START = { x: 0, y: 0 };
 const GRADIENT_END = { x: 0, y: 1 };
@@ -11,10 +11,10 @@ const GRADIENT_LOCATIONS = [0, 0.1] as const;
 const NOISE_OPACITY = 0.3;
 
 /**
- * Screen ground shared by the screens that open with the dark top fade: the dark surface melting
+ * Screen ground of the recipe screens, which open with the dark top fade: the dark surface melting
  * into the ground, under a noise texture. A palette change crossfades the two gradients.
  */
-export function TopGradientBackground() {
+export function RecipeTopGradient() {
   const { theme } = useRecipeTheme();
   const { currentColors, previousColors, animatedStyle, AnimatedView } = useGradientCrossfade([
     theme.colorDark,

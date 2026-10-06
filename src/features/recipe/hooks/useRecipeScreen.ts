@@ -2,13 +2,13 @@ import { useCallback, useMemo } from 'react';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { formatDateKey } from '@/features/home/utils/calendarDate';
 import { useInventoryStore, useMealPlanStore } from '@/store';
-import {
-  selectRequestedIngredientIds,
-  useShoppingRequestsStore,
-} from '@/store/useShoppingRequestsStore';
 import type { RecipeChatOffer } from '../domain/recipeChat';
 import { canMarkAsCooked, isRecipeChatEnabled, resolveRecipeEntry } from '../domain/recipeEntry';
 import { resolveRecipeIngredients, type RecipeIngredientRow } from '../domain/recipeIngredients';
+import {
+  selectRequestedIngredientIds,
+  useShoppingRequestsStore,
+} from '../store/useShoppingRequestsStore';
 
 type RecipeRouteParams = {
   id: string;

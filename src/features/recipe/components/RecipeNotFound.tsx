@@ -1,9 +1,9 @@
 import { StyleSheet, Text, View } from 'react-native';
 import { ArrowLeft } from 'lucide-react-native';
-import { TopGradientBackground } from '@/components/TopGradientBackground';
 import { useRecipeTheme } from '@/context/RecipeThemeContext';
 import { RECIPE_SCREEN_SIDE_PADDING } from '../constants';
 import { RecipeHeaderButton } from './RecipeHeaderButton';
+import { RecipeTopGradient } from './RecipeTopGradient';
 
 interface RecipeNotFoundProps {
   /** Distance of the back button from the top of the screen. */
@@ -17,7 +17,7 @@ export function RecipeNotFound({ top, onBack }: RecipeNotFoundProps) {
 
   return (
     <View style={[styles.screen, { backgroundColor: theme.appBg }]}>
-      <TopGradientBackground />
+      <RecipeTopGradient />
       <Text testID="recipe-not-found" style={[styles.message, { color: theme.textDark }]}>
         No encontramos esta receta
       </Text>

@@ -4,9 +4,9 @@ import { act, create, type ReactTestRenderer } from 'react-test-renderer';
 import { formatDateKey } from '@/features/home/utils/calendarDate';
 import { PLANNER_CHAT_INPUT_MIN_HEIGHT } from '@/features/planner/constants';
 import { useInventoryStore, useMealPlanStore } from '@/store';
-import { useShoppingRequestsStore } from '@/store/useShoppingRequestsStore';
 import type { MasterRecipe, MealPlanEntry, RecipeThemeConfig } from '@/types/domain';
 import { RECIPE_CHAT_REPLY_DELAY_MS } from '../../hooks/useRecipeChat';
+import { useShoppingRequestsStore } from '../../store/useShoppingRequestsStore';
 import { RecipeScreen } from '../RecipeScreen';
 
 const mockBack = jest.fn();
@@ -30,8 +30,8 @@ jest.mock('@/components', () => ({
   ShadowSurface: ({ children }: { children: React.ReactNode }) => <>{children}</>,
 }));
 
-jest.mock('@/components/TopGradientBackground', () => ({
-  TopGradientBackground: () => null,
+jest.mock('../../components/RecipeTopGradient', () => ({
+  RecipeTopGradient: () => null,
 }));
 
 // The scroll view is replaced by a host node, so the test can hand it a `scrollToEnd` to observe.
