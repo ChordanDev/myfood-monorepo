@@ -4,3 +4,4 @@ export { DayCell } from './DayCell';
 export { FloatingFoodImage } from './FloatingFoodImage';
 export { FoodTypeSwitcher } from './FoodTypeSwitcher';
 export { EatTodayButton } from './EatTodayButton';
+export { EatTodaySheet } from './EatTodaySheet';

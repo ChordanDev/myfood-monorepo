@@ -1,10 +1,17 @@
-import { Alert, StyleSheet, View } from 'react-native';
+import { useState } from 'react';
+import { StyleSheet, View } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
 import { AddCircleButton, NoisyBackground, SafeAreaContent, TitlePrimary } from '@/components';
-import { Calendar, EatTodayButton, FloatingFoodImage, FoodTypeSwitcher } from '../components';
+import {
+  Calendar,
+  EatTodayButton,
+  EatTodaySheet,
+  FloatingFoodImage,
+  FoodTypeSwitcher,
+} from '../components';
 import { FoodCard } from '../components/FoodCard';
-import { EAT_TODAY_LABEL, getAvailableEatTodayDestinations } from '../domain/eatToday';
+import { getAvailableEatTodayDestinations, type EatTodayDestinationType } from '../domain/eatToday';
 import { useHomeResponsiveScale } from '../hooks/useHomeResponsiveScale';
 import { useHomeState } from '../hooks/useHomeState';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -24,6 +31,11 @@ export function HomeScreen() {
   const eatToday = useMealPlanStore((state) => state.eatToday);
   const favoriteRecipeIds = useMealPlanStore((state) => state.favoriteRecipeIds);
   const toggleFavoriteRecipe = useMealPlanStore((state) => state.toggleFavoriteRecipe);
+  // Destinations are captured when the sheet opens so the options cannot change while it is shown.
+  const [eatTodaySheet, setEatTodaySheet] = useState<{
+    visible: boolean;
+    destinations: EatTodayDestinationType[];
+  }>({ visible: false, destinations: [] });
 
   const {
     selectedDate,
@@ -70,38 +82,31 @@ export function HomeScreen() {
       return;
     }
 
-    const availableDestinations = getAvailableEatTodayDestinations(
-      planByDate[todayKey] ?? [],
-      new Date()
-    );
+    setEatTodaySheet({
+      visible: true,
+      destinations: getAvailableEatTodayDestinations(planByDate[todayKey] ?? [], new Date()),
+    });
+  };
 
-    if (!availableDestinations.length) {
-      Alert.alert(
-        'No hay horarios disponibles',
-        'El mediodía y la cena ya pasaron o sus comidas ya fueron marcadas como cocinadas.'
-      );
+  // Keeps the destinations so the content does not switch while the sheet fades out.
+  const handleCloseEatTodaySheet = () => {
+    setEatTodaySheet((current) => ({ ...current, visible: false }));
+  };
+
+  const handleSelectEatTodayDestination = (mealType: EatTodayDestinationType) => {
+    handleCloseEatTodaySheet();
+
+    if (!selectedDate || !selectedMealType) {
       return;
     }
 
-    Alert.alert(
-      '¿Cuándo querés comerlo hoy?',
-      'Elegí el horario para intercambiar o mover esta comida a hoy.',
-      [
-        ...availableDestinations.map((mealType) => ({
-          text: EAT_TODAY_LABEL[mealType],
-          onPress: () => {
-            eatToday({
-              sourceDate: selectedDate,
-              sourceType: selectedMealType,
-              targetDate: todayKey,
-              targetType: mealType,
-            });
-            handleSelectDate(todayKey, mealType);
-          },
-        })),
-        { text: 'Cancelar', style: 'cancel' as const },
-      ]
-    );
+    eatToday({
+      sourceDate: selectedDate,
+      sourceType: selectedMealType,
+      targetDate: todayKey,
+      targetType: mealType,
+    });
+    handleSelectDate(todayKey, mealType);
   };
 
   return (
@@ -199,6 +204,12 @@ export function HomeScreen() {
           </View>
         </View>
       </SafeAreaContent>
+      <EatTodaySheet
+        visible={eatTodaySheet.visible}
+        destinations={eatTodaySheet.destinations}
+        onSelect={handleSelectEatTodayDestination}
+        onClose={handleCloseEatTodaySheet}
+      />
     </View>
   );
 }
