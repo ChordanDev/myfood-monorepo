@@ -32,3 +32,6 @@ android
 
 # Local Maestro reports, screenshots, videos, and command traces.
 e2e/artifacts/
+
+# CodeGraph local index
+.codegraph/
