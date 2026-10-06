@@ -71,6 +71,7 @@ export interface MealPlanEntry {
   type: MealType;
   recipeId: string; // Referencia a MasterRecipe o CustomizedRecipe
   isCooked: boolean;
+  isSkipped?: boolean; // The meal passed and was not cooked. Never true together with isCooked.
 }
 
 export interface ShoppingListItem {

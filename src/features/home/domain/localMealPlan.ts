@@ -94,12 +94,41 @@ export function getAllowedMonthKeys(planByDate: LocalMealPlanByDate) {
   return Array.from(new Set(monthKeys)).sort();
 }
 
+export function isMealConfirmed(entry: MealPlanEntry) {
+  return entry.isCooked || Boolean(entry.isSkipped);
+}
+
+export function getPendingConfirmationEntries(entries: MealPlanEntry[]) {
+  return ORDERED_HOME_MEAL_TYPES.flatMap((type) =>
+    entries.filter((entry) => entry.type === type && !isMealConfirmed(entry))
+  );
+}
+
+export function getPendingHomeMealType(entries: MealPlanEntry[]): HomeMealType | null {
+  return getAvailableHomeMealTypes(getPendingConfirmationEntries(entries))[0] ?? null;
+}
+
+export function isPendingConfirmationDate(
+  dateString: string,
+  planByDate: LocalMealPlanByDate,
+  today: Date,
+  parseDateKey: (dateString: string) => Date
+) {
+  return (
+    parseDateKey(dateString) < today &&
+    getPendingConfirmationEntries(planByDate[dateString] ?? []).length > 0
+  );
+}
+
 export function isSelectableMealDate(
   dateString: string,
   planByDate: LocalMealPlanByDate,
   today: Date,
   parseDateKey: (dateString: string) => Date
 ) {
-  const dayDate = parseDateKey(dateString);
-  return dayDate >= today && Boolean(planByDate[dateString]?.length);
+  if (parseDateKey(dateString) < today) {
+    return isPendingConfirmationDate(dateString, planByDate, today, parseDateKey);
+  }
+
+  return Boolean(planByDate[dateString]?.length);
 }
