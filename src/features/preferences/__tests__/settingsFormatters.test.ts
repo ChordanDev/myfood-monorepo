@@ -110,32 +110,32 @@ describe('formatPlanSummary', () => {
         { type: 'individual', subscriptionStatus: 'none', trialEndsAt: localIso(9, 12) },
         localNow
       )
-    ).toBe('Individual · prueba hasta 12 oct');
+    ).toBe('Individual · prueba hasta 12 Oct');
   });
 
   it('uses the local calendar day at both edges of the day', () => {
     const account = { type: 'individual', subscriptionStatus: 'none' } as const;
     expect(formatPlanSummary({ ...account, trialEndsAt: localIso(9, 12, 0, 30) }, localNow)).toBe(
-      'Individual · prueba hasta 12 oct'
+      'Individual · prueba hasta 12 Oct'
     );
     expect(formatPlanSummary({ ...account, trialEndsAt: localIso(9, 12, 23, 30) }, localNow)).toBe(
-      'Individual · prueba hasta 12 oct'
+      'Individual · prueba hasta 12 Oct'
     );
   });
 
   it.each([
-    [0, 'ene'],
-    [1, 'feb'],
-    [2, 'mar'],
-    [3, 'abr'],
-    [4, 'may'],
-    [5, 'jun'],
-    [6, 'jul'],
-    [7, 'ago'],
-    [8, 'sep'],
-    [9, 'oct'],
-    [10, 'nov'],
-    [11, 'dic'],
+    [0, 'Ene'],
+    [1, 'Feb'],
+    [2, 'Mar'],
+    [3, 'Abr'],
+    [4, 'May'],
+    [5, 'Jun'],
+    [6, 'Jul'],
+    [7, 'Ago'],
+    [8, 'Sep'],
+    [9, 'Oct'],
+    [10, 'Nov'],
+    [11, 'Dic'],
   ])('abbreviates month %i as %s', (month, abbreviation) => {
     expect(
       formatPlanSummary(
@@ -258,9 +258,16 @@ describe('formatHardRestrictionsSummary', () => {
     expect(formatHardRestrictionsSummary([])).toBe('Ninguna');
   });
 
-  it('never prints a code the catalog does not know', () => {
-    expect(formatHardRestrictionsSummary(['gluten', 'sesame'])).toBe('Gluten');
-    expect(formatHardRestrictionsSummary(['sesame'])).toBe('Ninguna');
+  it('counts the codes the catalog does not know instead of printing them', () => {
+    expect(formatHardRestrictionsSummary(['gluten', 'sesame'])).toBe('Gluten +1');
+    expect(formatHardRestrictionsSummary(['sesame', 'gluten', 'peanut', 'kiwi'])).toBe(
+      'Gluten, Maní +2'
+    );
+  });
+
+  it('never reads as "none" when every code is unknown', () => {
+    expect(formatHardRestrictionsSummary(['sesame'])).toBe('+1');
+    expect(formatHardRestrictionsSummary(['sesame', 'kiwi'])).toBe('+2');
   });
 });
 

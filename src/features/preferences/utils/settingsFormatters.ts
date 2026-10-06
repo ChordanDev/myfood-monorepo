@@ -30,18 +30,18 @@ const LIST_SEPARATOR = ', ';
 
 // Fixed names instead of Intl so the output never depends on the device ICU data.
 const SHORT_MONTHS = [
-  'ene',
-  'feb',
-  'mar',
-  'abr',
-  'may',
-  'jun',
-  'jul',
-  'ago',
-  'sep',
-  'oct',
-  'nov',
-  'dic',
+  'Ene',
+  'Feb',
+  'Mar',
+  'Abr',
+  'May',
+  'Jun',
+  'Jul',
+  'Ago',
+  'Sep',
+  'Oct',
+  'Nov',
+  'Dic',
 ] as const;
 
 const SUBSCRIPTION_LABELS: Record<Exclude<AuthSubscriptionStatus, 'none'>, string> = {
@@ -124,16 +124,24 @@ export function formatSlotSummary(slot: SlotCookingTime): string {
 }
 
 // The API types diet and restrictions as plain strings. A code the catalog
-// does not know has no label, so it is left out rather than printed raw.
+// does not know has no label, so it is never printed raw.
 export function formatDietSummary(diet: string | null): string {
   return isValidDietCode(diet) ? DIET_LABELS[diet] : 'Sin preferencia';
 }
 
+// Unknown restriction codes are counted ("Gluten +1") instead of dropped:
+// the row must never understate what the user is restricted from.
 export function formatHardRestrictionsSummary(hardRestrictions: readonly string[]): string {
+  if (hardRestrictions.length === 0) return EMPTY_LIST_LABEL;
+
   const labels = hardRestrictions
     .filter(isValidHardRestrictionCode)
     .map((code) => HARD_RESTRICTION_LABELS[code]);
-  return labels.length > 0 ? labels.join(LIST_SEPARATOR) : EMPTY_LIST_LABEL;
+  const unknownCount = hardRestrictions.length - labels.length;
+
+  const parts = [labels.join(LIST_SEPARATOR)];
+  if (unknownCount > 0) parts.push(`+${unknownCount}`);
+  return parts.filter(Boolean).join(' ');
 }
 
 export function formatSoftPreferencesSummary(softPreferences: readonly string[]): string {
