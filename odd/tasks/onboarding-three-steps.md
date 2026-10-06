@@ -60,7 +60,7 @@ The mockup (`docs/design/screens/Onboarding.dc.html`) covers step 1 only.
 
 ## Tasks
 
-- [ ] T1 Pure step logic. `onboardingSteps.ts`: step order, next/previous,
+- [x] T1 Pure step logic. `onboardingSteps.ts`: step order, next/previous,
       `validateOnboardingStep(step, draft)` returning a user-facing message or
       null; household size clamp 1-20; `slotFormToCookingTime` in
       `onboardingSlot.ts`. Route: delegated (util plus tests, prepares T2).
@@ -94,9 +94,25 @@ The mockup (`docs/design/screens/Onboarding.dc.html`) covers step 1 only.
 
 ## Progress and evidence
 
-- Not started. Baseline (full jest, lint, tsc on db05b87) is recorded by the
-  writer before the first edit.
+A commit cannot contain its own hash, so each task's hash is recorded by the
+commit that follows it.
+
+- Baseline on 3c3f359 (db05b87 plus this document), before the first edit:
+  - `npx jest`: 1 suite failed, 34 passed; 2 tests failed, 377 passed. Both
+    failures are in `src/services/__tests__/authErrorCodeContract.test.ts`
+    ("resolveBackLibPath() returns a non-null string when a sibling back
+    exists" and "every error code emitted by the back is in the front
+    allowlist"): the backend checkout is not a sibling of this worktree.
+  - `npm run lint`: 0 errors, 7 warnings (`fix-auth-colors.js` 3,
+    `AddCircleButton.test.tsx` 1, `FoodCard/icons.tsx` 3); Prettier clean.
+  - `npx tsc --noEmit`: 22 errors, all missing node types, in
+    `maestroSelectors.contract.test.ts` (12), `authErrorCodeContract.test.ts`
+    (8), `authService.test.ts` (1) and `onboardingService.test.ts` (1).
+- T1 done. RED: `npx jest` on the two new files failed 2 suites, 5 tests
+  (`slotFormToCookingTime is not a function`; `onboardingSteps` could not be
+  resolved). GREEN: 2 suites, 28 tests passed. Focused check: 10 suites, 80
+  tests passed. Lint and tsc unchanged from the baseline.
 
 ## Next step
 
-T1.
+T2.

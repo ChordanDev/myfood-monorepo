@@ -22,6 +22,20 @@ export function buildSlot(mode: SlotMode, value: number, hunger: HungerLevel): S
   return { cookingTimeMinutes: Math.max(0, Math.floor(value)), hungerLevel: hunger };
 }
 
+// Serializes one slot of the form into the payload shape. Manual minutes that
+// are not a number serialize as 0; `validateOnboardingStep` rejects that form
+// before it can be submitted.
+export function slotFormToCookingTime(form: SlotFormState): SlotCookingTime {
+  if (form.mode === 'noCook') {
+    return buildSlot('noCook', 0, form.hunger);
+  }
+  if (form.mode === 'custom') {
+    const parsed = Number.parseInt(form.customText, 10);
+    return buildSlot('custom', Number.isFinite(parsed) ? parsed : 0, form.hunger);
+  }
+  return buildSlot('preset', form.preset, form.hunger);
+}
+
 export function defaultSlot(mode: SlotMode = 'noCook'): SlotCookingTime {
   return { cookingTimeMinutes: mode === 'noCook' ? 0 : 30, hungerLevel: 'normal' };
 }
