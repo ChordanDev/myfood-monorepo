@@ -108,6 +108,10 @@ export function formatPlanSummary(
   return status ? `${plan} · ${status}` : plan;
 }
 
+export function formatDisplayNameSummary(displayName: string | null): string {
+  return displayName?.trim() || UNDEFINED_LABEL;
+}
+
 export function formatHouseholdSummary(householdSize: number | null): string {
   if (householdSize === null) return UNDEFINED_LABEL;
   return `${householdSize} ${householdSize === 1 ? 'comensal' : 'comensales'}`;

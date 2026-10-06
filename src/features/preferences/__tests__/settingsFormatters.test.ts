@@ -1,6 +1,7 @@
 import {
   formatCookingSkillSummary,
   formatDietSummary,
+  formatDisplayNameSummary,
   formatHardRestrictionsSummary,
   formatHouseholdSummary,
   formatPlanSummary,
@@ -183,6 +184,18 @@ describe('formatPlanSummary', () => {
     expect(
       formatPlanSummary({ type, subscriptionStatus: 'active', trialEndsAt: null }, localNow)
     ).toBe(expected);
+  });
+});
+
+describe('formatDisplayNameSummary', () => {
+  it('shows the trimmed name', () => {
+    expect(formatDisplayNameSummary('Lucca')).toBe('Lucca');
+    expect(formatDisplayNameSummary('  Lucca Giordana ')).toBe('Lucca Giordana');
+  });
+
+  it('shows a placeholder when there is no name', () => {
+    expect(formatDisplayNameSummary(null)).toBe('Sin definir');
+    expect(formatDisplayNameSummary('   ')).toBe('Sin definir');
   });
 });
 

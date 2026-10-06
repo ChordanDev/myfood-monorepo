@@ -1,5 +1,5 @@
-import { ProfilePreferencesScreen } from '@/features/preferences';
+import { SettingsScreen } from '@/features/preferences';
 
 export default function ProfileRoute() {
-  return <ProfilePreferencesScreen />;
+  return <SettingsScreen />;
 }
