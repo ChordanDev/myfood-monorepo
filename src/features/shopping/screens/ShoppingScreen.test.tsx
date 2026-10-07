@@ -508,6 +508,24 @@ describe('ShoppingScreen', () => {
       expect(stockOf('i7')).toBeUndefined();
     });
 
+    // Today is the 1st: a plan that ended in September has no day left to pick.
+    it('only shows the date, and opens nothing, when every planned meal is in the past', () => {
+      useMealPlanStore.setState({
+        entries: [
+          { id: 'mp0', date: '2026-09-28', type: 'almuerzo', recipeId: 'r1', isCooked: false },
+        ],
+      });
+
+      const root = renderScreen();
+
+      expect(getTexts(root)).toContain('Hasta 28 Sep');
+      expect(getTexts(root)).toContain('2 ítems · 0 en el carrito');
+      expect(
+        getPressables(root, 'button').map((button) => button.props.accessibilityLabel)
+      ).toEqual(['Por categoría', 'Por súper', 'Agregar a la lista', 'Ver carrito, vacío']);
+      expect(mockFloatingCalendars).toHaveLength(0);
+    });
+
     it('is not shown while the plan is empty', () => {
       useMealPlanStore.setState({ entries: [] });
 

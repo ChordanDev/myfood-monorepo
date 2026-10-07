@@ -45,12 +45,15 @@ export function resolveUntilDate(
 }
 
 // The calendar that picks the date: the same days `resolveUntilDate` accepts can be picked,
-// they carry the mark of a planned day, and only their months can be walked.
+// they carry the mark of a planned day, and only their months can be walked. Without a day to
+// pick there is no calendar: every planned meal is in the past, or the plan is empty.
 export function getUntilCalendar(
   entries: MealPlanEntry[],
   todayKey: string
-): ShoppingUntilCalendar {
+): ShoppingUntilCalendar | undefined {
   const selectableDates = getSelectableUntilDates(entries, todayKey);
+  if (selectableDates.length === 0) return undefined;
+
   const planByDate: ShoppingUntilCalendar['planByDate'] = {};
 
   for (const entry of entries) {

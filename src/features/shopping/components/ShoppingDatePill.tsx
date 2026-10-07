@@ -14,23 +14,33 @@ export interface ShoppingDatePillProps {
   label: string;
   // Day the list reaches: the one the calendar shows as selected.
   untilDate: string;
-  // The days that can be picked, their marks and their months.
-  calendar: ShoppingUntilCalendar;
+  // The days that can be picked, their marks and their months. Without one there is no day
+  // to pick, and the pill only shows the date.
+  calendar: ShoppingUntilCalendar | undefined;
   onSelectDate: (dateKey: string) => void;
 }
 
-// Shows the last day the list buys for and opens, right under itself, the calendar that
-// changes it. The pill owns the calendar, so the screen only hands it the day and the rules.
-export function ShoppingDatePill({
-  label,
-  untilDate,
-  calendar,
-  onSelectDate,
-}: ShoppingDatePillProps) {
+// What the pill looks like, with or without a calendar behind it.
+function PillFace({ label }: Pick<ShoppingDatePillProps, 'label'>) {
   const { theme } = useRecipeTheme();
-  const { anchorRef, anchor, open, close } = useFloatingCalendarAnchor();
   const backgroundStyle = useAnimatedThemeStyle({ backgroundColor: theme.colorBlack });
   const labelStyle = useAnimatedThemeStyle({ color: theme.primaryAccent });
+
+  return (
+    <ShadowSurface style={styles.pill}>
+      {/* The palette-animated fill is its own layer so the shadow wrapper stays a plain View. */}
+      <Animated.View pointerEvents="none" style={[styles.background, backgroundStyle]} />
+      <Calendar size={20} color={theme.primaryAccent} strokeWidth={2.5} />
+      <Animated.Text style={[styles.label, labelStyle]}>{label}</Animated.Text>
+    </ShadowSurface>
+  );
+}
+
+type PickerPillProps = ShoppingDatePillProps & { calendar: ShoppingUntilCalendar };
+
+// The pill as a button, and the calendar it opens right under itself.
+function PickerPill({ label, untilDate, calendar, onSelectDate }: PickerPillProps) {
+  const { anchorRef, anchor, open, close } = useFloatingCalendarAnchor();
 
   // One pick is the whole errand: the day is reported and the calendar leaves.
   const handleSelectDate = (dateKey: string) => {
@@ -49,12 +59,7 @@ export function ShoppingDatePill({
         accessibilityLabel={formatUntilButtonLabel(untilDate)}
         accessibilityState={{ expanded: anchor !== null }}
         style={({ pressed }) => ({ transform: [{ scale: pressed ? 0.97 : 1 }] })}>
-        <ShadowSurface style={styles.pill}>
-          {/* The palette-animated fill is its own layer so the shadow wrapper stays a plain View. */}
-          <Animated.View pointerEvents="none" style={[styles.background, backgroundStyle]} />
-          <Calendar size={20} color={theme.primaryAccent} strokeWidth={2.5} />
-          <Animated.Text style={[styles.label, labelStyle]}>{label}</Animated.Text>
-        </ShadowSurface>
+        <PillFace label={label} />
       </Pressable>
       <FloatingCalendar
         anchor={anchor}
@@ -67,6 +72,15 @@ export function ShoppingDatePill({
       />
     </>
   );
+}
+
+// Shows the last day the list buys for and, while there is a day to pick, opens the calendar
+// that changes it. The pill owns the calendar, so the screen only hands it the day and the
+// rules.
+export function ShoppingDatePill({ calendar, ...pill }: ShoppingDatePillProps) {
+  if (!calendar) return <PillFace label={pill.label} />;
+
+  return <PickerPill {...pill} calendar={calendar} />;
 }
 
 const styles = StyleSheet.create({

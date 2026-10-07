@@ -65,7 +65,7 @@ const CALENDAR: ShoppingUntilCalendar = {
   monthBounds: { months: ['2026-10'] },
 };
 
-function renderPill() {
+function renderPill(...[calendar = CALENDAR]: [calendar?: ShoppingUntilCalendar | null]) {
   const onSelectDate = jest.fn();
   let tree: ReturnType<typeof create>;
 
@@ -74,7 +74,7 @@ function renderPill() {
       <ShoppingDatePill
         label="Hasta 12 Oct"
         untilDate="2026-10-12"
-        calendar={CALENDAR}
+        calendar={calendar ?? undefined}
         onSelectDate={onSelectDate}
       />
     );
@@ -191,5 +191,28 @@ describe('ShoppingDatePill', () => {
 
     expect(calendar().anchor).toBeNull();
     expect(onSelectDate).not.toHaveBeenCalled();
+  });
+});
+
+describe('ShoppingDatePill without a day to pick', () => {
+  it('still shows the day the list reaches, in the colors of the palette', () => {
+    const { root } = renderPill(null);
+
+    expect(root.findByType(Text).props.children).toBe('Hasta 12 Oct');
+    expect(useAnimatedThemeStyle).toHaveBeenCalledWith({ backgroundColor: mockTheme.colorBlack });
+    expect(useAnimatedThemeStyle).toHaveBeenCalledWith({ color: mockTheme.primaryAccent });
+  });
+
+  it('is not a button', () => {
+    const { root } = renderPill(null);
+
+    expect(getButton(root)).toBeUndefined();
+    expect(root.findAll((node) => typeof node.props.onPress === 'function')).toHaveLength(0);
+  });
+
+  it('has no calendar to open', () => {
+    renderPill(null);
+
+    expect(mockFloatingCalendars).toHaveLength(0);
   });
 });

@@ -722,7 +722,7 @@ describe('useShoppingList, choosing the last day to buy for', () => {
   describe('the calendar of the pill', () => {
     it('offers the planned days from today on, and marks them', () => {
       renderShoppingList();
-      const { isDateSelectable, monthBounds, planByDate } = shoppingList.untilCalendar;
+      const { isDateSelectable, monthBounds, planByDate } = shoppingList.untilCalendar!;
 
       expect(isDateSelectable('2026-10-06')).toBe(true);
       expect(isDateSelectable('2026-10-12')).toBe(true);
@@ -736,9 +736,19 @@ describe('useShoppingList, choosing the last day to buy for', () => {
 
       renderShoppingList();
 
-      expect(shoppingList.untilCalendar.isDateSelectable('2026-10-06')).toBe(false);
-      expect(shoppingList.untilCalendar.isDateSelectable('2026-10-12')).toBe(true);
-      expect(Object.keys(shoppingList.untilCalendar.planByDate)).toEqual(['2026-10-12']);
+      expect(shoppingList.untilCalendar?.isDateSelectable('2026-10-06')).toBe(false);
+      expect(shoppingList.untilCalendar?.isDateSelectable('2026-10-12')).toBe(true);
+      expect(Object.keys(shoppingList.untilCalendar?.planByDate ?? {})).toEqual(['2026-10-12']);
+    });
+
+    it('is not there once every planned day has passed, while the list still has its date', () => {
+      mockTodayKey = '2026-10-13';
+
+      renderShoppingList();
+
+      expect(shoppingList.untilCalendar).toBeUndefined();
+      expect(shoppingList.untilLabel).toBe('Hasta 12 Oct');
+      expect(shoppingList.counters.total).toBe(3);
     });
 
     it('is the same one while the plan and the day do not change', () => {

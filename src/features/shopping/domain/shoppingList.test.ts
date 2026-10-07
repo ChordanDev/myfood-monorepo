@@ -550,7 +550,7 @@ describe('getUntilCalendar', () => {
   ];
 
   it('lets the days from today on with a planned meal be picked, and no other', () => {
-    const { isDateSelectable } = getUntilCalendar(entries, TODAY);
+    const { isDateSelectable } = getUntilCalendar(entries, TODAY)!;
 
     expect(isDateSelectable('2026-10-12')).toBe(true);
     expect(isDateSelectable('2026-12-01')).toBe(true);
@@ -559,7 +559,7 @@ describe('getUntilCalendar', () => {
   });
 
   it('agrees with the rule that resolves the date of the list', () => {
-    const { isDateSelectable } = getUntilCalendar(entries, TODAY);
+    const { isDateSelectable } = getUntilCalendar(entries, TODAY)!;
 
     for (const dateKey of ['2026-10-08', '2026-10-11', '2026-10-12', '2026-12-01']) {
       expect(isDateSelectable(dateKey)).toBe(resolveUntilDate(entries, dateKey, TODAY) === dateKey);
@@ -567,23 +567,24 @@ describe('getUntilCalendar', () => {
   });
 
   it('walks only the months that hold a day to pick', () => {
-    expect(getUntilCalendar(entries, TODAY).monthBounds).toEqual({
+    expect(getUntilCalendar(entries, TODAY)?.monthBounds).toEqual({
       months: ['2026-10', '2026-12'],
     });
   });
 
   it('marks the planned days from today on, with their meals', () => {
-    expect(getUntilCalendar(entries, TODAY).planByDate).toEqual({
+    expect(getUntilCalendar(entries, TODAY)?.planByDate).toEqual({
       '2026-10-12': [entries[1], entries[2]],
       '2026-12-01': [entries[3]],
     });
   });
 
-  it('has nothing to pick or to mark when no meal is planned from today on', () => {
-    const calendar = getUntilCalendar([entries[0]], TODAY);
+  it('is no calendar at all when no meal is planned from today on: there is no day to pick', () => {
+    expect(getUntilCalendar([entries[0]], TODAY)).toBeUndefined();
+    expect(getUntilCalendar([], TODAY)).toBeUndefined();
+  });
 
-    expect(calendar.planByDate).toEqual({});
-    expect(calendar.monthBounds).toEqual({ months: [] });
-    expect(calendar.isDateSelectable('2026-10-08')).toBe(false);
+  it('is a calendar as soon as one day can be picked, today included', () => {
+    expect(getUntilCalendar([entries[0]], '2026-10-08')).toBeDefined();
   });
 });
