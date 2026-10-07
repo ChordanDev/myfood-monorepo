@@ -79,6 +79,8 @@ const CHAT_COMPOSER_INLINE_TEXT_GAP = 16;
 const CHAT_COMPOSER_INLINE_LEFT_INSET =
   CHAT_COMPOSER_LEFT_CONTROL_INSET + CHAT_COMPOSER_INLINE_TEXT_GAP;
 const CHAT_COMPOSER_INLINE_MAX_LINES = 2;
+/** How far the placeholder may shrink to stay on one line before it is cut. */
+const CHAT_COMPOSER_PLACEHOLDER_MIN_FONT_SCALE = 0.8;
 const CHAT_COMPOSER_STACKED_CONTENT_INSET = 16;
 const CHAT_COMPOSER_STACKED_BOTTOM_INSET =
   CHAT_COMPOSER_CONTROL_ROW_HEIGHT + CHAT_COMPOSER_VERTICAL_INSET;
@@ -364,7 +366,13 @@ export function ChatComposer({
                 accessibilityElementsHidden
                 importantForAccessibility="no-hide-descendants"
                 style={[styles.placeholder, { height: lineHeight }]}>
+                {/* One line that shrinks before it is cut: screens pass their own placeholder and
+                    the room left between the controls changes with the device width. */}
                 <Text
+                  testID={`${testIDPrefix}-placeholder-text`}
+                  numberOfLines={1}
+                  adjustsFontSizeToFit
+                  minimumFontScale={CHAT_COMPOSER_PLACEHOLDER_MIN_FONT_SCALE}
                   style={{
                     color: withOpacity(theme.textLight, 0.6),
                     fontSize: 15,

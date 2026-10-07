@@ -1391,6 +1391,15 @@ describe('ChatComposer screen-specific props', () => {
 
     expect(getInput(tree).props.accessibilityLabel).toBe('Chat disponible el día de la receta');
   });
+
+  it('keeps the placeholder on one line and lets it shrink before it is cut', () => {
+    const { tree } = renderComposer({ placeholder: 'Chat disponible el día de la receta' });
+    const text = tree.root.findByProps({ testID: 'planner-composer-placeholder-text' });
+
+    expect(text.props.numberOfLines).toBe(1);
+    expect(text.props.adjustsFontSizeToFit).toBe(true);
+    expect(text.props.minimumFontScale).toBeLessThan(1);
+  });
 });
 
 describe('ChatComposer keyboard lift reporting', () => {
