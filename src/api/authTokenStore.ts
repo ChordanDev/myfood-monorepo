@@ -1,4 +1,10 @@
-import type { AuthSession, CurrentMe, StoredAuthSession } from '@/features/auth/types/auth';
+import type {
+  AuthSession,
+  CurrentMe,
+  ProfileUpdateUser,
+  StoredAuthSession,
+} from '@/features/auth/types/auth';
+import { normalizeCurrentMe, withUpdatedProfile } from '@/features/auth/utils/currentMe';
 import { secureStorage } from '@/services/secureStorage';
 import { newRequestId } from '@/services/requestId';
 
@@ -70,6 +76,22 @@ export async function persistOnboardingCompletionForStoredSession(): Promise<Sto
   return completedSession;
 }
 
+export async function persistProfileForStoredSession(
+  user: ProfileUpdateUser
+): Promise<StoredAuthSession | null> {
+  const storedSession = await getStoredSession();
+  if (!storedSession || storedSession.me.user.id !== user.id) return null;
+
+  const updatedSession: StoredAuthSession = {
+    ...storedSession,
+    me: withUpdatedProfile(storedSession.me, user),
+  };
+  // Only the `me` snapshot is rewritten: writing the tokens back could
+  // overwrite a refresh-token rotation that landed after the read above.
+  await secureStorage.setItem(ME_KEY, JSON.stringify(updatedSession.me));
+  return updatedSession;
+}
+
 export async function getStoredSession(): Promise<StoredAuthSession | null> {
   const [accessToken, refreshToken, meJson, completedUserId] = await Promise.all([
     secureStorage.getItem(ACCESS_TOKEN_KEY),
@@ -83,7 +105,7 @@ export async function getStoredSession(): Promise<StoredAuthSession | null> {
   }
 
   try {
-    const parsedMe = JSON.parse(meJson) as CurrentMe;
+    const parsedMe = normalizeCurrentMe(JSON.parse(meJson) as CurrentMe);
     const me = withLocalOnboardingCompletion(parsedMe, completedUserId);
     return { accessToken, refreshToken, tokenType: 'Bearer', me };
   } catch {

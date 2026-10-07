@@ -12,6 +12,8 @@ import type {
   HungerLevel,
   MealSlot,
   OnboardingCompletionRequest,
+  OnboardingProfile,
+  ProfileUpdatePayload,
   SlotCookingTime,
   SlotCookingTimesPayload,
   UserPreferences,
@@ -41,6 +43,14 @@ export interface OnboardingFormState {
   slotCookingTimes: Record<MealSlot, SlotCookingTime>;
 }
 
+export interface ProfileFormState {
+  displayName: string;
+  /** Null while the stored profile has no household size yet. */
+  householdSize: number | null;
+  /** Null while the stored profile has no cooking skill yet. */
+  cookingSkill: CookingSkill | null;
+}
+
 export class OnboardingValidationError extends Error {
   constructor(
     public readonly field: string,
@@ -64,15 +74,17 @@ function sanitizeSoftPreferences(raw: readonly string[]): string[] {
   return out;
 }
 
-function validateProfile(state: OnboardingFormState): void {
-  const name = state.displayName.trim();
-  if (name.length < 1 || name.length > 60) {
+function validateProfile(state: ProfileFormState): OnboardingProfile {
+  const { householdSize, cookingSkill } = state;
+  const displayName = state.displayName.trim();
+  if (displayName.length < 1 || displayName.length > 60) {
     throw new OnboardingValidationError('displayName', 'Display name must be 1-60 characters.');
   }
   if (
-    !Number.isInteger(state.householdSize) ||
-    state.householdSize < 1 ||
-    state.householdSize > 20
+    householdSize === null ||
+    !Number.isInteger(householdSize) ||
+    householdSize < 1 ||
+    householdSize > 20
   ) {
     throw new OnboardingValidationError(
       'householdSize',
@@ -80,9 +92,10 @@ function validateProfile(state: OnboardingFormState): void {
     );
   }
   const skills: readonly CookingSkill[] = ['beginner', 'intermediate', 'advanced'];
-  if (!skills.includes(state.cookingSkill)) {
+  if (cookingSkill === null || !skills.includes(cookingSkill)) {
     throw new OnboardingValidationError('cookingSkill', 'Unknown cooking skill.');
   }
+  return { displayName, householdSize, cookingSkill };
 }
 
 function validateSlot(slot: MealSlot, value: SlotCookingTime): void {
@@ -128,7 +141,7 @@ function validatePreferences(state: OnboardingFormDietState): UserPreferencesPay
 }
 
 export function buildOnboardingPayload(state: OnboardingFormState): OnboardingCompletionRequest {
-  validateProfile(state);
+  const profile = validateProfile(state);
 
   const preferences = validatePreferences(state.preferences);
 
@@ -140,11 +153,7 @@ export function buildOnboardingPayload(state: OnboardingFormState): OnboardingCo
   (Object.keys(slots) as MealSlot[]).forEach((slot) => validateSlot(slot, slots[slot]));
 
   return {
-    profile: {
-      displayName: state.displayName.trim(),
-      householdSize: state.householdSize,
-      cookingSkill: state.cookingSkill,
-    },
+    profile,
     preferences,
     slotCookingTimes: slots,
   };
@@ -154,4 +163,10 @@ export function buildOnboardingPayload(state: OnboardingFormState): OnboardingCo
 // onboarding but without the profile/slot fields.
 export function buildPreferencesPayload(state: OnboardingFormDietState): UserPreferences {
   return validatePreferences(state);
+}
+
+// Profile (post-onboarding) name/household/skill update. Same rules as
+// the onboarding profile step.
+export function buildProfilePayload(state: ProfileFormState): ProfileUpdatePayload {
+  return validateProfile(state);
 }

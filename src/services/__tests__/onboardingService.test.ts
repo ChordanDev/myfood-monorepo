@@ -2,6 +2,8 @@
 import type {
   OnboardingCompletionRequest,
   OnboardingCompletionResponse,
+  ProfileUpdatePayload,
+  ProfileUpdateResponse,
   UserPreferences,
   UserPreferencesPayload,
   SlotCookingTimes,
@@ -55,6 +57,16 @@ const completionResponse: OnboardingCompletionResponse = {
     lunch: { cookingTimeMinutes: 30, hungerLevel: 'normal' },
     dinner: { cookingTimeMinutes: 45, hungerLevel: 'strong' },
   },
+};
+
+const profilePayload: ProfileUpdatePayload = {
+  displayName: 'Lucca Giordana',
+  householdSize: 2,
+  cookingSkill: 'intermediate',
+};
+
+const profileResponse: ProfileUpdateResponse = {
+  user: { id: 'user-1', email: 'user@example.com', ...profilePayload },
 };
 
 describe('authService onboarding/preferences/slot-cooking-times endpoints', () => {
@@ -228,5 +240,91 @@ describe('authService onboarding/preferences/slot-cooking-times endpoints', () =
         dinner: { cookingTimeMinutes: -1, hungerLevel: 'normal' },
       })
     ).rejects.toMatchObject({ code: 'slot_cooking_times_invalid', status: 422 });
+  });
+
+  it('PUTs /api/me/profile with bearer token and returns the updated user', async () => {
+    fetchMock.mockReturnValueOnce(mockJsonResponse(profileResponse));
+
+    const result = await authService.updateProfile('access-1', profilePayload);
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      'https://api.example.test/api/me/profile',
+      expect.objectContaining({
+        method: 'PUT',
+        headers: expect.objectContaining({ Authorization: 'Bearer access-1' }),
+        body: JSON.stringify(profilePayload),
+      })
+    );
+    expect(result).toEqual(profileResponse);
+  });
+
+  it('PUTs /api/me/profile with the stored access token when none is passed', async () => {
+    mockSecureStore.set('auth_access_token', 'stored-access');
+    fetchMock.mockReturnValueOnce(mockJsonResponse(profileResponse));
+
+    await authService.updateProfile(profilePayload);
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      'https://api.example.test/api/me/profile',
+      expect.objectContaining({
+        method: 'PUT',
+        headers: expect.objectContaining({ Authorization: 'Bearer stored-access' }),
+        body: JSON.stringify(profilePayload),
+      })
+    );
+  });
+
+  it('rejects with a typed error when the profile update fails', async () => {
+    fetchMock.mockReturnValueOnce(
+      mockJsonResponse({ error: { code: 'not_found', message: 'Not Found' } }, false, 404)
+    );
+
+    await expect(authService.updateProfile('access-1', profilePayload)).rejects.toMatchObject({
+      code: 'unknown_error',
+      status: 404,
+    });
+  });
+
+  it('rejects a successful profile update that comes back with an empty body', async () => {
+    fetchMock.mockReturnValueOnce(
+      Promise.resolve({ ok: true, status: 204, text: () => Promise.resolve('') } as Response)
+    );
+
+    const update = authService.updateProfile('access-1', profilePayload);
+
+    await expect(update).rejects.toBeInstanceOf(authService.AuthApiError);
+    await expect(update).rejects.toMatchObject({ code: 'unknown_error' });
+  });
+
+  it.each([
+    ['is not wrapped in a user', { id: 'user-1', email: 'user@example.com', ...profilePayload }],
+    ['has a user without an id', { user: { email: 'user@example.com', ...profilePayload } }],
+    ['has a user with an empty id', { user: { ...profileResponse.user, id: '' } }],
+    ['has a user that is not an object', { user: 'user-1' }],
+  ])('rejects a profile update response that %s', async (_case, body) => {
+    fetchMock.mockReturnValueOnce(mockJsonResponse(body));
+
+    const update = authService.updateProfile('access-1', profilePayload);
+
+    await expect(update).rejects.toBeInstanceOf(authService.AuthApiError);
+    await expect(update).rejects.toMatchObject({ code: 'unknown_error' });
+  });
+
+  it('fills the profile fields the update response omits with null', async () => {
+    fetchMock.mockReturnValueOnce(
+      mockJsonResponse({ user: { id: 'user-1', email: 'user@example.com' } })
+    );
+
+    const result = await authService.updateProfile('access-1', profilePayload);
+
+    expect(result).toEqual({
+      user: {
+        id: 'user-1',
+        email: 'user@example.com',
+        displayName: null,
+        householdSize: null,
+        cookingSkill: null,
+      },
+    });
   });
 });

@@ -23,7 +23,13 @@ jest.mock('expo-secure-store', () => ({
 }));
 
 const me: CurrentMe = {
-  user: { id: 'user-1', email: 'user@example.com', displayName: null },
+  user: {
+    id: 'user-1',
+    email: 'user@example.com',
+    displayName: null,
+    householdSize: null,
+    cookingSkill: null,
+  },
   account: {
     id: 'account-1',
     type: 'individual',
@@ -38,6 +44,12 @@ const me: CurrentMe = {
 const completeMe: CurrentMe = {
   ...me,
   onboarding: { isComplete: true },
+};
+
+// The /api/me shape before the backend ships the profile fields.
+const meWithoutProfileFields = {
+  ...me,
+  user: { id: 'user-1', email: 'user@example.com', displayName: null },
 };
 
 function mockJsonResponse(payload: unknown, ok = true, status = ok ? 200 : 400) {
@@ -582,6 +594,138 @@ describe('authService', () => {
         const error = new authService.AuthApiError(code, code, 401);
         expect(authService.isSessionInvalidAuthError(error)).toBe(false);
       }
+    });
+  });
+
+  describe('profile fields on me', () => {
+    it('reads household size and cooking skill from /api/me when the backend sends them', async () => {
+      const meWithProfile: CurrentMe = {
+        ...me,
+        user: { ...me.user, householdSize: 3, cookingSkill: 'advanced' },
+      };
+      fetchMock.mockReturnValueOnce(mockJsonResponse(meWithProfile));
+
+      await expect(authService.getMe('access-1')).resolves.toEqual(meWithProfile);
+    });
+
+    it('fills the profile fields with null when /api/me omits them', async () => {
+      fetchMock.mockReturnValueOnce(mockJsonResponse(meWithoutProfileFields));
+
+      const result = await authService.getMe('access-1');
+
+      expect(result.user).toEqual({
+        id: 'user-1',
+        email: 'user@example.com',
+        displayName: null,
+        householdSize: null,
+        cookingSkill: null,
+      });
+    });
+
+    it('fills the profile fields with null on the session returned by code verification', async () => {
+      fetchMock.mockReturnValueOnce(
+        mockJsonResponse({
+          accessToken: 'access-1',
+          refreshToken: 'refresh-1',
+          tokenType: 'Bearer',
+          me: meWithoutProfileFields,
+        })
+      );
+
+      const session = await authService.verifyAndSignIn('user@example.com', '123456');
+
+      expect(session.me.user.householdSize).toBeNull();
+      expect(session.me.user.cookingSkill).toBeNull();
+    });
+
+    it('fills the profile fields with null on a session stored before they existed', async () => {
+      mockSecureStore.set('auth_access_token', 'stored-access');
+      mockSecureStore.set('auth_refresh_token', 'stored-refresh');
+      mockSecureStore.set('auth_me', JSON.stringify(meWithoutProfileFields));
+
+      const session = await authService.getStoredSession();
+
+      expect(session?.me.user.householdSize).toBeNull();
+      expect(session?.me.user.cookingSkill).toBeNull();
+    });
+
+    it('writes an updated profile to the stored session and keeps the rest of it', async () => {
+      await authService.persistSession({
+        accessToken: 'stored-access',
+        refreshToken: 'stored-refresh',
+        tokenType: 'Bearer',
+        me: completeMe,
+      });
+
+      const session = await authService.persistProfileForStoredSession({
+        id: 'user-1',
+        email: 'user@example.com',
+        displayName: 'Lucca Giordana',
+        householdSize: 2,
+        cookingSkill: 'intermediate',
+      });
+
+      const expectedMe: CurrentMe = {
+        ...completeMe,
+        user: {
+          ...completeMe.user,
+          displayName: 'Lucca Giordana',
+          householdSize: 2,
+          cookingSkill: 'intermediate',
+        },
+      };
+      expect(session?.me).toEqual(expectedMe);
+      await expect(authService.getStoredSession()).resolves.toEqual({
+        accessToken: 'stored-access',
+        refreshToken: 'stored-refresh',
+        tokenType: 'Bearer',
+        me: expectedMe,
+      });
+    });
+
+    it('rewrites only the me snapshot so a concurrent token rotation is not overwritten', async () => {
+      await authService.persistSession({
+        accessToken: 'stored-access',
+        refreshToken: 'stored-refresh',
+        tokenType: 'Bearer',
+        me,
+      });
+      const { setItemAsync } = jest.requireMock('expo-secure-store') as {
+        setItemAsync: jest.Mock;
+      };
+      setItemAsync.mockClear();
+
+      await authService.persistProfileForStoredSession({
+        id: 'user-1',
+        email: 'user@example.com',
+        displayName: 'Lucca',
+        householdSize: 1,
+        cookingSkill: 'beginner',
+      });
+
+      expect(setItemAsync.mock.calls.map(([key]) => key)).toEqual(['auth_me']);
+    });
+
+    it('does not write a profile that belongs to another user or to no session', async () => {
+      const otherUser = {
+        id: 'user-2',
+        email: 'other@example.com',
+        displayName: 'Other',
+        householdSize: 5,
+        cookingSkill: 'advanced' as const,
+      };
+
+      await expect(authService.persistProfileForStoredSession(otherUser)).resolves.toBeNull();
+
+      await authService.persistSession({
+        accessToken: 'stored-access',
+        refreshToken: 'stored-refresh',
+        tokenType: 'Bearer',
+        me,
+      });
+
+      await expect(authService.persistProfileForStoredSession(otherUser)).resolves.toBeNull();
+      await expect(authService.getStoredSession()).resolves.toMatchObject({ me });
     });
   });
 
