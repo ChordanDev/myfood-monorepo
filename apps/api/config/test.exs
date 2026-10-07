@@ -1,9 +1,9 @@
 import Config
 
 config :meal_planner_api, MealPlannerApi.Repo,
-  username: "postgres",
-  password: "postgres",
-  hostname: "localhost",
+  username: System.get_env("MYFOOD_TEST_DB_USERNAME", "postgres"),
+  password: System.get_env("MYFOOD_TEST_DB_PASSWORD", "postgres"),
+  hostname: System.get_env("MYFOOD_TEST_DB_HOSTNAME", "localhost"),
   database: System.get_env("MYFOOD_TEST_DATABASE", "meal_planner_api_test"),
   pool: Ecto.Adapters.SQL.Sandbox,
   pool_size: 10
