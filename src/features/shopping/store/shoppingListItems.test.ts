@@ -12,6 +12,11 @@ jest.mock('@react-native-async-storage/async-storage', () =>
   jest.requireActual('@react-native-async-storage/async-storage/jest/async-storage-mock')
 );
 
+// The day the list takes for today. Nothing depends on it until the user chooses a day.
+let mockTodayKey = '2026-10-01';
+
+jest.mock('./today', () => ({ getTodayKey: () => mockTodayKey }));
+
 // The plan lists the chicken and the rice (in stock). The spinach is in no planned meal.
 const RICE = { id: 'i1', name: 'Arroz Blanco' };
 const CHICKEN = { id: 'i2', name: 'Pollo (Pechuga)' };
@@ -72,7 +77,9 @@ beforeEach(() => {
     manualItems: [],
     lastManualItemSequence: 0,
     groupingMode: 'category',
+    chosenUntilDate: undefined,
   });
+  mockTodayKey = '2026-10-01';
 });
 
 describe('readShoppingListItems', () => {
@@ -204,5 +211,75 @@ describe('addIngredientToShoppingList', () => {
       expect(shopping().removedIds).toEqual([CHICKEN_ID]);
       expect(shopping().manualItems).toEqual([manualItem(1, 'Pollo (Pechuga)')]);
     });
+  });
+});
+
+describe('the list after the user chose the last day to buy for', () => {
+  const SPINACH_ID = getPlannedItemId(SPINACH.id);
+
+  // The chicken is planned for the 6th and the spinach for the 12th.
+  beforeEach(() => {
+    useMealPlanStore.setState({
+      entries: [
+        ...PLAN,
+        { id: 'mp2', date: '2026-10-12', type: 'cena', recipeId: 'r2', isCooked: false },
+      ],
+      recipes: [
+        ...RECIPES,
+        { id: 'r2', ingredients: [{ ingredientId: SPINACH.id, amount: 100 }] },
+      ] as MasterRecipe[],
+    });
+  });
+
+  it('reaches the last planned date while no day is chosen', () => {
+    expect(listed()).toEqual([
+      ['Pollo (Pechuga)', 'needed'],
+      ['Espinaca', 'needed'],
+    ]);
+  });
+
+  it('reaches the chosen day and no further', () => {
+    shopping().setChosenUntilDate('2026-10-06');
+
+    expect(listed()).toEqual([['Pollo (Pechuga)', 'needed']]);
+  });
+
+  it('reaches the last planned date again once the chosen day has passed', () => {
+    shopping().setChosenUntilDate('2026-10-06');
+    mockTodayKey = '2026-10-07';
+
+    expect(listed()).toEqual([
+      ['Pollo (Pechuga)', 'needed'],
+      ['Espinaca', 'needed'],
+    ]);
+  });
+
+  it('keeps in the store the id of a row in the cart that the chosen day leaves out', () => {
+    shopping().addToCart([SPINACH_ID]);
+
+    shopping().setChosenUntilDate('2026-10-06');
+
+    expect(listed()).toEqual([['Pollo (Pechuga)', 'needed']]);
+    expect(shopping().cartIds).toEqual([SPINACH_ID]);
+
+    // Reaching its meal again brings the row back as the user left it.
+    shopping().setChosenUntilDate(undefined);
+
+    expect(listed()).toEqual([
+      ['Pollo (Pechuga)', 'needed'],
+      ['Espinaca', 'in_cart'],
+    ]);
+  });
+
+  it('adds by hand an ingredient whose meal is after the chosen day', () => {
+    shopping().setChosenUntilDate('2026-10-06');
+
+    addIngredientToShoppingList(SPINACH);
+
+    expect(listed()).toEqual([
+      ['Pollo (Pechuga)', 'needed'],
+      ['Espinaca', 'needed'],
+    ]);
+    expect(shopping().manualItems).toEqual([manualItem(1, 'Espinaca')]);
   });
 });

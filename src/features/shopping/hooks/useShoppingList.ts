@@ -7,10 +7,12 @@ import {
   getDefaultUntilDate,
   getManualItems,
   getShoppingCounters,
+  getUntilCalendar,
   groupItemsByCategory,
   groupItemsBySupermarket,
+  resolveUntilDate,
 } from '../domain';
-import { readShoppingListItems, useShoppingListStore } from '../store';
+import { getTodayKey, readShoppingListItems, useShoppingListStore } from '../store';
 import type { BestOffer, ShoppingGroupingMode, ShoppingListItem, SupermarketOffer } from '../types';
 import { useShoppingListItems } from './useShoppingListItems';
 
@@ -45,8 +47,10 @@ function getBestOffers(items: ShoppingListItem[], offers: SupermarketOffer[]) {
 }
 
 export function useShoppingList() {
-  // Read for the label of the pill only; the list itself reaches the same date.
+  // Read for the pill and its calendar only; the list itself reaches the same date.
   const entries = useMealPlanStore((state) => state.entries);
+  const chosenUntilDate = useShoppingListStore((state) => state.chosenUntilDate);
+  const todayKey = getTodayKey();
   const items = useShoppingListItems();
   const groupingMode = useShoppingListStore((state) => state.groupingMode);
   const offers = useShoppingListStore((state) => state.offers);
@@ -54,7 +58,11 @@ export function useShoppingList() {
   const addManualItem = useShoppingListStore((state) => state.addManualItem);
   const restoreRemoved = useShoppingListStore((state) => state.restoreRemovedItems);
 
-  const untilDate = useMemo(() => getDefaultUntilDate(entries), [entries]);
+  const untilDate = useMemo(
+    () => resolveUntilDate(entries, chosenUntilDate, todayKey),
+    [entries, chosenUntilDate, todayKey]
+  );
+  const untilCalendar = useMemo(() => getUntilCalendar(entries, todayKey), [entries, todayKey]);
 
   const groups = useMemo(
     () => groupItems(items, groupingMode, offers),
@@ -110,9 +118,21 @@ export function useShoppingList() {
     useShoppingListStore.getState().removeItem(item);
   }, []);
 
+  // Picking the last planned day asks for the whole plan, so nothing is kept as chosen: the
+  // list keeps reaching the last planned date as the plan grows.
+  const setUntilDate = useCallback((dateKey: string) => {
+    const lastPlannedDate = getDefaultUntilDate(useMealPlanStore.getState().entries);
+
+    useShoppingListStore
+      .getState()
+      .setChosenUntilDate(dateKey === lastPlannedDate ? undefined : dateKey);
+  }, []);
+
   return {
     untilDate,
     untilLabel: untilDate === undefined ? undefined : formatUntilLabel(untilDate),
+    untilCalendar,
+    setUntilDate,
     groupingMode,
     setGroupingMode,
     groups,

@@ -1,18 +1,27 @@
-import { StyleSheet } from 'react-native';
+import { Pressable, StyleSheet } from 'react-native';
 import Animated from 'react-native-reanimated';
 import { Calendar } from 'lucide-react-native';
 import { ShadowSurface } from '@/components';
 import { useRecipeTheme } from '@/context/RecipeThemeContext';
+import { FloatingCalendar, useFloatingCalendarAnchor } from '@/features/home';
 import { useAnimatedThemeStyle } from '@/hooks/useAnimatedThemeStyle';
+import { formatUntilButtonLabel } from '../domain';
+import type { ShoppingUntilCalendar } from '../types';
 
 const PILL_RADIUS = 9999;
 
 export interface ShoppingDatePillProps {
   label: string;
+  // Day the list reaches: the end of the stretch the calendar draws.
+  untilDate: string;
+  // The days that can be picked, their marks and their months, and the first day the list
+  // buys for. Without one there is no day to pick, and the pill only shows the date.
+  calendar: ShoppingUntilCalendar | undefined;
+  onSelectDate: (dateKey: string) => void;
 }
 
-// Display only: no date picker is designed yet, so the pill is not exposed as a button.
-export function ShoppingDatePill({ label }: ShoppingDatePillProps) {
+// What the pill looks like, with or without a calendar behind it.
+function PillFace({ label }: Pick<ShoppingDatePillProps, 'label'>) {
   const { theme } = useRecipeTheme();
   const backgroundStyle = useAnimatedThemeStyle({ backgroundColor: theme.colorBlack });
   const labelStyle = useAnimatedThemeStyle({ color: theme.primaryAccent });
@@ -25,6 +34,56 @@ export function ShoppingDatePill({ label }: ShoppingDatePillProps) {
       <Animated.Text style={[styles.label, labelStyle]}>{label}</Animated.Text>
     </ShadowSurface>
   );
+}
+
+type PickerPillProps = ShoppingDatePillProps & { calendar: ShoppingUntilCalendar };
+
+// The pill as a button, and the calendar it opens right under itself.
+function PickerPill({ label, untilDate, calendar, onSelectDate }: PickerPillProps) {
+  const { anchorRef, anchor, open, close } = useFloatingCalendarAnchor();
+
+  // One pick is the whole errand: the day is reported and the calendar leaves.
+  const handleSelectDate = (dateKey: string) => {
+    onSelectDate(dateKey);
+    close();
+  };
+
+  return (
+    <>
+      <Pressable
+        ref={anchorRef}
+        // The calendar is placed from the frame of this view: Android must not flatten it.
+        collapsable={false}
+        onPress={open}
+        accessibilityRole="button"
+        accessibilityLabel={formatUntilButtonLabel(untilDate)}
+        accessibilityState={{ expanded: anchor !== null }}
+        style={({ pressed }) => ({ transform: [{ scale: pressed ? 0.97 : 1 }] })}>
+        <PillFace label={label} />
+      </Pressable>
+      <FloatingCalendar
+        anchor={anchor}
+        onClose={close}
+        planByDate={calendar.planByDate}
+        isDateSelectable={calendar.isDateSelectable}
+        monthBounds={calendar.monthBounds}
+        // The stretch the list buys for. Its first day is fixed and every tap picks its last
+        // one, so the range is only drawn: both ends as selected, the days between tinted.
+        rangeStart={calendar.rangeStart}
+        rangeEnd={untilDate}
+        onSelectDate={handleSelectDate}
+      />
+    </>
+  );
+}
+
+// Shows the last day the list buys for and, while there is a day to pick, opens the calendar
+// that changes it. The pill owns the calendar, so the screen only hands it the day and the
+// rules.
+export function ShoppingDatePill({ calendar, ...pill }: ShoppingDatePillProps) {
+  if (!calendar) return <PillFace label={pill.label} />;
+
+  return <PickerPill {...pill} calendar={calendar} />;
 }
 
 const styles = StyleSheet.create({

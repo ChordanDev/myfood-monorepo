@@ -12,6 +12,11 @@ jest.mock('@react-native-async-storage/async-storage', () =>
   jest.requireActual('@react-native-async-storage/async-storage/jest/async-storage-mock')
 );
 
+// The day the list takes for today. Nothing depends on it until the user chooses a day.
+let mockTodayKey = '2026-10-01';
+
+jest.mock('../store/today', () => ({ getTodayKey: () => mockTodayKey }));
+
 const RICE = 'i1';
 const CHICKEN = 'i2';
 const TOMATO = 'i3';
@@ -111,7 +116,9 @@ beforeEach(() => {
     manualItems: [],
     lastManualItemSequence: 0,
     groupingMode: 'category',
+    chosenUntilDate: undefined,
   });
+  mockTodayKey = '2026-10-01';
 });
 
 afterEach(() => {
@@ -699,6 +706,196 @@ describe('useShoppingList', () => {
         'Servilletas: needed',
       ]);
       expect(shoppingList.counters).toEqual({ total: 4, inCart: 0, removed: 0 });
+    });
+  });
+});
+
+describe('useShoppingList, choosing the last day to buy for', () => {
+  function setUntilDate(dateKey: string) {
+    act(() => {
+      shoppingList.setUntilDate(dateKey);
+    });
+  }
+
+  const chosenUntilDate = () => useShoppingListStore.getState().chosenUntilDate;
+
+  describe('the calendar of the pill', () => {
+    it('offers the planned days from today on, and marks them', () => {
+      renderShoppingList();
+      const { isDateSelectable, monthBounds, planByDate } = shoppingList.untilCalendar!;
+
+      expect(isDateSelectable('2026-10-06')).toBe(true);
+      expect(isDateSelectable('2026-10-12')).toBe(true);
+      expect(isDateSelectable('2026-10-07')).toBe(false);
+      expect(monthBounds).toEqual({ months: ['2026-10'] });
+      expect(planByDate).toEqual({ '2026-10-06': [PLAN[0]], '2026-10-12': [PLAN[1]] });
+    });
+
+    it('starts the stretch to draw on the first planned day from today on', () => {
+      renderShoppingList();
+
+      expect(shoppingList.untilCalendar?.rangeStart).toBe('2026-10-06');
+
+      setUntilDate('2026-10-06');
+
+      // The first day is fixed: picking a last day never moves it.
+      expect(shoppingList.untilCalendar?.rangeStart).toBe('2026-10-06');
+      expect(shoppingList.untilDate).toBe('2026-10-06');
+    });
+
+    it('does not offer a planned day that has passed', () => {
+      mockTodayKey = '2026-10-07';
+
+      renderShoppingList();
+
+      expect(shoppingList.untilCalendar?.rangeStart).toBe('2026-10-12');
+
+      expect(shoppingList.untilCalendar?.isDateSelectable('2026-10-06')).toBe(false);
+      expect(shoppingList.untilCalendar?.isDateSelectable('2026-10-12')).toBe(true);
+      expect(Object.keys(shoppingList.untilCalendar?.planByDate ?? {})).toEqual(['2026-10-12']);
+    });
+
+    it('is not there once every planned day has passed, while the list still has its date', () => {
+      mockTodayKey = '2026-10-13';
+
+      renderShoppingList();
+
+      expect(shoppingList.untilCalendar).toBeUndefined();
+      expect(shoppingList.untilLabel).toBe('Hasta 12 Oct');
+      expect(shoppingList.counters.total).toBe(3);
+    });
+
+    it('is the same one while the plan and the day do not change', () => {
+      renderShoppingList();
+      const calendarBefore = shoppingList.untilCalendar;
+
+      toggleItem('planned:i2');
+      setUntilDate('2026-10-06');
+
+      expect(shoppingList.untilCalendar).toBe(calendarBefore);
+    });
+  });
+
+  describe('picking a day', () => {
+    it('makes the label, the cards and the counters reach that day', () => {
+      renderShoppingList();
+
+      setUntilDate('2026-10-06');
+
+      expect(shoppingList.untilDate).toBe('2026-10-06');
+      expect(shoppingList.untilLabel).toBe('Hasta 6 Oct');
+      expect(listedGroups()).toEqual([
+        ['Verduras', ['Tomate: needed']],
+        ['Carnes', ['Pollo (Pechuga): needed']],
+      ]);
+      expect(shoppingList.counters).toEqual({ total: 2, inCart: 0, removed: 0 });
+    });
+
+    it('keeps the chosen day in the store', () => {
+      renderShoppingList();
+
+      setUntilDate('2026-10-06');
+
+      expect(chosenUntilDate()).toBe('2026-10-06');
+    });
+
+    it('reaches further again when a later day is picked', () => {
+      renderShoppingList();
+      setUntilDate('2026-10-06');
+
+      setUntilDate('2026-10-12');
+
+      expect(shoppingList.untilLabel).toBe('Hasta 12 Oct');
+      expect(shoppingList.counters.total).toBe(3);
+    });
+
+    it('follows the plan again when the last planned day is picked', () => {
+      renderShoppingList();
+      setUntilDate('2026-10-06');
+
+      setUntilDate('2026-10-12');
+
+      expect(chosenUntilDate()).toBeUndefined();
+
+      act(() => {
+        useMealPlanStore.setState({
+          entries: [
+            ...PLAN,
+            { id: 'mp3', date: '2026-10-20', type: 'cena', recipeId: 'r2', isCooked: false },
+          ],
+        });
+      });
+
+      expect(shoppingList.untilDate).toBe('2026-10-20');
+    });
+  });
+
+  describe('a chosen day that cannot be chosen any more', () => {
+    it('gives way to the last planned date when its meals leave the plan', () => {
+      renderShoppingList();
+      setUntilDate('2026-10-06');
+
+      act(() => {
+        useMealPlanStore.setState({ entries: [PLAN[1]] });
+      });
+
+      expect(shoppingList.untilDate).toBe('2026-10-12');
+      expect(shoppingList.untilLabel).toBe('Hasta 12 Oct');
+      expect(listedGroups()).toEqual([['Verduras', ['Espinaca: needed']]]);
+    });
+
+    it('gives way to the last planned date once it has passed', () => {
+      useShoppingListStore.setState({ chosenUntilDate: '2026-10-06' });
+      mockTodayKey = '2026-10-07';
+
+      renderShoppingList();
+
+      expect(shoppingList.untilDate).toBe('2026-10-12');
+      expect(shoppingList.counters.total).toBe(3);
+    });
+  });
+
+  // Spinach is planned for the 12th only: reaching the 6th takes its row off the list.
+  describe('a row in the cart that the chosen day leaves out', () => {
+    it('is not counted in the cart nor listed in its sheet', () => {
+      renderShoppingList();
+      toggleItem('planned:i7');
+      toggleItem('planned:i2');
+
+      setUntilDate('2026-10-06');
+
+      expect(shoppingList.cartCount).toBe(1);
+      expect(shoppingList.counters).toEqual({ total: 2, inCart: 1, removed: 0 });
+      expect(cartNames()).toEqual(['Pollo (Pechuga)']);
+    });
+
+    it('is not bought with the cart, and is needed again when the list reaches its meal', () => {
+      renderShoppingList();
+      toggleItem('planned:i7');
+      toggleItem('planned:i2');
+      setUntilDate('2026-10-06');
+
+      confirmPurchase();
+
+      expect(stockOf(CHICKEN)).toBe(200);
+      expect(stockOf(SPINACH)).toBeUndefined();
+      expect(cartIds()).toEqual([]);
+
+      setUntilDate('2026-10-12');
+
+      expect(listedGroups()).toEqual([['Verduras', ['Espinaca: needed', 'Tomate: needed']]]);
+      expect(shoppingList.cartCount).toBe(0);
+    });
+
+    it('is back in the cart, as it was left, when the list reaches its meal before a purchase', () => {
+      renderShoppingList();
+      toggleItem('planned:i7');
+      setUntilDate('2026-10-06');
+
+      setUntilDate('2026-10-12');
+
+      expect(cartNames()).toEqual(['Espinaca']);
+      expect(shoppingList.cartCount).toBe(1);
     });
   });
 });

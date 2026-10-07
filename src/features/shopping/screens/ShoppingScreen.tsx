@@ -33,7 +33,10 @@ export function ShoppingScreen() {
   const insets = useSafeAreaInsets();
   const { theme } = useRecipeTheme();
   const {
+    untilDate,
     untilLabel,
+    untilCalendar,
+    setUntilDate,
     groupingMode,
     setGroupingMode,
     groups,
@@ -70,7 +73,14 @@ export function ShoppingScreen() {
       <SafeAreaContent includeBottom={false}>
         <View style={styles.header}>
           {/* An empty plan has no last date to show. */}
-          {untilLabel ? <ShoppingDatePill label={untilLabel} /> : null}
+          {untilDate && untilLabel ? (
+            <ShoppingDatePill
+              label={untilLabel}
+              untilDate={untilDate}
+              calendar={untilCalendar}
+              onSelectDate={setUntilDate}
+            />
+          ) : null}
           <SegmentedSwitcher
             options={GROUPING_OPTIONS}
             value={groupingMode}

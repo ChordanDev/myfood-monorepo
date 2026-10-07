@@ -1,7 +1,7 @@
 /* eslint-disable @typescript-eslint/no-require-imports */
 
 import React from 'react';
-import { Text, TextInput } from 'react-native';
+import { StyleSheet, Text, TextInput } from 'react-native';
 import { act, create, ReactTestInstance } from 'react-test-renderer';
 import { InventoryVoiceButton } from '../components';
 import { useInventoryStore } from '../store';
@@ -12,6 +12,16 @@ jest.mock('@react-native-async-storage/async-storage', () =>
   jest.requireActual('@react-native-async-storage/async-storage/jest/async-storage-mock')
 );
 
+// The window the screen is measured in: the one Jest gives by default. A test swaps it for a
+// small phone, where the responsive title metrics are at their smallest.
+const mockDefaultWindow = { width: 750, height: 1334, scale: 2, fontScale: 2 };
+let mockWindow = mockDefaultWindow;
+
+jest.mock('react-native/Libraries/Utilities/useWindowDimensions', () => ({
+  __esModule: true,
+  default: () => mockWindow,
+}));
+
 jest.mock('@/components', () => {
   const { Text, View } = require('react-native');
 
@@ -19,7 +29,10 @@ jest.mock('@/components', () => {
     NoisyBackground: () => null,
     SafeAreaContent: View,
     ShadowSurface: View,
-    TitlePrimary: ({ text }: { text: string }) => <Text>{text}</Text>,
+    // The title at the size the screen asks for, as the real component draws it.
+    TitlePrimary: ({ text, metrics }: { text: string; metrics: { titleFontSize: number } }) => (
+      <Text style={{ fontSize: metrics.titleFontSize }}>{text}</Text>
+    ),
   };
 });
 
@@ -111,6 +124,7 @@ function renderScreen(items: InventoryItem[]) {
 
 // The store outlives each test, so a screen left mounted would re-render on the next setState.
 afterEach(() => {
+  mockWindow = mockDefaultWindow;
   act(() => {
     mountedScreen?.unmount();
   });
@@ -146,7 +160,30 @@ function findStoredItem(id: string) {
   return useInventoryStore.getState().items.find((item) => item.id === id);
 }
 
+// The size of "COMPRAS", the title of the shopping screen.
+const SHOPPING_TITLE_FONT_SIZE = 28;
+
+function getTitleFontSize(root: ReactTestInstance) {
+  const title = root.findAllByType(Text).find((node) => node.props.children === 'INVENTARIO');
+
+  return StyleSheet.flatten(title?.props.style).fontSize;
+}
+
 describe('InventoryScreen', () => {
+  it('writes its title at the size of the shopping title', () => {
+    const root = renderScreen([MILK]);
+
+    expect(getTitleFontSize(root)).toBe(SHOPPING_TITLE_FONT_SIZE);
+  });
+
+  it('keeps that title size on a small phone', () => {
+    mockWindow = { width: 320, height: 568, scale: 2, fontScale: 1 };
+
+    const root = renderScreen([MILK]);
+
+    expect(getTitleFontSize(root)).toBe(SHOPPING_TITLE_FONT_SIZE);
+  });
+
   it('lists what is in stock grouped by category, under the title and the hint', () => {
     const root = renderScreen([MILK, ONION, FINISHED_RICE]);
 

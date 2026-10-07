@@ -6,6 +6,7 @@ import {
   formatItemNameLine,
   formatPrice,
   formatRemovedLabel,
+  formatUntilButtonLabel,
   formatUntilLabel,
 } from './formatters';
 
@@ -121,6 +122,13 @@ describe('formatCartButtonLabel', () => {
     expect(formatCartButtonLabel(1)).toBe('Ver carrito, 1 ítem');
     expect(formatCartButtonLabel(2)).toBe('Ver carrito, 2 ítems');
     expect(formatCartButtonLabel(12)).toBe('Ver carrito, 12 ítems');
+  });
+});
+
+describe('formatUntilButtonLabel', () => {
+  it('says what the pill does and the day the list reaches now', () => {
+    expect(formatUntilButtonLabel('2026-10-12')).toBe('Elegir hasta qué día comprar, ahora 12 Oct');
+    expect(formatUntilButtonLabel('2026-01-05')).toBe('Elegir hasta qué día comprar, ahora 5 Ene');
   });
 });
 

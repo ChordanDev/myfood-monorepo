@@ -77,6 +77,7 @@ function resetStores() {
     manualItems: [],
     lastManualItemSequence: 0,
     groupingMode: 'category',
+    chosenUntilDate: undefined,
   });
   useInventoryStore.setState({ items: [RICE_STOCK] });
 }
@@ -715,6 +716,39 @@ describe('grouping mode', () => {
   });
 });
 
+describe('the day the list is asked to reach', () => {
+  it('starts without one', () => {
+    expect(useShoppingListStore.getInitialState().chosenUntilDate).toBeUndefined();
+  });
+
+  it('keeps the day the user chose', () => {
+    shopping().setChosenUntilDate('2026-10-12');
+
+    expect(shopping().chosenUntilDate).toBe('2026-10-12');
+  });
+
+  it('forgets it when the choice is cleared', () => {
+    shopping().setChosenUntilDate('2026-10-12');
+
+    shopping().setChosenUntilDate(undefined);
+
+    expect(shopping().chosenUntilDate).toBeUndefined();
+  });
+
+  it('leaves the cart, the removed rows and the manual items as they are', () => {
+    shopping().addManualItem('Servilletas');
+    shopping().addToCart([CHICKEN_ID]);
+    shopping().removeItem(plannedItem({ ingredientId: RICE }));
+    const { cartIds, removedIds, manualItems } = shopping();
+
+    shopping().setChosenUntilDate('2026-10-12');
+
+    expect(shopping().cartIds).toBe(cartIds);
+    expect(shopping().removedIds).toBe(removedIds);
+    expect(shopping().manualItems).toBe(manualItems);
+  });
+});
+
 describe('seeded supermarket offers', () => {
   const offers = () => shopping().offers;
   const offersOf = (ingredientId: string) =>
@@ -797,6 +831,76 @@ describe('persistence', () => {
         lastManualItemSequence: 1,
         groupingMode: 'supermarket',
       },
+    });
+  });
+
+  describe('of the chosen day', () => {
+    // What this version wrote before there was a day to choose.
+    const STATE_WITHOUT_A_CHOSEN_DAY = {
+      cartIds: [CHICKEN_ID],
+      removedIds: [RICE_ID],
+      manualItems: [manualItem(1, 'Servilletas')],
+      lastManualItemSequence: 1,
+      groupingMode: 'supermarket',
+    };
+
+    it('is stored with the rest of what the user did, under the same version', () => {
+      shopping().setChosenUntilDate('2026-10-12');
+
+      const [, value] = jest.mocked(AsyncStorage.setItem).mock.lastCall ?? [];
+
+      expect(JSON.parse(value ?? '')).toEqual({
+        version: 2,
+        state: {
+          cartIds: [],
+          removedIds: [],
+          manualItems: [],
+          lastManualItemSequence: 0,
+          groupingMode: 'category',
+          chosenUntilDate: '2026-10-12',
+        },
+      });
+    });
+
+    it('comes back when the storage is read', async () => {
+      await AsyncStorage.setItem(
+        STORAGE_KEY,
+        JSON.stringify({
+          version: 2,
+          state: { ...STATE_WITHOUT_A_CHOSEN_DAY, chosenUntilDate: '2026-10-12' },
+        })
+      );
+
+      await useShoppingListStore.persist.rehydrate();
+
+      expect(shopping().chosenUntilDate).toBe('2026-10-12');
+    });
+
+    it('is not there in a list stored before it existed, which still loads whole', async () => {
+      await AsyncStorage.setItem(
+        STORAGE_KEY,
+        JSON.stringify({ version: 2, state: STATE_WITHOUT_A_CHOSEN_DAY })
+      );
+
+      await useShoppingListStore.persist.rehydrate();
+
+      const { cartIds, removedIds, manualItems, lastManualItemSequence, groupingMode } = shopping();
+      expect({ cartIds, removedIds, manualItems, lastManualItemSequence, groupingMode }).toEqual(
+        STATE_WITHOUT_A_CHOSEN_DAY
+      );
+      expect(shopping().chosenUntilDate).toBeUndefined();
+    });
+
+    it('survives an upgrade only as a date key', () => {
+      expect(migrateShoppingListState({ chosenUntilDate: '2026-10-12' }).chosenUntilDate).toBe(
+        '2026-10-12'
+      );
+
+      for (const stored of [null, 20261012, '12/10/2026', 'tomorrow', ['2026-10-12']]) {
+        expect(
+          migrateShoppingListState({ chosenUntilDate: stored }).chosenUntilDate
+        ).toBeUndefined();
+      }
     });
   });
 

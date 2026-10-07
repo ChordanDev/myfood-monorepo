@@ -12,6 +12,9 @@ jest.mock('@react-native-async-storage/async-storage', () =>
   jest.requireActual('@react-native-async-storage/async-storage/jest/async-storage-mock')
 );
 
+// The day the list takes for today. Nothing depends on it until the user chooses a day.
+jest.mock('../store/today', () => ({ getTodayKey: () => '2026-10-01' }));
+
 const CHICKEN = 'i2';
 const SPINACH = 'i7';
 
@@ -58,6 +61,7 @@ beforeEach(() => {
     manualItems: [],
     lastManualItemSequence: 0,
     groupingMode: 'category',
+    chosenUntilDate: undefined,
   });
   renderCount = 0;
   act(() => {
@@ -111,6 +115,24 @@ describe('useShoppingListItems', () => {
       useMealPlanStore.setState({ entries: [{ ...PLAN[0], isCooked: true }, PLAN[1]] });
     });
     expect(summarize(items)).toEqual([['planned:i7', 'needed', 100]]);
+  });
+
+  it('reaches the day the user chose, like the list an action reads', () => {
+    act(() => {
+      useShoppingListStore.getState().setChosenUntilDate('2026-10-06');
+    });
+
+    expect(summarize(items)).toEqual([['planned:i2', 'needed', 200]]);
+    expect(items).toEqual(readShoppingListItems());
+
+    act(() => {
+      useShoppingListStore.getState().setChosenUntilDate('2026-10-12');
+    });
+
+    expect(summarize(items)).toEqual([
+      ['planned:i2', 'needed', 200],
+      ['planned:i7', 'needed', 100],
+    ]);
   });
 
   it('keeps the same list while nothing it is derived from changes', () => {

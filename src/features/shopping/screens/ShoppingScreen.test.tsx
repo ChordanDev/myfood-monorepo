@@ -4,6 +4,7 @@ import React from 'react';
 import { ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { act, create, ReactTestInstance } from 'react-test-renderer';
 import type { MasterRecipe, MealPlanEntry } from '@/types/domain';
+import type { FloatingCalendarProps } from '@/features/home';
 import { useInventoryStore } from '@/features/inventory/store';
 import { CUSTOM_TAB_BAR_CONTENT_HEIGHT } from '@/features/planner/constants';
 import { MOCK_INGREDIENTS } from '@/mocks/domainMocks';
@@ -19,6 +20,36 @@ jest.mock('@react-native-async-storage/async-storage', () =>
 jest.mock('react-native-safe-area-context', () => ({
   useSafeAreaInsets: () => ({ top: 47, right: 0, bottom: 34, left: 0 }),
 }));
+
+// The day the list takes for today: before both planned meals.
+jest.mock('../store/today', () => ({ getTodayKey: () => '2026-10-01' }));
+
+const mockFloatingCalendars: FloatingCalendarProps[] = [];
+const mockAnchor = { x: 14, y: 60, width: 150, height: 42 };
+
+// The calendar is the Home feature's, whose barrel this suite's reanimated mock cannot
+// evaluate: the screen is tested for what the pill hands it. The anchor opens with a fixed
+// frame, since a Jest view measures nothing.
+jest.mock('@/features/home', () => {
+  const { useState } = require('react');
+
+  return {
+    FloatingCalendar: (props: FloatingCalendarProps) => {
+      mockFloatingCalendars.push(props);
+      return null;
+    },
+    useFloatingCalendarAnchor: () => {
+      const [anchor, setAnchor] = useState(null);
+
+      return {
+        anchorRef: { current: null },
+        anchor,
+        open: () => setAnchor(mockAnchor),
+        close: () => setAnchor(null),
+      };
+    },
+  };
+});
 
 jest.mock('react-native-reanimated', () => {
   const { Text, View } = require('react-native');
@@ -225,6 +256,19 @@ function stockOf(ingredientId: string) {
     ?.quantity;
 }
 
+const UNTIL_THE_12TH = 'Elegir hasta qué día comprar, ahora 12 Oct';
+
+// What the date pill hands the floating calendar on its last render.
+function untilCalendar() {
+  return mockFloatingCalendars[mockFloatingCalendars.length - 1];
+}
+
+function pickUntilDate(dateKey: string) {
+  act(() => {
+    untilCalendar().onSelectDate?.(dateKey);
+  });
+}
+
 const EMPTY_LABEL = 'No hay nada para comprar';
 const MANUAL_TITLE = 'Agregados a mano';
 const MANUAL_HINT = 'Todavía no agregaste nada.';
@@ -238,6 +282,7 @@ function getImmediateKeys() {
 
 beforeEach(() => {
   mockKeepsChildrenWhileHidden = false;
+  mockFloatingCalendars.length = 0;
   jest.mocked(useAnimatedThemeStyle).mockClear();
   useMealPlanStore.setState({
     entries: PLAN,
@@ -250,6 +295,7 @@ beforeEach(() => {
     manualItems: [],
     lastManualItemSequence: 0,
     groupingMode: 'category',
+    chosenUntilDate: undefined,
   });
 });
 
@@ -283,10 +329,11 @@ describe('ShoppingScreen', () => {
     ]);
   });
 
-  it('shows the date as plain text: the buttons are the grouping options, the add one and the cart', () => {
+  it('shows the date as a button, before the grouping options, the add one and the cart', () => {
     const root = renderScreen();
 
     expect(getPressables(root, 'button').map((button) => button.props.accessibilityLabel)).toEqual([
+      UNTIL_THE_12TH,
       'Por categoría',
       'Por súper',
       'Agregar a la lista',
@@ -367,6 +414,133 @@ describe('ShoppingScreen', () => {
     expect(StyleSheet.flatten(list.props.contentContainerStyle).paddingBottom).toBe(
       34 + CUSTOM_TAB_BAR_CONTENT_HEIGHT + 14 + 56 + 14
     );
+  });
+
+  describe('the date pill', () => {
+    it('opens a calendar under itself that offers the planned days from today on', () => {
+      const root = renderScreen();
+
+      expect(untilCalendar().anchor).toBeNull();
+
+      press(root, 'button', UNTIL_THE_12TH);
+
+      const { anchor, isDateSelectable, monthBounds, planByDate, rangeStart, rangeEnd } =
+        untilCalendar();
+      expect(anchor).toEqual(mockAnchor);
+      // The stretch the list buys for: from the first planned day to the last one.
+      expect(rangeStart).toBe('2026-10-06');
+      expect(rangeEnd).toBe('2026-10-12');
+      expect(isDateSelectable?.('2026-10-06')).toBe(true);
+      expect(isDateSelectable?.('2026-10-12')).toBe(true);
+      expect(isDateSelectable?.('2026-10-08')).toBe(false);
+      expect(monthBounds).toEqual({ months: ['2026-10'] });
+      expect(Object.keys(planByDate ?? {})).toEqual(['2026-10-06', '2026-10-12']);
+    });
+
+    it('makes the pill, the cards and the counter reach the picked day, and closes the calendar', () => {
+      const root = renderScreen();
+      press(root, 'button', UNTIL_THE_12TH);
+
+      pickUntilDate('2026-10-06');
+
+      expect(getTexts(root)).toEqual([
+        'Hasta 6 Oct',
+        'Por categoría',
+        'Por súper',
+        'COMPRAS',
+        '2 ítems · 0 en el carrito',
+        'Verduras',
+        'Marcar todos',
+        '2 u · Tomate',
+        'Coto · $1.100',
+        'Carnes',
+        'Marcar todos',
+        '200 g · Pollo (Pechuga)',
+        'Día · $1.520',
+        MANUAL_TITLE,
+        MANUAL_HINT,
+      ]);
+      expect(untilCalendar().anchor).toBeNull();
+      // Picking the first day leaves a one-day stretch.
+      expect(untilCalendar().rangeStart).toBe('2026-10-06');
+      expect(untilCalendar().rangeEnd).toBe('2026-10-06');
+    });
+
+    it('reaches the last planned day again when it is picked back', () => {
+      const root = renderScreen();
+      press(root, 'button', UNTIL_THE_12TH);
+      pickUntilDate('2026-10-06');
+
+      press(root, 'button', 'Elegir hasta qué día comprar, ahora 6 Oct');
+      pickUntilDate('2026-10-12');
+
+      expect(getTexts(root)).toContain('Hasta 12 Oct');
+      expect(getTexts(root)).toContain('3 ítems · 0 en el carrito');
+    });
+
+    it('closes on a tap outside and leaves the list as it was', () => {
+      const root = renderScreen();
+      const textsBefore = getTexts(root);
+      press(root, 'button', UNTIL_THE_12TH);
+
+      act(() => {
+        untilCalendar().onClose();
+      });
+
+      expect(untilCalendar().anchor).toBeNull();
+      expect(getTexts(root)).toEqual(textsBefore);
+      expect(useShoppingListStore.getState().chosenUntilDate).toBeUndefined();
+    });
+
+    it('takes a row the picked day leaves out off the cart button and the cart sheet', () => {
+      const root = renderScreen();
+      press(root, 'checkbox', '100 g · Espinaca, Sin precio');
+      press(root, 'checkbox', '2 u · Tomate, Coto · $1.100');
+      press(root, 'button', UNTIL_THE_12TH);
+
+      pickUntilDate('2026-10-06');
+
+      expect(getTexts(root)).toContain('2 ítems · 1 en el carrito');
+
+      press(root, 'button', 'Ver carrito, 1 ítem');
+
+      expect(getCartSheetTexts(root)).not.toContain('100 g · Espinaca');
+      expect(getCartSheetTexts(root)).toContain('2 u · Tomate');
+
+      pressText(root, CONFIRM);
+
+      expect(stockOf('i3')).toBe(2);
+      expect(stockOf('i7')).toBeUndefined();
+    });
+
+    // Today is the 1st: a plan that ended in September has no day left to pick.
+    it('only shows the date, and opens nothing, when every planned meal is in the past', () => {
+      useMealPlanStore.setState({
+        entries: [
+          { id: 'mp0', date: '2026-09-28', type: 'almuerzo', recipeId: 'r1', isCooked: false },
+        ],
+      });
+
+      const root = renderScreen();
+
+      expect(getTexts(root)).toContain('Hasta 28 Sep');
+      expect(getTexts(root)).toContain('2 ítems · 0 en el carrito');
+      expect(
+        getPressables(root, 'button').map((button) => button.props.accessibilityLabel)
+      ).toEqual(['Por categoría', 'Por súper', 'Agregar a la lista', 'Ver carrito, vacío']);
+      expect(mockFloatingCalendars).toHaveLength(0);
+    });
+
+    it('is not shown while the plan is empty', () => {
+      useMealPlanStore.setState({ entries: [] });
+
+      const root = renderScreen();
+
+      expect(
+        getPressables(root, 'button').map((button) => button.props.accessibilityLabel)
+      ).toEqual(['Por categoría', 'Por súper', 'Agregar a la lista', 'Ver carrito, vacío']);
+      expect(mockFloatingCalendars).toHaveLength(0);
+    });
   });
 
   describe('the floating cart button', () => {

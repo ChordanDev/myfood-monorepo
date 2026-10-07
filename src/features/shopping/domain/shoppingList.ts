@@ -7,6 +7,7 @@ import type {
   ShoppingListInput,
   ShoppingListItem,
   ShoppingListSources,
+  ShoppingUntilCalendar,
 } from '../types';
 
 export function getPlannedItemId(ingredientId: string) {
@@ -19,6 +20,61 @@ export function getDefaultUntilDate(entries: MealPlanEntry[]): string | undefine
     (latest, entry) => (latest === undefined || entry.date > latest ? entry.date : latest),
     undefined
   );
+}
+
+// Days the list can be asked to reach: from today on, with at least one planned meal. In
+// ascending order, each one once. `todayKey` is a date key too.
+export function getSelectableUntilDates(entries: MealPlanEntry[], todayKey: string): string[] {
+  const dates = entries.map((entry) => entry.date).filter((date) => date >= todayKey);
+
+  return [...new Set(dates)].sort();
+}
+
+// The first day the list buys for: the first planned day from today on, when there is one.
+export function getFirstUntilDate(entries: MealPlanEntry[], todayKey: string): string | undefined {
+  return getSelectableUntilDates(entries, todayKey)[0];
+}
+
+// The date the list reaches: the chosen day while it can still be chosen, otherwise the last
+// planned one. A chosen day stops counting when it passes or loses its meals.
+export function resolveUntilDate(
+  entries: MealPlanEntry[],
+  chosenUntilDate: string | undefined,
+  todayKey: string
+): string | undefined {
+  const isChosenDateSelectable =
+    chosenUntilDate !== undefined &&
+    getSelectableUntilDates(entries, todayKey).includes(chosenUntilDate);
+
+  return isChosenDateSelectable ? chosenUntilDate : getDefaultUntilDate(entries);
+}
+
+// The calendar that picks the date: the same days `resolveUntilDate` accepts can be picked,
+// they carry the mark of a planned day, and only their months can be walked. It draws the
+// stretch the list buys for from the first of those days. Without a day to pick there is no
+// calendar: every planned meal is in the past, or the plan is empty.
+export function getUntilCalendar(
+  entries: MealPlanEntry[],
+  todayKey: string
+): ShoppingUntilCalendar | undefined {
+  const selectableDates = getSelectableUntilDates(entries, todayKey);
+  const rangeStart = getFirstUntilDate(entries, todayKey);
+  if (rangeStart === undefined) return undefined;
+
+  const planByDate: ShoppingUntilCalendar['planByDate'] = {};
+
+  for (const entry of entries) {
+    if (entry.date < todayKey) continue;
+
+    planByDate[entry.date] = [...(planByDate[entry.date] ?? []), entry];
+  }
+
+  return {
+    planByDate,
+    isDateSelectable: (dateKey) => selectableDates.includes(dateKey),
+    monthBounds: { months: [...new Set(selectableDates.map((date) => date.slice(0, 7)))] },
+    rangeStart,
+  };
 }
 
 // Total amount each ingredient needs across the uncooked meals up to `untilDate`.
@@ -96,9 +152,15 @@ export function deriveShoppingList(input: ShoppingListInput): ShoppingListItem[]
   return [...plannedItems, ...input.manualItems];
 }
 
-// The list reaches up to the last planned date: no picker is designed for the pill yet.
-export function deriveFullShoppingList(sources: ShoppingListSources): ShoppingListItem[] {
-  return deriveShoppingList({ ...sources, untilDate: getDefaultUntilDate(sources.entries) });
+// The list as the user has it: every reader derives it here, so they all reach the same date.
+export function deriveCurrentShoppingList(
+  { chosenUntilDate, ...input }: ShoppingListSources,
+  todayKey: string
+): ShoppingListItem[] {
+  return deriveShoppingList({
+    ...input,
+    untilDate: resolveUntilDate(input.entries, chosenUntilDate, todayKey),
+  });
 }
 
 // Rows of the cart, planned and manual, in the order of the list.
