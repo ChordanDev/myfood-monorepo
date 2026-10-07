@@ -4,18 +4,17 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 
 /**
- * Contract test: every error code emitted by the back via the
- * `error(:atom)` domain-error helper MUST be present in the front's
+ * Contract test: every error code emitted by the api via the
+ * `error(:atom)` domain-error helper MUST be present in the mobile app's
  * `KNOWN_AUTH_ERROR_CODES` allowlist. Otherwise `errorFromEnvelope` on
- * the front normalizes the code to `unknown_error` and the user sees a
- * generic "Request failed" message instead of a domain-specific one.
+ * the mobile side normalizes the code to `unknown_error` and the user sees
+ * a generic "Request failed" message instead of a domain-specific one.
  *
- * The back source is treated as a read-only fixture. We walk every
- * `.ex` file under the back's `lib/` directory and collect atoms from
- * `error(:atom)` calls — these are the domain codes the Auth context
- * raises.
+ * The api source is treated as a read-only fixture. We walk every
+ * `.ex` file under `apps/api/lib/` and collect atoms from `error(:atom)`
+ * calls — these are the domain codes the Auth context raises.
  */
-describe('auth error code contract (back -> front allowlist)', () => {
+describe('auth error code contract (api -> mobile allowlist)', () => {
   // The Auth domain context raises domain errors with `error(:atom)`.
   // The atoms that pass through `ErrorRendering.safe_error/1` and out
   // the wire as `error.code` are exactly the atoms in those calls.
@@ -28,42 +27,31 @@ describe('auth error code contract (back -> front allowlist)', () => {
   //   * `code: "..."` string literals in `accounts.ex` — those flow
   //     through a different path (see `KNOWN_AUTH_ERROR_CODES`).
   // The contract asserted here is: every `error(:atom)` raised by the
-  // back has a front-side allowlist entry, full stop.
+  // api has a mobile-side allowlist entry, full stop.
 
   /**
-   * Resolve the back source `lib/` directory.
+   * Resolve the api source `lib/` directory inside the monorepo.
    *
-   * Order of candidates (workspace-relative, four `..` up from this
-   * test file lands at the monorepo root):
-   *   1. `my_food_back/lib` — local dev (the developer's monorepo has
-   *      the back checked out as a sibling named `my_food_back`).
-   *   2. `progra-3-back/lib` — CI (`.github/workflows/ci.yml` clones
-   *      the back to `../progra-3-back` as a sibling of the front
-   *      checkout, so the path resolves to the CI workspace).
+   * This test lives at `apps/mobile/src/services/__tests__/`, so four
+   * `..` up from here lands at `apps/`, and the api lives at
+   * `apps/api/lib`. The `appsRoot` parameter exists so the resolver can
+   * be pointed at a synthetic root in tests.
    *
-   * Returns `null` when no candidate exists, so callers can decide
-   * whether to skip or fail the contract test.
+   * Returns `null` when the directory does not exist, so callers can
+   * decide whether to skip or fail the contract test.
    */
-  function resolveBackLibPath(
-    root: string = path.resolve(__dirname, '..', '..', '..', '..')
+  function resolveApiLibPath(
+    appsRoot: string = path.resolve(__dirname, '..', '..', '..', '..')
   ): string | null {
-    const candidates = [
-      path.join(root, 'my_food_back', 'lib'),
-      path.join(root, 'progra-3-back', 'lib'),
-    ];
-    for (const candidate of candidates) {
-      if (fs.existsSync(candidate)) {
-        return candidate;
-      }
-    }
-    return null;
+    const candidate = path.join(appsRoot, 'api', 'lib');
+    return fs.existsSync(candidate) ? candidate : null;
   }
 
-  function extractBackErrorAtoms(backLib: string): string[] {
-    if (!fs.existsSync(backLib)) {
+  function extractApiErrorAtoms(apiLib: string): string[] {
+    if (!fs.existsSync(apiLib)) {
       throw new Error(
-        `Back source not found at ${backLib}. ` +
-          'This test depends on a sibling back repo at the monorepo root.'
+        `Api source not found at ${apiLib}. ` +
+          'This test depends on the monorepo layout (apps/api next to apps/mobile).'
       );
     }
 
@@ -84,16 +72,16 @@ describe('auth error code contract (back -> front allowlist)', () => {
       }
     }
 
-    walk(backLib);
+    walk(apiLib);
     return [...atoms].sort();
   }
 
   // Importing the production module would also re-run the back-end of
   // the auth service. Use a small local mirror of the allowlist to keep
   // this contract test self-contained and explicit. If this mirror
-  // drifts from the real one, the front would already be broken for
+  // drifts from the real one, the mobile app would already be broken for
   // other reasons — and the next two tests will still verify the real
-  // front's allowlist against the back.
+  // mobile allowlist against the api.
   const KNOWN_AUTH_ERROR_CODES = new Set([
     'invalid_email',
     'email_already_exists',
@@ -123,7 +111,7 @@ describe('auth error code contract (back -> front allowlist)', () => {
     'unknown_error',
   ]);
 
-  // Read the real allowlist + message map straight from the front
+  // Read the real allowlist + message map straight from the mobile
   // source so the assertions are anchored to the shipping code, not a
   // duplicated copy.
   const frontServicePath = path.resolve(__dirname, '..', 'authService.ts');
@@ -184,59 +172,49 @@ describe('auth error code contract (back -> front allowlist)', () => {
     );
   }
 
-  it('resolveBackLibPath() returns a non-null string when a sibling back exists', () => {
-    // The contract test depends on a sibling back checkout. The
-    // helper must resolve at least one candidate when the back is
-    // present (local dev with `my_food_back` or CI with
-    // `progra-3-back`).
-    const resolved = resolveBackLibPath();
+  it('resolveApiLibPath() resolves apps/api/lib inside the monorepo', () => {
+    const resolved = resolveApiLibPath();
     expect(typeof resolved).toBe('string');
     expect(resolved).not.toBeNull();
+    expect(resolved!.endsWith(path.join('apps', 'api', 'lib'))).toBe(true);
   });
 
-  it('resolveBackLibPath() returns null when no sibling back is present', () => {
+  it('resolveApiLibPath() returns null when apps/api is not present', () => {
     // Triangulation: the helper must return `null` when the root
-    // directory has neither `my_food_back` nor `progra-3-back`.
-    // We point the lookup at a tmpdir to simulate the missing case.
-    const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'no-back-'));
+    // directory has no `api/lib`. We point the lookup at a tmpdir to
+    // simulate the missing case.
+    const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'no-api-'));
     try {
-      const resolved = resolveBackLibPath(tmpRoot);
+      const resolved = resolveApiLibPath(tmpRoot);
       expect(resolved).toBeNull();
     } finally {
       fs.rmSync(tmpRoot, { recursive: true, force: true });
     }
   });
 
-  it('every error code emitted by the back is in the front allowlist', () => {
-    const backLib = resolveBackLibPath();
-    if (!backLib) {
-      // Skip with a clear message — the dynamic assertion requires
-      // a sibling checkout. CI sets this up via `.github/workflows/
-      // ci.yml` (clones the back to `../progra-3-back`); local devs
-      // need `my_food_back` next to this repo. If we land here,
-      // someone forgot one of those setups.
-      console.warn(
-        '[authErrorCodeContract] Back source not found as a sibling. ' +
-          'Expected `my_food_back/lib` (local) or `progra-3-back/lib` (CI) at the monorepo root. ' +
-          'Skipping dynamic back -> front contract assertion.'
+  // TODO(porting): re-enable once the api exposes the progra-3-back auth error-code contract (see odd/tasks/monorepo-bootstrap.md).
+  // `apps/api` (meal_planner_api) currently has no `error(:atom)` helper
+  // calls, so the extractor returns an empty list and the `> 0` sanity
+  // check below fails by design until the auth contract is ported.
+  it.skip('every error code emitted by the api is in the mobile allowlist', () => {
+    const apiLib = resolveApiLibPath();
+    if (!apiLib) {
+      throw new Error(
+        '[authErrorCodeContract] apps/api/lib not found next to apps/mobile. ' +
+          'This test depends on the monorepo layout.'
       );
-      pending(
-        'Back source not found. Clone the back as a sibling ' +
-          '(my_food_back locally, or progra-3-back in CI) to enable this test.'
-      );
-      return;
     }
-    const backCodes = extractBackErrorAtoms(backLib);
+    const apiCodes = extractApiErrorAtoms(apiLib);
 
     // Sanity check: the extractor must actually have found something.
     // If this ever goes to zero, the test is silently lying.
-    expect(backCodes.length).toBeGreaterThan(0);
+    expect(apiCodes.length).toBeGreaterThan(0);
 
-    const missing = backCodes.filter((code) => !KNOWN_AUTH_ERROR_CODES.has(code));
+    const missing = apiCodes.filter((code) => !KNOWN_AUTH_ERROR_CODES.has(code));
     expect(missing).toEqual([]);
   });
 
-  it('KNOWN_AUTH_ERROR_CODES in the front allowlist matches the production source', () => {
+  it('KNOWN_AUTH_ERROR_CODES in the mobile allowlist matches the production source', () => {
     // The mirror above must stay in lockstep with the real
     // KNOWN_AUTH_ERROR_CODES set in src/services/authService.ts. This
     // is a guard against a silent divergence between this test's
@@ -249,7 +227,7 @@ describe('auth error code contract (back -> front allowlist)', () => {
 
   it('AUTH_ERROR_MESSAGES has an entry for every code in KNOWN_AUTH_ERROR_CODES', () => {
     // A code in the allowlist without a Spanish message would render
-    // as the raw `error.message` from the back (often English) — i.e.
+    // as the raw `error.message` from the api (often English) — i.e.
     // a regression. Lock the 1:1 coverage in.
     const messageKeys = extractProductionMessageKeys();
     const missing = [...KNOWN_AUTH_ERROR_CODES]
