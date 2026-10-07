@@ -2,7 +2,7 @@ import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
 import { MealPlanEntry, MasterRecipe } from '../types/domain';
 import { MOCK_MEAL_PLAN, MOCK_MASTER_RECIPES } from '../mocks/domainMocks';
-import { useInventoryStore } from './useInventoryStore';
+import { useInventoryStore } from '@/features/inventory/store';
 import { safeAsyncStorage } from '@/utils/safeAsyncStorage';
 
 interface EatTodayParams {
@@ -41,7 +41,7 @@ export const useMealPlanStore = create<MealPlanState>()(
           // Consumo automático de ingredientes
           const inventoryStore = useInventoryStore.getState();
           recipe.ingredients.forEach((ing) => {
-            inventoryStore.removeItem(ing.ingredientId, ing.amount);
+            inventoryStore.consumeIngredient(ing.ingredientId, ing.amount);
           });
         }
 

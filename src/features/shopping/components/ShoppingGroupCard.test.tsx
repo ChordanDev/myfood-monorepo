@@ -63,7 +63,7 @@ function vegetable(
     name,
     ingredientId,
     amountToBuy: 2,
-    unit: 'unidades',
+    unit: 'unit',
     category: 'verduras',
   };
 }

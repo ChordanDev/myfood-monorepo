@@ -1,4 +1,5 @@
 import type { MealPlanEntry } from '@/types/domain';
+import { roundQuantity } from '@/utils/formatQuantity';
 import type {
   PlannedShoppingListItem,
   ShoppingCounters,
@@ -6,7 +7,6 @@ import type {
   ShoppingListInput,
   ShoppingListItem,
 } from '../types';
-import { roundAmount } from './amounts';
 
 export function getPlannedItemId(ingredientId: string) {
   return `planned:${ingredientId}`;
@@ -36,11 +36,15 @@ function getPlannedAmounts({ entries, recipes, untilDate }: ShoppingListInput) {
   return plannedAmounts;
 }
 
+// Stock of each ingredient. An inventory item that is not linked to an ingredient covers no
+// planned amount, and one that ran out stays in the inventory at quantity 0: no stock.
 function getStockAmounts({ inventory }: ShoppingListInput) {
   const stockAmounts = new Map<string, number>();
 
-  for (const { ingredientId, amount } of inventory) {
-    stockAmounts.set(ingredientId, (stockAmounts.get(ingredientId) ?? 0) + amount);
+  for (const { ingredientId, quantity } of inventory) {
+    if (ingredientId === undefined) continue;
+
+    stockAmounts.set(ingredientId, (stockAmounts.get(ingredientId) ?? 0) + quantity);
   }
 
   return stockAmounts;
@@ -68,7 +72,8 @@ export function deriveShoppingList(input: ShoppingListInput): ShoppingListItem[]
     if (!ingredient) continue;
 
     const id = getPlannedItemId(ingredientId);
-    const amountToBuy = roundAmount(plannedAmount - (stockAmounts.get(ingredientId) ?? 0));
+    // Rounded to the precision it is displayed with, so no listed amount reads as zero.
+    const amountToBuy = roundQuantity(plannedAmount - (stockAmounts.get(ingredientId) ?? 0));
     if (amountToBuy <= 0) continue;
 
     // Removed wins: a row taken off the list is not in the cart, whatever the cart says.

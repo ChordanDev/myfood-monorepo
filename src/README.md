@@ -43,7 +43,7 @@ src/features/[feature-name]/
 
 Una feature es dueña de todo lo que solo ella usa: su `store/`, `types/`, `mocks/`, `domain/` y `constants/` viven dentro de su carpeta. Las carpetas globales (`src/store`, `src/types`, `src/mocks`, `src/components`) quedan reservadas para lo que comparten varias features.
 
-Dentro de una feature los módulos se importan entre sí por ruta relativa. El `index.ts` raíz expone únicamente lo que usa el resto de la app.
+Dentro de una feature los módulos se importan entre sí por ruta relativa. El `index.ts` raíz expone únicamente lo que usa el resto de la app. Los módulos sin UI de otra feature (por ejemplo, otro store) importan `@/features/[feature-name]/store` para no cargar sus pantallas.
 
 ### Convenciones
 

@@ -1,13 +1,13 @@
-import { Ingredient, MasterRecipe, InventoryItem, MealPlanEntry } from '../types/domain';
+import { Ingredient, MasterRecipe, MealPlanEntry } from '../types/domain';
 
 export const MOCK_INGREDIENTS: Ingredient[] = [
-  { id: 'i1', name: 'Arroz Blanco', category: 'despensa', basePrice: 2, unit: 'gramos' },
-  { id: 'i2', name: 'Pollo (Pechuga)', category: 'proteinas', basePrice: 10, unit: 'gramos' },
-  { id: 'i3', name: 'Tomate', category: 'verduras', basePrice: 3, unit: 'unidades' },
-  { id: 'i4', name: 'Cebolla', category: 'verduras', basePrice: 2, unit: 'unidades' },
-  { id: 'i5', name: 'Aceite de Oliva', category: 'despensa', basePrice: 15, unit: 'mililitros' },
-  { id: 'i6', name: 'Fideos de Pasta', category: 'despensa', basePrice: 4, unit: 'gramos' },
-  { id: 'i7', name: 'Espinaca', category: 'verduras', basePrice: 5, unit: 'gramos' },
+  { id: 'i1', name: 'Arroz Blanco', category: 'almacen', basePrice: 2, unit: 'g' },
+  { id: 'i2', name: 'Pollo (Pechuga)', category: 'carnes', basePrice: 10, unit: 'g' },
+  { id: 'i3', name: 'Tomate', category: 'verduras', basePrice: 3, unit: 'unit' },
+  { id: 'i4', name: 'Cebolla', category: 'verduras', basePrice: 2, unit: 'unit' },
+  { id: 'i5', name: 'Aceite de Oliva', category: 'almacen', basePrice: 15, unit: 'ml' },
+  { id: 'i6', name: 'Fideos de Pasta', category: 'almacen', basePrice: 4, unit: 'g' },
+  { id: 'i7', name: 'Espinaca', category: 'verduras', basePrice: 5, unit: 'g' },
 ];
 
 export const MOCK_MASTER_RECIPES: MasterRecipe[] = [
@@ -82,12 +82,6 @@ export const MOCK_MASTER_RECIPES: MasterRecipe[] = [
       alert: '#C94F3D',
     },
   },
-];
-
-export const MOCK_INVENTORY: InventoryItem[] = [
-  { ingredientId: 'i1', amount: 500 }, // Medio kilo de arroz
-  { ingredientId: 'i5', amount: 250 }, // 250ml de aceite
-  { ingredientId: 'i4', amount: 3 }, // 3 cebollas
 ];
 
 function formatDateKey(date: Date): string {

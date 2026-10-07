@@ -1,8 +1,10 @@
 import React from 'react';
 import { act, create } from 'react-test-renderer';
 import type { MasterRecipe, MealPlanEntry } from '@/types/domain';
+import type { InventoryItem } from '@/features/inventory';
+import { useInventoryStore } from '@/features/inventory/store';
 import { MOCK_INGREDIENTS } from '@/mocks/domainMocks';
-import { useInventoryStore, useMealPlanStore } from '@/store';
+import { useMealPlanStore } from '@/store';
 import { useShoppingListStore } from '../store';
 import { useShoppingList } from './useShoppingList';
 
@@ -27,6 +29,16 @@ const RECIPES = [
   },
   { id: 'r2', ingredients: [{ ingredientId: SPINACH, amount: 100 }] },
 ];
+
+const RICE_STOCK: InventoryItem = {
+  id: 'inv-i1',
+  ingredientId: RICE,
+  name: 'Arroz Blanco',
+  category: 'almacen',
+  quantity: 500,
+  unit: 'g',
+  confidence: 'exact',
+};
 
 const PLAN: MealPlanEntry[] = [
   { id: 'mp1', date: '2026-10-06', type: 'almuerzo', recipeId: 'r1', isCooked: false },
@@ -58,7 +70,7 @@ function listedGroups() {
 
 function stockOf(ingredientId: string) {
   return useInventoryStore.getState().items.find((item) => item.ingredientId === ingredientId)
-    ?.amount;
+    ?.quantity;
 }
 
 function toggleItem(itemId: string) {
@@ -90,7 +102,7 @@ beforeEach(() => {
     recipes: RECIPES as MasterRecipe[],
   });
   useInventoryStore.setState({
-    items: [{ ingredientId: RICE, amount: 500 }],
+    items: [RICE_STOCK],
     ingredients: MOCK_INGREDIENTS,
   });
   useShoppingListStore.setState({
@@ -116,7 +128,7 @@ describe('useShoppingList', () => {
     expect(shoppingList.groupingMode).toBe('category');
     expect(listedGroups()).toEqual([
       ['Verduras', ['Espinaca: needed', 'Tomate: needed']],
-      ['Proteínas', ['Pollo (Pechuga): needed']],
+      ['Carnes', ['Pollo (Pechuga): needed']],
     ]);
     expect(shoppingList.counters).toEqual({ total: 3, inCart: 0, removed: 0 });
   });
@@ -159,7 +171,7 @@ describe('useShoppingList', () => {
       shoppingList.setGroupingMode('category');
     });
 
-    expect(listedGroups().map(([title]) => title)).toEqual(['Verduras', 'Proteínas']);
+    expect(listedGroups().map(([title]) => title)).toEqual(['Verduras', 'Carnes']);
   });
 
   describe('toggling a row', () => {
@@ -171,7 +183,7 @@ describe('useShoppingList', () => {
 
       expect(listedGroups()).toEqual([
         ['Verduras', ['Espinaca: needed', 'Tomate: needed']],
-        ['Proteínas', ['Pollo (Pechuga): in_cart']],
+        ['Carnes', ['Pollo (Pechuga): in_cart']],
       ]);
       expect(useInventoryStore.getState().items).toBe(inventoryBefore);
       expect(shoppingList.counters).toEqual({ total: 3, inCart: 1, removed: 0 });
@@ -183,7 +195,7 @@ describe('useShoppingList', () => {
 
       toggleItem('planned:i2');
 
-      expect(listedGroups()[1]).toEqual(['Proteínas', ['Pollo (Pechuga): needed']]);
+      expect(listedGroups()[1]).toEqual(['Carnes', ['Pollo (Pechuga): needed']]);
       expect(cartIds()).toEqual([]);
       expect(shoppingList.counters).toEqual({ total: 3, inCart: 0, removed: 0 });
     });
@@ -198,7 +210,7 @@ describe('useShoppingList', () => {
       });
 
       expect(cartIds()).toEqual([]);
-      expect(listedGroups()[1]).toEqual(['Proteínas', ['Pollo (Pechuga): needed']]);
+      expect(listedGroups()[1]).toEqual(['Carnes', ['Pollo (Pechuga): needed']]);
     });
 
     it('ignores an id that is not on the list', () => {
@@ -223,7 +235,7 @@ describe('useShoppingList', () => {
 
       expect(listedGroups()).toEqual([
         ['Verduras', ['Espinaca: in_cart', 'Tomate: in_cart']],
-        ['Proteínas', ['Pollo (Pechuga): needed']],
+        ['Carnes', ['Pollo (Pechuga): needed']],
       ]);
       expect(cartIds()).toEqual(['planned:i3', 'planned:i7']);
       expect(useInventoryStore.getState().items).toBe(inventoryBefore);
@@ -239,7 +251,7 @@ describe('useShoppingList', () => {
 
       expect(listedGroups()).toEqual([
         ['Verduras', ['Espinaca: needed', 'Tomate: needed']],
-        ['Proteínas', ['Pollo (Pechuga): in_cart']],
+        ['Carnes', ['Pollo (Pechuga): in_cart']],
       ]);
       expect(shoppingList.counters).toEqual({ total: 3, inCart: 1, removed: 0 });
     });
@@ -468,7 +480,7 @@ describe('useShoppingList', () => {
     expect(shoppingList.manualItems.map((item) => item.name)).toEqual(['Servilletas']);
     expect(listedGroups()).toEqual([
       ['Verduras', ['Espinaca: needed']],
-      ['Proteínas', ['Pollo (Pechuga): needed']],
+      ['Carnes', ['Pollo (Pechuga): needed']],
     ]);
     expect(shoppingList.counters).toEqual({ total: 3, inCart: 0, removed: 2 });
   });
@@ -501,7 +513,7 @@ describe('useShoppingList', () => {
 
       expect(listedGroups()).toEqual([
         ['Verduras', ['Tomate: needed']],
-        ['Proteínas', ['Pollo (Pechuga): needed']],
+        ['Carnes', ['Pollo (Pechuga): needed']],
       ]);
       expect(shoppingList.counters).toEqual({ total: 2, inCart: 0, removed: 0 });
     });
@@ -521,11 +533,35 @@ describe('useShoppingList', () => {
       renderShoppingList();
 
       act(() => {
-        useInventoryStore.getState().removeItem(RICE, 450);
+        useInventoryStore.getState().consumeIngredient(RICE, 450);
       });
 
       expect(listedGroups()).toContainEqual(['Despensa', ['Arroz Blanco: needed']]);
       expect(shoppingList.groups.at(-1)?.items[0].amountToBuy).toBe(50);
+    });
+
+    it('lists a row for the whole amount once the inventory runs out, its record kept at zero', () => {
+      renderShoppingList();
+
+      act(() => {
+        useInventoryStore.getState().consumeIngredient(RICE, 800);
+      });
+
+      expect(useInventoryStore.getState().items).toEqual([{ ...RICE_STOCK, quantity: 0 }]);
+      expect(listedGroups()).toContainEqual(['Despensa', ['Arroz Blanco: needed']]);
+      expect(shoppingList.groups.at(-1)?.items[0].amountToBuy).toBe(100);
+    });
+
+    it('lists a row again when its item is deleted on the inventory screen', () => {
+      renderShoppingList();
+
+      act(() => {
+        useInventoryStore.getState().removeItem(RICE_STOCK.id);
+      });
+
+      expect(stockOf(RICE)).toBe(0);
+      expect(listedGroups()).toContainEqual(['Despensa', ['Arroz Blanco: needed']]);
+      expect(shoppingList.groups.at(-1)?.items[0].amountToBuy).toBe(100);
     });
   });
 
@@ -569,7 +605,7 @@ describe('useShoppingList', () => {
 
       expect(listedGroups()).toEqual([
         ['Verduras', ['Espinaca: needed']],
-        ['Proteínas', ['Pollo (Pechuga): needed']],
+        ['Carnes', ['Pollo (Pechuga): needed']],
       ]);
       expect(shoppingList.counters).toEqual({ total: 2, inCart: 0, removed: 1 });
     });

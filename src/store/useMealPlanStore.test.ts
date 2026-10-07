@@ -1,6 +1,7 @@
 import type { MasterRecipe, MealPlanEntry } from '@/types/domain';
 import { MOCK_MASTER_RECIPES } from '@/mocks/domainMocks';
-import { useInventoryStore } from './useInventoryStore';
+import { useInventoryStore } from '@/features/inventory/store';
+import type { InventoryItem } from '@/features/inventory';
 import { useMealPlanStore } from './useMealPlanStore';
 
 jest.mock('@react-native-async-storage/async-storage', () =>
@@ -34,13 +35,73 @@ describe('favorite recipes', () => {
   });
 });
 
+describe('marking a meal as cooked', () => {
+  const recipe = MOCK_MASTER_RECIPES[0];
+  const entry: MealPlanEntry = {
+    id: 'entry-1',
+    date: '2026-08-25',
+    type: 'almuerzo',
+    recipeId: recipe.id,
+    isCooked: false,
+  };
+  const rice: InventoryItem = {
+    id: 'inv-i1',
+    ingredientId: 'i1',
+    name: 'Rice',
+    category: 'almacen',
+    quantity: 500,
+    unit: 'g',
+    confidence: 'estimated',
+  };
+  const oil: InventoryItem = {
+    id: 'inv-i5',
+    ingredientId: 'i5',
+    name: 'Olive oil',
+    category: 'almacen',
+    quantity: 4,
+    unit: 'ml',
+    confidence: 'estimated',
+  };
+
+  beforeEach(() => {
+    useMealPlanStore.setState({ entries: [entry], recipes: [recipe] });
+    useInventoryStore.setState({ items: [rice, oil] });
+  });
+
+  it('consumes the recipe ingredients from the inventory without going below zero', () => {
+    useMealPlanStore.getState().markAsCooked('entry-1');
+
+    expect(useInventoryStore.getState().items).toEqual([
+      { ...rice, quantity: 400 },
+      { ...oil, quantity: 0 },
+    ]);
+    expect(useMealPlanStore.getState().entries[0].isCooked).toBe(true);
+  });
+
+  it('does not consume the ingredients twice', () => {
+    useMealPlanStore.getState().markAsCooked('entry-1');
+    useMealPlanStore.getState().markAsCooked('entry-1');
+
+    expect(useInventoryStore.getState().items[0].quantity).toBe(400);
+  });
+});
+
 describe('meal confirmation', () => {
   const recipe: MasterRecipe = {
     ...MOCK_MASTER_RECIPES[0],
     id: 'recipe-1',
     ingredients: [{ ingredientId: 'rice', amount: 100 }],
   };
-  const initialInventory = [{ ingredientId: 'rice', amount: 500 }];
+  const rice: InventoryItem = {
+    id: 'inv-rice',
+    ingredientId: 'rice',
+    name: 'Rice',
+    category: 'almacen',
+    quantity: 500,
+    unit: 'g',
+    confidence: 'estimated',
+  };
+  const initialInventory = [rice];
 
   function seedEntry(overrides: Partial<MealPlanEntry> = {}) {
     const entry: MealPlanEntry = {
@@ -73,7 +134,7 @@ describe('meal confirmation', () => {
     useMealPlanStore.getState().markAsCooked('entry-1');
 
     expect(getEntry().isCooked).toBe(true);
-    expect(getInventory()).toEqual([{ ingredientId: 'rice', amount: 400 }]);
+    expect(getInventory()).toEqual([{ ...rice, quantity: 400 }]);
   });
 
   it('marks an entry as skipped and leaves the inventory untouched', () => {

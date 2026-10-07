@@ -51,8 +51,8 @@ const CHICKEN: ShoppingListItem = {
   name: 'Pollo (Pechuga)',
   ingredientId: 'i2',
   amountToBuy: 200,
-  unit: 'gramos',
-  category: 'proteinas',
+  unit: 'g',
+  category: 'carnes',
 };
 
 const NAPKINS: ShoppingListItem = {

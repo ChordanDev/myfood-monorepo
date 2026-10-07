@@ -3,20 +3,32 @@
  * Basado en CONTEXT.md.
  */
 
-export type UnitType = 'gramos' | 'mililitros' | 'unidades';
+export type UnitType = 'g' | 'ml' | 'unit';
+
+// Categories allowed by the inventory PRD, in display order
+export const INGREDIENT_CATEGORIES = [
+  'verduras',
+  'frutas',
+  'carnes',
+  'pescados_mariscos',
+  'lacteos',
+  'panaderia',
+  'almacen',
+  'congelados',
+  'bebidas',
+  'condimentos',
+  'limpieza_otros',
+  'otros',
+] as const;
+
+export type IngredientCategory = (typeof INGREDIENT_CATEGORIES)[number];
 
 export interface Ingredient {
   id: string;
   name: string;
-  category: 'verduras' | 'proteinas' | 'lacteos' | 'despensa' | 'frutas' | 'otros';
+  category: IngredientCategory;
   basePrice: number; // Precio promedio de mercado
   unit: UnitType;
-}
-
-export interface InventoryItem {
-  ingredientId: string;
-  amount: number; // Cantidad aproximada
-  isLeftover?: boolean;
 }
 
 export interface RecipeIngredient {

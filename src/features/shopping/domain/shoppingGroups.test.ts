@@ -1,4 +1,4 @@
-import type { Ingredient, UnitType } from '@/types/domain';
+import type { IngredientCategory, UnitType } from '@/types/domain';
 import type {
   ManualShoppingListItem,
   PlannedShoppingListItem,
@@ -15,10 +15,10 @@ import {
 
 function buildPlannedItem(
   ingredientId: string,
-  category: Ingredient['category'],
+  category: IngredientCategory,
   amountToBuy = 1,
   status: ShoppingItemStatus = 'needed',
-  unit: UnitType = 'unidades'
+  unit: UnitType = 'unit'
 ): PlannedShoppingListItem {
   return {
     id: `planned:${ingredientId}`,
@@ -53,7 +53,7 @@ function summarize(groups: ShoppingGroup[]) {
 }
 
 describe('getBestOffer', () => {
-  const milk = buildPlannedItem('milk', 'lacteos', 1000, 'needed', 'mililitros');
+  const milk = buildPlannedItem('milk', 'lacteos', 1000, 'needed', 'ml');
 
   it('picks the cheapest offer and prices it for the amount to buy', () => {
     const offers = [
@@ -87,30 +87,42 @@ describe('getBestOffer', () => {
 describe('groupItemsByCategory', () => {
   it('orders the groups as the screen lists them, with Spanish titles', () => {
     const items = [
-      buildPlannedItem('salt', 'otros'),
-      buildPlannedItem('rice', 'despensa'),
-      buildPlannedItem('chicken', 'proteinas'),
+      buildPlannedItem('napkins', 'otros'),
+      buildPlannedItem('soap', 'limpieza_otros'),
+      buildPlannedItem('salt', 'condimentos'),
+      buildPlannedItem('cola', 'bebidas'),
+      buildPlannedItem('peas', 'congelados'),
+      buildPlannedItem('rice', 'almacen'),
+      buildPlannedItem('bread', 'panaderia'),
+      buildPlannedItem('milk', 'lacteos'),
+      buildPlannedItem('hake', 'pescados_mariscos'),
+      buildPlannedItem('chicken', 'carnes'),
       buildPlannedItem('apple', 'frutas'),
       buildPlannedItem('tomato', 'verduras'),
-      buildPlannedItem('milk', 'lacteos'),
     ];
 
     expect(summarize(groupItemsByCategory(items))).toEqual([
-      ['lacteos', 'Lácteos', ['planned:milk']],
       ['verduras', 'Verduras', ['planned:tomato']],
       ['frutas', 'Frutas', ['planned:apple']],
-      ['proteinas', 'Proteínas', ['planned:chicken']],
-      ['despensa', 'Despensa', ['planned:rice']],
-      ['otros', 'Otros', ['planned:salt']],
+      ['carnes', 'Carnes', ['planned:chicken']],
+      ['pescados_mariscos', 'Pescados y mariscos', ['planned:hake']],
+      ['lacteos', 'Lácteos', ['planned:milk']],
+      ['panaderia', 'Panadería', ['planned:bread']],
+      ['almacen', 'Despensa', ['planned:rice']],
+      ['congelados', 'Congelados', ['planned:peas']],
+      ['bebidas', 'Bebidas', ['planned:cola']],
+      ['condimentos', 'Condimentos', ['planned:salt']],
+      ['limpieza_otros', 'Limpieza y otros', ['planned:soap']],
+      ['otros', 'Otros', ['planned:napkins']],
     ]);
   });
 
   it('omits empty groups', () => {
-    const items = [buildPlannedItem('tomato', 'verduras'), buildPlannedItem('milk', 'lacteos')];
+    const items = [buildPlannedItem('milk', 'lacteos'), buildPlannedItem('tomato', 'verduras')];
 
     expect(summarize(groupItemsByCategory(items))).toEqual([
-      ['lacteos', 'Lácteos', ['planned:milk']],
       ['verduras', 'Verduras', ['planned:tomato']],
+      ['lacteos', 'Lácteos', ['planned:milk']],
     ]);
   });
 
@@ -129,11 +141,11 @@ describe('groupItemsByCategory', () => {
   it('puts an item of an unknown category under "Otros"', () => {
     const items = [
       buildPlannedItem('salt', 'otros'),
-      buildPlannedItem('cola', 'bebidas' as Ingredient['category']),
+      buildPlannedItem('kibble', 'mascotas' as IngredientCategory),
     ];
 
     expect(summarize(groupItemsByCategory(items))).toEqual([
-      ['otros', 'Otros', ['planned:cola', 'planned:salt']],
+      ['otros', 'Otros', ['planned:kibble', 'planned:salt']],
     ]);
   });
 
@@ -155,7 +167,7 @@ describe('groupItemsBySupermarket', () => {
     const items = [
       buildPlannedItem('milk', 'lacteos'),
       buildPlannedItem('tomato', 'verduras'),
-      buildPlannedItem('rice', 'despensa'),
+      buildPlannedItem('rice', 'almacen'),
       buildPlannedItem('apple', 'frutas'),
     ];
     const offers = [

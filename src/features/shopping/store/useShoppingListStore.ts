@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
-import { useInventoryStore } from '@/store';
+import { useInventoryStore } from '@/features/inventory/store';
 import { safeAsyncStorage } from '@/utils/safeAsyncStorage';
 import { MOCK_SUPERMARKET_OFFERS } from '../mocks';
 import type {

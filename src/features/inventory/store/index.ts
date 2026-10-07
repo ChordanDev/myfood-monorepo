@@ -1,0 +1,1 @@
+export { useInventoryStore } from './useInventoryStore';

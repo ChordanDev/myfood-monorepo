@@ -5,42 +5,9 @@ import {
   formatItemMetaLine,
   formatItemNameLine,
   formatPrice,
-  formatQuantity,
   formatRemovedLabel,
   formatUntilLabel,
 } from './formatters';
-
-describe('formatQuantity', () => {
-  it('writes grams below a kilo as g', () => {
-    expect(formatQuantity(300, 'gramos')).toBe('300 g');
-    expect(formatQuantity(999, 'gramos')).toBe('999 g');
-  });
-
-  it('writes grams from a kilo on as kg, with a decimal comma', () => {
-    expect(formatQuantity(1000, 'gramos')).toBe('1 kg');
-    expect(formatQuantity(1500, 'gramos')).toBe('1,5 kg');
-  });
-
-  it('writes millilitres below a litre as ml', () => {
-    expect(formatQuantity(500, 'mililitros')).toBe('500 ml');
-  });
-
-  it('writes millilitres from a litre on as L, with a decimal comma', () => {
-    expect(formatQuantity(1000, 'mililitros')).toBe('1 L');
-    expect(formatQuantity(1500, 'mililitros')).toBe('1,5 L');
-  });
-
-  it('writes units as u, whatever the amount', () => {
-    expect(formatQuantity(2, 'unidades')).toBe('2 u');
-    expect(formatQuantity(1500, 'unidades')).toBe('1500 u');
-  });
-
-  it('keeps at most two decimals', () => {
-    expect(formatQuantity(1234, 'gramos')).toBe('1,23 kg');
-    expect(formatQuantity(0.5, 'unidades')).toBe('0,5 u');
-    expect(formatQuantity(999.999, 'gramos')).toBe('1 kg');
-  });
-});
 
 describe('formatPrice', () => {
   it('writes pesos with a thousands dot and no decimals', () => {
@@ -95,7 +62,7 @@ describe('row lines', () => {
     name: 'Leche entera',
     ingredientId: 'milk',
     amountToBuy: 1000,
-    unit: 'mililitros',
+    unit: 'ml',
     category: 'lacteos',
   };
 

@@ -4,10 +4,11 @@ import React from 'react';
 import { ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { act, create, ReactTestInstance } from 'react-test-renderer';
 import type { MasterRecipe, MealPlanEntry } from '@/types/domain';
+import { useInventoryStore } from '@/features/inventory/store';
 import { CUSTOM_TAB_BAR_CONTENT_HEIGHT } from '@/features/planner/constants';
 import { MOCK_INGREDIENTS } from '@/mocks/domainMocks';
 import { useAnimatedThemeStyle } from '@/hooks/useAnimatedThemeStyle';
-import { useInventoryStore, useMealPlanStore } from '@/store';
+import { useMealPlanStore } from '@/store';
 import { useShoppingListStore } from '../store';
 import { ShoppingScreen } from './ShoppingScreen';
 
@@ -221,7 +222,7 @@ function getCheckedLabels(root: ReactTestInstance) {
 
 function stockOf(ingredientId: string) {
   return useInventoryStore.getState().items.find((item) => item.ingredientId === ingredientId)
-    ?.amount;
+    ?.quantity;
 }
 
 const EMPTY_LABEL = 'No hay nada para comprar';
@@ -273,7 +274,7 @@ describe('ShoppingScreen', () => {
       'Sin precio',
       '2 u · Tomate',
       'Coto · $1.100',
-      'Proteínas',
+      'Carnes',
       'Marcar todos',
       '200 g · Pollo (Pechuga)',
       'Día · $1.520',
@@ -567,7 +568,7 @@ describe('ShoppingScreen', () => {
   });
 
   it.each([
-    ['category', 'Proteínas'],
+    ['category', 'Carnes'],
     ['supermarket', 'Sin súper'],
   ] as const)('keeps the manual card after the %s cards', (groupingMode, lastGroupTitle) => {
     useShoppingListStore.setState({

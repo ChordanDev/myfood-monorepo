@@ -13,7 +13,7 @@ const MILK: Ingredient = {
   name: 'Leche entera',
   category: 'lacteos',
   basePrice: 1800,
-  unit: 'mililitros',
+  unit: 'ml',
 };
 
 const TOMATO: Ingredient = {
@@ -21,7 +21,7 @@ const TOMATO: Ingredient = {
   name: 'Tomate',
   category: 'verduras',
   basePrice: 500,
-  unit: 'unidades',
+  unit: 'unit',
 };
 
 function buildEntry(id: string, date: string, recipeId: string, isCooked = false): MealPlanEntry {
@@ -71,7 +71,7 @@ describe('deriveShoppingList', () => {
         name: 'Leche entera',
         ingredientId: 'milk',
         amountToBuy: 500,
-        unit: 'mililitros',
+        unit: 'ml',
         category: 'lacteos',
       },
     ]);
@@ -130,7 +130,7 @@ describe('deriveShoppingList', () => {
 
   it('asks only for the shortfall the inventory does not cover', () => {
     const items = deriveShoppingList(
-      buildInput({ inventory: [{ ingredientId: 'milk', amount: 200 }] })
+      buildInput({ inventory: [{ ingredientId: 'milk', quantity: 200 }] })
     );
 
     expect(summarize(items)).toEqual([['planned:milk', 300, 'needed']]);
@@ -138,10 +138,38 @@ describe('deriveShoppingList', () => {
 
   it('does not list an ingredient the inventory fully covers', () => {
     const items = deriveShoppingList(
-      buildInput({ inventory: [{ ingredientId: 'milk', amount: 500 }] })
+      buildInput({ inventory: [{ ingredientId: 'milk', quantity: 500 }] })
     );
 
     expect(items).toEqual([]);
+  });
+
+  it('asks for the whole amount of an ingredient that ran out, kept in the inventory at zero', () => {
+    const items = deriveShoppingList(
+      buildInput({ inventory: [{ ingredientId: 'milk', quantity: 0 }] })
+    );
+
+    expect(summarize(items)).toEqual([['planned:milk', 500, 'needed']]);
+  });
+
+  it('does not count an inventory item that is not linked to an ingredient as stock', () => {
+    const items = deriveShoppingList(buildInput({ inventory: [{ quantity: 1000 }] }));
+
+    expect(summarize(items)).toEqual([['planned:milk', 500, 'needed']]);
+  });
+
+  it('adds up the inventory items linked to the same ingredient', () => {
+    const items = deriveShoppingList(
+      buildInput({
+        inventory: [
+          { ingredientId: 'milk', quantity: 200 },
+          { ingredientId: 'milk', quantity: 0 },
+          { ingredientId: 'milk', quantity: 100 },
+        ],
+      })
+    );
+
+    expect(summarize(items)).toEqual([['planned:milk', 200, 'needed']]);
   });
 
   it('does not list a floating point residue as a shortfall', () => {
@@ -152,7 +180,7 @@ describe('deriveShoppingList', () => {
           buildRecipe('a', [{ ingredientId: 'tomato', amount: 0.1 }]),
           buildRecipe('b', [{ ingredientId: 'tomato', amount: 0.2 }]),
         ],
-        inventory: [{ ingredientId: 'tomato', amount: 0.3 }],
+        inventory: [{ ingredientId: 'tomato', quantity: 0.3 }],
       })
     );
 
@@ -188,7 +216,7 @@ describe('deriveShoppingList', () => {
     const items = deriveShoppingList(
       buildInput({
         recipes: [buildRecipe('flan', [{ ingredientId: 'milk', amount: 800 }])],
-        inventory: [{ ingredientId: 'milk', amount: 300 }],
+        inventory: [{ ingredientId: 'milk', quantity: 300 }],
         cartIds: ['planned:milk'],
       })
     );
@@ -197,7 +225,7 @@ describe('deriveShoppingList', () => {
   });
 
   it.each([
-    ['the stock covers the plan', { inventory: [{ ingredientId: 'milk', amount: 500 }] }],
+    ['the stock covers the plan', { inventory: [{ ingredientId: 'milk', quantity: 500 }] }],
     ['its meal was cooked', { entries: [buildEntry('e1', '2026-10-10', 'flan', true)] }],
     [
       'its meal falls after the until date',
@@ -213,7 +241,7 @@ describe('deriveShoppingList', () => {
     const items = deriveShoppingList(
       buildInput({
         recipes: [buildRecipe('flan', [{ ingredientId: 'milk', amount: 500.004 }])],
-        inventory: [{ ingredientId: 'milk', amount: 500 }],
+        inventory: [{ ingredientId: 'milk', quantity: 500 }],
       })
     );
 
@@ -318,7 +346,7 @@ describe('getShoppingCounters', () => {
   it('does not count an id in the cart whose row no longer exists', () => {
     const items = deriveShoppingList(
       buildInput({
-        inventory: [{ ingredientId: 'milk', amount: 500 }],
+        inventory: [{ ingredientId: 'milk', quantity: 500 }],
         cartIds: ['planned:milk', 'planned:ghost'],
       })
     );

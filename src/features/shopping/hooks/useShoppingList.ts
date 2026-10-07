@@ -1,5 +1,6 @@
 import { useCallback, useMemo } from 'react';
-import { useInventoryStore, useMealPlanStore } from '@/store';
+import { useInventoryStore } from '@/features/inventory/store';
+import { useMealPlanStore } from '@/store';
 import {
   deriveShoppingList,
   formatUntilLabel,

@@ -1,12 +1,8 @@
 import type { Ingredient, MealPlanEntry, RecipeIngredient } from '@/types/domain';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import {
-  MOCK_INGREDIENTS,
-  MOCK_INVENTORY,
-  MOCK_MASTER_RECIPES,
-  MOCK_MEAL_PLAN,
-} from '@/mocks/domainMocks';
-import { useInventoryStore } from '@/store';
+import type { InventoryItem } from '@/features/inventory';
+import { useInventoryStore } from '@/features/inventory/store';
+import { MOCK_INGREDIENTS, MOCK_MASTER_RECIPES, MOCK_MEAL_PLAN } from '@/mocks/domainMocks';
 import {
   deriveShoppingList,
   getBestOffer,
@@ -30,6 +26,17 @@ const CHICKEN_ID = getPlannedItemId(CHICKEN);
 const RICE_ID = getPlannedItemId(RICE);
 const TOMATO_ID = getPlannedItemId(TOMATO);
 
+// The only item in stock when a test starts.
+const RICE_STOCK: InventoryItem = {
+  id: 'inv-i1',
+  ingredientId: RICE,
+  name: 'Arroz Blanco',
+  category: 'almacen',
+  quantity: 500,
+  unit: 'g',
+  confidence: 'exact',
+};
+
 function plannedItem(overrides: Partial<PlannedShoppingListItem> = {}): PlannedShoppingListItem {
   const ingredientId = overrides.ingredientId ?? CHICKEN;
 
@@ -40,8 +47,8 @@ function plannedItem(overrides: Partial<PlannedShoppingListItem> = {}): PlannedS
     name: 'Pollo (Pechuga)',
     ingredientId,
     amountToBuy: 600,
-    unit: 'gramos',
-    category: 'proteinas',
+    unit: 'g',
+    category: 'carnes',
     ...overrides,
   };
 }
@@ -56,7 +63,7 @@ function manualItem(
 
 function stockOf(ingredientId: string) {
   return useInventoryStore.getState().items.find((item) => item.ingredientId === ingredientId)
-    ?.amount;
+    ?.quantity;
 }
 
 const shopping = () => useShoppingListStore.getState();
@@ -71,7 +78,7 @@ function resetStores() {
     lastManualItemSequence: 0,
     groupingMode: 'category',
   });
-  useInventoryStore.setState({ items: [{ ingredientId: RICE, amount: 500 }] });
+  useInventoryStore.setState({ items: [RICE_STOCK] });
 }
 
 beforeEach(resetStores);
@@ -365,9 +372,9 @@ describe('restoring the removed items', () => {
 
 describe('confirming the purchase', () => {
   const ingredients: Ingredient[] = [
-    { id: RICE, name: 'Arroz Blanco', category: 'despensa', basePrice: 2, unit: 'gramos' },
-    { id: CHICKEN, name: 'Pollo (Pechuga)', category: 'proteinas', basePrice: 10, unit: 'gramos' },
-    { id: TOMATO, name: 'Tomate', category: 'verduras', basePrice: 500, unit: 'unidades' },
+    { id: RICE, name: 'Arroz Blanco', category: 'almacen', basePrice: 2, unit: 'g' },
+    { id: CHICKEN, name: 'Pollo (Pechuga)', category: 'carnes', basePrice: 10, unit: 'g' },
+    { id: TOMATO, name: 'Tomate', category: 'verduras', basePrice: 500, unit: 'unit' },
   ];
   // Three meals: 600 g of chicken and 6 tomatoes (none in stock), 300 g of rice (500 g in stock).
   const recipeIngredients: RecipeIngredient[] = [
@@ -433,6 +440,22 @@ describe('confirming the purchase', () => {
     shopping().confirmPurchase(derive());
 
     expect(stockOf(CHICKEN)).toBe(600);
+  });
+
+  it('restocks an ingredient that ran out on the record the inventory kept for it', () => {
+    // The chicken ran out: its record stays in the inventory at quantity 0.
+    useInventoryStore.getState().addItem(CHICKEN, 150);
+    useInventoryStore.getState().consumeIngredient(CHICKEN, 150);
+    expect(summary(derive())[0]).toEqual([CHICKEN, 'needed', 600]);
+    shopping().addToCart([CHICKEN_ID]);
+
+    shopping().confirmPurchase(derive());
+
+    const chickenRecords = useInventoryStore
+      .getState()
+      .items.filter((item) => item.ingredientId === CHICKEN);
+    expect(chickenRecords.map((item) => item.quantity)).toEqual([600]);
+    expect(summary(derive())).toEqual([[TOMATO, 'needed', 6]]);
   });
 
   it('empties the cart, so the bought rows leave the list', () => {
@@ -669,7 +692,8 @@ describe('seeded supermarket offers', () => {
       entries: MOCK_MEAL_PLAN,
       recipes: MOCK_MASTER_RECIPES,
       ingredients: MOCK_INGREDIENTS,
-      inventory: MOCK_INVENTORY,
+      // The inventory the app starts with.
+      inventory: useInventoryStore.getInitialState().items,
       cartIds: [],
       removedIds: [],
       manualItems: [],
@@ -755,7 +779,7 @@ describe('persistence', () => {
       );
       expect(shopping()).not.toHaveProperty('purchases');
       // The stock those purchases added is already in the inventory: it is left as it is.
-      expect(useInventoryStore.getState().items).toEqual([{ ingredientId: RICE, amount: 500 }]);
+      expect(useInventoryStore.getState().items).toEqual([RICE_STOCK]);
       expect(JSON.parse((await AsyncStorage.getItem(STORAGE_KEY)) ?? '')).toEqual({
         version: 2,
         state: MIGRATED_STATE,

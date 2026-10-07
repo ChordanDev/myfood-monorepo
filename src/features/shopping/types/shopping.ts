@@ -1,6 +1,7 @@
+import type { InventoryItem } from '@/features/inventory';
 import type {
   Ingredient,
-  InventoryItem,
+  IngredientCategory,
   MasterRecipe,
   MealPlanEntry,
   UnitType,
@@ -24,7 +25,7 @@ export interface PlannedShoppingListItem extends ShoppingListItemBase {
   ingredientId: string;
   amountToBuy: number;
   unit: UnitType;
-  category: Ingredient['category'];
+  category: IngredientCategory;
 }
 
 // Added by hand: a name only, with no ingredient, quantity, unit or category.
@@ -38,7 +39,8 @@ export type ShoppingListInput = {
   entries: MealPlanEntry[];
   recipes: Pick<MasterRecipe, 'id' | 'ingredients'>[];
   ingredients: Ingredient[];
-  inventory: InventoryItem[];
+  // Only the items linked to an ingredient count as stock, for their quantity.
+  inventory: Pick<InventoryItem, 'ingredientId' | 'quantity'>[];
   // Ids of the planned items in the cart. A manual item carries that in its own status.
   cartIds: string[];
   removedIds: string[];

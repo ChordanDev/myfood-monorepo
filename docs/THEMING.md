@@ -102,11 +102,12 @@ these relationships are not.
 
 ## Literals that are allowed
 
-| Literal                                                            | Why                                                                 |
-| ------------------------------------------------------------------ | ------------------------------------------------------------------- |
-| Values inside a palette definition                                 | That is where colors live                                           |
-| `#000000` as `shadowColor`, `rgba(0, 0, 0, …)` as a modal backdrop | Neutral, independent of the meal                                    |
-| The multicolor "thinking" gradient in `PlannerChatInput`           | Fixed today; treated as palette-independent until decided otherwise |
+| Literal                                                                                                           | Why                                                                 |
+| ----------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------- |
+| Values inside a palette definition                                                                                | That is where colors live                                           |
+| `#000000` as `shadowColor`, `rgba(0, 0, 0, …)` as a modal backdrop                                                | Neutral, independent of the meal                                    |
+| The multicolor "thinking" gradient in `PlannerChatInput`                                                          | Fixed today; treated as palette-independent until decided otherwise |
+| Inventory category colors, only in `INVENTORY_CATEGORY_COLORS` (`src/features/inventory/constants/categories.ts`) | A category keeps its color under every palette                      |
 
 Everything else in a component, style or SVG string is a bug.
 

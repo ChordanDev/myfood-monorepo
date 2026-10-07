@@ -1,10 +1,6 @@
-import {
-  CATEGORY_ORDER,
-  CATEGORY_TITLE,
-  FALLBACK_CATEGORY,
-  NO_SUPERMARKET_GROUP_KEY,
-  NO_SUPERMARKET_TITLE,
-} from '../constants';
+import { INGREDIENT_CATEGORY_LABELS } from '@/constants/ingredientCategories';
+import { INGREDIENT_CATEGORIES } from '@/types/domain';
+import { FALLBACK_CATEGORY, NO_SUPERMARKET_GROUP_KEY, NO_SUPERMARKET_TITLE } from '../constants';
 import type {
   BestOffer,
   ManualShoppingListItem,
@@ -48,15 +44,16 @@ function getVisiblePlannedItems(items: ShoppingListItem[]) {
 }
 
 function getGroupCategory({ category }: PlannedShoppingListItem) {
-  return CATEGORY_ORDER.includes(category) ? category : FALLBACK_CATEGORY;
+  return INGREDIENT_CATEGORIES.includes(category) ? category : FALLBACK_CATEGORY;
 }
 
+// One group per category that has items, in the order the categories are listed everywhere.
 export function groupItemsByCategory(items: ShoppingListItem[]): ShoppingGroup[] {
   const visibleItems = getVisiblePlannedItems(items);
 
-  return CATEGORY_ORDER.map((category) => ({
+  return INGREDIENT_CATEGORIES.map((category) => ({
     key: category,
-    title: CATEGORY_TITLE[category],
+    title: INGREDIENT_CATEGORY_LABELS[category],
     items: visibleItems.filter((item) => getGroupCategory(item) === category),
   })).filter((group) => group.items.length > 0);
 }

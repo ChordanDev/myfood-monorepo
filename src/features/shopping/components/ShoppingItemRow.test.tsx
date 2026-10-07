@@ -45,7 +45,7 @@ const CHEESE: PlannedShoppingListItem = {
   name: 'Queso cremoso',
   ingredientId: 'cheese',
   amountToBuy: 300,
-  unit: 'gramos',
+  unit: 'g',
   category: 'lacteos',
 };
 
