@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef } from 'react';
+import { useLayoutEffect, useRef } from 'react';
 import { useRecipeTheme } from '@/context/RecipeThemeContext';
 import type { RecipeThemeConfig } from '@/types/domain';
 
@@ -12,15 +12,17 @@ export function useActivateRecipePalette(palette: RecipeThemeConfig | undefined)
   // Captured on the first render only: later renders already see the recipe palette.
   const paletteBeforeMountRef = useRef(theme);
 
-  // A layout effect, so the first painted frame already uses the recipe palette. The effect only
-  // depends on the recipe palette, never on the active one, so activating it cannot loop.
+  // A layout effect, so the first painted frame already uses the recipe palette. Activating and
+  // restoring are one effect: whenever it runs again, the restore comes first and the recipe
+  // palette is the one left active. It depends only on the recipe palette, never on the active
+  // one, so activating it cannot loop.
   useLayoutEffect(() => {
-    if (palette) setRecipeTheme(palette);
-  }, [palette, setRecipeTheme]);
+    if (!palette) return;
 
-  useEffect(() => {
     const paletteBeforeMount = paletteBeforeMountRef.current;
 
+    setRecipeTheme(palette);
+
     return () => setRecipeTheme(paletteBeforeMount);
-  }, [setRecipeTheme]);
+  }, [palette, setRecipeTheme]);
 }

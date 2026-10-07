@@ -88,6 +88,28 @@ describe('useActivateRecipePalette', () => {
     expect(mockSetRecipeTheme).toHaveBeenLastCalledWith(OTHER_RECIPE_PALETTE);
   });
 
+  it('hands the previous palette back when the recipe stops having one', () => {
+    const tree = mount(RECIPE_PALETTE);
+    mockSetRecipeTheme.mockClear();
+
+    act(() => {
+      tree.update(<Harness palette={undefined} />);
+    });
+
+    expect(mockSetRecipeTheme).toHaveBeenLastCalledWith(HOME_PALETTE);
+  });
+
+  it('restores before it activates again, so the recipe palette is the one left active', () => {
+    const tree = mount(RECIPE_PALETTE);
+    mockSetRecipeTheme.mockClear();
+
+    act(() => {
+      tree.update(<Harness palette={OTHER_RECIPE_PALETTE} />);
+    });
+
+    expect(mockSetRecipeTheme.mock.calls).toEqual([[HOME_PALETTE], [OTHER_RECIPE_PALETTE]]);
+  });
+
   it('restores the palette that was active before the screen mounted when it leaves', () => {
     const tree = mount(RECIPE_PALETTE);
     mockActiveTheme = RECIPE_PALETTE;
