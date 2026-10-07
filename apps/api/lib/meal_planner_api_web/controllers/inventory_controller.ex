@@ -1,0 +1,100 @@
+defmodule MealPlannerApiWeb.InventoryController do
+  use MealPlannerApiWeb, :controller
+
+  alias MealPlannerApi.Services.InventoryService
+  alias MealPlannerApi.Services.BudgetService
+  alias MealPlannerApiWeb.Controllers.AccountScopeHelpers
+
+  # Phase A — Tenancy Refactor (PR 3c task 3.18): tenancy scope is always
+  # resolved from `conn.assigns.current_membership.account_id`, never
+  # from the legacy `current_user.account_id` field. See
+  # `AccountScopeHelpers.scope_user_to_membership/2`.
+
+  def index(conn, _params) do
+    user = scoped_user(conn)
+
+    case InventoryService.inventory_view(user) do
+      {:ok, payload} -> json(conn, %{data: payload})
+      {:error, reason} -> render_error(conn, reason)
+    end
+  end
+
+  def add_extra(conn, payload) do
+    user = scoped_user(conn)
+
+    case InventoryService.add_extra_item(user, payload) do
+      {:ok, payload} -> inventory_changed(conn, payload)
+      {:error, reason} -> render_error(conn, reason)
+    end
+  end
+
+  def update_quantity(conn, %{"item_id" => item_id} = payload) do
+    user = scoped_user(conn)
+
+    case InventoryService.adjust_item_quantity(user, item_id, payload) do
+      {:ok, payload} -> inventory_changed(conn, payload)
+      {:error, reason} -> render_error(conn, reason)
+    end
+  end
+
+  def dispose(conn, %{"item_id" => item_id} = payload) do
+    user = scoped_user(conn)
+
+    case InventoryService.dispose_item(user, item_id, payload) do
+      {:ok, payload} -> inventory_changed(conn, payload)
+      {:error, reason} -> render_error(conn, reason)
+    end
+  end
+
+  def voice_preview(conn, payload) do
+    user = scoped_user(conn)
+
+    case InventoryService.voice_preview(user, payload) do
+      {:ok, data} -> json(conn, %{data: data})
+      {:error, reason} -> render_error(conn, reason)
+    end
+  end
+
+  def voice_apply(conn, payload) do
+    user = scoped_user(conn)
+
+    case InventoryService.voice_apply(user, payload) do
+      {:ok, data} -> inventory_changed(conn, data)
+      {:error, reason} -> render_error(conn, reason)
+    end
+  end
+
+  def rescue_plan(conn, payload) do
+    user = scoped_user(conn)
+    budget = BudgetService.resolve(user)
+
+    case InventoryService.rescue_plan(user, payload, budget) do
+      {:ok, data} -> json(conn, %{data: data})
+      {:error, reason} -> render_error(conn, reason)
+    end
+  end
+
+  defp scoped_user(conn) do
+    conn
+    |> Guardian.Plug.current_resource()
+    |> AccountScopeHelpers.scope_user_to_membership(conn.assigns.current_membership)
+  end
+
+  defp inventory_changed(conn, data) do
+    MealPlannerApi.Cart.notify(conn.assigns.current_membership.account_id, "inventory_changed", %{
+      refresh: true
+    })
+
+    json(conn, %{data: data})
+  end
+
+  defp render_error(conn, reason) do
+    conn
+    |> put_status(:unprocessable_entity)
+    |> json(%{error: serialize_reason(reason)})
+  end
+
+  defp serialize_reason(reason) when is_atom(reason), do: Atom.to_string(reason)
+  defp serialize_reason(reason) when is_binary(reason), do: reason
+  defp serialize_reason(_), do: "invalid_payload"
+end

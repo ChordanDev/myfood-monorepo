@@ -1,0 +1,72 @@
+# This file is responsible for configuring your application
+# and its dependencies with the aid of the Config module.
+#
+# This configuration file is loaded before any dependency and
+# is restricted to this project.
+
+# General application configuration
+import Config
+
+config :meal_planner_api,
+  generators: [timestamp_type: :utc_datetime]
+
+config :meal_planner_api,
+  ecto_repos: [MealPlannerApi.Repo]
+
+config :meal_planner_api, MealPlannerApi.Auth.Guardian,
+  issuer: "meal_planner_api",
+  secret_key: "change_this_for_dev_only_guardian_secret"
+
+config :meal_planner_api,
+  ai_client: MealPlannerApi.AI.GeminiClient
+
+config :meal_planner_api,
+  planning_optimizer_client: MealPlannerApi.Optimization.OptimizerServer,
+  start_optimizer_server: true,
+  optimizer_python: "python3",
+  optimizer_timeout_ms: 15_000,
+  optimizer_inventory_weight: 100
+
+config :meal_planner_api,
+  social_verifier: MealPlannerApi.Auth.SocialVerifier,
+  google_oauth_client_ids: [],
+  apple_oauth_client_ids: [],
+  facebook_app_id: nil,
+  facebook_app_secret: nil,
+  google_tokeninfo_url: "https://oauth2.googleapis.com/tokeninfo",
+  apple_jwks_url: "https://appleid.apple.com/auth/keys",
+  facebook_graph_url: "https://graph.facebook.com"
+
+# Configure the endpoint
+config :meal_planner_api, MealPlannerApiWeb.Endpoint,
+  url: [host: "localhost"],
+  adapter: Bandit.PhoenixAdapter,
+  render_errors: [
+    formats: [json: MealPlannerApiWeb.ErrorJSON],
+    layout: false
+  ],
+  pubsub_server: MealPlannerApi.PubSub,
+  live_view: [signing_salt: "xAXCFxOO"]
+
+# Configure Elixir's Logger
+config :logger, :default_formatter,
+  format: "$time $metadata[$level] $message\n",
+  metadata: [:request_id]
+
+# Use Jason for JSON parsing in Phoenix
+config :phoenix, :json_library, Jason
+
+# Cooking conversations must not be retained in request parameter logs.
+config :phoenix, :filter_parameters, [
+  "password",
+  "token",
+  "secret",
+  "code",
+  "message",
+  "content",
+  "prompt"
+]
+
+# Import environment specific config. This must remain at the bottom
+# of this file so it overrides the configuration defined above.
+import_config "#{config_env()}.exs"

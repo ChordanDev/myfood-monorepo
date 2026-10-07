@@ -1,0 +1,179 @@
+defmodule MealPlannerApiWeb.PlanningChatControllerTest do
+  use MealPlannerApiWeb.ConnCase, async: false
+  import MealPlannerApi.FactoryHelpers
+
+  alias MealPlannerApi.Accounts
+  alias MealPlannerApi.Auth.Guardian
+  alias MealPlannerApi.Persistence.Calendar
+  alias MealPlannerApi.Persistence.Catalog
+  alias MealPlannerApi.Persistence.Identity
+
+  # ─── Phase A — Tenancy Refactor (PR 3c task 3.19) ───────────────────────────
+  # See calendar_controller_test.exs (task 3.14) for why a tampered
+  # `account_id` claim is the genuine RED-discriminating case here.
+  describe "multi-familia tenancy scoping (task 3.19)" do
+    test "GET /api/planning/favorites resolves favorites via current_membership.account_id, not a tampered account_id claim",
+         %{conn: conn} do
+      user =
+        user_with_memberships(%{email: "chat_tamper@example.com"}, [
+          {%{plan: :family_4, name: "Chat Tamper Account A"}, :owner},
+          {%{plan: :family_4, name: "Chat Tamper Account B"}, :member}
+        ])
+
+      [membership_a, membership_b] = user.memberships
+
+      {:ok, recipe} =
+        Catalog.create_recipe(%{
+          account_id: membership_a.account_id,
+          created_by_user_id: user.id,
+          name: "Chat Tamper Favorite Recipe",
+          source: :user_created,
+          servings: 2,
+          suitable_for_slots: [:lunch]
+        })
+
+      {:ok, _favorite} = Calendar.toggle_favorite(membership_a.account_id, user.id, recipe.id)
+
+      tampered_claims =
+        MealPlannerApi.AccountsMembership.claims_for(user, membership_a)
+        |> Map.put("account_id", to_string(membership_b.account_id))
+
+      {:ok, token, _claims} =
+        Guardian.encode_and_sign(user, tampered_claims, token_type: "access")
+
+      conn =
+        conn
+        |> put_req_header("authorization", "Bearer " <> token)
+        |> get("/api/planning/favorites")
+
+      body = json_response(conn, 200)
+      recipe_ids = Enum.map(body["data"], & &1["recipe_id"])
+
+      assert recipe.id in recipe_ids
+    end
+  end
+
+  # PR3 of issue #35 — the legacy HTTP `POST
+  # /api/planning/proposals/:proposal_id/confirm` path is RETIRED so
+  # only the atomic channel path remains. Confirmations now flow
+  # exclusively through the `confirm_proposal` channel event, which
+  # runs inside the same `Repo.transaction/1` as the meal/cart writes
+  # (AC #4). Any HTTP attempt must now be a 404 (no route) — clients
+  # that still try the old endpoint get a deterministic "not found"
+  # rather than silently bypassing the lock.
+  test "POST /api/planning/proposals/:proposal_id/confirm is retired (404, no route)",
+       %{conn: conn} do
+    token = issue_token(conn, %{"user_id" => "u_chat_404", "account_id" => "acct_chat_404"})
+    fake_proposal_id = Ecto.UUID.generate()
+
+    conn =
+      conn
+      |> put_req_header("authorization", "Bearer " <> token)
+      |> post("/api/planning/proposals/#{fake_proposal_id}/confirm")
+
+    assert conn.status == 404
+  end
+
+  test "planning chat creates a proposal (PR3 retired HTTP confirm)", %{conn: conn} do
+    token = issue_token(conn, %{"user_id" => "u_chat", "account_id" => "acct_chat"})
+
+    {:ok, %{account_id: account_id, user_id: user_id}} =
+      Identity.ensure_persistent_identity(%{
+        id: "u_chat",
+        account_id: "acct_chat",
+        plan: :family_4
+      })
+
+    {:ok, breakfast_recipe} =
+      Catalog.create_recipe(%{
+        account_id: account_id,
+        created_by_user_id: user_id,
+        name: "Avena chat",
+        source: :user_created,
+        servings: 2,
+        suitable_for_slots: [:breakfast]
+      })
+
+    {:ok, lunch_recipe} =
+      Catalog.create_recipe(%{
+        account_id: account_id,
+        created_by_user_id: user_id,
+        name: "Tacos vegetarianos",
+        source: :user_created,
+        servings: 4,
+        suitable_for_slots: [:lunch]
+      })
+
+    {:ok, dinner_recipe} =
+      Catalog.create_recipe(%{
+        account_id: account_id,
+        created_by_user_id: user_id,
+        name: "Sopa chat",
+        source: :user_created,
+        servings: 2,
+        suitable_for_slots: [:dinner]
+      })
+
+    conn =
+      conn
+      |> put_req_header("authorization", "Bearer " <> token)
+      |> post("/api/planning/chat", %{
+        "message" => "Necesito menu para la semana",
+        "date_from" => "2026-03-23",
+        "date_to" => "2026-03-24",
+        "requested_recipe_ids" => [breakfast_recipe.id, lunch_recipe.id, dinner_recipe.id],
+        "kcal_target" => 2200,
+        "weekly_budget_cents" => 90_000
+      })
+
+    body = json_response(conn, 200)
+
+    proposal_id = body["data"]["proposal_id"]
+
+    assert is_binary(proposal_id)
+    assert length(body["data"]["proposal"]["scheduled_meals"]) == 6
+    assert is_map(body["data"]["proposal"]["weekly_plan"])
+    assert length(body["data"]["proposal"]["weekly_plan"]["days"]) >= 2
+  end
+
+  test "favorites endpoint returns user starred recipes", %{conn: conn} do
+    token = issue_token(conn, %{"user_id" => "u_fav", "account_id" => "acct_fav"})
+
+    {:ok, %{account_id: account_id, user_id: user_id}} =
+      Identity.ensure_persistent_identity(%{
+        id: "u_fav",
+        account_id: "acct_fav",
+        plan: :family_4
+      })
+
+    {:ok, recipe} =
+      Catalog.create_recipe(%{
+        account_id: account_id,
+        created_by_user_id: user_id,
+        name: "Empanadas de choclo",
+        source: :user_created,
+        servings: 8,
+        suitable_for_slots: [:dinner]
+      })
+
+    {:ok, true} = Calendar.toggle_favorite(account_id, user_id, recipe.id)
+
+    conn =
+      conn
+      |> put_req_header("authorization", "Bearer " <> token)
+      |> get("/api/planning/favorites?limit=5")
+
+    body = json_response(conn, 200)
+
+    assert Enum.any?(body["data"], &(&1["recipe_id"] == recipe.id))
+  end
+
+  defp issue_token(_conn, params) do
+    {:ok, %{user: user, account: account}} = Accounts.find_or_create_identity(params)
+
+    {:ok, token, _claims} =
+      Guardian.encode_and_sign(user, Accounts.claims_for(user, account), token_type: "access")
+
+    token
+  end
+end
