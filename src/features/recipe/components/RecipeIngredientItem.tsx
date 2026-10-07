@@ -12,21 +12,28 @@ interface RecipeIngredientItemProps {
 const STATUS_LABEL: Record<RecipeIngredientStatus, string> = {
   in_stock: 'En stock',
   missing: 'Falta · agregar',
-  requested: 'En la lista',
+  listed: 'En la lista',
 };
+
+// An ingredient outside the catalog has no name to put on the shopping list: it only reads as
+// missing, with nothing to press.
+const UNLISTABLE_MISSING_LABEL = 'Falta';
 
 // The row is 40pt tall and rows touch each other, so 2pt on each side reaches a 44pt target.
 const ADD_HIT_SLOP = { top: 2, bottom: 2, left: 12, right: 12 };
 
 export function RecipeIngredientItem({ row, onRequest }: RecipeIngredientItemProps) {
   const { theme } = useRecipeTheme();
-  const statusLabel = STATUS_LABEL[row.status];
+  const isMissing = row.status === 'missing';
+  // The unit comes from the catalog, so a row without one stands for an unknown ingredient.
+  const canAdd = isMissing && row.unit !== null;
+  const statusLabel = isMissing && !canAdd ? UNLISTABLE_MISSING_LABEL : STATUS_LABEL[row.status];
 
   return (
     <View testID={`recipe-ingredient-row-${row.ingredientId}`} style={styles.row}>
       <Text style={[styles.quantity, { color: theme.textBlack }]}>{row.quantityLabel}</Text>
       <Text style={[styles.name, { color: theme.textBlack }]}>{row.name}</Text>
-      {row.status === 'missing' ? (
+      {canAdd ? (
         <Pressable
           testID={`recipe-ingredient-add-${row.ingredientId}`}
           accessibilityRole="button"
@@ -37,7 +44,11 @@ export function RecipeIngredientItem({ row, onRequest }: RecipeIngredientItemPro
           <Text style={[styles.status, { color: theme.alert }]}>{statusLabel}</Text>
         </Pressable>
       ) : (
-        <Text style={[styles.status, { color: withOpacity(theme.textBlack, 0.6) }]}>
+        <Text
+          style={[
+            styles.status,
+            { color: isMissing ? theme.alert : withOpacity(theme.textBlack, 0.6) },
+          ]}>
           {statusLabel}
         </Text>
       )}

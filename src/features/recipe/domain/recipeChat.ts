@@ -43,7 +43,7 @@ type BuildAssistantReplyArgs = {
   rows: RecipeIngredientRow[];
 };
 
-/** A row the assistant can offer: short in the inventory, not requested yet and in the catalog. */
+/** A row the assistant can offer: short in the inventory, not listed yet and in the catalog. */
 type OfferableRow = RecipeIngredientRow & { unit: UnitType };
 
 /**
@@ -66,8 +66,8 @@ function toOffer(row: OfferableRow): RecipeChatOffer {
 /**
  * Deterministic stand-in for the assistant, written in Rioplatense `voseo`.
  *
- * When the inventory is short of a catalog ingredient that was not requested yet, the reply closes
- * by offering to add the first one to the shopping list.
+ * When the inventory is short of a catalog ingredient the shopping list does not have yet, the
+ * reply closes by offering to add the first one to it.
  */
 export function buildAssistantReply({
   recipeName,
