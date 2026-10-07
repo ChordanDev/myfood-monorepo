@@ -121,6 +121,14 @@ Left open by the restructure:
 - `ChatComposer` keeps the planner's default placeholder and `ChatTypingIndicator` keeps planner-prefixed test ids (Maestro depends on them).
 - `CUSTOM_TAB_BAR_CONTENT_HEIGHT` stays in `planner/constants` because `app/(tabs)/_layout.tsx` imports it from there.
 
+## Simulator findings (2026-10-07)
+
+First run on the iOS simulator (iPhone 17 Pro, Metro on 8084 from this worktree). Working: navigation from Home, layout against the mockup, "Falta · agregar" → "En la lista", send, `voseo` reply and quick-action chips. Three defects found, fixes requested by the owner:
+
+- [ ] **T10 — Keyboard hides the conversation.** With the keyboard open, the message just sent and the reply sit behind the composer and the keyboard. The scroll content must clear the lifted composer and scroll to the end when the keyboard opens. Route: delegated writer (with T11, T12).
+- [ ] **T11 — Hard line under the header.** The scroll viewport is clipped with a hard edge that cuts the cards' shadows. Content must fade out under the header instead.
+- [ ] **T12 — Composer blends into the dark card.** While typing, the composer overlaps the preparation card, which has the same color. The bottom scrim must travel with the composer.
+
 ## Next step
 
-Visual check on a simulator, then the owner chooses the chain strategy before any pull request.
+T10–T12 (delegated), then a second simulator pass by the parent. After that the owner chooses the chain strategy before any pull request.
