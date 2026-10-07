@@ -1,0 +1,38 @@
+# OS
+.DS_Store
+Thumbs.db
+
+# Editors / agent tooling
+.idea/
+.vscode/
+.pi/
+.atl/
+.codegraph/
+*.swp
+
+# Env
+.env
+.env.*
+!.env.example
+.envrc.local
+
+# Elixir (apps/api)
+apps/api/_build/
+apps/api/deps/
+apps/api/*.ez
+apps/api/erl_crash.dump
+apps/api/.elixir_ls/
+
+# Python (apps/api/optimizer)
+__pycache__/
+*.pyc
+.venv/
+
+# Node / Expo (apps/mobile)
+node_modules/
+apps/mobile/.expo/
+apps/mobile/dist/
+apps/mobile/web-build/
+apps/mobile/ios/
+apps/mobile/android/
+*.log
