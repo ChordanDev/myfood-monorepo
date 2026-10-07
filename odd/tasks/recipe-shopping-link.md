@@ -43,18 +43,18 @@ Out of scope: backend sync, real assistant replies, quantities on manual items, 
 
 ## Tasks
 
-- [ ] **T1 — Shopping public surface.** Per-item restore in `useShoppingListStore`; a pure resolver for an ingredient's list state; one action that puts an ingredient on the list (restore or manual add); a hook exposing the derived items; all exported from `@/features/shopping`. Store and domain tests, RED first. Route: delegated writer (with T2).
-- [ ] **T2 — Recipe reads the list.** Rows and chat use the shopping surface; `useShoppingRequestsStore` and its tests deleted; recipe tests updated. RED first.
-- [ ] **T3 — Docs.** Record progress and evidence here.
+- [x] **T1 — Shopping public surface.** Per-item restore in `useShoppingListStore`; a pure resolver for an ingredient's list state; one action that puts an ingredient on the list (restore or manual add); a hook exposing the derived items; all exported from `@/features/shopping`. Store and domain tests, RED first. Route: delegated writer (with T2). Commit `3ec8549`.
+- [x] **T2 — Recipe reads the list.** Rows and chat use the shopping surface; `useShoppingRequestsStore` and its tests deleted; recipe tests updated. RED first. Commit `7faa86c`.
+- [x] **T3 — Docs.** Record progress and evidence here.
 
 ## Acceptance criteria
 
-- [ ] A missing ingredient of a planned recipe reads "En la lista" on opening the recipe, with no interaction.
-- [ ] An ingredient removed from the Carrito reads "Falta · agregar" and comes back to the Carrito when pressed.
-- [ ] "Sí, agregalo" for an ingredient the plan does not cover leaves it visible under "Agregados a mano".
-- [ ] No use of `useShoppingRequestsStore` remains.
-- [ ] The recipe imports shopping only through `@/features/shopping`.
-- [ ] Tests for the row state against the derived list and for both actions.
+- [x] A missing ingredient of a planned recipe reads "En la lista" on opening the recipe, with no interaction.
+- [x] An ingredient removed from the Carrito reads "Falta · agregar" and comes back to the Carrito when pressed.
+- [x] "Sí, agregalo" for an ingredient the plan does not cover leaves it visible under "Agregados a mano".
+- [x] No use of `useShoppingRequestsStore` remains.
+- [x] The recipe imports shopping only through `@/features/shopping`.
+- [x] Tests for the row state against the derived list and for both actions.
 
 ## Checks
 
@@ -68,6 +68,19 @@ Out of scope: backend sync, real assistant replies, quantities on manual items, 
 
 - 2026-10-07: worktree created from `origin/Develop` c5661f2. Exploration by the parent (one CodeGraph call): the planned id scheme, the derivation without `untilDate`, the store's all-at-once restore and the screen-only barrel.
 
+- 2026-10-07: T1–T2 done by one delegated writer, RED observed before each GREEN. Public surface added to `@/features/shopping`: `getIngredientListState`, `useShoppingListItems`, `addIngredientToShoppingList`, types `IngredientListState`, `ListedIngredient`, `ShoppingListItem`. The store gained `restoreItem`; the derivation shared by the Carrito and the recipe is `deriveFullShoppingList`. `useShoppingRequestsStore` and its test are deleted.
+- Checks: `npx jest src/features/recipe src/features/shopping`: 25 suites, 484 tests passed (re-run by the parent; 456 before). `npm test`: 1239 passed, 2 failed, both the known by-location failures in `authErrorCodeContract.test.ts`. `npx tsc --noEmit`: 0 errors. `npm run lint`: 0 errors. No color literal added. Existing Carrito assertions untouched. `gentle-ai review assess` on `fef51a5..7faa86c`: `medium`, `slice_budget_reached`; no native review because RDD is off for this clone.
+- Simulator (iPhone 17 Pro, Metro 8085): a planned meal opens with "Tomate · En la lista" and the Carrito lists it; after removing it in the Carrito the recipe reads "Falta · agregar". The press on "agregar", the manual-item path and the chat path were **not** checked on the simulator, which was being used at the same time; they are covered by screen tests against the real stores.
+
+## Known limits
+
+- An ingredient outside the catalog reads a plain "Falta" and cannot be added (it has no name to list).
+- The acceptance criteria are checked from tests; only the first one and half of the second were also seen on the simulator.
+- The persisted key `shopping-requests-storage` stays orphaned on devices that already have it: the app has no startup place for storage clean-up and none was invented.
+- A planned id left in `removedIds` after its row disappeared (the plan changed) is treated as absent: "agregar" adds a manual item and the stale id stays.
+- `RecipeChatOffer.amount` and `unit` are still produced but no longer consumed, since manual items are names only.
+- The name written to the list is the catalog name ("Pollo (Pechuga)"), not the sentence-cased one the recipe displays.
+
 ## Next step
 
-T1–T2 (delegated), then T3 and a simulator check of the three acceptance paths.
+Owner confirms the merge into `Develop`.
