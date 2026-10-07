@@ -4,8 +4,8 @@ import { useRecipeTheme } from '@/context/RecipeThemeContext';
 import {
   COOKING_SKILL_LABELS,
   COOKING_SKILLS,
-} from '@/features/preferences/constants/onboardingOptions';
-import type { ProfileFormState } from '@/features/preferences/utils/onboardingPayload';
+} from '@/features/preferences/constants/preferenceOptions';
+import type { ProfileFormState } from '@/features/preferences/utils/profilePayload';
 import { PROFILE_FIELD_LABELS, type ProfileField } from '../constants/settingsLabels';
 import type { ProfileDraft, ProfileFieldError } from '../utils/settingsDraft';
 import { HouseholdStepper } from './HouseholdStepper';

@@ -1,5 +1,5 @@
 import type { AuthAccountType } from '@/features/auth/types/auth';
-import type { ProfileFormState } from '@/features/preferences/utils/onboardingPayload';
+import type { ProfileFormState } from '@/features/preferences/utils/profilePayload';
 
 export type ProfileField = keyof ProfileFormState;
 export type PreferenceField = 'diet' | 'hardRestrictions' | 'softPreferences';

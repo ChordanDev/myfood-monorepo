@@ -1,7 +1,7 @@
 import { View } from 'react-native';
 import type { HungerLevel, MealSlot } from '@/features/auth/types/auth';
 import type { RecipeThemeConfig } from '@/types/domain';
-import { MEAL_SLOTS } from '@/features/onboarding/constants/onboardingOptions';
+import { MEAL_SLOTS } from '@/features/preferences/constants/preferenceOptions';
 import { SlotEditor } from '@/features/onboarding/components/SlotEditor';
 import type { SlotFormState, SlotMode } from '@/features/onboarding/utils/onboardingSlot';
 

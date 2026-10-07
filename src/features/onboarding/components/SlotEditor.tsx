@@ -14,7 +14,7 @@ import {
   HUNGER_LEVELS,
   SLOT_LABELS,
   SLOT_PRESET_BUCKETS,
-} from '@/features/onboarding/constants/onboardingOptions';
+} from '@/features/preferences/constants/preferenceOptions';
 import type { SlotFormState, SlotMode } from '@/features/onboarding/utils/onboardingSlot';
 
 interface SlotEditorProps {

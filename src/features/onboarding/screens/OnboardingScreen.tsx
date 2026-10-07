@@ -23,9 +23,9 @@ import {
 } from '@/features/onboarding/utils/onboardingPayload';
 import { canSubmitOnboarding } from '@/features/onboarding/utils/onboardingSubmitGate';
 import { parseListInput } from '@/features/preferences/utils/parseListInput';
+import { defaultSlot } from '@/features/preferences/utils/slotCookingTime';
 import {
   buildSlotForm,
-  defaultSlot,
   slotFormToCookingTime,
   type SlotFormState,
   type SlotMode,

@@ -5,7 +5,7 @@ import type { RecipeThemeConfig } from '@/types/domain';
 import {
   COOKING_SKILL_LABELS,
   COOKING_SKILLS,
-} from '@/features/onboarding/constants/onboardingOptions';
+} from '@/features/preferences/constants/preferenceOptions';
 import { MAX_DISPLAY_NAME_LENGTH } from '@/features/onboarding/utils/onboardingSteps';
 import { HouseholdSizeStepper } from '@/features/onboarding/components/HouseholdSizeStepper';
 import { OnboardingChoiceChip } from '@/features/onboarding/components/OnboardingChoiceChip';

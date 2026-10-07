@@ -19,7 +19,7 @@ import {
   MEAL_SLOTS,
   SLOT_LABELS,
   SLOT_PRESET_BUCKETS,
-} from '@/features/onboarding/constants/onboardingOptions';
+} from '@/features/preferences/constants/preferenceOptions';
 import type { SlotFormState } from '@/features/onboarding/utils/onboardingSlot';
 
 export const ONBOARDING_STEPS = ['household', 'preferences', 'mealTimes'] as const;

@@ -4,12 +4,8 @@ import {
   isValidDietCode,
   isValidHardRestrictionCode,
 } from '@/features/preferences/constants/catalog';
-import {
-  OnboardingValidationError,
-  buildOnboardingPayload,
-  buildProfilePayload,
-} from '../utils/onboardingPayload';
-import type { OnboardingFormState, ProfileFormState } from '../utils/onboardingPayload';
+import { OnboardingValidationError, buildOnboardingPayload } from '../utils/onboardingPayload';
+import type { OnboardingFormState } from '../utils/onboardingPayload';
 
 const baseState: OnboardingFormState = {
   displayName: 'Lucca',
@@ -194,54 +190,57 @@ describe('buildOnboardingPayload', () => {
       message: 'Unknown hard restriction code: mango',
     });
   });
-});
 
-describe('buildProfilePayload', () => {
-  const profile: ProfileFormState = {
-    displayName: 'Lucca',
-    householdSize: 2,
-    cookingSkill: 'intermediate',
-  };
-
-  function fieldOf(state: ProfileFormState): string | null {
-    try {
-      buildProfilePayload(state);
+  it('reports an invalid profile with the onboarding error, field and message', () => {
+    const captureError = (profile: Partial<OnboardingFormState>) => {
+      try {
+        buildOnboardingPayload({ ...baseState, ...profile });
+      } catch (error) {
+        return error;
+      }
       return null;
-    } catch (error) {
-      if (error instanceof OnboardingValidationError) return error.field;
-      throw error;
+    };
+
+    const cases: [Partial<OnboardingFormState>, string, string][] = [
+      [{ displayName: '   ' }, 'displayName', 'Display name must be 1-60 characters.'],
+      [
+        { householdSize: 21 },
+        'householdSize',
+        'Household size must be an integer between 1 and 20.',
+      ],
+      [
+        { cookingSkill: 'chef' as OnboardingFormState['cookingSkill'] },
+        'cookingSkill',
+        'Unknown cooking skill.',
+      ],
+    ];
+
+    for (const [profile, field, message] of cases) {
+      const error = captureError(profile);
+      expect(error).toBeInstanceOf(OnboardingValidationError);
+      expect(error).toMatchObject({ name: 'OnboardingValidationError', field, message });
     }
-  }
-
-  it('returns the profile with a trimmed display name', () => {
-    expect(buildProfilePayload({ ...profile, displayName: '  Lucca Giordana ' })).toEqual({
-      displayName: 'Lucca Giordana',
-      householdSize: 2,
-      cookingSkill: 'intermediate',
-    });
   });
 
-  it('accepts the boundaries of each rule', () => {
-    expect(fieldOf({ ...profile, displayName: 'a' })).toBeNull();
-    expect(fieldOf({ ...profile, displayName: 'a'.repeat(60) })).toBeNull();
-    expect(fieldOf({ ...profile, householdSize: 1 })).toBeNull();
-    expect(fieldOf({ ...profile, householdSize: 20 })).toBeNull();
-  });
-
-  it('rejects an empty or oversized display name', () => {
-    expect(fieldOf({ ...profile, displayName: '   ' })).toBe('displayName');
-    expect(fieldOf({ ...profile, displayName: 'a'.repeat(61) })).toBe('displayName');
-  });
-
-  it('rejects a household size that is missing, fractional or out of range', () => {
-    expect(fieldOf({ ...profile, householdSize: null })).toBe('householdSize');
-    expect(fieldOf({ ...profile, householdSize: 0 })).toBe('householdSize');
-    expect(fieldOf({ ...profile, householdSize: 21 })).toBe('householdSize');
-    expect(fieldOf({ ...profile, householdSize: 2.5 })).toBe('householdSize');
-  });
-
-  it('rejects a missing or unknown cooking skill', () => {
-    expect(fieldOf({ ...profile, cookingSkill: null })).toBe('cookingSkill');
-    expect(fieldOf({ ...profile, cookingSkill: 'chef' as unknown as null })).toBe('cookingSkill');
+  it('checks the profile before the preferences and the slots', () => {
+    let caught: unknown = null;
+    try {
+      buildOnboardingPayload({
+        ...baseState,
+        displayName: '',
+        preferences: {
+          diet: 'paleo' as unknown as null,
+          hardRestrictions: [],
+          softPreferences: [],
+        },
+        slotCookingTimes: {
+          ...baseState.slotCookingTimes,
+          lunch: { cookingTimeMinutes: -5, hungerLevel: 'normal' },
+        },
+      });
+    } catch (error) {
+      caught = error;
+    }
+    expect(caught).toMatchObject({ field: 'displayName' });
   });
 });
