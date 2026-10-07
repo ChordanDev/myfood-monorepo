@@ -3,7 +3,8 @@ import { Keyboard, Modal, ScrollView, StyleSheet, Text } from 'react-native';
 import { act, create, type ReactTestRenderer } from 'react-test-renderer';
 import { formatDateKey } from '@/features/home/utils/calendarDate';
 import { CHAT_COMPOSER_MIN_HEIGHT } from '@/features/assistant-chat';
-import { useInventoryStore, useMealPlanStore } from '@/store';
+import { useInventoryStore, type InventoryItem } from '@/features/inventory';
+import { useMealPlanStore } from '@/store';
 import type { MasterRecipe, MealPlanEntry, RecipeThemeConfig } from '@/types/domain';
 import { RecipeBottomFade } from '../../components/RecipeBottomFade';
 import { RECIPE_CHAT_REPLY_DELAY_MS } from '../../hooks/useRecipeChat';
@@ -68,6 +69,12 @@ jest.mock('@/features/assistant-chat', () => ({
   ChatTypingIndicator: 'ChatTypingIndicator',
 }));
 
+// The barrel also exports the inventory screen, which the partial mocks above cannot load; the
+// recipe only reads the store, the same instance the meal plan consumes ingredients from.
+jest.mock('@/features/inventory', () => ({
+  useInventoryStore: jest.requireActual('@/features/inventory/store').useInventoryStore,
+}));
+
 jest.mock('@/context/RecipeThemeContext', () => ({
   useRecipeTheme: () => ({
     theme: {
@@ -115,6 +122,19 @@ function entry(overrides: Partial<MealPlanEntry> = {}): MealPlanEntry {
     type: 'almuerzo',
     recipeId: 'r1',
     isCooked: false,
+    ...overrides,
+  };
+}
+
+function inventoryItem(overrides: Partial<InventoryItem> = {}): InventoryItem {
+  return {
+    id: 'inv-i1',
+    ingredientId: 'i1',
+    name: 'Arroz Blanco',
+    category: 'almacen',
+    quantity: 500,
+    unit: 'g',
+    confidence: 'exact',
     ...overrides,
   };
 }
@@ -177,11 +197,11 @@ describe('RecipeScreen', () => {
     mockRouteParams = { id: 'r1', entryId: 'e-today' };
     useMealPlanStore.setState({ entries: [entry()], recipes: [RECIPE], favoriteRecipeIds: [] });
     useInventoryStore.setState({
-      items: [{ ingredientId: 'i1', amount: 500 }],
+      items: [inventoryItem()],
       ingredients: [
-        { id: 'i1', name: 'Arroz Blanco', category: 'despensa', basePrice: 2, unit: 'gramos' },
-        { id: 'i2', name: 'Pollo (Pechuga)', category: 'proteinas', basePrice: 10, unit: 'gramos' },
-        { id: 'i3', name: 'Tomate', category: 'verduras', basePrice: 3, unit: 'unidades' },
+        { id: 'i1', name: 'Arroz Blanco', category: 'almacen', basePrice: 2, unit: 'g' },
+        { id: 'i2', name: 'Pollo (Pechuga)', category: 'carnes', basePrice: 10, unit: 'g' },
+        { id: 'i3', name: 'Tomate', category: 'verduras', basePrice: 3, unit: 'unit' },
       ],
     });
     useShoppingRequestsStore.setState({ requests: [] });
@@ -228,7 +248,7 @@ describe('RecipeScreen', () => {
         name: 'Pollo (pechuga)',
         ingredientId: 'i2',
         amount: 200,
-        unit: 'gramos',
+        unit: 'g',
       }),
     ]);
     expect(tree.root.findAllByProps({ testID: 'recipe-ingredient-add-i2' })).toHaveLength(0);
@@ -238,8 +258,8 @@ describe('RecipeScreen', () => {
   it('asks only for the amount the inventory is short of', () => {
     useInventoryStore.setState({
       items: [
-        { ingredientId: 'i1', amount: 500 },
-        { ingredientId: 'i2', amount: 50 },
+        inventoryItem(),
+        inventoryItem({ id: 'inv-i2', ingredientId: 'i2', name: 'Pollo (Pechuga)', quantity: 50 }),
       ],
     });
     const tree = renderScreen();
@@ -247,6 +267,25 @@ describe('RecipeScreen', () => {
     press(tree, 'recipe-ingredient-add-i2');
 
     expect(useShoppingRequestsStore.getState().requests[0]).toMatchObject({ amount: 150 });
+  });
+
+  it('does not count an inventory item without a catalog link as stock', () => {
+    useInventoryStore.setState({
+      items: [
+        inventoryItem(),
+        inventoryItem({ id: 'inv-free', ingredientId: undefined, name: 'Pollo', quantity: 900 }),
+      ],
+    });
+    const tree = renderScreen();
+
+    expect(renderedTexts(tree)).toContain('2 te faltan');
+
+    press(tree, 'recipe-ingredient-add-i2');
+
+    expect(useShoppingRequestsStore.getState().requests[0]).toMatchObject({
+      ingredientId: 'i2',
+      amount: 200,
+    });
   });
 
   describe('marking the meal as cooked', () => {
@@ -350,6 +389,19 @@ describe('RecipeScreen', () => {
       press(tree, 'recipe-header-cooked');
 
       expect(isConfirmSheetOpen(tree)).toBe(false);
+      expect(mockBack).not.toHaveBeenCalled();
+    });
+
+    it('does not ask for a meal that was skipped, and leaves it uncooked', () => {
+      useMealPlanStore.setState({ entries: [entry({ isSkipped: true })] });
+      const tree = renderScreen();
+
+      expect(findButton(tree, 'recipe-header-cooked').props.disabled).toBe(true);
+
+      press(tree, 'recipe-header-cooked');
+
+      expect(isConfirmSheetOpen(tree)).toBe(false);
+      expect(useMealPlanStore.getState().entries[0].isCooked).toBe(false);
       expect(mockBack).not.toHaveBeenCalled();
     });
 
@@ -497,7 +549,7 @@ describe('RecipeScreen', () => {
       press(tree, 'recipe-chat-action-turn-1-assistant-confirm_add');
 
       expect(useShoppingRequestsStore.getState().requests).toEqual([
-        expect.objectContaining({ ingredientId: 'i2', amount: 200, unit: 'gramos' }),
+        expect.objectContaining({ ingredientId: 'i2', amount: 200, unit: 'g' }),
       ]);
       expect(tree.root.findAllByProps({ testID: 'recipe-ingredient-add-i2' })).toHaveLength(0);
       expect(renderedTexts(tree)).toContain('En la lista');

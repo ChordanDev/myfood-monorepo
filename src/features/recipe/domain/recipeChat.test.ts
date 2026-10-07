@@ -33,7 +33,7 @@ function buildRow(overrides: Partial<RecipeIngredientRow> = {}): RecipeIngredien
     requiredAmount: 100,
     availableAmount: 500,
     missingAmount: 0,
-    unit: 'gramos',
+    unit: 'g',
     status: 'in_stock',
     ...overrides,
   };
@@ -56,7 +56,7 @@ const TOMATO_MISSING = buildRow({
   requiredAmount: 2,
   availableAmount: 0,
   missingAmount: 2,
-  unit: 'unidades',
+  unit: 'unit',
   status: 'missing',
 });
 const TOMATO_REQUESTED: RecipeIngredientRow = { ...TOMATO_MISSING, status: 'requested' };
@@ -120,7 +120,7 @@ describe('buildAssistantReply', () => {
       name: 'Pollo (pechuga)',
       ingredientId: 'i2',
       amount: 150,
-      unit: 'gramos',
+      unit: 'g',
     });
   });
 
@@ -150,7 +150,7 @@ describe('buildAssistantReply', () => {
       name: 'Pollo (pechuga)',
       ingredientId: 'i2',
       amount: 150,
-      unit: 'gramos',
+      unit: 'g',
     });
     expect(answer.text).toContain('pollo (pechuga)');
   });
@@ -203,7 +203,7 @@ describe('resolveQuickAction', () => {
       name: 'Pollo (pechuga)',
       ingredientId: 'i2',
       amount: 150,
-      unit: 'gramos',
+      unit: 'g',
     });
   });
 

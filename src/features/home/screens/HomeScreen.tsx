@@ -5,10 +5,12 @@ import { useRouter } from 'expo-router';
 import { AddCircleButton, NoisyBackground, SafeAreaContent, TitlePrimary } from '@/components';
 import {
   Calendar,
+  CookedConfirmationCard,
   EatTodayButton,
   EatTodaySheet,
   FloatingFoodImage,
   FoodTypeSwitcher,
+  PendingDayCard,
 } from '../components';
 import { FoodCard } from '../components/FoodCard';
 import { getAvailableEatTodayDestinations, type EatTodayDestinationType } from '../domain/eatToday';
@@ -29,6 +31,8 @@ export function HomeScreen() {
   const insets = useSafeAreaInsets();
   const tabBarHeight = insets.bottom + 60;
   const eatToday = useMealPlanStore((state) => state.eatToday);
+  const markAsCooked = useMealPlanStore((state) => state.markAsCooked);
+  const markAsSkipped = useMealPlanStore((state) => state.markAsSkipped);
   const favoriteRecipeIds = useMealPlanStore((state) => state.favoriteRecipeIds);
   const toggleFavoriteRecipe = useMealPlanStore((state) => state.toggleFavoriteRecipe);
   // Destinations are captured when the sheet opens so the options cannot change while it is shown.
@@ -42,6 +46,8 @@ export function HomeScreen() {
     selectedMealType,
     availableMealTypes,
     selectedMeal,
+    selectedDayMeals,
+    isPendingConfirmationDay,
     planByDate,
     handleSelectDate,
     handleMealTypeChange,
@@ -77,6 +83,18 @@ export function HomeScreen() {
         pathname: '/recipe/[id]',
         params: { id: selectedMeal.recipeId, entryId: selectedMeal.id },
       });
+    }
+  };
+
+  const handleConfirmCooked = () => {
+    if (selectedMeal) {
+      markAsCooked(selectedMeal.id);
+    }
+  };
+
+  const handleConfirmSkipped = () => {
+    if (selectedMeal) {
+      markAsSkipped(selectedMeal.id);
     }
   };
 
@@ -143,47 +161,67 @@ export function HomeScreen() {
             },
           ]}>
           <View style={[styles.topSection, { gap: metrics.rowGap }]}>
-            <View style={[styles.mealRow, { gap: metrics.rowGap }]}>
-              {isTodaySelected ? (
-                <FloatingFoodImage
-                  source={foodImageSource}
-                  leftPercent={metrics.foodImageLeftPercent}
-                  topPercent={metrics.foodImageTopPercent}
-                  widthPercent={metrics.foodImageWidthPercent}
-                  sizeScale={metrics.foodImageSizeScale}
-                />
-              ) : selectedMeal ? (
-                <EatTodayButton
-                  leftPercent={metrics.foodImageLeftPercent}
-                  topPercent={metrics.foodImageTopPercent}
-                  widthPercent={metrics.foodImageWidthPercent}
-                  sizeScale={metrics.foodImageSizeScale}
-                  backgroundColor={theme.primaryAccent}
-                  textColor={theme.textBlack}
-                  borderColor={theme.primaryAccentIntense}
-                  onPress={handleEatToday}
-                />
-              ) : null}
-              <View style={{ width: `${metrics.cardColumnPercent}%` }}>
-                <FoodCard
-                  mealType={selectedMealType}
-                  description={selectedMealDescription}
-                  selectedDate={selectedDate}
-                  metrics={metrics}
-                  isFavorite={isSelectedMealFavorite}
-                  onToggleFavorite={handleToggleFavorite}
-                  onOpenRecipe={handleOpenRecipe}
-                />
+            {/* Distinct keys remount the row: reusing the meal row's views kept its percent column width. */}
+            {isPendingConfirmationDay && selectedDate ? (
+              <View key="pending-row" style={[styles.pendingRow, { gap: metrics.rowGap }]}>
+                <View style={styles.pendingDayColumn}>
+                  <PendingDayCard
+                    selectedDate={selectedDate}
+                    meals={selectedDayMeals}
+                    metrics={metrics}
+                  />
+                </View>
+                <View style={styles.confirmationColumn}>
+                  <CookedConfirmationCard
+                    metrics={metrics}
+                    onConfirmCooked={handleConfirmCooked}
+                    onConfirmSkipped={handleConfirmSkipped}
+                  />
+                </View>
               </View>
-              <View style={[styles.sideColumn, { width: `${metrics.sideColumnPercent}%` }]}>
+            ) : (
+              <View key="meal-row" style={[styles.mealRow, { gap: metrics.rowGap }]}>
                 {isTodaySelected ? (
-                  <AddCircleButton
-                    size={metrics.addButtonSize}
-                    onPress={() => router.push('/planner')}
+                  <FloatingFoodImage
+                    source={foodImageSource}
+                    leftPercent={metrics.foodImageLeftPercent}
+                    topPercent={metrics.foodImageTopPercent}
+                    widthPercent={metrics.foodImageWidthPercent}
+                    sizeScale={metrics.foodImageSizeScale}
+                  />
+                ) : selectedMeal ? (
+                  <EatTodayButton
+                    leftPercent={metrics.foodImageLeftPercent}
+                    topPercent={metrics.foodImageTopPercent}
+                    widthPercent={metrics.foodImageWidthPercent}
+                    sizeScale={metrics.foodImageSizeScale}
+                    backgroundColor={theme.primaryAccent}
+                    textColor={theme.textBlack}
+                    borderColor={theme.primaryAccentIntense}
+                    onPress={handleEatToday}
                   />
                 ) : null}
+                <View style={{ width: `${metrics.cardColumnPercent}%` }}>
+                  <FoodCard
+                    mealType={selectedMealType}
+                    description={selectedMealDescription}
+                    selectedDate={selectedDate}
+                    metrics={metrics}
+                    isFavorite={isSelectedMealFavorite}
+                    onToggleFavorite={handleToggleFavorite}
+                    onOpenRecipe={handleOpenRecipe}
+                  />
+                </View>
+                <View style={[styles.sideColumn, { width: `${metrics.sideColumnPercent}%` }]}>
+                  {isTodaySelected ? (
+                    <AddCircleButton
+                      size={metrics.addButtonSize}
+                      onPress={() => router.push('/planner')}
+                    />
+                  ) : null}
+                </View>
               </View>
-            </View>
+            )}
             <View style={styles.switcherRow}>
               <FoodTypeSwitcher
                 value={selectedMealType}
@@ -223,6 +261,10 @@ const styles = StyleSheet.create({
     marginTop: 'auto',
     width: '100%',
   },
+  // Reference proportions: the day card is slightly wider than the confirmation card.
+  confirmationColumn: {
+    flex: 6,
+  },
   content: {
     flex: 1,
     width: '100%',
@@ -234,6 +276,13 @@ const styles = StyleSheet.create({
     flex: 1,
     flexDirection: 'row',
     position: 'relative',
+  },
+  pendingDayColumn: {
+    flex: 7,
+  },
+  pendingRow: {
+    flex: 1,
+    flexDirection: 'row',
   },
   sideColumn: {
     alignItems: 'flex-start',

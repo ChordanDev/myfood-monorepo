@@ -16,7 +16,7 @@ describe('requestIngredient', () => {
       name: 'Pollo (pechuga)',
       ingredientId: 'i2',
       amount: 200,
-      unit: 'gramos',
+      unit: 'g',
     });
 
     expect(store().requests).toHaveLength(1);
@@ -24,12 +24,12 @@ describe('requestIngredient', () => {
       name: 'Pollo (pechuga)',
       ingredientId: 'i2',
       amount: 200,
-      unit: 'gramos',
+      unit: 'g',
     });
   });
 
   it('gives every request its own id and a creation date', () => {
-    store().requestIngredient({ name: 'Tomate', ingredientId: 'i3', amount: 2, unit: 'unidades' });
+    store().requestIngredient({ name: 'Tomate', ingredientId: 'i3', amount: 2, unit: 'unit' });
     store().requestIngredient({ name: 'Pan rallado' });
 
     const [first, second] = store().requests;
@@ -65,38 +65,38 @@ describe('requestIngredient', () => {
 
 describe('requestIngredient for an ingredient that was already requested', () => {
   it('keeps a single request for the ingredient', () => {
-    store().requestIngredient({ name: 'Tomate', ingredientId: 'i3', amount: 2, unit: 'unidades' });
-    store().requestIngredient({ name: 'Tomate', ingredientId: 'i3', amount: 2, unit: 'unidades' });
+    store().requestIngredient({ name: 'Tomate', ingredientId: 'i3', amount: 2, unit: 'unit' });
+    store().requestIngredient({ name: 'Tomate', ingredientId: 'i3', amount: 2, unit: 'unit' });
 
     expect(store().requests).toHaveLength(1);
   });
 
   it('raises the amount when the new request asks for more', () => {
-    store().requestIngredient({ name: 'Tomate', ingredientId: 'i3', amount: 2, unit: 'unidades' });
-    store().requestIngredient({ name: 'Tomate', ingredientId: 'i3', amount: 5, unit: 'unidades' });
+    store().requestIngredient({ name: 'Tomate', ingredientId: 'i3', amount: 2, unit: 'unit' });
+    store().requestIngredient({ name: 'Tomate', ingredientId: 'i3', amount: 5, unit: 'unit' });
 
     expect(store().requests[0].amount).toBe(5);
   });
 
   it('keeps the amount when the new request asks for less', () => {
-    store().requestIngredient({ name: 'Tomate', ingredientId: 'i3', amount: 5, unit: 'unidades' });
-    store().requestIngredient({ name: 'Tomate', ingredientId: 'i3', amount: 2, unit: 'unidades' });
+    store().requestIngredient({ name: 'Tomate', ingredientId: 'i3', amount: 5, unit: 'unit' });
+    store().requestIngredient({ name: 'Tomate', ingredientId: 'i3', amount: 2, unit: 'unit' });
 
     expect(store().requests[0].amount).toBe(5);
   });
 
   it('takes the amount of the new request when the first one had none', () => {
     store().requestIngredient({ name: 'Tomate', ingredientId: 'i3' });
-    store().requestIngredient({ name: 'Tomate', ingredientId: 'i3', amount: 2, unit: 'unidades' });
+    store().requestIngredient({ name: 'Tomate', ingredientId: 'i3', amount: 2, unit: 'unit' });
 
-    expect(store().requests[0]).toMatchObject({ amount: 2, unit: 'unidades' });
+    expect(store().requests[0]).toMatchObject({ amount: 2, unit: 'unit' });
   });
 
   it('keeps the amount when the new request has none', () => {
-    store().requestIngredient({ name: 'Tomate', ingredientId: 'i3', amount: 2, unit: 'unidades' });
+    store().requestIngredient({ name: 'Tomate', ingredientId: 'i3', amount: 2, unit: 'unit' });
     store().requestIngredient({ name: 'Tomate', ingredientId: 'i3' });
 
-    expect(store().requests[0]).toMatchObject({ amount: 2, unit: 'unidades' });
+    expect(store().requests[0]).toMatchObject({ amount: 2, unit: 'unit' });
   });
 
   it('keeps the identity and position of the first request', () => {
@@ -135,8 +135,8 @@ describe('requestIngredient without an ingredient id', () => {
   });
 
   it('keeps the larger amount of a repeated name', () => {
-    store().requestIngredient({ name: 'Pan rallado', amount: 100, unit: 'gramos' });
-    store().requestIngredient({ name: 'pan rallado', amount: 250, unit: 'gramos' });
+    store().requestIngredient({ name: 'Pan rallado', amount: 100, unit: 'g' });
+    store().requestIngredient({ name: 'pan rallado', amount: 250, unit: 'g' });
 
     expect(store().requests[0].amount).toBe(250);
   });

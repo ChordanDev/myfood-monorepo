@@ -1,11 +1,12 @@
-import type { Ingredient, InventoryItem, RecipeIngredient, UnitType } from '@/types/domain';
+import type { InventoryItem } from '@/features/inventory';
+import type { Ingredient, RecipeIngredient, UnitType } from '@/types/domain';
 
 export type UnitAbbreviation = 'g' | 'ml' | 'u';
 
 const UNIT_ABBREVIATION: Record<UnitType, UnitAbbreviation> = {
-  gramos: 'g',
-  mililitros: 'ml',
-  unidades: 'u',
+  g: 'g',
+  ml: 'ml',
+  unit: 'u',
 };
 
 /** Decimals kept when printing an amount; enough for halves and quarters. */
@@ -45,19 +46,27 @@ export type RecipeIngredientRow = {
 
 export const UNKNOWN_INGREDIENT_NAME = 'Ingrediente desconocido';
 
+/** What the recipe reads from an inventory item: its catalog link and how much there is. */
+type InventoryStockItem = Pick<InventoryItem, 'ingredientId' | 'quantity'>;
+
 type ResolveRecipeIngredientsArgs = {
   lines: RecipeIngredient[];
   catalog: Ingredient[];
-  inventory: InventoryItem[];
+  inventory: InventoryStockItem[];
   /** Ingredients already sent to the shopping requests. */
   requestedIngredientIds?: string[];
 };
 
-/** Total stock per ingredient: the same ingredient may sit in several inventory items. */
-function sumInventoryByIngredient(inventory: InventoryItem[]): Map<string, number> {
+/**
+ * Total stock per ingredient: the same ingredient may sit in several inventory items. An item
+ * without a catalog link cannot be matched to a recipe line, so it never counts as stock.
+ */
+function sumInventoryByIngredient(inventory: InventoryStockItem[]): Map<string, number> {
   const totals = new Map<string, number>();
-  inventory.forEach((item) => {
-    totals.set(item.ingredientId, (totals.get(item.ingredientId) ?? 0) + item.amount);
+  inventory.forEach(({ ingredientId, quantity }) => {
+    if (ingredientId === undefined) return;
+
+    totals.set(ingredientId, (totals.get(ingredientId) ?? 0) + quantity);
   });
   return totals;
 }

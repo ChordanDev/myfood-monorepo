@@ -13,7 +13,7 @@ const RICE_IN_STOCK: RecipeIngredientRow = {
   requiredAmount: 100,
   availableAmount: 500,
   missingAmount: 0,
-  unit: 'gramos',
+  unit: 'g',
   status: 'in_stock',
 };
 const CHICKEN_MISSING: RecipeIngredientRow = {
@@ -23,10 +23,10 @@ const CHICKEN_MISSING: RecipeIngredientRow = {
   requiredAmount: 200,
   availableAmount: 50,
   missingAmount: 150,
-  unit: 'gramos',
+  unit: 'g',
   status: 'missing',
 };
-const CHICKEN_OFFER = { name: 'Pollo (pechuga)', ingredientId: 'i2', amount: 150, unit: 'gramos' };
+const CHICKEN_OFFER = { name: 'Pollo (pechuga)', ingredientId: 'i2', amount: 150, unit: 'g' };
 
 function renderChat(overrides: Partial<ChatArgs> = {}) {
   const args: ChatArgs = {

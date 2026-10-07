@@ -109,6 +109,14 @@ describe('canMarkAsCooked', () => {
     expect(canMarkAsCooked(buildEntry({ id: 'cooked', isCooked: true }))).toBe(false);
   });
 
+  it('rejects an entry that was skipped', () => {
+    expect(canMarkAsCooked(buildEntry({ id: 'skipped', isSkipped: true }))).toBe(false);
+  });
+
+  it('allows an entry whose skipped flag is explicitly off', () => {
+    expect(canMarkAsCooked(buildEntry({ id: 'pending', isSkipped: false }))).toBe(true);
+  });
+
   it('rejects a missing entry', () => {
     expect(canMarkAsCooked(null)).toBe(false);
   });

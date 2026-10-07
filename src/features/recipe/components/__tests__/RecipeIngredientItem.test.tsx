@@ -20,7 +20,7 @@ const BASE_ROW: RecipeIngredientRow = {
   requiredAmount: 200,
   availableAmount: 50,
   missingAmount: 150,
-  unit: 'gramos',
+  unit: 'g',
   status: 'missing',
 };
 

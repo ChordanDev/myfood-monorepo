@@ -33,6 +33,7 @@ export function isRecipeChatEnabled(entry: MealPlanEntry | null, todayKey: strin
   return entry !== null && entry.date === todayKey;
 }
 
+/** A meal that was already cooked or skipped is settled; the meal plan refuses to cook it too. */
 export function canMarkAsCooked(entry: MealPlanEntry | null): boolean {
-  return entry !== null && !entry.isCooked;
+  return entry !== null && !entry.isCooked && !entry.isSkipped;
 }

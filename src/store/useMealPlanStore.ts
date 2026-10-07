@@ -2,7 +2,7 @@ import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
 import { MealPlanEntry, MasterRecipe } from '../types/domain';
 import { MOCK_MEAL_PLAN, MOCK_MASTER_RECIPES } from '../mocks/domainMocks';
-import { useInventoryStore } from './useInventoryStore';
+import { useInventoryStore } from '@/features/inventory/store';
 import { safeAsyncStorage } from '@/utils/safeAsyncStorage';
 
 interface EatTodayParams {
@@ -18,6 +18,7 @@ interface MealPlanState {
   favoriteRecipeIds: string[];
   setPlan: (entries: MealPlanEntry[]) => void;
   markAsCooked: (entryId: string) => void;
+  markAsSkipped: (entryId: string) => void;
   eatToday: (params: EatTodayParams) => void;
   toggleFavoriteRecipe: (recipeId: string) => void;
   getEntryByDateAndType: (date: string, type: string) => MealPlanEntry | undefined;
@@ -33,19 +34,27 @@ export const useMealPlanStore = create<MealPlanState>()(
       setPlan: (entries) => set({ entries }),
       markAsCooked: (entryId) => {
         const entry = get().entries.find((e) => e.id === entryId);
-        if (!entry || entry.isCooked) return;
+        if (!entry || entry.isCooked || entry.isSkipped) return;
 
         const recipe = get().recipes.find((r) => r.id === entry.recipeId);
         if (recipe) {
           // Consumo automático de ingredientes
           const inventoryStore = useInventoryStore.getState();
           recipe.ingredients.forEach((ing) => {
-            inventoryStore.removeItem(ing.ingredientId, ing.amount);
+            inventoryStore.consumeIngredient(ing.ingredientId, ing.amount);
           });
         }
 
         set((state) => ({
           entries: state.entries.map((e) => (e.id === entryId ? { ...e, isCooked: true } : e)),
+        }));
+      },
+      markAsSkipped: (entryId) => {
+        const entry = get().entries.find((e) => e.id === entryId);
+        if (!entry || entry.isCooked || entry.isSkipped) return;
+
+        set((state) => ({
+          entries: state.entries.map((e) => (e.id === entryId ? { ...e, isSkipped: true } : e)),
         }));
       },
       eatToday: ({ sourceDate, sourceType, targetDate, targetType }) => {

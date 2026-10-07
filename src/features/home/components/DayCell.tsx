@@ -13,6 +13,7 @@ export interface DayCellProps {
   isSelected: boolean;
   isToday: boolean;
   isPlanned: boolean;
+  isPendingConfirmation: boolean;
   daySize: number;
   dayFontSize: number;
   textColor: string;
@@ -27,6 +28,7 @@ export const DayCell = memo(
     isSelected,
     isToday,
     isPlanned,
+    isPendingConfirmation,
     daySize,
     dayFontSize,
     textColor,
@@ -36,6 +38,15 @@ export const DayCell = memo(
 
     const colors = useMemo(() => {
       const targetOpacity = 0.7;
+      // A pending day is always in the past, so it never overlaps with today.
+      if (isPendingConfirmation) {
+        return {
+          bg: withOpacity(theme.alert, targetOpacity),
+          border: isSelected ? theme.colorMedium : theme.alert,
+          borderWidth: isSelected ? 2 : 1,
+        };
+      }
+
       if (isSelected) {
         if (isToday) {
           return {
@@ -68,8 +79,9 @@ export const DayCell = memo(
       }
 
       return { bg: 'transparent', border: 'transparent', borderWidth: 0 };
-    }, [isSelected, isToday, isPlanned, theme]);
-    const selectionStateKey = `${isSelected}-${isToday}-${isPlanned}-${isSelectable}`;
+    }, [isSelected, isToday, isPlanned, isPendingConfirmation, theme]);
+    const selectionStateKey = `${isSelected}-${isToday}-${isPlanned}-${isSelectable}-${isPendingConfirmation}`;
+    const dayNumber = dayDate.getDate();
     const circleStyle = useAnimatedThemeStyle(
       {
         backgroundColor: colors.bg,
@@ -95,6 +107,9 @@ export const DayCell = memo(
           disabled={!isSelectable}
           style={({ pressed }) => ({ transform: [{ scale: pressed ? 0.95 : 1 }] })}
           accessibilityRole="button"
+          accessibilityLabel={
+            isPendingConfirmation ? `${dayNumber}, comida sin confirmar` : undefined
+          }
           accessibilityState={{ disabled: !isSelectable }}>
           <Animated.View
             style={[
@@ -109,7 +124,7 @@ export const DayCell = memo(
               circleStyle,
             ]}>
             <Animated.Text style={[styles.dayText, { fontSize: dayFontSize }, textStyle]}>
-              {dayDate.getDate()}
+              {isPendingConfirmation ? '!' : dayNumber}
             </Animated.Text>
           </Animated.View>
         </Pressable>

@@ -26,7 +26,13 @@ function RouteProbe({ captures }: { captures: RouteCapture[] }) {
 
 function makeMe(overrides: Partial<CurrentMe> = {}): CurrentMe {
   return {
-    user: { id: 'user-1', email: 'user@example.com', displayName: null },
+    user: {
+      id: 'user-1',
+      email: 'user@example.com',
+      displayName: null,
+      householdSize: null,
+      cookingSkill: null,
+    },
     account: {
       id: 'account-1',
       type: 'individual',
@@ -65,6 +71,7 @@ function buildContext(
     saveUserPreferences: jest.fn(),
     fetchSlotCookingTimes: jest.fn(),
     saveSlotCookingTimes: jest.fn(),
+    updateProfile: jest.fn(),
     requestVerificationCode: jest.fn(),
     sendVerificationCode: jest.fn(),
     ...overrides,
