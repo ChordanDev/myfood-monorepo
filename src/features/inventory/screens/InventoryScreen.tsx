@@ -11,6 +11,7 @@ import { withOpacity } from '@/utils/colors';
 import { InventoryCategoryGroup, InventoryEditSheet, InventoryVoiceButton } from '../components';
 import {
   INVENTORY_HORIZONTAL_PADDING,
+  INVENTORY_TITLE_FONT_SIZE,
   INVENTORY_VOICE_BUTTON_GAP,
   INVENTORY_VOICE_BUTTON_SIZE,
 } from '../constants/layout';
@@ -85,7 +86,11 @@ export function InventoryScreen() {
       <SafeAreaContent includeBottom={false} style={styles.content}>
         <TitlePrimary
           text="INVENTARIO"
-          metrics={{ ...metrics, titleBottomSpacing: TITLE_BOTTOM_SPACING }}
+          metrics={{
+            ...metrics,
+            titleFontSize: INVENTORY_TITLE_FONT_SIZE,
+            titleBottomSpacing: TITLE_BOTTOM_SPACING,
+          }}
         />
         <Text style={[styles.subtitle, { color: withOpacity(theme.textDark, 0.6) }]}>
           Cantidades aproximadas. Decile al micrófono qué usaste.

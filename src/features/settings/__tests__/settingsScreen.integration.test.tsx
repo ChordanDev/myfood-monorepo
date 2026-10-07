@@ -96,6 +96,16 @@ jest.mock('@/hooks/useAnimatedThemeStyle', () => ({
   useAnimatedThemeStyle: (colors: object) => colors,
 }));
 
+// The window the screen is measured in: the one Jest gives by default. A test swaps it for a
+// small phone, where the responsive title metrics are at their smallest.
+const mockDefaultWindow = { width: 750, height: 1334, scale: 2, fontScale: 2 };
+let mockWindow = mockDefaultWindow;
+
+jest.mock('react-native/Libraries/Utilities/useWindowDimensions', () => ({
+  __esModule: true,
+  default: () => mockWindow,
+}));
+
 // Local-time parts, so the trial date reads the same in any timezone.
 const NOW = new Date(2026, 9, 6, 12, 0);
 const TRIAL_ENDS_AT = new Date(2026, 9, 12, 12, 0).toISOString();
@@ -353,6 +363,35 @@ describe('SettingsScreen', () => {
   afterEach(() => {
     warnSpy.mockRestore();
     jest.useRealTimers();
+    mockWindow = mockDefaultWindow;
+  });
+
+  describe('title', () => {
+    // The size of "COMPRAS", the title of the shopping screen.
+    const SHOPPING_TITLE_FONT_SIZE = 28;
+
+    it('is written at the size of the shopping title, in the title ink of the palette', async () => {
+      const { root } = await renderScreen();
+      const title = findText(root, 'AJUSTES');
+
+      expect(StyleSheet.flatten(title.props.style)).toEqual(
+        expect.objectContaining({
+          fontFamily: 'Montserrat_700Bold',
+          fontSize: SHOPPING_TITLE_FONT_SIZE,
+        })
+      );
+      expect(colorOf(title)).toBe(mockTheme.textDark);
+    });
+
+    it('keeps that size on a small phone', async () => {
+      mockWindow = { width: 320, height: 568, scale: 2, fontScale: 1 };
+
+      const { root } = await renderScreen();
+
+      expect(StyleSheet.flatten(findText(root, 'AJUSTES').props.style).fontSize).toBe(
+        SHOPPING_TITLE_FONT_SIZE
+      );
+    });
   });
 
   describe('account card', () => {

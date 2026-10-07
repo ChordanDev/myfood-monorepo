@@ -17,6 +17,7 @@ import {
   SettingsRow,
   SettingsSheet,
 } from '../components';
+import { SETTINGS_TITLE_FONT_SIZE } from '../constants/layout';
 import {
   LOADING_VALUE_LABEL,
   PREFERENCE_FIELD_LABELS,
@@ -103,7 +104,10 @@ export function SettingsScreen() {
       </AnimatedView>
       <NoisyBackground opacity={0.3} />
       <SafeAreaContent includeBottom={false}>
-        <TitlePrimary text="AJUSTES" metrics={getTitleMetrics(width, height)} />
+        <TitlePrimary
+          text="AJUSTES"
+          metrics={{ ...getTitleMetrics(width, height), titleFontSize: SETTINGS_TITLE_FONT_SIZE }}
+        />
         <ScrollView
           // The safe area is already applied: on top by SafeAreaContent, at the bottom by the
           // tab bar clearance. Letting iOS add its own inset would count it twice.
