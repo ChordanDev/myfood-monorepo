@@ -180,6 +180,23 @@ chain; the chain strategy is asked before any PR is opened. Suggested slices:
   keyboard behavior of the sheets (Android first) and the visual match with the
   mockup are unchecked.
 
+- Simulator check (iPhone 17 Pro, local e2e backend, logged in through the
+  Maestro login flow): the screen renders with the account card, trial pill and
+  the row groups with Spanish labels. Long names and emails are truncated in
+  the account card next to the trial pill. Editors and the sheet keyboard were
+  not exercised by the agent. The owner reviewed the title size (46pt on a
+  402pt-wide device, shared `TitlePrimary` scale, mockup 42px at 390) and
+  decided to leave it.
+- Delivery (owner decision, 2026-10-06): merged into `Develop` directly, no PR
+  chain. `origin/Develop` (316fce0, 26 commits ahead) was merged into the branch
+  first; the only conflict was `docs/THEMING.md`. After the merge the settings
+  integration test needed `Easing.out` / `Easing.quad` in its reanimated mock
+  because `@/components` now loads `SegmentedSwitcher`. Evidence on the merged
+  tree: `npm test` 977/979 (the 2 `authErrorCodeContract` tests that need the
+  backend repo as a sibling of the checkout), `npx tsc --noEmit` clean,
+  `npm run lint` 0 errors.
+
 ## Next step
 
-Visual check on a device, then choose the PR chain strategy and open the PRs.
+Backend: ChordanDev/progra-3-back#28, so "Personas en casa" and "Experiencia
+cocinando" stop showing "Sin definir" and the profile editors save end to end.
