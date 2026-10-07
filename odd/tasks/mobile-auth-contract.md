@@ -38,7 +38,7 @@ Mobile calls `POST /api/auth/{signup,login}/{request-code,verify-code}`, `/api/a
 
 ## Verification evidence
 
-- T0 — local: `mix ecto.create`, `mix ecto.migrate` ok with `MYFOOD_TEST_DB_USERNAME=luccagiordana MYFOOD_TEST_DB_PASSWORD=""`; `mix test` on email_code_auth controller + service, auth_controller, accounts_controller: 62 passed. Commit: (pending)
+- T0 — local: `mix ecto.create`, `mix ecto.migrate` ok with `MYFOOD_TEST_DB_USERNAME=luccagiordana MYFOOD_TEST_DB_PASSWORD=""`; `mix test` on email_code_auth controller + service, auth_controller, accounts_controller: 62 passed. Commit: d73b423
 
 ## Known environmental failures
 
