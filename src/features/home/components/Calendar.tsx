@@ -3,8 +3,15 @@ import Animated from 'react-native-reanimated';
 import { ShadowSurface } from '@/components';
 import { DayCell } from './DayCell';
 import { useCalendarState } from '../hooks/useCalendarState';
-import { CALENDAR_DEFAULTS, MONTHS, WEEKDAYS } from '../constants/calendar';
-import { formatDateKey, isPendingDate, isSelectableDate } from '../utils/calendarDate';
+import {
+  CALENDAR_DEFAULTS,
+  DAY_ROW_GAP,
+  MAX_WEEK_ROWS,
+  MONTHS,
+  WEEKDAYS,
+} from '../constants/calendar';
+import { formatDateKey, isPendingDate } from '../utils/calendarDate';
+import { isBetweenRangeEdges, isRangeEdge } from '../utils/calendarRange';
 import type { CalendarProps } from '../types/calendar';
 
 import { useRecipeTheme } from '@/context/RecipeThemeContext';
@@ -15,6 +22,11 @@ export function Calendar({
   planByDate = {},
   selectedDate,
   onSelectDate,
+  isDateSelectable,
+  monthBounds,
+  rangeStart,
+  rangeEnd,
+  sizing = 'fill',
   daySize = CALENDAR_DEFAULTS.daySize,
   monthFontSize = CALENDAR_DEFAULTS.monthFontSize,
   navFontSize = CALENDAR_DEFAULTS.navFontSize,
@@ -23,6 +35,9 @@ export function Calendar({
 }: CalendarProps) {
   const { theme } = useRecipeTheme();
   const { getColorWithOpacity } = useThemeColor();
+  // A caller that draws a range owns the selection: the calendar keeps no selected day of its own.
+  const hasRange = rangeStart !== undefined;
+  const controlledSelectedDate = hasRange && selectedDate === undefined ? null : selectedDate;
   const {
     year,
     month,
@@ -35,16 +50,70 @@ export function Calendar({
     handlePrevMonth,
     handleNextMonth,
     handleSelectDate,
-  } = useCalendarState(planByDate, selectedDate, onSelectDate);
+    canSelectDate,
+  } = useCalendarState(planByDate, controlledSelectedDate, onSelectDate, {
+    isDateSelectable,
+    monthBounds,
+  });
 
   const monthLabel = `${MONTHS[month]} ${year}`;
+  const range = { start: rangeStart ?? null, end: rangeEnd ?? null };
+  const fitsContent = sizing === 'content';
   const surfaceStyle = useAnimatedThemeStyle({ backgroundColor: theme.colorLight });
   const textDarkStyle = useAnimatedThemeStyle({ color: theme.textDark });
   const dividerStyle = useAnimatedThemeStyle({ backgroundColor: theme.colorDark });
 
+  const monthGridView = (
+    <View
+      style={[
+        styles.monthGrid,
+        // Room for the longest month, so a surface sized to its content keeps one height.
+        fitsContent && { minHeight: GRID_PADDING_TOP + MAX_WEEK_ROWS * (daySize + DAY_ROW_GAP) },
+      ]}>
+      {monthGrid.map((cell) => {
+        const dayDate = cell.date;
+        const dateString = formatDateKey(dayDate);
+        const isSelectable = canSelectDate(dateString);
+        // An end of the range reads like the selected day; the days between them are tinted.
+        const isSelected = activeSelectedDate === dateString || isRangeEdge(dateString, range);
+        const isInRange = isBetweenRangeEdges(dateString, range);
+        const isToday = dateString === todayKey;
+        const isPendingConfirmation = isPendingDate(dateString, planByDate, today);
+        // A past day with nothing left to confirm reads like a day without a plan.
+        const isSettledPastDay = dayDate < today && !isPendingConfirmation;
+        const isPlanned = Boolean(planByDate[dateString]?.length) && !isSettledPastDay;
+
+        const textColor = isSelected
+          ? theme.textBlack
+          : isSelectable
+            ? theme.textBlack
+            : getColorWithOpacity('textBlack', 0.45);
+
+        return (
+          <DayCell
+            key={dateString}
+            dayDate={dayDate}
+            dateString={dateString}
+            isSelectable={isSelectable}
+            isSelected={isSelected}
+            isInRange={isInRange}
+            isToday={isToday}
+            isPlanned={isPlanned}
+            isPendingConfirmation={isPendingConfirmation}
+            daySize={daySize}
+            dayFontSize={dayFontSize}
+            textColor={textColor}
+            onSelect={handleSelectDate}
+          />
+        );
+      })}
+    </View>
+  );
+
   return (
-    <ShadowSurface style={styles.shadowSurface}>
-      <Animated.View style={[styles.surface, surfaceStyle]}>
+    <ShadowSurface style={[styles.shadowSurface, !fitsContent && styles.fill]}>
+      <Animated.View
+        style={[styles.surface, fitsContent ? styles.surfaceContent : styles.fill, surfaceStyle]}>
         <View style={styles.header}>
           <Pressable
             onPress={handlePrevMonth}
@@ -85,60 +154,34 @@ export function Calendar({
           ))}
         </View>
         <Animated.View style={[styles.divider, dividerStyle]} />
-        <ScrollView
-          style={{ flex: 1 }}
-          contentContainerStyle={{ paddingBottom: 8, flexGrow: 1 }}
-          showsVerticalScrollIndicator={false}
-          bounces={true}
-          alwaysBounceVertical={false}
-          nestedScrollEnabled>
-          <View style={styles.monthGrid}>
-            {monthGrid.map((cell) => {
-              const dayDate = cell.date;
-              const dateString = formatDateKey(dayDate);
-              const isSelectable = isSelectableDate(dateString, planByDate, today);
-              const isSelected = activeSelectedDate === dateString;
-              const isToday = dateString === todayKey;
-              const isPendingConfirmation = isPendingDate(dateString, planByDate, today);
-              // A past day with nothing left to confirm reads like a day without a plan.
-              const isSettledPastDay = dayDate < today && !isPendingConfirmation;
-              const isPlanned = Boolean(planByDate[dateString]?.length) && !isSettledPastDay;
-
-              const textColor = isSelected
-                ? theme.textBlack
-                : isSelectable
-                  ? theme.textBlack
-                  : getColorWithOpacity('textBlack', 0.45);
-
-              return (
-                <DayCell
-                  key={dateString}
-                  dayDate={dayDate}
-                  dateString={dateString}
-                  isSelectable={isSelectable}
-                  isSelected={isSelected}
-                  isToday={isToday}
-                  isPlanned={isPlanned}
-                  isPendingConfirmation={isPendingConfirmation}
-                  daySize={daySize}
-                  dayFontSize={dayFontSize}
-                  textColor={textColor}
-                  onSelect={handleSelectDate}
-                />
-              );
-            })}
-          </View>
-        </ScrollView>
+        {fitsContent ? (
+          monthGridView
+        ) : (
+          <ScrollView
+            style={{ flex: 1 }}
+            contentContainerStyle={{ paddingBottom: 8, flexGrow: 1 }}
+            showsVerticalScrollIndicator={false}
+            bounces={true}
+            alwaysBounceVertical={false}
+            nestedScrollEnabled>
+            {monthGridView}
+          </ScrollView>
+        )}
       </Animated.View>
     </ShadowSurface>
   );
 }
+
+const GRID_PADDING_TOP = 7;
 
 const styles = StyleSheet.create({
   divider: {
     height: 1,
     opacity: 0.3,
     width: '100%',
+  },
+  fill: {
+    flex: 1,
   },
   header: {
     alignItems: 'center',
@@ -152,7 +195,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     flexWrap: 'wrap',
     paddingHorizontal: 3.5,
-    paddingTop: 7,
+    paddingTop: GRID_PADDING_TOP,
     position: 'relative',
   },
   monthLabel: {
@@ -160,14 +203,18 @@ const styles = StyleSheet.create({
   },
   shadowSurface: {
     borderRadius: 24,
-    flex: 1,
     width: '100%',
   },
   surface: {
     borderRadius: 21,
-    flex: 1,
     overflow: 'hidden',
     width: '100%',
+  },
+  // Without a parent to fill, the surface keeps its own air around the month.
+  surfaceContent: {
+    paddingBottom: 6,
+    paddingHorizontal: 10,
+    paddingTop: 14,
   },
   weekdayLabel: {
     fontFamily: 'Inter_600SemiBold',

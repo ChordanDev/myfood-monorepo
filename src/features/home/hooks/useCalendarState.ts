@@ -7,13 +7,20 @@ import {
   getMonthGrid,
   parseDateKey,
 } from '../utils/calendarDate';
-import type { PlanByDate } from '../types/calendar';
+import type { CalendarMonthBounds, PlanByDate } from '../types/calendar';
 import { getAllowedMonthKeys, isSelectableMealDate } from '../domain/localMealPlan';
+
+// Rules a caller can replace. Without them the calendar follows the meal plan.
+type CalendarRules = {
+  isDateSelectable?: (dateString: string) => boolean;
+  monthBounds?: CalendarMonthBounds;
+};
 
 export function useCalendarState(
   planByDate: PlanByDate = {},
   selectedDate?: string | null,
-  onSelectDate?: (dateString: string) => void
+  onSelectDate?: (dateString: string) => void,
+  { isDateSelectable, monthBounds }: CalendarRules = {}
 ) {
   const [currentMonth, setCurrentMonth] = useState(() => {
     const now = new Date();
@@ -29,31 +36,56 @@ export function useCalendarState(
   const month = currentMonth.getMonth();
   const currentMonthKey = formatMonthKey(year, month);
 
+  // Open-ended bounds: every month from this one on. Otherwise the months are a closed list.
+  const firstMonthKey = monthBounds && 'from' in monthBounds ? monthBounds.from : null;
+  const listedMonthKeys = monthBounds && 'months' in monthBounds ? monthBounds.months : null;
+
   const allowedMonthKeys = useMemo(() => {
-    return getAllowedMonthKeys(planByDate);
-  }, [planByDate]);
+    return listedMonthKeys ?? getAllowedMonthKeys(planByDate);
+  }, [listedMonthKeys, planByDate]);
 
   const currentMonthIndex = allowedMonthKeys.indexOf(currentMonthKey);
   const hasAllowedMonths = allowedMonthKeys.length > 0;
-  const isPrevDisabled = hasAllowedMonths ? currentMonthIndex <= 0 : false;
-  const isNextDisabled = hasAllowedMonths
-    ? currentMonthIndex >= allowedMonthKeys.length - 1
-    : false;
+  const isPrevDisabled =
+    firstMonthKey !== null
+      ? currentMonthKey <= firstMonthKey
+      : hasAllowedMonths
+        ? currentMonthIndex <= 0
+        : false;
+  const isNextDisabled =
+    firstMonthKey !== null
+      ? false
+      : hasAllowedMonths
+        ? currentMonthIndex >= allowedMonthKeys.length - 1
+        : false;
+
+  // Where to move when the displayed month is outside the bounds: their first month.
+  const outOfBoundsMonthKey =
+    firstMonthKey !== null
+      ? currentMonthKey < firstMonthKey
+        ? firstMonthKey
+        : null
+      : hasAllowedMonths && currentMonthIndex === -1
+        ? allowedMonthKeys[0]
+        : null;
 
   useEffect(() => {
-    if (!hasAllowedMonths) {
-      return;
+    if (outOfBoundsMonthKey !== null) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- Aligns the displayed month with the available months.
+      setCurrentMonth(parseMonthKey(outOfBoundsMonthKey));
     }
-
-    if (currentMonthIndex === -1) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect -- Aligns the displayed month with the available meal-plan range.
-      setCurrentMonth(parseMonthKey(allowedMonthKeys[0]));
-    }
-  }, [allowedMonthKeys, currentMonthIndex, hasAllowedMonths]);
+  }, [outOfBoundsMonthKey]);
 
   const monthGrid = useMemo(() => getMonthGrid(year, month), [year, month]);
 
   const handlePrevMonth = () => {
+    if (firstMonthKey !== null) {
+      if (currentMonthKey > firstMonthKey) {
+        setCurrentMonth(new Date(year, month - 1, 1));
+      }
+      return;
+    }
+
     if (!hasAllowedMonths || currentMonthIndex <= 0) {
       return;
     }
@@ -61,6 +93,11 @@ export function useCalendarState(
   };
 
   const handleNextMonth = () => {
+    if (firstMonthKey !== null) {
+      setCurrentMonth(new Date(year, month + 1, 1));
+      return;
+    }
+
     if (
       !hasAllowedMonths ||
       currentMonthIndex === -1 ||
@@ -71,8 +108,14 @@ export function useCalendarState(
     setCurrentMonth(parseMonthKey(allowedMonthKeys[currentMonthIndex + 1]));
   };
 
+  const canSelectDate = (dateString: string) => {
+    return isDateSelectable
+      ? isDateSelectable(dateString)
+      : isSelectableMealDate(dateString, planByDate, today, parseDateKey);
+  };
+
   const handleSelectDate = (dateString: string) => {
-    if (!isSelectableMealDate(dateString, planByDate, today, parseDateKey)) {
+    if (!canSelectDate(dateString)) {
       return;
     }
 
@@ -80,10 +123,6 @@ export function useCalendarState(
     if (selectedDate === undefined) {
       setInternalSelectedDate(dateString);
     }
-  };
-
-  const canSelectDate = (dateString: string) => {
-    return isSelectableMealDate(dateString, planByDate, today, parseDateKey);
   };
 
   return {

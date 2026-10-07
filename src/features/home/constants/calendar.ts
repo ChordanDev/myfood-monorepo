@@ -6,6 +6,10 @@ export const CALENDAR_DEFAULTS = {
   dayFontSize: 14,
 };
 
+// Space under each row of days, and the most rows a month takes.
+export const DAY_ROW_GAP = 8;
+export const MAX_WEEK_ROWS = 6;
+
 export const MONTHS = [
   'Enero',
   'Febrero',

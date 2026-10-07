@@ -131,3 +131,62 @@ describe('DayCell', () => {
     );
   });
 });
+
+describe('DayCell inside a range', () => {
+  it('tints a day inside the range with the selection token at a lower opacity', () => {
+    const { root } = renderDayCell({ isPlanned: false, isInRange: true });
+
+    expect(getCircleStyle(root)).toEqual(
+      expect.objectContaining({
+        backgroundColor: 'rgba(255, 102, 0, 0.3)',
+        borderWidth: 0,
+      })
+    );
+  });
+
+  it('keeps the outline of a planned day inside the range', () => {
+    const { root } = renderDayCell({ isPlanned: true, isInRange: true });
+
+    expect(getCircleStyle(root)).toEqual(
+      expect.objectContaining({
+        backgroundColor: 'rgba(255, 102, 0, 0.3)',
+        borderColor: '#cccc88',
+        borderWidth: 1,
+      })
+    );
+  });
+
+  it('keeps the ring of today inside the range', () => {
+    const { root } = renderDayCell({ isToday: true, isInRange: true });
+
+    expect(getCircleStyle(root)).toEqual(
+      expect.objectContaining({
+        backgroundColor: 'rgba(255, 102, 0, 0.3)',
+        borderColor: '#333322',
+        borderWidth: 1,
+      })
+    );
+  });
+
+  it('draws an end of the range like any selected day', () => {
+    const { root } = renderDayCell({ isSelected: true, isInRange: true });
+
+    expect(getCircleStyle(root)).toEqual(
+      expect.objectContaining({
+        backgroundColor: 'rgba(255, 102, 0, 0.7)',
+        borderColor: '#ff6600',
+        borderWidth: 1,
+      })
+    );
+  });
+
+  it('can still be pressed inside the range', () => {
+    const { root, onSelect } = renderDayCell({ isInRange: true });
+
+    act(() => {
+      getButton(root).props.onPress();
+    });
+
+    expect(onSelect).toHaveBeenCalledWith('2026-08-06');
+  });
+});

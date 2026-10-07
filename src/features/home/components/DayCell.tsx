@@ -5,12 +5,18 @@ import * as Haptics from 'expo-haptics';
 import { useRecipeTheme } from '@/context/RecipeThemeContext';
 import { useAnimatedThemeStyle } from '@/hooks/useAnimatedThemeStyle';
 import { withOpacity } from '@/utils/colors';
+import { DAY_ROW_GAP } from '../constants/calendar';
+
+// Fill of a day between the two ends of a range: the selection token, lighter than an end.
+const IN_RANGE_FILL_OPACITY = 0.3;
 
 export interface DayCellProps {
   dayDate: Date;
   dateString: string;
   isSelectable: boolean;
   isSelected: boolean;
+  // Strictly between the two ends of a range. The ends themselves arrive as selected.
+  isInRange?: boolean;
   isToday: boolean;
   isPlanned: boolean;
   isPendingConfirmation: boolean;
@@ -26,6 +32,7 @@ export const DayCell = memo(
     dateString,
     isSelectable,
     isSelected,
+    isInRange = false,
     isToday,
     isPlanned,
     isPendingConfirmation,
@@ -62,6 +69,17 @@ export const DayCell = memo(
         };
       }
 
+      if (isInRange) {
+        // The fill says the day is inside the range; the outline keeps saying what it already was.
+        const outline = isToday ? theme.colorMedium : isPlanned ? theme.icon : null;
+
+        return {
+          bg: withOpacity(theme.primaryAccent, IN_RANGE_FILL_OPACITY),
+          border: outline ?? withOpacity(theme.primaryAccent, 0),
+          borderWidth: outline ? 1 : 0,
+        };
+      }
+
       if (isToday) {
         return {
           bg: withOpacity(theme.icon, targetOpacity),
@@ -79,8 +97,8 @@ export const DayCell = memo(
       }
 
       return { bg: 'transparent', border: 'transparent', borderWidth: 0 };
-    }, [isSelected, isToday, isPlanned, isPendingConfirmation, theme]);
-    const selectionStateKey = `${isSelected}-${isToday}-${isPlanned}-${isSelectable}-${isPendingConfirmation}`;
+    }, [isSelected, isInRange, isToday, isPlanned, isPendingConfirmation, theme]);
+    const selectionStateKey = `${isSelected}-${isInRange}-${isToday}-${isPlanned}-${isSelectable}-${isPendingConfirmation}`;
     const dayNumber = dayDate.getDate();
     const circleStyle = useAnimatedThemeStyle(
       {
@@ -95,7 +113,8 @@ export const DayCell = memo(
     );
 
     return (
-      <View style={{ width: '14.2857%', alignItems: 'center', marginBottom: 8, zIndex: 1 }}>
+      <View
+        style={{ width: '14.2857%', alignItems: 'center', marginBottom: DAY_ROW_GAP, zIndex: 1 }}>
         <Pressable
           onPress={() => {
             if (!isSelected) {
