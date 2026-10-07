@@ -12,7 +12,15 @@ import {
   isTransientAuthError,
 } from '@/api/errors';
 import { getMe } from '../api/authApi';
-import type { AuthSession } from '../types/auth';
+import type { AuthSession, CurrentMe } from '../types/auth';
+import { withPreservedProfileFields } from '../utils/currentMe';
+
+// Every fresh /me goes through here: the local completion flag and the
+// profile fields the server does not serve yet both come from the stored
+// snapshot.
+function withLocalState(me: CurrentMe, stored: CurrentMe | null, completedUserId: string | null) {
+  return withPreservedProfileFields(withLocalOnboardingCompletion(me, completedUserId), stored);
+}
 
 export async function restoreSessionWithFreshMe(): Promise<AuthSession | null> {
   const storedSession = await getStoredSession();
@@ -24,7 +32,7 @@ export async function restoreSessionWithFreshMe(): Promise<AuthSession | null> {
     const latestSession = (await getStoredSession()) ?? storedSession;
     const freshSession = {
       ...latestSession,
-      me: withLocalOnboardingCompletion(me, completedUserId),
+      me: withLocalState(me, latestSession.me, completedUserId),
     };
     await persistSession(freshSession);
     return freshSession;
@@ -44,7 +52,7 @@ export async function restoreSessionWithFreshMe(): Promise<AuthSession | null> {
     const completedUserId = await getCompletedOnboardingUserId();
     const refreshedSession: AuthSession = {
       ...tokens,
-      me: withLocalOnboardingCompletion(me, completedUserId),
+      me: withLocalState(me, storedSession.me, completedUserId),
     };
     await persistSession(refreshedSession);
     return refreshedSession;
@@ -71,7 +79,7 @@ export async function refreshCurrentSession(): Promise<AuthSession | null> {
   const completedUserId = await getCompletedOnboardingUserId();
   const session: AuthSession = {
     ...tokens,
-    me: withLocalOnboardingCompletion(me, completedUserId),
+    me: withLocalState(me, storedSession.me, completedUserId),
   };
   await persistSession(session);
   return session;

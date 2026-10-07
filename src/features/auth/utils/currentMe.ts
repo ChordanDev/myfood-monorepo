@@ -23,6 +23,24 @@ export function normalizeCurrentMe(me: CurrentMe): CurrentMe {
   return { ...me, user: normalizeProfileFields(me.user) };
 }
 
+// GET /api/me does not send householdSize or cookingSkill yet, so a fresh
+// snapshot would erase the values a completed onboarding or a profile
+// edit already put in `me`. Only fields the fresh snapshot lacks are
+// filled, and only for the same user: a value the server does send wins.
+export function withPreservedProfileFields(
+  fresh: CurrentMe,
+  previous: CurrentMe | null
+): CurrentMe {
+  if (!previous || previous.user.id !== fresh.user.id) return fresh;
+
+  const householdSize = fresh.user.householdSize ?? previous.user.householdSize;
+  const cookingSkill = fresh.user.cookingSkill ?? previous.user.cookingSkill;
+  if (householdSize === fresh.user.householdSize && cookingSkill === fresh.user.cookingSkill) {
+    return fresh;
+  }
+  return { ...fresh, user: { ...fresh.user, householdSize, cookingSkill } };
+}
+
 // Copies only the editable profile fields from a profile-update response,
 // leaving the account, membership and onboarding snapshot untouched.
 export function withUpdatedProfile(me: CurrentMe, user: ProfileUpdateUser): CurrentMe {

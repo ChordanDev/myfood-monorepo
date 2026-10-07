@@ -300,6 +300,47 @@ describe('AuthContext — optimisticComplete is a one-way latch (Judgment Day C2
     });
   });
 
+  it('keeps the profile fields from the completion response when the follow-up /me omits them', async () => {
+    // GET /api/me does not send householdSize or cookingSkill yet, so the
+    // refresh that follows a completed onboarding used to overwrite the
+    // values the POST had just confirmed. The completion response is the
+    // source of truth for those fields until the server serves them.
+    const handle = setupStaleHydration(makeMe());
+    await waitForSinkAuth(handle.sink, (a) => a.accessToken !== null);
+
+    const completedUser: CurrentMe['user'] = {
+      id: 'user-1',
+      email: 'user@example.com',
+      displayName: 'Lucca',
+      householdSize: 3,
+      cookingSkill: 'advanced',
+    };
+    stubSuccessfulCompleteOnboarding(completedUser);
+    const meWithoutProfile = makeMe({
+      user: { ...completedUser, householdSize: null, cookingSkill: null },
+      onboarding: { isComplete: true },
+    });
+    mockAuthService.refreshCurrentSession.mockResolvedValue(makeSession(meWithoutProfile));
+    mockAuthService.persistProfileForStoredSession.mockResolvedValue(null);
+
+    await act(async () => {
+      await handle.sink.v!.completeOnboarding(onboardingPayload);
+    });
+    await waitForSinkAuth(handle.sink, (a) => a.me?.user.householdSize === 3);
+
+    expect(handle.sink.v!.me?.user).toEqual(completedUser);
+    expect(handle.sink.v!.isComplete).toBe(true);
+    // Stored first, so the stored snapshot the refresh reads already has them.
+    expect(mockAuthService.persistProfileForStoredSession).toHaveBeenCalledWith(completedUser);
+    expect(mockAuthService.persistProfileForStoredSession.mock.invocationCallOrder[0]).toBeLessThan(
+      mockAuthService.refreshCurrentSession.mock.invocationCallOrder[0]
+    );
+
+    await act(async () => {
+      handle.tree.unmount();
+    });
+  });
+
   it('the optimistic flag clears only when a fresh /me returns me.onboarding.isComplete=true', async () => {
     // Once the server catches up and reports isComplete=true, the
     // optimistic flag is redundant — the server is now the source
