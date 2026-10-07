@@ -7,6 +7,7 @@ import { CHAT_COMPOSER_MIN_HEIGHT, ChatComposer } from '@/features/assistant-cha
 import {
   RecipeBottomFade,
   RecipeChatSection,
+  RecipeCookedConfirmSheet,
   RecipeHeader,
   RecipeIngredientsCard,
   RecipeNotFound,
@@ -38,9 +39,12 @@ export function RecipeScreen() {
     isFavorite,
     canMarkAsCooked,
     isChatEnabled,
+    isCookedConfirmVisible,
     handleBack,
     handleToggleFavorite,
-    handleMarkAsCooked,
+    handleRequestMarkAsCooked,
+    handleConfirmCooked,
+    handleCancelCooked,
     handleRequestIngredient,
     handleAddOffer,
   } = useRecipeScreen();
@@ -127,7 +131,13 @@ export function RecipeScreen() {
         canMarkAsCooked={canMarkAsCooked}
         onBack={handleBack}
         onToggleFavorite={handleToggleFavorite}
-        onMarkAsCooked={handleMarkAsCooked}
+        onMarkAsCooked={handleRequestMarkAsCooked}
+      />
+
+      <RecipeCookedConfirmSheet
+        visible={isCookedConfirmVisible}
+        onConfirm={handleConfirmCooked}
+        onCancel={handleCancelCooked}
       />
     </View>
   );

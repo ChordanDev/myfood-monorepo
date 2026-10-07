@@ -1,5 +1,5 @@
 import React from 'react';
-import { ScrollView, StyleSheet, Text } from 'react-native';
+import { Keyboard, Modal, ScrollView, StyleSheet, Text } from 'react-native';
 import { act, create, type ReactTestRenderer } from 'react-test-renderer';
 import { formatDateKey } from '@/features/home/utils/calendarDate';
 import { CHAT_COMPOSER_MIN_HEIGHT } from '@/features/assistant-chat';
@@ -78,6 +78,7 @@ jest.mock('@/context/RecipeThemeContext', () => ({
       colorLight: '#eeeeee',
       icon: '#cccccc',
       primaryAccent: '#ff6600',
+      primaryAccentIntense: '#ff3300',
       textBlack: '#111112',
       textDark: '#111113',
       textLight: '#fafafa',
@@ -248,13 +249,121 @@ describe('RecipeScreen', () => {
     expect(useShoppingRequestsStore.getState().requests[0]).toMatchObject({ amount: 150 });
   });
 
-  it('marks the planned meal as cooked and goes back', () => {
-    const tree = renderScreen();
+  describe('marking the meal as cooked', () => {
+    function isConfirmSheetOpen(tree: ReactTestRenderer) {
+      return tree.root.findAllByProps({ testID: 'recipe-cooked-confirm-sheet' }).length > 0;
+    }
 
-    press(tree, 'recipe-header-cooked');
+    it('asks for confirmation instead of marking the meal right away', () => {
+      const tree = renderScreen();
 
-    expect(useMealPlanStore.getState().entries[0].isCooked).toBe(true);
-    expect(mockBack).toHaveBeenCalledTimes(1);
+      expect(isConfirmSheetOpen(tree)).toBe(false);
+
+      press(tree, 'recipe-header-cooked');
+
+      expect(isConfirmSheetOpen(tree)).toBe(true);
+      expect(renderedTexts(tree)).toEqual(
+        expect.arrayContaining(['¿Cocinaste la receta?', 'Sí', 'No'])
+      );
+      expect(useMealPlanStore.getState().entries[0].isCooked).toBe(false);
+      expect(mockBack).not.toHaveBeenCalled();
+    });
+
+    it('marks the planned meal as cooked and goes back once the user answers "Sí"', () => {
+      const tree = renderScreen();
+
+      press(tree, 'recipe-header-cooked');
+      press(tree, 'recipe-cooked-confirm-yes');
+
+      expect(useMealPlanStore.getState().entries[0].isCooked).toBe(true);
+      expect(mockBack).toHaveBeenCalledTimes(1);
+      expect(isConfirmSheetOpen(tree)).toBe(false);
+    });
+
+    it('marks the meal and goes back a single time when "Sí" is tapped twice', () => {
+      const tree = renderScreen();
+
+      press(tree, 'recipe-header-cooked');
+      // Both taps land before the screen re-renders, so they reach the same handler.
+      const { onPress } = findButton(tree, 'recipe-cooked-confirm-yes').props;
+      act(() => {
+        onPress();
+        onPress();
+      });
+
+      expect(useMealPlanStore.getState().entries[0].isCooked).toBe(true);
+      expect(mockBack).toHaveBeenCalledTimes(1);
+    });
+
+    it('leaves the meal uncooked and the screen in place when the user answers "No"', () => {
+      const tree = renderScreen();
+
+      press(tree, 'recipe-header-cooked');
+      press(tree, 'recipe-cooked-confirm-no');
+
+      expect(isConfirmSheetOpen(tree)).toBe(false);
+      expect(useMealPlanStore.getState().entries[0].isCooked).toBe(false);
+      expect(mockBack).not.toHaveBeenCalled();
+      expect(findButton(tree, 'recipe-header-cooked').props.disabled).toBe(false);
+    });
+
+    it('asks again after a "No", and the next "Sí" still marks the meal', () => {
+      const tree = renderScreen();
+
+      press(tree, 'recipe-header-cooked');
+      press(tree, 'recipe-cooked-confirm-no');
+      press(tree, 'recipe-header-cooked');
+      press(tree, 'recipe-cooked-confirm-yes');
+
+      expect(useMealPlanStore.getState().entries[0].isCooked).toBe(true);
+      expect(mockBack).toHaveBeenCalledTimes(1);
+    });
+
+    it('closes without marking the meal from the backdrop and from the Android back button', () => {
+      const tree = renderScreen();
+
+      press(tree, 'recipe-header-cooked');
+      act(() => {
+        tree.root
+          .findByProps({ accessibilityLabel: 'Cerrar', accessibilityRole: 'button' })
+          .props.onPress();
+      });
+
+      expect(isConfirmSheetOpen(tree)).toBe(false);
+
+      press(tree, 'recipe-header-cooked');
+      act(() => {
+        tree.root.findByType(Modal).props.onRequestClose();
+      });
+
+      expect(isConfirmSheetOpen(tree)).toBe(false);
+      expect(useMealPlanStore.getState().entries[0].isCooked).toBe(false);
+      expect(mockBack).not.toHaveBeenCalled();
+    });
+
+    it('does not ask when the meal cannot be marked, even if the disabled check is pressed', () => {
+      useMealPlanStore.setState({ entries: [entry({ isCooked: true })] });
+      const tree = renderScreen();
+
+      expect(findButton(tree, 'recipe-header-cooked').props.disabled).toBe(true);
+
+      press(tree, 'recipe-header-cooked');
+
+      expect(isConfirmSheetOpen(tree)).toBe(false);
+      expect(mockBack).not.toHaveBeenCalled();
+    });
+
+    it('dismisses the keyboard before asking, so the sheet is not opened over it', () => {
+      const dismiss = jest.spyOn(Keyboard, 'dismiss').mockImplementation(() => {});
+      const tree = renderScreen();
+
+      press(tree, 'recipe-header-cooked');
+
+      expect(dismiss).toHaveBeenCalledTimes(1);
+      expect(isConfirmSheetOpen(tree)).toBe(true);
+
+      dismiss.mockRestore();
+    });
   });
 
   it('stands for the planned meal of the route when the recipe is planned on several days', () => {

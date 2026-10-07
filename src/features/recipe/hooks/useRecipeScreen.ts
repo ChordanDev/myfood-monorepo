@@ -1,4 +1,5 @@
-import { useCallback, useMemo } from 'react';
+import { useCallback, useMemo, useRef, useState } from 'react';
+import { Keyboard } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { formatDateKey } from '@/features/home/utils/calendarDate';
 import { useInventoryStore, useMealPlanStore } from '@/store';
@@ -36,6 +37,9 @@ export function useRecipeScreen() {
   const inventory = useInventoryStore((state) => state.items);
   const catalog = useInventoryStore((state) => state.ingredients);
   const requests = useShoppingRequestsStore((state) => state.requests);
+  const [isCookedConfirmVisible, setIsCookedConfirmVisible] = useState(false);
+  // The answer is taken once: a second tap on "Sí" lands before the sheet has closed.
+  const isAwaitingCookedAnswerRef = useRef(false);
 
   const todayKey = formatDateKey(new Date());
   const entry = useMemo(
@@ -60,7 +64,26 @@ export function useRecipeScreen() {
     toggleFavoriteRecipe(recipeId);
   }, [recipeId, toggleFavoriteRecipe]);
 
-  const handleMarkAsCooked = useCallback(() => {
+  // Marking a meal as cooked consumes its ingredients, so the check only asks; the sheet decides.
+  const handleRequestMarkAsCooked = useCallback(() => {
+    if (!canMarkAsCooked(entry)) return;
+
+    // The chat keyboard would otherwise stay up under the sheet.
+    Keyboard.dismiss();
+    isAwaitingCookedAnswerRef.current = true;
+    setIsCookedConfirmVisible(true);
+  }, [entry]);
+
+  const handleCancelCooked = useCallback(() => {
+    isAwaitingCookedAnswerRef.current = false;
+    setIsCookedConfirmVisible(false);
+  }, []);
+
+  const handleConfirmCooked = useCallback(() => {
+    if (!isAwaitingCookedAnswerRef.current) return;
+
+    isAwaitingCookedAnswerRef.current = false;
+    setIsCookedConfirmVisible(false);
     if (!entry || !canMarkAsCooked(entry)) return;
 
     markAsCooked(entry.id);
@@ -88,9 +111,12 @@ export function useRecipeScreen() {
     isFavorite: favoriteRecipeIds.includes(recipeId),
     canMarkAsCooked: canMarkAsCooked(entry),
     isChatEnabled: isRecipeChatEnabled(entry, todayKey),
+    isCookedConfirmVisible,
     handleBack,
     handleToggleFavorite,
-    handleMarkAsCooked,
+    handleRequestMarkAsCooked,
+    handleConfirmCooked,
+    handleCancelCooked,
     handleRequestIngredient,
     handleAddOffer,
   };
