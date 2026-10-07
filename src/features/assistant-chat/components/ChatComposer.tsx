@@ -42,6 +42,11 @@ interface ChatComposerProps {
   isThinking: boolean;
   onChangeText: (value: string) => void;
   onHeightChange?: (height: number) => void;
+  /**
+   * How far the keyboard lifts the composer above its resting position; zero at rest. It is the
+   * target of the lift, reported when the lift starts, so the owner can make room in step.
+   */
+  onKeyboardLiftChange?: (lift: number) => void;
   onSubmit: () => void;
   /** Hint shown while the input is empty. Defaults to a generic one. */
   placeholder?: string;
@@ -80,6 +85,7 @@ export function ChatComposer({
   isThinking,
   onChangeText,
   onHeightChange,
+  onKeyboardLiftChange,
   onSubmit,
   placeholder = CHAT_COMPOSER_PLACEHOLDER,
   disabled = false,
@@ -90,7 +96,7 @@ export function ChatComposer({
   const { theme } = useRecipeTheme();
   const { fontScale } = useWindowDimensions();
   const restingBottomOffset = insets.bottom + restingBottomGap;
-  const { inputAnimatedStyle } = useKeyboardAnimation({
+  const { inputAnimatedStyle, keyboardLift } = useKeyboardAnimation({
     mode: 'geometry',
     restingBottomOffset,
     clearance: CHAT_COMPOSER_CLEARANCE,
@@ -127,6 +133,10 @@ export function ChatComposer({
   const inlineRightInset = inputRightInset + CHAT_COMPOSER_INLINE_TEXT_GAP;
   const inlineVerticalPadding =
     CHAT_COMPOSER_VERTICAL_INSET + Math.max(0, (CHAT_COMPOSER_CONTROL_ROW_HEIGHT - lineHeight) / 2);
+
+  useEffect(() => {
+    onKeyboardLiftChange?.(keyboardLift);
+  }, [keyboardLift, onKeyboardLiftChange]);
 
   useEffect(() => {
     sendVisibility.value = reduceMotion

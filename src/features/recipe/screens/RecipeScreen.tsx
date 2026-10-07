@@ -49,11 +49,14 @@ export function RecipeScreen() {
     isEnabled: isChatEnabled,
     onAddOffer: handleAddOffer,
   });
+  const [composerHeight, setComposerHeight] = useState(CHAT_COMPOSER_MIN_HEIGHT);
+  // How far the keyboard lifts the composer, as the composer itself computes it; zero at rest.
+  const [keyboardLift, setKeyboardLift] = useState(0);
   const { scrollViewRef, handleContentSizeChange } = useScrollToEndOnAppend(
     chat.messages.length,
-    chat.isThinking
+    chat.isThinking,
+    keyboardLift
   );
-  const [composerHeight, setComposerHeight] = useState(CHAT_COMPOSER_MIN_HEIGHT);
 
   useActivateRecipePalette(recipe?.theme);
 
@@ -76,7 +79,12 @@ export function RecipeScreen() {
           styles.scroll,
           { marginTop: headerTop + RECIPE_HEADER_HEIGHT + RECIPE_HEADER_CLIP_GAP },
         ]}
-        contentContainerStyle={[styles.content, { paddingBottom: bottomOverlayHeight }]}
+        // The composer and its fade rise by the keyboard lift, and so does the room under the
+        // conversation: its last line always rests just above the fade.
+        contentContainerStyle={[
+          styles.content,
+          { paddingBottom: bottomOverlayHeight + keyboardLift },
+        ]}
         // The paddings already include the safe area; iOS must not add it a second time.
         contentInsetAdjustmentBehavior="never"
         keyboardShouldPersistTaps="handled"
@@ -99,6 +107,7 @@ export function RecipeScreen() {
         isThinking={chat.isThinking}
         onChangeText={chat.setInput}
         onHeightChange={setComposerHeight}
+        onKeyboardLiftChange={setKeyboardLift}
         onSubmit={chat.sendMessage}
         placeholder={isChatEnabled ? RECIPE_CHAT_PLACEHOLDER : RECIPE_CHAT_DISABLED_PLACEHOLDER}
         disabled={!isChatEnabled}

@@ -1392,3 +1392,60 @@ describe('ChatComposer screen-specific props', () => {
     expect(getInput(tree).props.accessibilityLabel).toBe('El chat se habilita el día de la receta');
   });
 });
+
+describe('ChatComposer keyboard lift reporting', () => {
+  const defaultKeyboardAnimation = jest.mocked(useKeyboardAnimation).getMockImplementation()!;
+
+  function mockKeyboardLift(keyboardLift: number) {
+    jest.mocked(useKeyboardAnimation).mockImplementation(() => ({
+      ...defaultKeyboardAnimation({ mode: 'geometry', restingBottomOffset: 0 }),
+      keyboardLift,
+    }));
+  }
+
+  afterEach(() => {
+    jest.mocked(useKeyboardAnimation).mockImplementation(defaultKeyboardAnimation);
+  });
+
+  it('tells its owner how far the keyboard lifts it, and when it comes back to rest', () => {
+    const onKeyboardLiftChange = jest.fn();
+
+    mockKeyboardLift(0);
+    const { update } = renderComposer({ onKeyboardLiftChange });
+
+    expect(onKeyboardLiftChange).toHaveBeenLastCalledWith(0);
+
+    mockKeyboardLift(291);
+    update({});
+
+    expect(onKeyboardLiftChange).toHaveBeenLastCalledWith(291);
+
+    mockKeyboardLift(0);
+    update({});
+
+    expect(onKeyboardLiftChange).toHaveBeenLastCalledWith(0);
+  });
+
+  it('reports each lift once, however often the composer renders', () => {
+    const onKeyboardLiftChange = jest.fn();
+
+    mockKeyboardLift(291);
+    const { update } = renderComposer({ onKeyboardLiftChange });
+
+    update({ value: 'Hola' });
+    update({ isThinking: true });
+
+    expect(onKeyboardLiftChange).toHaveBeenCalledTimes(1);
+    expect(onKeyboardLiftChange).toHaveBeenCalledWith(291);
+  });
+
+  it('lifts over the keyboard without a lift listener', () => {
+    mockKeyboardLift(291);
+    const { tree } = renderComposer();
+
+    expect(
+      StyleSheet.flatten(tree.root.findByProps({ testID: 'planner-composer-wrapper' }).props.style)
+        .transform
+    ).toEqual([{ translateY: -120 }]);
+  });
+});

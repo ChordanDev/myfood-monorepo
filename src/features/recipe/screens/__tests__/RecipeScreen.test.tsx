@@ -433,5 +433,107 @@ describe('RecipeScreen', () => {
 
       expect(getBottomPadding()).toBe(restingPadding + 48);
     });
+
+    describe('with the keyboard open', () => {
+      // How far the composer reports the keyboard lifts it above its resting position.
+      const KEYBOARD_LIFT = 291;
+
+      function reportKeyboardLift(tree: ReactTestRenderer, lift: number) {
+        act(() => {
+          getComposer(tree).props.onKeyboardLiftChange(lift);
+        });
+      }
+
+      it('makes room for the lifted composer under the conversation and gives it back at rest', () => {
+        const tree = renderScreen();
+        const getBottomPadding = () =>
+          StyleSheet.flatten(getScrollView(tree).props.contentContainerStyle).paddingBottom;
+        const restingPadding = getBottomPadding();
+
+        reportKeyboardLift(tree, KEYBOARD_LIFT);
+
+        expect(getBottomPadding()).toBe(restingPadding + KEYBOARD_LIFT);
+
+        act(() => {
+          getComposer(tree).props.onHeightChange(CHAT_COMPOSER_MIN_HEIGHT + 24);
+        });
+
+        expect(getBottomPadding()).toBe(restingPadding + KEYBOARD_LIFT + 24);
+
+        reportKeyboardLift(tree, 0);
+
+        expect(getBottomPadding()).toBe(restingPadding + 24);
+      });
+
+      it('scrolls to the end once the room for the keyboard has been laid out', () => {
+        const tree = renderScreen();
+
+        reportKeyboardLift(tree, KEYBOARD_LIFT);
+
+        // Scrolling before the taller content is measured would stop short of its new end.
+        expect(mockScrollToEnd).not.toHaveBeenCalled();
+
+        act(() => {
+          getScrollView(tree).props.onContentSizeChange(390, 600 + KEYBOARD_LIFT);
+        });
+
+        expect(mockScrollToEnd).toHaveBeenCalledTimes(1);
+        expect(mockScrollToEnd).toHaveBeenCalledWith({ animated: true });
+      });
+
+      it('keeps following the conversation while the keyboard stays open', () => {
+        const tree = renderScreen();
+
+        reportKeyboardLift(tree, KEYBOARD_LIFT);
+        act(() => {
+          getScrollView(tree).props.onContentSizeChange(390, 600 + KEYBOARD_LIFT);
+        });
+        ask(tree, QUESTION);
+        act(() => {
+          getScrollView(tree).props.onContentSizeChange(390, 700 + KEYBOARD_LIFT);
+        });
+
+        expect(mockScrollToEnd).toHaveBeenCalledTimes(2);
+
+        waitForReply();
+        act(() => {
+          getScrollView(tree).props.onContentSizeChange(390, 900 + KEYBOARD_LIFT);
+        });
+
+        expect(mockScrollToEnd).toHaveBeenCalledTimes(3);
+      });
+
+      it('follows a keyboard that grows taller while it is open', () => {
+        const tree = renderScreen();
+
+        reportKeyboardLift(tree, KEYBOARD_LIFT);
+        act(() => {
+          getScrollView(tree).props.onContentSizeChange(390, 600 + KEYBOARD_LIFT);
+        });
+        reportKeyboardLift(tree, KEYBOARD_LIFT + 40);
+        act(() => {
+          getScrollView(tree).props.onContentSizeChange(390, 640 + KEYBOARD_LIFT);
+        });
+
+        expect(mockScrollToEnd).toHaveBeenCalledTimes(2);
+      });
+
+      it('leaves the scroll position alone when the keyboard closes', () => {
+        const tree = renderScreen();
+
+        reportKeyboardLift(tree, KEYBOARD_LIFT);
+        act(() => {
+          getScrollView(tree).props.onContentSizeChange(390, 600 + KEYBOARD_LIFT);
+        });
+        mockScrollToEnd.mockClear();
+
+        reportKeyboardLift(tree, 0);
+        act(() => {
+          getScrollView(tree).props.onContentSizeChange(390, 600);
+        });
+
+        expect(mockScrollToEnd).not.toHaveBeenCalled();
+      });
+    });
   });
 });
