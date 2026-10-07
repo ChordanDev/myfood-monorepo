@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { type ReactNode, useCallback, useEffect, useRef, useState } from 'react';
 import {
   LayoutChangeEvent,
   Platform,
@@ -59,6 +59,12 @@ interface ChatComposerProps {
   restingBottomGap?: number;
   /** Prefix of every testID, so each screen can tell its composer apart. */
   testIDPrefix?: string;
+  /**
+   * Drawn behind the composer, inside the container the keyboard lifts, so both move as one view
+   * and can never drift apart. The container is anchored to the bottom edge of the screen and
+   * spans its width; the backdrop positions itself against it and may overflow it.
+   */
+  backdrop?: ReactNode;
 }
 
 const CHAT_COMPOSER_PLACEHOLDER = 'Decile a la IA lo que te gustaria';
@@ -91,6 +97,7 @@ export function ChatComposer({
   disabled = false,
   restingBottomGap = CHAT_COMPOSER_CLEARANCE,
   testIDPrefix = CHAT_COMPOSER_TEST_ID_PREFIX,
+  backdrop,
 }: ChatComposerProps) {
   const insets = useSafeAreaInsets();
   const { theme } = useRecipeTheme();
@@ -263,6 +270,7 @@ export function ChatComposer({
     <Animated.View
       testID={`${testIDPrefix}-wrapper`}
       style={[styles.wrapper, { paddingBottom: restingBottomOffset }, inputAnimatedStyle]}>
+      {backdrop}
       <Animated.View
         testID={`${testIDPrefix}-frame`}
         style={[

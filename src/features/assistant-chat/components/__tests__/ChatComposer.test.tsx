@@ -1449,3 +1449,34 @@ describe('ChatComposer keyboard lift reporting', () => {
     ).toEqual([{ translateY: -120 }]);
   });
 });
+
+describe('ChatComposer backdrop', () => {
+  function hostTestIDs(tree: ReturnType<typeof create>): string[] {
+    return tree.root
+      .findAll((node) => typeof node.type === 'string' && typeof node.props.testID === 'string')
+      .map((node) => node.props.testID);
+  }
+
+  it('carries its backdrop behind the frame, inside the container the keyboard lifts', () => {
+    const { tree } = renderComposer({ backdrop: <View testID="screen-scrim" /> });
+    const wrapper = tree.root.findByProps({ testID: 'planner-composer-wrapper' });
+
+    // Document order is paint order: the backdrop comes first, so the frame is drawn over it.
+    expect(hostTestIDs(tree).slice(0, 3)).toEqual([
+      'planner-composer-wrapper',
+      'screen-scrim',
+      'planner-composer-frame',
+    ]);
+    expect(wrapper.findAllByProps({ testID: 'screen-scrim' }).length).toBeGreaterThan(0);
+    expect(StyleSheet.flatten(wrapper.props.style).transform).toEqual([{ translateY: -120 }]);
+  });
+
+  it('holds nothing but the frame when it is given no backdrop', () => {
+    const { tree } = renderComposer();
+
+    expect(hostTestIDs(tree).slice(0, 2)).toEqual([
+      'planner-composer-wrapper',
+      'planner-composer-frame',
+    ]);
+  });
+});

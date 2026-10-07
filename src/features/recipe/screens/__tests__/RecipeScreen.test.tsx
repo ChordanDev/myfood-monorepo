@@ -5,6 +5,7 @@ import { formatDateKey } from '@/features/home/utils/calendarDate';
 import { CHAT_COMPOSER_MIN_HEIGHT } from '@/features/assistant-chat';
 import { useInventoryStore, useMealPlanStore } from '@/store';
 import type { MasterRecipe, MealPlanEntry, RecipeThemeConfig } from '@/types/domain';
+import { RecipeBottomFade } from '../../components/RecipeBottomFade';
 import { RECIPE_CHAT_REPLY_DELAY_MS } from '../../hooks/useRecipeChat';
 import { useShoppingRequestsStore } from '../../store/useShoppingRequestsStore';
 import { RecipeScreen } from '../RecipeScreen';
@@ -536,6 +537,29 @@ describe('RecipeScreen', () => {
         });
 
         expect(mockScrollToEnd).toHaveBeenCalledTimes(2);
+      });
+
+      it('hands the bottom fade to the composer, so the keyboard lifts both as one', () => {
+        const tree = renderScreen();
+        const getBackdrop = () => getComposer(tree).props.backdrop;
+        // Bottom inset, gap under the composer, the composer itself and the reach of the fade.
+        const restingHeight = 34 + 14 + CHAT_COMPOSER_MIN_HEIGHT + 30;
+
+        expect(getBackdrop().type).toBe(RecipeBottomFade);
+        expect(getBackdrop().props.height).toBe(restingHeight);
+        // No second fade left behind at the bottom of the screen, under the keyboard.
+        expect(tree.root.findAllByType(RecipeBottomFade)).toHaveLength(0);
+
+        reportKeyboardLift(tree, KEYBOARD_LIFT);
+
+        // The fade travels with the composer; it does not stretch down to the keyboard.
+        expect(getBackdrop().props.height).toBe(restingHeight);
+
+        act(() => {
+          getComposer(tree).props.onHeightChange(CHAT_COMPOSER_MIN_HEIGHT + 24);
+        });
+
+        expect(getBackdrop().props.height).toBe(restingHeight + 24);
       });
 
       it('leaves the scroll position alone when the keyboard closes', () => {

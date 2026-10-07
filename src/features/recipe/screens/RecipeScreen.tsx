@@ -104,9 +104,8 @@ export function RecipeScreen() {
         </ScrollView>
       </TopFadeMask>
 
-      <RecipeBottomFade height={bottomOverlayHeight} />
-
-      {/* The composer lifts itself over the keyboard, as it does on the planner. */}
+      {/* The composer lifts itself over the keyboard, as it does on the planner. The fade is its
+          backdrop, so it rises in the same view and the composer never leaves the ground color. */}
       <ChatComposer
         value={chat.input}
         isThinking={chat.isThinking}
@@ -118,6 +117,7 @@ export function RecipeScreen() {
         disabled={!isChatEnabled}
         restingBottomGap={RECIPE_COMPOSER_BOTTOM_GAP}
         testIDPrefix="recipe-composer"
+        backdrop={<RecipeBottomFade height={bottomOverlayHeight} />}
       />
 
       <RecipeHeader
