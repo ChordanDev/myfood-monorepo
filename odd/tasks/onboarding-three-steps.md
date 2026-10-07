@@ -270,8 +270,12 @@ commit that follows it.
 
 ## Next step
 
-Visual pass on a device, then decide the chain strategy and open the pull
-request. No task is left open. Open questions for the user: whether the
-wizard should prefill household size and skill from the stored profile, which
-Develop now exposes, and whether its sign-out label and inline error should
-use the new `alert` token as settings does.
+None: delivered. The user confirmed the merge into `Develop` on 2026-10-07,
+without pull requests, so the chain strategy no longer applies. Step 1 was
+seen on the iPhone 17 Pro simulator through `/onboarding-preview`; steps 2
+and 3 and the default palette in the real flow were not checked visually.
+
+Left open, outside the issue's acceptance criteria: prefilling household size
+and skill from the stored profile, using the `alert` token for the sign-out
+label and inline error as settings does, and the UI duplicated between
+`settings` and `onboarding` (stepper, chips, fields, slot editor).
