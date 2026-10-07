@@ -12,10 +12,10 @@ const PILL_RADIUS = 9999;
 
 export interface ShoppingDatePillProps {
   label: string;
-  // Day the list reaches: the one the calendar shows as selected.
+  // Day the list reaches: the end of the stretch the calendar draws.
   untilDate: string;
-  // The days that can be picked, their marks and their months. Without one there is no day
-  // to pick, and the pill only shows the date.
+  // The days that can be picked, their marks and their months, and the first day the list
+  // buys for. Without one there is no day to pick, and the pill only shows the date.
   calendar: ShoppingUntilCalendar | undefined;
   onSelectDate: (dateKey: string) => void;
 }
@@ -67,7 +67,10 @@ function PickerPill({ label, untilDate, calendar, onSelectDate }: PickerPillProp
         planByDate={calendar.planByDate}
         isDateSelectable={calendar.isDateSelectable}
         monthBounds={calendar.monthBounds}
-        selectedDate={untilDate}
+        // The stretch the list buys for. Its first day is fixed and every tap picks its last
+        // one, so the range is only drawn: both ends as selected, the days between tinted.
+        rangeStart={calendar.rangeStart}
+        rangeEnd={untilDate}
         onSelectDate={handleSelectDate}
       />
     </>

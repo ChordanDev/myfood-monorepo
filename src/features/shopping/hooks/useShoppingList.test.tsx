@@ -731,10 +731,24 @@ describe('useShoppingList, choosing the last day to buy for', () => {
       expect(planByDate).toEqual({ '2026-10-06': [PLAN[0]], '2026-10-12': [PLAN[1]] });
     });
 
+    it('starts the stretch to draw on the first planned day from today on', () => {
+      renderShoppingList();
+
+      expect(shoppingList.untilCalendar?.rangeStart).toBe('2026-10-06');
+
+      setUntilDate('2026-10-06');
+
+      // The first day is fixed: picking a last day never moves it.
+      expect(shoppingList.untilCalendar?.rangeStart).toBe('2026-10-06');
+      expect(shoppingList.untilDate).toBe('2026-10-06');
+    });
+
     it('does not offer a planned day that has passed', () => {
       mockTodayKey = '2026-10-07';
 
       renderShoppingList();
+
+      expect(shoppingList.untilCalendar?.rangeStart).toBe('2026-10-12');
 
       expect(shoppingList.untilCalendar?.isDateSelectable('2026-10-06')).toBe(false);
       expect(shoppingList.untilCalendar?.isDateSelectable('2026-10-12')).toBe(true);

@@ -59,13 +59,20 @@ jest.mock('@/hooks/useAnimatedThemeStyle', () => ({
   useAnimatedThemeStyle: jest.fn((colors: object) => colors),
 }));
 
+// The list buys from the 6th; the pill shows it reaching the 12th.
 const CALENDAR: ShoppingUntilCalendar = {
-  planByDate: { '2026-10-12': [] },
-  isDateSelectable: (dateKey) => dateKey === '2026-10-12',
+  planByDate: { '2026-10-06': [], '2026-10-12': [] },
+  isDateSelectable: (dateKey) => dateKey === '2026-10-06' || dateKey === '2026-10-12',
   monthBounds: { months: ['2026-10'] },
+  rangeStart: '2026-10-06',
 };
 
-function renderPill(...[calendar = CALENDAR]: [calendar?: ShoppingUntilCalendar | null]) {
+function renderPill(
+  ...[calendar = CALENDAR, untilDate = '2026-10-12']: [
+    calendar?: ShoppingUntilCalendar | null,
+    untilDate?: string,
+  ]
+) {
   const onSelectDate = jest.fn();
   let tree: ReturnType<typeof create>;
 
@@ -73,7 +80,7 @@ function renderPill(...[calendar = CALENDAR]: [calendar?: ShoppingUntilCalendar 
     tree = create(
       <ShoppingDatePill
         label="Hasta 12 Oct"
-        untilDate="2026-10-12"
+        untilDate={untilDate}
         calendar={calendar ?? undefined}
         onSelectDate={onSelectDate}
       />
@@ -153,7 +160,7 @@ describe('ShoppingDatePill', () => {
     expect(getButton(root).props.collapsable).toBe(false);
   });
 
-  it('hands the calendar the days to pick, their marks and months, and the day it shows', () => {
+  it('hands the calendar the days to pick, their marks and their months', () => {
     const { root } = renderPill();
 
     pressPill(root);
@@ -163,9 +170,42 @@ describe('ShoppingDatePill', () => {
         planByDate: CALENDAR.planByDate,
         isDateSelectable: CALENDAR.isDateSelectable,
         monthBounds: CALENDAR.monthBounds,
-        selectedDate: '2026-10-12',
       })
     );
+  });
+
+  it('draws the stretch the list buys for, from its first day to the day it reaches', () => {
+    const { root } = renderPill();
+
+    pressPill(root);
+
+    expect(calendar().rangeStart).toBe('2026-10-06');
+    expect(calendar().rangeEnd).toBe('2026-10-12');
+    // The range is the selection: both ends are drawn as selected by the calendar itself.
+    expect(calendar().selectedDate).toBeUndefined();
+  });
+
+  it('draws a one-day stretch when the list reaches only its first day', () => {
+    const { root } = renderPill(CALENDAR, '2026-10-06');
+
+    pressPill(root);
+
+    expect(calendar().rangeStart).toBe('2026-10-06');
+    expect(calendar().rangeEnd).toBe('2026-10-06');
+  });
+
+  it('picks the last day with one tap, the first day included, and never a start', () => {
+    const { root, onSelectDate } = renderPill();
+    pressPill(root);
+
+    act(() => {
+      calendar().onSelectDate?.('2026-10-06');
+    });
+
+    expect(onSelectDate).toHaveBeenCalledTimes(1);
+    expect(onSelectDate).toHaveBeenCalledWith('2026-10-06');
+    expect(calendar().anchor).toBeNull();
+    expect(calendar().rangeStart).toBe('2026-10-06');
   });
 
   it('reports the picked day and closes the calendar', () => {

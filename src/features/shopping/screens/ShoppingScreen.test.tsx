@@ -424,9 +424,12 @@ describe('ShoppingScreen', () => {
 
       press(root, 'button', UNTIL_THE_12TH);
 
-      const { anchor, isDateSelectable, monthBounds, planByDate, selectedDate } = untilCalendar();
+      const { anchor, isDateSelectable, monthBounds, planByDate, rangeStart, rangeEnd } =
+        untilCalendar();
       expect(anchor).toEqual(mockAnchor);
-      expect(selectedDate).toBe('2026-10-12');
+      // The stretch the list buys for: from the first planned day to the last one.
+      expect(rangeStart).toBe('2026-10-06');
+      expect(rangeEnd).toBe('2026-10-12');
       expect(isDateSelectable?.('2026-10-06')).toBe(true);
       expect(isDateSelectable?.('2026-10-12')).toBe(true);
       expect(isDateSelectable?.('2026-10-08')).toBe(false);
@@ -458,7 +461,9 @@ describe('ShoppingScreen', () => {
         MANUAL_HINT,
       ]);
       expect(untilCalendar().anchor).toBeNull();
-      expect(untilCalendar().selectedDate).toBe('2026-10-06');
+      // Picking the first day leaves a one-day stretch.
+      expect(untilCalendar().rangeStart).toBe('2026-10-06');
+      expect(untilCalendar().rangeEnd).toBe('2026-10-06');
     });
 
     it('reaches the last planned day again when it is picked back', () => {

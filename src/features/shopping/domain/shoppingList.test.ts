@@ -5,6 +5,7 @@ import {
   deriveShoppingList,
   getCartItems,
   getDefaultUntilDate,
+  getFirstUntilDate,
   getPlannedItemId,
   getSelectableUntilDates,
   getShoppingCounters,
@@ -449,6 +450,29 @@ describe('getSelectableUntilDates', () => {
   });
 });
 
+describe('getFirstUntilDate', () => {
+  const TODAY = '2026-10-10';
+
+  it('is the first planned day from today on, wherever it sits in the plan', () => {
+    const entries = [
+      buildEntry('e1', '2026-10-20', 'flan'),
+      buildEntry('e2', '2026-10-08', 'flan'),
+      buildEntry('e3', '2026-10-12', 'flan'),
+    ];
+
+    expect(getFirstUntilDate(entries, TODAY)).toBe('2026-10-12');
+  });
+
+  it('is today when today has a planned meal', () => {
+    expect(getFirstUntilDate([buildEntry('e1', TODAY, 'flan')], TODAY)).toBe(TODAY);
+  });
+
+  it('is no day when nothing is planned from today on', () => {
+    expect(getFirstUntilDate([buildEntry('e1', '2026-10-09', 'flan')], TODAY)).toBeUndefined();
+    expect(getFirstUntilDate([], TODAY)).toBeUndefined();
+  });
+});
+
 describe('resolveUntilDate', () => {
   const TODAY = '2026-10-10';
   const entries = [
@@ -570,6 +594,19 @@ describe('getUntilCalendar', () => {
     expect(getUntilCalendar(entries, TODAY)?.monthBounds).toEqual({
       months: ['2026-10', '2026-12'],
     });
+  });
+
+  it('starts the stretch the list buys for on the first day that can be picked', () => {
+    expect(getUntilCalendar(entries, TODAY)?.rangeStart).toBe('2026-10-12');
+    expect(getUntilCalendar(entries, '2026-10-13')?.rangeStart).toBe('2026-12-01');
+  });
+
+  it('never starts that stretch after the date the list reaches', () => {
+    for (const chosen of [undefined, '2026-10-12', '2026-12-01', '2026-10-08']) {
+      const rangeStart = getUntilCalendar(entries, TODAY)!.rangeStart;
+
+      expect(rangeStart <= resolveUntilDate(entries, chosen, TODAY)!).toBe(true);
+    }
   });
 
   it('marks the planned days from today on, with their meals', () => {

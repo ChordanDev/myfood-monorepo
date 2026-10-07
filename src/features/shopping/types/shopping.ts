@@ -60,7 +60,11 @@ export type ShoppingListSources = Omit<ShoppingListInput, 'untilDate'> & {
 // What the calendar of the date pill needs to offer the days the list can reach.
 export type ShoppingUntilCalendar = Required<
   Pick<CalendarProps, 'planByDate' | 'isDateSelectable' | 'monthBounds'>
->;
+> & {
+  // First day the list buys for. The calendar draws the stretch from it to the day the list
+  // reaches; it is fixed, not something the user picks.
+  rangeStart: string;
+};
 
 export type SupermarketOffer = {
   ingredientId: string;

@@ -30,6 +30,11 @@ export function getSelectableUntilDates(entries: MealPlanEntry[], todayKey: stri
   return [...new Set(dates)].sort();
 }
 
+// The first day the list buys for: the first planned day from today on, when there is one.
+export function getFirstUntilDate(entries: MealPlanEntry[], todayKey: string): string | undefined {
+  return getSelectableUntilDates(entries, todayKey)[0];
+}
+
 // The date the list reaches: the chosen day while it can still be chosen, otherwise the last
 // planned one. A chosen day stops counting when it passes or loses its meals.
 export function resolveUntilDate(
@@ -45,14 +50,16 @@ export function resolveUntilDate(
 }
 
 // The calendar that picks the date: the same days `resolveUntilDate` accepts can be picked,
-// they carry the mark of a planned day, and only their months can be walked. Without a day to
-// pick there is no calendar: every planned meal is in the past, or the plan is empty.
+// they carry the mark of a planned day, and only their months can be walked. It draws the
+// stretch the list buys for from the first of those days. Without a day to pick there is no
+// calendar: every planned meal is in the past, or the plan is empty.
 export function getUntilCalendar(
   entries: MealPlanEntry[],
   todayKey: string
 ): ShoppingUntilCalendar | undefined {
   const selectableDates = getSelectableUntilDates(entries, todayKey);
-  if (selectableDates.length === 0) return undefined;
+  const rangeStart = getFirstUntilDate(entries, todayKey);
+  if (rangeStart === undefined) return undefined;
 
   const planByDate: ShoppingUntilCalendar['planByDate'] = {};
 
@@ -66,6 +73,7 @@ export function getUntilCalendar(
     planByDate,
     isDateSelectable: (dateKey) => selectableDates.includes(dateKey),
     monthBounds: { months: [...new Set(selectableDates.map((date) => date.slice(0, 7)))] },
+    rangeStart,
   };
 }
 
