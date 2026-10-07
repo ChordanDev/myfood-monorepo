@@ -52,8 +52,8 @@ Decisions 3 to 9 are assumptions taken from the request, not confirmed one by on
 
 ## Tasks
 
-- [ ] **T1 — Calendar rules.** `Calendar` and `useCalendarState` accept the selectable-day rule, the month bounds and a range; `DayCell` draws the range (ends as selected, days between as a tint). Pure range helpers. Home unchanged. Tests RED first. Route: delegated writer (2+ non-trivial files).
-- [ ] **T2 — Floating calendar.** Popover wrapper anchored under its trigger, exported from `@/features/home`. Tests for open, pick and dismiss. Route: delegated writer (with T1).
+- [x] **T1 — Calendar rules.** `Calendar` and `useCalendarState` accept the selectable-day rule, the month bounds and a range; `DayCell` draws the range (ends as selected, days between as a tint). Pure range helpers. Home unchanged. Tests RED first. Route: delegated writer (2+ non-trivial files). Commit `423cf0d`.
+- [x] **T2 — Floating calendar.** Popover wrapper anchored under its trigger, exported from `@/features/home`. Tests for open, pick and dismiss. Route: delegated writer (with T1). Commit `9c996c7`.
 - [ ] **T3 — Shopping "Hasta".** Chosen day in the store with its fallback; the derivation, the hook and the pill use it; the pill becomes a button that opens the floating calendar. Tests RED first. Route: delegated writer.
 - [ ] **T4 — Planner range.** Range helpers and label formatter; the header pill opens the floating calendar in range mode and shows the label. Tests RED first. Route: delegated writer.
 
@@ -63,7 +63,7 @@ Decisions 3 to 9 are assumptions taken from the request, not confirmed one by on
 - [ ] Picking a day updates the pill label, the cards and the counters to what is needed up to that day.
 - [ ] Pressing the Planner pill opens the same calendar; two taps select a range and the pill shows it.
 - [ ] A tap outside closes the calendar on both screens.
-- [ ] The Home calendar looks and behaves as before.
+- [x] The Home calendar looks and behaves as before. (Existing Home tests untouched and green; not yet looked at on the simulator.)
 - [ ] No color literal outside the allowed ones in the touched code.
 
 ## Checks
@@ -78,6 +78,23 @@ Decisions 3 to 9 are assumptions taken from the request, not confirmed one by on
 
 - 2026-10-07: branch created from `Develop` 9ffb79a. Exploration by the parent (CodeGraph): the Home calendar's single rule in `useCalendarState`, the unused `untilDate` of the shopping derivation, the hard-coded Planner label.
 
+- 2026-10-07: review assessment of `69a9181` from boundary `9ffb79a`: `passive`, not due. The stop hook's default candidate (all of `Develop` against `master`) was not started: it is the one that exceeded the reviewers' budget before; the owner confirmed the scoped approach.
+- 2026-10-07: **T1** `423cf0d` (11 files, +723/−77) and **T2** `9c996c7` (7 files, +578/−2), one delegated writer. Both pass the ~400 heuristic because of their tests (about 457 and 396 lines).
+  - Public API from `@/features/home`: `Calendar` gains `isDateSelectable`, `monthBounds` (`{ months }` or `{ from }`), `rangeStart`, `rangeEnd`, `sizing` (`'fill'` default, `'content'`). `FloatingCalendar` takes the calendar props plus `anchor` (open while not null) and `onClose`. `useFloatingCalendarAnchor()` returns `{ anchorRef, anchor, open, close }`. Range helpers: `selectRangeDate`, `isDateInRange`, `isRangeEdge`, `isBetweenRangeEdges`, `isRangeComplete`, `EMPTY_CALENDAR_RANGE`.
+  - RED/GREEN as reported by the writer: range helpers RED on a missing module, GREEN 12/12; Calendar and DayCell RED 15 failed, GREEN; floating calendar RED 12 failed against a skeleton, GREEN 20/20. The default-behavior guards are characterization tests with no RED.
+  - Checks reported by the writer: `npx jest src/features/home` 126 passed; `npx jest src/features/shopping src/features/planner src/features/recipe` 542 passed; `npx tsc --noEmit` exit 0; `npm run lint` 0 errors, 7 warnings in untouched files; no color literal in touched sources.
+  - Parent spot check: `npx jest src/features/home` 12 suites, 126 passed.
+  - Decisions taken by the writer: a caller that passes `rangeStart` owns the selection; a day inside the range is `primaryAccent` at 30%; no scrim, the backdrop is a transparent pressable labelled "Cerrar"; the popover is 304 wide with a 36pt day and reserves six week rows.
+- 2026-10-07: review of `9ffb79a..9c996c7`: medium (`slice_budget_reached`), consent **granted** by the owner, one lens (reliability), **approved** and acknowledged (lineage `review-518db616dc2e782f`). The reviewed boundary is now `9c996c7`. Non-blocking findings:
+  - WARNING: no test presses a range end, so the one-day range (second tap on the start day) is proved only in the helper. Parent read `DayCell.tsx`: `onSelect` runs outside the `!isSelected` guard, so the behavior holds. The missing test goes into T4.
+  - SUGGESTION: the popover is clamped horizontally only. Latent: both pills sit at the top of their screen. Follow-up, not in this feature.
+  - SUGGESTION: the anchor's open path has no assertion for an unset ref or an unmeasurable view, and a translucent status bar can offset the popover on Android. Follow-up: check on Android.
+
+## Pending and unverified
+
+- No simulator pass yet: the popover's look is unverified until T3 wires it to a screen.
+- The calendar opens on the current month, not on the month of the selected day.
+
 ## Next step
 
-T1 and T2, one delegated writer.
+T3, same delegated writer.
