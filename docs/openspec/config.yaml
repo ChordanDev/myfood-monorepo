@@ -1,0 +1,56 @@
+project: meal-app-docs
+language: en
+artifact_language: en
+source_of_truth: meal-app-docs
+strict_tdd:
+  enabled: true
+  backend_test_command: cd ../my_food_back && mix test
+  frontend_test_command: cd ../my-expo-app && npm test
+review:
+  changed_lines_budget: 400
+  pr_strategy: ask-always
+repos:
+  backend: ../my_food_back
+  frontend: ../my-expo-app
+testing:
+  strict_tdd: true
+  backend:
+    framework: ExUnit + Phoenix/Ecto
+    test_command: cd ../my_food_back && mix test
+    quality_command: cd ../my_food_back && mix precommit
+    coverage_command: null
+    e2e_command: null
+  frontend:
+    framework: Jest + jest-expo
+    test_command: cd ../my-expo-app && npm test
+    lint_command: cd ../my-expo-app && npm run lint
+    format_command: cd ../my-expo-app && npm run format
+    typecheck_command: null
+    coverage_command: null
+    e2e_command: null
+rules:
+  artifacts:
+    - Generated technical artifacts default to English.
+    - Keep meal-app-docs as the docs/OpenSpec source of truth; app repos should point back here instead of duplicating decisions.
+  proposal:
+    - Include rollback plan for risky changes.
+  specs:
+    - Use Given/When/Then for scenarios.
+    - Use RFC 2119 keywords (MUST, SHALL, SHOULD, MAY).
+  design:
+    - Document backend/frontend contract boundaries explicitly for cross-repo slices.
+  tasks:
+    - Group tasks by docs, backend, frontend, and verification work units.
+    - Keep review units under the configured changed-lines budget where practical.
+  apply:
+    tdd: true
+    test_command: cd ../my_food_back && mix test && cd ../my-expo-app && npm test
+  verify:
+    test_command: cd ../my_food_back && mix test && cd ../my-expo-app && npm test
+    build_command: null
+    coverage_threshold: 0
+  archive:
+    - Warn before merging destructive deltas.
+notes:
+  - Shared docs are the canonical product/backend contract.
+  - Do not duplicate decisions into app repos except pointers.

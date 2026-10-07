@@ -1,0 +1,79 @@
+name: docs-ci
+
+on:
+  pull_request:
+  push:
+    branches: [develop]
+
+permissions:
+  contents: read
+
+jobs:
+  docs-checks:
+    name: Docs structure and hygiene
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Assert required top-level paths exist
+        run: |
+          set -euo pipefail
+          for p in docs README.md; do
+            if [ ! -e "$p" ]; then
+              echo "::error file=$p::Required path missing: $p"
+              exit 1
+            fi
+          done
+          if [ -d openspec ]; then
+            echo "openspec/ present"
+          else
+            echo "::notice::openspec/ not present (tolerated)"
+          fi
+
+      - name: Guard against re-emerging archived change folders
+        run: |
+          set -euo pipefail
+          archived=(
+            2026-06-09-implement-auth-account-mvp
+            2026-06-10-implement-onboarding-preferences
+          )
+          if [ ! -d openspec/changes ]; then
+            echo "openspec/changes not present; skipping archive guard"
+            exit 0
+          fi
+          for name in "${archived[@]}"; do
+            if [ -d "openspec/changes/$name" ]; then
+              echo "::error file=openspec/changes/$name::Archived slice '$name' must not re-emerge under openspec/changes/. Use a new change folder."
+              exit 1
+            fi
+          done
+          echo "No archived slices re-emerged under openspec/changes/."
+
+      - name: Detect forgotten placeholder markers in user-facing markdown
+        run: |
+          set -euo pipefail
+          # Scope to user-facing docs only. openspec/specs intentionally uses
+          # TBD to flag open product questions (linked to Open Q1/Q2), so we
+          # do not treat TBD as a forgotten placeholder in spec files.
+          search_paths=()
+          [ -d docs ] && search_paths+=(docs)
+          [ -f README.md ] && search_paths+=(README.md)
+          [ -f CONTEXT.md ] && search_paths+=(CONTEXT.md)
+          if [ "${#search_paths[@]}" -eq 0 ]; then
+            echo "No user-facing markdown sources to scan."
+            exit 0
+          fi
+          # Match forgotten-placeholder markers (case-insensitive, whole word).
+          # TBD is excluded because specs use it as a deliberate open-question marker.
+          pattern='\b(TODO|FIXME|XXX|WIP)\b'
+          hits="$(
+            grep -RIniE --include='*.md' --include='*.mdx' \
+              "$pattern" "${search_paths[@]}" 2>/dev/null || true
+          )"
+          if [ -n "$hits" ]; then
+            echo "::error::Found forgotten placeholder markers in user-facing markdown:"
+            echo "$hits"
+            exit 1
+          fi
+          echo "No forgotten placeholders in user-facing markdown."
