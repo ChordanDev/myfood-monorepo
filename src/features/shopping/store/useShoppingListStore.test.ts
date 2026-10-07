@@ -370,6 +370,67 @@ describe('restoring the removed items', () => {
   });
 });
 
+describe('restoring one removed item', () => {
+  it('takes a planned id off the removed ids and leaves the others removed', () => {
+    shopping().removeItem(plannedItem());
+    shopping().removeItem(plannedItem({ ingredientId: TOMATO }));
+
+    shopping().restoreItem(CHICKEN_ID);
+
+    expect(shopping().removedIds).toEqual([TOMATO_ID]);
+  });
+
+  it('returns a removed manual item to needed and leaves the others alone', () => {
+    shopping().addManualItem('Servilletas');
+    shopping().addManualItem('Velas');
+    shopping().removeItem(shopping().manualItems[0]);
+    shopping().removeItem(shopping().manualItems[1]);
+
+    shopping().restoreItem('manual:2');
+
+    expect(manualStatuses()).toEqual([
+      ['Servilletas', 'removed'],
+      ['Velas', 'needed'],
+    ]);
+  });
+
+  it('brings a row that was removed from the cart back as needed, not into the cart', () => {
+    shopping().addToCart([CHICKEN_ID]);
+    shopping().removeItem(plannedItem({ status: 'in_cart' }));
+
+    shopping().restoreItem(CHICKEN_ID);
+
+    expect(shopping().removedIds).toEqual([]);
+    expect(shopping().cartIds).toEqual([]);
+  });
+
+  it('changes nothing for an id that is not removed, keeping every slice as it was', () => {
+    shopping().addManualItem('Servilletas');
+    shopping().addManualItem('Velas');
+    shopping().addToCart([TOMATO_ID, 'manual:2']);
+    shopping().removeItem(plannedItem());
+    const { cartIds, removedIds, manualItems } = shopping();
+
+    // A planned row still listed, manual rows needed and in the cart, and ids nobody has.
+    [TOMATO_ID, RICE_ID, 'manual:1', 'manual:2', 'manual:9', ''].forEach((id) =>
+      shopping().restoreItem(id)
+    );
+
+    expect(shopping().cartIds).toBe(cartIds);
+    expect(shopping().removedIds).toBe(removedIds);
+    expect(shopping().manualItems).toBe(manualItems);
+  });
+
+  it('never touches the inventory', () => {
+    shopping().removeItem(plannedItem());
+    const inventoryBefore = useInventoryStore.getState().items;
+
+    shopping().restoreItem(CHICKEN_ID);
+
+    expect(useInventoryStore.getState().items).toBe(inventoryBefore);
+  });
+});
+
 describe('confirming the purchase', () => {
   const ingredients: Ingredient[] = [
     { id: RICE, name: 'Arroz Blanco', category: 'almacen', basePrice: 2, unit: 'g' },
@@ -599,6 +660,10 @@ describe('immutable updates', () => {
     it('replaces them when the removed items are restored', () => {
       expectReplaced('removedIds', () => shopping().restoreRemovedItems());
     });
+
+    it('replaces them when one removed item is restored', () => {
+      expectReplaced('removedIds', () => shopping().restoreItem(TOMATO_ID));
+    });
   });
 
   describe('of the manual items', () => {
@@ -628,6 +693,10 @@ describe('immutable updates', () => {
 
     it('replaces them when the removed items are restored', () => {
       expectReplaced('manualItems', () => shopping().restoreRemovedItems());
+    });
+
+    it('replaces them when one removed item is restored', () => {
+      expectReplaced('manualItems', () => shopping().restoreItem('manual:3'));
     });
 
     it('replaces them when the purchase is confirmed', () => {

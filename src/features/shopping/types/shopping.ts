@@ -49,6 +49,9 @@ export type ShoppingListInput = {
   untilDate?: string;
 };
 
+// What the stores hold: the list is derived from them up to the last planned date.
+export type ShoppingListSources = Omit<ShoppingListInput, 'untilDate'>;
+
 export type SupermarketOffer = {
   ingredientId: string;
   supermarket: string;

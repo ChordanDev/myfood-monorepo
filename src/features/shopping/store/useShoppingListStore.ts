@@ -60,6 +60,8 @@ interface ShoppingListState {
   takeOutOfCart: (itemIds: string[]) => void;
   confirmPurchase: (items: ShoppingListItem[]) => void;
   removeItem: (item: ShoppingListItem) => void;
+  // Puts one removed row back on the list. An id that is not removed changes nothing.
+  restoreItem: (itemId: string) => void;
   restoreRemovedItems: () => void;
   addManualItem: (name: string) => void;
   setGroupingMode: (groupingMode: ShoppingGroupingMode) => void;
@@ -206,6 +208,15 @@ export const useShoppingListStore = create<ShoppingListState>()(
               : [...state.removedIds, item.id],
           };
         });
+      },
+      // Like removing, restoring never puts a row in the cart: it comes back as needed.
+      restoreItem: (itemId) => {
+        set((state) => ({
+          removedIds: state.removedIds.includes(itemId)
+            ? state.removedIds.filter((id) => id !== itemId)
+            : state.removedIds,
+          manualItems: moveManualItems(state.manualItems, 'removed', 'needed', [itemId]),
+        }));
       },
       restoreRemovedItems: () => {
         set((state) => ({
