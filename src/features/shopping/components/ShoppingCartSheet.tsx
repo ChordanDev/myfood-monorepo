@@ -19,6 +19,9 @@ import type { BestOffer, ShoppingListItem } from '../types';
 // Share of the window the rows may take before they scroll, so the actions stay on screen.
 const LIST_MAX_HEIGHT_RATIO = 0.4;
 const TAKE_OUT_ICON_SIZE = 20;
+const TAKE_OUT_TARGET_SIZE = 44;
+// Space between the icon and the edge of its target, on each side.
+const TAKE_OUT_ICON_INSET = (TAKE_OUT_TARGET_SIZE - TAKE_OUT_ICON_SIZE) / 2;
 
 export interface ShoppingCartSheetProps {
   visible: boolean;
@@ -44,15 +47,15 @@ export function ShoppingCartSheet({
   const insets = useSafeAreaInsets();
   const { height: windowHeight } = useWindowDimensions();
   const { theme } = useRecipeTheme();
-  const [shownItems, setShownItems] = useState(items);
+  const [shown, setShown] = useState({ items, bestOffers });
   // A ref, not state: two presses can land before the first one has re-rendered anything.
   const hasConfirmedRef = useRef(false);
 
-  // The rows follow the cart only while the sheet is open. Confirming empties the cart at
-  // once, and iOS keeps the panel mounted while it fades out: it leaves showing what was
-  // bought, not the empty hint.
-  if (visible && shownItems !== items) {
-    setShownItems(items);
+  // The rows and their offers follow the cart only while the sheet is open. Confirming
+  // empties the cart at once, offers included, and iOS keeps the panel mounted while it fades
+  // out: it leaves showing what was bought at its price, not the empty hint or "Sin precio".
+  if (visible && (shown.items !== items || shown.bestOffers !== bestOffers)) {
+    setShown({ items, bestOffers });
   }
 
   // Each opening accepts one confirmation.
@@ -60,7 +63,7 @@ export function ShoppingCartSheet({
     if (visible) hasConfirmedRef.current = false;
   }, [visible]);
 
-  const isEmpty = shownItems.length === 0;
+  const isEmpty = shown.items.length === 0;
 
   // A second press, or one that lands while the sheet closes, would buy the cart again with
   // whatever was marked since: one confirmation per opening, and none once it is closing.
@@ -107,9 +110,9 @@ export function ShoppingCartSheet({
             <ScrollView
               style={[styles.list, { maxHeight: Math.round(windowHeight * LIST_MAX_HEIGHT_RATIO) }]}
               showsVerticalScrollIndicator={false}>
-              {shownItems.map((item) => {
+              {shown.items.map((item) => {
                 const nameLine = formatItemNameLine(item);
-                const metaLine = formatItemMetaLine(bestOffers[item.id]);
+                const metaLine = formatItemMetaLine(shown.bestOffers[item.id]);
 
                 return (
                   <View key={item.id} style={styles.row}>
@@ -207,6 +210,9 @@ const styles = StyleSheet.create({
   list: {
     // Never taller than its rows: a short cart does not stretch the panel.
     flexGrow: 0,
+    // The list clips, so it is the list that reaches into the padding of the panel: the
+    // take-out icon lines up with the right edge of the text and its whole target is inside.
+    marginRight: -TAKE_OUT_ICON_INSET,
     marginTop: 16,
   },
   meta: {
@@ -232,14 +238,11 @@ const styles = StyleSheet.create({
     gap: 12,
     minHeight: 44,
   },
-  // A 44 pt target around the icon, pulled into the padding of the panel so the icon lines
-  // up with its right edge.
   takeOut: {
     alignItems: 'center',
-    height: 44,
+    height: TAKE_OUT_TARGET_SIZE,
     justifyContent: 'center',
-    marginRight: -12,
-    width: 44,
+    width: TAKE_OUT_TARGET_SIZE,
   },
   textButton: {
     alignItems: 'center',

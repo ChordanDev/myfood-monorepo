@@ -80,12 +80,13 @@ function renderSheet(initialItems: ShoppingListItem[] = CART, initiallyVisible =
   const onConfirm = jest.fn();
   const onClose = jest.fn();
   let items = initialItems;
+  let bestOffers = BEST_OFFERS;
   let visible = initiallyVisible;
   const sheet = () => (
     <ShoppingCartSheet
       visible={visible}
       items={items}
-      bestOffers={BEST_OFFERS}
+      bestOffers={bestOffers}
       onTakeOut={onTakeOut}
       onConfirm={onConfirm}
       onClose={onClose}
@@ -97,9 +98,14 @@ function renderSheet(initialItems: ShoppingListItem[] = CART, initiallyVisible =
     tree = create(sheet());
   });
 
-  const update = (next: { visible?: boolean; items?: ShoppingListItem[] }) => {
+  const update = (next: {
+    visible?: boolean;
+    items?: ShoppingListItem[];
+    bestOffers?: Record<string, BestOffer>;
+  }) => {
     visible = next.visible ?? visible;
     items = next.items ?? items;
+    bestOffers = next.bestOffers ?? bestOffers;
     act(() => {
       tree.update(sheet());
     });
@@ -141,6 +147,39 @@ function press(root: ReactTestInstance, name: string) {
   act(() => {
     getButton(root, name).props.onPress();
   });
+}
+
+// How far a style pushes its view past the right edge of its parent.
+function getRightOutdent(style: unknown) {
+  const { margin, marginEnd, marginHorizontal, marginRight, right } = (StyleSheet.flatten(
+    style as never
+  ) ?? {}) as Record<string, number | undefined>;
+
+  return Math.max(0, -(marginRight ?? marginEnd ?? marginHorizontal ?? margin ?? 0), -(right ?? 0));
+}
+
+function getTypeName({ type }: ReactTestInstance) {
+  return typeof type === 'string' ? type : (type as { displayName?: string }).displayName;
+}
+
+// Outdent of everything between a node and the scrolling list it is in, the node included.
+// The list clips: whatever sticks out of it cannot be touched. The walk stops at the native
+// scroll view, which carries the style of the list itself.
+function getOutdentInsideList(root: ReactTestInstance, node: ReactTestInstance) {
+  let outdent = getRightOutdent(root.findByType(ScrollView).props.contentContainerStyle);
+  let current: ReactTestInstance | null = node;
+
+  while (current && getTypeName(current) !== 'RCTScrollView') {
+    const { style } = current.props;
+    outdent += getRightOutdent(typeof style === 'function' ? style({ pressed: false }) : style);
+    current = current.parent;
+  }
+
+  if (!current) {
+    throw new Error('The node is not inside a scrolling list');
+  }
+
+  return outdent;
 }
 
 function getPanel(root: ReactTestInstance) {
@@ -219,13 +258,30 @@ describe('ShoppingCartSheet', () => {
       expect(onClose).not.toHaveBeenCalled();
     });
 
-    it('is a touch target of at least 44 pt', () => {
+    it('is a touch target of at least 44 pt that lies whole inside the scrolling list', () => {
       const { root } = renderSheet();
-      const [target] = getButton(root, TAKE_OUT_CHICKEN).findAllByType(View);
+      const button = getButton(root, TAKE_OUT_CHICKEN);
+      const [target] = button.findAllByType(View);
       const { height, width } = StyleSheet.flatten(target.props.style);
 
       expect(height).toBeGreaterThanOrEqual(44);
       expect(width).toBeGreaterThanOrEqual(44);
+      // Any part of it past the right edge of the list would be clipped away.
+      expect(getOutdentInsideList(root, button)).toBe(0);
+    });
+
+    it('lines the icon up with the padding of the panel by widening the list, inside the panel', () => {
+      const { root } = renderSheet();
+      const [target] = getButton(root, TAKE_OUT_CHICKEN).findAllByType(View);
+      const [icon] = root.findAllByType(X);
+      const listOutdent = getRightOutdent(root.findByType(ScrollView).props.style);
+      const { paddingHorizontal } = StyleSheet.flatten(getPanel(root).props.style);
+
+      // The icon is centred in its target: the list reaches out by the space beside it.
+      expect(listOutdent).toBe(
+        (StyleSheet.flatten(target.props.style).width - icon.props.size) / 2
+      );
+      expect(listOutdent).toBeLessThanOrEqual(paddingHorizontal);
     });
 
     it('stops listing a row once it is out of the cart', () => {
@@ -325,6 +381,49 @@ describe('ShoppingCartSheet', () => {
 
       expect(getTexts(root)).toContain('200 g · Pollo (Pechuga)');
       expect(getTexts(root)).not.toContain(EMPTY_HINT);
+    });
+
+    it('keeps the price of the bought rows while it fades out, instead of "Sin precio"', () => {
+      mockKeepsChildrenWhileHidden = true;
+      const { root, update } = renderSheet();
+      const textsWhileOpen = getTexts(root);
+      press(root, CONFIRM);
+
+      // The bought rows left the list, and their offers left with them.
+      update({ visible: false, items: [], bestOffers: {} });
+
+      expect(getTexts(root)).toEqual(textsWhileOpen);
+      expect(getTexts(root)).toContain('Día · $1.520');
+    });
+
+    it('follows the offers while it is open', () => {
+      const { root, update } = renderSheet();
+
+      update({ bestOffers: { 'planned:i2': { supermarket: 'Coto', unitPrice: 7, price: 1400 } } });
+
+      expect(getTexts(root)).toContain('Coto · $1.400');
+      expect(getTexts(root)).not.toContain('Día · $1.520');
+    });
+
+    it('shows the offers of the cart it is reopened with', () => {
+      mockKeepsChildrenWhileHidden = true;
+      const { root, update } = renderSheet();
+      press(root, CONFIRM);
+      update({ visible: false, items: [], bestOffers: {} });
+
+      update({
+        visible: true,
+        items: [CHICKEN],
+        bestOffers: { 'planned:i2': { supermarket: 'Coto', unitPrice: 7, price: 1400 } },
+      });
+
+      expect(getTexts(root)).toEqual([
+        TITLE,
+        '200 g · Pollo (Pechuga)',
+        'Coto · $1.400',
+        CONFIRM,
+        CANCEL,
+      ]);
     });
 
     it('confirms nothing from a press that lands while it fades out after a cancel', () => {
