@@ -1,8 +1,10 @@
 // Exportes del feature Home.
 export { HomeScreen } from './screens';
 
-// For a feature that shows the Home calendar under its own rules.
-export { Calendar } from './components';
+// For a feature that shows the Home calendar under its own rules, in place or in a popover.
+export { Calendar, FloatingCalendar, useFloatingCalendarAnchor } from './components';
+export type { FloatingCalendarProps } from './components/FloatingCalendar';
+export type { FloatingCalendarAnchor } from './utils/floatingCalendarPosition';
 export type {
   CalendarMonthBounds,
   CalendarProps,
