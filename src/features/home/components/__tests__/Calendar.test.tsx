@@ -371,6 +371,27 @@ describe('Calendar with rules from outside', () => {
       expect(getDayCell('2026-08-27').isInRange).toBe(false);
     });
 
+    it('reports a tap on an end of the range, so its caller can close a one-day range', () => {
+      const onSelectDate = jest.fn();
+      const { getDayCell } = renderCalendar({
+        planByDate,
+        onSelectDate,
+        isDateSelectable: fromTodayOn,
+        rangeStart: '2026-08-26',
+        rangeEnd: null,
+      });
+
+      expect(getDayCell('2026-08-26').isSelected).toBe(true);
+      expect(getDayCell('2026-08-26').isSelectable).toBe(true);
+
+      act(() => {
+        getDayCell('2026-08-26').onSelect('2026-08-26');
+      });
+
+      expect(onSelectDate).toHaveBeenCalledTimes(1);
+      expect(onSelectDate).toHaveBeenCalledWith('2026-08-26');
+    });
+
     it('marks no day as inside a range when there is none', () => {
       const { getDayCell } = renderCalendar({ planByDate, selectedDate: '2026-08-25' });
 

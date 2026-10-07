@@ -180,6 +180,19 @@ describe('DayCell inside a range', () => {
     );
   });
 
+  it('reports the press of a day that is already selected, as an end of the range is', () => {
+    const { root, onSelect } = renderDayCell({ isSelected: true });
+
+    expect(getButton(root).props.disabled).toBe(false);
+
+    act(() => {
+      getButton(root).props.onPress();
+    });
+
+    expect(onSelect).toHaveBeenCalledTimes(1);
+    expect(onSelect).toHaveBeenCalledWith('2026-08-06');
+  });
+
   it('can still be pressed inside the range', () => {
     const { root, onSelect } = renderDayCell({ isInRange: true });
 
