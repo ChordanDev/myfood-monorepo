@@ -125,10 +125,14 @@ Left open by the restructure:
 
 First run on the iOS simulator (iPhone 17 Pro, Metro on 8084 from this worktree). Working: navigation from Home, layout against the mockup, "Falta · agregar" → "En la lista", send, `voseo` reply and quick-action chips. Three defects found, fixes requested by the owner:
 
-- [ ] **T10 — Keyboard hides the conversation.** With the keyboard open, the message just sent and the reply sit behind the composer and the keyboard. The scroll content must clear the lifted composer and scroll to the end when the keyboard opens. Route: delegated writer (with T11, T12).
-- [ ] **T11 — Hard line under the header.** The scroll viewport is clipped with a hard edge that cuts the cards' shadows. Content must fade out under the header instead.
-- [ ] **T12 — Composer blends into the dark card.** While typing, the composer overlaps the preparation card, which has the same color. The bottom scrim must travel with the composer.
+- [x] **T10 — Keyboard hides the conversation.** With the keyboard open, the message just sent and the reply sit behind the composer and the keyboard. The scroll content must clear the lifted composer and scroll to the end when the keyboard opens. Route: delegated writer (with T11, T12). Commit `19c5074`.
+- [x] **T11 — Hard line under the header.** The scroll viewport is clipped with a hard edge that cuts the cards' shadows. Content must fade out under the header instead. Commit `7ff37f4`.
+- [x] **T12 — Composer blends into the dark card.** While typing, the composer overlaps the preparation card, which has the same color. The bottom scrim must travel with the composer. Commit `d8937fe`.
+
+Evidence for T10–T12 (2026-10-07): `useKeyboardAnimation` additionally returns the commanded lift, `ChatComposer` forwards it (`onKeyboardLiftChange`) and renders an optional `backdrop` inside its lifted wrapper; the scroll viewport is wrapped in the shared `TopFadeMask`. `npx jest src/features/recipe src/features/planner src/features/assistant-chat src/hooks`: 16 suites, 326 tests passed (re-run by the parent). `npm test`: 540 passed, the same 2 known failures. `npx tsc --noEmit`: 22, same as the base. Second simulator pass by the parent on iOS: with the keyboard open the sent bubble and the reply rest above the composer, the composer sits on the ground scrim, and the card fades under the header. Not verified: Android, and the scroll position after dismissing the keyboard at the end of the list.
+
+- [ ] **T13 — Confirm before marking as cooked (owner request, 2026-10-07).** The header check opens a themed sheet "¿Cocinaste la receta?" with "Sí" / "No". "Sí" marks the entry as cooked and goes back, as before; "No" closes the sheet. Same visual recipe as Home's `EatTodaySheet`, owned by the recipe feature. Route: delegated writer.
 
 ## Next step
 
-T10–T12 (delegated), then a second simulator pass by the parent. After that the owner chooses the chain strategy before any pull request.
+T13 (delegated), then a simulator check. After that the owner chooses the chain strategy before any pull request.
