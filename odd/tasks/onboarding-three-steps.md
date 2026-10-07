@@ -106,6 +106,16 @@ never the reverse.
       path, the route files and the `docs/THEMING.md` path. Route: delegated.
       Pure move: no behavior change, proof is the unchanged test count.
 
+- [ ] T6 Integrate `origin/Develop` (41 commits ahead of the branch point).
+      Develop replaced `ProfilePreferencesScreen` with a `settings` feature
+      that imports `preferences/utils/onboardingPayload` (`ProfileFormState`,
+      `buildProfilePayload`, `OnboardingValidationError`) and
+      `preferences/utils/onboardingSlot`, both moved by T5. Dry-run merge: four
+      conflicts. Resolution keeps one-way dependencies: validation shared by
+      onboarding and settings lives in `preferences`; `settings` and
+      `onboarding` never import each other. Route: delegated (merge plus
+      cross-feature import repointing). Proof: full suite after the merge.
+
 Out of scope: the shared top-level folders (`src/components`, `src/services`,
 `src/hooks`, ...) and other features; five worktrees are open on them.
 
