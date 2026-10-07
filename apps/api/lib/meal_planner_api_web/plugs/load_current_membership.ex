@@ -11,7 +11,10 @@ defmodule MealPlannerApiWeb.Plugs.LoadCurrentMembership do
       missing/invalid `membership_id`, no matching row, or a row whose
       status is not `:active` (e.g. `:suspended` — a real, currently
       unused enum value reserved for a future re-invitation flow) all
-      halt with `401 unauthorized, %{error: "membership_id_required"}`.
+      halt with `401 account_not_found` rendered as the mobile envelope
+      by `MealPlannerApiWeb.ApiError` (issue #1: mobile has no account
+      picker, so "no active membership" is "no account for this
+      session").
       Unlike the Phoenix Channel path (`LoadCurrentMembershipSocket`),
       no downstream HTTP layer re-checks membership status (tenancy
       debt cleanup item 2), so this plug must enforce it itself.
@@ -20,7 +23,7 @@ defmodule MealPlannerApiWeb.Plugs.LoadCurrentMembership do
       the real, `:active` `AccountMembership` row for
       `(current_user.id, current_user.account_id)`. If no such row
       exists — e.g. the member was removed, or never was one — the
-      request is refused with `401 membership_id_required`, exactly
+      request is refused with `401 account_not_found`, exactly
       like the `access_v2` no-membership case. It no longer fabricates
       an in-memory `:active` struct (see the BLOCKER fix note on
       `load_real_legacy_membership/2` below).
@@ -39,6 +42,7 @@ defmodule MealPlannerApiWeb.Plugs.LoadCurrentMembership do
   alias MealPlannerApi.Auth.Guardian
   alias MealPlannerApi.Persistence.Accounts.AccountMembership
   alias MealPlannerApi.Persistence.Accounts.AccountMembershipQueries
+  alias MealPlannerApiWeb.ApiError
 
   @behaviour Plug
 
@@ -52,10 +56,7 @@ defmodule MealPlannerApiWeb.Plugs.LoadCurrentMembership do
         Plug.Conn.assign(conn, :current_membership, membership)
 
       {:error, :membership_id_required} ->
-        conn
-        |> Plug.Conn.put_resp_content_type("application/json")
-        |> Plug.Conn.send_resp(401, ~s({"error":"membership_id_required"}))
-        |> Plug.Conn.halt()
+        conn |> ApiError.error(:account_not_found)
     end
   end
 

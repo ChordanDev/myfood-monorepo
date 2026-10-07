@@ -13,9 +13,19 @@ config :meal_planner_api,
 config :meal_planner_api,
   ecto_repos: [MealPlannerApi.Repo]
 
+# Token lifetimes per `typ` claim (issue #1, "Token lifetimes"): access
+# tokens (legacy `access` and `access_v2`) live 1 hour, refresh tokens 30
+# days. Guardian resolves the TTL from the minted `typ`, so the three
+# entries must stay aligned with the typ values minted in
+# `MealPlannerApiWeb.Controllers.AccountScopeHelpers.mint_token_pair/2`.
 config :meal_planner_api, MealPlannerApi.Auth.Guardian,
   issuer: "meal_planner_api",
-  secret_key: "change_this_for_dev_only_guardian_secret"
+  secret_key: "change_this_for_dev_only_guardian_secret",
+  token_ttl: %{
+    "access" => {1, :hour},
+    "access_v2" => {1, :hour},
+    "refresh" => {30, :days}
+  }
 
 config :meal_planner_api,
   ai_client: MealPlannerApi.AI.GeminiClient

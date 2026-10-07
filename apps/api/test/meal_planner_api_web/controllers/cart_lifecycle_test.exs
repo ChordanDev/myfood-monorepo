@@ -108,7 +108,7 @@ defmodule MealPlannerApiWeb.CartLifecycleTest do
           {:post, "/api/inventory/items/#{Ecto.UUID.generate()}/quantity",
            %{"quantity_milli" => 10}}
         ] do
-      assert %{"error" => "subscription_required"} =
+      assert %{"error" => %{"code" => "trial_expired"}} =
                request(f, method, path, data) |> json_response(403)
     end
 

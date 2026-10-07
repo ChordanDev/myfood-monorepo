@@ -121,7 +121,7 @@ defmodule MealPlannerApiWeb.PlanningControllerTest do
   test "requires auth token", %{conn: conn} do
     conn = get(conn, "/api/planning/weekly")
 
-    assert %{"error" => "unauthorized"} = json_response(conn, 401)
+    assert %{"error" => %{"code" => "unauthenticated"}} = json_response(conn, 401)
   end
 
   test "account plan returns 7 planning days", %{conn: conn} do

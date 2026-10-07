@@ -432,7 +432,7 @@ defmodule MealPlannerApiWeb.RevenuecatControllerTest do
       assert %{"data" => _} = Jason.decode!(conn.resp_body)
     end
 
-    test "expired Account is denied 403 subscription_required at the router (data intact)",
+    test "expired Account is denied 403 trial_expired at the router (data intact)",
          %{conn: conn} do
       {:ok, account} = insert_account!()
       expire_account!(account)
@@ -451,7 +451,7 @@ defmodule MealPlannerApiWeb.RevenuecatControllerTest do
 
       assert conn.status == 403
       assert conn.halted
-      assert Jason.decode!(conn.resp_body)["error"] == "subscription_required"
+      assert Jason.decode!(conn.resp_body)["error"]["code"] == "trial_expired"
       assert Repo.get!(PersistenceAccount, account.id)
     end
 

@@ -95,14 +95,14 @@ defmodule MealPlannerApiWeb.Plugs.EnforceCapabilityTest do
       assert AccountsPersistence.get_revenuecat_customer_by_app_user_id(customer_id(account))
     end
 
-    test "expired account halts with 403 subscription_required without deleting data",
+    test "expired account halts with 403 trial_expired without deleting data",
          %{account: account} do
       conn = build_conn_for(account, :expired)
 
       assert %Plug.Conn{halted: true, status: 403, resp_body: body} =
                EnforceCapability.call(conn, [])
 
-      assert body =~ ~s("error":"subscription_required")
+      assert %{"error" => %{"code" => "trial_expired", "message" => _}} = Jason.decode!(body)
 
       # The Account and its data must remain after the denial.
       assert Repo.get!(PersistenceAccount, account.id)
@@ -118,7 +118,7 @@ defmodule MealPlannerApiWeb.Plugs.EnforceCapabilityTest do
       assert %Plug.Conn{halted: true, status: 403, resp_body: body} =
                EnforceCapability.call(conn, [])
 
-      assert body =~ ~s("error":"subscription_required")
+      assert %{"error" => %{"code" => "trial_expired", "message" => _}} = Jason.decode!(body)
     end
   end
 

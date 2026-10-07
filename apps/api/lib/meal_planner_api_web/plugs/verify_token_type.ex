@@ -9,8 +9,10 @@ defmodule MealPlannerApiWeb.Plugs.VerifyTokenType do
   `conn.private.guardian_default_claims["typ"]` and either:
     * `"access"` → passes through (legacy `access_v1` token)
     * `"access_v2"` → passes through (new Phase A token)
-    * anything else → halts with `401 unauthorized,
-      reason: "unsupported_token_type"`
+    * anything else → halts with `401 unauthenticated` rendered as the
+      mobile envelope by `MealPlannerApiWeb.ApiError` (issue #1: an
+      unsupported `typ` is indistinguishable from "no valid access
+      token" for the client).
 
   By keeping this in a separate plug we avoid the Guardian
   VerifyHeader limitation that `claims: %{"typ" => "access"}` only
@@ -20,6 +22,8 @@ defmodule MealPlannerApiWeb.Plugs.VerifyTokenType do
   """
 
   @behaviour Plug
+
+  alias MealPlannerApiWeb.ApiError
 
   @supported_typs ~w(access access_v2)
 
@@ -47,10 +51,7 @@ defmodule MealPlannerApiWeb.Plugs.VerifyTokenType do
     if typ in @supported_typs do
       conn
     else
-      conn
-      |> Plug.Conn.put_resp_content_type("application/json")
-      |> Plug.Conn.send_resp(401, ~s({"error":"unsupported_token_type"}))
-      |> Plug.Conn.halt()
+      conn |> ApiError.error(:unauthenticated)
     end
   end
 end

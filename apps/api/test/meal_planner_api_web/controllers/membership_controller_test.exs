@@ -100,7 +100,7 @@ defmodule MealPlannerApiWeb.MembershipControllerTest do
         |> put_req_header("authorization", "Bearer " <> token)
         |> get("/api/accounts/#{bogus_account_id}/memberships")
 
-      assert json_response(conn, 401)["error"] == "membership_id_required"
+      assert json_response(conn, 401)["error"]["code"] == "account_not_found"
     end
 
     test "cross-Account URL/JWT mismatch returns 403 account_mismatch", %{conn: conn} do

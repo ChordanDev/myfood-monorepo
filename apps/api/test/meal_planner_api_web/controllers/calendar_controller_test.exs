@@ -515,7 +515,7 @@ defmodule MealPlannerApiWeb.CalendarControllerTest do
             "meals" => []
           })
 
-        assert %{"error" => "subscription_required"} = json_response(conn, 403)
+        assert %{"error" => %{"code" => "trial_expired"}} = json_response(conn, 403)
       after
         Application.put_env(:meal_planner_api, :revenuecat_access_enforcement, previous)
       end
@@ -731,7 +731,7 @@ defmodule MealPlannerApiWeb.CalendarControllerTest do
             "end_date" => Date.to_iso8601(Date.add(today, 6))
           })
 
-        assert %{"error" => "subscription_required"} = json_response(conn, 403)
+        assert %{"error" => %{"code" => "trial_expired"}} = json_response(conn, 403)
       after
         Application.put_env(:meal_planner_api, :revenuecat_access_enforcement, previous)
       end

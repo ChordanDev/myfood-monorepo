@@ -9,6 +9,7 @@ defmodule MealPlannerApi.Services.PlanningCandidateBuilderTest do
 
   setup do
     :ok = Ecto.Adapters.SQL.Sandbox.checkout(Repo)
+    :ok = MealPlannerApi.SubscriptionPlanFixtures.ensure_plans!()
 
     user =
       user_with_memberships(%{email: "batch-#{Ecto.UUID.generate()}@example.com"}, [

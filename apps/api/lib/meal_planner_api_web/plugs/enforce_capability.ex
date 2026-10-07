@@ -6,7 +6,9 @@ defmodule MealPlannerApiWeb.Plugs.EnforceCapability do
   Reads `conn.assigns.current_membership.account_id`, loads the Account
   through the same `MealPlannerApi.AccountAccess` predicate used by
   channel joins and the recovery routes, and either passes through or
-  halts with `403 {"error":"subscription_required"}`.
+  halts with `403 trial_expired` rendered as the mobile envelope by
+  `MealPlannerApiWeb.ApiError` (issue #1; the mobile client's only
+  "cannot use the app" reason is an ended trial).
 
   Two rollout gates control the plug:
 
@@ -17,13 +19,15 @@ defmodule MealPlannerApiWeb.Plugs.EnforceCapability do
       per `design.md` §"Migration / Rollout").
 
   The plug NEVER mutates Account data — denial is read-only. The
-  `subscription_required` response body is the exact contract promised
-  in `design.md` §"Interfaces / Contracts".
+  envelope supersedes the flat `subscription_required` body promised in
+  `design.md` §"Interfaces / Contracts"; the HTTP status (403) is
+  unchanged.
   """
 
   require Logger
 
   alias MealPlannerApi.AccountAccess
+  alias MealPlannerApiWeb.ApiError
 
   @behaviour Plug
 
@@ -41,10 +45,7 @@ defmodule MealPlannerApiWeb.Plugs.EnforceCapability do
           "EnforceCapability denied request: path=#{conn.request_path} method=#{conn.method}"
         )
 
-        conn
-        |> Plug.Conn.put_resp_content_type("application/json")
-        |> Plug.Conn.send_resp(403, ~s({"error":"subscription_required"}))
-        |> Plug.Conn.halt()
+        conn |> ApiError.error(:trial_expired)
 
       true ->
         conn
