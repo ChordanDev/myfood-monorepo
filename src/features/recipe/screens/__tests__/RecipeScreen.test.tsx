@@ -26,8 +26,10 @@ jest.mock('react-native-safe-area-context', () => ({
   useSafeAreaInsets: () => ({ top: 47, right: 0, bottom: 34, left: 0 }),
 }));
 
+// The mask is a host node, so the test can read where the screen puts it and how far it fades.
 jest.mock('@/components', () => ({
   ShadowSurface: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+  TopFadeMask: 'TopFadeMask',
 }));
 
 jest.mock('../../components/RecipeTopGradient', () => ({
@@ -282,6 +284,24 @@ describe('RecipeScreen', () => {
     press(tree, 'recipe-header-back');
 
     expect(mockBack).toHaveBeenCalledTimes(1);
+  });
+
+  it('fades the scrolling content out under the header instead of cutting it', () => {
+    const tree = renderScreen();
+    const mask = tree.root.findByType('TopFadeMask' as never);
+    const scrollView = mask.findByType(ScrollView);
+    // Top inset plus the height of the header.
+    const headerBottom = 47 + 45;
+    const contentTopPadding = StyleSheet.flatten(scrollView.props.contentContainerStyle).paddingTop;
+
+    // The mask starts where the header ends: nothing shows behind the header buttons.
+    expect(StyleSheet.flatten(mask.props.style).marginTop).toBe(headerBottom);
+    expect(StyleSheet.flatten(scrollView.props.style).marginTop).toBeUndefined();
+    // At rest the first card sits where it always did, 65 below the top inset, and the fade ends
+    // 8 above it, which leaves the card and its shadow untouched.
+    expect(headerBottom + contentTopPadding).toBe(47 + 65);
+    expect(mask.props.fadeSize).toBe(12);
+    expect(contentTopPadding - mask.props.fadeSize).toBe(8);
   });
 
   it('explains that the recipe was not found and still lets the user go back', () => {

@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { ScrollView, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { TopFadeMask } from '@/components';
 import { useRecipeTheme } from '@/context/RecipeThemeContext';
 import { CHAT_COMPOSER_MIN_HEIGHT, ChatComposer } from '@/features/assistant-chat';
 import {
@@ -16,7 +17,7 @@ import {
   RECIPE_BOTTOM_FADE_REACH,
   RECIPE_COMPOSER_BOTTOM_GAP,
   RECIPE_CONTENT_TOP_PADDING,
-  RECIPE_HEADER_CLIP_GAP,
+  RECIPE_HEADER_FADE_SIZE,
   RECIPE_HEADER_HEIGHT,
   RECIPE_HEADER_MIN_TOP,
   RECIPE_SCREEN_SIDE_PADDING,
@@ -72,32 +73,36 @@ export function RecipeScreen() {
     <View style={[styles.screen, { backgroundColor: theme.appBg }]}>
       <RecipeTopGradient />
 
-      <ScrollView
-        ref={scrollViewRef}
-        testID="recipe-scroll"
-        style={[
-          styles.scroll,
-          { marginTop: headerTop + RECIPE_HEADER_HEIGHT + RECIPE_HEADER_CLIP_GAP },
-        ]}
-        // The composer and its fade rise by the keyboard lift, and so does the room under the
-        // conversation: its last line always rests just above the fade.
-        contentContainerStyle={[
-          styles.content,
-          { paddingBottom: bottomOverlayHeight + keyboardLift },
-        ]}
-        // The paddings already include the safe area; iOS must not add it a second time.
-        contentInsetAdjustmentBehavior="never"
-        keyboardShouldPersistTaps="handled"
-        showsVerticalScrollIndicator={false}
-        onContentSizeChange={handleContentSizeChange}>
-        <RecipeIngredientsCard rows={rows} onRequestIngredient={handleRequestIngredient} />
-        <RecipePreparationCard steps={recipe.steps} />
-        <RecipeChatSection
-          messages={chat.messages}
-          isThinking={chat.isThinking}
-          onQuickAction={chat.answerQuickAction}
-        />
-      </ScrollView>
+      {/* A mask, not a painted gradient: the ground behind is a gradient under noise, which an
+          overlay could not match. The mask is clear at the bottom edge of the header and solid
+          from where the fade ends, so the resting content is untouched. */}
+      <TopFadeMask
+        fadeSize={RECIPE_HEADER_FADE_SIZE}
+        style={{ marginTop: headerTop + RECIPE_HEADER_HEIGHT }}>
+        <ScrollView
+          ref={scrollViewRef}
+          testID="recipe-scroll"
+          style={styles.scroll}
+          // The composer and its fade rise by the keyboard lift, and so does the room under the
+          // conversation: its last line always rests just above the fade.
+          contentContainerStyle={[
+            styles.content,
+            { paddingBottom: bottomOverlayHeight + keyboardLift },
+          ]}
+          // The paddings already include the safe area; iOS must not add it a second time.
+          contentInsetAdjustmentBehavior="never"
+          keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
+          onContentSizeChange={handleContentSizeChange}>
+          <RecipeIngredientsCard rows={rows} onRequestIngredient={handleRequestIngredient} />
+          <RecipePreparationCard steps={recipe.steps} />
+          <RecipeChatSection
+            messages={chat.messages}
+            isThinking={chat.isThinking}
+            onQuickAction={chat.answerQuickAction}
+          />
+        </ScrollView>
+      </TopFadeMask>
 
       <RecipeBottomFade height={bottomOverlayHeight} />
 
@@ -132,7 +137,8 @@ const styles = StyleSheet.create({
   content: {
     gap: RECIPE_SECTION_GAP,
     paddingHorizontal: RECIPE_SCREEN_SIDE_PADDING,
-    paddingTop: RECIPE_CONTENT_TOP_PADDING,
+    // The content starts under the fade and rests just below it.
+    paddingTop: RECIPE_HEADER_FADE_SIZE + RECIPE_CONTENT_TOP_PADDING,
   },
   screen: {
     flex: 1,
