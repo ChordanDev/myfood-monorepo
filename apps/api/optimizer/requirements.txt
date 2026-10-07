@@ -1,0 +1,3 @@
+# Python dependencies for the OR-Tools meal optimizer (optimizador.py).
+# Install with: pip install -r optimizer/requirements.txt (from apps/api).
+ortools==9.12.4544

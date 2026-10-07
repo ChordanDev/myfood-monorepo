@@ -51,14 +51,15 @@ defmodule MealPlannerApi.Optimization.OptimizerPortRunner do
   end
 
   @doc """
-  Returns the absolute path to `optimizador.py`, defaulting to the repo root.
+  Returns the absolute path to `optimizador.py`, defaulting to
+  `optimizer/optimizador.py` under the application root (`apps/api`).
   """
   @spec default_script_path() :: String.t()
   def default_script_path do
     Application.get_env(
       :meal_planner_api,
       :optimizer_script_path,
-      Path.expand("../../../../optimizador.py", __DIR__)
+      Path.expand("../../../optimizer/optimizador.py", __DIR__)
     )
   end
 end
