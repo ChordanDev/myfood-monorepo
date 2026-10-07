@@ -1,0 +1,38 @@
+appId: com.anonymous.my-expo-app
+---
+- launchApp:
+    clearState: false
+- waitForAnimationToEnd
+- extendedWaitUntil:
+    visible:
+      id: home-open-planner
+    timeout: 10000
+- tapOn:
+    id: home-open-planner
+- extendedWaitUntil:
+    visible:
+      id: planner-conversation-list
+    timeout: 10000
+- assertVisible:
+    id: planner-composer-input
+- takeScreenshot: planner-before-submit
+- tapOn:
+    id: planner-composer-input
+- inputText: maestro
+- extendedWaitUntil:
+    visible:
+      id: planner-composer-submit
+    timeout: 5000
+- assertVisible:
+    id: planner-composer-submit
+    enabled: true
+- tapOn:
+    id: planner-composer-submit
+- extendedWaitUntil:
+    visible:
+      id: planner-active-turn-message
+    timeout: 5000
+- assertVisible:
+    id: planner-active-turn-message
+- assertVisible: maestro
+- takeScreenshot: planner-after-submit

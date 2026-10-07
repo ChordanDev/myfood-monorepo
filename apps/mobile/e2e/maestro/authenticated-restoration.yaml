@@ -1,0 +1,12 @@
+appId: com.myfood.e2e
+name: Restore authenticated onboarding after access token expiry
+---
+- stopApp
+- launchApp:
+    clearState: false
+- extendedWaitUntil:
+    visible:
+      id: e2e-onboarding-screen
+    timeout: 10000
+- assertVisible:
+    id: e2e-onboarding-screen

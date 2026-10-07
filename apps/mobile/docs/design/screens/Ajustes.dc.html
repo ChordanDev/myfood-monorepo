@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>Ajustes</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Montserrat:wght@600;700&family=Montserrat+Alternates:wght@700;900&display=swap">
+<style>
+body{margin:0}
+a{color:#C4BC9C}a:hover{color:#EDE8D5}
+button{font:inherit;color:inherit;background:none;border:0;padding:0;margin:0;cursor:pointer;text-align:left}
+.noise{background-image:url(/_blob/a6c4299986961aa5294e237f83f1c859);background-size:cover}
+.group{box-sizing:border-box;padding:6px 6px;border-radius:21px;background:#A0997E;box-shadow:0 4px 2px rgba(0,0,0,0.25)}
+.grouph{padding:6px 10px 8px;font-weight:700;font-size:13px;line-height:18px;letter-spacing:0.4px;text-transform:uppercase;color:rgba(30,28,20,0.6)}
+.rowb{width:100%;display:flex;align-items:center;gap:12px;min-height:48px;box-sizing:border-box;padding:0 10px;color:#1E1C14}
+.rowb + .rowb{border-top:1px solid rgba(30,28,20,0.12)}
+.rowb .l{flex:1;font-weight:600;font-size:15px;line-height:20px}
+.rowb .v{font-weight:500;font-size:14px;line-height:20px;color:rgba(30,28,20,0.6);max-width:55%;text-align:right;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+</style>
+</helmet>
+<div style="width: 390px; height: 844px; box-sizing: border-box; position: relative; overflow: hidden; background: #E1D8BA; color: #1E1C14; font-family: 'Inter', sans-serif">
+<div style="position: absolute; inset: 0; background: linear-gradient(to bottom, #1E1C14 0%, #E1D8BA 10%)"></div>
+<div class="noise" style="position: absolute; inset: 0; opacity: 0.3"></div>
+
+<div style="position: absolute; inset: 0; box-sizing: border-box; padding-top: 47px; display: flex; flex-direction: column">
+<h1 style="margin: 10px 0 18px; font-family: 'Montserrat', sans-serif; font-weight: 700; font-size: 42px; line-height: 51px; text-align: center; color: #1E1C14">AJUSTES</h1>
+
+<div style="padding: 0 14px; display: flex; flex-direction: column; gap: 14px">
+
+<section style="box-sizing: border-box; padding: 16px; display: flex; align-items: center; gap: 14px; border-radius: 24px; background: #1E1C14; box-shadow: 0 4px 2px rgba(0,0,0,0.25)">
+<div aria-hidden="true" style="width: 56px; height: 56px; box-sizing: border-box; flex: none; display: flex; align-items: center; justify-content: center; border-radius: 28px; background: rgba(196,188,156,0.15); border: 1px solid rgba(196,188,156,0.3); font-family: 'Montserrat Alternates', sans-serif; font-weight: 900; font-size: 19px; letter-spacing: 1px; color: #E69447">LG</div>
+<div style="flex: 1; min-width: 0">
+<div style="font-family: 'Montserrat Alternates', sans-serif; font-weight: 700; font-size: 17px; line-height: 22px; letter-spacing: 0.5px; color: #EDE8D5">Lucca</div>
+<div style="font-weight: 500; font-size: 13px; line-height: 18px; color: #C4BC9C; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">lucca@correo.com</div>
+</div>
+<div style="flex: none; padding: 6px 12px; border-radius: 9999px; background: rgba(230,148,71,0.15); border: 1px solid rgba(230,148,71,0.3); font-weight: 600; font-size: 12px; line-height: 16px; letter-spacing: 0.3px; color: #E69447">Prueba · 6 días</div>
+</section>
+
+<section class="group">
+<div class="grouph">Tu hogar</div>
+<button class="rowb"><span class="l">Nombre para mostrar</span><span class="v">Lucca</span><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="opacity: 0.6"><path d="m9 18 6-6-6-6"></path></svg></button>
+<button class="rowb"><span class="l">Personas en casa</span><span class="v">2 comensales</span><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="opacity: 0.6"><path d="m9 18 6-6-6-6"></path></svg></button>
+<button class="rowb"><span class="l">Experiencia cocinando</span><span class="v">Me defiendo</span><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="opacity: 0.6"><path d="m9 18 6-6-6-6"></path></svg></button>
+</section>
+
+<section class="group">
+<div class="grouph">Preferencias</div>
+<button class="rowb"><span class="l">Dieta</span><span class="v">Vegetariano</span><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="opacity: 0.6"><path d="m9 18 6-6-6-6"></path></svg></button>
+<button class="rowb"><span class="l">Restricciones duras</span><span class="v">Gluten, Maní</span><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="opacity: 0.6"><path d="m9 18 6-6-6-6"></path></svg></button>
+<button class="rowb"><span class="l">Preferencias suaves</span><span class="v">picante, comidas rápidas</span><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="opacity: 0.6"><path d="m9 18 6-6-6-6"></path></svg></button>
+</section>
+
+<section class="group">
+<div class="grouph">Tiempos por comida</div>
+<button class="rowb"><span class="l">Desayuno</span><span class="v">No cocino · Liviano</span><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="opacity: 0.6"><path d="m9 18 6-6-6-6"></path></svg></button>
+<button class="rowb"><span class="l">Almuerzo</span><span class="v">30 min · Normal</span><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="opacity: 0.6"><path d="m9 18 6-6-6-6"></path></svg></button>
+<button class="rowb"><span class="l">Cena</span><span class="v">45 min · Abundante</span><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="opacity: 0.6"><path d="m9 18 6-6-6-6"></path></svg></button>
+</section>
+
+<section class="group">
+<div class="grouph">Cuenta</div>
+<button class="rowb"><span class="l">Plan</span><span class="v">Individual · prueba hasta 12 Oct</span><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="opacity: 0.6"><path d="m9 18 6-6-6-6"></path></svg></button>
+<button class="rowb"><span class="l" style="color: #B9553B">Cerrar sesión</span></button>
+</section>
+
+</div>
+</div>
+
+<nav aria-label="Secciones" style="position: absolute; left: 0; right: 0; bottom: 0; height: 94px; background: linear-gradient(to bottom, #1E1C14 61%, #1B1911 100%)">
+<div style="height: 60px; display: flex; color: rgba(196,188,156,0.8)">
+<button aria-label="Home" style="flex: 1; display: flex; align-items: center; justify-content: center">
+<svg width="24" height="24" viewBox="0 0 512 512" fill="currentColor" aria-hidden="true"><rect x="48" y="80" width="416" height="384" rx="48" fill="none" stroke="currentColor" stroke-width="32" stroke-linejoin="round"></rect><circle cx="296" cy="232" r="24"></circle><circle cx="376" cy="232" r="24"></circle><circle cx="296" cy="312" r="24"></circle><circle cx="376" cy="312" r="24"></circle><circle cx="136" cy="312" r="24"></circle><circle cx="216" cy="312" r="24"></circle><circle cx="136" cy="392" r="24"></circle><circle cx="216" cy="392" r="24"></circle><circle cx="296" cy="392" r="24"></circle><path d="M128 48v32M384 48v32M464 160H48" fill="none" stroke="currentColor" stroke-width="32" stroke-linecap="round" stroke-linejoin="round"></path></svg>
+</button>
+<button aria-label="Carrito" style="flex: 1; display: flex; align-items: center; justify-content: center">
+<svg width="24" height="24" viewBox="0 0 512 512" fill="none" stroke="currentColor" stroke-width="32" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="176" cy="416" r="16"></circle><circle cx="400" cy="416" r="16"></circle><path d="M48 80h64l48 272h256"></path><path d="M160 288h249.44a8 8 0 007.85-6.43l28.8-144a8 8 0 00-7.85-9.57H128"></path></svg>
+</button>
+<button aria-label="Lista" style="flex: 1; display: flex; align-items: center; justify-content: center">
+<svg width="24" height="24" viewBox="0 0 512 512" fill="none" stroke="currentColor" stroke-width="32" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M160 144h288M160 256h288M160 368h288"></path><circle cx="80" cy="144" r="16"></circle><circle cx="80" cy="256" r="16"></circle><circle cx="80" cy="368" r="16"></circle></svg>
+</button>
+<button aria-label="Perfil" aria-current="page" style="flex: 1; display: flex; align-items: center; justify-content: center; color: #C4BC9C">
+<span style="width: 60px; height: 40px; box-sizing: border-box; display: flex; align-items: center; justify-content: center; border-radius: 20px; background: rgba(196,188,156,0.15); border: 1px solid rgba(196,188,156,0.3)">
+<svg width="24" height="24" viewBox="0 0 512 512" fill="currentColor" aria-hidden="true"><path d="M344 144c-3.92 52.87-44 96-88 96s-84.15-43.12-88-96c-4-55 35-96 88-96s92 42 88 96z"></path><path d="M256 304c-87 0-175.3 48-191.64 138.6C62.39 453.52 68.57 464 80 464h352c11.44 0 17.62-10.48 15.65-21.4C431.3 352 343 304 256 304z"></path></svg>
+</span>
+</button>
+</div>
+</nav>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":844}}'>
+class Component extends DCLogic {
+renderVals() {
+return {};
+}
+}
+</script>
+</body>
+</html>

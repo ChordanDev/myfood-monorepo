@@ -1,0 +1,1 @@
+export const CUSTOM_TAB_BAR_CONTENT_HEIGHT = 60;

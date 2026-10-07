@@ -1,0 +1,45 @@
+import { StyleSheet, TextInput, View } from 'react-native';
+import { useRecipeTheme } from '@/context/RecipeThemeContext';
+
+interface VerificationCodeInputProps {
+  value: string;
+  onChange: (nextValue: string) => void;
+}
+
+export function VerificationCodeInput({ value, onChange }: VerificationCodeInputProps) {
+  const { theme } = useRecipeTheme();
+  return (
+    <View style={[styles.container, { backgroundColor: theme.icon }]}>
+      <TextInput
+        testID="e2e-verification-code"
+        value={value}
+        // Filtra a 6 digitos y evita caracteres no numericos.
+        onChangeText={(text) => onChange(text.replace(/[^0-9]/g, '').slice(0, 6))}
+        placeholder="123456"
+        placeholderTextColor={theme.textLight}
+        keyboardType="number-pad"
+        textAlign="center"
+        maxLength={6}
+        autoComplete="one-time-code"
+        textContentType="oneTimeCode"
+        accessibilityLabel="Código de verificación"
+        accessibilityHint="Ingresa el código de 6 dígitos enviado a tu correo"
+        style={[styles.input, { color: theme.colorMedium }]}
+      />
+    </View>
+  );
+}
+
+const styles = StyleSheet.create({
+  container: {
+    borderRadius: 14,
+    marginTop: 28,
+  },
+  input: {
+    fontFamily: 'Inter_600SemiBold',
+    fontSize: 21,
+    letterSpacing: 6,
+    lineHeight: 28,
+    paddingVertical: 14,
+  },
+});

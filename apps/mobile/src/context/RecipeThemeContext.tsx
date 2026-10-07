@@ -1,0 +1,77 @@
+import React, { createContext, useContext, useState, ReactNode, useMemo, useCallback } from 'react';
+import { RecipeThemeConfig } from '@/types/domain';
+
+interface RecipeThemeContextType {
+  theme: RecipeThemeConfig;
+  setRecipeTheme: (theme: RecipeThemeConfig | null) => void;
+}
+
+const DEFAULT_THEME: RecipeThemeConfig = {
+  colorBlack: '#1B1911',
+  colorDark: '#1E1C14',
+  colorMedium: '#45402F',
+  colorLight: '#A0997E',
+  primaryAccent: '#E69447',
+  appBg: '#E1D8BA',
+  icon: '#C4BC9C',
+  textBlack: '#1E1C14',
+  textDark: '#1E1C14',
+  textMedium: '#C4BC9C',
+  textLight: '#EDE8D5',
+  primaryAccentIntense: '#45402F',
+  alert: '#B9553B',
+};
+
+const RecipeThemeContext = createContext<RecipeThemeContextType | undefined>(undefined);
+
+export function RecipeThemeProvider({ children }: { children: ReactNode }) {
+  const [currentTheme, setCurrentTheme] = useState<Partial<RecipeThemeConfig> | null>(null);
+
+  // Merge seguro para asegurar que siempre haya valores válidos
+  const theme = useMemo(() => {
+    if (!currentTheme) return DEFAULT_THEME;
+    return {
+      ...DEFAULT_THEME,
+      ...currentTheme,
+      // Asegurar que los arrays tengan el tamaño correcto
+      colorBlack: currentTheme.colorBlack || DEFAULT_THEME.colorBlack,
+      colorDark: currentTheme.colorDark || DEFAULT_THEME.colorDark,
+      colorMedium: currentTheme.colorMedium || DEFAULT_THEME.colorMedium,
+      colorLight: currentTheme.colorLight || DEFAULT_THEME.colorLight,
+      primaryAccent: currentTheme.primaryAccent || DEFAULT_THEME.primaryAccent,
+      appBg: currentTheme.appBg || DEFAULT_THEME.appBg,
+      icon: currentTheme.icon || DEFAULT_THEME.icon,
+      textBlack: currentTheme.textBlack || DEFAULT_THEME.textBlack,
+      textDark: currentTheme.textDark || DEFAULT_THEME.textDark,
+      textMedium: currentTheme.textMedium || DEFAULT_THEME.textMedium,
+      textLight: currentTheme.textLight || DEFAULT_THEME.textLight,
+      primaryAccentIntense: currentTheme.primaryAccentIntense || DEFAULT_THEME.primaryAccentIntense,
+      alert: currentTheme.alert || DEFAULT_THEME.alert,
+    };
+  }, [currentTheme]);
+
+  const setRecipeTheme = useCallback((newTheme: RecipeThemeConfig | null) => {
+    setCurrentTheme((prev) => {
+      if (JSON.stringify(prev) === JSON.stringify(newTheme)) return prev;
+      return newTheme;
+    });
+  }, []);
+
+  const value = useMemo(
+    () => ({
+      theme,
+      setRecipeTheme,
+    }),
+    [theme, setRecipeTheme]
+  );
+
+  return <RecipeThemeContext.Provider value={value}>{children}</RecipeThemeContext.Provider>;
+}
+
+export function useRecipeTheme() {
+  const context = useContext(RecipeThemeContext);
+  if (context === undefined) {
+    throw new Error('useRecipeTheme must be used within a RecipeThemeProvider');
+  }
+  return context;
+}

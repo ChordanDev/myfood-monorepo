@@ -1,0 +1,144 @@
+{
+  "v": 3,
+  "attachments": {},
+  "boards": {
+    "Ajustes.dc.html": {
+      "h": 844,
+      "radius": 40,
+      "title": "Ajustes",
+      "w": 390,
+      "x": 1410,
+      "y": 2404
+    },
+    "Compras.dc.html": {
+      "h": 844,
+      "radius": 40,
+      "title": "Compras · por categoría",
+      "w": 390,
+      "x": 0,
+      "y": 2404
+    },
+    "Home-OtherDay.dc.html": {
+      "h": 844,
+      "radius": 40,
+      "title": "Home · another day (sand default theme)",
+      "w": 390,
+      "x": 470,
+      "y": 0
+    },
+    "Home-Today.dc.html": {
+      "h": 844,
+      "radius": 40,
+      "title": "Home · today (olive recipe theme)",
+      "w": 390,
+      "x": 0,
+      "y": 0
+    },
+    "Inventario.dc.html": {
+      "h": 844,
+      "radius": 40,
+      "title": "Inventario",
+      "w": 390,
+      "x": 470,
+      "y": 2404
+    },
+    "Main.dc.html": {
+      "h": 1320,
+      "radius": 24,
+      "title": "Foundations",
+      "w": 1800,
+      "x": 0,
+      "y": 964
+    },
+    "Onboarding.dc.html": {
+      "h": 844,
+      "radius": 40,
+      "title": "Onboarding · paso 1 de 3",
+      "w": 390,
+      "x": 1880,
+      "y": 2404
+    },
+    "Planner-Thinking.dc.html": {
+      "h": 844,
+      "radius": 40,
+      "title": "Planner · thinking",
+      "w": 390,
+      "x": 1410,
+      "y": 0
+    },
+    "Planner.dc.html": {
+      "h": 844,
+      "radius": 40,
+      "title": "Planner · conversation",
+      "w": 390,
+      "x": 940,
+      "y": 0
+    },
+    "Receta-Chat.dc.html": {
+      "h": 844,
+      "radius": 40,
+      "title": "Receta · chat de IA",
+      "w": 390,
+      "x": 2820,
+      "y": 2404
+    },
+    "Receta.dc.html": {
+      "h": 844,
+      "radius": 40,
+      "title": "Receta · arriba",
+      "w": 390,
+      "x": 2350,
+      "y": 2404
+    }
+  },
+  "createdOnFiles": {
+    "at": "2026-10-06T18:25:00Z",
+    "v": 1
+  },
+  "designSystems": [],
+  "launch": {
+    "view": "canvas"
+  },
+  "notes": {
+    "image-b1t374": {
+      "alt": "iPhone 17 - 188@3x",
+      "h": 874,
+      "kind": "image",
+      "src": "/_blob/56a6ff16ee77eec230981edc0d20a521",
+      "w": 402,
+      "x": 928,
+      "y": 2374
+    },
+    "title": {
+      "kind": "title1",
+      "maxW": 1800,
+      "text": "Home & Planner, as built",
+      "w": 240,
+      "x": 0,
+      "y": -280
+    },
+    "title2": {
+      "kind": "title1",
+      "maxW": 3210,
+      "text": "Pantallas nuevas · propuesta",
+      "w": 240,
+      "x": 0,
+      "y": 2124
+    }
+  },
+  "order": [
+    "Main.dc.html",
+    "Home-Today.dc.html",
+    "Home-OtherDay.dc.html",
+    "Planner.dc.html",
+    "Planner-Thinking.dc.html",
+    "Compras.dc.html",
+    "Inventario.dc.html",
+    "Ajustes.dc.html",
+    "Onboarding.dc.html",
+    "Receta.dc.html",
+    "Receta-Chat.dc.html"
+  ],
+  "pages": [],
+  "title": "Home & Planner Aesthetic"
+}

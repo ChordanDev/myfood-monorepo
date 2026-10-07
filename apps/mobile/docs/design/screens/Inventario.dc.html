@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>Inventario</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=Montserrat:wght@600;700&amp;display=swap">
+<style>
+body{margin:0}
+a{color:#C4BC9C}a:hover{color:#EDE8D5}
+button{font:inherit;color:inherit;background:none;border:0;padding:0;margin:0;cursor:pointer}
+.noise{background-image:url(/_blob/a6c4299986961aa5294e237f83f1c859);background-size:cover}
+.cat{display:flex;align-items:center;gap:8px;padding:0 4px;font-weight:700;font-size:15px;line-height:20px;color:#1E1C14}
+.cat .count{font-weight:500;font-size:12px;line-height:16px;color:rgba(30,28,20,0.6)}
+.item{display:flex;align-items:center;gap:10px;height:52px;box-sizing:border-box;padding:0 8px 0 16px;border-radius:16px;box-shadow:0 4px 2px rgba(0,0,0,0.25)}
+.item .qty{font-weight:700;font-size:15px;line-height:20px;color:#1E1C14}
+.item .name{flex:1;font-weight:500;font-size:15px;line-height:20px;color:#1E1C14;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.item .approx{font-weight:600;font-size:11px;line-height:14px;letter-spacing:0.3px;padding:3px 7px;border-radius:9999px;background:rgba(30,28,20,0.1);color:rgba(30,28,20,0.6)}
+.ib{width:36px;height:36px;display:flex;align-items:center;justify-content:center;color:#1E1C14}
+</style>
+</helmet>
+<div style="width: 390px; height: 844px; box-sizing: border-box; position: relative; overflow: hidden; background: #E1D8BA; color: #1E1C14; font-family: 'Inter', sans-serif">
+<div style="position: absolute; inset: 0; background: linear-gradient(to bottom, #1E1C14 0%, #E1D8BA 10%)"></div>
+<div class="noise" style="position: absolute; inset: 0; opacity: 0.3"></div>
+
+<div style="position: absolute; inset: 0; box-sizing: border-box; padding-top: 47px; display: flex; flex-direction: column">
+<h1 style="margin: 10px 0 4px; font-family: 'Montserrat', sans-serif; font-weight: 700; font-size: 28px; line-height: 51px; text-align: center; color: #1E1C14">INVENTARIO</h1>
+<p style="margin: 0 0 18px; text-align: center; font-weight: 500; font-size: 13px; line-height: 18px; color: rgba(30,28,20,0.6)">Cantidades aproximadas. Decile al micrófono qué usaste.</p>
+
+<div style="padding: 0 14px; display: flex; flex-direction: column; gap: 10px">
+
+<button class="cat" aria-expanded="true">Lácteos <span class="count">2</span><span style="flex: 1"></span><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"></path></svg></button>
+<div class="item" style="background: #D9CBB0"><span class="qty">1 L</span><span class="name">Leche entera</span><span class="approx">aprox.</span><button class="ib" aria-label="Editar leche entera"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z"></path><path d="m15 5 4 4"></path></svg></button><button class="ib" aria-label="Borrar leche entera"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18"></path><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"></path><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"></path><path d="M10 11v6"></path><path d="M14 11v6"></path></svg></button></div>
+<div class="item" style="background: #D9CBB0"><span class="qty">300 g</span><span class="name">Queso cremoso</span><button class="ib" aria-label="Editar queso cremoso"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z"></path><path d="m15 5 4 4"></path></svg></button><button class="ib" aria-label="Borrar queso cremoso"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18"></path><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"></path><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"></path><path d="M10 11v6"></path><path d="M14 11v6"></path></svg></button></div>
+
+<button class="cat" style="margin-top: 8px" aria-expanded="true">Verduras <span class="count">2</span><span style="flex: 1"></span><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"></path></svg></button>
+<div class="item" style="background: #B9BE98"><span class="qty">3 u</span><span class="name">Cebolla</span><button class="ib" aria-label="Editar cebolla"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z"></path><path d="m15 5 4 4"></path></svg></button><button class="ib" aria-label="Borrar cebolla"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18"></path><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"></path><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"></path><path d="M10 11v6"></path><path d="M14 11v6"></path></svg></button></div>
+<div class="item" style="background: #B9BE98"><span class="qty">2 u</span><span class="name">Tomate</span><span class="approx">aprox.</span><button class="ib" aria-label="Editar tomate"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z"></path><path d="m15 5 4 4"></path></svg></button><button class="ib" aria-label="Borrar tomate"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18"></path><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"></path><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"></path><path d="M10 11v6"></path><path d="M14 11v6"></path></svg></button></div>
+
+<button class="cat" style="margin-top: 8px" aria-expanded="true">Despensa <span class="count">3</span><span style="flex: 1"></span><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"></path></svg></button>
+<div class="item" style="background: #E3D898"><span class="qty">500 g</span><span class="name">Arroz blanco</span><button class="ib" aria-label="Editar arroz"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z"></path><path d="m15 5 4 4"></path></svg></button><button class="ib" aria-label="Borrar arroz"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18"></path><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"></path><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"></path><path d="M10 11v6"></path><path d="M14 11v6"></path></svg></button></div>
+<div class="item" style="background: #E3D898"><span class="qty">250 ml</span><span class="name">Aceite de oliva</span><span class="approx">aprox.</span><button class="ib" aria-label="Editar aceite"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z"></path><path d="m15 5 4 4"></path></svg></button><button class="ib" aria-label="Borrar aceite"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18"></path><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"></path><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"></path><path d="M10 11v6"></path><path d="M14 11v6"></path></svg></button></div>
+<div class="item" style="background: #E3D898"><span class="qty">120 g</span><span class="name">Fideos de pasta</span><button class="ib" aria-label="Editar fideos"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z"></path><path d="m15 5 4 4"></path></svg></button><button class="ib" aria-label="Borrar fideos"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18"></path><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"></path><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"></path><path d="M10 11v6"></path><path d="M14 11v6"></path></svg></button></div>
+
+<button class="cat" style="margin-top: 8px" aria-expanded="false">Carnes <span class="count">1</span><span style="flex: 1"></span><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 18 6-6-6-6"></path></svg></button>
+<div style="height: 6px; margin: -6px 24px 0; border-radius: 0 0 16px 16px; background: #D4A38F; opacity: 0.8"></div>
+
+<button class="cat" style="margin-top: 2px" aria-expanded="false">Congelados <span class="count">1</span><span style="flex: 1"></span><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 18 6-6-6-6"></path></svg></button>
+<div style="height: 6px; margin: -6px 24px 0; border-radius: 0 0 16px 16px; background: #B8C4C6; opacity: 0.8"></div>
+
+</div>
+</div>
+
+<button aria-label="Agregar o editar por voz" style="position: absolute; right: 14px; bottom: 106px; width: 56px; height: 56px; display: flex; align-items: center; justify-content: center; border-radius: 28px; background: #1E1C14; box-shadow: 0 4px 2px rgba(0,0,0,0.25); color: #E1D8BA">
+<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 19v3"></path><path d="M19 10v2a7 7 0 0 1-14 0v-2"></path><rect x="9" y="2" width="6" height="13" rx="3"></rect></svg>
+</button>
+
+<nav aria-label="Secciones" style="position: absolute; left: 0; right: 0; bottom: 0; height: 94px; background: linear-gradient(to bottom, #1E1C14 61%, #1B1911 100%)">
+<div style="height: 60px; display: flex; color: rgba(196,188,156,0.8)">
+<button aria-label="Home" style="flex: 1; display: flex; align-items: center; justify-content: center">
+<svg width="24" height="24" viewBox="0 0 512 512" fill="currentColor" aria-hidden="true"><rect x="48" y="80" width="416" height="384" rx="48" fill="none" stroke="currentColor" stroke-width="32" stroke-linejoin="round"></rect><circle cx="296" cy="232" r="24"></circle><circle cx="376" cy="232" r="24"></circle><circle cx="296" cy="312" r="24"></circle><circle cx="376" cy="312" r="24"></circle><circle cx="136" cy="312" r="24"></circle><circle cx="216" cy="312" r="24"></circle><circle cx="136" cy="392" r="24"></circle><circle cx="216" cy="392" r="24"></circle><circle cx="296" cy="392" r="24"></circle><path d="M128 48v32M384 48v32M464 160H48" fill="none" stroke="currentColor" stroke-width="32" stroke-linecap="round" stroke-linejoin="round"></path></svg>
+</button>
+<button aria-label="Carrito" style="flex: 1; display: flex; align-items: center; justify-content: center">
+<svg width="24" height="24" viewBox="0 0 512 512" fill="none" stroke="currentColor" stroke-width="32" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="176" cy="416" r="16"></circle><circle cx="400" cy="416" r="16"></circle><path d="M48 80h64l48 272h256"></path><path d="M160 288h249.44a8 8 0 007.85-6.43l28.8-144a8 8 0 00-7.85-9.57H128"></path></svg>
+</button>
+<button aria-label="Lista" aria-current="page" style="flex: 1; display: flex; align-items: center; justify-content: center; color: #C4BC9C">
+<span style="width: 60px; height: 40px; box-sizing: border-box; display: flex; align-items: center; justify-content: center; border-radius: 20px; background: rgba(196,188,156,0.15); border: 1px solid rgba(196,188,156,0.3)">
+<svg width="24" height="24" viewBox="0 0 512 512" fill="none" stroke="currentColor" stroke-width="40" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M160 144h288M160 256h288M160 368h288"></path><circle cx="80" cy="144" r="20" fill="currentColor"></circle><circle cx="80" cy="256" r="20" fill="currentColor"></circle><circle cx="80" cy="368" r="20" fill="currentColor"></circle></svg>
+</span>
+</button>
+<button aria-label="Perfil" style="flex: 1; display: flex; align-items: center; justify-content: center">
+<svg width="24" height="24" viewBox="0 0 512 512" fill="none" stroke="currentColor" stroke-width="32" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M344 144c-3.92 52.87-44 96-88 96s-84.15-43.12-88-96c-4-55 35-96 88-96s92 42 88 96z"></path><path d="M256 304c-87 0-175.3 48-191.64 138.6C62.39 453.52 68.57 464 80 464h352c11.44 0 17.62-10.48 15.65-21.4C431.3 352 343 304 256 304z"></path></svg>
+</button>
+</div>
+</nav>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":844}}'>
+class Component extends DCLogic {
+renderVals() {
+return {};
+}
+}
+</script>
+</body>
+</html>
