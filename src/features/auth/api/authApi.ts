@@ -1,6 +1,7 @@
 import { apiClient } from '@/api/client';
 import { getDeviceId, persistSession } from '@/api/authTokenStore';
 import type { AuthFlow, AuthSession, CodeRequestResponse, CurrentMe } from '../types/auth';
+import { normalizeCurrentMe } from '../utils/currentMe';
 import type { RequestOptions } from '@/api/transport';
 
 function endpointForRequest(flow: AuthFlow): string {
@@ -31,11 +32,12 @@ export async function verifyCode(
   flow: AuthFlow
 ): Promise<AuthSession> {
   const deviceId = await getDeviceId();
-  const session = await apiClient.post<AuthSession>(endpointForVerify(flow), {
+  const response = await apiClient.post<AuthSession>(endpointForVerify(flow), {
     email,
     code,
     deviceId,
   });
+  const session: AuthSession = { ...response, me: normalizeCurrentMe(response.me) };
   await persistSession(session);
   return session;
 }
@@ -48,13 +50,17 @@ export function verifyAndSignUp(email: string, code: string): Promise<AuthSessio
   return verifyCode(email, code, 'register');
 }
 
-export function getMe(accessToken?: string | null, options?: RequestOptions): Promise<CurrentMe> {
-  return apiClient.get<CurrentMe>('/api/me', {
+export async function getMe(
+  accessToken?: string | null,
+  options?: RequestOptions
+): Promise<CurrentMe> {
+  const me = await apiClient.get<CurrentMe>('/api/me', {
     ...options,
     auth: accessToken === undefined,
     accessToken,
     retry: options?.retry ?? true,
   });
+  return normalizeCurrentMe(me);
 }
 
 export async function logout(

@@ -1,7 +1,12 @@
-import type { MealPlanEntry, MealType } from '@/types/domain';
+import type { MasterRecipe, MealPlanEntry, MealType } from '@/types/domain';
 import {
   buildLocalMealPlanByDate,
   getDefaultHomeMealType,
+  getHomeMealSummaries,
+  getPendingConfirmationEntries,
+  getPendingHomeMealType,
+  isMealConfirmed,
+  isPendingConfirmationDate,
   isSelectableMealDate,
 } from './localMealPlan';
 import { formatDateKey, parseDateKey, startOfDay } from '../utils/calendarDate';
@@ -31,6 +36,23 @@ describe('mock meal plan date keys', () => {
     expect(todayKey).toBe('2026-08-25');
     expect(mockMealPlan![0].date).toBe(todayKey);
     expect(isSelectableMealDate(todayKey, planByDate, today, parseDateKey)).toBe(true);
+  });
+
+  it('ships yesterday as a pending day and the day before as an already confirmed one', () => {
+    let mockMealPlan: typeof import('@/mocks/domainMocks').MOCK_MEAL_PLAN;
+
+    jest.isolateModules(() => {
+      ({ MOCK_MEAL_PLAN: mockMealPlan } = jest.requireActual('@/mocks/domainMocks'));
+    });
+
+    const today = startOfDay(new Date());
+    const planByDate = buildLocalMealPlanByDate(mockMealPlan!);
+
+    expect(planByDate['2026-08-24'].map((entry) => entry.type)).toEqual(['almuerzo', 'cena']);
+    expect(isPendingConfirmationDate('2026-08-24', planByDate, today, parseDateKey)).toBe(true);
+    expect(planByDate['2026-08-23']).toHaveLength(2);
+    expect(isPendingConfirmationDate('2026-08-23', planByDate, today, parseDateKey)).toBe(false);
+    expect(isSelectableMealDate('2026-08-23', planByDate, today, parseDateKey)).toBe(false);
   });
 });
 
@@ -88,5 +110,211 @@ describe('getDefaultHomeMealType', () => {
     expect(getDefaultHomeMealType([buildEntry('snack'), buildEntry('cena', true)], at(14))).toBe(
       'cena'
     );
+  });
+});
+
+describe('meal confirmation', () => {
+  const today = new Date(2026, 7, 25);
+  const yesterdayKey = '2026-08-24';
+  const todayKey = '2026-08-25';
+  const tomorrowKey = '2026-08-26';
+
+  function buildEntry(
+    date: string,
+    type: MealType,
+    overrides: Partial<MealPlanEntry> = {}
+  ): MealPlanEntry {
+    return {
+      id: `entry-${date}-${type}`,
+      date,
+      type,
+      recipeId: `recipe-${type}`,
+      isCooked: false,
+      ...overrides,
+    };
+  }
+
+  function isSelectable(dateKey: string, entries: MealPlanEntry[]) {
+    return isSelectableMealDate(dateKey, buildLocalMealPlanByDate(entries), today, parseDateKey);
+  }
+
+  function isPending(dateKey: string, entries: MealPlanEntry[]) {
+    return isPendingConfirmationDate(
+      dateKey,
+      buildLocalMealPlanByDate(entries),
+      today,
+      parseDateKey
+    );
+  }
+
+  describe('isMealConfirmed', () => {
+    it('treats a cooked or a skipped entry as confirmed', () => {
+      expect(isMealConfirmed(buildEntry(yesterdayKey, 'cena', { isCooked: true }))).toBe(true);
+      expect(isMealConfirmed(buildEntry(yesterdayKey, 'cena', { isSkipped: true }))).toBe(true);
+    });
+
+    it('treats an entry that is neither cooked nor skipped as unconfirmed', () => {
+      expect(isMealConfirmed(buildEntry(yesterdayKey, 'cena'))).toBe(false);
+      expect(isMealConfirmed(buildEntry(yesterdayKey, 'cena', { isSkipped: false }))).toBe(false);
+    });
+  });
+
+  describe('getPendingConfirmationEntries', () => {
+    it('returns the unconfirmed Home meals in meal order', () => {
+      const entries = [
+        buildEntry(yesterdayKey, 'cena'),
+        buildEntry(yesterdayKey, 'snack'),
+        buildEntry(yesterdayKey, 'almuerzo', { isCooked: true }),
+        buildEntry(yesterdayKey, 'desayuno'),
+      ];
+
+      expect(getPendingConfirmationEntries(entries).map((entry) => entry.type)).toEqual([
+        'desayuno',
+        'cena',
+      ]);
+    });
+
+    it('returns nothing when every Home meal is cooked or skipped', () => {
+      const entries = [
+        buildEntry(yesterdayKey, 'almuerzo', { isCooked: true }),
+        buildEntry(yesterdayKey, 'cena', { isSkipped: true }),
+      ];
+
+      expect(getPendingConfirmationEntries(entries)).toEqual([]);
+    });
+  });
+
+  describe('getPendingHomeMealType', () => {
+    it('returns the first pending Home meal type', () => {
+      const entries = [
+        buildEntry(yesterdayKey, 'cena'),
+        buildEntry(yesterdayKey, 'almuerzo'),
+        buildEntry(yesterdayKey, 'desayuno', { isSkipped: true }),
+      ];
+
+      expect(getPendingHomeMealType(entries)).toBe('almuerzo');
+    });
+
+    it('returns null when nothing is pending', () => {
+      expect(getPendingHomeMealType([])).toBeNull();
+      expect(getPendingHomeMealType([buildEntry(yesterdayKey, 'snack')])).toBeNull();
+      expect(getPendingHomeMealType([buildEntry(yesterdayKey, 'cena', { isCooked: true })])).toBe(
+        null
+      );
+    });
+  });
+
+  describe('isPendingConfirmationDate', () => {
+    it('is true for a past day with an unconfirmed meal', () => {
+      expect(isPending(yesterdayKey, [buildEntry(yesterdayKey, 'cena')])).toBe(true);
+    });
+
+    it('is false for a past day whose meals are all confirmed', () => {
+      const entries = [
+        buildEntry(yesterdayKey, 'almuerzo', { isCooked: true }),
+        buildEntry(yesterdayKey, 'cena', { isSkipped: true }),
+      ];
+
+      expect(isPending(yesterdayKey, entries)).toBe(false);
+    });
+
+    it('is false for a past day that only has a snack', () => {
+      expect(isPending(yesterdayKey, [buildEntry(yesterdayKey, 'snack')])).toBe(false);
+    });
+
+    it('is false for a past day without a plan', () => {
+      expect(isPending(yesterdayKey, [])).toBe(false);
+    });
+
+    it('is false for today and for a future day, even with unconfirmed meals', () => {
+      expect(isPending(todayKey, [buildEntry(todayKey, 'cena')])).toBe(false);
+      expect(isPending(tomorrowKey, [buildEntry(tomorrowKey, 'cena')])).toBe(false);
+    });
+  });
+
+  describe('isSelectableMealDate', () => {
+    it('makes a past day with an unconfirmed meal selectable', () => {
+      expect(isSelectable(yesterdayKey, [buildEntry(yesterdayKey, 'cena')])).toBe(true);
+    });
+
+    it('keeps a past day not selectable when every meal is cooked', () => {
+      const entries = [
+        buildEntry(yesterdayKey, 'almuerzo', { isCooked: true }),
+        buildEntry(yesterdayKey, 'cena', { isCooked: true }),
+      ];
+
+      expect(isSelectable(yesterdayKey, entries)).toBe(false);
+    });
+
+    it('keeps a past day not selectable when every meal is skipped', () => {
+      const entries = [
+        buildEntry(yesterdayKey, 'almuerzo', { isSkipped: true }),
+        buildEntry(yesterdayKey, 'cena', { isSkipped: true }),
+      ];
+
+      expect(isSelectable(yesterdayKey, entries)).toBe(false);
+    });
+
+    it('makes a past day with one cooked and one unconfirmed meal selectable', () => {
+      const entries = [
+        buildEntry(yesterdayKey, 'almuerzo', { isCooked: true }),
+        buildEntry(yesterdayKey, 'cena'),
+      ];
+
+      expect(isSelectable(yesterdayKey, entries)).toBe(true);
+    });
+
+    it('keeps a past day without a plan not selectable', () => {
+      expect(isSelectable(yesterdayKey, [buildEntry(todayKey, 'cena')])).toBe(false);
+    });
+
+    it('keeps a past day that only has a snack not selectable', () => {
+      expect(isSelectable(yesterdayKey, [buildEntry(yesterdayKey, 'snack')])).toBe(false);
+    });
+
+    it('keeps today and a future day selectable whenever they have a plan', () => {
+      const entries = [
+        buildEntry(todayKey, 'cena', { isCooked: true }),
+        buildEntry(tomorrowKey, 'almuerzo'),
+      ];
+
+      expect(isSelectable(todayKey, entries)).toBe(true);
+      expect(isSelectable(tomorrowKey, entries)).toBe(true);
+    });
+
+    it('keeps today and a future day not selectable without a plan', () => {
+      expect(isSelectable(todayKey, [])).toBe(false);
+      expect(isSelectable(tomorrowKey, [])).toBe(false);
+    });
+  });
+});
+
+describe('getHomeMealSummaries', () => {
+  function buildEntry(type: MealType, recipeId: string): MealPlanEntry {
+    return { id: `entry-${type}`, date: '2026-08-24', type, recipeId, isCooked: false };
+  }
+
+  const recipes = [
+    { id: 'recipe-soup', name: 'Sopa de pollo' },
+    { id: 'recipe-salad', name: 'Ensalada de tomate' },
+  ] as MasterRecipe[];
+
+  it('names the Home meals of a day in meal order', () => {
+    const entries = [
+      buildEntry('cena', 'recipe-soup'),
+      buildEntry('snack', 'recipe-salad'),
+      buildEntry('almuerzo', 'recipe-salad'),
+    ];
+
+    expect(getHomeMealSummaries(entries, recipes)).toEqual([
+      { id: 'entry-almuerzo', type: 'almuerzo', name: 'Ensalada de tomate' },
+      { id: 'entry-cena', type: 'cena', name: 'Sopa de pollo' },
+    ]);
+  });
+
+  it('uses a placeholder name when the recipe is unknown', () => {
+    expect(getHomeMealSummaries([buildEntry('cena', 'recipe-missing')], recipes)).toEqual([
+      { id: 'entry-cena', type: 'cena', name: 'Receta sin nombre' },
+    ]);
   });
 });

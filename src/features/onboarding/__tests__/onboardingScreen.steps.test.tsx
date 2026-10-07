@@ -80,7 +80,13 @@ jest.mock('react-native-safe-area-context', () => ({
 }));
 
 const ME: CurrentMe = {
-  user: { id: 'user-1', email: 'user@example.com', displayName: null },
+  user: {
+    id: 'user-1',
+    email: 'user@example.com',
+    displayName: null,
+    householdSize: null,
+    cookingSkill: null,
+  },
   account: {
     id: 'account-1',
     type: 'individual',
@@ -114,6 +120,7 @@ function buildContext(overrides: Partial<AuthContextValue> = {}): AuthContextVal
     saveUserPreferences: jest.fn(),
     fetchSlotCookingTimes: jest.fn(),
     saveSlotCookingTimes: jest.fn(),
+    updateProfile: jest.fn(),
     requestVerificationCode: jest.fn(),
     sendVerificationCode: jest.fn(),
     ...overrides,

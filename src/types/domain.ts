@@ -3,20 +3,32 @@
  * Basado en CONTEXT.md.
  */
 
-export type UnitType = 'gramos' | 'mililitros' | 'unidades';
+export type UnitType = 'g' | 'ml' | 'unit';
+
+// Categories allowed by the inventory PRD, in display order
+export const INGREDIENT_CATEGORIES = [
+  'verduras',
+  'frutas',
+  'carnes',
+  'pescados_mariscos',
+  'lacteos',
+  'panaderia',
+  'almacen',
+  'congelados',
+  'bebidas',
+  'condimentos',
+  'limpieza_otros',
+  'otros',
+] as const;
+
+export type IngredientCategory = (typeof INGREDIENT_CATEGORIES)[number];
 
 export interface Ingredient {
   id: string;
   name: string;
-  category: 'verduras' | 'proteinas' | 'lacteos' | 'despensa' | 'frutas' | 'otros';
+  category: IngredientCategory;
   basePrice: number; // Precio promedio de mercado
   unit: UnitType;
-}
-
-export interface InventoryItem {
-  ingredientId: string;
-  amount: number; // Cantidad aproximada
-  isLeftover?: boolean;
 }
 
 export interface RecipeIngredient {
@@ -43,6 +55,7 @@ export interface RecipeThemeConfig {
   textMedium: string;
   textLight: string;
   primaryAccentIntense: string;
+  alert: string;
 }
 
 export interface MasterRecipe {
@@ -70,12 +83,7 @@ export interface MealPlanEntry {
   type: MealType;
   recipeId: string; // Referencia a MasterRecipe o CustomizedRecipe
   isCooked: boolean;
-}
-
-export interface ShoppingListItem {
-  ingredientId: string;
-  amountToBuy: number;
-  isPurchased: boolean;
+  isSkipped?: boolean; // The meal passed and was not cooked. Never true together with isCooked.
 }
 
 export type BudgetLevel = 'muy barato' | 'estándar' | 'premium';
