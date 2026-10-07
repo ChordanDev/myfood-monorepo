@@ -151,6 +151,7 @@ Decisions 3, 4, 5, 7 and 9 are assumptions taken from the request, not confirmed
 - 2026-10-07: review of `97248dd..90f64c8`: medium (`slice_budget_reached`), consent **granted** by the owner, one lens (reliability), **approved** and acknowledged (lineage `review-1d123b12a971772f`). The reviewed boundary is now `90f64c8`. Non-blocking findings, both SUGGESTION:
   - With a plan that reaches the end of the month, the Planner's bounds start next month and only a mocked calendar tests it. Parent read `useCalendarState.ts`: with `{ from }` bounds a displayed month before the first one moves to it, so the real calendar opens inside the bounds. Not acted on.
   - The value 28 is written in each feature and each test, so nothing binds the two titles to the shopping title. Reported to the owner as a choice: a single definition needs a shared file outside the request.
+- 2026-10-07: **delivered.** The owner confirmed the merge: `feat/floating-calendar` merged into `Develop` with `--no-ff` as `48a65da` and pushed to `origin/Develop` (`9ffb79a..48a65da`). On the merge result: `npx jest` over home, planner, shopping, inventory, settings and recipe, 56 suites, 1018 passed; `npx tsc --noEmit` exit 0.
 
 ## Pending and unverified
 
@@ -162,4 +163,4 @@ Decisions 3, 4, 5, 7 and 9 are assumptions taken from the request, not confirmed
 
 ## Next step
 
-All tasks are done and reviewed. The owner decides the merge into `Develop`.
+None in this feature. The follow-ups are the ones listed under "Pending and unverified".
