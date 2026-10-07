@@ -38,12 +38,26 @@ defmodule MealPlannerApiWeb.ApiError do
           | :access_token_expired
           | :account_not_found
           | :trial_expired
+          | :invalid_email
+          | :email_not_found
+          | :rate_limited
+          | :code_invalid
+          | :code_expired
+          | :too_many_attempts
+          | :code_send_failed
 
   @codes %{
     unauthenticated: {401, "Authentication is required for this request."},
     access_token_expired: {401, "The access token has expired."},
     account_not_found: {401, "No active account is associated with this session."},
-    trial_expired: {403, "The trial period for this account has ended."}
+    trial_expired: {403, "The trial period for this account has ended."},
+    invalid_email: {422, "The email address is not valid."},
+    email_not_found: {404, "No account exists for this email address."},
+    rate_limited: {429, "Too many requests. Try again later."},
+    code_invalid: {422, "The verification code is not valid."},
+    code_expired: {401, "The verification code has expired."},
+    too_many_attempts: {429, "Too many failed attempts for this code. Request a new one."},
+    code_send_failed: {502, "The verification code could not be sent."}
   }
 
   @doc """
@@ -52,6 +66,11 @@ defmodule MealPlannerApiWeb.ApiError do
   Halting is deliberate: the renderer is used from plugs, where the request
   must stop here, and halting a conn that a controller action returns is a
   no-op.
+
+  Response headers already on the conn are kept, so a rate-limited answer
+  sets `retry-after` before the call:
+
+      conn |> put_resp_header("retry-after", "42") |> ApiError.error(:rate_limited)
   """
   @spec error(Plug.Conn.t(), code()) :: Plug.Conn.t()
   def error(%Plug.Conn{} = conn, code) when is_map_key(@codes, code) do

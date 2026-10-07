@@ -20,6 +20,9 @@ defmodule MealPlannerApi.Persistence.Auth.EmailVerificationCode do
     field(:code_hash, :string)
     field(:expires_at, :utc_datetime_usec)
     field(:consumed_at, :utc_datetime_usec)
+    # Failed verifications against this code, counted by the mobile login
+    # flow (`MealPlannerApi.Services.EmailCodeLogin`).
+    field(:attempts, :integer, default: 0)
 
     timestamps(type: :utc_datetime_usec)
   end

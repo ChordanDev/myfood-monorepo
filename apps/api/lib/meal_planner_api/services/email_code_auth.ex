@@ -295,6 +295,22 @@ defmodule MealPlannerApi.Services.EmailCodeAuth do
     :crypto.hash(:sha256, code) |> Base.encode16(case: :lower)
   end
 
+  @doc """
+  Reserves one slot in the rolling 1-hour request window for `email`
+  (already normalized) and, when `client_ip` is a usable address, for
+  that IP. Returns `{:error, :rate_limited, retry_after}` when either
+  counter is exhausted.
+
+  Must run inside a `Repo.transaction/2`: the advisory locks that
+  serialize concurrent requesters are transaction-scoped. Shared with
+  `MealPlannerApi.Services.EmailCodeLogin` so both request paths draw
+  from the same counters.
+  """
+  @spec reserve_request_slots(String.t(), String.t() | nil) :: :ok | rate_limited()
+  def reserve_request_slots(email, client_ip) when is_binary(email) do
+    reserve_slots(email, normalize_client_ip(client_ip))
+  end
+
   # ---------------------------------------------------------------------------
   # Rate limiting
   # ---------------------------------------------------------------------------
@@ -431,7 +447,12 @@ defmodule MealPlannerApi.Services.EmailCodeAuth do
 
   defp normalize_tx_result(other), do: other
 
-  defp normalize_email(email) do
+  @doc """
+  Canonical form of an email address as stored on verification codes
+  and rate-limit events: trimmed and lower-cased.
+  """
+  @spec normalize_email(String.t()) :: String.t()
+  def normalize_email(email) when is_binary(email) do
     email |> String.trim() |> String.downcase()
   end
 
@@ -473,7 +494,12 @@ defmodule MealPlannerApi.Services.EmailCodeAuth do
     |> Repo.one()
   end
 
-  defp mint_code do
+  @doc """
+  Mints a fresh six-digit plaintext code. The caller stores only its
+  `hash_code/1` digest and never logs the plaintext.
+  """
+  @spec mint_code() :: String.t()
+  def mint_code do
     # Six numeric digits in [100000, 999999], zero-padded.
     min = 100_000
     max = 999_999
@@ -484,16 +510,23 @@ defmodule MealPlannerApi.Services.EmailCodeAuth do
   end
 
   defp deliver_code(user, email, code) do
+    Mailer.deliver_now(code_email(user, email, code))
+    :ok
+  end
+
+  @doc """
+  Builds the verification-code email for `user` at `email`, addressed
+  by the User's name when it has one. Delivery is left to the caller.
+  """
+  @spec code_email(PersistenceUser.t(), String.t(), String.t()) :: Bamboo.Email.t()
+  def code_email(%PersistenceUser{} = user, email, code) do
     name =
       case is_binary(user.name) and user.name != "" do
         true -> user.name
         false -> nil
       end
 
-    email_record = build_email(email, code, name)
-
-    Mailer.deliver_now(email_record)
-    :ok
+    build_email(email, code, name)
   end
 
   defp build_email(email, code, nil), do: EmailCodeEmail.build(email, code)
