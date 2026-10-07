@@ -29,7 +29,7 @@ export type RecipeChatReply = {
 };
 
 export const RECIPE_CHAT_PLACEHOLDER = 'Preguntale a la IA sobre la receta';
-export const RECIPE_CHAT_DISABLED_PLACEHOLDER = 'El chat se habilita el día de la receta';
+export const RECIPE_CHAT_DISABLED_PLACEHOLDER = 'Chat disponible el día de la receta';
 
 const OFFER_ACTIONS: RecipeChatAction[] = [
   { id: 'confirm_add', label: 'Sí, agregalo' },

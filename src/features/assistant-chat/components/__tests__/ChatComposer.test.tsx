@@ -1368,7 +1368,7 @@ describe('ChatComposer screen-specific props', () => {
     const { tree } = renderComposer({
       disabled: true,
       onSubmit,
-      placeholder: 'El chat se habilita el día de la receta',
+      placeholder: 'Chat disponible el día de la receta',
       value: 'Hola',
     });
     const input = getInput(tree);
@@ -1386,10 +1386,10 @@ describe('ChatComposer screen-specific props', () => {
   it('announces why it is disabled, since the visible placeholder is hidden from assistive tech', () => {
     const { tree } = renderComposer({
       disabled: true,
-      placeholder: 'El chat se habilita el día de la receta',
+      placeholder: 'Chat disponible el día de la receta',
     });
 
-    expect(getInput(tree).props.accessibilityLabel).toBe('El chat se habilita el día de la receta');
+    expect(getInput(tree).props.accessibilityLabel).toBe('Chat disponible el día de la receta');
   });
 });
 

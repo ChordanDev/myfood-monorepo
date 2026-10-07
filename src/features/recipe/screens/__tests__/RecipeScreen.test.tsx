@@ -445,7 +445,7 @@ describe('RecipeScreen', () => {
       const composer = getComposer(tree);
 
       expect(composer.props.disabled).toBe(true);
-      expect(composer.props.placeholder).toBe('El chat se habilita el día de la receta');
+      expect(composer.props.placeholder).toBe('Chat disponible el día de la receta');
       expect(renderedTexts(tree)).toEqual(
         expect.arrayContaining(['Asistente de cocina', 'Arroz blanco', 'Cocinar el arroz.'])
       );

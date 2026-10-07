@@ -303,6 +303,6 @@ describe('chat composer copy', () => {
   });
 
   it('explains when the chat becomes available', () => {
-    expect(RECIPE_CHAT_DISABLED_PLACEHOLDER).toBe('El chat se habilita el día de la receta');
+    expect(RECIPE_CHAT_DISABLED_PLACEHOLDER).toBe('Chat disponible el día de la receta');
   });
 });
