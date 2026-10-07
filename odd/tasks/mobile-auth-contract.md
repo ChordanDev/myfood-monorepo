@@ -50,7 +50,7 @@ Mobile calls `POST /api/auth/{signup,login}/{request-code,verify-code}`, `/api/a
 
 - Forecast: ~1,400 authored changed lines (migrations, schema, controller, serializer, plugs, tests). Exceeds the ~400-line delivery budget.
 - Strategy: `ask-on-risk` → user chose `stacked-to-main` (2026-10-07). Slices: S1 = T0+T1 on `feat/mobile-auth-contract`; S2 = T2 on `feat/mobile-auth-device-sessions` (stacked on S1); S3 = T3 on `feat/mobile-auth-current-me`; S4 = T4 on `feat/mobile-auth-routes`; S5 = T5 on `feat/mobile-auth-contract-closure`. Each slice is its own PR to `main`, merged in order. PR creation is the user's call.
-- Reviewed boundary: `2597aae` (T0 approved and acknowledged).
+- Reviewed boundary: `2c81e7f` (T1 approved and acknowledged, lineage review-82b588bedd4d55ed; 13 advisory findings carried to #6 comment, #9, #10 and the cross-cutting envelope ticket).
 
 ## Next step
 
