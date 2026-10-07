@@ -54,8 +54,9 @@ Decisions 3 to 9 are assumptions taken from the request, not confirmed one by on
 
 - [x] **T1 — Calendar rules.** `Calendar` and `useCalendarState` accept the selectable-day rule, the month bounds and a range; `DayCell` draws the range (ends as selected, days between as a tint). Pure range helpers. Home unchanged. Tests RED first. Route: delegated writer (2+ non-trivial files). Commit `423cf0d`.
 - [x] **T2 — Floating calendar.** Popover wrapper anchored under its trigger, exported from `@/features/home`. Tests for open, pick and dismiss. Route: delegated writer (with T1). Commit `9c996c7`.
-- [ ] **T3 — Shopping "Hasta".** Chosen day in the store with its fallback; the derivation, the hook and the pill use it; the pill becomes a button that opens the floating calendar. Tests RED first. Route: delegated writer.
-- [ ] **T4 — Planner range.** Range helpers and label formatter; the header pill opens the floating calendar in range mode and shows the label. Tests RED first. Route: delegated writer.
+- [x] **T3 — Shopping "Hasta".** Chosen day in the store with its fallback; the derivation, the hook and the pill use it; the pill becomes a button that opens the floating calendar. Tests RED first. Route: delegated writer. Commit `a66bb17`.
+- [ ] **T4 — Planner range.** Range helpers and label formatter; the header pill opens the floating calendar in range mode and shows the label. Also the test the T1/T2 review asked for: pressing a range end completes a one-day range. Tests RED first. Route: delegated writer.
+- [ ] **T5 — Shopping follow-ups from the T3 review.** With no selectable day (every planned meal is in the past) the pill is not a button and opens nothing; the default-argument test of `getTodayKey` uses a fixed clock. Tests RED first. Route: delegated writer (before T4, same run).
 
 ## Acceptance criteria
 
@@ -90,11 +91,27 @@ Decisions 3 to 9 are assumptions taken from the request, not confirmed one by on
   - SUGGESTION: the popover is clamped horizontally only. Latent: both pills sit at the top of their screen. Follow-up, not in this feature.
   - SUGGESTION: the anchor's open path has no assertion for an unset ref or an unmeasurable view, and a translucent status bar can offset the popover on Android. Follow-up: check on Android.
 
+- 2026-10-07: review assessment of `ccefe1f` from boundary `9c996c7`: `passive`, not due.
+- 2026-10-07: **T3** `a66bb17` (20 files, +1165/−50; source +239/−45, tests +926/−5), same delegated writer.
+  - Store: `chosenUntilDate` and `setChosenUntilDate`, persisted through `partialize`, version unchanged. Domain: `getSelectableUntilDates`, `resolveUntilDate`, `getUntilCalendar`, `formatUntilButtonLabel`; `deriveFullShoppingList` became `deriveCurrentShoppingList(sources, todayKey)`. Hook: `untilDate` is now the effective date, plus `untilCalendar` and `setUntilDate`. The pill owns the popover.
+  - RED/GREEN as reported by the writer: domain RED 20 failed, GREEN; store RED on the new tests, GREEN; `readShoppingListItems` unwired to observe RED (3 failed), then restored; `useShoppingList` RED 11 failed, GREEN; pill RED 7 failed, GREEN 9/9. `useShoppingListItems` had no behavioral RED (the file was mid-rename).
+  - Checks reported by the writer: `npx jest src/features/shopping` 393 passed; `npx jest src/features/home src/features/recipe src/features/planner` 338 passed, no recipe test changed; `npx tsc --noEmit` exit 0; `npm run lint` 0 errors, the same 7 warnings; no color literal in the 11 touched sources.
+  - Parent spot check: `npx jest src/features/shopping` 17 suites, 393 passed.
+  - Cart consistency: no code change needed. Count, sheet and purchase derive from the list, so a row the chosen day leaves out is not counted, shown or bought; its id stays in `cartIds`, so widening the range brings it back in the cart.
+  - Existing tests changed: the screen test that asserted the pill is not a button now asserts it is; the `deriveFullShoppingList` test follows the rename.
+  - Decisions taken by the writer: picking the last planned day clears the choice, so the list follows the plan as it grows; a day whose meals are all cooked is still selectable; the calendar marks only planned days from today on.
+- 2026-10-07: review of `9c996c7..a66bb17`: medium (`slice_budget_reached`), consent **granted** by the owner, one lens (reliability), **approved** and acknowledged (lineage `review-fbf1fc69dde821da`). The reviewed boundary is now `a66bb17`. Non-blocking findings:
+  - WARNING: with every planned meal in the past the pill is still a button and opens a calendar with no month and no selectable day. Accepted: **T5**.
+  - WARNING: the rendered list reads today once per render, while an action reads it on every call (parent confirmed: `readShoppingListItems` calls `getTodayKey()`). If the chosen day passes at midnight with the screen mounted, a purchase could buy a carted row the screen still hides. Not fixed here: it needs a day-change subscription. Known limitation.
+  - SUGGESTION: the stored date key is only validated inside the migration, which stored states at the current version never run. Low risk: `resolveUntilDate` ignores any value that is not a selectable day. Not acted on.
+  - SUGGESTION: the default-argument test of `getTodayKey` reads the real clock twice. Accepted: **T5**.
+
 ## Pending and unverified
 
-- No simulator pass yet: the popover's look is unverified until T3 wires it to a screen.
+- No simulator pass yet: the shopping pill with the real `FloatingCalendar` never ran, every suite mocks `@/features/home`.
+- The shopping list does not re-derive at midnight until something re-renders (see the T3 review).
 - The calendar opens on the current month, not on the month of the selected day.
 
 ## Next step
 
-T3, same delegated writer.
+T5 then T4, same delegated writer. Then a simulator pass on both screens.
