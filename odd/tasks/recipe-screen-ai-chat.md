@@ -142,6 +142,14 @@ Follow-ups after T13 (2026-10-07, inline, owner approved the shorter copy):
 
 Evidence: `npx jest src/features/recipe src/features/assistant-chat src/features/planner`: 16 suites, 309 tests passed. `npx tsc --noEmit`: 22, same as the base. Simulator (iPhone 17 Pro): on a future day the placeholder shows complete and, after reopening the recipe, the screen is drawn in the recipe palette.
 
+## Update with Develop (2026-10-07, owner request)
+
+`origin/Develop` (0c30b24, 55 commits: issues #44 to #48) merged into the branch. One textual conflict, `docs/THEMING.md`. The domain changed under the recipe feature (41 type errors after the merge), adapted by one delegated writer inside the merge commit: `UnitType` is `g | ml | unit`; `useInventoryStore` and `InventoryItem` come from `@/features/inventory`, stock is the summed `quantity` of the items linked to the ingredient; `canMarkAsCooked` refuses a skipped entry.
+
+Evidence: `npx tsc --noEmit`: 0 errors (Develop: 0). `npx jest src/features/recipe src/features/assistant-chat src/features/planner`: 16 suites, 315 tests passed (re-run by the parent). `npm test` in the worktree: 1205 passed, 2 failed, both in `src/services/__tests__/authErrorCodeContract.test.ts`; that suite looks for the backend as a sibling of the checkout and passes in the main checkout (Develop there: 70 suites, 1021 tests passed). `npm run lint`: 0 errors. Not re-run on the simulator after the merge.
+
+Open decision for the owner: the shopping list of #44 is derived from the plan (planned amount minus inventory), so a missing ingredient of a planned recipe is already on that list. "Falta · agregar" and the chat's "Sí, agregalo" still write to the recipe's own `useShoppingRequestsStore`, which the Carrito screen does not read. The replacement is not a mechanical swap: `useShoppingListStore` only adds name-only manual items and the shopping barrel exports the screen alone. Requests persisted before this merge keep the retired unit names.
+
 ## Next step
 
-Owner chooses the chain strategy before any pull request. The branch is 55 commits behind `origin/Develop`.
+Merge into `Develop` (owner request). Then the owner decides how "agregar" should relate to the derived shopping list.
