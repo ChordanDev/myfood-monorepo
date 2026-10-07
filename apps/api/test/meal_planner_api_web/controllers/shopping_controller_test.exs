@@ -15,7 +15,7 @@ defmodule MealPlannerApiWeb.ShoppingControllerTest do
   alias MealPlannerApi.Repo
 
   describe "shopping capability gate — flag enabled (#36 AC 1)" do
-    test "expired Account receives 403 subscription_required", %{conn: conn} do
+    test "expired Account receives 403 trial_expired", %{conn: conn} do
       user =
         user_with_memberships(
           %{email: "shopping_expired_#{Ecto.UUID.generate()}@example.com"},
@@ -37,7 +37,7 @@ defmodule MealPlannerApiWeb.ShoppingControllerTest do
             "to_date" => Date.to_iso8601(Date.add(today, 6))
           })
 
-        assert %{"error" => "subscription_required"} = json_response(conn, 403)
+        assert %{"error" => %{"code" => "trial_expired"}} = json_response(conn, 403)
       end)
     end
 

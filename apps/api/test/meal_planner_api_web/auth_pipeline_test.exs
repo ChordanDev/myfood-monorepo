@@ -22,7 +22,9 @@ defmodule MealPlannerApiWeb.AuthPipelineTest do
   in `load_current_membership_test.exs` and the integration tests that
   hit `:auth`-piped routes via `ConnCase`.
   """
-  use ExUnit.Case, async: false
+  use MealPlannerApiWeb.ConnCase, async: false
+
+  import MealPlannerApi.FactoryHelpers
 
   alias MealPlannerApi.Auth.Guardian
 
@@ -72,6 +74,115 @@ defmodule MealPlannerApiWeb.AuthPipelineTest do
       assert claims["typ"] == "access_v2"
       assert claims["membership_id"] == "00000000-0000-0000-0000-000000000004"
       assert claims["plan"] == "family_4"
+    end
+  end
+
+  # Issue #1 ("Token lifetimes" / "Error envelope helper"): every 401 the
+  # `:auth` pipeline emits is the mobile envelope
+  # `{"error": {"code": ..., "message": ...}}` with an allowlisted code.
+  # `GET /api/me` is the representative `:auth`-piped route.
+  describe "error envelope through the :auth pipeline" do
+    test "an expired access token is rejected with 401 access_token_expired", %{conn: conn} do
+      user =
+        user_with_memberships(%{email: "expired-access@example.com"}, [
+          {%{plan: :individual, name: "Expired Access"}, :owner}
+        ])
+
+      [membership] = user.memberships
+      claims = MealPlannerApi.AccountsMembership.claims_for(user, membership)
+      expired_claims = Map.put(claims, "exp", System.os_time(:second) - 10)
+
+      {:ok, token, _} = Guardian.encode_and_sign(user, expired_claims, token_type: "access")
+
+      conn =
+        conn
+        |> put_req_header("authorization", "Bearer " <> token)
+        |> get("/api/me")
+
+      assert %{"error" => %{"code" => "access_token_expired", "message" => _}} =
+               json_response(conn, 401)
+    end
+
+    test "a missing Authorization header is rejected with 401 unauthenticated", %{conn: conn} do
+      conn = get(conn, "/api/me")
+
+      assert %{"error" => %{"code" => "unauthenticated", "message" => _}} =
+               json_response(conn, 401)
+    end
+
+    test "a malformed bearer token is rejected with 401 unauthenticated", %{conn: conn} do
+      conn =
+        conn
+        |> put_req_header("authorization", "Bearer not-a-real-jwt")
+        |> get("/api/me")
+
+      assert %{"error" => %{"code" => "unauthenticated", "message" => _}} =
+               json_response(conn, 401)
+    end
+
+    test "an unsupported token typ is rejected with 401 unauthenticated", %{conn: conn} do
+      {:ok, token, _} =
+        Guardian.encode_and_sign(
+          %{id: "00000000-0000-0000-0000-000000000010"},
+          %{"typ" => "access_v3", "account_id" => "00000000-0000-0000-0000-000000000011"},
+          token_type: "access"
+        )
+
+      conn =
+        conn
+        |> put_req_header("authorization", "Bearer " <> token)
+        |> get("/api/me")
+
+      assert %{"error" => %{"code" => "unauthenticated", "message" => _}} =
+               json_response(conn, 401)
+    end
+
+    test "a refresh token presented as Bearer is rejected with 401 unauthenticated", %{
+      conn: conn
+    } do
+      user =
+        user_with_memberships(%{email: "refresh-as-bearer@example.com"}, [
+          {%{plan: :individual, name: "Refresh As Bearer"}, :owner}
+        ])
+
+      [membership] = user.memberships
+      claims = MealPlannerApi.AccountsMembership.claims_for(user, membership)
+
+      {:ok, _access, refresh_token} =
+        MealPlannerApiWeb.Controllers.AccountScopeHelpers.mint_token_pair(user, claims)
+
+      conn =
+        conn
+        |> put_req_header("authorization", "Bearer " <> refresh_token)
+        |> get("/api/me")
+
+      assert %{"error" => %{"code" => "unauthenticated", "message" => _}} =
+               json_response(conn, 401)
+    end
+
+    test "an access_v2 token without a membership claim is rejected with 401 account_not_found",
+         %{conn: conn} do
+      user =
+        user_with_memberships(%{email: "no-membership-claim@example.com"}, [
+          {%{plan: :individual, name: "No Membership Claim"}, :owner}
+        ])
+
+      [membership] = user.memberships
+
+      claims =
+        user
+        |> MealPlannerApi.AccountsMembership.claims_for(membership)
+        |> Map.delete("membership_id")
+
+      {:ok, token, _} = Guardian.encode_and_sign(user, claims, token_type: "access")
+
+      conn =
+        conn
+        |> put_req_header("authorization", "Bearer " <> token)
+        |> get("/api/me")
+
+      assert %{"error" => %{"code" => "account_not_found", "message" => _}} =
+               json_response(conn, 401)
     end
   end
 

@@ -121,7 +121,7 @@ defmodule MealPlannerApiWeb.Plugs.LoadCurrentMembershipTest do
 
           assert conn.halted
           assert conn.status == 401
-          assert json_response(conn, 401)["error"] == "membership_id_required"
+          assert json_response(conn, 401)["error"]["code"] == "account_not_found"
         end)
 
       # Post-review fix (BLOCKER item 1): this fail-closed denial MUST be
@@ -249,10 +249,10 @@ defmodule MealPlannerApiWeb.Plugs.LoadCurrentMembershipTest do
 
       assert conn.halted
       assert conn.status == 401
-      assert json_response(conn, 401)["error"] == "membership_id_required"
+      assert json_response(conn, 401)["error"]["code"] == "account_not_found"
     end
 
-    test "access_v2 token without membership_id halts with 401 membership_id_required", %{
+    test "access_v2 token without membership_id halts with 401 account_not_found", %{
       conn: conn
     } do
       plan = Repo.get_by!(MealPlannerApi.Subscriptions.Plan, name: "individual")
@@ -296,7 +296,7 @@ defmodule MealPlannerApiWeb.Plugs.LoadCurrentMembershipTest do
       assert conn.halted
       assert conn.status == 401
       body = json_response(conn, 401)
-      assert body["error"] == "membership_id_required"
+      assert body["error"]["code"] == "account_not_found"
     end
   end
 

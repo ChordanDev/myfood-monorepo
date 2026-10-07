@@ -132,7 +132,7 @@ defmodule MealPlannerApi.Persistence.Accounts.AccountMembershipQueriesTest do
 
       assert conn.halted
       assert conn.status == 401
-      assert json_response(conn, 401)["error"] == "membership_id_required"
+      assert json_response(conn, 401)["error"]["code"] == "account_not_found"
     end
   end
 

@@ -150,6 +150,62 @@ defmodule MealPlannerApi.Auth.GuardianTest do
     end
   end
 
+  # Issue #1 ("Token lifetimes"): access tokens live 1 hour, refresh
+  # tokens 30 days, configured per `typ` through Guardian's `token_ttl`.
+  describe "token lifetimes per typ" do
+    @one_hour 60 * 60
+    @thirty_days 30 * 24 * 60 * 60
+
+    test "a legacy access token expires 1 hour after issue" do
+      {:ok, token, _} =
+        Guardian.encode_and_sign(
+          %{id: "00000000-0000-0000-0000-000000000020"},
+          %{"typ" => "access", "account_id" => "00000000-0000-0000-0000-000000000021"},
+          token_type: "access"
+        )
+
+      {:ok, %{"iat" => iat, "exp" => exp}} = Guardian.decode_and_verify(token)
+      assert exp - iat == @one_hour
+    end
+
+    test "an access_v2 token expires 1 hour after issue" do
+      user =
+        user_with_memberships(%{email: "ttl-v2@example.com"}, [
+          {%{plan: :individual, name: "TTL V2"}, :owner}
+        ])
+
+      [membership] = user.memberships
+      token = issue_access_v2_token(user, membership)
+
+      {:ok, %{"typ" => "access_v2", "iat" => iat, "exp" => exp}} =
+        Guardian.decode_and_verify(token)
+
+      assert exp - iat == @one_hour
+    end
+
+    test "a refresh token minted by mint_token_pair/2 expires 30 days after issue" do
+      user =
+        user_with_memberships(%{email: "ttl-refresh@example.com"}, [
+          {%{plan: :individual, name: "TTL Refresh"}, :owner}
+        ])
+
+      [membership] = user.memberships
+      claims = MealPlannerApi.AccountsMembership.claims_for(user, membership)
+
+      {:ok, access_token, refresh_token} =
+        MealPlannerApiWeb.Controllers.AccountScopeHelpers.mint_token_pair(user, claims)
+
+      {:ok, %{"typ" => "access_v2", "iat" => access_iat, "exp" => access_exp}} =
+        Guardian.decode_and_verify(access_token)
+
+      {:ok, %{"typ" => "refresh", "iat" => refresh_iat, "exp" => refresh_exp}} =
+        Guardian.decode_and_verify(refresh_token, %{}, token_type: "refresh")
+
+      assert access_exp - access_iat == @one_hour
+      assert refresh_exp - refresh_iat == @thirty_days
+    end
+  end
+
   describe "factory_helpers issue_access_v2_token/2 is the canonical entry point" do
     test "produces a token that verifies under both Guardian and the pipeline" do
       user =

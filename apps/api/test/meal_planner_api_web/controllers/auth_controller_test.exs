@@ -86,7 +86,7 @@ defmodule MealPlannerApiWeb.AuthControllerTest do
       |> get("/api/me")
 
     body = json_response(conn, 401)
-    assert body["error"] == "unauthorized"
+    assert body["error"]["code"] == "unauthenticated"
   end
 
   test "password endpoint fails when required fields are missing", %{conn: conn} do

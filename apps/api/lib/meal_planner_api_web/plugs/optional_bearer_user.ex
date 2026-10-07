@@ -12,8 +12,9 @@ defmodule MealPlannerApiWeb.Plugs.OptionalBearerUser do
     * **Header present + valid** → assigns `:optional_current_user_id`
       with the decoded JWT subject. The controller forwards
       `principal: <user_id>` to the service.
-    * **Header present + invalid** → halts with `401 invalid_bearer` and
-      a JSON body. The service is never called.
+    * **Header present + invalid** → halts with `401 unauthenticated`
+      rendered as the mobile envelope by `MealPlannerApiWeb.ApiError`
+      (issue #1). The service is never called.
 
   The plug deliberately does NOT load the full `%User{}` row — the
   verify service only needs the resolved `user_id` for principal
@@ -24,6 +25,7 @@ defmodule MealPlannerApiWeb.Plugs.OptionalBearerUser do
   @behaviour Plug
 
   alias MealPlannerApi.Auth.Guardian
+  alias MealPlannerApiWeb.ApiError
   alias Plug.Conn
 
   @impl true
@@ -62,8 +64,6 @@ defmodule MealPlannerApiWeb.Plugs.OptionalBearerUser do
   end
 
   defp halt_invalid_bearer(conn) do
-    conn = Conn.put_resp_content_type(conn, "application/json")
-    conn = Conn.send_resp(conn, 401, ~s({"error":"invalid_bearer"}))
-    Conn.halt(conn)
+    conn |> ApiError.error(:unauthenticated)
   end
 end
