@@ -74,12 +74,6 @@ export interface MealPlanEntry {
   isSkipped?: boolean; // The meal passed and was not cooked. Never true together with isCooked.
 }
 
-export interface ShoppingListItem {
-  ingredientId: string;
-  amountToBuy: number;
-  isPurchased: boolean;
-}
-
 export type BudgetLevel = 'muy barato' | 'estándar' | 'premium';
 
 export interface UserPreferences {
