@@ -65,3 +65,15 @@ Cerrar el ciclo entre la planificación y la ejecución mediante la gestión aut
 - **Consumo Automático**: Al marcar una receta como "Cocinada", se deducen los ingredientes correspondientes del inventario y se limpian de la lista activa los ítems asociados a esa receta.
 - **Inventario Insuficiente al Cocinar**: El inventario no puede quedar negativo. Si una receta requiere más cantidad que la disponible, el backend descuenta hasta cero, registra el `InventoryMovement` con discrepancia y puede avisar al usuario que el inventario estimado fue ajustado.
 - **Priorización**: El AI Planner siempre consultará este inventario antes de proponer nuevas recetas.
+
+### 4.1. Cambios sin Conexión y Cola de Sincronización
+
+- **Fuente de Verdad**: El backend es la única fuente de verdad de inventario y lista de compras. El front aplica cada cambio en su estado local para que el usuario lo vea al instante, incluso sin conexión. Ese valor local es provisorio hasta que el backend lo confirma.
+- **Cola de Acciones**: Cada cambio del usuario sobre lista o inventario (marcar o desmarcar un ítem como comprado, agregar o quitar un ítem, ajustar una cantidad, marcar una receta como cocinada) se guarda como una acción en una cola local persistente. La cola se envía al backend en el mismo orden en que ocurrieron las acciones y sobrevive al cierre de la app.
+- **Idempotencia**: Cada acción lleva un identificador único generado en el front. El backend no vuelve a aplicar una acción que ya aplicó, de modo que un reintento no duplica un `InventoryMovement`.
+- **Front Adelantado**: Mientras la cola tiene acciones pendientes, el front tiene cambios que el backend todavía no conoce. Es un estado esperado y transitorio que se resuelve al vaciar la cola. Nunca se resuelve enviando el inventario completo: el front envía acciones, no una copia de su estado, para que cada cambio conserve su `InventoryMovement`.
+- **Backend Adelantado**: El backend expone una versión del inventario que aumenta con cada movimiento. El front guarda la última versión que recibió y, si el backend informa una mayor, vuelve a pedir `GET /inventory`. Si además tiene acciones pendientes, primero vacía la cola y después actualiza.
+- **Reconciliación**: La respuesta del backend reemplaza el valor provisorio del front. Ejemplo: si al cocinar el inventario no alcanzaba, el backend descuenta hasta cero y el front muestra ese resultado aunque su cálculo local fuera otro.
+- **Acciones Rechazadas**: Si el backend rechaza una acción de la cola, el front revierte ese cambio local, lo informa al usuario y continúa con las acciones siguientes.
+- **Antes de Planificar**: Antes de pedir un plan al AI Planner, el front vacía la cola. Si no puede vaciarla, no inicia la planificación y lo informa, porque el plan se calcularía sobre un inventario desactualizado.
+- **Funciones que Requieren Conexión**: El AI Planner y el ajuste de inventario por voz dependen de IA del backend. No se encolan: sin conexión no están disponibles.
