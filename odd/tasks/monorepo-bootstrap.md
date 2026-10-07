@@ -49,8 +49,8 @@ Out: porting any `progra-3-back` feature, changing the backend/mobile API contra
 - [x] T3 — Import mobile: `git subtree add --prefix=apps/mobile` from front `Develop`. Route: inline. Check: `apps/mobile/package.json` Expo 57, history count ≈ 280.
 - [x] T4 — Import docs: `git subtree add --prefix=docs` from meal-app-docs `origin/develop`. Route: inline. Check: `docs/docs/PRD_BACKEND.md` present.
 - [x] T5 — Cleanup + layout fixes (delegated writer, 2+ non-trivial files): remove tracked leftovers (`.DS_Store`, `.pi/`, `.atl/`, mobile `.env`, `fix-auth-colors.js`, duplicate `priv/openspec`), fix optimizer default path and `dev.exs` config nesting, rewrite mobile CI contract-test sibling paths to `../api/lib`, remove the mobile workflow's backend clone step, root README, root `.github/workflows/ci.yml` with `api` and `mobile` jobs. Check: `mix compile --warnings-as-errors` in `apps/api`; `npx tsc --noEmit` and `npx jest` in `apps/mobile` (contract test may fail by design — record).
-- [ ] T6 — Verification worker: run the T5 checks in fresh workers, record observed results here.
-- [ ] T7 — Publish: `gh repo create ChordanDev/myfood-monorepo --private`, push `main`. User-authorized in this session.
+- [x] T6 — Verification worker: run the T5 checks in fresh workers, record observed results here.
+- [x] T7 — Publish: `gh repo create ChordanDev/myfood-monorepo --private`, push `main`. User-authorized in this session.
 
 ## Acceptance criteria
 
@@ -71,6 +71,8 @@ Authored changed lines (excluding imported history): ~250 (README, CI, path fixe
 - T4 — `e4c0a7c chore(docs): import meal-app-docs develop ...`. Observed: `docs/docs/PRD_BACKEND.md` present.
 - T5 — commits `bcfe95c` (leftovers + openspec consolidation), `bc69f9f` (optimizer path + dev config), `5a243dd` (root CI, contract test path, README). Parent spot check: `OptimizerPortRunner.default_script_path()` resolves to `apps/api/optimizer/optimizador.py`, exists=true. README python test line corrected to run from `optimizer/`.
 - Native review: `gentle-ai review assess` on `e4c0a7c..HEAD` → risk `high`, `review_due=true (high_risk)`; consent granted by user; lineage `review-50ada2c3fb5300f3`, four lenses captured in process (risk, resilience, readability admitted `completed`; reliability closed the review). Outcome: approved, no correction required; acknowledged (`gentle-ai.review-acknowledged/v1`). Reviewed boundary now `5a243dd`.
+- T6 — Verification. Local: `npx jest --ci` in `apps/mobile` → 92 suites, 1438 passed, 1 skipped (the contract test); `npm run lint` → 0 errors, 4 pre-existing unused-var warnings. Local `mix test` blocked: `apps/api/config/test.exs` hardcodes `postgres/postgres` and this machine has no `postgres` role (pre-existing, identical in the source repo). CI run on `66314ec` (Elixir 1.17.3/OTP 27.3): mobile job success; api job compiled, `mix test` → 912 tests, 3 failures, 20 skipped. The 3 failures are all `planning_candidate_builder_test.exs` (`{:error, :plan_not_found}`); those files were last touched by the import commit `c74eb00` and the bootstrap commits only changed `config/dev.exs` and `optimizer_port_runner.ex` in `apps/api` (`git diff --stat e4c0a7c..HEAD`), so the failures are pre-existing in the source repo, not a regression. Left for the backend owner.
+- T7 — Published: https://github.com/ChordanDev/myfood-monorepo (private, default `main`), pushed at `66314ec`.
 
 ### T5 — Cleanup + layout fixes (delegated writer; checkbox left to the parent)
 
@@ -105,4 +107,4 @@ Not run here (separate verification pass): full `mix test`, full `npx jest`.
 
 ## Next step
 
-T6 (full suites, in progress) → native review acknowledgement → T7 publish.
+Done. Follow-up work (separate feature): port the progra-3-back auth/onboarding/preferences contract into apps/api; fix the 3 pre-existing planning_candidate_builder failures; make test.exs credentials env-driven.
