@@ -26,7 +26,7 @@ import { Alert } from 'react-native';
 import { act, create } from 'react-test-renderer';
 import type { CurrentMe, AuthContextValue } from '@/features/auth/types/auth';
 import { AuthContext } from '@/features/auth/context/AuthContext';
-import { OnboardingScreen } from '@/features/preferences/screens/OnboardingScreen';
+import { OnboardingScreen } from '@/features/onboarding/screens/OnboardingScreen';
 
 const mockRouterReplace = jest.fn();
 const mockRouterPush = jest.fn();
@@ -73,6 +73,8 @@ jest.mock('@/context/RecipeThemeContext', () => ({
       primaryAccent: '#ff0',
       colorBlack: '#000',
       colorDark: '#111',
+      textDark: '#222',
+      primaryAccentIntense: '#333',
     },
   }),
 }));
@@ -81,6 +83,7 @@ jest.mock('@/components', () => {
   return {
     NoisyBackground: () => null,
     SafeAreaContent: ({ children }: { children: unknown }) => children,
+    ShadowSurface: ({ children }: { children: unknown }) => children,
   };
 });
 
@@ -94,14 +97,16 @@ jest.mock('@/features/preferences/constants/catalog', () => ({
   DIET_LABELS: {},
   HARD_RESTRICTION_CODES: [],
   HARD_RESTRICTION_LABELS: {},
+  isValidDietCode: () => true,
+  isValidHardRestrictionCode: () => true,
 }));
 
-jest.mock('@/features/preferences/utils/onboardingPayload', () => ({
+jest.mock('@/features/onboarding/utils/onboardingPayload', () => ({
   buildOnboardingPayload: jest.fn(),
   OnboardingValidationError: class extends Error {},
 }));
 
-jest.mock('@/features/preferences/utils/onboardingSubmitGate', () => ({
+jest.mock('@/features/onboarding/utils/onboardingSubmitGate', () => ({
   canSubmitOnboarding: () => true,
 }));
 
@@ -265,10 +270,14 @@ describe('OnboardingScreen — post-completion redirect stabilization (Judgment 
     });
     const { tree } = renderOnboardingPreviewWithValue(buildContext(me, { completeOnboarding }));
 
-    await act(async () => {
-      await findButtonByText(tree.root, 'Guardar preferencias').props.onPress();
-    });
+    // The submit action lives on the last of the three steps.
+    for (const label of ['CONTINUAR', 'CONTINUAR', 'FINALIZAR']) {
+      await act(async () => {
+        await findButtonByText(tree.root, label).props.onPress();
+      });
+    }
 
+    expect(Alert.alert).toHaveBeenCalledWith('Modo preview', expect.any(String));
     expect(completeOnboarding).not.toHaveBeenCalled();
     expect(mockRouterReplace).not.toHaveBeenCalled();
     unmountTree(tree);

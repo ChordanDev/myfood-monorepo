@@ -19,7 +19,7 @@ import {
 import {
   COOKING_SKILL_LABELS,
   HUNGER_LEVEL_LABELS,
-} from '@/features/preferences/constants/onboardingOptions';
+} from '@/features/preferences/constants/preferenceOptions';
 import { ACCOUNT_TYPE_LABELS } from '../constants/settingsLabels';
 
 const MAX_INITIALS = 2;

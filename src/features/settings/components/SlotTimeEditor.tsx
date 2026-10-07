@@ -2,8 +2,8 @@ import type { HungerLevel } from '@/features/auth/types/auth';
 import {
   HUNGER_LEVEL_LABELS,
   HUNGER_LEVELS,
-} from '@/features/preferences/constants/onboardingOptions';
-import { buildSlot } from '@/features/preferences/utils/onboardingSlot';
+} from '@/features/preferences/constants/preferenceOptions';
+import { buildSlot } from '@/features/preferences/utils/slotCookingTime';
 import type { SlotDraft } from '../utils/settingsDraft';
 import { formatCookingTime } from '../utils/settingsFormatters';
 import { SettingsChip, SettingsChipGroup } from './SettingsChip';

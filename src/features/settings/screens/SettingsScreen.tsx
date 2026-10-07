@@ -6,7 +6,7 @@ import { NoisyBackground, SafeAreaContent, TitlePrimary } from '@/components';
 import { useRecipeTheme } from '@/context/RecipeThemeContext';
 import { useAuth } from '@/features/auth';
 import { CUSTOM_TAB_BAR_CONTENT_HEIGHT } from '@/features/planner/constants';
-import { MEAL_SLOTS, SLOT_LABELS } from '@/features/preferences/constants/onboardingOptions';
+import { MEAL_SLOTS, SLOT_LABELS } from '@/features/preferences/constants/preferenceOptions';
 import { useGradientCrossfade } from '@/hooks/useGradientCrossfade';
 import { getTitleMetrics } from '@/utils/responsive';
 import {

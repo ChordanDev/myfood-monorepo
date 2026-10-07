@@ -146,5 +146,9 @@ cross-project change: update the shared docs first (see
 - **Payload shape:** whether each meal arrives with its full palette values, as
   the mocks do today (`MasterRecipe.theme`), or with a palette id plus a
   separate catalog request.
-- **Auth and onboarding:** whether pre-login screens use the default palette or
-  keep their own static colors.
+- **Auth:** whether pre-login screens use the default palette or keep their own
+  static colors.
+
+Decided: **onboarding** uses the default palette through tokens, like any other
+screen. No component or screen under `src/features/onboarding/` carries a color
+literal; the only hex values there are the mock palettes of its tests.

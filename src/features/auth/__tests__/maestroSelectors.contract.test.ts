@@ -80,7 +80,7 @@ describe('Maestro login tracer selector contract', () => {
       'testID="e2e-verify-code"'
     );
     expect(
-      readFileSync(resolve(__dirname, '../../preferences/screens/OnboardingScreen.tsx'), 'utf8')
+      readFileSync(resolve(__dirname, '../../onboarding/screens/OnboardingScreen.tsx'), 'utf8')
     ).toContain('testID="e2e-onboarding-screen"');
   });
 

@@ -23,12 +23,10 @@ import {
 import {
   SLOT_LABELS,
   SLOT_PRESET_BUCKETS,
-} from '@/features/preferences/constants/onboardingOptions';
-import {
-  buildPreferencesPayload,
-  type ProfileFormState,
-} from '@/features/preferences/utils/onboardingPayload';
+} from '@/features/preferences/constants/preferenceOptions';
 import { parseListInput } from '@/features/preferences/utils/parseListInput';
+import { buildPreferencesPayload } from '@/features/preferences/utils/preferencesPayload';
+import type { ProfileFormState } from '@/features/preferences/utils/profilePayload';
 import {
   PREFERENCE_FIELD_LABELS,
   PROFILE_FIELD_LABELS,

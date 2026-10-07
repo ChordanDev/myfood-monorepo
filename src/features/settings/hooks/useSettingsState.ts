@@ -5,11 +5,9 @@ import type {
   SlotCookingTimes,
   UserPreferences,
 } from '@/features/auth/types/auth';
-import {
-  OnboardingValidationError,
-  buildProfilePayload,
-} from '@/features/preferences/utils/onboardingPayload';
-import { defaultSlot } from '@/features/preferences/utils/onboardingSlot';
+import { PreferencesValidationError } from '@/features/preferences/utils/preferencesPayload';
+import { buildProfilePayload } from '@/features/preferences/utils/profilePayload';
+import { defaultSlot } from '@/features/preferences/utils/slotCookingTime';
 import { getAuthErrorMessage } from '@/services/authService';
 import { PROFILE_FIELD_ERRORS } from '../constants/settingsLabels';
 import {
@@ -59,7 +57,7 @@ function withEverySlot(slotTimes: SlotCookingTimes): SlotCookingTimes {
 // sheet instead of being lost.
 function describeProfileError(
   draft: ProfileDraft,
-  error: OnboardingValidationError
+  error: PreferencesValidationError
 ): Pick<EditorSheetState, 'errorMessage' | 'fieldError'> {
   if (!isProfileField(error.field)) {
     return { errorMessage: getAuthErrorMessage(error), fieldError: null };
@@ -172,7 +170,7 @@ export function useSettingsState() {
       try {
         payload = buildProfilePayload(draft.values);
       } catch (error) {
-        if (!(error instanceof OnboardingValidationError)) throw error;
+        if (!(error instanceof PreferencesValidationError)) throw error;
         const validation = describeProfileError(draft, error);
         setSheet((current) => current && { ...current, ...validation });
         return;

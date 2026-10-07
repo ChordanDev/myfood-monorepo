@@ -3,14 +3,9 @@ import {
   HARD_RESTRICTION_CODES,
   isValidDietCode,
   isValidHardRestrictionCode,
-} from '../constants/catalog';
-import {
-  OnboardingValidationError,
-  buildOnboardingPayload,
-  buildPreferencesPayload,
-  buildProfilePayload,
-} from '../utils/onboardingPayload';
-import type { OnboardingFormState, ProfileFormState } from '../utils/onboardingPayload';
+} from '@/features/preferences/constants/catalog';
+import { OnboardingValidationError, buildOnboardingPayload } from '../utils/onboardingPayload';
+import type { OnboardingFormState } from '../utils/onboardingPayload';
 
 const baseState: OnboardingFormState = {
   displayName: 'Lucca',
@@ -160,80 +155,92 @@ describe('buildOnboardingPayload', () => {
       })
     ).toThrow(OnboardingValidationError);
   });
-});
 
-describe('buildPreferencesPayload', () => {
-  it('returns the same validation as the onboarding helper', () => {
-    const payload = buildPreferencesPayload({
-      diet: 'vegetarian',
-      hardRestrictions: ['dairy', 'egg'],
-      softPreferences: ['mushrooms'],
-    });
-
-    expect(payload).toEqual({
-      diet: 'vegetarian',
-      hardRestrictions: ['dairy', 'egg'],
-      softPreferences: ['mushrooms'],
-    });
-  });
-
-  it('rejects an unknown diet code', () => {
-    expect(() =>
-      buildPreferencesPayload({
-        diet: 'keto' as unknown as null,
-        hardRestrictions: [],
-        softPreferences: [],
-      })
-    ).toThrow(OnboardingValidationError);
-  });
-});
-
-describe('buildProfilePayload', () => {
-  const profile: ProfileFormState = {
-    displayName: 'Lucca',
-    householdSize: 2,
-    cookingSkill: 'intermediate',
-  };
-
-  function fieldOf(state: ProfileFormState): string | null {
-    try {
-      buildProfilePayload(state);
+  it('reports invalid preferences with the onboarding error, field and message', () => {
+    const captureError = (preferences: OnboardingFormState['preferences']) => {
+      try {
+        buildOnboardingPayload({ ...baseState, preferences });
+      } catch (error) {
+        return error;
+      }
       return null;
-    } catch (error) {
-      if (error instanceof OnboardingValidationError) return error.field;
-      throw error;
-    }
-  }
+    };
 
-  it('returns the profile with a trimmed display name', () => {
-    expect(buildProfilePayload({ ...profile, displayName: '  Lucca Giordana ' })).toEqual({
-      displayName: 'Lucca Giordana',
-      householdSize: 2,
-      cookingSkill: 'intermediate',
+    const dietError = captureError({
+      diet: 'paleo' as unknown as null,
+      hardRestrictions: [],
+      softPreferences: [],
+    });
+    expect(dietError).toBeInstanceOf(OnboardingValidationError);
+    expect(dietError).toMatchObject({
+      name: 'OnboardingValidationError',
+      field: 'preferences.diet',
+      message: 'Unknown diet code.',
+    });
+
+    const restrictionError = captureError({
+      diet: null,
+      hardRestrictions: ['gluten', 'mango' as unknown as 'peanut'],
+      softPreferences: [],
+    });
+    expect(restrictionError).toBeInstanceOf(OnboardingValidationError);
+    expect(restrictionError).toMatchObject({
+      name: 'OnboardingValidationError',
+      field: 'preferences.hardRestrictions',
+      message: 'Unknown hard restriction code: mango',
     });
   });
 
-  it('accepts the boundaries of each rule', () => {
-    expect(fieldOf({ ...profile, displayName: 'a' })).toBeNull();
-    expect(fieldOf({ ...profile, displayName: 'a'.repeat(60) })).toBeNull();
-    expect(fieldOf({ ...profile, householdSize: 1 })).toBeNull();
-    expect(fieldOf({ ...profile, householdSize: 20 })).toBeNull();
+  it('reports an invalid profile with the onboarding error, field and message', () => {
+    const captureError = (profile: Partial<OnboardingFormState>) => {
+      try {
+        buildOnboardingPayload({ ...baseState, ...profile });
+      } catch (error) {
+        return error;
+      }
+      return null;
+    };
+
+    const cases: [Partial<OnboardingFormState>, string, string][] = [
+      [{ displayName: '   ' }, 'displayName', 'Display name must be 1-60 characters.'],
+      [
+        { householdSize: 21 },
+        'householdSize',
+        'Household size must be an integer between 1 and 20.',
+      ],
+      [
+        { cookingSkill: 'chef' as OnboardingFormState['cookingSkill'] },
+        'cookingSkill',
+        'Unknown cooking skill.',
+      ],
+    ];
+
+    for (const [profile, field, message] of cases) {
+      const error = captureError(profile);
+      expect(error).toBeInstanceOf(OnboardingValidationError);
+      expect(error).toMatchObject({ name: 'OnboardingValidationError', field, message });
+    }
   });
 
-  it('rejects an empty or oversized display name', () => {
-    expect(fieldOf({ ...profile, displayName: '   ' })).toBe('displayName');
-    expect(fieldOf({ ...profile, displayName: 'a'.repeat(61) })).toBe('displayName');
-  });
-
-  it('rejects a household size that is missing, fractional or out of range', () => {
-    expect(fieldOf({ ...profile, householdSize: null })).toBe('householdSize');
-    expect(fieldOf({ ...profile, householdSize: 0 })).toBe('householdSize');
-    expect(fieldOf({ ...profile, householdSize: 21 })).toBe('householdSize');
-    expect(fieldOf({ ...profile, householdSize: 2.5 })).toBe('householdSize');
-  });
-
-  it('rejects a missing or unknown cooking skill', () => {
-    expect(fieldOf({ ...profile, cookingSkill: null })).toBe('cookingSkill');
-    expect(fieldOf({ ...profile, cookingSkill: 'chef' as unknown as null })).toBe('cookingSkill');
+  it('checks the profile before the preferences and the slots', () => {
+    let caught: unknown = null;
+    try {
+      buildOnboardingPayload({
+        ...baseState,
+        displayName: '',
+        preferences: {
+          diet: 'paleo' as unknown as null,
+          hardRestrictions: [],
+          softPreferences: [],
+        },
+        slotCookingTimes: {
+          ...baseState.slotCookingTimes,
+          lunch: { cookingTimeMinutes: -5, hungerLevel: 'normal' },
+        },
+      });
+    } catch (error) {
+      caught = error;
+    }
+    expect(caught).toMatchObject({ field: 'displayName' });
   });
 });
