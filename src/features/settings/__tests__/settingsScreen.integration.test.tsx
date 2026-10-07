@@ -79,7 +79,13 @@ jest.mock('react-native-reanimated', () => {
   return {
     __esModule: true,
     default: { Text: MockText, View: MockView },
-    Easing: { cubic: jest.fn(), inOut: jest.fn() },
+    Easing: {
+      cubic: jest.fn(),
+      inOut: jest.fn(),
+      // `@/components` also loads SegmentedSwitcher, which builds its easing at module scope.
+      out: (curve: unknown) => curve,
+      quad: 'quad',
+    },
     useAnimatedStyle: (factory: () => object) => factory(),
     useSharedValue: (value: number) => ({ value }),
     withTiming: (value: number) => value,
