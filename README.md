@@ -12,7 +12,7 @@ friends still show the pre-monorepo commits.
 | `apps/api`    | Phoenix API (`meal_planner_api`): planning engine, catalog, shopping, inventory, AI cooking. | [vicenzogiordana/myfood](https://github.com/vicenzogiordana/myfood) (`meal_planner_api/`) |
 | `apps/api/optimizer` | OR-Tools meal optimizer (`optimizador.py`) spawned by the API as a stdio Port.        | same repo (was at the old repo root)                                                       |
 | `apps/mobile` | Expo 57 / React Native app.                                                                 | [ChordanDev/progra-3-front](https://github.com/ChordanDev/progra-3-front) (`Develop`)      |
-| `docs`        | PRDs, specs and architecture notes.                                                         | [ChordanDev/meal-app-docs](https://github.com/ChordanDev/meal-app-docs) (`develop`)        |
+| `docs`        | Glossary and ADRs (specs and maps live in GitHub issues).                                   | [ChordanDev/meal-app-docs](https://github.com/ChordanDev/meal-app-docs) (`develop`)        |
 | `odd/tasks`   | Feature task documents (Organic Driven Development).                                        | —                                                                                          |
 
 ## Running the API (`apps/api`)
@@ -61,9 +61,11 @@ Checks: `npm run lint`, `npx tsc --noEmit`, `npx jest`.
 
 ## Docs
 
-Product and technical documentation lives in `docs/` (for example
-`docs/docs/PRD_BACKEND.md`). App-specific guides stay next to their app
-(`apps/mobile/docs/THEMING.md`, `apps/api/openspec/`).
+The durable docs are `docs/GLOSSARY.md` (ubiquitous language per bounded
+context) and `docs/adr/` (architecture decision records). Specs, maps and plans
+are GitHub issues (wayfinder / to-spec) and are disposable once the work ships.
+App-specific guides stay next to their app (`apps/mobile/docs/THEMING.md`,
+`apps/api/openspec/`).
 
 ## CI
 
