@@ -16,11 +16,11 @@ const BREATH_HALF_DURATION_MS = 900;
 const BREATH_SCALE = 1.06;
 const RESTING_OPACITY = 0.82;
 
-interface PlannerTypingIndicatorProps {
+interface ChatTypingIndicatorProps {
   onLayout?: (event: LayoutChangeEvent) => void;
 }
 
-export function PlannerTypingIndicator({ onLayout }: PlannerTypingIndicatorProps) {
+export function ChatTypingIndicator({ onLayout }: ChatTypingIndicatorProps) {
   const { theme } = useRecipeTheme();
   const reduceMotion = useReducedMotion();
   const breath = useSharedValue(0);

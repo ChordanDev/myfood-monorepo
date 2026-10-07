@@ -106,7 +106,7 @@ these relationships are not.
 | ----------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------- |
 | Values inside a palette definition                                                                                | That is where colors live                                           |
 | `#000000` as `shadowColor`, `rgba(0, 0, 0, …)` as a modal backdrop                                                | Neutral, independent of the meal                                    |
-| The multicolor "thinking" gradient in `PlannerChatInput`                                                          | Fixed today; treated as palette-independent until decided otherwise |
+| The multicolor "thinking" gradient in `ChatComposer`                                                              | Fixed today; treated as palette-independent until decided otherwise |
 | Inventory category colors, only in `INVENTORY_CATEGORY_COLORS` (`src/features/inventory/constants/categories.ts`) | A category keeps its color under every palette                      |
 
 Everything else in a component, style or SVG string is a bug.
@@ -115,11 +115,10 @@ Everything else in a component, style or SVG string is a bug.
 
 Existing code that does not follow this rule yet. Do not copy these patterns.
 
-| Where                                                                                 | Problem                                                                                                     |
-| ------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
-| `src/features/recipe/` (`RecipeScreen`, `types/themes.ts`, `hooks/useRecipeTheme.ts`) | A second, older theme shape (`RecipeTheme`) plus literals                                                   |
-| `src/constants/theme.ts` (`COLORS`, `GRADIENTS`)                                      | Static colors used by auth; its header comment says all colors belong there, which this document supersedes |
-| `src/features/home/hooks/useHomeRecipeTheme.ts`                                       | The meal palette is applied only when today is selected; other days use the default                         |
+| Where                                            | Problem                                                                                                     |
+| ------------------------------------------------ | ----------------------------------------------------------------------------------------------------------- |
+| `src/constants/theme.ts` (`COLORS`, `GRADIENTS`) | Static colors used by auth; its header comment says all colors belong there, which this document supersedes |
+| `src/features/home/hooks/useHomeRecipeTheme.ts`  | The meal palette is applied only when today is selected; other days use the default                         |
 
 ## Where palettes come from
 

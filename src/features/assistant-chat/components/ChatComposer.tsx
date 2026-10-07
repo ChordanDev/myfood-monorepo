@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { type ReactNode, useCallback, useEffect, useRef, useState } from 'react';
 import {
   LayoutChangeEvent,
   Platform,
@@ -28,60 +28,93 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { withOpacity } from '@/utils/colors';
 import { ArrowUp, Mic, Plus } from 'lucide-react-native';
 import {
-  CUSTOM_TAB_BAR_CONTENT_HEIGHT,
-  PLANNER_CHAT_INPUT_CLEARANCE,
-  PLANNER_CHAT_INPUT_CONTROL_ROW_HEIGHT,
-  PLANNER_CHAT_INPUT_MAX_HEIGHT,
-  PLANNER_CHAT_INPUT_MIN_HEIGHT,
-  PLANNER_CHAT_INPUT_TEXT_LINE_HEIGHT,
-  PLANNER_CHAT_INPUT_VERTICAL_INSET,
+  CHAT_COMPOSER_CLEARANCE,
+  CHAT_COMPOSER_CONTROL_ROW_HEIGHT,
+  CHAT_COMPOSER_MAX_HEIGHT,
+  CHAT_COMPOSER_MIN_HEIGHT,
+  CHAT_COMPOSER_TEXT_LINE_HEIGHT,
+  CHAT_COMPOSER_VERTICAL_INSET,
 } from '../constants';
 import { resolveComposerLayout, resolveComposerMaxLines } from './composerLayout';
 
-interface PlannerChatInputProps {
+interface ChatComposerProps {
   value: string;
   isThinking: boolean;
   onChangeText: (value: string) => void;
   onHeightChange?: (height: number) => void;
+  /**
+   * How far the keyboard lifts the composer above its resting position; zero at rest. It is the
+   * target of the lift, reported when the lift starts, so the owner can make room in step.
+   */
+  onKeyboardLiftChange?: (lift: number) => void;
   onSubmit: () => void;
+  /** Hint shown while the input is empty. Defaults to a generic one. */
+  placeholder?: string;
+  /** Blocks typing and every control, and dims the composer. */
+  disabled?: boolean;
+  /**
+   * Gap between the bottom safe-area inset and the composer at rest. Defaults to the composer
+   * clearance alone; a route with a tab bar adds the room the tab bar takes.
+   */
+  restingBottomGap?: number;
+  /** Prefix of every testID, so each screen can tell its composer apart. */
+  testIDPrefix?: string;
+  /**
+   * Drawn behind the composer, inside the container the keyboard lifts, so both move as one view
+   * and can never drift apart. The container is anchored to the bottom edge of the screen and
+   * spans its width; the backdrop positions itself against it and may overflow it.
+   */
+  backdrop?: ReactNode;
 }
 
-const PLANNER_CHAT_INPUT_MIN_RADIUS = 28;
-const PLANNER_CHAT_INPUT_MAX_RADIUS = 20;
-const PLANNER_CHAT_INPUT_TEXT_FONT_SIZE = 17;
-const PLANNER_CHAT_INPUT_LEFT_CONTROL_INSET = 56;
-const PLANNER_CHAT_INPUT_INLINE_TEXT_GAP = 16;
-const PLANNER_CHAT_INPUT_INLINE_LEFT_INSET =
-  PLANNER_CHAT_INPUT_LEFT_CONTROL_INSET + PLANNER_CHAT_INPUT_INLINE_TEXT_GAP;
-const PLANNER_CHAT_INPUT_INLINE_MAX_LINES = 2;
-const PLANNER_CHAT_INPUT_STACKED_CONTENT_INSET = 16;
-const PLANNER_CHAT_INPUT_STACKED_BOTTOM_INSET =
-  PLANNER_CHAT_INPUT_CONTROL_ROW_HEIGHT + PLANNER_CHAT_INPUT_VERTICAL_INSET;
-// Keeps the probe narrower than the inline text box, so it never flips later than the input wraps.
-const PLANNER_CHAT_INPUT_PROBE_WIDTH_MARGIN = 2;
-export const PLANNER_CHAT_INPUT_ICON_OPTICAL_OFFSET_Y = -3;
+const CHAT_COMPOSER_PLACEHOLDER = 'Decile a la IA lo que te gustaria';
+const CHAT_COMPOSER_TEST_ID_PREFIX = 'chat-composer';
+const CHAT_COMPOSER_DISABLED_OPACITY = 0.5;
 
-export function PlannerChatInput({
+const CHAT_COMPOSER_MIN_RADIUS = 28;
+const CHAT_COMPOSER_MAX_RADIUS = 20;
+const CHAT_COMPOSER_TEXT_FONT_SIZE = 17;
+const CHAT_COMPOSER_LEFT_CONTROL_INSET = 56;
+const CHAT_COMPOSER_INLINE_TEXT_GAP = 16;
+const CHAT_COMPOSER_INLINE_LEFT_INSET =
+  CHAT_COMPOSER_LEFT_CONTROL_INSET + CHAT_COMPOSER_INLINE_TEXT_GAP;
+const CHAT_COMPOSER_INLINE_MAX_LINES = 2;
+/** How far the placeholder may shrink to stay on one line before it is cut. */
+const CHAT_COMPOSER_PLACEHOLDER_MIN_FONT_SCALE = 0.8;
+const CHAT_COMPOSER_STACKED_CONTENT_INSET = 16;
+const CHAT_COMPOSER_STACKED_BOTTOM_INSET =
+  CHAT_COMPOSER_CONTROL_ROW_HEIGHT + CHAT_COMPOSER_VERTICAL_INSET;
+// Keeps the probe narrower than the inline text box, so it never flips later than the input wraps.
+const CHAT_COMPOSER_PROBE_WIDTH_MARGIN = 2;
+export const CHAT_COMPOSER_ICON_OPTICAL_OFFSET_Y = -3;
+
+export function ChatComposer({
   value,
   isThinking,
   onChangeText,
   onHeightChange,
+  onKeyboardLiftChange,
   onSubmit,
-}: PlannerChatInputProps) {
+  placeholder = CHAT_COMPOSER_PLACEHOLDER,
+  disabled = false,
+  restingBottomGap = CHAT_COMPOSER_CLEARANCE,
+  testIDPrefix = CHAT_COMPOSER_TEST_ID_PREFIX,
+  backdrop,
+}: ChatComposerProps) {
   const insets = useSafeAreaInsets();
   const { theme } = useRecipeTheme();
   const { fontScale } = useWindowDimensions();
-  const { inputAnimatedStyle } = useKeyboardAnimation({
+  const restingBottomOffset = insets.bottom + restingBottomGap;
+  const { inputAnimatedStyle, keyboardLift } = useKeyboardAnimation({
     mode: 'geometry',
-    restingBottomOffset:
-      insets.bottom + CUSTOM_TAB_BAR_CONTENT_HEIGHT + PLANNER_CHAT_INPUT_CLEARANCE,
-    clearance: PLANNER_CHAT_INPUT_CLEARANCE,
+    restingBottomOffset,
+    clearance: CHAT_COMPOSER_CLEARANCE,
     bottomInset: insets.bottom,
   });
   const reduceMotion = useReducedMotion();
   const rotation = useSharedValue(0);
   const thinkingProgress = useSharedValue(Number(isThinking));
-  const composerHeight = useSharedValue(PLANNER_CHAT_INPUT_MIN_HEIGHT);
+  const composerHeight = useSharedValue(CHAT_COMPOSER_MIN_HEIGHT);
   const reportedHeight = useRef<number | null>(null);
   const [probeLines, setProbeLines] = useState(1);
   const [measuredLineHeight, setMeasuredLineHeight] = useState<number | null>(null);
@@ -90,24 +123,29 @@ export function PlannerChatInput({
   const [animateHeight] = useState(() => Platform.OS === 'ios' && !reduceMotion);
   const hasText = value.trim().length > 0;
   const sendVisibility = useSharedValue(Number(hasText));
-  const canSubmit = hasText && !isThinking;
+  const canSubmit = hasText && !isThinking && !disabled;
+  // Left undefined while enabled, so the auxiliary buttons render exactly as they always did.
+  const auxiliaryDisabled = disabled ? true : undefined;
 
   // The probe reports the native line height. Android scales it non-linearly, so the scaled
   // constant is only the fallback until the first report.
-  const lineHeight = measuredLineHeight ?? PLANNER_CHAT_INPUT_TEXT_LINE_HEIGHT * fontScale;
+  const lineHeight = measuredLineHeight ?? CHAT_COMPOSER_TEXT_LINE_HEIGHT * fontScale;
   const layout = resolveComposerLayout(value, probeLines);
   const maxLines = resolveComposerMaxLines(lineHeight);
   const cappedHeight = maxLines * lineHeight;
   // The inline cap keeps a paste from growing the pill tall before the probe stacks it.
   const inputMaxHeight =
-    (layout === 'inline' ? PLANNER_CHAT_INPUT_INLINE_MAX_LINES : maxLines) * lineHeight;
+    (layout === 'inline' ? CHAT_COMPOSER_INLINE_MAX_LINES : maxLines) * lineHeight;
   // Half a point of slack absorbs the pixel rounding of the laid-out height.
   const isAtCap = layout === 'stacked' && inputLayoutHeight >= cappedHeight - 0.5;
   const inputRightInset = hasText ? 104 : 56;
-  const inlineRightInset = inputRightInset + PLANNER_CHAT_INPUT_INLINE_TEXT_GAP;
+  const inlineRightInset = inputRightInset + CHAT_COMPOSER_INLINE_TEXT_GAP;
   const inlineVerticalPadding =
-    PLANNER_CHAT_INPUT_VERTICAL_INSET +
-    Math.max(0, (PLANNER_CHAT_INPUT_CONTROL_ROW_HEIGHT - lineHeight) / 2);
+    CHAT_COMPOSER_VERTICAL_INSET + Math.max(0, (CHAT_COMPOSER_CONTROL_ROW_HEIGHT - lineHeight) / 2);
+
+  useEffect(() => {
+    onKeyboardLiftChange?.(keyboardLift);
+  }, [keyboardLift, onKeyboardLiftChange]);
 
   useEffect(() => {
     sendVisibility.value = reduceMotion
@@ -194,8 +232,8 @@ export function PlannerChatInput({
     const height = composerHeight.get();
     const borderRadius = interpolate(
       height,
-      [PLANNER_CHAT_INPUT_MIN_HEIGHT, PLANNER_CHAT_INPUT_MAX_HEIGHT],
-      [PLANNER_CHAT_INPUT_MIN_RADIUS, PLANNER_CHAT_INPUT_MAX_RADIUS],
+      [CHAT_COMPOSER_MIN_HEIGHT, CHAT_COMPOSER_MAX_HEIGHT],
+      [CHAT_COMPOSER_MIN_RADIUS, CHAT_COMPOSER_MAX_RADIUS],
       Extrapolation.CLAMP
     );
 
@@ -215,8 +253,8 @@ export function PlannerChatInput({
       borderRadius:
         interpolate(
           composerHeight.get(),
-          [PLANNER_CHAT_INPUT_MIN_HEIGHT, PLANNER_CHAT_INPUT_MAX_HEIGHT],
-          [PLANNER_CHAT_INPUT_MIN_RADIUS, PLANNER_CHAT_INPUT_MAX_RADIUS],
+          [CHAT_COMPOSER_MIN_HEIGHT, CHAT_COMPOSER_MAX_HEIGHT],
+          [CHAT_COMPOSER_MIN_RADIUS, CHAT_COMPOSER_MAX_RADIUS],
           Extrapolation.CLAMP
         ) - thinkingInset,
     };
@@ -232,26 +270,21 @@ export function PlannerChatInput({
 
   return (
     <Animated.View
-      testID="planner-composer-wrapper"
-      style={[
-        styles.wrapper,
-        {
-          paddingBottom:
-            insets.bottom + CUSTOM_TAB_BAR_CONTENT_HEIGHT + PLANNER_CHAT_INPUT_CLEARANCE,
-        },
-        inputAnimatedStyle,
-      ]}>
+      testID={`${testIDPrefix}-wrapper`}
+      style={[styles.wrapper, { paddingBottom: restingBottomOffset }, inputAnimatedStyle]}>
+      {backdrop}
       <Animated.View
-        testID="planner-composer-frame"
+        testID={`${testIDPrefix}-frame`}
         style={[
           styles.frame,
           {
             borderCurve: 'continuous',
           },
+          disabled ? styles.frameDisabled : undefined,
           frameStyle,
         ]}>
         <Animated.View
-          testID="planner-composer-thinking-gradient"
+          testID={`${testIDPrefix}-thinking-gradient`}
           pointerEvents="none"
           style={[
             styles.thinkingGradient,
@@ -268,7 +301,7 @@ export function PlannerChatInput({
         </Animated.View>
 
         <Animated.View
-          testID="planner-composer-inner-surface"
+          testID={`${testIDPrefix}-inner-surface`}
           pointerEvents="none"
           style={[
             styles.innerSurface,
@@ -278,7 +311,7 @@ export function PlannerChatInput({
             innerSurfaceStyle,
           ]}>
           <Animated.View
-            testID="planner-composer-surface"
+            testID={`${testIDPrefix}-surface`}
             pointerEvents="none"
             style={[
               StyleSheet.absoluteFill,
@@ -298,12 +331,12 @@ export function PlannerChatInput({
           style={{
             position: 'absolute',
             top: 0,
-            left: PLANNER_CHAT_INPUT_INLINE_LEFT_INSET,
-            right: inlineRightInset + PLANNER_CHAT_INPUT_PROBE_WIDTH_MARGIN,
+            left: CHAT_COMPOSER_INLINE_LEFT_INSET,
+            right: inlineRightInset + CHAT_COMPOSER_PROBE_WIDTH_MARGIN,
             opacity: 0,
           }}>
           <Text
-            testID="planner-composer-layout-probe"
+            testID={`${testIDPrefix}-layout-probe`}
             onTextLayout={handleProbeTextLayout}
             textBreakStrategy="simple"
             android_hyphenationFrequency="none"
@@ -313,14 +346,14 @@ export function PlannerChatInput({
         </View>
 
         <View
-          testID="planner-composer-content"
+          testID={`${testIDPrefix}-content`}
           onLayout={handleContentLayout}
           style={[
             animateHeight ? styles.contentPinned : styles.contentInFlow,
             layout === 'stacked'
               ? styles.contentStacked
               : {
-                  paddingLeft: PLANNER_CHAT_INPUT_INLINE_LEFT_INSET,
+                  paddingLeft: CHAT_COMPOSER_INLINE_LEFT_INSET,
                   paddingRight: inlineRightInset,
                   paddingVertical: inlineVerticalPadding,
                 },
@@ -328,29 +361,39 @@ export function PlannerChatInput({
           <View>
             {!value ? (
               <View
-                testID="planner-composer-placeholder"
+                testID={`${testIDPrefix}-placeholder`}
                 pointerEvents="none"
                 accessibilityElementsHidden
                 importantForAccessibility="no-hide-descendants"
                 style={[styles.placeholder, { height: lineHeight }]}>
+                {/* One line that shrinks before it is cut: screens pass their own placeholder and
+                    the room left between the controls changes with the device width. */}
                 <Text
+                  testID={`${testIDPrefix}-placeholder-text`}
+                  numberOfLines={1}
+                  adjustsFontSizeToFit
+                  minimumFontScale={CHAT_COMPOSER_PLACEHOLDER_MIN_FONT_SCALE}
                   style={{
                     color: withOpacity(theme.textLight, 0.6),
                     fontSize: 15,
                     lineHeight: 20,
                   }}>
-                  Decile a la IA lo que te gustaria
+                  {placeholder}
                 </Text>
               </View>
             ) : null}
             {/* The native input owns its height. The blank placeholder makes it measure exactly one
                 native line while empty; the visible placeholder is the overlay above. */}
             <TextInput
-              testID="planner-composer-input"
+              testID={`${testIDPrefix}-input`}
               value={value}
               onChangeText={onChangeText}
               onLayout={handleInputLayout}
-              editable
+              editable={!disabled}
+              // The visible placeholder is hidden from assistive tech, so a disabled input has to
+              // carry the reason itself.
+              accessibilityLabel={disabled ? placeholder : undefined}
+              accessibilityState={disabled ? { disabled: true } : undefined}
               multiline
               placeholder=" "
               scrollEnabled={isAtCap}
@@ -359,8 +402,8 @@ export function PlannerChatInput({
               textBreakStrategy="simple"
               style={{
                 color: theme.appBg,
-                fontSize: PLANNER_CHAT_INPUT_TEXT_FONT_SIZE,
-                lineHeight: PLANNER_CHAT_INPUT_TEXT_LINE_HEIGHT,
+                fontSize: CHAT_COMPOSER_TEXT_FONT_SIZE,
+                lineHeight: CHAT_COMPOSER_TEXT_LINE_HEIGHT,
                 minHeight: lineHeight,
                 // iOS measures the commit that clears the value with the text the native input
                 // still holds, and nothing measures it again until the next edit. An empty input
@@ -372,27 +415,29 @@ export function PlannerChatInput({
           </View>
         </View>
 
-        <View style={[styles.leftControl, { bottom: PLANNER_CHAT_INPUT_VERTICAL_INSET, left: 8 }]}>
+        <View style={[styles.leftControl, { bottom: CHAT_COMPOSER_VERTICAL_INSET, left: 8 }]}>
           <Pressable
             accessibilityLabel="Add meal detail"
             accessibilityRole="button"
+            disabled={auxiliaryDisabled}
             style={styles.controlButton}
             hitSlop={8}>
-            <View style={{ transform: [{ translateY: PLANNER_CHAT_INPUT_ICON_OPTICAL_OFFSET_Y }] }}>
+            <View style={{ transform: [{ translateY: CHAT_COMPOSER_ICON_OPTICAL_OFFSET_Y }] }}>
               <Plus size={24} color={theme.appBg} strokeWidth={2.5} />
             </View>
           </Pressable>
         </View>
 
         <View
-          testID="planner-composer-controls"
-          style={[styles.controls, { right: 8, bottom: PLANNER_CHAT_INPUT_VERTICAL_INSET }]}>
+          testID={`${testIDPrefix}-controls`}
+          style={[styles.controls, { right: 8, bottom: CHAT_COMPOSER_VERTICAL_INSET }]}>
           <Pressable
             accessibilityLabel="Voice input"
             accessibilityRole="button"
+            disabled={auxiliaryDisabled}
             style={styles.controlButton}
             hitSlop={8}>
-            <View style={{ transform: [{ translateY: PLANNER_CHAT_INPUT_ICON_OPTICAL_OFFSET_Y }] }}>
+            <View style={{ transform: [{ translateY: CHAT_COMPOSER_ICON_OPTICAL_OFFSET_Y }] }}>
               <Mic size={22} color={theme.appBg} strokeWidth={2} />
             </View>
           </Pressable>
@@ -401,15 +446,14 @@ export function PlannerChatInput({
             pointerEvents={hasText ? 'auto' : 'none'}
             style={[styles.sendContainer, sendContainerStyle]}>
             <Pressable
-              testID="planner-composer-submit"
+              testID={`${testIDPrefix}-submit`}
               accessibilityLabel="Send message"
               accessibilityRole="button"
               disabled={!canSubmit}
               onPress={onSubmit}
               hitSlop={8}
               style={[styles.controlButton, { opacity: canSubmit ? 1 : 0.45 }]}>
-              <View
-                style={{ transform: [{ translateY: PLANNER_CHAT_INPUT_ICON_OPTICAL_OFFSET_Y }] }}>
+              <View style={{ transform: [{ translateY: CHAT_COMPOSER_ICON_OPTICAL_OFFSET_Y }] }}>
                 <ArrowUp size={24} color={theme.appBg} strokeWidth={2.5} />
               </View>
             </Pressable>
@@ -432,9 +476,9 @@ const styles = StyleSheet.create({
     top: 0,
   },
   contentStacked: {
-    paddingBottom: PLANNER_CHAT_INPUT_STACKED_BOTTOM_INSET,
-    paddingHorizontal: PLANNER_CHAT_INPUT_STACKED_CONTENT_INSET,
-    paddingTop: PLANNER_CHAT_INPUT_VERTICAL_INSET,
+    paddingBottom: CHAT_COMPOSER_STACKED_BOTTOM_INSET,
+    paddingHorizontal: CHAT_COMPOSER_STACKED_CONTENT_INSET,
+    paddingTop: CHAT_COMPOSER_VERTICAL_INSET,
   },
   controlButton: {
     alignItems: 'center',
@@ -454,6 +498,9 @@ const styles = StyleSheet.create({
     position: 'relative',
     width: '100%',
   },
+  frameDisabled: {
+    opacity: CHAT_COMPOSER_DISABLED_OPACITY,
+  },
   innerSurface: {
     overflow: 'hidden',
     position: 'absolute',
@@ -471,8 +518,8 @@ const styles = StyleSheet.create({
     top: 0,
   },
   probeText: {
-    fontSize: PLANNER_CHAT_INPUT_TEXT_FONT_SIZE,
-    lineHeight: PLANNER_CHAT_INPUT_TEXT_LINE_HEIGHT,
+    fontSize: CHAT_COMPOSER_TEXT_FONT_SIZE,
+    lineHeight: CHAT_COMPOSER_TEXT_LINE_HEIGHT,
   },
   sendContainer: {
     height: 42,

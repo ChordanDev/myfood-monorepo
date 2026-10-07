@@ -87,6 +87,7 @@ export function useKeyboardAnimation(options: KeyboardAnimationOptions) {
   const isIOS = Platform.OS === 'ios';
   const { width: windowWidth, height: windowHeight } = useWindowDimensions();
   const [isKeyboardOpen, setIsKeyboardOpen] = useState(false);
+  const [liftTarget, setLiftTarget] = useState(0);
   const keyboardLift = useSharedValue(0);
   const keyboardOpenRef = useRef(false);
   const closedWindowMetricsRef = useRef({ width: windowWidth, height: windowHeight });
@@ -140,6 +141,7 @@ export function useKeyboardAnimation(options: KeyboardAnimationOptions) {
     const resetDisabled = () => {
       keyboardOpenRef.current = false;
       setIsKeyboardOpen(false);
+      setLiftTarget(0);
       cancelAnimation(keyboardLift);
       keyboardLift.value = 0;
     };
@@ -180,6 +182,7 @@ export function useKeyboardAnimation(options: KeyboardAnimationOptions) {
         }
       }
 
+      setLiftTarget(Math.max(0, commandedLift));
       animateLiftTo(commandedLift, duration);
     };
 
@@ -215,5 +218,10 @@ export function useKeyboardAnimation(options: KeyboardAnimationOptions) {
   return {
     inputAnimatedStyle,
     isKeyboardOpen,
+    /**
+     * The lift `inputAnimatedStyle` is heading to, as a plain number: zero while the keyboard is
+     * closed. For layout that has to make room for the lifted element, such as a list padding.
+     */
+    keyboardLift: liftTarget,
   };
 }

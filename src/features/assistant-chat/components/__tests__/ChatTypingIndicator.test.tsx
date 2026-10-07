@@ -3,7 +3,7 @@
 import React from 'react';
 import { StyleSheet, Text } from 'react-native';
 import { act, create } from 'react-test-renderer';
-import { PlannerTypingIndicator } from '../PlannerTypingIndicator';
+import { ChatTypingIndicator } from '../ChatTypingIndicator';
 
 const mockCancelAnimation = jest.fn();
 const mockUseReducedMotion = jest.fn(() => false);
@@ -61,12 +61,12 @@ beforeEach(() => {
   };
 });
 
-describe('PlannerTypingIndicator', () => {
+describe('ChatTypingIndicator', () => {
   it('presents one seed status with a stable Spanish label', () => {
     let tree: ReturnType<typeof create>;
 
     act(() => {
-      tree = create(<PlannerTypingIndicator />);
+      tree = create(<ChatTypingIndicator />);
     });
 
     const indicator = tree!.root.findByProps({ testID: 'planner-typing-indicator' });
@@ -98,7 +98,7 @@ describe('PlannerTypingIndicator', () => {
     let tree: ReturnType<typeof create>;
 
     act(() => {
-      tree = create(<PlannerTypingIndicator />);
+      tree = create(<ChatTypingIndicator />);
     });
 
     const seed = tree!.root.findByProps({ testID: 'planner-thinking-seed-shape' });
@@ -116,7 +116,7 @@ describe('PlannerTypingIndicator', () => {
     let tree: ReturnType<typeof create>;
 
     act(() => {
-      tree = create(<PlannerTypingIndicator />);
+      tree = create(<ChatTypingIndicator />);
     });
 
     const indicator = tree!.root.findByProps({ testID: 'planner-typing-indicator' });
@@ -136,7 +136,7 @@ describe('PlannerTypingIndicator', () => {
     let tree: ReturnType<typeof create>;
 
     act(() => {
-      tree = create(<PlannerTypingIndicator />);
+      tree = create(<ChatTypingIndicator />);
     });
 
     const seedBodyStyle = StyleSheet.flatten(
@@ -157,7 +157,7 @@ describe('PlannerTypingIndicator', () => {
     let tree: ReturnType<typeof create>;
 
     act(() => {
-      tree = create(<PlannerTypingIndicator />);
+      tree = create(<ChatTypingIndicator />);
     });
 
     expect(mockWithTiming).toHaveBeenNthCalledWith(1, 1, {
@@ -182,7 +182,7 @@ describe('PlannerTypingIndicator', () => {
     let tree: ReturnType<typeof create>;
 
     act(() => {
-      tree = create(<PlannerTypingIndicator onLayout={onLayout} />);
+      tree = create(<ChatTypingIndicator onLayout={onLayout} />);
     });
 
     const indicator = tree!.root.findByProps({ testID: 'planner-typing-indicator' });

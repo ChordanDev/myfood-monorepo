@@ -360,4 +360,91 @@ describe('useKeyboardAnimation', () => {
       act(() => tree.unmount());
     });
   });
+
+  // The same number the animated style is heading to, for layout that has to make room for the
+  // lifted element (a list padding, for example) without a second keyboard computation.
+  describe('commanded lift as plain state', () => {
+    it('is zero while the keyboard is closed', () => {
+      const tree = renderHook(geometryOptions);
+
+      expect(hookResult.keyboardLift).toBe(0);
+
+      act(() => tree.unmount());
+    });
+
+    it('reports the lift of the open keyboard and returns to zero when it hides', () => {
+      const tree = renderHook(geometryOptions);
+
+      act(() => listeners.keyboardWillShow?.(keyboardEvent(509, 335)));
+
+      expect(hookResult.keyboardLift).toBe(241);
+      expect(translateY()).toBe(-241);
+
+      act(() => listeners.keyboardWillHide?.(keyboardEvent(844, 0)));
+
+      expect(hookResult.keyboardLift).toBe(0);
+
+      act(() => tree.unmount());
+    });
+
+    it('follows the keyboard frame while it stays open', () => {
+      const tree = renderHook(geometryOptions);
+
+      act(() => listeners.keyboardWillShow?.(keyboardEvent(509, 335)));
+      act(() => listeners.keyboardWillChangeFrame?.(keyboardEvent(480, 364)));
+
+      expect(hookResult.keyboardLift).toBe(270);
+
+      act(() => tree.unmount());
+    });
+
+    it('is zero when the keyboard does not reach the resting element', () => {
+      const tree = renderHook(geometryOptions);
+
+      act(() => listeners.keyboardWillShow?.(keyboardEvent(760, 84)));
+
+      expect(hookResult.isKeyboardOpen).toBe(true);
+      expect(hookResult.keyboardLift).toBe(0);
+
+      act(() => tree.unmount());
+    });
+
+    it('reports the Android lift, computed from the keyboard height', () => {
+      Object.defineProperty(Platform, 'OS', { configurable: true, value: 'android' });
+      const tree = renderHook({ ...geometryOptions, restingBottomOffset: 96, bottomInset: 24 });
+
+      act(() => listeners.keyboardDidShow?.(keyboardEvent(520, 300)));
+
+      expect(hookResult.keyboardLift).toBe(240);
+
+      act(() => listeners.keyboardDidHide?.(keyboardEvent(844, 0)));
+
+      expect(hookResult.keyboardLift).toBe(0);
+
+      act(() => tree.unmount());
+    });
+
+    it('reports the proportional lift', () => {
+      const tree = renderHook({ mode: 'proportional', liftFactor: 0.4 });
+
+      act(() => listeners.keyboardWillShow?.(keyboardEvent(509, 335)));
+
+      expect(hookResult.keyboardLift).toBe(134);
+
+      act(() => tree.unmount());
+    });
+
+    it('returns to zero when the hook is disabled with the keyboard open', () => {
+      const tree = renderHook(geometryOptions);
+
+      act(() => listeners.keyboardWillShow?.(keyboardEvent(509, 335)));
+      act(() => {
+        tree.update(<HookHarness options={{ ...geometryOptions, enabled: false }} />);
+      });
+
+      expect(hookResult.keyboardLift).toBe(0);
+
+      act(() => tree.unmount());
+    });
+  });
 });
