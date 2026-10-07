@@ -36,9 +36,11 @@ export function PlannerHeader() {
         style={({ pressed }) => [
           styles.datePill,
           styles.shadow,
-          { transform: [{ scale: pressed ? 0.97 : 1 }] },
+          // The view that casts the shadow needs a fill of its own: Android draws no
+          // elevation shadow for a view without a background.
+          { backgroundColor: theme.colorBlack, transform: [{ scale: pressed ? 0.97 : 1 }] },
         ]}>
-        {/* The palette-animated fill is its own layer so the shadowed view stays a plain one. */}
+        {/* Over that fill, the layer that crossfades when the palette changes. */}
         <Animated.View pointerEvents="none" style={[styles.datePillFill, pillBackgroundStyle]} />
         <Calendar size={20} color={theme.primaryAccent} strokeWidth={2.5} />
         <Animated.Text style={[styles.dateLabel, pillLabelStyle]}>

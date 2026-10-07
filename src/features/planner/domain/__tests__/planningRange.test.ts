@@ -3,9 +3,11 @@ import {
   formatPlanningRangeButtonLabel,
   formatPlanningRangeLabel,
   getDefaultPlanningRange,
+  getFirstPlannableDate,
   getPlannedDaysFrom,
   getPlanningMonthBounds,
   isPlannableDate,
+  resolvePlanningRange,
 } from '../planningRange';
 
 // The pure modules behind the Home barrel: the barrel itself loads its screens.
@@ -18,8 +20,47 @@ function buildEntry(id: string, date: string): MealPlanEntry {
   return { id, date, type: 'almuerzo', recipeId: 'r1', isCooked: false };
 }
 
+describe('getFirstPlannableDate', () => {
+  const TODAY = '2026-09-16';
+
+  it('is today when nothing is planned', () => {
+    expect(getFirstPlannableDate([], TODAY)).toBe(TODAY);
+  });
+
+  it('is today when the plan ended before today', () => {
+    const entries = [buildEntry('e1', '2026-09-10'), buildEntry('e2', '2026-09-15')];
+
+    expect(getFirstPlannableDate(entries, TODAY)).toBe(TODAY);
+  });
+
+  it('is tomorrow when the last planned day is today', () => {
+    expect(getFirstPlannableDate([buildEntry('e1', TODAY)], TODAY)).toBe('2026-09-17');
+  });
+
+  it('is the day after the last planned day, wherever it sits in the plan', () => {
+    const entries = [
+      buildEntry('e1', '2026-09-22'),
+      buildEntry('e2', '2026-09-17'),
+      buildEntry('e3', '2026-09-20'),
+    ];
+
+    expect(getFirstPlannableDate(entries, TODAY)).toBe('2026-09-23');
+  });
+
+  it('counts a planned day whose meal was already cooked', () => {
+    const cooked = { ...buildEntry('e1', '2026-09-20'), isCooked: true };
+
+    expect(getFirstPlannableDate([cooked], TODAY)).toBe('2026-09-21');
+  });
+
+  it('crosses into the next month and the next year', () => {
+    expect(getFirstPlannableDate([buildEntry('e1', '2026-09-30')], TODAY)).toBe('2026-10-01');
+    expect(getFirstPlannableDate([buildEntry('e1', '2026-12-31')], TODAY)).toBe('2027-01-01');
+  });
+});
+
 describe('getDefaultPlanningRange', () => {
-  it('is the seven days starting today', () => {
+  it('is the seven days starting on the first plannable day', () => {
     expect(getDefaultPlanningRange('2026-09-16')).toEqual({
       start: '2026-09-16',
       end: '2026-09-22',
@@ -39,7 +80,7 @@ describe('getDefaultPlanningRange', () => {
 });
 
 describe('isPlannableDate', () => {
-  it('lets any day from today on be picked, and no earlier one', () => {
+  it('lets any day from the first plannable one on be picked, and no earlier one', () => {
     expect(isPlannableDate('2026-09-16', '2026-09-16')).toBe(true);
     expect(isPlannableDate('2026-09-17', '2026-09-16')).toBe(true);
     expect(isPlannableDate('2027-01-01', '2026-09-16')).toBe(true);
@@ -48,8 +89,40 @@ describe('isPlannableDate', () => {
   });
 });
 
+describe('resolvePlanningRange', () => {
+  const FIRST_PLANNABLE = '2026-09-19';
+  const DEFAULT_RANGE = { start: '2026-09-19', end: '2026-09-25' };
+
+  it('is the default range while nothing was picked', () => {
+    expect(resolvePlanningRange(null, FIRST_PLANNABLE)).toEqual(DEFAULT_RANGE);
+  });
+
+  it('is the picked range while it starts on a plannable day', () => {
+    const complete = { start: '2026-09-19', end: '2026-09-20' };
+    const startOnly = { start: '2026-09-22', end: null };
+
+    expect(resolvePlanningRange(complete, FIRST_PLANNABLE)).toBe(complete);
+    expect(resolvePlanningRange(startOnly, FIRST_PLANNABLE)).toBe(startOnly);
+  });
+
+  it('goes back to the default range when the plan overtakes the start of the picked one', () => {
+    expect(
+      resolvePlanningRange({ start: '2026-09-18', end: '2026-09-24' }, FIRST_PLANNABLE)
+    ).toEqual(DEFAULT_RANGE);
+    expect(resolvePlanningRange({ start: '2026-09-17', end: null }, FIRST_PLANNABLE)).toEqual(
+      DEFAULT_RANGE
+    );
+  });
+
+  it('is the default range for a range without a start', () => {
+    expect(resolvePlanningRange({ start: null, end: null }, FIRST_PLANNABLE)).toEqual(
+      DEFAULT_RANGE
+    );
+  });
+});
+
 describe('getPlanningMonthBounds', () => {
-  it('goes from the month of today forward', () => {
+  it('goes from the month of the first plannable day forward', () => {
     expect(getPlanningMonthBounds('2026-09-16')).toEqual({ from: '2026-09' });
     expect(getPlanningMonthBounds('2026-12-31')).toEqual({ from: '2026-12' });
   });

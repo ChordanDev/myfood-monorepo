@@ -1,7 +1,7 @@
 /* eslint-disable @typescript-eslint/no-require-imports */
 
 import React from 'react';
-import { Text } from 'react-native';
+import { StyleSheet, Text } from 'react-native';
 import { act, create, ReactTestInstance } from 'react-test-renderer';
 import type { MealPlanEntry } from '@/types/domain';
 import type { FloatingCalendarProps } from '@/features/home';
@@ -73,14 +73,15 @@ jest.mock('@/hooks/useAnimatedThemeStyle', () => ({
   useAnimatedThemeStyle: jest.fn((colors: object) => colors),
 }));
 
-// Today is the 16th. One meal before it and two after.
+// Today is the 16th. One meal before it and two after: the 18th is the last planned day, so
+// the 19th is the first one that can be planned.
 const PLAN: MealPlanEntry[] = [
   { id: 'mp1', date: '2026-09-15', type: 'almuerzo', recipeId: 'r1', isCooked: false },
-  { id: 'mp2', date: '2026-09-18', type: 'cena', recipeId: 'r1', isCooked: false },
-  { id: 'mp3', date: '2026-10-02', type: 'cena', recipeId: 'r1', isCooked: false },
+  { id: 'mp2', date: '2026-09-17', type: 'cena', recipeId: 'r1', isCooked: false },
+  { id: 'mp3', date: '2026-09-18', type: 'cena', recipeId: 'r1', isCooked: false },
 ];
 
-const DEFAULT_LABEL = '16 - 22 Septiembre';
+const DEFAULT_LABEL = '19 - 25 Septiembre';
 const PILL_ACTION = 'Elegir los días a planificar';
 
 let tree: ReturnType<typeof create> | undefined;
@@ -150,7 +151,7 @@ afterEach(() => {
 
 describe('PlannerHeader', () => {
   describe('the date pill', () => {
-    it('shows the seven days starting today until a range is picked', () => {
+    it('shows the seven days after the last planned day until a range is picked', () => {
       const root = renderHeader();
 
       expect(getPillText(root)).toBe(DEFAULT_LABEL);
@@ -170,6 +171,19 @@ describe('PlannerHeader', () => {
         backgroundColor: mockTheme.colorBlack,
       });
       expect(useAnimatedThemeStyle).toHaveBeenCalledWith({ color: mockTheme.primaryAccent });
+    });
+
+    it('casts its shadow from a view that has a fill of its own', () => {
+      const root = renderHeader();
+      const style = StyleSheet.flatten(
+        typeof getPill(root).props.style === 'function'
+          ? getPill(root).props.style({ pressed: false })
+          : getPill(root).props.style
+      );
+
+      expect(style).toEqual(
+        expect.objectContaining({ backgroundColor: mockTheme.colorBlack, elevation: 4 })
+      );
     });
 
     it('is the view the calendar is anchored to, kept measurable on Android', () => {
@@ -193,32 +207,48 @@ describe('PlannerHeader', () => {
       pressPill(root);
 
       expect(calendar().anchor).toEqual(mockAnchor);
-      expect(calendar().rangeStart).toBe('2026-09-16');
-      expect(calendar().rangeEnd).toBe('2026-09-22');
+      expect(calendar().rangeStart).toBe('2026-09-19');
+      expect(calendar().rangeEnd).toBe('2026-09-25');
       expect(getPill(root).props.accessibilityState).toEqual({ expanded: true });
     });
 
-    it('offers any day from today on, from this month forward', () => {
+    it('blocks every day up to the last planned one and offers the days after it', () => {
       const root = renderHeader();
 
       pressPill(root);
 
       const { isDateSelectable, monthBounds } = calendar();
-      expect(isDateSelectable?.('2026-09-16')).toBe(true);
-      expect(isDateSelectable?.('2026-09-17')).toBe(true);
-      expect(isDateSelectable?.('2027-02-01')).toBe(true);
       expect(isDateSelectable?.('2026-09-15')).toBe(false);
+      expect(isDateSelectable?.('2026-09-16')).toBe(false);
+      expect(isDateSelectable?.('2026-09-18')).toBe(false);
+      expect(isDateSelectable?.('2026-09-19')).toBe(true);
+      expect(isDateSelectable?.('2027-02-01')).toBe(true);
       expect(monthBounds).toEqual({ from: '2026-09' });
     });
 
-    it('marks the days from today on that already have meals', () => {
+    it('starts at the next month when the plan reaches the end of this one', () => {
+      useMealPlanStore.setState({
+        entries: [
+          ...PLAN,
+          { id: 'mp4', date: '2026-09-30', type: 'cena', recipeId: 'r1', isCooked: false },
+        ],
+      });
+      const root = renderHeader();
+
+      pressPill(root);
+
+      expect(getPillText(root)).toBe('1 - 7 Octubre');
+      expect(calendar().monthBounds).toEqual({ from: '2026-10' });
+    });
+
+    it('still marks the days from today on that already have meals', () => {
       const root = renderHeader();
 
       pressPill(root);
 
       expect(calendar().planByDate).toEqual({
-        '2026-09-18': [PLAN[1]],
-        '2026-10-02': [PLAN[2]],
+        '2026-09-17': [PLAN[1]],
+        '2026-09-18': [PLAN[2]],
       });
     });
   });
@@ -274,12 +304,12 @@ describe('PlannerHeader', () => {
     it('moves the start, and stays open, when the second tap lands before it', () => {
       const root = renderHeader();
       pressPill(root);
-      tapDay('2026-09-20');
+      tapDay('2026-09-22');
 
-      tapDay('2026-09-17');
+      tapDay('2026-09-19');
 
       expect(calendar().anchor).toEqual(mockAnchor);
-      expect(calendar().rangeStart).toBe('2026-09-17');
+      expect(calendar().rangeStart).toBe('2026-09-19');
       expect(calendar().rangeEnd).toBeNull();
     });
 

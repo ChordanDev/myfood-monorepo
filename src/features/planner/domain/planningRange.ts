@@ -16,26 +16,60 @@ const SHORT_MONTH_LENGTH = 3;
 // Every day here is a 'YYYY-MM-DD' key, which sorts like the date it names. `todayKey` is one
 // too: these rules never read the clock.
 
-// The range the pill starts with: today and the six days after it.
-export function getDefaultPlanningRange(todayKey: string): CalendarRange {
-  const today = parseDateKey(todayKey);
-  const lastDay = new Date(
-    today.getFullYear(),
-    today.getMonth(),
-    today.getDate() + DEFAULT_PLANNING_DAYS - 1
+function addDays(dateKey: string, days: number) {
+  const date = parseDateKey(dateKey);
+
+  return formatDateKey(new Date(date.getFullYear(), date.getMonth(), date.getDate() + days));
+}
+
+/**
+ * The first day the Planner can be asked to plan: the day after the last one that already
+ * has a plan, and never before today. Every day up to the last planned one is blocked,
+ * cooked or not, because the Planner plans the days that are not planned yet. The rules
+ * below are all read from this day.
+ */
+export function getFirstPlannableDate(entries: MealPlanEntry[], todayKey: string) {
+  const lastPlannedDate = entries.reduce<string | undefined>(
+    (latest, entry) => (latest === undefined || entry.date > latest ? entry.date : latest),
+    undefined
   );
 
-  return { start: todayKey, end: formatDateKey(lastDay) };
+  if (lastPlannedDate === undefined || lastPlannedDate < todayKey) return todayKey;
+  return addDays(lastPlannedDate, 1);
 }
 
-// Any day from today on can be planned, whether it already has meals or not.
-export function isPlannableDate(dateKey: string, todayKey: string) {
-  return dateKey >= todayKey;
+// The range the pill starts with: the first plannable day and the six days after it.
+export function getDefaultPlanningRange(firstPlannableDate: string): CalendarRange {
+  return {
+    start: firstPlannableDate,
+    end: addDays(firstPlannableDate, DEFAULT_PLANNING_DAYS - 1),
+  };
 }
 
-// The calendar goes from the month of today forward, with no last month.
-export function getPlanningMonthBounds(todayKey: string): CalendarMonthBounds {
-  return { from: todayKey.slice(0, 7) };
+export function isPlannableDate(dateKey: string, firstPlannableDate: string) {
+  return dateKey >= firstPlannableDate;
+}
+
+// The calendar goes from the month of the first plannable day forward, with no last month.
+export function getPlanningMonthBounds(firstPlannableDate: string): CalendarMonthBounds {
+  return { from: firstPlannableDate.slice(0, 7) };
+}
+
+/**
+ * The range the Planner works with: the one the user picked while it still starts on a
+ * plannable day, otherwise the default one. The plan can grow while a range is picked; once
+ * it reaches the start of that range, the range is not one that can be planned any more.
+ */
+export function resolvePlanningRange(
+  pickedRange: CalendarRange | null,
+  firstPlannableDate: string
+): CalendarRange {
+  const isStillPlannable =
+    pickedRange !== null &&
+    pickedRange.start !== null &&
+    isPlannableDate(pickedRange.start, firstPlannableDate);
+
+  return isStillPlannable ? pickedRange : getDefaultPlanningRange(firstPlannableDate);
 }
 
 // The meals already planned from today on, by day: the days the calendar marks as covered.
