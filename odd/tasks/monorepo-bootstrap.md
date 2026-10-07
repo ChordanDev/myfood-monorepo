@@ -44,11 +44,11 @@ Out: porting any `progra-3-back` feature, changing the backend/mobile API contra
 
 ## Tasks
 
-- [ ] T1 — Skeleton: `git init` on `main`, root `.gitignore`, this task document. Route: inline (mechanical). Commit.
-- [ ] T2 — Import backend: filter `myfood` to `meal_planner_api/` → root, `optimizador.py` + `test_optimizador.py` → `optimizer/`; `git subtree add --prefix=apps/api`. Route: inline (git state). Check: `git log --oneline apps/api | wc -l` > 100, `apps/api/mix.exs` and `apps/api/optimizer/optimizador.py` present.
-- [ ] T3 — Import mobile: `git subtree add --prefix=apps/mobile` from front `Develop`. Route: inline. Check: `apps/mobile/package.json` Expo 57, history count ≈ 280.
-- [ ] T4 — Import docs: `git subtree add --prefix=docs` from meal-app-docs `origin/develop`. Route: inline. Check: `docs/docs/PRD_BACKEND.md` present.
-- [ ] T5 — Cleanup + layout fixes (delegated writer, 2+ non-trivial files): remove tracked leftovers (`.DS_Store`, `.pi/`, `.atl/`, mobile `.env`, `fix-auth-colors.js`, duplicate `priv/openspec`), fix optimizer default path and `dev.exs` config nesting, rewrite mobile CI contract-test sibling paths to `../api/lib`, remove the mobile workflow's backend clone step, root README, root `.github/workflows/ci.yml` with `api` and `mobile` jobs. Check: `mix compile --warnings-as-errors` in `apps/api`; `npx tsc --noEmit` and `npx jest` in `apps/mobile` (contract test may fail by design — record).
+- [x] T1 — Skeleton: `git init` on `main`, root `.gitignore`, this task document. Route: inline (mechanical). Commit.
+- [x] T2 — Import backend: filter `myfood` to `meal_planner_api/` → root, `optimizador.py` + `test_optimizador.py` → `optimizer/`; `git subtree add --prefix=apps/api`. Route: inline (git state). Check: `git log --oneline apps/api | wc -l` > 100, `apps/api/mix.exs` and `apps/api/optimizer/optimizador.py` present.
+- [x] T3 — Import mobile: `git subtree add --prefix=apps/mobile` from front `Develop`. Route: inline. Check: `apps/mobile/package.json` Expo 57, history count ≈ 280.
+- [x] T4 — Import docs: `git subtree add --prefix=docs` from meal-app-docs `origin/develop`. Route: inline. Check: `docs/docs/PRD_BACKEND.md` present.
+- [x] T5 — Cleanup + layout fixes (delegated writer, 2+ non-trivial files): remove tracked leftovers (`.DS_Store`, `.pi/`, `.atl/`, mobile `.env`, `fix-auth-colors.js`, duplicate `priv/openspec`), fix optimizer default path and `dev.exs` config nesting, rewrite mobile CI contract-test sibling paths to `../api/lib`, remove the mobile workflow's backend clone step, root README, root `.github/workflows/ci.yml` with `api` and `mobile` jobs. Check: `mix compile --warnings-as-errors` in `apps/api`; `npx tsc --noEmit` and `npx jest` in `apps/mobile` (contract test may fail by design — record).
 - [ ] T6 — Verification worker: run the T5 checks in fresh workers, record observed results here.
 - [ ] T7 — Publish: `gh repo create ChordanDev/myfood-monorepo --private`, push `main`. User-authorized in this session.
 
@@ -64,6 +64,13 @@ Out: porting any `progra-3-back` feature, changing the backend/mobile API contra
 Authored changed lines (excluding imported history): ~250 (README, CI, path fixes, deletions are not authored content).
 
 ## Progress / evidence
+
+- T1 — `685754a chore: bootstrap monorepo skeleton`. Observed: `git init -b main`, `.gitignore`, this document.
+- T2 — `c74eb00 chore(api): import meal_planner_api ...`. Observed: `git filter-repo` kept 250 commits / 408 files; `apps/api/mix.exs` and `apps/api/optimizer/optimizador.py` present. Note: `git log -- apps/api` shows only the subtree merge because imported commits carry root-level paths; full history is reachable (`git rev-list --count HEAD` = 561 after T4).
+- T3 — `f2d524a chore(mobile): import Expo app ...`. Observed: `apps/mobile/package.json` expo `^57.0.0`.
+- T4 — `e4c0a7c chore(docs): import meal-app-docs develop ...`. Observed: `docs/docs/PRD_BACKEND.md` present.
+- T5 — commits `bcfe95c` (leftovers + openspec consolidation), `bc69f9f` (optimizer path + dev config), `5a243dd` (root CI, contract test path, README). Parent spot check: `OptimizerPortRunner.default_script_path()` resolves to `apps/api/optimizer/optimizador.py`, exists=true. README python test line corrected to run from `optimizer/`.
+- Native review: `gentle-ai review assess` on `e4c0a7c..HEAD` → risk `high`, `review_due=true (high_risk)`; consent granted by user; lineage `review-50ada2c3fb5300f3`, four lenses captured in process (risk, resilience, readability admitted `completed`; reliability closed the review). Outcome: approved, no correction required; acknowledged (`gentle-ai.review-acknowledged/v1`). Reviewed boundary now `5a243dd`.
 
 ### T5 — Cleanup + layout fixes (delegated writer; checkbox left to the parent)
 
@@ -98,4 +105,4 @@ Not run here (separate verification pass): full `mix test`, full `npx jest`.
 
 ## Next step
 
-T1.
+T6 (full suites, in progress) → native review acknowledgement → T7 publish.
