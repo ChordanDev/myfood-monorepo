@@ -131,8 +131,10 @@ First run on the iOS simulator (iPhone 17 Pro, Metro on 8084 from this worktree)
 
 Evidence for T10–T12 (2026-10-07): `useKeyboardAnimation` additionally returns the commanded lift, `ChatComposer` forwards it (`onKeyboardLiftChange`) and renders an optional `backdrop` inside its lifted wrapper; the scroll viewport is wrapped in the shared `TopFadeMask`. `npx jest src/features/recipe src/features/planner src/features/assistant-chat src/hooks`: 16 suites, 326 tests passed (re-run by the parent). `npm test`: 540 passed, the same 2 known failures. `npx tsc --noEmit`: 22, same as the base. Second simulator pass by the parent on iOS: with the keyboard open the sent bubble and the reply rest above the composer, the composer sits on the ground scrim, and the card fades under the header. Not verified: Android, and the scroll position after dismissing the keyboard at the end of the list.
 
-- [ ] **T13 — Confirm before marking as cooked (owner request, 2026-10-07).** The header check opens a themed sheet "¿Cocinaste la receta?" with "Sí" / "No". "Sí" marks the entry as cooked and goes back, as before; "No" closes the sheet. Same visual recipe as Home's `EatTodaySheet`, owned by the recipe feature. Route: delegated writer.
+- [x] **T13 — Confirm before marking as cooked (owner request, 2026-10-07).** The header check opens a themed sheet "¿Cocinaste la receta?" with "Sí" / "No". "Sí" marks the entry as cooked and goes back, as before; "No" closes the sheet. Same visual recipe as Home's `EatTodaySheet`, owned by the recipe feature. Route: delegated writer. Commit `923abe5`.
+
+Evidence for T13 (2026-10-07): `npx jest src/features/recipe`: 11 suites, 157 tests passed (re-run by the parent). `npm test`: 554 passed, the same 2 known failures. `npx tsc --noEmit`: 22, same as the base. Simulator (iOS): the check opens the sheet "¿Cocinaste la receta?" with "Sí" / "No"; "No" closes it and leaves the check enabled. "Sí" is covered by tests only. Also seen on the simulator: a recipe opened from a future day shows the composer disabled, and its placeholder "El chat se habilita el día de la receta" is cut off by about three characters.
 
 ## Next step
 
-T13 (delegated), then a simulator check. After that the owner chooses the chain strategy before any pull request.
+Owner decides on the truncated disabled placeholder, then chooses the chain strategy before any pull request. The branch is 55 commits behind `origin/Develop`.
