@@ -67,11 +67,26 @@ describe('RecipeIngredientItem', () => {
     expect(onRequest).toHaveBeenCalledWith(BASE_ROW);
   });
 
-  it('shows a requested ingredient as already in the list, without an add action', () => {
-    const { tree, onRequest } = render({ ...BASE_ROW, status: 'requested' });
+  it('shows a listed ingredient as already in the list, without an add action', () => {
+    const { tree, onRequest } = render({ ...BASE_ROW, status: 'listed' });
 
     expect(renderedTexts(tree)).toContain('En la lista');
     expect(tree.root.findAllByProps({ testID: 'recipe-ingredient-add-i2' })).toHaveLength(0);
     expect(onRequest).not.toHaveBeenCalled();
+  });
+
+  it('shows an ingredient outside the catalog as missing, with nothing to press', () => {
+    const { tree } = render({
+      ...BASE_ROW,
+      ingredientId: 'ghost',
+      name: 'Ingrediente desconocido',
+      quantityLabel: '3',
+      unit: null,
+    });
+
+    expect(renderedTexts(tree)).toContain('Falta');
+    expect(renderedTexts(tree)).not.toContain('Falta · agregar');
+    expect(tree.root.findAllByProps({ testID: 'recipe-ingredient-add-ghost' })).toHaveLength(0);
+    expect(tree.root.findAllByProps({ accessibilityRole: 'button' })).toHaveLength(0);
   });
 });

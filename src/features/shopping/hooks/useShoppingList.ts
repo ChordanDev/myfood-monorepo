@@ -1,8 +1,6 @@
 import { useCallback, useMemo } from 'react';
-import { useInventoryStore } from '@/features/inventory/store';
 import { useMealPlanStore } from '@/store';
 import {
-  deriveShoppingList,
   formatUntilLabel,
   getBestOffer,
   getCartItems,
@@ -12,21 +10,9 @@ import {
   groupItemsByCategory,
   groupItemsBySupermarket,
 } from '../domain';
-import { useShoppingListStore } from '../store';
-import type {
-  BestOffer,
-  ShoppingGroupingMode,
-  ShoppingListInput,
-  ShoppingListItem,
-  SupermarketOffer,
-} from '../types';
-
-type ShoppingSources = Omit<ShoppingListInput, 'untilDate'>;
-
-// The list reaches up to the last planned date: no picker is designed for the pill yet.
-function deriveItems(sources: ShoppingSources) {
-  return deriveShoppingList({ ...sources, untilDate: getDefaultUntilDate(sources.entries) });
-}
+import { readShoppingListItems, useShoppingListStore } from '../store';
+import type { BestOffer, ShoppingGroupingMode, ShoppingListItem, SupermarketOffer } from '../types';
+import { useShoppingListItems } from './useShoppingListItems';
 
 function groupItems(
   items: ShoppingListItem[],
@@ -38,24 +24,10 @@ function groupItems(
     : groupItemsByCategory(items);
 }
 
-/**
- * The list as the stores hold it right now. Actions run on it instead of on the rendered
- * rows: a row from a stale render may have changed status, amount, or left the list since.
- */
+// The list and its groups as the stores hold them right now: see `readShoppingListItems`.
 function readFreshList() {
-  const { entries, recipes } = useMealPlanStore.getState();
-  const { items: inventory, ingredients } = useInventoryStore.getState();
-  const { cartIds, removedIds, manualItems, groupingMode, offers } =
-    useShoppingListStore.getState();
-  const items = deriveItems({
-    entries,
-    recipes,
-    ingredients,
-    inventory,
-    cartIds,
-    removedIds,
-    manualItems,
-  });
+  const { groupingMode, offers } = useShoppingListStore.getState();
+  const items = readShoppingListItems();
 
   return { items, groups: groupItems(items, groupingMode, offers) };
 }
@@ -73,13 +45,9 @@ function getBestOffers(items: ShoppingListItem[], offers: SupermarketOffer[]) {
 }
 
 export function useShoppingList() {
+  // Read for the label of the pill only; the list itself reaches the same date.
   const entries = useMealPlanStore((state) => state.entries);
-  const recipes = useMealPlanStore((state) => state.recipes);
-  const inventory = useInventoryStore((state) => state.items);
-  const ingredients = useInventoryStore((state) => state.ingredients);
-  const cartIds = useShoppingListStore((state) => state.cartIds);
-  const removedIds = useShoppingListStore((state) => state.removedIds);
-  const manualItems = useShoppingListStore((state) => state.manualItems);
+  const items = useShoppingListItems();
   const groupingMode = useShoppingListStore((state) => state.groupingMode);
   const offers = useShoppingListStore((state) => state.offers);
   const setGroupingMode = useShoppingListStore((state) => state.setGroupingMode);
@@ -87,20 +55,6 @@ export function useShoppingList() {
   const restoreRemoved = useShoppingListStore((state) => state.restoreRemovedItems);
 
   const untilDate = useMemo(() => getDefaultUntilDate(entries), [entries]);
-
-  const items = useMemo(
-    () =>
-      deriveItems({
-        entries,
-        recipes,
-        ingredients,
-        inventory,
-        cartIds,
-        removedIds,
-        manualItems,
-      }),
-    [entries, recipes, ingredients, inventory, cartIds, removedIds, manualItems]
-  );
 
   const groups = useMemo(
     () => groupItems(items, groupingMode, offers),

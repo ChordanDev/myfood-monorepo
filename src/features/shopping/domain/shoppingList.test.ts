@@ -1,6 +1,7 @@
 import type { Ingredient, MealPlanEntry, RecipeIngredient } from '@/types/domain';
 import type { ManualShoppingListItem, ShoppingListInput, ShoppingListItem } from '../types';
 import {
+  deriveFullShoppingList,
   deriveShoppingList,
   getCartItems,
   getDefaultUntilDate,
@@ -318,6 +319,32 @@ describe('getDefaultUntilDate', () => {
 
   it('returns undefined for an empty plan', () => {
     expect(getDefaultUntilDate([])).toBeUndefined();
+  });
+});
+
+describe('deriveFullShoppingList', () => {
+  it('derives the list from every planned meal, up to the last one', () => {
+    const { untilDate: _untilDate, ...sources } = buildInput({
+      entries: [
+        buildEntry('e1', '2026-10-10', 'flan'),
+        buildEntry('e2', '2026-11-02', 'salad'),
+        buildEntry('e3', '2026-10-30', 'flan'),
+      ],
+      recipes: [
+        buildRecipe('flan', [{ ingredientId: 'milk', amount: 500 }]),
+        buildRecipe('salad', [{ ingredientId: 'tomato', amount: 3 }]),
+      ],
+      manualItems: [buildManualItem('manual:1', 'Servilletas')],
+    });
+
+    const items = deriveFullShoppingList(sources);
+
+    expect(summarize(items)).toEqual([
+      ['planned:milk', 1000, 'needed'],
+      ['planned:tomato', 3, 'needed'],
+    ]);
+    expect(items).toEqual(deriveShoppingList({ ...sources, untilDate: '2026-11-02' }));
+    expect(items[2]).toEqual(buildManualItem('manual:1', 'Servilletas'));
   });
 });
 

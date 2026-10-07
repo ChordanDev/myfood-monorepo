@@ -3,14 +3,17 @@ import { Keyboard } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { formatDateKey } from '@/features/home/utils/calendarDate';
 import { useInventoryStore } from '@/features/inventory';
+import {
+  addIngredientToShoppingList,
+  getIngredientListState,
+  useShoppingListItems,
+  type ShoppingListItem,
+} from '@/features/shopping';
 import { useMealPlanStore } from '@/store';
+import type { Ingredient, RecipeIngredient } from '@/types/domain';
 import type { RecipeChatOffer } from '../domain/recipeChat';
 import { canMarkAsCooked, isRecipeChatEnabled, resolveRecipeEntry } from '../domain/recipeEntry';
 import { resolveRecipeIngredients, type RecipeIngredientRow } from '../domain/recipeIngredients';
-import {
-  selectRequestedIngredientIds,
-  useShoppingRequestsStore,
-} from '../store/useShoppingRequestsStore';
 
 type RecipeRouteParams = {
   id: string;
@@ -21,6 +24,37 @@ type RecipeRouteParams = {
 /** A route param repeated in the URL arrives as an array; the first value is the one meant. */
 function firstParam(value: string | string[] | undefined): string | undefined {
   return Array.isArray(value) ? value[0] : value;
+}
+
+/**
+ * Ids of the recipe ingredients the shopping list already has a row for. An id outside the
+ * catalog has no name to look for among the items added by hand, so it is never listed.
+ */
+function getListedIngredientIds(
+  lines: RecipeIngredient[],
+  catalog: Ingredient[],
+  shoppingItems: ShoppingListItem[]
+): string[] {
+  return lines.flatMap(({ ingredientId }) => {
+    const ingredient = catalog.find((candidate) => candidate.id === ingredientId);
+    const isListed =
+      ingredient !== undefined && getIngredientListState(shoppingItems, ingredient) === 'listed';
+
+    return isListed ? [ingredientId] : [];
+  });
+}
+
+/**
+ * "agregar" means the same on an ingredient row and from the chat: the shopping list gets the
+ * ingredient under its catalog name, which is the name its planned row would carry.
+ */
+function addToShoppingList(ingredientId: string | undefined) {
+  const { ingredients } = useInventoryStore.getState();
+  const ingredient = ingredients.find((candidate) => candidate.id === ingredientId);
+  // An id outside the catalog has no trustworthy name to put on the list.
+  if (!ingredient) return;
+
+  addIngredientToShoppingList(ingredient);
 }
 
 /** Owns the store access and the handlers of the recipe screen; the components only draw. */
@@ -37,7 +71,7 @@ export function useRecipeScreen() {
   const markAsCooked = useMealPlanStore((state) => state.markAsCooked);
   const inventory = useInventoryStore((state) => state.items);
   const catalog = useInventoryStore((state) => state.ingredients);
-  const requests = useShoppingRequestsStore((state) => state.requests);
+  const shoppingItems = useShoppingListItems();
   const [isCookedConfirmVisible, setIsCookedConfirmVisible] = useState(false);
   // The answer is taken once: a second tap on "Sí" lands before the sheet has closed.
   const isAwaitingCookedAnswerRef = useRef(false);
@@ -48,16 +82,16 @@ export function useRecipeScreen() {
     [entries, entryId, recipeId, todayKey]
   );
   const ingredientLines = recipe?.ingredients;
-  const rows = useMemo(
-    () =>
-      resolveRecipeIngredients({
-        lines: ingredientLines ?? [],
-        catalog,
-        inventory,
-        requestedIngredientIds: selectRequestedIngredientIds({ requests }),
-      }),
-    [catalog, ingredientLines, inventory, requests]
-  );
+  const rows = useMemo(() => {
+    const lines = ingredientLines ?? [];
+
+    return resolveRecipeIngredients({
+      lines,
+      catalog,
+      inventory,
+      listedIngredientIds: getListedIngredientIds(lines, catalog, shoppingItems),
+    });
+  }, [catalog, ingredientLines, inventory, shoppingItems]);
 
   const handleBack = useCallback(() => router.back(), [router]);
 
@@ -92,18 +126,11 @@ export function useRecipeScreen() {
   }, [entry, markAsCooked, router]);
 
   const handleRequestIngredient = useCallback((row: RecipeIngredientRow) => {
-    useShoppingRequestsStore.getState().requestIngredient({
-      name: row.name,
-      ingredientId: row.ingredientId,
-      // An ingredient outside the catalog counts as missing even when the inventory covers it;
-      // with nothing short to ask for, the request is for the whole recipe amount.
-      amount: row.missingAmount || row.requiredAmount,
-      unit: row.unit ?? undefined,
-    });
+    addToShoppingList(row.ingredientId);
   }, []);
 
   const handleAddOffer = useCallback((offer: RecipeChatOffer) => {
-    useShoppingRequestsStore.getState().requestIngredient(offer);
+    addToShoppingList(offer.ingredientId);
   }, []);
 
   return {

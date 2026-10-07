@@ -30,7 +30,8 @@ export function toSentenceCase(name: string): string {
   return lowered.charAt(0).toUpperCase() + lowered.slice(1);
 }
 
-export type RecipeIngredientStatus = 'in_stock' | 'missing' | 'requested';
+/** `listed` is a missing ingredient the shopping list already has; `missing` is one it lacks. */
+export type RecipeIngredientStatus = 'in_stock' | 'missing' | 'listed';
 
 export type RecipeIngredientRow = {
   ingredientId: string;
@@ -53,8 +54,8 @@ type ResolveRecipeIngredientsArgs = {
   lines: RecipeIngredient[];
   catalog: Ingredient[];
   inventory: InventoryStockItem[];
-  /** Ingredients already sent to the shopping requests. */
-  requestedIngredientIds?: string[];
+  /** Ingredients the shopping list already has a row for. */
+  listedIngredientIds?: string[];
 };
 
 /**
@@ -75,25 +76,25 @@ function sumInventoryByIngredient(inventory: InventoryStockItem[]): Map<string, 
  * Turns the recipe lines into display rows with their stock status, in recipe order.
  *
  * An ingredient is in stock when the inventory covers the whole recipe amount. An id that is
- * missing from the catalog cannot be trusted to be the same product, so it is never in stock.
+ * missing from the catalog cannot be trusted to be the same product, so it is never in stock
+ * and never listed either.
  */
 export function resolveRecipeIngredients({
   lines,
   catalog,
   inventory,
-  requestedIngredientIds = [],
+  listedIngredientIds = [],
 }: ResolveRecipeIngredientsArgs): RecipeIngredientRow[] {
   const catalogById = new Map(catalog.map((ingredient) => [ingredient.id, ingredient]));
   const stockByIngredient = sumInventoryByIngredient(inventory);
-  const requestedIds = new Set(requestedIngredientIds);
+  const listedIds = new Set(listedIngredientIds);
 
   return lines.map(({ ingredientId, amount }) => {
     const ingredient = catalogById.get(ingredientId);
     const availableAmount = stockByIngredient.get(ingredientId) ?? 0;
     const isCovered = ingredient !== undefined && availableAmount >= amount;
-    const shortStatus: RecipeIngredientStatus = requestedIds.has(ingredientId)
-      ? 'requested'
-      : 'missing';
+    const isListed = ingredient !== undefined && listedIds.has(ingredientId);
+    const shortStatus: RecipeIngredientStatus = isListed ? 'listed' : 'missing';
 
     return {
       ingredientId,

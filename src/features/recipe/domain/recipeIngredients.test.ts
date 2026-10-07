@@ -25,12 +25,12 @@ const LINES: RecipeIngredient[] = [
 
 type StockItem = Pick<InventoryItem, 'ingredientId' | 'quantity' | 'isLeftover'>;
 
-function resolve(inventory: StockItem[], requestedIngredientIds?: string[]) {
+function resolve(inventory: StockItem[], listedIngredientIds?: string[]) {
   return resolveRecipeIngredients({
     lines: LINES,
     catalog: CATALOG,
     inventory,
-    requestedIngredientIds,
+    listedIngredientIds,
   });
 }
 
@@ -157,15 +157,21 @@ describe('resolveRecipeIngredients', () => {
     expect(rows.map((row) => row.status)).toEqual(['missing', 'missing', 'missing', 'missing']);
   });
 
-  it('marks a short ingredient as requested when it is already on the shopping requests', () => {
+  it('marks a short ingredient as listed when it is already on the shopping list', () => {
     const rows = resolve([], ['i2']);
 
-    expect(rows[1].status).toBe('requested');
+    expect(rows[1].status).toBe('listed');
     expect(rows[1].missingAmount).toBe(200);
     expect(rows[0].status).toBe('missing');
   });
 
-  it('keeps an ingredient in stock even when it was requested', () => {
+  it('marks every short ingredient the shopping list covers as listed', () => {
+    const rows = resolve([{ ingredientId: 'i1', quantity: 99 }], ['i1', 'i3', 'i5']);
+
+    expect(rows.map((row) => row.status)).toEqual(['listed', 'missing', 'listed', 'listed']);
+  });
+
+  it('keeps an ingredient in stock even when the shopping list has it', () => {
     const [rice] = resolve([{ ingredientId: 'i1', quantity: 500 }], ['i1']);
 
     expect(rice.status).toBe('in_stock');
@@ -190,15 +196,15 @@ describe('resolveRecipeIngredients', () => {
     });
   });
 
-  it('marks an unknown ingredient as requested when its id was requested', () => {
+  it('never marks an unknown ingredient as listed, even when its id is given as listed', () => {
     const [unknown] = resolveRecipeIngredients({
       lines: [{ ingredientId: 'ghost', amount: 3 }],
       catalog: CATALOG,
       inventory: [],
-      requestedIngredientIds: ['ghost'],
+      listedIngredientIds: ['ghost'],
     });
 
-    expect(unknown.status).toBe('requested');
+    expect(unknown.status).toBe('missing');
   });
 
   it('returns no rows for a recipe without ingredients', () => {
@@ -207,7 +213,7 @@ describe('resolveRecipeIngredients', () => {
 });
 
 describe('countMissing', () => {
-  it('counts every row that is not in stock, requested ones included', () => {
+  it('counts every row that is not in stock, listed ones included', () => {
     const rows = resolve(
       [
         { ingredientId: 'i1', quantity: 500 },

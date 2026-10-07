@@ -6,6 +6,7 @@ import type {
   ShoppingItemStatus,
   ShoppingListInput,
   ShoppingListItem,
+  ShoppingListSources,
 } from '../types';
 
 export function getPlannedItemId(ingredientId: string) {
@@ -93,6 +94,11 @@ export function deriveShoppingList(input: ShoppingListInput): ShoppingListItem[]
   }
 
   return [...plannedItems, ...input.manualItems];
+}
+
+// The list reaches up to the last planned date: no picker is designed for the pill yet.
+export function deriveFullShoppingList(sources: ShoppingListSources): ShoppingListItem[] {
+  return deriveShoppingList({ ...sources, untilDate: getDefaultUntilDate(sources.entries) });
 }
 
 // Rows of the cart, planned and manual, in the order of the list.

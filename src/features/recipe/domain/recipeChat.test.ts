@@ -59,7 +59,7 @@ const TOMATO_MISSING = buildRow({
   unit: 'unit',
   status: 'missing',
 });
-const TOMATO_REQUESTED: RecipeIngredientRow = { ...TOMATO_MISSING, status: 'requested' };
+const TOMATO_LISTED: RecipeIngredientRow = { ...TOMATO_MISSING, status: 'listed' };
 /** A recipe line whose id is not in the catalog: it has no unit and always counts as missing. */
 const UNKNOWN_MISSING = buildRow({
   ingredientId: 'ghost',
@@ -124,14 +124,14 @@ describe('buildAssistantReply', () => {
     });
   });
 
-  it('does not offer an ingredient that was already requested', () => {
-    const answer = reply([RICE_IN_STOCK, TOMATO_REQUESTED]);
+  it('does not offer an ingredient that is already on the shopping list', () => {
+    const answer = reply([RICE_IN_STOCK, TOMATO_LISTED]);
 
     expect(answer.offer).toBeUndefined();
   });
 
-  it('skips requested ingredients and offers the first one still missing', () => {
-    const answer = reply([TOMATO_REQUESTED, CHICKEN_MISSING]);
+  it('skips listed ingredients and offers the first one still missing', () => {
+    const answer = reply([TOMATO_LISTED, CHICKEN_MISSING]);
 
     expect(answer.offer?.ingredientId).toBe('i2');
   });
