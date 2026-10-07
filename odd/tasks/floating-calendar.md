@@ -60,9 +60,9 @@ Decisions 3, 4, 5, 7 and 9 are assumptions taken from the request, not confirmed
 - [x] **T3 — Shopping "Hasta".** Chosen day in the store with its fallback; the derivation, the hook and the pill use it; the pill becomes a button that opens the floating calendar. Tests RED first. Route: delegated writer. Commit `a66bb17`.
 - [x] **T4 — Planner range.** Range helpers and label formatter; the header pill opens the floating calendar in range mode and shows the label. Also the test the T1/T2 review asked for: pressing a range end completes a one-day range. Tests RED first. Route: delegated writer. Commit `97248dd`.
 - [x] **T5 — Shopping follow-ups from the T3 review.** With no selectable day (every planned meal is in the past) the pill is not a button and opens nothing; the default-argument test of `getTodayKey` uses a fixed clock. Tests RED first. Route: delegated writer (before T4, same run). Commit `5724519`.
-- [ ] **T6 — Planner blocks the days already planned.** The selectable rule, the month bounds and the default range start after the last planned day. `selectDate` no longer depends on the range captured at render (T4 review). The pill's shadow sits on a view with a fill (T4 review). Tests RED first. Route: delegated writer.
-- [ ] **T7 — Shopping shows the range.** The calendar draws from the first day the list buys for to the chosen day. Tests RED first. Route: delegated writer (same run).
-- [ ] **T8 — Screen titles.** "INVENTARIO" and "AJUSTES" at the size of "COMPRAS". Route: delegated writer (same run).
+- [x] **T6 — Planner blocks the days already planned.** The selectable rule, the month bounds and the default range start after the last planned day. `selectDate` no longer depends on the range captured at render (T4 review). The pill's shadow sits on a view with a fill (T4 review). Tests RED first. Route: delegated writer. Commit `5a74ee8`.
+- [x] **T7 — Shopping shows the range.** The calendar draws from the first day the list buys for to the chosen day. Tests RED first. Route: delegated writer (same run). Commit `5505284`.
+- [x] **T8 — Screen titles.** "INVENTARIO" and "AJUSTES" at the size of "COMPRAS". Route: delegated writer (same run). Commit `90f64c8`.
 
 ## Acceptance criteria
 
@@ -72,9 +72,9 @@ Decisions 3, 4, 5, 7 and 9 are assumptions taken from the request, not confirmed
 - [x] A tap outside closes the calendar on both screens. (Simulator.)
 - [x] The Home calendar looks and behaves as before. (Existing Home tests untouched and green; seen on the simulator.)
 - [x] No color literal outside the allowed ones in the touched code. (Writer's `rg` per task; the only match is the pre-existing `#000000` shadow in `PlannerHeader.tsx`.)
-- [ ] In the Planner calendar no day up to the last planned day can be picked.
-- [ ] The shopping calendar shows the stretch from the first day to the chosen day.
-- [ ] "INVENTARIO" and "AJUSTES" are the size of "COMPRAS".
+- [x] In the Planner calendar no day up to the last planned day can be picked. (Simulator.)
+- [x] The shopping calendar shows the stretch from the first day to the chosen day. (Simulator.)
+- [x] "INVENTARIO" and "AJUSTES" are the size of "COMPRAS". (Font size 28 on both; "INVENTARIO" seen on the simulator, "AJUSTES" by tests only.)
 
 ## Checks
 
@@ -135,13 +135,31 @@ Decisions 3, 4, 5, 7 and 9 are assumptions taken from the request, not confirmed
   - The Planner pill's fill moved to a child, so the view that carries the shadow has no background and may cast no shadow on Android. The shadow shows on iOS (simulator). Accepted: **T6**.
 - 2026-10-07: the owner changed the Planner rule (decision 6) and asked for two more things (decisions 11 and 12) after seeing the result: tasks **T6**, **T7** and **T8**.
 
+- 2026-10-07: review assessment of `296d25f` from boundary `97248dd`: `passive`, not due.
+- 2026-10-07: **T6** `5a74ee8` (6 files, +328/−71), **T7** `5505284` (7 files, +128/−17) and **T8** `90f64c8` (6 files, +95/−4), same delegated writer.
+  - T6: `getFirstPlannableDate(entries, todayKey)` and `resolvePlanningRange(pickedRange, firstPlannableDate)`; `getDefaultPlanningRange`, `isPlannableDate` and `getPlanningMonthBounds` now take the first plannable day. The hook stores only what the user picked and derives the range on each render, so a range the plan overtakes falls back to the default with no effect; `selectDate` is stable and reads a ref. The pill's `Pressable` carries the fill again under the animated layer.
+  - T7: `getFirstUntilDate(entries, todayKey)`; `ShoppingUntilCalendar` gains `rangeStart`; the pill passes `rangeStart` and `rangeEnd` and no longer `selectedDate`.
+  - T8: both screens keep `TitlePrimary` and override `titleFontSize` with 28 (`INVENTORY_TITLE_FONT_SIZE`, `SETTINGS_TITLE_FONT_SIZE`). `TitlePrimary` takes no line height, so COMPRAS's explicit 34 is not matched. Home's title is untouched.
+  - RED/GREEN as reported by the writer: T6 domain RED 10 failed, hook RED 9 failed (the two-taps-before-a-render test among them), header RED on the fill test only; T7 RED 12 failed; T8 RED 4 failed (48 at the default window, 38 on a small phone). All GREEN.
+  - Checks reported by the writer: `npx jest src/features/planner src/features/shopping src/features/inventory src/features/settings` 736 passed; `npx jest src/features/home src/features/recipe` 282 passed; `npx tsc --noEmit` exit 0; `npm run lint` 0 errors, the same 7 warnings.
+  - Parent spot check: the same four-feature command, 34 suites, 736 passed.
+- 2026-10-07: **simulator pass** by the parent at `90f64c8`, same device and build, a second Metro on 8082 (the owner's own Metro on 8081 left alone).
+  - Planner: 7 to 10 October (planned) are dimmed and a tap on the 9th does nothing; the pill reads "11 - 17 Octubre".
+  - Shopping: with "Hasta 9 Oct" the calendar draws 7 and 9 as ends and the 8th as the tint.
+  - Inventory: the title is at the COMPRAS size.
+  - Not seen: Ajustes, which redirects without a real session.
+- 2026-10-07: review of `97248dd..90f64c8`: medium (`slice_budget_reached`), consent **granted** by the owner, one lens (reliability), **approved** and acknowledged (lineage `review-1d123b12a971772f`). The reviewed boundary is now `90f64c8`. Non-blocking findings, both SUGGESTION:
+  - With a plan that reaches the end of the month, the Planner's bounds start next month and only a mocked calendar tests it. Parent read `useCalendarState.ts`: with `{ from }` bounds a displayed month before the first one moves to it, so the real calendar opens inside the bounds. Not acted on.
+  - The value 28 is written in each feature and each test, so nothing binds the two titles to the shopping title. Reported to the owner as a choice: a single definition needs a shared file outside the request.
+
 ## Pending and unverified
 
-- Android was never run: the popover's vertical position under a translucent status bar and the Planner pill's shadow are unverified there.
+- Android was never run: the popover's vertical position under a translucent status bar and the pills' shadows are unverified there. The writer notes `ShadowSurface` is also a view without a background, so the shopping pill may share the shadow question.
+- The Ajustes title was not seen on a device.
 - The Planner does not follow a day change while mounted (see the T4 review).
 - The shopping list does not re-derive at midnight until something re-renders (see the T3 review).
 - The calendar opens on the current month, not on the month of the selected day.
 
 ## Next step
 
-T6, T7 and T8, same delegated writer. Then a simulator pass of the three changes.
+All tasks are done and reviewed. The owner decides the merge into `Develop`.
