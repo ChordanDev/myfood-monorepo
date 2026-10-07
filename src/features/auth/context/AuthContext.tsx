@@ -10,6 +10,7 @@ import type {
   OnboardingCompletionResponse,
   ProfileUpdatePayload,
   ProfileUpdateResponse,
+  ProfileUpdateUser,
   SlotCookingTimes,
   SlotCookingTimesPayload,
   UserPreferences,
@@ -17,7 +18,7 @@ import type {
 } from '../types/auth';
 import * as authService from '@/services/authService';
 import { isTransientAuthError } from '@/services/authService';
-import { withUpdatedProfile } from '../utils/currentMe';
+import { normalizeProfileFields, withUpdatedProfile } from '../utils/currentMe';
 import { reconcileAfterCompletion } from '../utils/postCompletion';
 
 export const AuthContext = createContext<AuthContextValue | null>(null);
@@ -250,6 +251,29 @@ export function AuthProvider({ children }: AuthProviderProps) {
       // policy is unit-tested in `postCompletion.test.ts`.
       const result = await authService.completeOnboarding(payload);
 
+      // The completion answer carries householdSize and cookingSkill,
+      // which GET /api/me does not serve yet. They go to the stored
+      // snapshot before the refresh below, so neither the refreshed nor a
+      // later restored /me drops them, and into `me` after it.
+      const email = meRef.current?.user.email;
+      const completedProfile: ProfileUpdateUser | null =
+        email === undefined
+          ? null
+          : normalizeProfileFields({
+              id: result.user.id,
+              email,
+              displayName: result.user.displayName,
+              householdSize: result.user.householdSize,
+              cookingSkill: result.user.cookingSkill,
+            });
+      if (completedProfile) {
+        try {
+          await authService.persistProfileForStoredSession(completedProfile);
+        } catch (error) {
+          console.warn('[AuthProvider] Error guardando el perfil del onboarding:', error);
+        }
+      }
+
       const session = await authService.persistOnboardingCompletionForStoredSession();
       if (session?.accessToken) {
         const reconcile = await reconcileAfterCompletion({
@@ -275,6 +299,17 @@ export function AuthProvider({ children }: AuthProviderProps) {
         // gate moves; the next /api/me read will confirm.
         setOptimisticComplete(true);
         optimisticCompleteRef.current = true;
+      }
+
+      // Same patch as `updateProfile`: the POST answer is the source of
+      // truth for the profile fields, whatever the refresh returned.
+      const currentMe = meRef.current;
+      if (completedProfile && currentMe && currentMe.user.id === completedProfile.id) {
+        const nextMe = withUpdatedProfile(currentMe, completedProfile);
+        if (!areCurrentMeEquivalent(currentMe, nextMe)) {
+          meRef.current = nextMe;
+          setMe(nextMe);
+        }
       }
 
       return result;
