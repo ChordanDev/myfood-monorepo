@@ -17,17 +17,22 @@ literals, which `docs/THEMING.md` forbids.
 
 ## Scope
 
-Paths as they are after T5. T1 to T3 were written under
-`src/features/preferences/` and moved by T5.
+Paths as they are after T6. T1 to T3 were written under
+`src/features/preferences/`, T5 moved them and T6 placed what settings also
+needs in preferences.
 
 - `src/features/onboarding/screens/OnboardingScreen.tsx`
 - `src/features/onboarding/components/**` (flat, with its `index.ts`)
 - `src/features/onboarding/utils/` (`onboardingPayload.ts`,
   `onboardingSlot.ts`, `onboardingSteps.ts`, `onboardingSubmitGate.ts`)
-- `src/features/onboarding/constants/onboardingOptions.ts`
 - `src/features/onboarding/__tests__/**` and `src/features/onboarding/index.ts`
-- `src/features/preferences/utils/preferencesPayload.ts` and its test (T4);
-  `ProfilePreferencesScreen.tsx` and `src/features/preferences/index.ts`
+- Shared with settings, owned by preferences:
+  `src/features/preferences/utils/preferencesPayload.ts` (T4),
+  `utils/profilePayload.ts`, `utils/slotCookingTime.ts` and
+  `constants/preferenceOptions.ts` (T6), with their tests. Preferences has no
+  screen and no barrel left.
+- `src/features/settings/**`: import paths and the caught error class only
+  (T6).
 - `app/onboarding.tsx`, `app/onboarding-preview.tsx` and the path read by
   `src/features/auth/__tests__/maestroSelectors.contract.test.ts`
 - `docs/THEMING.md` ("Open decisions" entry for onboarding)
@@ -106,7 +111,7 @@ never the reverse.
       path, the route files and the `docs/THEMING.md` path. Route: delegated.
       Pure move: no behavior change, proof is the unchanged test count.
 
-- [ ] T6 Integrate `origin/Develop` (41 commits ahead of the branch point).
+- [x] T6 Integrate `origin/Develop` (41 commits ahead of the branch point).
       Develop replaced `ProfilePreferencesScreen` with a `settings` feature
       that imports `preferences/utils/onboardingPayload` (`ProfileFormState`,
       `buildProfilePayload`, `OnboardingValidationError`) and
@@ -128,15 +133,17 @@ Out of scope: the shared top-level folders (`src/components`, `src/services`,
 
 ## Checks
 
-- `npx jest src/features/preferences src/features/onboarding src/features/auth/__tests__/maestroSelectors.contract.test.ts`
+- `npx jest src/features/onboarding src/features/preferences src/features/settings src/features/auth/__tests__/maestroSelectors.contract.test.ts`
 - `npx jest` (full suite at closure)
 - `npm run lint`
 - `npx tsc --noEmit`
 - `rg -n "#[0-9A-Fa-f]{3,8}\b|rgba?\(" src/features/onboarding -g '!**/__tests__/**'`
   returns only allowed `#000000` shadow colors. Tests are excluded because
   their mock palettes are palette definitions.
-- `rg -n "features/onboarding" src/features/preferences` returns nothing
-  (preferences never imports onboarding).
+- Dependency direction, each returns nothing:
+  `rg -n "features/(onboarding|settings)" src/features/preferences`,
+  `rg -n "features/settings" src/features/onboarding`,
+  `rg -n "features/onboarding" src/features/settings`.
 
 ## Progress and evidence
 
@@ -224,8 +231,47 @@ commit that follows it.
   - The literal search over the whole `src/features/onboarding` now matches
     24 lines, all of them the mock palettes of the two screen tests, which
     moved in with the feature. Outside `__tests__` it matches nothing.
+- T6 done in cf13261 (merge of `origin/Develop` at f1f7c52) and e1e5b5c
+  (shared helpers). The branch is 0 commits behind Develop.
+  - Conflicts: `onboardingPayload.ts` keeps Develop's profile validation
+    without restoring `buildPreferencesPayload`; its test keeps both sides'
+    cases; `preferences/index.ts` had no export left on either side and was
+    removed (nothing imports it); `ProfilePreferencesScreen.tsx` is deleted,
+    as on Develop. The step-test fixtures gained `householdSize`,
+    `cookingSkill` and `updateProfile`, which Develop added to the auth types.
+  - The merge commit alone is not green: settings still imported the three
+    modules T5 had moved, so `settingsDraft`, `settingsFormatters` and
+    `settingsScreen.integration` could not load and the type check failed.
+    e1e5b5c fixes it; the two commits are meant to be read together.
+  - e1e5b5c: `ProfileFormState`, the profile validation and
+    `buildProfilePayload` live in `preferences/utils/profilePayload.ts` and
+    throw `PreferencesValidationError`; `SlotMode`, `buildSlot` and
+    `defaultSlot` live in `preferences/utils/slotCookingTime.ts`; the option
+    lists moved whole to `preferences/constants/preferenceOptions.ts` because
+    settings uses every export. `buildOnboardingPayload` rethrows the shared
+    error as `OnboardingValidationError`. Two cases were added before the
+    change and passed on both sides of it: the profile half keeps class,
+    field and message, and the profile is still checked first. Develop's five
+    `buildProfilePayload` cases moved to `profilePayload.test.ts` and name
+    `PreferencesValidationError`.
+  - Checks at e1e5b5c: focused (onboarding, preferences, settings, Maestro
+    contract) 14 suites, 210 tests passed. `npx jest`: 70 suites, 69 passed;
+    1021 tests, 1019 passed, the two environmental failures in
+    `authErrorCodeContract.test.ts`. `npm run lint`: 0 errors, the 7 baseline
+    warnings, Prettier clean. `npx tsc --noEmit`: 0 errors; Develop fixed the
+    22 that the earlier baseline carried. The three dependency searches, the
+    stale-path search and the literal search return nothing.
+  - Re-checked against Develop: `RecipeThemeConfig` gained `alert` and renamed
+    nothing; onboarding does not read `alert`. `ShadowSurface`,
+    `NoisyBackground`, `SafeAreaContent`, the two route files and the jest
+    configuration are unchanged; `package-lock.json` did not change, so no
+    install was needed.
+  - Not verified on a simulator.
 
 ## Next step
 
 Visual pass on a device, then decide the chain strategy and open the pull
-request. No task is left open.
+request. No task is left open. Open questions for the user: whether the
+wizard should prefill household size and skill from the stored profile, which
+Develop now exposes, and whether its sign-out label and inline error should
+use the new `alert` token as settings does.
