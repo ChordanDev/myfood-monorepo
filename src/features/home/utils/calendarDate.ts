@@ -1,6 +1,6 @@
 import type { MonthGridCell } from '../types/calendar';
 import type { LocalMealPlanByDate } from '../domain/localMealPlan';
-import { isSelectableMealDate } from '../domain/localMealPlan';
+import { isPendingConfirmationDate, isSelectableMealDate } from '../domain/localMealPlan';
 
 export function startOfDay(date: Date) {
   return new Date(date.getFullYear(), date.getMonth(), date.getDate());
@@ -55,4 +55,8 @@ export function getMonthDateKeys(year: number, month: number) {
 
 export function isSelectableDate(dateString: string, planByDate: LocalMealPlanByDate, today: Date) {
   return isSelectableMealDate(dateString, planByDate, today, parseDateKey);
+}
+
+export function isPendingDate(dateString: string, planByDate: LocalMealPlanByDate, today: Date) {
+  return isPendingConfirmationDate(dateString, planByDate, today, parseDateKey);
 }

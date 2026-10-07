@@ -7,3 +7,4 @@ export { SafeAreaContent } from './SafeAreaContent';
 export { ShadowSurface } from './ShadowSurface';
 export { AddCircleButton } from './AddCircleButton';
 export { PlaceholderScreen } from './PlaceholderScreen';
+export { SegmentedSwitcher } from './SegmentedSwitcher';

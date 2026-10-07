@@ -17,5 +17,5 @@ reviewing any UI code.
 - **Do not add, rename or remove a token** without asking: it changes every palette.
 - **Palettes come from the backend.** Do not create a palette catalog in the frontend or decide which palette a meal gets. The only palette values in this repo are `DEFAULT_THEME` (fallback) and mocks.
 - **Do not edit a component to make one palette look right.** Fix the palette data.
-- **Allowed literals:** values inside a palette definition, `#000000` shadows, black modal backdrops.
+- **Allowed literals:** values inside a palette definition, `#000000` shadows, black modal backdrops, the inventory category colors in `INVENTORY_CATEGORY_COLORS`.
 - **Do not copy existing violations.** `docs/THEMING.md` lists the known ones.

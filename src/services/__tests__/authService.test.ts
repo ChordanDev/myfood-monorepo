@@ -1,3 +1,4 @@
+/// <reference types="node" />
 import type { CurrentMe } from '@/features/auth/types/auth';
 import * as authService from '../authService';
 

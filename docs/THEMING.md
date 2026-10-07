@@ -62,14 +62,14 @@ Names describe the job a color does, not its hue.
 | Token                  | Role                                   | Used today for                                                        |
 | ---------------------- | -------------------------------------- | --------------------------------------------------------------------- |
 | `appBg`                | Screen ground                          | Screen background; text and icons inside the composer                 |
-| `colorBlack`           | Deepest surface                        | Tab bar gradient end, Planner header pills                            |
+| `colorBlack`           | Deepest surface                        | Tab bar gradient end, Planner header pills, confirmation card         |
 | `colorDark`            | Main dark surface                      | Meal switcher, composer, bottom sheet, Home top fade, dividers at 30% |
-| `colorMedium`          | Mid tone between dark and light        | Meal card gradient start, "today" ring on a day cell                  |
+| `colorMedium`          | Mid tone between dark and light        | Meal card gradient start, day cell rings, confirmation buttons        |
 | `colorLight`           | Light surface sitting on the ground    | Calendar, user chat bubble, settings groups                           |
 | `icon`                 | Icons and state tints on dark surfaces | Tab icons, active pill (15% fill + 30% border), planned day (70%)     |
-| `primaryAccent`        | Emphasis                               | Selected day (70%), "HOY", Planner header icon and label              |
+| `primaryAccent`        | Emphasis                               | Selected day (70%), "HOY", Planner header icon and label, ✓ icon      |
 | `primaryAccentIntense` | Stronger accent for glows and rings    | Add-button ring, "COMERLO HOY" glow, sheet button borders             |
-| `alert`                | Destructive and attention actions      | Sign-out row label                                                    |
+| `alert`                | Unconfirmed meal, destructive actions  | Pending day cell (70% fill + border), ✗ icon, sign-out row label      |
 | `textBlack`            | Body text on light surfaces            | Chat text, day numbers (45% when disabled)                            |
 | `textDark`             | Titles and labels on light surfaces    | Screen title, calendar header and weekdays, settings rows             |
 | `textMedium`           | Secondary text on dark surfaces        | Active switcher label, weekday on the meal card                       |
@@ -89,6 +89,7 @@ these relationships are not.
 - **Dark-on-light pairs** stay readable (4.5:1): `textBlack` and `textDark` on `appBg` and on `colorLight`.
 - **Light-on-dark pairs** stay readable (4.5:1): `textLight`, `textMedium`, `icon` and `primaryAccent` on `colorDark` and `colorBlack`; `appBg` on `colorDark`.
 - **Selected day:** `textBlack` stays readable on `primaryAccent` at 70% over `colorLight`.
+- **Pending day:** `textBlack` stays readable on `alert` at 70% over `colorLight`.
 - **Completeness:** all thirteen required tokens are set. The provider back-fills missing ones from the default palette, which silently mixes two palettes.
 
 ## Checklist for a new palette
@@ -101,11 +102,12 @@ these relationships are not.
 
 ## Literals that are allowed
 
-| Literal                                                            | Why                                                                 |
-| ------------------------------------------------------------------ | ------------------------------------------------------------------- |
-| Values inside a palette definition                                 | That is where colors live                                           |
-| `#000000` as `shadowColor`, `rgba(0, 0, 0, …)` as a modal backdrop | Neutral, independent of the meal                                    |
-| The multicolor "thinking" gradient in `PlannerChatInput`           | Fixed today; treated as palette-independent until decided otherwise |
+| Literal                                                                                                           | Why                                                                 |
+| ----------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------- |
+| Values inside a palette definition                                                                                | That is where colors live                                           |
+| `#000000` as `shadowColor`, `rgba(0, 0, 0, …)` as a modal backdrop                                                | Neutral, independent of the meal                                    |
+| The multicolor "thinking" gradient in `PlannerChatInput`                                                          | Fixed today; treated as palette-independent until decided otherwise |
+| Inventory category colors, only in `INVENTORY_CATEGORY_COLORS` (`src/features/inventory/constants/categories.ts`) | A category keeps its color under every palette                      |
 
 Everything else in a component, style or SVG string is a bug.
 
