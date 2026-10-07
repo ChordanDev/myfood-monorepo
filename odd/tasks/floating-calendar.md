@@ -42,30 +42,39 @@ Out of scope: sending the Planner range to the assistant or the backend (the Pla
 3. **Shopping, selectable days:** days from today on that have at least one planned meal. Picking one closes the popover.
 4. **Shopping, one derivation.** The chosen day lives in the shopping store and every reader of the derived list follows it, the recipe screen included. This replaces decision 5 of `recipe-shopping-link` ("Hasta" not applicable): an ingredient of a meal after the chosen day is not on the list, so its recipe row reads "Falta · agregar".
 5. **Shopping, fallback.** With no chosen day, or a chosen day that is no longer a selectable one (it passed, or its meals were removed), the list goes back to the last planned date. The chosen day is a view preference: it is not queued for sync.
-6. **Planner, selectable days:** any day from today on, planned or not. Planned days keep their mark so the user sees what is already covered. Months go from the current one forward.
+6. **Planner, selectable days:** only days after the last day that already has a plan, and never before today. Every day up to that last planned day is blocked: the user plans days that are not planned yet. Planned days keep their mark. Months go from the month of the first plannable day forward. (Owner's rule, 2026-10-07. It replaces the first version, "any day from today on".)
 7. **Planner, range gesture.** First tap sets the start. A second tap on that day or a later one sets the end and closes the popover. A tap before the start moves the start. A tap with a complete range starts a new one.
-8. **Planner, default range:** the seven days starting today, so the pill always reads as a range.
+8. **Planner, default range:** the seven days starting on the first plannable day, so the pill always reads as a range.
 9. **Planner, label.** Same month: `16 - 24 Septiembre`. Across months: `28 Sep - 3 Oct`. Start only: `Desde 16 Septiembre`.
 10. **Planner, state.** The range is held by the Planner (its store if it has one, otherwise screen state). Nothing consumes it yet besides the pill.
 
-Decisions 3 to 9 are assumptions taken from the request, not confirmed one by one. They are each a small rule to change.
+11. **Shopping, the range is visible.** The calendar draws the stretch the list buys for, from its first day to the chosen day, with the range drawing the Planner uses. (Owner's request, 2026-10-07.)
+12. **Screen titles.** "INVENTARIO" and "AJUSTES" are the same size as "COMPRAS". (Owner's request, 2026-10-07. Outside the calendar, kept in this feature as its own task and commit.)
+
+Decisions 3, 4, 5, 7 and 9 are assumptions taken from the request, not confirmed one by one. Decisions 6, 8, 11 and 12 come from the owner.
 
 ## Tasks
 
 - [x] **T1 — Calendar rules.** `Calendar` and `useCalendarState` accept the selectable-day rule, the month bounds and a range; `DayCell` draws the range (ends as selected, days between as a tint). Pure range helpers. Home unchanged. Tests RED first. Route: delegated writer (2+ non-trivial files). Commit `423cf0d`.
 - [x] **T2 — Floating calendar.** Popover wrapper anchored under its trigger, exported from `@/features/home`. Tests for open, pick and dismiss. Route: delegated writer (with T1). Commit `9c996c7`.
 - [x] **T3 — Shopping "Hasta".** Chosen day in the store with its fallback; the derivation, the hook and the pill use it; the pill becomes a button that opens the floating calendar. Tests RED first. Route: delegated writer. Commit `a66bb17`.
-- [ ] **T4 — Planner range.** Range helpers and label formatter; the header pill opens the floating calendar in range mode and shows the label. Also the test the T1/T2 review asked for: pressing a range end completes a one-day range. Tests RED first. Route: delegated writer.
-- [ ] **T5 — Shopping follow-ups from the T3 review.** With no selectable day (every planned meal is in the past) the pill is not a button and opens nothing; the default-argument test of `getTodayKey` uses a fixed clock. Tests RED first. Route: delegated writer (before T4, same run).
+- [x] **T4 — Planner range.** Range helpers and label formatter; the header pill opens the floating calendar in range mode and shows the label. Also the test the T1/T2 review asked for: pressing a range end completes a one-day range. Tests RED first. Route: delegated writer. Commit `97248dd`.
+- [x] **T5 — Shopping follow-ups from the T3 review.** With no selectable day (every planned meal is in the past) the pill is not a button and opens nothing; the default-argument test of `getTodayKey` uses a fixed clock. Tests RED first. Route: delegated writer (before T4, same run). Commit `5724519`.
+- [ ] **T6 — Planner blocks the days already planned.** The selectable rule, the month bounds and the default range start after the last planned day. `selectDate` no longer depends on the range captured at render (T4 review). The pill's shadow sits on a view with a fill (T4 review). Tests RED first. Route: delegated writer.
+- [ ] **T7 — Shopping shows the range.** The calendar draws from the first day the list buys for to the chosen day. Tests RED first. Route: delegated writer (same run).
+- [ ] **T8 — Screen titles.** "INVENTARIO" and "AJUSTES" at the size of "COMPRAS". Route: delegated writer (same run).
 
 ## Acceptance criteria
 
-- [ ] Pressing the shopping pill opens a calendar under it; only planned days from today on can be picked.
-- [ ] Picking a day updates the pill label, the cards and the counters to what is needed up to that day.
-- [ ] Pressing the Planner pill opens the same calendar; two taps select a range and the pill shows it.
-- [ ] A tap outside closes the calendar on both screens.
-- [x] The Home calendar looks and behaves as before. (Existing Home tests untouched and green; not yet looked at on the simulator.)
-- [ ] No color literal outside the allowed ones in the touched code.
+- [x] Pressing the shopping pill opens a calendar under it; only planned days from today on can be picked. (Simulator.)
+- [x] Picking a day updates the pill label, the cards and the counters to what is needed up to that day. (Simulator.)
+- [x] Pressing the Planner pill opens the same calendar; two taps select a range and the pill shows it. (Simulator.)
+- [x] A tap outside closes the calendar on both screens. (Simulator.)
+- [x] The Home calendar looks and behaves as before. (Existing Home tests untouched and green; seen on the simulator.)
+- [x] No color literal outside the allowed ones in the touched code. (Writer's `rg` per task; the only match is the pre-existing `#000000` shadow in `PlannerHeader.tsx`.)
+- [ ] In the Planner calendar no day up to the last planned day can be picked.
+- [ ] The shopping calendar shows the stretch from the first day to the chosen day.
+- [ ] "INVENTARIO" and "AJUSTES" are the size of "COMPRAS".
 
 ## Checks
 
@@ -106,12 +115,33 @@ Decisions 3 to 9 are assumptions taken from the request, not confirmed one by on
   - SUGGESTION: the stored date key is only validated inside the migration, which stored states at the current version never run. Low risk: `resolveUntilDate` ignores any value that is not a selectable day. Not acted on.
   - SUGGESTION: the default-argument test of `getTodayKey` reads the real clock twice. Accepted: **T5**.
 
+- 2026-10-07: review assessment of `78cf685` from boundary `a66bb17`: `passive`, not due.
+- 2026-10-07: **T5** `5724519` (7 files, +115/−35) and **T4** `97248dd` (8 files, +867/−4; source +180/−4, tests +687), same delegated writer.
+  - T5: `getUntilCalendar` returns `undefined` when no day is selectable and the pill then renders the label only; `today.test.ts` uses fake timers.
+  - T4: `src/features/planner/domain/planningRange.ts` (`getDefaultPlanningRange`, `isPlannableDate`, `getPlanningMonthBounds`, `getPlannedDaysFrom`, `formatPlanningRangeLabel`, `formatPlanningRangeButtonLabel`); hook `usePlanningRange()` returning `{ range, planByDate, isDateSelectable, monthBounds, selectDate }`; `PlannerHeader` uses the hook itself, `PlannerScreen.tsx` untouched. One test each in `Calendar.test.tsx` and `DayCell.test.tsx` for a press on a range end.
+  - RED/GREEN as reported by the writer: T5 RED 6 failed, GREEN; T4 domain and hook RED on a missing module, GREEN 15/15 and 8/8; header RED 16 failed, GREEN 17/17. The `today` test change and the two home tests have no RED.
+  - Checks reported by the writer: `npx jest src/features/planner src/features/shopping` 497 passed; `npx jest src/features/home src/features/recipe` 282 passed; `npx tsc --noEmit` exit 0; `npm run lint` 0 errors, the same 7 warnings.
+  - Parent spot check: `npx jest src/features/planner src/features/shopping` 22 suites, 497 passed.
+  - Decisions taken by the writer: short months are the first three letters of `MONTHS`; a one-day range reads `16 Septiembre`; the planner groups the plan by date itself because `buildLocalMealPlanByDate` is not in the Home barrel.
+- 2026-10-07: **simulator pass** by the parent, iPhone 17 Pro, build `com.myfood.e2e` on Metro 8082 with the start-at-home bypass, at `97248dd`.
+  - Shopping: the pill opens the calendar under itself; only 7 to 10 October can be picked; picking the 8th changed the pill to "Hasta 8 Oct" and the amounts (spinach 400 g to 300 g); a tap outside closes it.
+  - Planner: the pill reads "7 - 13 Octubre"; a tap on the 15th leaves "Desde 15 Octubre" with the calendar open; a tap on the 20th closes it and the pill reads "15 - 20 Octubre".
+  - Home: its calendar looks as before. The recipe screen reads "En la lista" for the listed ingredients.
+  - Seen once and not reproduced: after picking a day in shopping, two taps on the pill did not reopen the calendar. Five more runs of the same sequence reopened it, with temporary logs (reverted) and with the committed code, from a cold start too. The tap tool also dropped the first tap after launch twice, so a dropped tap is possible; it is not confirmed.
+  - Side effect on the simulator's local data: a test tap landed on "1 quitado · Restaurar" and restored a removed item.
+- 2026-10-07: review of `a66bb17..97248dd`: medium (`slice_budget_reached`), consent **granted** by the owner, one lens (reliability), **approved** and acknowledged (lineage `review-f9f52665f0944950`). The reviewed boundary is now `97248dd`. Non-blocking findings, all SUGGESTION:
+  - `selectDate` resolves a tap against the range captured at render, so two taps before a re-render would both set a start. Accepted: **T6**.
+  - The Planner reads today on every render but seeds the default range once, so across midnight the range can start on a day that is no longer selectable. Known limitation, the same class as the shopping one.
+  - The Planner pill's fill moved to a child, so the view that carries the shadow has no background and may cast no shadow on Android. The shadow shows on iOS (simulator). Accepted: **T6**.
+- 2026-10-07: the owner changed the Planner rule (decision 6) and asked for two more things (decisions 11 and 12) after seeing the result: tasks **T6**, **T7** and **T8**.
+
 ## Pending and unverified
 
-- No simulator pass yet: the shopping pill with the real `FloatingCalendar` never ran, every suite mocks `@/features/home`.
+- Android was never run: the popover's vertical position under a translucent status bar and the Planner pill's shadow are unverified there.
+- The Planner does not follow a day change while mounted (see the T4 review).
 - The shopping list does not re-derive at midnight until something re-renders (see the T3 review).
 - The calendar opens on the current month, not on the month of the selected day.
 
 ## Next step
 
-T5 then T4, same delegated writer. Then a simulator pass on both screens.
+T6, T7 and T8, same delegated writer. Then a simulator pass of the three changes.
