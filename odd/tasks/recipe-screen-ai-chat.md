@@ -135,6 +135,13 @@ Evidence for T10–T12 (2026-10-07): `useKeyboardAnimation` additionally returns
 
 Evidence for T13 (2026-10-07): `npx jest src/features/recipe`: 11 suites, 157 tests passed (re-run by the parent). `npm test`: 554 passed, the same 2 known failures. `npx tsc --noEmit`: 22, same as the base. Simulator (iOS): the check opens the sheet "¿Cocinaste la receta?" with "Sí" / "No"; "No" closes it and leaves the check enabled. "Sí" is covered by tests only. Also seen on the simulator: a recipe opened from a future day shows the composer disabled, and its placeholder "El chat se habilita el día de la receta" is cut off by about three characters.
 
+Follow-ups after T13 (2026-10-07, inline, owner approved the shorter copy):
+
+- [x] Disabled placeholder is now "Chat disponible el día de la receta" (`e6d8d57`). It was still cut by a hair on a 402pt screen, so the composer placeholder stays on one line and shrinks to 80% before it is cut (`489d28b`). The shrink was applied before its test was written, so it has no observed RED; the test pins the props.
+- [x] `useActivateRecipePalette` activates and restores in a single layout effect (`44ac417`). With two effects, a hot reload left the screen in the fallback palette; a recipe that stops having a palette now hands the previous one back. RED observed (2 failing tests), then GREEN.
+
+Evidence: `npx jest src/features/recipe src/features/assistant-chat src/features/planner`: 16 suites, 309 tests passed. `npx tsc --noEmit`: 22, same as the base. Simulator (iPhone 17 Pro): on a future day the placeholder shows complete and, after reopening the recipe, the screen is drawn in the recipe palette.
+
 ## Next step
 
-Owner decides on the truncated disabled placeholder, then chooses the chain strategy before any pull request. The branch is 55 commits behind `origin/Develop`.
+Owner chooses the chain strategy before any pull request. The branch is 55 commits behind `origin/Develop`.
