@@ -1,12 +1,15 @@
 import type { Ingredient, MealPlanEntry, RecipeIngredient } from '@/types/domain';
 import type { ManualShoppingListItem, ShoppingListInput, ShoppingListItem } from '../types';
 import {
-  deriveFullShoppingList,
+  deriveCurrentShoppingList,
   deriveShoppingList,
   getCartItems,
   getDefaultUntilDate,
   getPlannedItemId,
+  getSelectableUntilDates,
   getShoppingCounters,
+  getUntilCalendar,
+  resolveUntilDate,
 } from './shoppingList';
 
 const MILK: Ingredient = {
@@ -322,9 +325,9 @@ describe('getDefaultUntilDate', () => {
   });
 });
 
-describe('deriveFullShoppingList', () => {
+describe('deriveCurrentShoppingList', () => {
   it('derives the list from every planned meal, up to the last one', () => {
-    const { untilDate: _untilDate, ...sources } = buildInput({
+    const { untilDate: _untilDate, ...input } = buildInput({
       entries: [
         buildEntry('e1', '2026-10-10', 'flan'),
         buildEntry('e2', '2026-11-02', 'salad'),
@@ -336,8 +339,9 @@ describe('deriveFullShoppingList', () => {
       ],
       manualItems: [buildManualItem('manual:1', 'Servilletas')],
     });
+    const sources = { ...input, chosenUntilDate: undefined };
 
-    const items = deriveFullShoppingList(sources);
+    const items = deriveCurrentShoppingList(sources, '2026-10-01');
 
     expect(summarize(items)).toEqual([
       ['planned:milk', 1000, 'needed'],
@@ -411,5 +415,175 @@ describe('getCartItems', () => {
     );
 
     expect(getCartItems(items)).toEqual([]);
+  });
+});
+
+describe('getSelectableUntilDates', () => {
+  const TODAY = '2026-10-10';
+
+  it('lists the days from today on that have a planned meal, in order and once each', () => {
+    const entries = [
+      buildEntry('e1', '2026-11-02', 'flan'),
+      buildEntry('e2', '2026-10-09', 'flan'),
+      buildEntry('e3', '2026-10-10', 'flan'),
+      buildEntry('e4', '2026-10-14', 'flan'),
+      buildEntry('e5', '2026-10-14', 'salad'),
+    ];
+
+    expect(getSelectableUntilDates(entries, TODAY)).toEqual([
+      '2026-10-10',
+      '2026-10-14',
+      '2026-11-02',
+    ]);
+  });
+
+  it('keeps a day whose meals were already cooked: it is still a planned day', () => {
+    const entries = [buildEntry('e1', '2026-10-12', 'flan', true)];
+
+    expect(getSelectableUntilDates(entries, TODAY)).toEqual(['2026-10-12']);
+  });
+
+  it('has no day when every planned meal is in the past, or the plan is empty', () => {
+    expect(getSelectableUntilDates([buildEntry('e1', '2026-10-09', 'flan')], TODAY)).toEqual([]);
+    expect(getSelectableUntilDates([], TODAY)).toEqual([]);
+  });
+});
+
+describe('resolveUntilDate', () => {
+  const TODAY = '2026-10-10';
+  const entries = [
+    buildEntry('e1', '2026-10-08', 'flan'),
+    buildEntry('e2', '2026-10-12', 'flan'),
+    buildEntry('e3', '2026-10-20', 'flan'),
+  ];
+
+  it('is the last planned date while no day is chosen', () => {
+    expect(resolveUntilDate(entries, undefined, TODAY)).toBe('2026-10-20');
+  });
+
+  it('is the chosen day while it can still be chosen', () => {
+    expect(resolveUntilDate(entries, '2026-10-12', TODAY)).toBe('2026-10-12');
+  });
+
+  it('accepts today when it has a planned meal', () => {
+    expect(resolveUntilDate(entries, '2026-10-12', '2026-10-12')).toBe('2026-10-12');
+  });
+
+  it('goes back to the last planned date once the chosen day has passed', () => {
+    expect(resolveUntilDate(entries, '2026-10-12', '2026-10-13')).toBe('2026-10-20');
+  });
+
+  it('goes back to the last planned date when the chosen day lost its meals', () => {
+    const withoutThe12th = entries.filter((entry) => entry.date !== '2026-10-12');
+
+    expect(resolveUntilDate(withoutThe12th, '2026-10-12', TODAY)).toBe('2026-10-20');
+  });
+
+  it('goes back to the last planned date for a day that never had a meal', () => {
+    expect(resolveUntilDate(entries, '2026-10-15', TODAY)).toBe('2026-10-20');
+    expect(resolveUntilDate(entries, 'not-a-date', TODAY)).toBe('2026-10-20');
+  });
+
+  it('has no date for an empty plan, whatever was chosen', () => {
+    expect(resolveUntilDate([], '2026-10-12', TODAY)).toBeUndefined();
+  });
+});
+
+describe('deriveCurrentShoppingList with a chosen day', () => {
+  const TODAY = '2026-10-10';
+  const { untilDate: _untilDate, ...input } = buildInput({
+    entries: [
+      buildEntry('e1', '2026-10-12', 'flan'),
+      buildEntry('e2', '2026-10-20', 'salad'),
+      buildEntry('e3', '2026-10-25', 'flan'),
+    ],
+    recipes: [
+      buildRecipe('flan', [{ ingredientId: 'milk', amount: 500 }]),
+      buildRecipe('salad', [{ ingredientId: 'tomato', amount: 3 }]),
+    ],
+  });
+
+  it('counts only the meals up to the chosen day, that day included', () => {
+    const upToThe12th = deriveCurrentShoppingList(
+      { ...input, chosenUntilDate: '2026-10-12' },
+      TODAY
+    );
+    const upToThe20th = deriveCurrentShoppingList(
+      { ...input, chosenUntilDate: '2026-10-20' },
+      TODAY
+    );
+
+    expect(summarize(upToThe12th)).toEqual([['planned:milk', 500, 'needed']]);
+    expect(summarize(upToThe20th)).toEqual([
+      ['planned:milk', 500, 'needed'],
+      ['planned:tomato', 3, 'needed'],
+    ]);
+  });
+
+  it('counts the whole plan again once the chosen day cannot be chosen any more', () => {
+    const afterThe12th = deriveCurrentShoppingList(
+      { ...input, chosenUntilDate: '2026-10-12' },
+      '2026-10-13'
+    );
+
+    expect(afterThe12th).toEqual(deriveShoppingList({ ...input, untilDate: '2026-10-25' }));
+  });
+
+  it('keeps the manual items whatever day is chosen', () => {
+    const manualItems = [buildManualItem('manual:1', 'Servilletas')];
+    const items = deriveCurrentShoppingList(
+      { ...input, manualItems, chosenUntilDate: '2026-10-12' },
+      TODAY
+    );
+
+    expect(items.at(-1)).toEqual(manualItems[0]);
+  });
+});
+
+describe('getUntilCalendar', () => {
+  const TODAY = '2026-10-10';
+  const entries = [
+    buildEntry('e1', '2026-10-08', 'flan'),
+    buildEntry('e2', '2026-10-12', 'flan'),
+    buildEntry('e3', '2026-10-12', 'salad'),
+    buildEntry('e4', '2026-12-01', 'flan'),
+  ];
+
+  it('lets the days from today on with a planned meal be picked, and no other', () => {
+    const { isDateSelectable } = getUntilCalendar(entries, TODAY);
+
+    expect(isDateSelectable('2026-10-12')).toBe(true);
+    expect(isDateSelectable('2026-12-01')).toBe(true);
+    expect(isDateSelectable('2026-10-08')).toBe(false);
+    expect(isDateSelectable('2026-10-11')).toBe(false);
+  });
+
+  it('agrees with the rule that resolves the date of the list', () => {
+    const { isDateSelectable } = getUntilCalendar(entries, TODAY);
+
+    for (const dateKey of ['2026-10-08', '2026-10-11', '2026-10-12', '2026-12-01']) {
+      expect(isDateSelectable(dateKey)).toBe(resolveUntilDate(entries, dateKey, TODAY) === dateKey);
+    }
+  });
+
+  it('walks only the months that hold a day to pick', () => {
+    expect(getUntilCalendar(entries, TODAY).monthBounds).toEqual({
+      months: ['2026-10', '2026-12'],
+    });
+  });
+
+  it('marks the planned days from today on, with their meals', () => {
+    expect(getUntilCalendar(entries, TODAY).planByDate).toEqual({
+      '2026-10-12': [entries[1], entries[2]],
+      '2026-12-01': [entries[3]],
+    });
+  });
+
+  it('has nothing to pick or to mark when no meal is planned from today on', () => {
+    const calendar = getUntilCalendar([entries[0]], TODAY);
+
+    expect(calendar.planByDate).toEqual({});
+    expect(calendar.monthBounds).toEqual({ months: [] });
+    expect(calendar.isDateSelectable('2026-10-08')).toBe(false);
   });
 });

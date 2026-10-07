@@ -1,3 +1,4 @@
+import type { CalendarProps } from '@/features/home';
 import type { InventoryItem } from '@/features/inventory';
 import type {
   Ingredient,
@@ -49,8 +50,17 @@ export type ShoppingListInput = {
   untilDate?: string;
 };
 
-// What the stores hold: the list is derived from them up to the last planned date.
-export type ShoppingListSources = Omit<ShoppingListInput, 'untilDate'>;
+// What the stores hold: the list is derived from them up to the day the user chose, or up to
+// the last planned date.
+export type ShoppingListSources = Omit<ShoppingListInput, 'untilDate'> & {
+  // 'YYYY-MM-DD' key of the chosen day, when there is one. It counts while it can be chosen.
+  chosenUntilDate: string | undefined;
+};
+
+// What the calendar of the date pill needs to offer the days the list can reach.
+export type ShoppingUntilCalendar = Required<
+  Pick<CalendarProps, 'planByDate' | 'isDateSelectable' | 'monthBounds'>
+>;
 
 export type SupermarketOffer = {
   ingredientId: string;

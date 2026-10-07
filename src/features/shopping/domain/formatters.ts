@@ -9,9 +9,18 @@ export function formatPrice(price: number) {
   return `$${String(Math.round(price)).replace(/\B(?=(\d{3})+(?!\d))/g, '.')}`;
 }
 
-export function formatUntilLabel(dateKey: string) {
+function formatShortDate(dateKey: string) {
   const [, month, day] = dateKey.split('-').map(Number);
-  return `Hasta ${day} ${SHORT_MONTHS[month - 1]}`;
+  return `${day} ${SHORT_MONTHS[month - 1]}`;
+}
+
+export function formatUntilLabel(dateKey: string) {
+  return `Hasta ${formatShortDate(dateKey)}`;
+}
+
+// What the date pill says to a screen reader: what pressing it does, and the date it shows.
+export function formatUntilButtonLabel(dateKey: string) {
+  return `Elegir hasta qué día comprar, ahora ${formatShortDate(dateKey)}`;
 }
 
 export function formatItemNameLine(item: ShoppingListItem) {

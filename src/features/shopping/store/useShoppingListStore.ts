@@ -55,6 +55,9 @@ interface ShoppingListState {
   // for good, so the stored items alone cannot tell which ids were already used.
   lastManualItemSequence: number;
   groupingMode: ShoppingGroupingMode;
+  // 'YYYY-MM-DD' key of the last day the user chose to buy for. Without one the list reaches
+  // the last planned date. It is how this device shows the list, not something to sync.
+  chosenUntilDate: string | undefined;
   offers: SupermarketOffer[];
   addToCart: (itemIds: string[]) => void;
   takeOutOfCart: (itemIds: string[]) => void;
@@ -65,11 +68,18 @@ interface ShoppingListState {
   restoreRemovedItems: () => void;
   addManualItem: (name: string) => void;
   setGroupingMode: (groupingMode: ShoppingGroupingMode) => void;
+  // Stored as given: whether the day can still be chosen is decided when the list is derived.
+  setChosenUntilDate: (dateKey: string | undefined) => void;
 }
 
 type PersistedShoppingListState = Pick<
   ShoppingListState,
-  'cartIds' | 'removedIds' | 'manualItems' | 'lastManualItemSequence' | 'groupingMode'
+  | 'cartIds'
+  | 'removedIds'
+  | 'manualItems'
+  | 'lastManualItemSequence'
+  | 'groupingMode'
+  | 'chosenUntilDate'
 >;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -105,6 +115,10 @@ function readSequence(value: unknown) {
   return typeof value === 'number' && Number.isInteger(value) && value > 0 ? value : 0;
 }
 
+function readDateKey(value: unknown) {
+  return typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value) ? value : undefined;
+}
+
 /**
  * Upgrades what an earlier version stored. Version 1 kept purchase records and manual items
  * that stayed `purchased`: the records are dropped, because that stock is already in the
@@ -129,6 +143,7 @@ export function migrateShoppingListState(persistedState: unknown): PersistedShop
       getHighestManualItemSequence(storedManualItemIds)
     ),
     groupingMode: stored.groupingMode === 'supermarket' ? 'supermarket' : 'category',
+    chosenUntilDate: readDateKey(stored.chosenUntilDate),
   };
 }
 
@@ -140,6 +155,7 @@ export const useShoppingListStore = create<ShoppingListState>()(
       manualItems: [],
       lastManualItemSequence: 0,
       groupingMode: 'category',
+      chosenUntilDate: undefined,
       offers: MOCK_SUPERMARKET_OFFERS,
       // Marking is staging: nothing reaches the inventory until the purchase is confirmed.
       addToCart: (itemIds) => {
@@ -252,9 +268,12 @@ export const useShoppingListStore = create<ShoppingListState>()(
         });
       },
       setGroupingMode: (groupingMode) => set({ groupingMode }),
+      setChosenUntilDate: (chosenUntilDate) => set({ chosenUntilDate }),
     }),
     {
       name: 'shopping-list-storage',
+      // The chosen day was added without a new version: a list stored before it has no such
+      // field, and hydrates without a chosen day.
       version: 2,
       storage: createJSONStorage(() => safeAsyncStorage),
       // Runs when the stored version is another one.
@@ -267,12 +286,14 @@ export const useShoppingListStore = create<ShoppingListState>()(
         manualItems,
         lastManualItemSequence,
         groupingMode,
+        chosenUntilDate,
       }): PersistedShoppingListState => ({
         cartIds,
         removedIds,
         manualItems,
         lastManualItemSequence,
         groupingMode,
+        chosenUntilDate,
       }),
     }
   )

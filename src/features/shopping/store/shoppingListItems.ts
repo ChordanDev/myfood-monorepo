@@ -1,13 +1,14 @@
 import { useInventoryStore } from '@/features/inventory/store';
 import { useMealPlanStore } from '@/store';
 import {
-  deriveFullShoppingList,
+  deriveCurrentShoppingList,
   getIngredientListState,
   getManualItemsNamed,
   getPlannedItemId,
   type ListedIngredient,
 } from '../domain';
 import type { ShoppingListItem } from '../types';
+import { getTodayKey } from './today';
 import { useShoppingListStore } from './useShoppingListStore';
 
 /**
@@ -17,17 +18,21 @@ import { useShoppingListStore } from './useShoppingListStore';
 export function readShoppingListItems(): ShoppingListItem[] {
   const { entries, recipes } = useMealPlanStore.getState();
   const { items: inventory, ingredients } = useInventoryStore.getState();
-  const { cartIds, removedIds, manualItems } = useShoppingListStore.getState();
+  const { cartIds, removedIds, manualItems, chosenUntilDate } = useShoppingListStore.getState();
 
-  return deriveFullShoppingList({
-    entries,
-    recipes,
-    ingredients,
-    inventory,
-    cartIds,
-    removedIds,
-    manualItems,
-  });
+  return deriveCurrentShoppingList(
+    {
+      entries,
+      recipes,
+      ingredients,
+      inventory,
+      cartIds,
+      removedIds,
+      manualItems,
+      chosenUntilDate,
+    },
+    getTodayKey()
+  );
 }
 
 /**
