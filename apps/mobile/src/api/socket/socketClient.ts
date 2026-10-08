@@ -38,8 +38,9 @@ export interface SocketClientDeps {
 }
 
 /**
- * `unauthenticated` means the session could not be refreshed: the socket has
- * stopped and stays stopped until `connect()` finds a new session.
+ * `connected` while the socket is open. `unauthenticated` once a refresh found
+ * the session invalid, until the token store announces a new access token.
+ * `disconnected` in every other case: not started, no session, or connecting.
  */
 export type SocketStatus = 'connected' | 'disconnected' | 'unauthenticated';
 
@@ -55,8 +56,15 @@ export interface TopicSubscription {
 }
 
 export interface SocketClient {
-  /** Opens the socket with the stored access token. Does nothing without a stored session. */
+  /**
+   * Keeps the socket connected whenever a session exists, until `disconnect()`.
+   * It opens with the stored access token, closes when the session is cleared
+   * or found invalid, and opens again when the token store announces a new
+   * access token; the topics still joined then rejoin. Without a stored
+   * session it waits for that announcement. Never rejects.
+   */
   connect(): Promise<void>;
+  /** Closes the socket and stops following the session. */
   disconnect(): void;
   /**
    * Joins `topic` and keeps it joined across reconnects until `leave()`. Hold
@@ -69,15 +77,25 @@ export interface SocketClient {
 }
 
 /**
- * Wait before a failure streak may refresh again after a refresh that failed
- * for a transient reason. It starts at Phoenix's longest reconnect delay and
- * doubles per failure: 5 s, 10 s, 20 s, 40 s, then 60 s. Every refresh is a
- * rotation request for the refresh token, and one whose response is lost can
- * leave the stored token stale, so an outage must not send one per reconnect
- * attempt.
+ * Wait before another refresh may start after one that failed for a transient
+ * reason. It starts at Phoenix's longest reconnect delay and doubles per
+ * failure: 5 s, 10 s, 20 s, 40 s, then 60 s. Every refresh is a rotation
+ * request for the refresh token, and one whose response is lost can leave the
+ * stored token stale, so an outage must not send one per reconnect attempt or
+ * per rejoin.
  */
 const REFRESH_COOLDOWN_BASE_MS = 5_000;
 const REFRESH_COOLDOWN_MAX_MS = 60_000;
+
+/**
+ * Wait before another refresh may start after one that succeeded while the
+ * socket still cannot open. A server that refuses a token this fresh is not
+ * refusing it for the token, so refreshing again at once would only rotate
+ * the session. Ten minutes is far below the one hour an access token lives,
+ * so a socket that keeps failing never sends an expired token, and it costs
+ * at most six rotations an hour.
+ */
+const REFRESH_HOLD_AFTER_SUCCESS_MS = 10 * 60_000;
 
 function refreshCooldownMs(failedRefreshes: number): number {
   return Math.min(REFRESH_COOLDOWN_BASE_MS * 2 ** (failedRefreshes - 1), REFRESH_COOLDOWN_MAX_MS);
@@ -85,24 +103,24 @@ function refreshCooldownMs(failedRefreshes: number): number {
 
 /**
  * How a refresh ended for the caller: the socket holds a new token, the
- * refresh failed, or the run that asked for it had ended by then.
+ * refresh failed for a transient reason, the session is invalid, or the
+ * session the refresh was for had ended by then.
  */
-type RefreshOutcome = 'refreshed' | 'failed' | 'superseded';
+type RefreshOutcome = 'refreshed' | 'failed' | 'session_invalid' | 'superseded';
 
 /**
- * Refresh state of a failure streak: the failed connection attempts since the
- * client started or the socket last opened.
+ * The refreshes the socket may still ask for. Rejected connects and refused
+ * joins draw on the same budget, because both send rotation requests.
  */
-interface FailureStreak {
-  /** A refresh for this streak is pending or has succeeded. */
-  refreshSpent: boolean;
+interface RefreshBudget {
+  /** Refreshes that failed for a transient reason since the last one that succeeded. */
   failedRefreshes: number;
-  /** Clock time before which the streak does not refresh again. */
+  /** Clock time before which no refresh starts. */
   refreshAllowedAt: number;
 }
 
-function newFailureStreak(): FailureStreak {
-  return { refreshSpent: false, failedRefreshes: 0, refreshAllowedAt: 0 };
+function newRefreshBudget(): RefreshBudget {
+  return { failedRefreshes: 0, refreshAllowedAt: 0 };
 }
 
 export function createSocketClient(deps: SocketClientDeps): SocketClient {
@@ -110,14 +128,16 @@ export function createSocketClient(deps: SocketClientDeps): SocketClient {
   let status: SocketStatus = 'disconnected';
   const statusListeners = new Set<(status: SocketStatus) => void>();
 
-  // True from connect() until disconnect(), a cleared session or an invalid one.
+  // True from connect() to disconnect(). A started client follows the token
+  // store, also while it has no session and therefore no connection.
   let started = false;
-  // Identifies the current run, from connect() to the stop that ends it. Work
-  // that awaits captures it and drops its result when the run has ended.
+  // Identifies the current run: it moves on whenever the session is lost and
+  // on disconnect(). Work that awaits captures it and drops its result when
+  // the run has ended.
   let run = 0;
-  // The run a cleared session ended, until connect() or disconnect() is called.
+  // The run a cleared session ended, until a new token or disconnect().
   let sessionClearedRun: number | null = null;
-  // The token the next connection attempt sends. Not null only while started.
+  // The token the next connection attempt sends; null while there is no session.
   let token: string | null = null;
   let unsubscribeFromTokens: (() => void) | null = null;
 
@@ -126,9 +146,9 @@ export function createSocketClient(deps: SocketClientDeps): SocketClient {
   // connection from the one that refused it.
   let openCount = 0;
   let closing = false;
-  // Replaced when the socket opens and when the client stops, so a refresh
-  // that ends later only writes to the streak that asked for it.
-  let streak = newFailureStreak();
+  // Replaced when the socket opens and when the run ends, so a refresh that
+  // ends later only writes to the budget it drew on.
+  let budget = newRefreshBudget();
   // The pending refresh of the current run.
   let refreshInFlight: Promise<RefreshOutcome> | null = null;
 
@@ -139,7 +159,7 @@ export function createSocketClient(deps: SocketClientDeps): SocketClient {
   socket.onOpen(() => {
     isOpen = true;
     openCount += 1;
-    streak = newFailureStreak();
+    budget = newRefreshBudget();
     setStatus('connected');
   });
 
@@ -149,22 +169,12 @@ export function createSocketClient(deps: SocketClientDeps): SocketClient {
     // The server refuses the WebSocket upgrade of an invalid token without a
     // readable reason, so an error before the socket opened is treated as a
     // possible rejection and answered with a refresh. Phoenix keeps retrying
-    // on its backoff and every failed attempt reports an error, so a streak
-    // spends its refresh once one succeeded: a server that still refuses the
-    // new token is not refusing it for the token. A refresh that found the
-    // session invalid stops the socket. One that failed for any other reason,
-    // such as no network, settles nothing: the streak refreshes again on the
-    // first failed attempt after a cool-down that grows with each failure.
-    // The error of a connection this client is closing is ignored.
-    const failing = streak;
-    if (isOpen || closing || failing.refreshSpent || now() < failing.refreshAllowedAt) return;
-    failing.refreshSpent = true;
-    void refreshSession().then((outcome) => {
-      if (outcome === 'refreshed') return;
-      failing.refreshSpent = false;
-      failing.failedRefreshes += 1;
-      failing.refreshAllowedAt = now() + refreshCooldownMs(failing.failedRefreshes);
-    });
+    // on its backoff and every failed attempt reports an error; the refresh
+    // budget decides which of them refresh. The error of a connection this
+    // client is closing is ignored.
+    if (isOpen || closing) return;
+    // The outcome acts on the socket itself: it reconnects or closes it.
+    void requestRefresh();
   });
 
   function setStatus(next: SocketStatus): void {
@@ -178,9 +188,18 @@ export function createSocketClient(deps: SocketClientDeps): SocketClient {
     if (status === 'connected') setStatus('disconnected');
   }
 
+  function connectSocket(): void {
+    try {
+      socket.connect();
+    } catch {
+      // A transport that cannot be created leaves the client disconnected. The
+      // next token change tries again.
+    }
+  }
+
   function openTransport(): void {
     // A teardown in progress connects when it finishes.
-    if (!closing) socket.connect();
+    if (!closing) connectSocket();
   }
 
   /**
@@ -195,33 +214,34 @@ export function createSocketClient(deps: SocketClientDeps): SocketClient {
     closing = true;
     socket.disconnect(() => {
       closing = false;
-      if (token !== null) socket.connect();
+      if (token !== null) connectSocket();
     });
   }
 
   function adoptToken(next: string): void {
     token = next;
+    sessionClearedRun = null;
     if (status === 'unauthenticated') setStatus('disconnected');
   }
 
-  function halt(): void {
-    if (!started) return;
-    started = false;
+  /**
+   * Ends the run: the session is gone or the client is stopping. The socket
+   * closes and nothing that was started before this point applies any more.
+   */
+  function dropSession(): void {
     run += 1;
     token = null;
-    streak = newFailureStreak();
+    budget = newRefreshBudget();
     // A refresh still pending belongs to the run that ends here.
     refreshInFlight = null;
-    unsubscribeFromTokens?.();
-    unsubscribeFromTokens = null;
     closeTransport();
   }
 
   function handleTokenChange(next: string | null): void {
     if (!started) return;
     if (next === null) {
-      sessionClearedRun = run;
-      halt();
+      if (token !== null) sessionClearedRun = run;
+      dropSession();
       return;
     }
     if (next === token) return;
@@ -232,13 +252,31 @@ export function createSocketClient(deps: SocketClientDeps): SocketClient {
   }
 
   /**
-   * Refreshes the session for the current run of the socket. A rejected
-   * connect and a refused join that ask while that refresh is pending share
-   * it; a run never waits on the refresh of an earlier run.
+   * Asks for a refresh of the session on behalf of a rejected connect or a
+   * refused join. Returns null when the budget does not allow one yet.
+   *
+   * One refresh runs at a time and callers that ask meanwhile share it; a run
+   * never waits on the refresh of an earlier run. After a refresh that failed
+   * for a transient reason, such as no network, the next one waits for a
+   * cool-down that grows with each failure. After one that succeeded, the next
+   * one waits `REFRESH_HOLD_AFTER_SUCCESS_MS`. The budget starts over when the
+   * socket opens and when the run ends.
    */
-  function refreshSession(): Promise<RefreshOutcome> {
+  function requestRefresh(): Promise<RefreshOutcome> | null {
     if (refreshInFlight) return refreshInFlight;
-    const refresh = runRefresh(run);
+    const spent = budget;
+    if (now() < spent.refreshAllowedAt) return null;
+
+    const refresh = runRefresh(run).then((outcome) => {
+      if (outcome === 'refreshed') {
+        spent.failedRefreshes = 0;
+        spent.refreshAllowedAt = now() + REFRESH_HOLD_AFTER_SUCCESS_MS;
+      } else if (outcome === 'failed') {
+        spent.failedRefreshes += 1;
+        spent.refreshAllowedAt = now() + refreshCooldownMs(spent.failedRefreshes);
+      }
+      return outcome;
+    });
     refreshInFlight = refresh;
     void refresh.then(() => {
       if (refreshInFlight === refresh) refreshInFlight = null;
@@ -247,10 +285,9 @@ export function createSocketClient(deps: SocketClientDeps): SocketClient {
   }
 
   /**
-   * A refresh that ends after disconnect() or a later connect() changes
-   * nothing: neither the status nor the token of the run that may have started
-   * since. A token it did rotate reaches that run through the token store,
-   * which announces it.
+   * A refresh that ends after its run changes nothing: neither the status nor
+   * the token of the run that may have started since. A token it did rotate
+   * reaches that run through the token store, which announces it.
    */
   async function runRefresh(refreshRun: number): Promise<RefreshOutcome> {
     try {
@@ -264,40 +301,43 @@ export function createSocketClient(deps: SocketClientDeps): SocketClient {
       const sessionInvalid = isSessionInvalidAuthError(error);
       if (run !== refreshRun) {
         // The token store clears an invalid session before the refresh
-        // rejects, and that clearing has already stopped this run.
+        // rejects, and that clearing has already ended this run.
         if (!sessionInvalid || sessionClearedRun !== refreshRun) return 'superseded';
         setStatus('unauthenticated');
-        return 'failed';
+        return 'session_invalid';
       }
-      if (sessionInvalid) {
-        halt();
-        setStatus('unauthenticated');
-      }
-      // Any other failure leaves the socket as it is: Phoenix keeps retrying.
-      return 'failed';
+      if (!sessionInvalid) return 'failed';
+      dropSession();
+      setStatus('unauthenticated');
+      return 'session_invalid';
     }
   }
 
   function disconnect(): void {
+    if (!started) return;
+    started = false;
     sessionClearedRun = null;
-    halt();
+    unsubscribeFromTokens?.();
+    unsubscribeFromTokens = null;
+    dropSession();
   }
 
   async function connect(): Promise<void> {
     if (started) return;
-    started = true;
-    sessionClearedRun = null;
-    const connectRun = run;
-    unsubscribeFromTokens = deps.subscribeToAccessToken(handleTokenChange);
-
-    const stored = await deps.getAccessToken().catch(() => null);
-    // Nothing left to do when disconnect() or a cleared session ended this
-    // run, or when the store announced a token during the read.
-    if (run !== connectRun || token !== null) return;
-    if (stored === null) {
-      halt();
+    try {
+      unsubscribeFromTokens = deps.subscribeToAccessToken(handleTokenChange);
+    } catch {
+      // A client that cannot follow the token store is not started.
       return;
     }
+    started = true;
+    const connectRun = run;
+
+    const stored = await deps.getAccessToken().catch(() => null);
+    // Nothing to open when disconnect() or a cleared session ended this run,
+    // when the store announced a token during the read, or when there is no
+    // session yet: the client then waits for the store to announce one.
+    if (run !== connectRun || token !== null || stored === null) return;
     adoptToken(stored);
     openTransport();
   }
@@ -306,7 +346,7 @@ export function createSocketClient(deps: SocketClientDeps): SocketClient {
     const channel = socket.channel(topic);
     let left = false;
     // The connection whose `unauthenticated` refusal was answered with a
-    // refresh; null while the topic has not spent its refresh.
+    // refresh that succeeded; null while no refresh has been spent on the join.
     let refreshedOnOpenCount: number | null = null;
 
     function leave(): void {
@@ -335,20 +375,24 @@ export function createSocketClient(deps: SocketClientDeps): SocketClient {
           refuse(error);
           return;
         }
-        if (refreshedOnOpenCount === null) {
-          // The socket outlived its access token. Phoenix rejoins the topic
-          // once the socket reopens with the refreshed one.
-          refreshedOnOpenCount = openCount;
-          void refreshSession().then((outcome) => {
-            if (outcome === 'failed') refuse(error);
-            // The client stopped first: the topic refreshes again in its next run.
-            if (outcome === 'superseded') refreshedOnOpenCount = null;
-          });
+        // The socket outlived its access token. Until this topic is left,
+        // Phoenix rejoins it on a timer and whenever the socket reopens, so
+        // every refusal that is not final only has to wait for the next one.
+        if (refreshedOnOpenCount !== null) {
+          // Final on the connection the refreshed token opened. The rejoin
+          // timer can still fire on the stale one before it closes.
+          if (refreshedOnOpenCount !== openCount) refuse(error);
           return;
         }
-        // Phoenix's rejoin timer can fire on the stale connection before the
-        // refresh ends; only a refusal on a newer connection is final.
-        if (refreshedOnOpenCount !== openCount) refuse(error);
+        const refusedOnOpenCount = openCount;
+        const refresh = requestRefresh();
+        // Null while the budget allows no refresh, as in the cool-down of one
+        // that failed: a later refusal asks again.
+        if (refresh === null) return;
+        void refresh.then((outcome) => {
+          if (outcome === 'refreshed') refreshedOnOpenCount = refusedOnOpenCount;
+          if (outcome === 'session_invalid') refuse(error);
+        });
       });
 
     return { leave };

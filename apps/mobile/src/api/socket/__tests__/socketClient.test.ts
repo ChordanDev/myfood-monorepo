@@ -28,6 +28,8 @@ interface SetupOptions {
   storedToken?: string | null;
   /** Replaces the read of the stored token, for a test that controls when it resolves. */
   getAccessToken?: () => Promise<string | null>;
+  /** Makes the first subscription to the token store throw. */
+  failFirstSubscription?: boolean;
 }
 
 /** Phoenix's backoff starts a new attempt and the server refuses the upgrade again. */
@@ -37,8 +39,13 @@ async function failNextAttempt(socket: FakeSocket): Promise<void> {
   await flushPromises();
 }
 
-function setup({ storedToken = 'access-1', getAccessToken }: SetupOptions = {}) {
+function setup({
+  storedToken = 'access-1',
+  getAccessToken,
+  failFirstSubscription = false,
+}: SetupOptions = {}) {
   let token = storedToken;
+  let subscriptionFails = failFirstSubscription;
   let now = 1_700_000_000_000;
   const tokenListeners = new Set<(accessToken: string | null) => void>();
   const sockets: FakeSocket[] = [];
@@ -72,6 +79,10 @@ function setup({ storedToken = 'access-1', getAccessToken }: SetupOptions = {}) 
     getAccessToken: getAccessToken ?? (async () => token),
     refreshTokens,
     subscribeToAccessToken: (listener) => {
+      if (subscriptionFails) {
+        subscriptionFails = false;
+        throw new Error('subscription failed');
+      }
       tokenListeners.add(listener);
       return () => {
         tokenListeners.delete(listener);
@@ -124,13 +135,45 @@ describe('createSocketClient', () => {
     });
 
     it('does not open a socket without a stored token', async () => {
-      const { client, socket, tokenListeners } = setup({ storedToken: null });
+      const { client, socket } = setup({ storedToken: null });
 
       await client.connect();
 
       expect(socket.connectAttempts).toEqual([]);
       expect(client.getStatus()).toBe('disconnected');
-      expect(tokenListeners.size).toBe(0);
+    });
+
+    it('opens the socket once a token is announced after a start without a session', async () => {
+      const { client, socket, announceToken } = setup({ storedToken: null });
+      await client.connect();
+
+      announceToken('access-1');
+
+      expect(socket.connectAttempts).toEqual([{ token: 'access-1' }]);
+      socket.open();
+      expect(client.getStatus()).toBe('connected');
+    });
+
+    it('resolves and can be called again when the token subscription throws', async () => {
+      const { client, socket } = setup({ failFirstSubscription: true });
+
+      await expect(client.connect()).resolves.toBeUndefined();
+      expect(socket.connectAttempts).toEqual([]);
+
+      await client.connect();
+      expect(socket.connectAttempts).toEqual([{ token: 'access-1' }]);
+    });
+
+    it('resolves when opening the socket throws and opens with the next token', async () => {
+      const { client, socket, announceToken } = setup();
+      socket.failNextConnect(new Error('socket could not be created'));
+
+      await expect(client.connect()).resolves.toBeUndefined();
+      expect(socket.connectAttempts).toEqual([]);
+      expect(client.getStatus()).toBe('disconnected');
+
+      announceToken('access-2');
+      expect(socket.connectAttempts).toEqual([{ token: 'access-2' }]);
     });
 
     it('opens one connection when connect() is called twice', async () => {
@@ -243,6 +286,18 @@ describe('createSocketClient', () => {
       expect(client.getStatus()).toBe('disconnected');
     });
 
+    it('stops waiting for a session on disconnect()', async () => {
+      const { client, socket, announceToken, tokenListeners } = setup({ storedToken: null });
+      await client.connect();
+      expect(tokenListeners.size).toBe(1);
+
+      client.disconnect();
+      announceToken('access-1');
+
+      expect(tokenListeners.size).toBe(0);
+      expect(socket.connectAttempts).toEqual([]);
+    });
+
     it('connects again with the stored token after a disconnect', async () => {
       const { client, socket, announceToken } = await setupConnected();
 
@@ -344,6 +399,54 @@ describe('createSocketClient', () => {
         { token: 'access-2' },
         { token: 'access-2' },
       ]);
+    });
+
+    it('refreshes again in the same streak ten minutes after a refresh that succeeded', async () => {
+      const { client, socket, refreshTokens, refreshSucceedsWith, advanceTime } = setup();
+      refreshSucceedsWith('access-2');
+      await client.connect();
+      socket.failBeforeOpen();
+      await flushPromises();
+      socket.failBeforeOpen();
+      await flushPromises();
+
+      advanceTime(10 * 60_000 - 1);
+      await failNextAttempt(socket);
+      expect(refreshTokens).toHaveBeenCalledTimes(1);
+
+      refreshSucceedsWith('access-3');
+      advanceTime(1);
+      await failNextAttempt(socket);
+
+      expect(refreshTokens).toHaveBeenCalledTimes(2);
+      expect(socket.connectAttempts.at(-1)).toEqual({ token: 'access-3' });
+    });
+
+    it('starts the cool-down over after a refresh that succeeded', async () => {
+      const { client, socket, refreshTokens, refreshSucceedsWith, advanceTime } = setup();
+      const networkError = new ApiError('network_error', 'Network request failed');
+      refreshTokens.mockRejectedValueOnce(networkError);
+      await client.connect();
+      socket.failBeforeOpen();
+      await flushPromises();
+      refreshSucceedsWith('access-2');
+      advanceTime(5_000);
+      await failNextAttempt(socket);
+      socket.failBeforeOpen();
+      await flushPromises();
+      expect(refreshTokens).toHaveBeenCalledTimes(2);
+
+      refreshTokens.mockRejectedValue(networkError);
+      advanceTime(10 * 60_000);
+      await failNextAttempt(socket);
+      expect(refreshTokens).toHaveBeenCalledTimes(3);
+
+      advanceTime(4_999);
+      await failNextAttempt(socket);
+      expect(refreshTokens).toHaveBeenCalledTimes(3);
+      advanceTime(1);
+      await failNextAttempt(socket);
+      expect(refreshTokens).toHaveBeenCalledTimes(4);
     });
 
     it('does not refresh again during the cool-down of a refresh that failed on the network', async () => {
@@ -510,7 +613,7 @@ describe('createSocketClient', () => {
       expect(refreshTokens).not.toHaveBeenCalled();
     });
 
-    it('stops and reports unauthenticated when the refresh finds the session invalid', async () => {
+    it('closes the socket as unauthenticated on an invalid session and opens it for the next token', async () => {
       const { client, socket, refreshTokens, announceToken } = setup();
       refreshTokens.mockImplementation(async () => {
         // The real refresh clears the session before it rejects.
@@ -527,10 +630,13 @@ describe('createSocketClient', () => {
       expect(socket.connectAttempts).toHaveLength(1);
 
       announceToken('access-2');
-      expect(socket.connectAttempts).toHaveLength(1);
+      expect(client.getStatus()).toBe('disconnected');
+      expect(socket.connectAttempts).toEqual([{ token: 'access-1' }, { token: 'access-2' }]);
+      socket.open();
+      expect(client.getStatus()).toBe('connected');
     });
 
-    it('leaves the unauthenticated state when connect() finds a new session', async () => {
+    it('stays unauthenticated until a token is announced', async () => {
       const { client, socket, refreshTokens, announceToken } = setup();
       refreshTokens.mockRejectedValue(new ApiError('refresh_token_expired', 'expired', 401));
       await client.connect();
@@ -539,15 +645,16 @@ describe('createSocketClient', () => {
       expect(client.getStatus()).toBe('unauthenticated');
       expect(socket.disconnectCount).toBe(1);
 
-      announceToken('access-2');
-      expect(socket.connectAttempts).toHaveLength(1);
       await client.connect();
+      expect(client.getStatus()).toBe('unauthenticated');
+      expect(socket.connectAttempts).toHaveLength(1);
 
+      announceToken('access-2');
       expect(client.getStatus()).toBe('disconnected');
       expect(socket.connectAttempts.at(-1)).toEqual({ token: 'access-2' });
     });
 
-    it('starts a new streak when it connects again after an invalid session', async () => {
+    it('starts a new streak with the session that follows an invalid one', async () => {
       const { client, socket, refreshTokens, announceToken, refreshSucceedsWith } = setup();
       refreshTokens.mockRejectedValueOnce(new ApiError('refresh_token_expired', 'expired', 401));
       await client.connect();
@@ -556,7 +663,6 @@ describe('createSocketClient', () => {
       expect(client.getStatus()).toBe('unauthenticated');
 
       announceToken('access-2');
-      await client.connect();
       refreshSucceedsWith('access-3');
       socket.failBeforeOpen();
       await flushPromises();
@@ -668,6 +774,21 @@ describe('createSocketClient', () => {
       await flushPromises();
 
       expect(client.getStatus()).toBe('disconnected');
+    });
+
+    it('reports unauthenticated when the session is cleared twice before the refresh rejects', async () => {
+      const { client, socket, refreshTokens, announceToken } = setup();
+      const refresh = deferred<{ accessToken: string }>();
+      refreshTokens.mockReturnValueOnce(refresh.promise);
+      await client.connect();
+      socket.failBeforeOpen();
+
+      announceToken(null);
+      announceToken(null);
+      refresh.reject(new ApiError('refresh_token_revoked', 'revoked', 401));
+      await flushPromises();
+
+      expect(client.getStatus()).toBe('unauthenticated');
     });
 
     it('stays disconnected when the session is cleared and the refresh then fails on the network', async () => {
@@ -807,6 +928,25 @@ describe('createSocketClient', () => {
       expect(socket.disconnectCount).toBe(1);
       expect(socket.connectAttempts).toHaveLength(1);
       expect(client.getStatus()).toBe('disconnected');
+    });
+
+    it('opens again and rejoins a joined topic when a token follows a cleared session', async () => {
+      const { client, socket, announceToken } = await setupConnected();
+      const onJoined = jest.fn();
+      client.joinTopic(TOPIC, { onJoined });
+      const [channel] = socket.channels;
+      channel.replyOk();
+      announceToken(null);
+
+      announceToken('access-2');
+
+      expect(socket.connectAttempts).toEqual([{ token: 'access-1' }, { token: 'access-2' }]);
+      socket.open();
+      channel.replyOk();
+      expect(client.getStatus()).toBe('connected');
+      expect(socket.channels).toHaveLength(1);
+      expect(channel.hasLeft()).toBe(false);
+      expect(onJoined).toHaveBeenCalledTimes(2);
     });
 
     it('connects once with the latest token when it rotates twice during a teardown', async () => {
@@ -973,20 +1113,108 @@ describe('createSocketClient', () => {
       expect(socket.connectAttempts.at(-1)).toEqual({ token: 'access-3' });
     });
 
-    it('hands the refusal to onRefused when the refresh fails', async () => {
+    it('keeps the topic when the refresh fails on the network', async () => {
       const { client, channel, onRefused, refreshTokens } = await setupJoined();
       refreshTokens.mockRejectedValue(new ApiError('network_error', 'Network request failed'));
 
-      channel.replyError(refusal('unauthenticated', 'Token expired.'));
+      channel.replyError(refusal('unauthenticated'));
       await flushPromises();
 
-      expect(onRefused).toHaveBeenCalledTimes(1);
-      expect(onRefused.mock.calls[0][0]).toMatchObject({
-        code: 'unauthenticated',
-        message: 'Token expired.',
-      });
-      expect(channel.hasLeft()).toBe(true);
+      expect(onRefused).not.toHaveBeenCalled();
+      expect(channel.hasLeft()).toBe(false);
       expect(client.getStatus()).toBe('connected');
+    });
+
+    it('does not refresh again for a refusal inside the cool-down of a failed refresh', async () => {
+      const { channel, onRefused, refreshTokens, advanceTime } = await setupJoined();
+      refreshTokens.mockRejectedValue(new ApiError('timeout', 'Request timeout'));
+      channel.replyError(refusal('unauthenticated'));
+      await flushPromises();
+
+      channel.replyError(refusal('unauthenticated'));
+      advanceTime(4_999);
+      channel.replyError(refusal('unauthenticated'));
+      await flushPromises();
+
+      expect(refreshTokens).toHaveBeenCalledTimes(1);
+      expect(onRefused).not.toHaveBeenCalled();
+      expect(channel.hasLeft()).toBe(false);
+    });
+
+    it('refreshes again for a refusal after the cool-down and joins once the socket reopens', async () => {
+      const {
+        socket,
+        channel,
+        onJoined,
+        onRefused,
+        refreshTokens,
+        refreshSucceedsWith,
+        advanceTime,
+      } = await setupJoined();
+      refreshTokens.mockRejectedValueOnce(new ApiError('network_error', 'Network request failed'));
+      channel.replyError(refusal('unauthenticated'));
+      await flushPromises();
+
+      refreshSucceedsWith('access-2');
+      advanceTime(5_000);
+      channel.replyError(refusal('unauthenticated'));
+      await flushPromises();
+
+      expect(refreshTokens).toHaveBeenCalledTimes(2);
+      expect(socket.connectAttempts).toEqual([{ token: 'access-1' }, { token: 'access-2' }]);
+
+      socket.open();
+      channel.replyOk();
+
+      expect(onJoined).toHaveBeenCalledTimes(1);
+      expect(onRefused).not.toHaveBeenCalled();
+    });
+
+    it('shares the cool-down of a failed refresh with rejected connects', async () => {
+      const { socket, channel, refreshTokens, advanceTime } = await setupJoined();
+      refreshTokens.mockRejectedValue(new ApiError('network_error', 'Network request failed'));
+      channel.replyError(refusal('unauthenticated'));
+      await flushPromises();
+      socket.drop();
+
+      advanceTime(4_999);
+      await failNextAttempt(socket);
+      expect(refreshTokens).toHaveBeenCalledTimes(1);
+
+      // The rejected connect spends the second step of the same budget: ten seconds.
+      advanceTime(1);
+      await failNextAttempt(socket);
+      expect(refreshTokens).toHaveBeenCalledTimes(2);
+      advanceTime(9_999);
+      await failNextAttempt(socket);
+      expect(refreshTokens).toHaveBeenCalledTimes(2);
+      advanceTime(1);
+      await failNextAttempt(socket);
+      expect(refreshTokens).toHaveBeenCalledTimes(3);
+    });
+
+    it('ignores a refusal on a connection that reopened on its own during the refresh', async () => {
+      const { socket, channel, onJoined, onRefused, refreshTokens, announceToken } =
+        await setupJoined();
+      const refresh = deferred<{ accessToken: string }>();
+      refreshTokens.mockReturnValue(refresh.promise);
+      channel.replyError(refusal('unauthenticated'));
+
+      socket.drop();
+      socket.backoffRetry();
+      socket.open();
+      channel.replyError(refusal('unauthenticated'));
+      expect(onRefused).not.toHaveBeenCalled();
+
+      announceToken('access-2');
+      refresh.resolve({ accessToken: 'access-2' });
+      await flushPromises();
+      socket.open();
+      channel.replyOk();
+
+      expect(refreshTokens).toHaveBeenCalledTimes(1);
+      expect(onJoined).toHaveBeenCalledTimes(1);
+      expect(onRefused).not.toHaveBeenCalled();
     });
 
     it('stops the socket when the refresh for a join finds the session invalid', async () => {
@@ -1030,7 +1258,7 @@ describe('createSocketClient', () => {
 
     it('does not report a refusal once the topic was left during the refresh', async () => {
       const { channel, subscription, onRefused, refreshTokens } = await setupJoined();
-      refreshTokens.mockRejectedValue(new ApiError('network_error', 'Network request failed'));
+      refreshTokens.mockRejectedValue(new ApiError('refresh_token_revoked', 'revoked', 401));
 
       channel.replyError(refusal('unauthenticated'));
       subscription.leave();

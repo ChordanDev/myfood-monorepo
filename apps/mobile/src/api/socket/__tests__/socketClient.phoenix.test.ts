@@ -1,5 +1,6 @@
 import { Socket } from 'phoenix';
 
+import { ApiError } from '../../errors';
 import { createSocketClient } from '../socketClient';
 
 /**
@@ -81,6 +82,11 @@ function setup() {
     return { accessToken: token };
   }
 
+  /** Plays the token store when the session is cleared. */
+  function clearToken(): void {
+    [...tokenListeners].forEach((listener) => listener(null));
+  }
+
   const refreshTokens = jest.fn<Promise<{ accessToken: string }>, []>(async () => rotateToken());
 
   const client = createSocketClient({
@@ -96,7 +102,7 @@ function setup() {
     },
   });
 
-  return { client, refreshTokens, rotateToken };
+  return { client, refreshTokens, rotateToken, clearToken };
 }
 
 async function setupJoining() {
@@ -220,6 +226,51 @@ describe('createSocketClient on the Phoenix client', () => {
     lastConnection().replyToLastJoin('ok', {});
 
     expect(lastConnection()).not.toBe(staleConnection);
+    expect(onJoined).toHaveBeenCalledTimes(1);
+    expect(onRefused).not.toHaveBeenCalled();
+  });
+
+  it('rejoins a joined topic when a session returns after it was cleared', async () => {
+    const { clearToken, rotateToken, onJoined } = await setupJoining();
+    lastConnection().replyToLastJoin('ok', {});
+
+    clearToken();
+    await jest.advanceTimersByTimeAsync(30_000);
+    expect(connections()).toHaveLength(1);
+
+    rotateToken();
+    lastConnection().acceptUpgrade();
+    lastConnection().replyToLastJoin('ok', {});
+
+    expect(connections().map(tokenOf)).toEqual(['access-1', 'access-2']);
+    expect(lastConnection().joins()).toHaveLength(1);
+    expect(onJoined).toHaveBeenCalledTimes(2);
+  });
+
+  it('keeps a topic on the rejoin timer while the refresh fails, then joins with the refreshed token', async () => {
+    const { refreshTokens, onJoined, onRefused } = await setupJoining();
+    refreshTokens.mockRejectedValueOnce(new ApiError('network_error', 'Network request failed'));
+    const staleConnection = lastConnection();
+    staleConnection.replyToLastJoin('error', UNAUTHENTICATED);
+
+    // Phoenix rejoins after 1 s and 2 s, inside the 5 s cool-down of the failed refresh.
+    await jest.advanceTimersByTimeAsync(1_000);
+    staleConnection.replyToLastJoin('error', UNAUTHENTICATED);
+    await jest.advanceTimersByTimeAsync(2_000);
+    staleConnection.replyToLastJoin('error', UNAUTHENTICATED);
+    expect(staleConnection.joins()).toHaveLength(3);
+    expect(refreshTokens).toHaveBeenCalledTimes(1);
+
+    // The next rejoin, 5 s later, is past the cool-down.
+    await jest.advanceTimersByTimeAsync(5_000);
+    staleConnection.replyToLastJoin('error', UNAUTHENTICATED);
+    await jest.advanceTimersByTimeAsync(0);
+    expect(refreshTokens).toHaveBeenCalledTimes(2);
+
+    lastConnection().acceptUpgrade();
+    lastConnection().replyToLastJoin('ok', {});
+
+    expect(connections().map(tokenOf)).toEqual(['access-1', 'access-2']);
     expect(onJoined).toHaveBeenCalledTimes(1);
     expect(onRefused).not.toHaveBeenCalled();
   });

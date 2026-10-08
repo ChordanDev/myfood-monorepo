@@ -37,6 +37,8 @@ export interface FakeSocket extends PhoenixSocket {
   deferDisconnects(): void;
   /** Runs the held teardown callbacks, oldest first. */
   finishDisconnects(): void;
+  /** Makes the next `connect()` throw, as a transport that cannot be created does. */
+  failNextConnect(error: Error): void;
 }
 
 export interface FakeChannel extends PhoenixChannel {
@@ -96,6 +98,7 @@ export function createFakeSocket(url: string, options: PhoenixSocketOptions): Fa
   let connection: Connection = 'none';
   let disconnectCount = 0;
   let deferring = false;
+  let connectError: Error | null = null;
 
   const emit = (callbacks: (() => void)[]) => callbacks.forEach((callback) => callback());
 
@@ -109,6 +112,11 @@ export function createFakeSocket(url: string, options: PhoenixSocketOptions): Fa
     // Like the real socket, a second connect() is ignored while a connection
     // object exists, even a failed one waiting for the reconnect timer.
     if (connection !== 'none') return;
+    if (connectError) {
+      const error = connectError;
+      connectError = null;
+      throw error;
+    }
     connection = 'connecting';
     connectAttempts.push({ ...options.params() });
   }
@@ -170,6 +178,9 @@ export function createFakeSocket(url: string, options: PhoenixSocketOptions): Fa
     finishDisconnects() {
       deferring = false;
       heldDisconnects.splice(0).forEach((callback) => callback());
+    },
+    failNextConnect(error) {
+      connectError = error;
     },
   };
 }
