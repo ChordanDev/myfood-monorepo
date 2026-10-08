@@ -59,6 +59,7 @@ export const KNOWN_AUTH_ERROR_CODES = new Set<AuthErrorCode>([
   'optimization_failed',
   'optimizer_unavailable',
   'optimizer_timeout',
+  'recipe_not_found',
   'configuration_error',
   'network_error',
   'timeout',
@@ -136,6 +137,7 @@ export const AUTH_ERROR_MESSAGES: Partial<Record<AuthErrorCode, string>> = {
   optimizer_unavailable:
     'No pudimos generar el menú en este momento. Probá de nuevo en un momento.',
   optimizer_timeout: 'La generación del menú tardó demasiado. Probá de nuevo en un momento.',
+  recipe_not_found: 'No encontramos esa receta.',
   configuration_error: 'Falta configurar EXPO_PUBLIC_API_URL para conectar con la API.',
   network_error: 'No pudimos conectar con el servidor. Revisá tu conexión.',
   timeout: 'La conexión tardó demasiado. Revisá tu señal e intentá nuevamente.',

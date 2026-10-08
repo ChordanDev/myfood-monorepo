@@ -65,6 +65,7 @@ defmodule MealPlannerApiWeb.ApiError do
           | :refresh_token_replayed
           | :refresh_token_expired
           | :refresh_token_session_mismatch
+          | :recipe_not_found
           | :generation_in_progress
           | :no_active_generation
           | :missing_session_id
@@ -115,6 +116,9 @@ defmodule MealPlannerApiWeb.ApiError do
     refresh_token_replayed: {401, "The refresh token has already been used."},
     refresh_token_expired: {401, "The refresh token has expired."},
     refresh_token_session_mismatch: {401, "The refresh token does not match its session."},
+    # Recipe detail (issue #32): a missing recipe, a malformed id and a recipe
+    # of another Account share the code, so existence is not revealed.
+    recipe_not_found: {404, "The recipe was not found."},
     # Planning channel (issue #11): every deliberate reason a join or a
     # command of `PlanningChannel` replies, named as the reason was.
     generation_in_progress: {409, "A menu generation is already in progress for this account."},
