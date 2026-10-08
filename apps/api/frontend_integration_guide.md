@@ -1023,8 +1023,8 @@ Errors use the envelope of section 10:
 
 - `404 recipe_not_found`: the recipe does not exist, the id is not a UUID, or the recipe belongs to another
   Account.
-- `403 forbidden`: the Account has no access (expired trial without a subscription, or no active
-  Membership).
+- `403 forbidden`: the Account has no access (expired trial without a subscription). A User without an
+  active Membership is stopped earlier, by the auth pipeline, with `401 account_not_found`.
 
 `apps/mobile/src/features/recipe/fixtures/recipeDetail.json` is a full example body. A route test keeps its
 keys equal to the ones this route answers.
