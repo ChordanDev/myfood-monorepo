@@ -34,13 +34,22 @@ export GEMINI_API_KEY=...   # or put it in .envrc.local (direnv, gitignored)
 
 mix setup            # deps.get
 mix ecto.create && mix ecto.migrate
+mix run priv/repo/seeds.exs   # optional demo data, see below
 mix phx.server       # http://127.0.0.1:4000
 ```
 
+The reference Plans (`individual`, `family_4`, `family_6`, `trial`) are
+inserted by migrations, so sign-up works on a database that only ran
+`mix ecto.migrate`. The seeds only add demo data (a demo Account, two Users, a
+recipe and a scheduled meal): run them once on a fresh development database
+(a second run fails on the duplicate demo User) and never in production.
+
 Optional overrides: `OPTIMIZER_PYTHON` (default `python3`),
 `OPTIMIZER_SCRIPT_PATH` (default `apps/api/optimizer/optimizador.py`),
-`OPTIMIZER_TIMEOUT_MS`. `apps/api/.envrc` is a direnv stub that sets safe
-defaults and sources `.envrc.local` for secrets.
+`OPTIMIZER_TIMEOUT_MS`. A bare `OPTIMIZER_PYTHON` name is looked up on `PATH`
+and an explicit path is used as given; when the executable cannot be found the
+API refuses to start and logs which value it tried. `apps/api/.envrc` is a
+direnv stub that sets safe defaults and sources `.envrc.local` for secrets.
 
 Tests: `mix test` (uses `postgres`/`postgres` on `localhost`, database
 `meal_planner_api_test`; override with `MYFOOD_TEST_DATABASE`). The optimizer
