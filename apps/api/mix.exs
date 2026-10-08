@@ -11,6 +11,11 @@ defmodule MealPlannerApi.MixProject do
       aliases: aliases(),
       deps: deps(),
       docs: docs(),
+      dialyzer: [
+        plt_core_path: "priv/plts",
+        plt_file: {:no_warn, "priv/plts/dialyzer.plt"},
+        flags: [:error_handling, :extra_return]
+      ],
       listeners: [Phoenix.CodeReloader]
     ]
   end
@@ -66,7 +71,10 @@ defmodule MealPlannerApi.MixProject do
       {:uuid, "~> 1.1"},
       {:mox, "~> 1.1", only: :test},
       {:ex_doc, "~> 0.36", only: :dev, runtime: false},
-      {:tidewave, "~> 0.6", only: :dev}
+      {:tidewave, "~> 0.6", only: :dev},
+      {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
+      {:sobelow, "~> 0.13", only: [:dev, :test], runtime: false},
+      {:dialyxir, "~> 1.4", only: [:dev, :test], runtime: false}
     ]
   end
 
@@ -79,6 +87,8 @@ defmodule MealPlannerApi.MixProject do
   defp aliases do
     [
       setup: ["deps.get"],
+      lint: ["credo --strict", "sobelow --config"],
+      typecheck: ["dialyzer --format short"],
       precommit: ["compile --warnings-as-errors", "deps.unlock --unused", "format", "test"]
     ]
   end

@@ -28,3 +28,6 @@ meal_planner_api-*.tar
 # Local environment files (keep secrets out of git).
 .envrc.local
 
+# Dialyzer PLTs (built by "mix dialyzer").
+/priv/plts/*.plt
+/priv/plts/*.plt.hash
