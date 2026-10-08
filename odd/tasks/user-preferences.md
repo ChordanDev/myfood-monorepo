@@ -96,13 +96,23 @@ Test-first: each behaviour change starts from a failing test observed before the
 
 ## Delivery
 
-Strategy `ask-on-risk`. Forecast was about 700 authored changed lines; actual is 1,467 insertions over 22 files, about two thirds of it tests. Slices follow the reviewed boundaries: T1 = `bfa4485`; T2 = `db74183`, `6abe118`, `57648e3`, which can also ship as three pull requests, one per commit. Chain strategy (stacked to main or feature-branch chain): pending the user's answer. No push and no pull request yet.
+Strategy `ask-on-risk`; chain strategy chosen by the user on 2026-10-08: stacked pull requests to `main`. Forecast was about 700 authored changed lines; actual is about 1,500 over 22 files, two thirds of it tests.
+
+| Order | Pull request | Branch | Base | Commits | Changed lines |
+|---|---|---|---|---|---|
+| 1 | #81 | `feat/user-preferences-read` | `main` | `6378907`, `bfa4485`, `a1d50e9` | 480 |
+| 2 | #83 | `feat/preference-error-codes` | `feat/user-preferences-read` | `db74183` | 106 |
+| 3 | #85 | `feat/user-preferences-replace` | `feat/preference-error-codes` | `6abe118` | 400 |
+| 4 | #86 | `feat/user-preferences-save` | `feat/user-preferences-replace` | `57648e3` and the document commits after it | about 560 |
+
+Each slice was built and tested on its own head (`a1d50e9`, `db74183`, `6abe118`, and the branch head). Slices 1 and 4 are over the 400-line budget and carry a `size:exception` recommendation: slice 4 is one route with 482 lines of HTTP tests, one per validation and storage rule. After a parent merges, the next pull request is retargeted to `main`.
 
 ## Progress
 
 - 2026-10-08: branch fast-forwarded to `f4b849d`; exploration done; feature document created. Next: T1.
 - 2026-10-08: T1 done and reviewed (`bfa4485`). Next: T2.
 - 2026-10-08: T2 done and reviewed (`57648e3`). Next: the user decides push, pull requests and chain strategy.
+- 2026-10-08: whole-branch review approved and acknowledged (lineage `review-e9d000093f9c58fa`, no blocking finding). Stacked pull requests #81, #83, #85 and #86 opened. Next: merge in order, retargeting each child to `main`.
 
 ## Known limits
 
@@ -111,6 +121,11 @@ Strategy `ask-on-risk`. Forecast was about 700 authored changed lines; actual is
 
 ## Follow-ups (advisory review findings, not done here)
 
+- Hard restrictions are stored but the planner does not read them yet, while the glossary says they exclude recipe candidates outright; the wiring waits for the decision in #21.
+- `UserPreferencesService.replace/2` accepts a `nil` from `AccountRepo.lock_user/1`, so a User deleted between authentication and the save ends as a 500 instead of a deliberate answer.
+- The Hard restriction catalog lives in `UserHardRestriction.codes/0` and in the SQL check constraint; a new code needs a migration too.
+- `UserPreferencesService.diet_codes/0` has no caller.
+- The legacy dietary profile write does not take the User row lock.
 - Log the failed step and reason before `server_fault` in `PreferencesController.update/2`.
 - `Data.AccountRepo` and neighbours declare the user id as `pos_integer()` in older specs and `Ecto.UUID.t()` in the new ones; the ids are UUIDs.
 - Test naming in `preferences_controller_test.exs`: `over_count` / `over_length` hold accepted responses, and `rejected_message/3` is an assertion named like a getter.
