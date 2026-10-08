@@ -1,14 +1,24 @@
 import { clearSession, persistTokens, subscribeToAccessToken } from '../authTokenStore';
 
 const mockSecureStore = new Map<string, string>();
+// Keys whose next write or delete is refused, as a failing keychain does.
+const mockFailingKeys = new Set<string>();
+
+function mockStorageFailure(key: string): Promise<void> | null {
+  return mockFailingKeys.has(key) ? Promise.reject(new Error(`storage failed for ${key}`)) : null;
+}
 
 jest.mock('expo-secure-store', () => ({
   getItemAsync: jest.fn((key: string) => Promise.resolve(mockSecureStore.get(key) ?? null)),
   setItemAsync: jest.fn((key: string, value: string) => {
+    const failure = mockStorageFailure(key);
+    if (failure) return failure;
     mockSecureStore.set(key, value);
     return Promise.resolve();
   }),
   deleteItemAsync: jest.fn((key: string) => {
+    const failure = mockStorageFailure(key);
+    if (failure) return failure;
     mockSecureStore.delete(key);
     return Promise.resolve();
   }),
@@ -31,6 +41,7 @@ describe('authTokenStore access token subscription', () => {
 
   beforeEach(() => {
     mockSecureStore.clear();
+    mockFailingKeys.clear();
   });
 
   afterEach(() => {
@@ -99,4 +110,39 @@ describe('authTokenStore access token subscription', () => {
 
     expect(listener.mock.calls).toEqual([['access-1'], [null]]);
   });
+
+  it('announces the access token when the refresh token write fails, and rethrows', async () => {
+    const listener = jest.fn();
+    subscribe(listener);
+    mockFailingKeys.add('auth_refresh_token');
+
+    await expect(persistTokens(tokens)).rejects.toThrow('storage failed for auth_refresh_token');
+
+    expect(mockSecureStore.get('auth_access_token')).toBe('access-1');
+    expect(listener.mock.calls).toEqual([['access-1']]);
+  });
+
+  it('announces nothing when the access token write fails', async () => {
+    const listener = jest.fn();
+    subscribe(listener);
+    mockFailingKeys.add('auth_access_token');
+
+    await expect(persistTokens(tokens)).rejects.toThrow('storage failed for auth_access_token');
+
+    expect(listener).not.toHaveBeenCalled();
+  });
+
+  it.each(['auth_access_token', 'auth_refresh_token', 'auth_me'])(
+    'notifies null when deleting %s fails while the session is cleared, and rethrows',
+    async (failingKey) => {
+      await persistTokens(tokens);
+      const listener = jest.fn();
+      subscribe(listener);
+      mockFailingKeys.add(failingKey);
+
+      await expect(clearSession()).rejects.toThrow(`storage failed for ${failingKey}`);
+
+      expect(listener.mock.calls).toEqual([[null]]);
+    }
+  );
 });
