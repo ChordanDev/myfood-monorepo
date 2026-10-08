@@ -832,6 +832,21 @@ describe('RecipeScreen', () => {
       expect(fetchMock).toHaveBeenCalledTimes(2);
     });
 
+    it('explains that the account has no access and offers no retry, which could not succeed', async () => {
+      fetchMock.mockReturnValueOnce(errorResponse('forbidden', 403));
+      const tree = renderScreen();
+      await settle();
+
+      expect(isShown(tree, 'recipe-forbidden')).toBe(true);
+      expect(renderedTexts(tree)).toEqual(['Tu cuenta no tiene acceso a esta receta por ahora']);
+      expect(isShown(tree, 'recipe-load-retry')).toBe(false);
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+
+      press(tree, 'recipe-header-back');
+
+      expect(mockBack).toHaveBeenCalledTimes(1);
+    });
+
     it('reads a partial answer as a failure and keeps it out of the cache', async () => {
       fetchMock.mockReturnValueOnce(
         jsonResponse({ data: { ...recipeDetail.data, steps: undefined } })

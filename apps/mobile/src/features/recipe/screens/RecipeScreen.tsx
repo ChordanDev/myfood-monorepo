@@ -8,6 +8,7 @@ import {
   RecipeBottomFade,
   RecipeChatSection,
   RecipeCookedConfirmSheet,
+  RecipeForbidden,
   RecipeHeader,
   RecipeIngredientsCard,
   RecipeLoadError,
@@ -80,6 +81,7 @@ export function RecipeScreen() {
   if (status === 'failed') {
     return <RecipeLoadError top={headerTop} onBack={handleBack} onRetry={handleRetry} />;
   }
+  if (status === 'forbidden') return <RecipeForbidden top={headerTop} onBack={handleBack} />;
   if (!recipe) return <RecipeNotFound top={headerTop} onBack={handleBack} />;
 
   return (

@@ -6,14 +6,28 @@ import { recipeFromMasterRecipe } from '../domain/recipeFromMasterRecipe';
 import { useRecipeCacheStore } from '../store';
 import type { Recipe } from '../types/recipe';
 
-export type RecipeStatus = 'loading' | 'ready' | 'not_found' | 'failed';
+export type RecipeStatus = 'loading' | 'ready' | 'not_found' | 'forbidden' | 'failed';
+
+type LoadFailure = Extract<RecipeStatus, 'not_found' | 'forbidden' | 'failed'>;
 
 /** How the last load of a recipe ended. Kept with its id: the screen may move to another one. */
 type LoadOutcome = {
   recipeId: string;
   recipe?: Recipe;
-  failure?: Extract<RecipeStatus, 'not_found' | 'failed'>;
+  failure?: LoadFailure;
 };
+
+/**
+ * The server answers on purpose when the recipe does not exist or the Account has no access to
+ * it, and asking again gets the same answer. Anything else may be fixed by trying again.
+ */
+function toLoadFailure(error: unknown): LoadFailure {
+  if (!isApiError(error)) return 'failed';
+  if (error.code === 'recipe_not_found') return 'not_found';
+  if (error.code === 'forbidden') return 'forbidden';
+
+  return 'failed';
+}
 
 /**
  * Resolves the recipe of the route. A recipe of the local plan is converted to the shape the API
@@ -51,8 +65,7 @@ export function useRecipe(recipeId: string, recipeVersionId?: string) {
           if (isCurrent) setOutcome({ recipeId, recipe });
         },
         (error: unknown) => {
-          const isNotFound = isApiError(error) && error.code === 'recipe_not_found';
-          if (isCurrent) setOutcome({ recipeId, failure: isNotFound ? 'not_found' : 'failed' });
+          if (isCurrent) setOutcome({ recipeId, failure: toLoadFailure(error) });
         }
       );
 
