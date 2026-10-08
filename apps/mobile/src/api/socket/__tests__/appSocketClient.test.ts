@@ -72,7 +72,9 @@ describe('getSocketClient', () => {
 
   afterAll(() => {
     __resetSocketClientForTests();
-    process.env.EXPO_PUBLIC_API_URL = originalApiUrl;
+    // Assigning undefined would store the string 'undefined'.
+    if (originalApiUrl === undefined) delete process.env.EXPO_PUBLIC_API_URL;
+    else process.env.EXPO_PUBLIC_API_URL = originalApiUrl;
   });
 
   it('neither creates a socket nor reads the session when the module is imported', () => {

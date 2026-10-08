@@ -4,7 +4,9 @@ describe('getSocketUrl', () => {
   const originalApiUrl = process.env.EXPO_PUBLIC_API_URL;
 
   afterAll(() => {
-    process.env.EXPO_PUBLIC_API_URL = originalApiUrl;
+    // Assigning undefined would store the string 'undefined'.
+    if (originalApiUrl === undefined) delete process.env.EXPO_PUBLIC_API_URL;
+    else process.env.EXPO_PUBLIC_API_URL = originalApiUrl;
   });
 
   it.each([

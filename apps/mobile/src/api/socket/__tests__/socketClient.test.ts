@@ -30,11 +30,23 @@ interface SetupOptions {
   getAccessToken?: () => Promise<string | null>;
 }
 
+/** Phoenix's backoff starts a new attempt and the server refuses the upgrade again. */
+async function failNextAttempt(socket: FakeSocket): Promise<void> {
+  socket.backoffRetry();
+  socket.failBeforeOpen();
+  await flushPromises();
+}
+
 function setup({ storedToken = 'access-1', getAccessToken }: SetupOptions = {}) {
   let token = storedToken;
+  let now = 1_700_000_000_000;
   const tokenListeners = new Set<(accessToken: string | null) => void>();
   const sockets: FakeSocket[] = [];
   const refreshTokens = jest.fn<Promise<{ accessToken: string }>, []>();
+
+  function advanceTime(ms: number): void {
+    now += ms;
+  }
 
   /** Plays the token store: stores the token, then tells the subscribers. */
   function announceToken(next: string | null): void {
@@ -65,6 +77,7 @@ function setup({ storedToken = 'access-1', getAccessToken }: SetupOptions = {}) 
         tokenListeners.delete(listener);
       };
     },
+    now: () => now,
   });
 
   const statuses: SocketStatus[] = [];
@@ -73,6 +86,7 @@ function setup({ storedToken = 'access-1', getAccessToken }: SetupOptions = {}) 
   return {
     client,
     refreshTokens,
+    advanceTime,
     announceToken,
     refreshSucceedsWith,
     statuses,
@@ -150,6 +164,24 @@ describe('createSocketClient', () => {
       socket.backoffRetry();
 
       expect(socket.connectAttempts).toEqual([{ token: 'access-2' }, { token: 'access-2' }]);
+    });
+
+    it('uses the read of the current run when the read of an earlier run resolves late', async () => {
+      const reads = [deferred<string | null>(), deferred<string | null>()];
+      let readCount = 0;
+      const { client, socket } = setup({ getAccessToken: () => reads[readCount++].promise });
+
+      const firstRun = client.connect();
+      client.disconnect();
+      const secondRun = client.connect();
+      reads[0].resolve('access-old');
+      await firstRun;
+      expect(socket.connectAttempts).toEqual([]);
+
+      reads[1].resolve('access-new');
+      await secondRun;
+
+      expect(socket.connectAttempts).toEqual([{ token: 'access-new' }]);
     });
 
     it('does not open a socket when the stored token cannot be read', async () => {
@@ -314,8 +346,23 @@ describe('createSocketClient', () => {
       ]);
     });
 
-    it('refreshes again in the same streak after the refresh failed on the network', async () => {
-      const { client, socket, refreshTokens, refreshSucceedsWith } = setup();
+    it('does not refresh again during the cool-down of a refresh that failed on the network', async () => {
+      const { client, socket, refreshTokens, advanceTime } = setup();
+      refreshTokens.mockRejectedValue(new ApiError('network_error', 'Network request failed'));
+      await client.connect();
+      socket.failBeforeOpen();
+      await flushPromises();
+
+      await failNextAttempt(socket);
+      advanceTime(4_999);
+      await failNextAttempt(socket);
+
+      expect(refreshTokens).toHaveBeenCalledTimes(1);
+      expect(socket.disconnectCount).toBe(0);
+    });
+
+    it('refreshes again in the same streak on the first failed attempt after the cool-down', async () => {
+      const { client, socket, refreshTokens, refreshSucceedsWith, advanceTime } = setup();
       refreshTokens.mockRejectedValueOnce(new ApiError('network_error', 'Network request failed'));
       await client.connect();
       socket.failBeforeOpen();
@@ -323,9 +370,8 @@ describe('createSocketClient', () => {
       expect(refreshTokens).toHaveBeenCalledTimes(1);
 
       refreshSucceedsWith('access-2');
-      socket.backoffRetry();
-      socket.failBeforeOpen();
-      await flushPromises();
+      advanceTime(5_000);
+      await failNextAttempt(socket);
 
       expect(refreshTokens).toHaveBeenCalledTimes(2);
       expect(socket.disconnectCount).toBe(1);
@@ -339,23 +385,66 @@ describe('createSocketClient', () => {
       expect(client.getStatus()).toBe('connected');
     });
 
-    it('keeps retrying the refresh on each failed attempt while it fails on the network', async () => {
-      const { client, socket, refreshTokens } = setup();
+    it('doubles the cool-down after each failed refresh, up to a minute', async () => {
+      const { client, socket, refreshTokens, advanceTime } = setup();
       refreshTokens.mockRejectedValue(new ApiError('timeout', 'Request timeout'));
       await client.connect();
+      socket.failBeforeOpen();
+      await flushPromises();
+      let refreshes = 1;
 
-      socket.failBeforeOpen();
-      await flushPromises();
-      socket.backoffRetry();
-      socket.failBeforeOpen();
-      await flushPromises();
-      socket.backoffRetry();
-      socket.failBeforeOpen();
-      await flushPromises();
+      for (const cooldownMs of [5_000, 10_000, 20_000, 40_000, 60_000, 60_000]) {
+        advanceTime(cooldownMs - 1);
+        await failNextAttempt(socket);
+        expect(refreshTokens).toHaveBeenCalledTimes(refreshes);
 
-      expect(refreshTokens).toHaveBeenCalledTimes(3);
+        advanceTime(1);
+        await failNextAttempt(socket);
+        refreshes += 1;
+        expect(refreshTokens).toHaveBeenCalledTimes(refreshes);
+      }
+
       expect(socket.disconnectCount).toBe(0);
       expect(client.getStatus()).toBe('disconnected');
+    });
+
+    it('starts the cool-down over once the socket has opened', async () => {
+      const { client, socket, refreshTokens, advanceTime } = setup();
+      refreshTokens.mockRejectedValue(new ApiError('network_error', 'Network request failed'));
+      await client.connect();
+      socket.failBeforeOpen();
+      await flushPromises();
+      advanceTime(5_000);
+      await failNextAttempt(socket);
+      expect(refreshTokens).toHaveBeenCalledTimes(2);
+
+      socket.backoffRetry();
+      socket.open();
+      socket.drop();
+      await failNextAttempt(socket);
+      expect(refreshTokens).toHaveBeenCalledTimes(3);
+
+      advanceTime(4_999);
+      await failNextAttempt(socket);
+      expect(refreshTokens).toHaveBeenCalledTimes(3);
+      advanceTime(1);
+      await failNextAttempt(socket);
+      expect(refreshTokens).toHaveBeenCalledTimes(4);
+    });
+
+    it('starts the cool-down over when the client is disconnected and connected again', async () => {
+      const { client, socket, refreshTokens } = setup();
+      refreshTokens.mockRejectedValue(new ApiError('network_error', 'Network request failed'));
+      await client.connect();
+      socket.failBeforeOpen();
+      await flushPromises();
+
+      client.disconnect();
+      await client.connect();
+      socket.failBeforeOpen();
+      await flushPromises();
+
+      expect(refreshTokens).toHaveBeenCalledTimes(2);
     });
 
     it('shares the pending refresh of a refused join with a rejected connect', async () => {
@@ -510,6 +599,163 @@ describe('createSocketClient', () => {
       socket.backoffRetry();
       socket.open();
       expect(client.getStatus()).toBe('connected');
+    });
+  });
+
+  describe('a refresh that outlives its run', () => {
+    /** A rejected connect starts a refresh, then the client is disconnected while it is pending. */
+    async function setupDisconnectedDuringRefresh() {
+      const context = setup();
+      const refresh = deferred<{ accessToken: string }>();
+      context.refreshTokens.mockReturnValueOnce(refresh.promise);
+      await context.client.connect();
+      context.socket.failBeforeOpen();
+      context.client.disconnect();
+      return { ...context, refresh };
+    }
+
+    it('stays disconnected when the refresh then finds the session invalid', async () => {
+      const { client, refresh } = await setupDisconnectedDuringRefresh();
+
+      refresh.reject(new ApiError('refresh_token_revoked', 'revoked', 401));
+      await flushPromises();
+
+      expect(client.getStatus()).toBe('disconnected');
+    });
+
+    it('keeps a new run going when the refresh of the previous one finds the session invalid', async () => {
+      const { client, socket, refresh, announceToken } = await setupDisconnectedDuringRefresh();
+      await client.connect();
+
+      refresh.reject(new ApiError('refresh_token_revoked', 'revoked', 401));
+      await flushPromises();
+
+      expect(client.getStatus()).toBe('disconnected');
+      expect(socket.disconnectCount).toBe(1);
+      socket.open();
+      expect(client.getStatus()).toBe('connected');
+
+      announceToken('access-2');
+      expect(socket.connectAttempts.at(-1)).toEqual({ token: 'access-2' });
+    });
+
+    it('leaves a new run on the token the store gave it when the previous refresh resolves', async () => {
+      const { client, socket, refresh, announceToken } = await setupDisconnectedDuringRefresh();
+      await client.connect();
+
+      refresh.resolve({ accessToken: 'access-from-previous-run' });
+      await flushPromises();
+
+      expect(socket.disconnectCount).toBe(1);
+      expect(socket.connectAttempts).toEqual([{ token: 'access-1' }, { token: 'access-1' }]);
+
+      // A refresh that really rotated the session reaches the new run through the store.
+      announceToken('access-2');
+      expect(socket.disconnectCount).toBe(2);
+      expect(socket.connectAttempts.at(-1)).toEqual({ token: 'access-2' });
+    });
+
+    it('stays disconnected when disconnect() follows the cleared session of an invalid refresh', async () => {
+      const { client, socket, refreshTokens, announceToken } = setup();
+      const refresh = deferred<{ accessToken: string }>();
+      refreshTokens.mockReturnValueOnce(refresh.promise);
+      await client.connect();
+      socket.failBeforeOpen();
+
+      announceToken(null);
+      client.disconnect();
+      refresh.reject(new ApiError('refresh_token_revoked', 'revoked', 401));
+      await flushPromises();
+
+      expect(client.getStatus()).toBe('disconnected');
+    });
+
+    it('stays disconnected when the session is cleared and the refresh then fails on the network', async () => {
+      const { client, socket, refreshTokens, announceToken } = setup();
+      const refresh = deferred<{ accessToken: string }>();
+      refreshTokens.mockReturnValueOnce(refresh.promise);
+      await client.connect();
+      socket.failBeforeOpen();
+
+      announceToken(null);
+      refresh.reject(new ApiError('network_error', 'Network request failed'));
+      await flushPromises();
+
+      expect(client.getStatus()).toBe('disconnected');
+    });
+
+    it('keeps a new run going when it started after the cleared session of an invalid refresh', async () => {
+      const { client, socket, refreshTokens, announceToken } = setup();
+      const refresh = deferred<{ accessToken: string }>();
+      refreshTokens.mockReturnValueOnce(refresh.promise);
+      await client.connect();
+      socket.failBeforeOpen();
+
+      announceToken(null);
+      announceToken('access-2');
+      await client.connect();
+      refresh.reject(new ApiError('refresh_token_revoked', 'revoked', 401));
+      await flushPromises();
+
+      expect(client.getStatus()).toBe('disconnected');
+      expect(socket.connectAttempts.at(-1)).toEqual({ token: 'access-2' });
+      socket.open();
+      expect(client.getStatus()).toBe('connected');
+    });
+
+    it('runs its own refresh instead of waiting for the one of the previous run', async () => {
+      const { client, socket, refreshTokens, refreshSucceedsWith } =
+        await setupDisconnectedDuringRefresh();
+      refreshSucceedsWith('access-2');
+      await client.connect();
+
+      socket.failBeforeOpen();
+      await flushPromises();
+
+      expect(refreshTokens).toHaveBeenCalledTimes(2);
+      expect(socket.connectAttempts.at(-1)).toEqual({ token: 'access-2' });
+    });
+
+    it('does not arm the cool-down of a new run when the previous refresh fails', async () => {
+      const { client, socket, refreshTokens, refresh, refreshSucceedsWith } =
+        await setupDisconnectedDuringRefresh();
+      await client.connect();
+
+      refresh.reject(new ApiError('network_error', 'Network request failed'));
+      await flushPromises();
+      refreshSucceedsWith('access-2');
+      socket.failBeforeOpen();
+      await flushPromises();
+
+      expect(refreshTokens).toHaveBeenCalledTimes(2);
+      expect(socket.connectAttempts.at(-1)).toEqual({ token: 'access-2' });
+    });
+
+    it('does not refuse a topic whose refresh fails after the client was disconnected', async () => {
+      const { client, socket, refreshTokens, refreshSucceedsWith } = await setupConnected();
+      const refresh = deferred<{ accessToken: string }>();
+      refreshTokens.mockReturnValueOnce(refresh.promise);
+      const onRefused = jest.fn();
+      client.joinTopic(TOPIC, { onRefused });
+      const [channel] = socket.channels;
+      channel.replyError(refusal('unauthenticated'));
+
+      client.disconnect();
+      refresh.reject(new ApiError('network_error', 'Network request failed'));
+      await flushPromises();
+
+      expect(onRefused).not.toHaveBeenCalled();
+      expect(channel.hasLeft()).toBe(false);
+
+      // The topic gets a refresh of its own in the next run.
+      refreshSucceedsWith('access-2');
+      await client.connect();
+      socket.open();
+      channel.replyError(refusal('unauthenticated'));
+      await flushPromises();
+
+      expect(refreshTokens).toHaveBeenCalledTimes(2);
+      expect(onRefused).not.toHaveBeenCalled();
     });
   });
 
