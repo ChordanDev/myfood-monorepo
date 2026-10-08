@@ -2,9 +2,9 @@ defmodule MealPlannerApi.InventoryConcurrencyTest do
   use ExUnit.Case, async: false
 
   import Ecto.Query, warn: false
+  import MealPlannerApi.IdentityFixtures
 
   alias Ecto.Adapters.SQL.Sandbox
-  alias MealPlannerApi.Accounts
   alias MealPlannerApi.Persistence.Catalog
   alias MealPlannerApi.Persistence.Identity
   alias MealPlannerApi.Persistence.Inventory, as: InventoryPersistence
@@ -281,13 +281,7 @@ defmodule MealPlannerApi.InventoryConcurrencyTest do
   defp committed_fixture do
     suffix = System.unique_integer([:positive])
 
-    {:ok, %{user: user, account: account}} =
-      Accounts.find_or_create_identity(%{
-        "user_id" => "u_t1_runtime_#{suffix}",
-        "account_id" => "acct_t1_runtime_#{suffix}",
-        "account_type" => "group",
-        "subscription_tier" => "premium"
-      })
+    %{user: user, account: account} = insert_identity!(plan: :family_4)
 
     {:ok, %{user_id: user_id}} =
       Identity.ensure_persistent_identity(%{

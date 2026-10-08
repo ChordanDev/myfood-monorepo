@@ -14,8 +14,8 @@ defmodule MealPlannerApi.Auth.Guardian do
   `:subscription_tier` and `:account_id` are still re-attached
   because:
 
-    * `:subscription_tier` — the PR 3 controller sweep
-      (`auth_controller.ex` and others) still reads
+    * `:subscription_tier` — the controllers of the PR 3 sweep
+      (`accounts_controller.ex` and others) still read
       `user.subscription_tier`. Removing the reattachment now would
       break those controllers before they can be migrated off the
       User-struct field.
