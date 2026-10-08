@@ -2,6 +2,7 @@ defmodule MealPlannerApiWeb.PlanningChannelTest do
   use MealPlannerApiWeb.ChannelCase, async: false
 
   import Ecto.Query, warn: false
+  import ExUnit.CaptureLog
   import MealPlannerApi.FactoryHelpers
 
   alias MealPlannerApi.Data.{PlanningRepo, RecipeRepo, ShoppingRepo}
@@ -12,6 +13,10 @@ defmodule MealPlannerApiWeb.PlanningChannelTest do
   alias MealPlannerApiWeb.{PlanningChannel, UserSocket}
 
   import MealPlannerApiWeb.ChannelHelpers, only: [issue_identity_and_token: 2]
+
+  # The channel logs a warning for every reason it replies as `unknown_error`;
+  # the log of a test is printed only when the test fails.
+  @moduletag :capture_log
 
   setup do
     {:ok, user, account, token} = issue_identity_and_token("u_plan_test", "acct_plan_test")
@@ -62,8 +67,9 @@ defmodule MealPlannerApiWeb.PlanningChannelTest do
       {:ok, socket} = connect(UserSocket, %{"token" => token})
 
       # Try to join a different account's planning channel
-      assert {:error, %{reason: "forbidden"}} =
-               subscribe_and_join(socket, PlanningChannel, "planning:other_account_id")
+      socket
+      |> subscribe_and_join(PlanningChannel, "planning:other_account_id")
+      |> assert_join_error(:forbidden)
     end
 
     test "cross-Account join is rejected (task 3.10)" do
@@ -82,8 +88,9 @@ defmodule MealPlannerApiWeb.PlanningChannelTest do
 
       {:ok, socket} = connect(UserSocket, %{"token" => token_a})
 
-      assert {:error, %{reason: "forbidden"}} =
-               subscribe_and_join(socket, PlanningChannel, "planning:#{membership_b.account_id}")
+      socket
+      |> subscribe_and_join(PlanningChannel, "planning:#{membership_b.account_id}")
+      |> assert_join_error(:forbidden)
     end
 
     test "invited (non-active) membership join is rejected (task 3.10)" do
@@ -106,12 +113,9 @@ defmodule MealPlannerApiWeb.PlanningChannelTest do
 
       {:ok, socket} = connect(UserSocket, %{"token" => token})
 
-      assert {:error, %{reason: "forbidden"}} =
-               subscribe_and_join(
-                 socket,
-                 PlanningChannel,
-                 "planning:#{invited_membership.account_id}"
-               )
+      socket
+      |> subscribe_and_join(PlanningChannel, "planning:#{invited_membership.account_id}")
+      |> assert_join_error(:forbidden)
     end
 
     test "access_v1 legacy token is accepted via fallback (task 3.10)", %{
@@ -144,8 +148,9 @@ defmodule MealPlannerApiWeb.PlanningChannelTest do
       try do
         {:ok, socket} = connect(UserSocket, %{"token" => token})
 
-        assert {:error, %{reason: "subscription_required"}} =
-                 subscribe_and_join(socket, PlanningChannel, "planning:#{account.id}")
+        socket
+        |> subscribe_and_join(PlanningChannel, "planning:#{account.id}")
+        |> assert_join_error(:subscription_required)
       after
         Application.put_env(
           :meal_planner_api,
@@ -211,8 +216,9 @@ defmodule MealPlannerApiWeb.PlanningChannelTest do
       try do
         {:ok, socket} = connect(UserSocket, %{"token" => token})
 
-        assert {:error, %{reason: "forbidden"}} =
-                 subscribe_and_join(socket, PlanningChannel, "planning:other_account_id")
+        socket
+        |> subscribe_and_join(PlanningChannel, "planning:other_account_id")
+        |> assert_join_error(:forbidden)
       after
         Application.put_env(
           :meal_planner_api,
@@ -265,8 +271,11 @@ defmodule MealPlannerApiWeb.PlanningChannelTest do
           }
         })
 
-      # Should receive error reply
-      assert_reply(ref, :error, %{reason: _reason})
+      # Should receive error reply. No generation server can be started in
+      # this setup (`DynamicSupervisor` answers `:invalid_child_spec`), which
+      # is a fault and not a reason of the allowlist.
+      payload = assert_error_reply(ref, :unknown_error)
+      assert payload.request_id == "test_req_invalid"
     end
   end
 
@@ -318,8 +327,42 @@ defmodule MealPlannerApiWeb.PlanningChannelTest do
           "constraints" => %{}
         })
 
-      assert_receive %{ref: ^ref, status: :error, payload: %{reason: _reason}}
-      assert_broadcast("generation_error", %{request_id: "swap_req_error"})
+      payload = assert_error_reply(ref, :invalid_date_range)
+      assert payload.request_id == "swap_req_error"
+
+      # The `generation_error` event is not a command reply and keeps its
+      # `reason` field.
+      assert_broadcast("generation_error", %{
+        request_id: "swap_req_error",
+        reason: "invalid_date_range"
+      })
+    end
+
+    test "a reason outside the allowlist replies unknown_error and is logged", %{
+      account: account,
+      token: token
+    } do
+      {:ok, socket} = connect(UserSocket, %{"token" => token})
+
+      {:ok, _reply, socket} =
+        subscribe_and_join(socket, PlanningChannel, "planning:#{account.id}")
+
+      # `Date.from_iso8601/1` answers `:invalid_format`, a reason no service
+      # chose and the allowlist does not hold.
+      log =
+        capture_log(fn ->
+          ref =
+            push(socket, "swap_constraints", %{
+              "request_id" => "swap_req_unlisted",
+              "base_payload" => %{"date_from" => "not-a-date"},
+              "constraints" => %{}
+            })
+
+          payload = assert_error_reply(ref, :unknown_error)
+          assert payload.request_id == "swap_req_unlisted"
+        end)
+
+      assert log =~ "invalid_format"
     end
   end
 
@@ -344,7 +387,7 @@ defmodule MealPlannerApiWeb.PlanningChannelTest do
           "message" => "Change the menu"
         })
 
-      assert_reply(ref, :error, %{reason: "no_active_generation"})
+      assert_error_reply(ref, :no_active_generation)
     end
 
     test "missing proposal_id returns error", %{
@@ -362,7 +405,7 @@ defmodule MealPlannerApiWeb.PlanningChannelTest do
           "message" => "Hello"
         })
 
-      assert_reply(ref, :error, %{reason: "invalid_payload"})
+      assert_error_reply(ref, :invalid_payload)
     end
 
     test "success when GenerationServer is running", %{
@@ -444,7 +487,7 @@ defmodule MealPlannerApiWeb.PlanningChannelTest do
           "proposal_id" => fake_uuid
         })
 
-      assert_reply(ref, :error, %{reason: "missing_session_id"})
+      assert_error_reply(ref, :missing_session_id)
     end
 
     test "invalid session_id format returns :missing_session_id", %{
@@ -462,7 +505,7 @@ defmodule MealPlannerApiWeb.PlanningChannelTest do
           "session_id" => "not-uuid"
         })
 
-      assert_reply(ref, :error, %{reason: "missing_session_id"})
+      assert_error_reply(ref, :missing_session_id)
     end
 
     test "invalid proposal_id format returns :invalid_proposal_id", %{
@@ -484,7 +527,7 @@ defmodule MealPlannerApiWeb.PlanningChannelTest do
           "session_id" => Ecto.UUID.generate()
         })
 
-      assert_reply(ref, :error, %{reason: "invalid_proposal_id"})
+      assert_error_reply(ref, :invalid_proposal_id)
     end
 
     # @task 4.3 — channel-layer end-to-end test: confirms that the cart
@@ -655,7 +698,7 @@ defmodule MealPlannerApiWeb.PlanningChannelTest do
           "session_id" => session.id
         })
 
-      assert_reply(ref, :error, %{reason: "already_confirmed"})
+      assert_error_reply(ref, :already_confirmed)
 
       # No `proposal_confirmed` broadcast should follow the rejection.
       refute_receive %Phoenix.Socket.Broadcast{
@@ -707,7 +750,7 @@ defmodule MealPlannerApiWeb.PlanningChannelTest do
           "session_id" => session.id
         })
 
-      assert_reply(ref, :error, _payload)
+      assert_error_reply(ref, :transaction_failed)
 
       reloaded = Repo.get!(MealPlannerApi.Persistence.Planning.PlanningProposal, proposal.id)
       assert reloaded.status == :pending
@@ -819,7 +862,7 @@ defmodule MealPlannerApiWeb.PlanningChannelTest do
           "session_id" => foreign_session.id
         })
 
-      assert_reply(ref, :error, %{reason: "foreign_lock"})
+      assert_error_reply(ref, :foreign_lock)
 
       # The proposal stays :pending — pre-check fired before any write.
       reloaded_proposal =
@@ -902,7 +945,7 @@ defmodule MealPlannerApiWeb.PlanningChannelTest do
             "session_id" => session.id
           })
 
-        assert_reply(ref, :error, %{reason: "account_expired"})
+        assert_error_reply(ref, :account_expired)
 
         # Session stays :active — handler short-circuits BEFORE
         # `Server.do_confirm/3` and never opens the transaction.
@@ -962,7 +1005,7 @@ defmodule MealPlannerApiWeb.PlanningChannelTest do
         })
 
       # Should get error (proposal not found) - gracefully handled
-      assert_reply(ref, :error, %{reason: "not_found"})
+      assert_error_reply(ref, :not_found)
     end
 
     test "rejects with missing proposal_id gracefully", %{
@@ -977,7 +1020,7 @@ defmodule MealPlannerApiWeb.PlanningChannelTest do
       # No proposal_id in payload - falls through to unknown event
       ref = push(socket, "reject_proposal", %{})
 
-      assert_reply(ref, :error, %{reason: "invalid_payload"})
+      assert_error_reply(ref, :invalid_payload)
     end
   end
 
@@ -1088,7 +1131,7 @@ defmodule MealPlannerApiWeb.PlanningChannelTest do
           "session_id" => session_id
         })
 
-      assert_reply(ref, :error, %{reason: :forbidden})
+      assert_error_reply(ref, :forbidden)
 
       # No session_cancelled broadcast fires.
       refute_receive %Phoenix.Socket.Broadcast{
@@ -1180,7 +1223,7 @@ defmodule MealPlannerApiWeb.PlanningChannelTest do
           "session_id" => fake_session_id
         })
 
-      assert_reply(ref, :error, %{reason: :not_found})
+      assert_error_reply(ref, :not_found)
     end
   end
 
@@ -1190,8 +1233,8 @@ defmodule MealPlannerApiWeb.PlanningChannelTest do
   # starts a `PlanningSessionServer` for the (account, range) lock. On
   # success the server broadcasts `session_started` on
   # `planning:<account_id>`; on failure (ineligible, overlap, bad range)
-  # the channel replies with the matching atom reason and never inserts
-  # a row.
+  # the channel replies the error envelope with the matching code and never
+  # inserts a row.
   # ==========================================================================
 
   describe "handle_in start_planning (task 4.1 / 4.2)" do
@@ -1242,7 +1285,7 @@ defmodule MealPlannerApiWeb.PlanningChannelTest do
           "range_to" => "2026-04-07"
         })
 
-      assert_reply(ref, :error, %{reason: :subscription_required})
+      assert_error_reply(ref, :subscription_required)
 
       refute_receive %Phoenix.Socket.Broadcast{
                        topic: "planning:" <> _,
@@ -1286,7 +1329,7 @@ defmodule MealPlannerApiWeb.PlanningChannelTest do
           "range_to" => "2026-04-15"
         })
 
-      assert_reply(ref, :error, %{reason: :overlapping_range})
+      assert_error_reply(ref, :overlapping_range)
 
       refute_receive %Phoenix.Socket.Broadcast{
                        topic: "planning:" <> _,
@@ -1322,7 +1365,7 @@ defmodule MealPlannerApiWeb.PlanningChannelTest do
           "range_to" => "2026-04-07"
         })
 
-      assert_reply(ref, :error, %{reason: :invalid_range})
+      assert_error_reply(ref, :invalid_range)
     end
   end
 
@@ -1402,7 +1445,7 @@ defmodule MealPlannerApiWeb.PlanningChannelTest do
           }
         })
 
-      assert_reply(ref, :error, %{reason: :forbidden_intent})
+      assert_error_reply(ref, :forbidden_intent)
     end
 
     test "unknown kind is rejected by validate_ai_intent",
@@ -1432,7 +1475,7 @@ defmodule MealPlannerApiWeb.PlanningChannelTest do
           }
         })
 
-      assert_reply(ref, :error, %{reason: :unknown_intent})
+      assert_error_reply(ref, :unknown_intent)
     end
 
     test "send_message without an active session returns :no_active_session",
@@ -1449,7 +1492,7 @@ defmodule MealPlannerApiWeb.PlanningChannelTest do
           "intent" => %{"kind" => "change_constraints"}
         })
 
-      assert_reply(ref, :error, %{reason: :no_active_session})
+      assert_error_reply(ref, :no_active_session)
     end
 
     test "session_id payload that doesn't match the cached id returns :session_mismatch",
@@ -1478,7 +1521,7 @@ defmodule MealPlannerApiWeb.PlanningChannelTest do
           "intent" => %{"kind" => "change_constraints", "payload" => %{}}
         })
 
-      assert_reply(ref, :error, %{reason: :session_mismatch})
+      assert_error_reply(ref, :session_mismatch)
     end
   end
 
@@ -1525,7 +1568,7 @@ defmodule MealPlannerApiWeb.PlanningChannelTest do
           "range_to" => "2026-06-12"
         })
 
-      assert_reply(ref_b_overlap, :error, %{reason: :overlapping_range})
+      assert_error_reply(ref_b_overlap, :overlapping_range)
       refute_receive %Phoenix.Socket.Broadcast{event: "session_started"}, 200
 
       # ── B starts a NON-OVERLAPPING range → ok ──
@@ -1564,7 +1607,7 @@ defmodule MealPlannerApiWeb.PlanningChannelTest do
 
       ref = push(socket, "totally_unknown_event", %{})
 
-      assert_reply(ref, :error, %{reason: "invalid_payload"})
+      assert_error_reply(ref, :invalid_payload)
     end
   end
 
@@ -1651,7 +1694,7 @@ defmodule MealPlannerApiWeb.PlanningChannelTest do
       :timer.sleep(50)
     end
 
-    test "serialize_reason converts atoms to strings", %{
+    test "an atom reason from a guard is replied as its allowlisted code", %{
       account: account,
       user: user,
       token: token
@@ -1671,12 +1714,122 @@ defmodule MealPlannerApiWeb.PlanningChannelTest do
       {:ok, _reply, socket} =
         subscribe_and_join(socket, PlanningChannel, "planning:#{account.id}")
 
-      # Try to confirm a proposal - service returns atom error which should be serialized
+      # Try to confirm a proposal - the payload guard answers an atom reason
       ref = push(socket, "confirm_proposal", %{"proposal_id" => Ecto.UUID.generate()})
 
-      # Error reason should be a string (atom serialized)
-      assert_reply(ref, :error, %{reason: reason})
-      assert is_binary(reason)
+      # The reason is replied as the code of the envelope
+      assert_error_reply(ref, :missing_session_id)
     end
+  end
+
+  # ==========================================================================
+  # Error envelope (issue #11): a failed join or command replies
+  # `%{error: %{code, message}}` with an allowlisted code. The helpers below
+  # check that shape on every error reply of this file.
+  # ==========================================================================
+
+  describe "error envelope" do
+    test "an error reply never contains a reason key", %{account: account, token: token} do
+      {:ok, socket} = connect(UserSocket, %{"token" => token})
+
+      assert {:error, join_payload} =
+               subscribe_and_join(socket, PlanningChannel, "planning:other_account_id")
+
+      refute Map.has_key?(join_payload, :reason)
+
+      {:ok, _reply, socket} =
+        subscribe_and_join(socket, PlanningChannel, "planning:#{account.id}")
+
+      failing_commands = [
+        {"totally_unknown_event", %{}},
+        {"chat", %{"proposal_id" => "123", "message" => "Change the menu"}},
+        {"confirm_proposal", %{"proposal_id" => Ecto.UUID.generate()}},
+        {"start_planning", %{"range_from" => "not-a-date", "range_to" => "2026-04-07"}},
+        {"send_message", %{"session_id" => Ecto.UUID.generate(), "intent" => %{}}},
+        {"cancel_planning", %{"session_id" => "not-a-uuid"}},
+        {"swap_constraints",
+         %{
+           "request_id" => "swap_req_no_reason",
+           "base_payload" => %{"date_from" => "2026-06-21", "date_to" => "2026-06-15"},
+           "constraints" => %{}
+         }}
+      ]
+
+      for {event, command_payload} <- failing_commands do
+        ref = push(socket, event, command_payload)
+
+        assert_receive %Phoenix.Socket.Reply{ref: ^ref, status: :error, payload: payload}
+        refute Map.has_key?(payload, :reason), "#{event} replied a reason: #{inspect(payload)}"
+        assert %{error: %{code: code, message: message}} = payload
+        assert is_atom(code) and is_binary(message), "#{event} replied #{inspect(payload)}"
+      end
+    end
+
+    test "a reply that carried request_id keeps it next to the error", %{
+      account: account,
+      token: token
+    } do
+      {:ok, socket} = connect(UserSocket, %{"token" => token})
+
+      {:ok, _reply, socket} =
+        subscribe_and_join(socket, PlanningChannel, "planning:#{account.id}")
+
+      ref =
+        push(socket, "swap_constraints", %{
+          "request_id" => "swap_req_correlated",
+          "base_payload" => %{"date_from" => "2026-06-21", "date_to" => "2026-06-15"},
+          "constraints" => %{}
+        })
+
+      payload = assert_error_reply(ref, :invalid_date_range)
+
+      assert Map.keys(payload) == [:error, :request_id]
+      assert payload.request_id == "swap_req_correlated"
+    end
+
+    test "a changeset error is replied as invalid_payload, without its details", %{
+      account: account,
+      token: token
+    } do
+      _ = persist_trial_window!(account, :eligible)
+
+      {:ok, socket} = connect(UserSocket, %{"token" => token})
+
+      {:ok, _reply, socket} =
+        subscribe_and_join(socket, PlanningChannel, "planning:#{account.id}")
+
+      # A range that ends before it starts is refused by the session
+      # changeset, which is neither an atom nor a string reason.
+      ref =
+        push(socket, "start_planning", %{
+          "range_from" => "2026-04-07",
+          "range_to" => "2026-04-01"
+        })
+
+      assert_error_reply(ref, :invalid_payload)
+    end
+  end
+
+  # Asserts the error reply for `ref` is the envelope with `code` and nothing
+  # else, `request_id` aside, and returns the payload.
+  defp assert_error_reply(ref, code) do
+    assert_receive %Phoenix.Socket.Reply{ref: ^ref, status: :error, payload: payload}
+
+    assert_error_envelope(payload, code)
+  end
+
+  defp assert_join_error(result, code) do
+    assert {:error, payload} = result
+
+    assert_error_envelope(payload, code)
+  end
+
+  defp assert_error_envelope(payload, code) do
+    assert %{error: %{code: ^code, message: message} = error} = payload
+    assert is_binary(message) and message != ""
+    assert Map.keys(error) == [:code, :message]
+    assert Map.keys(payload) -- [:request_id] == [:error]
+
+    payload
   end
 end

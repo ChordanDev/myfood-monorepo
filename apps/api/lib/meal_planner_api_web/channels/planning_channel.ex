@@ -18,15 +18,34 @@ defmodule MealPlannerApiWeb.PlanningChannel do
   - `proposal_rejected` — propuesta rechazada
   - `generation_error` — error durante generación
   - `proposal_update` — propuesta actualizada tras modificación de usuario
+
+  ## Error replies
+
+  A failed join or command replies the mobile error envelope of
+  `MealPlannerApiWeb.ApiError` (issue #11), next to `request_id` when the
+  command correlates its reply:
+
+      %{error: %{code: :overlapping_range, message: "..."}}
+
+  The code is always in the `ApiError` allowlist; a reason outside it
+  replies `unknown_error`. Events such as `generation_error` are not replies
+  and keep their `reason` field.
   """
   use MealPlannerApiWeb, :channel
+
+  require Logger
 
   alias MealPlannerApi.AccountAccess
   alias MealPlannerApi.Generation.{PlanningSessionServer, PlanningSessionSupervisor, Server}
   alias MealPlannerApi.Services.PlanningChatService
+  alias MealPlannerApiWeb.ApiError
   alias MealPlannerApiWeb.ChannelCapability
   alias MealPlannerApiWeb.Channels.IntentAtomizer
   alias MealPlannerApiWeb.Plugs.LoadCurrentMembershipSocket
+
+  # The `ApiError` allowlist by reason name, so a reason a service returned as
+  # a string finds its code without creating an atom.
+  @codes_by_reason Map.new(ApiError.codes(), &{Atom.to_string(&1), &1})
 
   @impl true
   def join("planning:" <> topic_account_id, _payload, socket) do
@@ -34,13 +53,13 @@ defmodule MealPlannerApiWeb.PlanningChannel do
 
     cond do
       is_nil(membership) ->
-        {:error, %{reason: "forbidden"}}
+        {:error, error_payload(:forbidden)}
 
       to_string(membership.account_id) != topic_account_id ->
-        {:error, %{reason: "forbidden"}}
+        {:error, error_payload(:forbidden)}
 
       membership.status != :active ->
-        {:error, %{reason: "forbidden"}}
+        {:error, error_payload(:forbidden)}
 
       true ->
         case ChannelCapability.authorize(membership) do
@@ -51,7 +70,7 @@ defmodule MealPlannerApiWeb.PlanningChannel do
              |> assign(:current_membership, membership)}
 
           {:error, :subscription_required} ->
-            {:error, %{reason: "subscription_required"}}
+            {:error, error_payload(:subscription_required)}
         end
     end
   end
@@ -71,12 +90,14 @@ defmodule MealPlannerApiWeb.PlanningChannel do
         {:reply, {:ok, %{request_id: request_id, run_id: run_id}}, socket}
 
       {:error, :already_running} ->
-        {:reply, {:error, %{request_id: request_id, reason: "generation_in_progress"}}, socket}
+        {:reply, {:error, error_payload(:generation_in_progress, request_id)}, socket}
 
       {:error, reason} ->
-        payload = %{request_id: request_id, reason: serialize_reason(reason)}
-        broadcast!(socket, "generation_error", payload)
-        {:reply, {:error, payload}, socket}
+        # The `generation_error` event is not a command reply: it keeps its
+        # `reason` field (issue #11 leaves event payloads as they are).
+        event = %{request_id: request_id, reason: serialize_reason(reason)}
+        broadcast!(socket, "generation_error", event)
+        {:reply, {:error, error_payload(reason, request_id)}, socket}
     end
   end
 
@@ -107,9 +128,9 @@ defmodule MealPlannerApiWeb.PlanningChannel do
         {:reply, {:ok, event}, socket}
 
       {:error, reason} ->
-        error_payload = %{request_id: request_id, reason: serialize_reason(reason)}
-        broadcast!(socket, "generation_error", error_payload)
-        {:reply, {:error, error_payload}, socket}
+        event = %{request_id: request_id, reason: serialize_reason(reason)}
+        broadcast!(socket, "generation_error", event)
+        {:reply, {:error, error_payload(reason, request_id)}, socket}
     end
   end
 
@@ -127,7 +148,7 @@ defmodule MealPlannerApiWeb.PlanningChannel do
         {:noreply, socket}
 
       [] ->
-        {:reply, {:error, %{reason: "no_active_generation"}}, socket}
+        {:reply, {:error, error_payload(:no_active_generation)}, socket}
     end
   end
 
@@ -145,13 +166,13 @@ defmodule MealPlannerApiWeb.PlanningChannel do
       confirm_with_lock(user, membership, proposal_id, session_id, socket)
     else
       {:error, :missing_session_id} ->
-        {:reply, {:error, %{reason: "missing_session_id"}}, socket}
+        {:reply, {:error, error_payload(:missing_session_id)}, socket}
 
       {:error, :account_expired} ->
-        {:reply, {:error, %{reason: "account_expired"}}, socket}
+        {:reply, {:error, error_payload(:account_expired)}, socket}
 
       {:error, :invalid_proposal_id} ->
-        {:reply, {:error, %{reason: "invalid_proposal_id"}}, socket}
+        {:reply, {:error, error_payload(:invalid_proposal_id)}, socket}
     end
   end
 
@@ -178,14 +199,14 @@ defmodule MealPlannerApiWeb.PlanningChannel do
               {:reply, {:ok, event}, socket}
 
             {:error, reason} ->
-              {:reply, {:error, %{reason: serialize_reason(reason)}}, socket}
+              {:reply, {:error, error_payload(reason)}, socket}
           end
         rescue
           Ecto.NoResultsError ->
-            {:reply, {:error, %{reason: "not_found"}}, socket}
+            {:reply, {:error, error_payload(:not_found)}, socket}
 
           Ecto.Query.CastError ->
-            {:reply, {:error, %{reason: "invalid_proposal_id"}}, socket}
+            {:reply, {:error, error_payload(:invalid_proposal_id)}, socket}
         end
     end
   end
@@ -236,16 +257,13 @@ defmodule MealPlannerApiWeb.PlanningChannel do
       {:reply, {:ok, %{session_id: started_id, status: :active}}, socket}
     else
       {:error, :subscription_required} ->
-        {:reply, {:error, %{reason: :subscription_required}}, socket}
+        {:reply, {:error, error_payload(:subscription_required)}, socket}
 
       {:error, :invalid_range} ->
-        {:reply, {:error, %{reason: :invalid_range}}, socket}
+        {:reply, {:error, error_payload(:invalid_range)}, socket}
 
-      {:error, reason} when is_atom(reason) ->
-        {:reply, {:error, %{reason: reason}}, socket}
-
-      {:error, other} ->
-        {:reply, {:error, %{reason: serialize_reason(other)}}, socket}
+      {:error, reason} ->
+        {:reply, {:error, error_payload(reason)}, socket}
     end
   end
 
@@ -266,7 +284,7 @@ defmodule MealPlannerApiWeb.PlanningChannel do
     # because the caller passed a valid UUID.
     case socket.assigns[:session_pid] do
       nil ->
-        {:reply, {:error, %{reason: :no_active_session}}, socket}
+        {:reply, {:error, error_payload(:no_active_session)}, socket}
 
       session_pid ->
         with {:ok, session_id} <- require_uuid(Map.get(payload, "session_id")),
@@ -277,19 +295,19 @@ defmodule MealPlannerApiWeb.PlanningChannel do
           {:reply, {:ok, validated}, socket}
         else
           {:error, :forbidden_intent} ->
-            {:reply, {:error, %{reason: :forbidden_intent}}, socket}
+            {:reply, {:error, error_payload(:forbidden_intent)}, socket}
 
           {:error, :unknown_intent} ->
-            {:reply, {:error, %{reason: :unknown_intent}}, socket}
+            {:reply, {:error, error_payload(:unknown_intent)}, socket}
 
           {:error, :invalid_payload} ->
-            {:reply, {:error, %{reason: :invalid_payload}}, socket}
+            {:reply, {:error, error_payload(:invalid_payload)}, socket}
 
           {:error, :session_mismatch} ->
-            {:reply, {:error, %{reason: :session_mismatch}}, socket}
+            {:reply, {:error, error_payload(:session_mismatch)}, socket}
 
           {:error, :atomize_failed} ->
-            {:reply, {:error, %{reason: :invalid_payload}}, socket}
+            {:reply, {:error, error_payload(:invalid_payload)}, socket}
         end
     end
   end
@@ -322,24 +340,61 @@ defmodule MealPlannerApiWeb.PlanningChannel do
       {:reply, {:ok, %{session_id: session_id, status: :cancelled}}, socket}
     else
       {:error, :forbidden} ->
-        {:reply, {:error, %{reason: :forbidden}}, socket}
+        {:reply, {:error, error_payload(:forbidden)}, socket}
 
       {:error, :not_active} ->
-        {:reply, {:error, %{reason: :not_found}}, socket}
+        {:reply, {:error, error_payload(:not_found)}, socket}
 
       {:error, :invalid_session_id} ->
-        {:reply, {:error, %{reason: :invalid_payload}}, socket}
+        {:reply, {:error, error_payload(:invalid_payload)}, socket}
     end
   end
 
   def handle_in(_event, _payload, socket) do
-    {:reply, {:error, %{reason: "invalid_payload"}}, socket}
+    {:reply, {:error, error_payload(:invalid_payload)}, socket}
   end
 
   defp build_request_id do
     "req_" <> Integer.to_string(System.unique_integer([:positive, :monotonic]))
   end
 
+  # Issue #11 — the payload of every error reply, joins and commands alike:
+  # the `ApiError` envelope `%{error: %{code: code, message: message}}` for
+  # the reason a guard or a service returned. A reason outside the allowlist
+  # replies `unknown_error` and is logged, so nothing free-form reaches the
+  # client.
+  defp error_payload(reason) do
+    case error_code(reason) do
+      {:ok, code} ->
+        ApiError.envelope(code)
+
+      :error ->
+        Logger.warning(
+          "PlanningChannel replied unknown_error for a reason outside the allowlist: " <>
+            inspect(reason, limit: 50, printable_limit: 500)
+        )
+
+        ApiError.unknown_error_envelope()
+    end
+  end
+
+  # A command that correlates its reply keeps `request_id` next to `error`.
+  defp error_payload(reason, request_id) do
+    reason |> error_payload() |> Map.put(:request_id, request_id)
+  end
+
+  # A reason is an atom or a string, depending on the service it comes from,
+  # and is looked up by name. A changeset means the payload did not pass a
+  # validation and keeps the `invalid_payload` it has always been replied as;
+  # its details stay on the server. Any other term is a fault, not a reason.
+  defp error_code(reason) when is_atom(reason),
+    do: Map.fetch(@codes_by_reason, Atom.to_string(reason))
+
+  defp error_code(reason) when is_binary(reason), do: Map.fetch(@codes_by_reason, reason)
+  defp error_code(%Ecto.Changeset{}), do: {:ok, :invalid_payload}
+  defp error_code(_fault), do: :error
+
+  # The `reason` field of a `generation_error` event.
   defp serialize_reason(reason) when is_atom(reason), do: Atom.to_string(reason)
   defp serialize_reason(reason) when is_binary(reason), do: reason
   defp serialize_reason(_), do: "invalid_payload"
@@ -441,7 +496,7 @@ defmodule MealPlannerApiWeb.PlanningChannel do
       [{server_pid, _}] ->
         case Server.confirm(server_pid, proposal_id, session_id) do
           {:ok, result} -> {:reply, {:ok, result}, socket}
-          {:error, reason} -> {:reply, {:error, %{reason: serialize_reason(reason)}}, socket}
+          {:error, reason} -> {:reply, {:error, error_payload(reason)}, socket}
         end
 
       [] ->
@@ -453,7 +508,7 @@ defmodule MealPlannerApiWeb.PlanningChannel do
         # `:no_active_generation` so the client can recover by
         # starting a new session instead of silently losing the
         # AC #4 atomicity guarantee.
-        {:reply, {:error, %{reason: "no_active_generation"}}, socket}
+        {:reply, {:error, error_payload(:no_active_generation)}, socket}
     end
   end
 end

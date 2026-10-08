@@ -29,6 +29,20 @@ defmodule MealPlannerApiWeb.ApiError do
   Server faults never go through `error/2`: use `server_fault/1`, which
   renders `unknown_error` with 500 without a literal the scan would pick
   up, so an internal failure can never leak a non-allowlisted code.
+
+  ## Outside a conn
+
+  `envelope/1` and `unknown_error_envelope/0` return the envelope as a plain
+  map, for a transport that has no `Plug.Conn`: the planning channel replies
+  them to a failed join or command (issue #11). `error/2` and
+  `server_fault/1` send the same maps, so the envelope is shaped in one
+  place.
+
+  The planning channel codes share `@codes` with the HTTP codes. Their status
+  is the one an HTTP route replying the same code would use; a channel reply
+  carries no status. The channel picks the code at runtime, from the reason a
+  service returned, so the contract scan above does not see these codes: the
+  mobile allowlist lists them by hand, in step with the table.
   """
 
   import Plug.Conn
@@ -51,6 +65,37 @@ defmodule MealPlannerApiWeb.ApiError do
           | :refresh_token_replayed
           | :refresh_token_expired
           | :refresh_token_session_mismatch
+          | :generation_in_progress
+          | :no_active_generation
+          | :missing_session_id
+          | :account_expired
+          | :invalid_proposal_id
+          | :not_found
+          | :subscription_required
+          | :invalid_range
+          | :overlapping_range
+          | :forbidden_intent
+          | :unknown_intent
+          | :invalid_payload
+          | :session_mismatch
+          | :no_active_session
+          | :forbidden
+          | :already_confirmed
+          | :foreign_lock
+          | :not_a_member
+          | :missing_lock
+          | :lost_lock
+          | :terminal_lock
+          | :transaction_failed
+          | :already_active
+          | :invalid_identity
+          | :invalid_date
+          | :invalid_date_range
+          | :optimization_failed
+          | :optimizer_unavailable
+          | :optimizer_timeout
+
+  @type envelope :: %{error: %{code: code() | :unknown_error, message: String.t()}}
 
   @codes %{
     unauthenticated: {401, "Authentication is required for this request."},
@@ -69,8 +114,42 @@ defmodule MealPlannerApiWeb.ApiError do
     refresh_token_revoked: {401, "The refresh token has been revoked."},
     refresh_token_replayed: {401, "The refresh token has already been used."},
     refresh_token_expired: {401, "The refresh token has expired."},
-    refresh_token_session_mismatch: {401, "The refresh token does not match its session."}
+    refresh_token_session_mismatch: {401, "The refresh token does not match its session."},
+    # Planning channel (issue #11): every deliberate reason a join or a
+    # command of `PlanningChannel` replies, named as the reason was.
+    generation_in_progress: {409, "A menu generation is already in progress for this account."},
+    no_active_generation: {409, "There is no active menu generation for this account."},
+    missing_session_id: {422, "A valid planning session id is required."},
+    account_expired: {403, "Access for this account has expired."},
+    invalid_proposal_id: {422, "The proposal id is not valid."},
+    not_found: {404, "The requested resource was not found."},
+    subscription_required: {403, "An active subscription is required for this action."},
+    invalid_range: {422, "The date range is not valid."},
+    overlapping_range: {409, "The date range overlaps an active planning session."},
+    forbidden_intent: {422, "The intent contains a field that is not allowed."},
+    unknown_intent: {422, "The intent kind is not recognized."},
+    invalid_payload: {422, "The request payload is not valid."},
+    session_mismatch:
+      {409, "The session id does not match the planning session of this connection."},
+    no_active_session: {409, "There is no active planning session on this connection."},
+    forbidden: {403, "You are not allowed to perform this action."},
+    already_confirmed: {409, "The proposal has already been confirmed."},
+    foreign_lock: {403, "The planning session belongs to another account."},
+    not_a_member: {403, "You are not an active member of this account."},
+    missing_lock: {409, "No planning session holds the lock for this confirmation."},
+    lost_lock: {409, "The planning session lost its lock."},
+    terminal_lock: {409, "The planning session has already ended."},
+    transaction_failed: {409, "The confirmation could not be completed. Nothing was saved."},
+    already_active: {409, "The planning session is already active."},
+    invalid_identity: {401, "The identity of this session could not be resolved."},
+    invalid_date: {422, "The date is not valid."},
+    invalid_date_range: {422, "The start date must not be after the end date."},
+    optimization_failed: {422, "A menu could not be generated for this request."},
+    optimizer_unavailable: {503, "The menu optimizer is not available. Try again later."},
+    optimizer_timeout: {504, "The menu optimizer took too long. Try again later."}
   }
+
+  @unknown_error_message "An unexpected error occurred."
 
   @doc """
   Sends the envelope for `code` with its mapped status and halts the conn.
@@ -86,8 +165,8 @@ defmodule MealPlannerApiWeb.ApiError do
   """
   @spec error(Plug.Conn.t(), code()) :: Plug.Conn.t()
   def error(%Plug.Conn{} = conn, code) when is_map_key(@codes, code) do
-    {status, message} = Map.fetch!(@codes, code)
-    send_envelope(conn, status, code, message)
+    {status, _message} = Map.fetch!(@codes, code)
+    send_envelope(conn, status, envelope(code))
   end
 
   @doc """
@@ -96,19 +175,42 @@ defmodule MealPlannerApiWeb.ApiError do
   """
   @spec server_fault(Plug.Conn.t()) :: Plug.Conn.t()
   def server_fault(%Plug.Conn{} = conn) do
-    send_envelope(conn, 500, :unknown_error, "An unexpected error occurred.")
+    send_envelope(conn, 500, unknown_error_envelope())
   end
+
+  @doc """
+  Returns the envelope for `code` as a map, without a conn:
+
+      %{error: %{code: :not_found, message: "The requested resource was not found."}}
+
+  Like `error/2`, it raises `FunctionClauseError` for a code outside
+  `@codes`, `unknown_error` included.
+  """
+  @spec envelope(code()) :: envelope()
+  def envelope(code) when is_map_key(@codes, code) do
+    {_status, message} = Map.fetch!(@codes, code)
+    build_envelope(code, message)
+  end
+
+  @doc """
+  Returns the `unknown_error` envelope as a map. Use it for an unexpected
+  failure, or for a reason outside the allowlist, so nothing internal reaches
+  the client.
+  """
+  @spec unknown_error_envelope() :: envelope()
+  def unknown_error_envelope, do: build_envelope(:unknown_error, @unknown_error_message)
 
   @doc "The codes this renderer can emit, for tests and documentation."
   @spec codes() :: [code()]
   def codes, do: Map.keys(@codes)
 
-  defp send_envelope(conn, status, code, message) do
-    body = Jason.encode!(%{error: %{code: code, message: message}})
+  # The one place that shapes the envelope.
+  defp build_envelope(code, message), do: %{error: %{code: code, message: message}}
 
+  defp send_envelope(conn, status, envelope) do
     conn
     |> put_resp_content_type("application/json")
-    |> send_resp(status, body)
+    |> send_resp(status, Jason.encode!(envelope))
     |> halt()
   end
 end
