@@ -122,10 +122,11 @@ defmodule MealPlannerApi.SubscriptionsTest do
           assert {:error, :plan_not_found} = Subscriptions.ensure_default_plan_id(:individual)
         end)
 
+      # What has to be there is which row is missing and from which table;
+      # the advice on how to put it back is free to change.
       assert log =~ "[error]"
       assert log =~ ~s(Plan "individual")
       assert log =~ "subscription_plans"
-      assert log =~ "mix ecto.migrate"
     end
   end
 

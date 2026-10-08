@@ -47,8 +47,8 @@ recipe and a scheduled meal): run them once on a fresh development database
 Optional overrides: `OPTIMIZER_PYTHON` (default `python3`),
 `OPTIMIZER_SCRIPT_PATH` (default `apps/api/optimizer/optimizador.py`),
 `OPTIMIZER_TIMEOUT_MS`. A bare `OPTIMIZER_PYTHON` name is looked up on `PATH`
-and an explicit path is used as given; when the executable cannot be found the
-API refuses to start and logs which value it tried. `apps/api/.envrc` is a
+and an explicit path is used as given; when that does not lead to an executable
+file the API refuses to start and logs which value it tried. `apps/api/.envrc` is a
 direnv stub that sets safe defaults and sources `.envrc.local` for secrets.
 
 Tests: `mix test` (uses `postgres`/`postgres` on `localhost`, database

@@ -112,10 +112,13 @@ defmodule MealPlannerApi.Subscriptions do
 
       {:error, :plan_not_found} = error ->
         # Callers fold this into a generic failure (sign-up answers 500), so
-        # this is the only place that can say which row is missing.
+        # this is the only place that can say which row is missing. Migrating
+        # only helps a database that has not run the inserting migration yet.
         Logger.error(
-          "Plan #{inspect(name)} is missing from the subscription_plans table; " <>
-            "run `mix ecto.migrate` to insert the reference Plans"
+          "Plan #{inspect(name)} is missing from the subscription_plans table. " <>
+            "Migration 20261008120000 inserts it on a database that has not run " <>
+            "it yet; when migrations are already up to date the row was removed " <>
+            "and has to be inserted again."
         )
 
         error

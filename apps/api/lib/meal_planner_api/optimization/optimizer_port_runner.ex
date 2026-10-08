@@ -5,10 +5,11 @@ defmodule MealPlannerApi.Optimization.OptimizerPortRunner do
   Production uses `{:spawn_executable, python}` + `args: [script_path]`,
   which avoids shell interpolation entirely. `:spawn_executable` does not
   search `PATH`, so the configured executable is resolved to a path first
-  (see `open_port/1`); when nothing executable is found the runner answers
-  `{:error, {:python_not_found, name}}` instead of raising. Tests inject a
-  custom runner through `:meal_planner_api, :optimizer_port_runner` to drive
-  the GenServer lifecycle without spawning a real Python process.
+  (see `open_port/1`); when that path is missing or is not an executable file
+  the runner answers `{:error, {:python_not_found, name}}` instead of
+  raising. Tests inject a custom runner through
+  `:meal_planner_api, :optimizer_port_runner` to drive the GenServer
+  lifecycle without spawning a real Python process.
   """
 
   require Logger
@@ -29,9 +30,9 @@ defmodule MealPlannerApi.Optimization.OptimizerPortRunner do
     * an absolute path is kept
 
   Returns `{:ok, port}` on success, `{:error, {:python_not_found, name}}`
-  (`name` being the configured value) when the resolved path is not an
-  executable file, or `{:error, :spawn_failed}` if Erlang could not start
-  the subprocess.
+  (`name` being the configured value) when the resolved path is missing or
+  is not an executable file, or `{:error, :spawn_failed}` if Erlang could
+  not start the subprocess.
   """
   @spec open_port(keyword()) ::
           {:ok, port()} | {:error, :spawn_failed | {:python_not_found, String.t()}}
@@ -42,9 +43,10 @@ defmodule MealPlannerApi.Optimization.OptimizerPortRunner do
     case resolve_executable(python_executable) do
       nil ->
         Logger.error(
-          "Optimizer Python executable not found: #{inspect(python_executable)}. " <>
-            "Install Python 3, or set :optimizer_python (the OPTIMIZER_PYTHON " <>
-            "environment variable read by config/dev.exs) to an executable path."
+          "Optimizer Python executable not found or not executable: " <>
+            "#{inspect(python_executable)}. Install Python 3, or point the " <>
+            ":optimizer_python application setting at an executable " <>
+            "(config/dev.exs reads it from the OPTIMIZER_PYTHON environment variable)."
         )
 
         {:error, {:python_not_found, python_executable}}

@@ -11,6 +11,9 @@ defmodule MealPlannerApi.Repo.Migrations.SeedIndividualAndFamily4Plans do
 
   Rows that already exist (an environment that ran the seeds) are left as
   they are: `ON CONFLICT (name) DO NOTHING`.
+
+  The insert lives in `insert_plans/1` so a test can run it against the
+  sandboxed repo without going through the Migrator.
   """
   use Ecto.Migration
 
@@ -19,12 +22,19 @@ defmodule MealPlannerApi.Repo.Migrations.SeedIndividualAndFamily4Plans do
     %{name: "family_4", max_users: 4, max_planning_days: 7}
   ]
 
-  def up do
+  def up, do: insert_plans(repo())
+
+  @doc """
+  Inserts the Plans that `repo` does not hold yet; a Plan whose name already
+  exists keeps its id and its values.
+  """
+  @spec insert_plans(Ecto.Repo.t()) :: :ok
+  def insert_plans(repo) do
     Enum.each(@plans, fn plan ->
       {:ok, uuid_binary} = Ecto.UUID.dump(Ecto.UUID.generate())
 
       # `log: false` keeps the query parameters out of the migration output.
-      repo().query!(
+      repo.query!(
         """
         INSERT INTO subscription_plans (id, name, max_users, max_planning_days, revenuecat_entitlement_id, inserted_at, updated_at)
         VALUES ($1, $2, $3, $4, NULL, $5, $5)

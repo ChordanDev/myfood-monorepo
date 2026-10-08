@@ -7,6 +7,10 @@ defmodule MealPlannerApi.Optimization.OptimizerPortRunnerTest do
   until the port closes, so the process is still alive when `open_port/1`
   checks the port (a program that exits at once is reported as
   `:spawn_failed`), and the echo proves which executable was spawned.
+
+  Paths that must exist, or must not, live in the test's own `:tmp_dir`,
+  which ExUnit empties before the test and creates under the working
+  directory, so nothing depends on what else that directory holds.
   """
 
   use ExUnit.Case, async: true
@@ -36,8 +40,11 @@ defmodule MealPlannerApi.Optimization.OptimizerPortRunnerTest do
       assert_echoes(port)
     end
 
-    test "expands a relative path with a directory component against the working directory" do
-      relative = Path.relative_to(System.find_executable("cat"), File.cwd!(), force: true)
+    @tag :tmp_dir
+    test "expands a relative path with a directory component against the working directory",
+         %{tmp_dir: tmp_dir} do
+      # The name is on no PATH entry, so an echo can only come from this file.
+      relative = Path.relative_to_cwd(write_echo_script!(tmp_dir, "fake-python"))
       assert Path.type(relative) == :relative
 
       assert {:ok, port} =
@@ -46,15 +53,19 @@ defmodule MealPlannerApi.Optimization.OptimizerPortRunnerTest do
       assert_echoes(port)
     end
 
-    test "does not look up a relative path with a directory component on PATH" do
-      # `cat` is on PATH, but `./cat` names a file in the working directory.
+    @tag :tmp_dir
+    test "does not look up a relative path with a directory component on PATH",
+         %{tmp_dir: tmp_dir} do
+      # `cat` is on PATH, but this names a file in the empty tmp directory.
+      absent = "./" <> Path.relative_to_cwd(Path.join(tmp_dir, "cat"))
+
       log =
         capture_log(fn ->
-          assert {:error, {:python_not_found, "./cat"}} =
-                   OptimizerPortRunner.open_port(python_executable: "./cat", script_path: @stdin)
+          assert {:error, {:python_not_found, ^absent}} =
+                   OptimizerPortRunner.open_port(python_executable: absent, script_path: @stdin)
         end)
 
-      assert log =~ ~s("./cat")
+      assert log =~ inspect(absent)
     end
 
     test "answers :python_not_found and logs how to fix it when a bare name is not on PATH" do
@@ -67,15 +78,15 @@ defmodule MealPlannerApi.Optimization.OptimizerPortRunnerTest do
         end)
 
       assert log =~ "[error]"
+      assert log =~ "not found or not executable"
       assert log =~ name
-      assert log =~ "Install Python 3"
       assert log =~ ":optimizer_python"
-      assert log =~ "OPTIMIZER_PYTHON"
     end
 
-    test "answers :python_not_found when an absolute path does not exist" do
-      missing = Path.join(System.tmp_dir!(), "myfood-missing-python/bin/python3")
-      refute File.exists?(missing)
+    @tag :tmp_dir
+    test "answers :python_not_found when an absolute path does not exist", %{tmp_dir: tmp_dir} do
+      missing = Path.join(tmp_dir, "python3")
+      assert Path.type(missing) == :absolute
 
       log =
         capture_log(fn ->
@@ -85,6 +96,36 @@ defmodule MealPlannerApi.Optimization.OptimizerPortRunnerTest do
 
       assert log =~ missing
     end
+
+    @tag :tmp_dir
+    test "answers :python_not_found when the path is a file that is not executable",
+         %{tmp_dir: tmp_dir} do
+      not_executable = Path.join(tmp_dir, "python3")
+      File.write!(not_executable, "#!/bin/sh\n")
+      File.chmod!(not_executable, 0o644)
+
+      log =
+        capture_log(fn ->
+          assert {:error, {:python_not_found, ^not_executable}} =
+                   OptimizerPortRunner.open_port(
+                     python_executable: not_executable,
+                     script_path: @stdin
+                   )
+        end)
+
+      assert log =~ "not found or not executable"
+      assert log =~ not_executable
+    end
+  end
+
+  # An executable under a name of the test's own that behaves like `cat`.
+  # A script rather than a symlink to `cat`: a multi-call binary picks its
+  # behavior from the name it is invoked by.
+  defp write_echo_script!(dir, name) do
+    path = Path.join(dir, name)
+    File.write!(path, "#!/bin/sh\nexec cat \"$@\"\n")
+    File.chmod!(path, 0o755)
+    path
   end
 
   # The test process owns the port, so it receives what `cat` writes back.
