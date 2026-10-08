@@ -5,6 +5,16 @@ defmodule MealPlannerApiWeb.Router do
     plug(:accepts, ["json"])
   end
 
+  # Issue #11 — camelCase mobile contract. Opt-in: only the scopes that name
+  # this pipeline translate request params to snake_case and response keys to
+  # camelCase (see `Plugs.MobileCasing`). It goes right after `:api`, before
+  # any pipeline that can halt, so the response of a halting plug is
+  # translated too. Auth, `/auth/me`, `/account/*` and
+  # `/api/accounts/:account_id/*` are deliberately left out.
+  pipeline :mobile_casing do
+    plug(MealPlannerApiWeb.Plugs.MobileCasing)
+  end
+
   pipeline :auth do
     plug(MealPlannerApiWeb.AuthPipeline)
   end
@@ -136,8 +146,8 @@ defmodule MealPlannerApiWeb.Router do
   scope "/api", MealPlannerApiWeb do
     pipe_through([:api, :auth])
 
-    # User endpoints (auth required, capability-exempt by design)
-    get("/me", AccountsController, :me)
+    # User endpoints (auth required, capability-exempt by design).
+    # `GET /me` is declared in the `:mobile_casing` scope below.
     # Alias for frontend (G8)
     get("/auth/me", AccountsController, :me)
     get("/account/context", AccountsController, :context)
@@ -181,8 +191,20 @@ defmodule MealPlannerApiWeb.Router do
     post("/auth/switch-account", AccountLifecycleController, :switch_account)
   end
 
+  # Issue #11 — `GET /me` through the opt-in `:mobile_casing` pipeline. Same
+  # authentication and capability exemption as the design-exempt scope; its alias
+  # `GET /auth/me` stays in that scope, outside the pipeline.
   scope "/api", MealPlannerApiWeb do
-    pipe_through([:api, :auth, :enforce_capability])
+    pipe_through([:api, :mobile_casing, :auth])
+
+    get("/me", AccountsController, :me)
+  end
+
+  # Product routes of the mobile app. `:mobile_casing` is opt-in and this is
+  # the scope that opts in: camelCase params are accepted next to snake_case
+  # ones and every JSON response leaves with camelCase keys.
+  scope "/api", MealPlannerApiWeb do
+    pipe_through([:api, :mobile_casing, :auth, :enforce_capability])
 
     # User endpoints (auth required, capability required)
     get("/recipes/:id", RecipeController, :show)

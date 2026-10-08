@@ -59,7 +59,7 @@ defmodule MealPlannerApiWeb.InventoryControllerTest do
         |> get("/api/inventory")
 
       body = json_response(conn, 200)
-      all_ingredient_ids = Enum.map(body["data"]["sections"]["ok"], & &1["ingredient_id"])
+      all_ingredient_ids = Enum.map(body["data"]["sections"]["ok"], & &1["ingredientId"])
 
       assert ingredient.id in all_ingredient_ids
     end
@@ -103,7 +103,7 @@ defmodule MealPlannerApiWeb.InventoryControllerTest do
       |> get("/api/inventory")
 
     list_body = json_response(list_conn, 200)
-    assert list_body["data"]["totals"]["items_count"] == 1
+    assert list_body["data"]["totals"]["itemsCount"] == 1
 
     item = hd(list_body["data"]["sections"]["ok"])
     item_id = item["id"]
@@ -114,7 +114,7 @@ defmodule MealPlannerApiWeb.InventoryControllerTest do
       |> post("/api/inventory/items/#{item_id}/quantity", %{"quantity_milli" => 750})
 
     adjust_body = json_response(adjust_conn, 200)
-    assert adjust_body["data"]["quantity_after_milli"] == 750
+    assert adjust_body["data"]["quantityAfterMilli"] == 750
 
     preview_conn =
       build_conn()
@@ -122,19 +122,19 @@ defmodule MealPlannerApiWeb.InventoryControllerTest do
       |> post("/api/inventory/voice/preview", %{"text" => "me comi medio pan test inventario"})
 
     preview_body = json_response(preview_conn, 200)
-    assert preview_body["data"]["confirmation_required"] == true
+    assert preview_body["data"]["confirmationRequired"] == true
     assert length(preview_body["data"]["operations"]) >= 1
 
     apply_conn =
       build_conn()
       |> put_req_header("authorization", "Bearer " <> token)
       |> post("/api/inventory/voice/apply", %{
-        "raw_text" => preview_body["data"]["raw_text"],
+        "raw_text" => preview_body["data"]["rawText"],
         "operations" => preview_body["data"]["operations"]
       })
 
     apply_body = json_response(apply_conn, 200)
-    assert apply_body["data"]["applied_operations"] >= 1
+    assert apply_body["data"]["appliedOperations"] >= 1
 
     dispose_conn =
       build_conn()
@@ -142,7 +142,7 @@ defmodule MealPlannerApiWeb.InventoryControllerTest do
       |> post("/api/inventory/items/#{item_id}/dispose", %{"reason" => "spoiled"})
 
     dispose_body = json_response(dispose_conn, 200)
-    assert dispose_body["data"]["item_id"] == item_id
+    assert dispose_body["data"]["itemId"] == item_id
   end
 
   test "rescue plan schedules meal for today", %{conn: conn} do

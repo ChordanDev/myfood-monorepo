@@ -44,8 +44,11 @@ defmodule MealPlannerApiWeb.Casing do
       `protein_g_per_meal` and `proteinGPerMeal` map to each other, and
       `deviceID` becomes `device_i_d`. Clients send `deviceId`.
 
-  When two keys of one map end up with the same name (`recipe_id` next to
-  `recipeId`), only one of them is kept.
+  When two keys of one map end up with the same name, one of them is kept and
+  the choice does not depend on the order of the map: the key already spelled
+  in the target casing wins over a rewritten one (`snake_keys/1` keeps
+  `recipe_id` over `recipeId`, `camelize_keys/1` the other way round), and
+  between an atom and a string with the same name the string wins.
 
   ## Opaque keys
 
@@ -53,7 +56,8 @@ defmodule MealPlannerApiWeb.Casing do
   `@opaque_keys` mark them, in either casing (`by_category` and
   `byCategory`). The opaque key itself is rewritten like any other; the
   direct keys of the map stored under it are data and are kept as they are;
-  below those keys the rewrite goes on as usual:
+  below those keys the rewrite goes on as usual (a string data key wins over
+  an atom with the same name):
 
       camelize_keys(%{by_category: %{"no_perecederos" => [%{ingredient_id: 7}]}})
       #=> %{"byCategory" => %{"no_perecederos" => [%{"ingredientId" => 7}]}}
@@ -90,9 +94,7 @@ defmodule MealPlannerApiWeb.Casing do
   defp rewrite_keys(%_{} = struct, _rewrite), do: struct
 
   defp rewrite_keys(map, rewrite) when is_map(map) do
-    Map.new(map, fn {key, value} ->
-      {rewrite_key(key, rewrite), rewrite_value(key, value, rewrite)}
-    end)
+    rewrite_entries(map, rewrite, &rewrite_value(&1, &2, rewrite))
   end
 
   defp rewrite_keys(list, rewrite) when is_list(list),
@@ -104,9 +106,7 @@ defmodule MealPlannerApiWeb.Casing do
   # kept, and the rewrite resumes in the values.
   defp rewrite_value(key, value, rewrite) when is_map(value) and not is_struct(value) do
     if opaque?(key) do
-      Map.new(value, fn {data_key, child} ->
-        {rewrite_key(data_key, & &1), rewrite_keys(child, rewrite)}
-      end)
+      rewrite_entries(value, & &1, fn _data_key, child -> rewrite_keys(child, rewrite) end)
     else
       rewrite_keys(value, rewrite)
     end
@@ -114,9 +114,40 @@ defmodule MealPlannerApiWeb.Casing do
 
   defp rewrite_value(_key, value, rewrite), do: rewrite_keys(value, rewrite)
 
-  defp rewrite_key(key, rewrite) when is_binary(key), do: rewrite.(key)
-  defp rewrite_key(key, rewrite) when is_atom(key), do: rewrite.(Atom.to_string(key))
-  defp rewrite_key(key, _rewrite), do: key
+  # Builds the map entry by entry. Two keys can end up with the same name;
+  # the entry with the lowest rank is kept, so the result does not depend on
+  # the order in which the map is traversed.
+  defp rewrite_entries(map, rewrite, rewrite_child) do
+    map
+    |> Enum.reduce(%{}, fn {key, value}, ranked ->
+      {name, rank} = rewrite_key(key, rewrite)
+
+      case ranked do
+        %{^name => {kept_rank, _kept}} when kept_rank <= rank -> ranked
+        _ -> Map.put(ranked, name, {rank, rewrite_child.(key, value)})
+      end
+    end)
+    |> Map.new(fn {name, {_rank, value}} -> {name, value} end)
+  end
+
+  # Returns the new key and its rank among the keys that share that name: a
+  # key already in the target casing (0 for a string, 1 for an atom) comes
+  # before a rewritten one (2 for a string, 3 for an atom). Two keys that
+  # collide never share a rank, because two distinct keys of the same kind
+  # cannot be given the same name: left as they are they stay distinct, and
+  # each rewrite is injective, so two rewritten keys stay distinct too.
+  defp rewrite_key(key, rewrite) when is_binary(key) do
+    name = rewrite.(key)
+    {name, if(name == key, do: 0, else: 2)}
+  end
+
+  defp rewrite_key(key, rewrite) when is_atom(key) do
+    {name, rank} = key |> Atom.to_string() |> rewrite_key(rewrite)
+    {name, rank + 1}
+  end
+
+  # Any other key is kept as it is and cannot collide with another one.
+  defp rewrite_key(key, _rewrite), do: {key, 0}
 
   # The snake_case form is the same whichever casing the key arrives in.
   defp opaque?(key) when is_binary(key), do: underscore(key) in @opaque_keys

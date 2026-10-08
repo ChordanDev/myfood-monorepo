@@ -47,7 +47,7 @@ defmodule MealPlannerApiWeb.PlanningChatControllerTest do
         |> get("/api/planning/favorites")
 
       body = json_response(conn, 200)
-      recipe_ids = Enum.map(body["data"], & &1["recipe_id"])
+      recipe_ids = Enum.map(body["data"], & &1["recipeId"])
 
       assert recipe.id in recipe_ids
     end
@@ -128,12 +128,12 @@ defmodule MealPlannerApiWeb.PlanningChatControllerTest do
 
     body = json_response(conn, 200)
 
-    proposal_id = body["data"]["proposal_id"]
+    proposal_id = body["data"]["proposalId"]
 
     assert is_binary(proposal_id)
-    assert length(body["data"]["proposal"]["scheduled_meals"]) == 6
-    assert is_map(body["data"]["proposal"]["weekly_plan"])
-    assert length(body["data"]["proposal"]["weekly_plan"]["days"]) >= 2
+    assert length(body["data"]["proposal"]["scheduledMeals"]) == 6
+    assert is_map(body["data"]["proposal"]["weeklyPlan"])
+    assert length(body["data"]["proposal"]["weeklyPlan"]["days"]) >= 2
   end
 
   test "favorites endpoint returns user starred recipes", %{conn: conn} do
@@ -165,7 +165,7 @@ defmodule MealPlannerApiWeb.PlanningChatControllerTest do
 
     body = json_response(conn, 200)
 
-    assert Enum.any?(body["data"], &(&1["recipe_id"] == recipe.id))
+    assert Enum.any?(body["data"], &(&1["recipeId"] == recipe.id))
   end
 
   defp issue_token(_conn, params) do
