@@ -62,6 +62,15 @@ defmodule MealPlannerApiWeb.ApiErrorTest do
       assert is_binary(message) and message != ""
     end
 
+    test "maps the recipe detail code to its HTTP status", %{conn: conn} do
+      conn = conn |> ApiError.error(:recipe_not_found)
+
+      assert %{"error" => %{"code" => "recipe_not_found", "message" => message}} =
+               json_response(conn, 404)
+
+      assert is_binary(message) and message != ""
+    end
+
     test "maps the Onboarding profile codes to 422", %{conn: conn} do
       assert (conn |> ApiError.error(:validation_error)).status == 422
 
@@ -213,7 +222,7 @@ defmodule MealPlannerApiWeb.ApiErrorTest do
       end
     end
 
-    test "are listed by codes/0 next to the auth and the profile codes" do
+    test "are listed by codes/0 next to the auth, the recipe and the profile codes" do
       auth_codes =
         ~w(unauthenticated access_token_expired account_not_found trial_expired invalid_email
            email_not_found rate_limited code_invalid code_expired too_many_attempts
@@ -223,7 +232,9 @@ defmodule MealPlannerApiWeb.ApiErrorTest do
       profile_codes = ~w(validation_error invalid_cooking_skill)a
 
       assert Enum.sort(ApiError.codes()) ==
-               Enum.sort(auth_codes ++ profile_codes ++ Map.keys(@channel_codes))
+               Enum.sort(
+                 auth_codes ++ [:recipe_not_found] ++ profile_codes ++ Map.keys(@channel_codes)
+               )
     end
   end
 

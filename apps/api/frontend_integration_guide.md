@@ -989,12 +989,13 @@ Two error body shapes are in use. Which one a request gets depends on the code p
   - the mobile auth routes `/api/auth/login/request-code`, `/api/auth/login/verify-code`,
     `/api/auth/signup/request-code`, `/api/auth/signup/verify-code` and `/api/auth/refresh`;
   - `GET /api/me` and its alias `GET /api/auth/me`;
-  - `PUT /api/me/profile`: `422 validation_error` and `422 invalid_cooking_skill`.
+  - `PUT /api/me/profile`: `422 validation_error` and `422 invalid_cooking_skill`;
+  - `GET /api/recipes/:id`: `404 recipe_not_found` and `403 forbidden` (section 11).
 - **Flat (legacy, not migrated to the envelope):** `{ "error": "<reason>" }`, with the status chosen by each
   endpoint (`422` in most controllers). It is still returned by:
   - the validation and domain errors that the non-auth controllers build themselves: account context,
-    dietary profile, planning, planning chat, calendar, cooking, recipes, shopping, inventory, memberships,
-    invites, account leave and billing;
+    dietary profile, planning, planning chat, calendar, cooking, shopping, inventory, memberships, invites,
+    account leave and billing;
   - the legacy auth routes, for the errors their own controller or plug builds: `/api/auth/password`,
     `/api/auth/social` and their aliases, `/api/auth/email-code/request`, `/api/auth/email-code/verify` and
     `/api/auth/switch-account`. On `/api/auth/email-code/verify` this covers only the errors its controller
@@ -1003,3 +1004,69 @@ Two error body shapes are in use. Which one a request gets depends on the code p
   - the account scope check on `/api/accounts/:account_id/*`: `403` with `{ "error": "account_mismatch" }`.
 - Planning weekly has explicit `400` for known request-shape/limits errors (including `exceeds_max_planning_days`).
 - Channel generation errors are emitted and replied with `reason` as string.
+
+## 11. Recipe Detail (REST)
+
+- Method: `GET`
+- Path: `/api/recipes/:id`
+
+Returns the frozen version of a recipe the Account can see: a catalog recipe or one of its own (`source` is
+`traditional`, `ai_generated` or `user_created`). Every source answers the same shape, with camelCase keys.
+
+```json
+{
+  "data": {
+    "id": "5b0c9d6e-2f4a-4c1b-9e3d-7a8f1c2b3d4e",
+    "recipeVersionId": "0e7a4c52-9b1d-4f36-8a2c-6d5e4f3a2b1c",
+    "successorRecipeId": null,
+    "source": "traditional",
+    "name": "Tortilla de papas",
+    "description": "Tortilla clásica de papas y cebolla.",
+    "servings": 4,
+    "durationMinutes": 40,
+    "ingredients": [
+      {
+        "ingredientId": "1c3e5a7b-9d2f-4b6c-8e1a-3f5d7b9c2e4a",
+        "name": "Papa",
+        "category": "verduras",
+        "quantityMilli": 500000,
+        "unit": "g"
+      }
+    ],
+    "steps": [{ "order": 1, "text": "Pelar las papas y cortarlas en láminas finas.", "durationMinutes": 15 }],
+    "estimatedCostCents": 385000,
+    "tags": [],
+    "imageUrl": null,
+    "theme": null
+  }
+}
+```
+
+Fields:
+
+- `recipeVersionId`: id of the immutable version served. A recipe id always answers the same version, so a
+  client can cache the body by this id.
+- `successorRecipeId`: id of the recipe that corrects this one, or `null`. It is not version content: it is
+  read when the request is served, like `ingredients[].category`, so a cached body does not learn that the
+  recipe was corrected afterwards.
+- `servings`: servings the quantities are for, or `null`. Quantities are not scaled.
+- `durationMinutes`: preparation plus cooking time in minutes; `null` when the recipe has neither.
+- `ingredients[].quantityMilli`: quantity in thousandths of `unit` (`g`, `ml` or `unit`): `500000` with `g`
+  is 500 g. Formatting is up to the client.
+- `ingredients[].category`: current category of the ingredient (`lacteos`, `frutas`, `verduras`, `carnes`,
+  `granos`, `congelados`, `no_perecederos`, `otros`), or `null` when the ingredient no longer exists. It is
+  read at request time, not frozen with the version.
+- `steps[]`: ordered by `order`. `steps[].durationMinutes` is in minutes, or `null`.
+- `estimatedCostCents`: estimated cost of the recipe in cents; `0` when no cost is known.
+- `tags`, `imageUrl` and `theme` are placeholders: they answer `[]`, `null` and `null` until the backend
+  stores them.
+
+Errors use the envelope of section 10:
+
+- `404 recipe_not_found`: the recipe does not exist, the id is not a UUID, or the recipe belongs to another
+  Account.
+- `403 forbidden`: the Account has no access (expired trial without a subscription). A User without an
+  active Membership is stopped earlier, by the auth pipeline, with `401 account_not_found`.
+
+`apps/mobile/src/features/recipe/fixtures/recipeDetail.json` is a full example body. A route test keeps its
+keys equal to the ones this route answers.
