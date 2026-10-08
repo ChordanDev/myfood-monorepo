@@ -34,7 +34,9 @@ describe('auth error code contract (api -> mobile allowlist)', () => {
   //     allowlist anyway.
   //   * `ApiError.validation_error/2` (`validation_error`) — it renders
   //     the code with a message naming the offending field, without an
-  //     `error(:atom)` literal, so the allowlist lists it by hand.
+  //     `error(:atom)` literal. The scan still collects the code, from
+  //     the rejection that names no field and goes through
+  //     `error(:validation_error)`.
   //   * The flat `{ "error": "<reason>" }` bodies the legacy and
   //     non-auth controllers still build with `json/2` — they are not
   //     part of the envelope contract.
@@ -180,9 +182,10 @@ describe('auth error code contract (api -> mobile allowlist)', () => {
     expect(normalized).toEqual([]);
   });
 
-  it('errorFromEnvelope() keeps validation_error, which the scan cannot see', () => {
-    // The allowlist entry is written by hand, so nothing above notices
-    // if it goes missing.
+  it('errorFromEnvelope() keeps validation_error and the message naming the field', () => {
+    // The scan collects this code from a rejection that names no field.
+    // The answers that name one come from a renderer the scan cannot
+    // see, so the code is pinned here as well.
     const message = 'The field householdSize is not valid.';
 
     expect(errorFromEnvelope({ error: { code: 'validation_error', message } }, 422)).toMatchObject({

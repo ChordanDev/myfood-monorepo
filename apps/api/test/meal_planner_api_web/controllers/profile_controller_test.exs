@@ -93,6 +93,21 @@ defmodule MealPlannerApiWeb.ProfileControllerTest do
       assert_validation_error(rejected, "displayName")
     end
 
+    test "stores a name of 64 characters that each take two codepoints", %{
+      conn: conn,
+      user: user,
+      token: token
+    } do
+      # "n" and a combining tilde: one grapheme of two codepoints.
+      name = String.duplicate("ñ", 64)
+
+      body =
+        conn |> put_profile(token, %{@profile | "displayName" => name}) |> json_response(200)
+
+      assert body["user"]["displayName"] == name
+      assert Repo.get!(User, user.id).name == name
+    end
+
     test "accepts a Household size of 1 and of 20", %{conn: conn, token: token} do
       for size <- [1, 20] do
         body =
@@ -145,6 +160,40 @@ defmodule MealPlannerApiWeb.ProfileControllerTest do
 
         assert_validation_error(conn, "displayName")
       end
+    end
+
+    test "a displayName of 64 characters longer than the column is a validation_error", %{
+      conn: conn,
+      user: user,
+      token: token
+    } do
+      stored = Repo.get!(User, user.id)
+      # A family emoji: one grapheme of seven codepoints.
+      name = String.duplicate("\u{1F468}‍\u{1F469}‍\u{1F467}‍\u{1F466}", 64)
+
+      assert String.length(name) == 64
+
+      assert_validation_error(
+        put_profile(conn, token, %{@profile | "displayName" => name}),
+        "displayName"
+      )
+
+      assert Repo.get!(User, user.id) == stored
+    end
+
+    test "a displayName with a NUL character is a validation_error", %{
+      conn: conn,
+      user: user,
+      token: token
+    } do
+      stored = Repo.get!(User, user.id)
+      body = %{@profile | "displayName" => "Ana\0María"}
+
+      # The character travels as a JSON escape.
+      assert Jason.encode!(body) =~ ~S(Ana\u0000María)
+
+      assert_validation_error(put_profile(conn, token, body), "displayName")
+      assert Repo.get!(User, user.id) == stored
     end
 
     test "householdSize missing, null, not a JSON integer or out of range is a validation_error",

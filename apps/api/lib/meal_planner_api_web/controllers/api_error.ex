@@ -39,8 +39,11 @@ defmodule MealPlannerApiWeb.ApiError do
 
       conn |> ApiError.validation_error("householdSize")
 
-  The contract scan does not see this call either, so the mobile allowlist
-  lists `validation_error` by hand.
+  The contract scan does not see this call either. It sees the code through
+  the one rejection that has no field to name, which goes through `error/2`
+  and keeps the static message:
+
+      conn |> ApiError.error(:validation_error)
 
   ## Outside a conn
 

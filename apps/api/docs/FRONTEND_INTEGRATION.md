@@ -192,6 +192,8 @@ No requiere acceso vigente: una cuenta con el acceso vencido también puede usar
 Los tres campos son obligatorios:
 
 - `displayName`: string de 1 a 64 caracteres, contados después de quitar los espacios de los extremos.
+  Un carácter es un grafema (un emoji compuesto cuenta como uno); además el nombre no puede superar los
+  255 code points Unicode ni contener el carácter NUL (`\u0000`).
 - `householdSize`: entero JSON de 1 a 20. El string `"4"` y el número `4.5` se rechazan.
 - `cookingSkill`: `beginner`, `intermediate` o `advanced`.
 

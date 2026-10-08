@@ -214,7 +214,8 @@ Request body, all three fields required:
 }
 ```
 
-- `displayName`: string, 1 to 64 characters after trimming.
+- `displayName`: string, 1 to 64 characters after trimming. A character is a grapheme (a joined emoji
+  counts as one); the name also holds at most 255 Unicode code points and no NUL character (`\u0000`).
 - `householdSize`: JSON integer, 1 to 20. The string `"4"` and the number `4.5` are rejected.
 - `cookingSkill`: `beginner`, `intermediate` or `advanced`.
 

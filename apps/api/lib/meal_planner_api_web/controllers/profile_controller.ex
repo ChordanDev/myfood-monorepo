@@ -10,6 +10,9 @@ defmodule MealPlannerApiWeb.ProfileController do
   decides the answer: `invalid_cooking_skill` for a Cooking skill that is a
   string outside the catalog, `validation_error` naming the field for
   anything else. The bounds themselves belong to `User.profile_changeset/2`.
+  A rejection that falls on none of the three fields still answers
+  `validation_error`, with the static message of the code and no field
+  named.
   """
   use MealPlannerApiWeb, :controller
 
@@ -55,6 +58,9 @@ defmodule MealPlannerApiWeb.ProfileController do
 
   defp reject(conn, :cooking_skill, %{cooking_skill: skill}) when is_binary(skill),
     do: conn |> ApiError.error(:invalid_cooking_skill)
+
+  # An error on no profile field leaves no field to name.
+  defp reject(conn, nil, _attrs), do: conn |> ApiError.error(:validation_error)
 
   defp reject(conn, field, _attrs),
     do: conn |> ApiError.validation_error(Keyword.fetch!(@fields, field))
