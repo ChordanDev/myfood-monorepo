@@ -1,6 +1,7 @@
 defmodule MealPlannerApiWeb.RecipeController do
   use MealPlannerApiWeb, :controller
   alias MealPlannerApi.Services.RecipeService
+  alias MealPlannerApiWeb.ApiError
   alias MealPlannerApiWeb.Controllers.AccountScopeHelpers
 
   def show(conn, %{"id" => id}) do
@@ -13,10 +14,11 @@ defmodule MealPlannerApiWeb.RecipeController do
         json(conn, %{data: recipe})
 
       {:error, :subscription_required} ->
-        conn |> put_status(:forbidden) |> json(%{error: :subscription_required})
+        conn |> ApiError.error(:forbidden)
 
+      # A missing recipe, a malformed id and a recipe of another Account.
       {:error, _} ->
-        conn |> put_status(:not_found) |> json(%{error: :not_found})
+        conn |> ApiError.error(:recipe_not_found)
     end
   end
 end

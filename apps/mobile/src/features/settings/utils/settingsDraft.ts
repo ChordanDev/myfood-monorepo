@@ -5,9 +5,10 @@
 // expects with every untouched field copied from the saved state. No
 // React here, so each rule is unit-tested without rendering.
 
+import { MEAL_SLOT_LABEL } from '@/constants/mealSlots';
 import type {
   AuthUser,
-  MealSlot,
+  CookingTimeSlot,
   SlotCookingTime,
   SlotCookingTimes,
   SlotCookingTimesPayload,
@@ -20,10 +21,7 @@ import {
   type DietCode,
   type HardRestrictionCode,
 } from '@/features/preferences/constants/catalog';
-import {
-  SLOT_LABELS,
-  SLOT_PRESET_BUCKETS,
-} from '@/features/preferences/constants/preferenceOptions';
+import { SLOT_PRESET_BUCKETS } from '@/features/preferences/constants/preferenceOptions';
 import { parseListInput } from '@/features/preferences/utils/parseListInput';
 import { buildPreferencesPayload } from '@/features/preferences/utils/preferencesPayload';
 import type { ProfileFormState } from '@/features/preferences/utils/profilePayload';
@@ -41,7 +39,7 @@ const HOUSEHOLD_SIZE_MAX = 20;
 export type SettingsEditorTarget =
   | { kind: 'profile'; field: ProfileField }
   | { kind: PreferenceField }
-  | { kind: 'slot'; slot: MealSlot };
+  | { kind: 'slot'; slot: CookingTimeSlot };
 
 export interface ProfileDraft {
   kind: 'profile';
@@ -78,7 +76,7 @@ export interface SoftPreferencesDraft {
 
 export interface SlotDraft {
   kind: 'slot';
-  slot: MealSlot;
+  slot: CookingTimeSlot;
   value: SlotCookingTime;
   /** The presets, plus the saved time when it is not one of them. */
   minuteOptions: number[];
@@ -162,7 +160,7 @@ export function buildPreferencesEdit(
   return { ...saved, softPreferences };
 }
 
-export function createSlotDraft(slot: MealSlot, saved: SlotCookingTimes): SlotDraft {
+export function createSlotDraft(slot: CookingTimeSlot, saved: SlotCookingTimes): SlotDraft {
   const value = saved[slot];
   const minuteOptions = SLOT_PRESET_BUCKETS.includes(value.cookingTimeMinutes)
     ? [...SLOT_PRESET_BUCKETS]
@@ -179,6 +177,6 @@ export function buildSlotTimesEdit(
 
 export function getSettingsDraftTitle(draft: SettingsDraft): string {
   if (draft.kind === 'profile') return PROFILE_FIELD_LABELS[draft.field];
-  if (draft.kind === 'slot') return SLOT_LABELS[draft.slot];
+  if (draft.kind === 'slot') return MEAL_SLOT_LABEL[draft.slot];
   return PREFERENCE_FIELD_LABELS[draft.kind];
 }

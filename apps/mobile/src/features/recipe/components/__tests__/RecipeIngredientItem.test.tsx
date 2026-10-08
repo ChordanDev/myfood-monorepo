@@ -79,13 +79,12 @@ describe('RecipeIngredientItem', () => {
     const { tree } = render({
       ...BASE_ROW,
       ingredientId: 'ghost',
-      name: 'Ingrediente desconocido',
-      quantityLabel: '3',
+      name: 'Papa',
+      quantityLabel: '500 g',
       unit: null,
     });
 
-    expect(renderedTexts(tree)).toContain('Falta');
-    expect(renderedTexts(tree)).not.toContain('Falta · agregar');
+    expect(renderedTexts(tree)).toEqual(['500 g', 'Papa', 'Falta']);
     expect(tree.root.findAllByProps({ testID: 'recipe-ingredient-add-ghost' })).toHaveLength(0);
     expect(tree.root.findAllByProps({ accessibilityRole: 'button' })).toHaveLength(0);
   });

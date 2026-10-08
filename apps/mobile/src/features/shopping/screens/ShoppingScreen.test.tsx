@@ -148,8 +148,8 @@ const RECIPES = [
 ];
 
 const PLAN: MealPlanEntry[] = [
-  { id: 'mp1', date: '2026-10-06', type: 'almuerzo', recipeId: 'r1', isCooked: false },
-  { id: 'mp2', date: '2026-10-12', type: 'cena', recipeId: 'r2', isCooked: false },
+  { id: 'mp1', date: '2026-10-06', type: 'lunch', recipeId: 'r1', isCooked: false },
+  { id: 'mp2', date: '2026-10-12', type: 'dinner', recipeId: 'r2', isCooked: false },
 ];
 
 let tree: ReturnType<typeof create> | undefined;
@@ -517,7 +517,7 @@ describe('ShoppingScreen', () => {
     it('only shows the date, and opens nothing, when every planned meal is in the past', () => {
       useMealPlanStore.setState({
         entries: [
-          { id: 'mp0', date: '2026-09-28', type: 'almuerzo', recipeId: 'r1', isCooked: false },
+          { id: 'mp0', date: '2026-09-28', type: 'lunch', recipeId: 'r1', isCooked: false },
         ],
       });
 

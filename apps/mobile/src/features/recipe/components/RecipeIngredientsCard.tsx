@@ -2,6 +2,7 @@ import { StyleSheet, Text, View } from 'react-native';
 import { ShadowSurface } from '@/components';
 import { useRecipeTheme } from '@/context/RecipeThemeContext';
 import { withOpacity } from '@/utils/colors';
+import type { RecipeFact } from '../domain/recipeFormat';
 import {
   countMissing,
   formatMissingSummary,
@@ -11,10 +12,16 @@ import { RecipeIngredientItem } from './RecipeIngredientItem';
 
 interface RecipeIngredientsCardProps {
   rows: RecipeIngredientRow[];
+  /** Servings, duration and cost, each only when the recipe knows it; drawn under the rows. */
+  facts: RecipeFact[];
   onRequestIngredient: (row: RecipeIngredientRow) => void;
 }
 
-export function RecipeIngredientsCard({ rows, onRequestIngredient }: RecipeIngredientsCardProps) {
+export function RecipeIngredientsCard({
+  rows,
+  facts,
+  onRequestIngredient,
+}: RecipeIngredientsCardProps) {
   const { theme } = useRecipeTheme();
   const missingSummary = formatMissingSummary(countMissing(rows));
 
@@ -39,6 +46,14 @@ export function RecipeIngredientsCard({ rows, onRequestIngredient }: RecipeIngre
           onRequest={onRequestIngredient}
         />
       ))}
+      {facts.map((fact) => (
+        <View key={fact.id} testID={`recipe-fact-${fact.id}`} style={styles.fact}>
+          <Text style={[styles.factLabel, { color: withOpacity(theme.textBlack, 0.6) }]}>
+            {fact.label}
+          </Text>
+          <Text style={[styles.factValue, { color: theme.textBlack }]}>{fact.value}</Text>
+        </View>
+      ))}
     </ShadowSurface>
   );
 }
@@ -55,6 +70,24 @@ const styles = StyleSheet.create({
     fontFamily: 'Inter_500Medium',
     fontSize: 12,
     lineHeight: 16,
+  },
+  fact: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 10,
+    minHeight: 40,
+  },
+  factLabel: {
+    flex: 1,
+    fontFamily: 'Inter_500Medium',
+    fontSize: 15,
+    lineHeight: 20,
+  },
+  factValue: {
+    fontFamily: 'Inter_700Bold',
+    fontSize: 15,
+    fontVariant: ['tabular-nums'],
+    lineHeight: 20,
   },
   header: {
     alignItems: 'baseline',

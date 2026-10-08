@@ -1,11 +1,11 @@
 import { StyleSheet, Text, View } from 'react-native';
 import { ShadowSurface } from '@/components';
 import { useRecipeTheme } from '@/context/RecipeThemeContext';
-import type { RecipeStep } from '@/types/domain';
 import { withOpacity } from '@/utils/colors';
+import type { RecipePreparationStep } from '../types/recipe';
 
 interface RecipePreparationCardProps {
-  steps: RecipeStep[];
+  steps: RecipePreparationStep[];
 }
 
 function formatStepCount(count: number): string {
@@ -36,7 +36,7 @@ export function RecipePreparationCard({ steps }: RecipePreparationCardProps) {
             ]}>
             <Text style={[styles.badgeLabel, { color: theme.icon }]}>{step.order}</Text>
           </View>
-          <Text style={[styles.instruction, { color: theme.textLight }]}>{step.instruction}</Text>
+          <Text style={[styles.instruction, { color: theme.textLight }]}>{step.text}</Text>
         </View>
       ))}
     </ShadowSurface>
