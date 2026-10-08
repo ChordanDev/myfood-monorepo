@@ -97,6 +97,11 @@ defmodule MealPlannerApiWeb.ApiErrorTest do
       assert %{"error" => %{"code" => "rate_limited"}} = json_response(conn, 429)
     end
 
+    test "maps the Slot cooking times codes to their HTTP status", %{conn: conn} do
+      assert (conn |> ApiError.error(:slot_cooking_times_not_found)).status == 404
+      assert (conn |> ApiError.error(:invalid_hunger_level)).status == 422
+    end
+
     test "raises for a code outside the mobile allowlist", %{conn: conn} do
       assert_raise FunctionClauseError, fn ->
         ApiError.error(conn, :not_a_mobile_code)
@@ -227,7 +232,7 @@ defmodule MealPlannerApiWeb.ApiErrorTest do
       end
     end
 
-    test "are listed by codes/0 next to the auth, recipe, profile and User preferences codes" do
+    test "are listed by codes/0 next to the codes of the HTTP routes" do
       auth_codes =
         ~w(unauthenticated access_token_expired account_not_found trial_expired invalid_email
            email_not_found rate_limited code_invalid code_expired too_many_attempts
@@ -235,6 +240,7 @@ defmodule MealPlannerApiWeb.ApiErrorTest do
            refresh_token_replayed refresh_token_expired refresh_token_session_mismatch)a
 
       profile_codes = ~w(validation_error invalid_cooking_skill)a
+      slot_cooking_times_codes = ~w(slot_cooking_times_not_found invalid_hunger_level)a
 
       # The codes of `PUT /api/me/preferences` (issue #18) that are its own.
       preferences_codes = ~w(invalid_diet invalid_hard_restriction)a
@@ -243,7 +249,8 @@ defmodule MealPlannerApiWeb.ApiErrorTest do
                Enum.sort(
                  auth_codes ++
                    [:recipe_not_found] ++
-                   profile_codes ++ preferences_codes ++ Map.keys(@channel_codes)
+                   profile_codes ++
+                   slot_cooking_times_codes ++ preferences_codes ++ Map.keys(@channel_codes)
                )
     end
   end

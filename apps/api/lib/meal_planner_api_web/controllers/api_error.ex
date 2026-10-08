@@ -83,6 +83,8 @@ defmodule MealPlannerApiWeb.ApiError do
           | :recipe_not_found
           | :validation_error
           | :invalid_cooking_skill
+          | :slot_cooking_times_not_found
+          | :invalid_hunger_level
           | :invalid_diet
           | :invalid_hard_restriction
           | :generation_in_progress
@@ -142,6 +144,10 @@ defmodule MealPlannerApiWeb.ApiError do
     # message of `validation_error` with one naming the field.
     validation_error: {422, "The request is not valid."},
     invalid_cooking_skill: {422, "The cooking skill is not valid."},
+    # Slot cooking times (issue #19). They share `validation_error` with the
+    # Onboarding profile.
+    slot_cooking_times_not_found: {404, "No slot cooking times are saved for this user."},
+    invalid_hunger_level: {422, "The hunger level must be one of light, normal or strong."},
     # User preferences (issue #18). A field that is missing or malformed
     # goes through `validation_error/2` instead.
     invalid_diet: {422, "The diet is not valid."},

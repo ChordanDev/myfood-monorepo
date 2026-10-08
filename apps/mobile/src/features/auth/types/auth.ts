@@ -103,6 +103,8 @@ export type AuthErrorCode =
   | 'slot_cooking_times_invalid'
   | 'validation_error'
   | 'invalid_cooking_skill'
+  | 'slot_cooking_times_not_found'
+  | 'invalid_hunger_level'
   | 'invalid_diet'
   | 'invalid_hard_restriction'
   | 'generation_in_progress'
