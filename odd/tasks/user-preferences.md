@@ -62,12 +62,15 @@ The mobile app already calls `GET`/`PUT /api/me/preferences` (`apps/mobile/src/f
 
 ## Tasks
 
-- [ ] **T1** Storage and `GET /api/me/preferences`. Route: delegated direct (migrations, schemas, read function, controller, router, tests, glossary: 2+ non-trivial files).
+- [x] **T1** Storage and `GET /api/me/preferences`. Route: delegated direct (migrations, schemas, read function, controller, router, tests, glossary: 2+ non-trivial files).
+  - Commit `bfa4485`. RED: 8/8 failing with 404 before the route existed. GREEN: 8 passed; full suite 1214 passed, 20 skipped, 0 failures on a database created from scratch (`meal_planner_api_test_issue18`), which also proves the migration order.
+  - Review: assessed `medium`, due (`slice_budget_reached`), consent granted, lens `review-reliability`, approved and acknowledged (lineage `review-20772b0f592e75b4`). Reviewed boundary is now `bfa4485`.
+  - Advisory findings, both taken into T2: an off-catalog Hard restriction row is dropped silently on read and nothing prevents it in the database (add a check constraint on `code`); the expired-Trial test has no negative control (assert that a capability-gated route refuses the same token).
 - [ ] **T2** `PUT /api/me/preferences` with its error codes, mobile allowlist and side-effect guards. Route: delegated direct (migration, replace function, `ApiError`, controller, tests, mobile allowlist).
 
 ## Acceptance criteria
 
-- [ ] `GET /api/me/preferences` returns the three keys, with `null` / `[]` / `[]` for a User with no rows (never 404). (T1)
+- [x] `GET /api/me/preferences` returns the three keys, with `null` / `[]` / `[]` for a User with no rows (never 404). (T1)
 - [ ] A stored `celiac` reads back as `diet: null` (T1) and is left untouched until the User saves a Diet (T2).
 - [ ] `PUT /api/me/preferences` replaces the Diet, the Hard restriction set and the Soft preferences, collapsing duplicates. (T2)
 - [ ] Unknown Diet → `invalid_diet`; unknown restriction → `invalid_hard_restriction`; Soft preference over 80 characters or more than 20 entries → `validation_error`. (T2)
@@ -78,6 +81,7 @@ The mobile app already calls `GET`/`PUT /api/me/preferences` (`apps/mobile/src/f
 Test-first: each behaviour change starts from a failing test observed before the implementation (ExUnit for the API, jest for the mobile allowlist contract).
 
 - API, from `apps/api`: `mix compile --warnings-as-errors`, `mix format --check-formatted`, `mix test`.
+- Local runs need `MYFOOD_TEST_DB_USERNAME=luccagiordana MYFOOD_TEST_DB_PASSWORD=""`, and use `MYFOOD_TEST_DATABASE=meal_planner_api_test_issue18` because sibling worktrees share the default test database.
 - Mobile, from `apps/mobile` (T2): `npx tsc --noEmit`, `npm run lint`, `npx jest --ci`.
 
 ## Delivery
@@ -87,6 +91,7 @@ Strategy `ask-on-risk`. Forecast: about 700 authored changed lines (T1 about 300
 ## Progress
 
 - 2026-10-08: branch fast-forwarded to `f4b849d`; exploration done; feature document created. Next: T1.
+- 2026-10-08: T1 done and reviewed (`bfa4485`). Next: T2.
 
 ## Known limits
 
