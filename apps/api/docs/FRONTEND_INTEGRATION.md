@@ -672,7 +672,9 @@ Lo siguen devolviendo:
   inventario, memberships, invitaciones, abandono de cuenta y billing;
 - las rutas de autenticación anteriores, para los errores que arma su propio controlador o plug:
   `/api/auth/password`, `/api/auth/social` y sus alias, `/api/auth/email-code/request`,
-  `/api/auth/email-code/verify` y `/api/auth/switch-account`;
+  `/api/auth/email-code/verify` y `/api/auth/switch-account`. En `/api/auth/email-code/verify` esto vale solo
+  para los errores que arma su controlador: un bearer inválido en esa ruta lo rechaza su plug con el sobre
+  (`401 unauthenticated`). `/api/auth/email-code/request` no pasa por ese plug;
 - la verificación de cuenta en `/api/accounts/:account_id/*`: `403` con `{ "error": "account_mismatch" }`.
 
 Para errores que ningún controlador maneja (por ejemplo, una ruta inexistente), Phoenix responde con su

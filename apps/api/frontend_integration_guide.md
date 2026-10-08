@@ -943,7 +943,9 @@ Two error body shapes are in use. Which one a request gets depends on the code p
     invites, account leave and billing;
   - the legacy auth routes, for the errors their own controller or plug builds: `/api/auth/password`,
     `/api/auth/social` and their aliases, `/api/auth/email-code/request`, `/api/auth/email-code/verify` and
-    `/api/auth/switch-account`;
+    `/api/auth/switch-account`. On `/api/auth/email-code/verify` this covers only the errors its controller
+    builds: an invalid bearer on that route is rejected by its plug with the envelope
+    (`401 unauthenticated`). `/api/auth/email-code/request` does not go through that plug;
   - the account scope check on `/api/accounts/:account_id/*`: `403` with `{ "error": "account_mismatch" }`.
 - Planning weekly has explicit `400` for known request-shape/limits errors (including `exceeds_max_planning_days`).
 - Channel generation errors are emitted and replied with `reason` as string.
