@@ -1,4 +1,7 @@
 /// <reference types="node" />
+import * as fs from 'node:fs';
+import * as path from 'node:path';
+
 import type { CurrentMe } from '@/features/auth/types/auth';
 import * as authService from '../authService';
 
@@ -62,6 +65,24 @@ function mockJsonResponse(payload: unknown, ok = true, status = ok ? 200 : 400) 
 
 function fetchHeadersAt(callIndex: number): HeadersInit | undefined {
   return (fetchMock.mock.calls[callIndex]?.[1] as RequestInit | undefined)?.headers;
+}
+
+/**
+ * The codes the planning channel replies (issue #11), read from the api
+ * allowlist instead of being listed a third time on the mobile side: they are
+ * the rows of `@codes` in `ApiError` that follow the "Planning channel"
+ * comment. The api source is a read-only fixture, as in
+ * `authErrorCodeContract.test.ts`.
+ */
+function planningChannelErrorCodes(): string[] {
+  const apiErrorPath = path.resolve(
+    __dirname,
+    '../../../../api/lib/meal_planner_api_web/controllers/api_error.ex'
+  );
+  const source = fs.readFileSync(apiErrorPath, 'utf8');
+  const rows = source.match(/# Planning channel \(issue #11\)([\s\S]*?)\n {2}\}/);
+
+  return [...(rows?.[1] ?? '').matchAll(/^ {4}([a-z_]+):/gm)].map((row) => row[1]);
 }
 
 const UUID_V4_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -444,6 +465,31 @@ describe('authService', () => {
       message: 'Request failed',
       status: 500,
     });
+  });
+
+  describe('planning channel error codes (issue #11)', () => {
+    const channelCodes = planningChannelErrorCodes();
+
+    it('reads the channel codes from the api allowlist', () => {
+      // Guards the table below against an extractor that silently finds
+      // nothing, or only part of the rows.
+      expect(channelCodes).toHaveLength(29);
+      expect(new Set(channelCodes).size).toBe(29);
+      expect(channelCodes[0]).toBe('generation_in_progress');
+      expect(channelCodes[28]).toBe('optimizer_timeout');
+    });
+
+    it.each(channelCodes)(
+      'passes the %s code through instead of collapsing it to unknown_error',
+      async (code) => {
+        const message = `Server text for ${code}`;
+        fetchMock.mockReturnValueOnce(mockJsonResponse({ error: { code, message } }, false, 422));
+
+        await expect(
+          authService.requestVerificationCode('user@example.com', 'login')
+        ).rejects.toMatchObject({ code, message, status: 422 });
+      }
+    );
   });
 
   it('fails clearly when EXPO_PUBLIC_API_URL is missing', async () => {
