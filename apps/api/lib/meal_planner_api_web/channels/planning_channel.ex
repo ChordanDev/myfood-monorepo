@@ -19,13 +19,31 @@ defmodule MealPlannerApiWeb.PlanningChannel do
   - `generation_error` — error durante generación
   - `proposal_update` — propuesta actualizada tras modificación de usuario
 
+  ## Casing
+
+  The channel speaks camelCase with its clients, in both directions
+  (issue #11), through `MealPlannerApiWeb.Casing`:
+
+    * Inbound: the payload of every command is normalized to snake_case
+      before a command clause sees it, so `%{"rangeFrom" => "2026-04-01"}`
+      and `%{"range_from" => "2026-04-01"}` are the same command.
+    * Replies: the payload of every ok reply and of every error reply has
+      camelCase keys.
+    * Events: every event delivered on `planning:<account_id>` is
+      intercepted and pushed with camelCase keys by `handle_out/3`, whoever
+      broadcast it. `outbound_events/0` is the list; an event that is not in
+      it reaches the client as it was broadcast.
+
+  Only keys are rewritten: event names and values stay as they are, the
+  `reason` of a `generation_error` event included.
+
   ## Error replies
 
   A failed join or command replies the mobile error envelope of
-  `MealPlannerApiWeb.ApiError` (issue #11), next to `request_id` when the
+  `MealPlannerApiWeb.ApiError` (issue #11), next to `requestId` when the
   command correlates its reply:
 
-      %{error: %{code: :overlapping_range, message: "..."}}
+      %{"error" => %{"code" => :overlapping_range, "message" => "..."}}
 
   The code is always in the `ApiError` allowlist; a reason outside it
   replies `unknown_error`. Events such as `generation_error` are not replies
@@ -39,6 +57,7 @@ defmodule MealPlannerApiWeb.PlanningChannel do
   alias MealPlannerApi.Generation.{PlanningSessionServer, PlanningSessionSupervisor, Server}
   alias MealPlannerApi.Services.PlanningChatService
   alias MealPlannerApiWeb.ApiError
+  alias MealPlannerApiWeb.Casing
   alias MealPlannerApiWeb.ChannelCapability
   alias MealPlannerApiWeb.Channels.IntentAtomizer
   alias MealPlannerApiWeb.Plugs.LoadCurrentMembershipSocket
@@ -46,6 +65,37 @@ defmodule MealPlannerApiWeb.PlanningChannel do
   # The `ApiError` allowlist by reason name, so a reason a service returned as
   # a string finds its code without creating an atom.
   @codes_by_reason Map.new(ApiError.codes(), &{Atom.to_string(&1), &1})
+
+  # Every event delivered on `planning:<account_id>`. The topic has five
+  # broadcasters: this channel, `Generation.Server`, `PlanningSessionServer`,
+  # the planning session sweeper and `AIChannel`. An event reaches the client
+  # in camelCase only when it is listed here, so a module that starts
+  # broadcasting a new event on the topic has to add it; a test compares the
+  # list with the events those modules name.
+  @outbound_events ~w(
+    generation_started
+    generation_error
+    proposal_ready
+    proposal_confirmed
+    proposal_rejected
+    proposal_update
+    session_started
+    session_resumed
+    session_cancelled
+    session_committed
+    session_lost_lock
+    session_expired
+    send_intent
+  )
+
+  intercept @outbound_events
+
+  @doc """
+  The events delivered on `planning:<account_id>`, each of them pushed to the
+  client with camelCase keys by `handle_out/3`.
+  """
+  @spec outbound_events() :: [String.t()]
+  def outbound_events, do: @outbound_events
 
   @impl true
   def join("planning:" <> topic_account_id, _payload, socket) do
@@ -75,8 +125,27 @@ defmodule MealPlannerApiWeb.PlanningChannel do
     end
   end
 
+  # Issue #11 — the single entry of every command: the payload is normalized
+  # to snake_case before a command clause reads it (`send_message` atomizes
+  # its intent, so this has to come first), and the payload of an ok reply
+  # leaves in camelCase. Error replies are already camelCase, see
+  # `error_payload/1`.
   @impl true
-  def handle_in("generate_menu", payload, socket) do
+  def handle_in(event, payload, socket) do
+    event
+    |> handle_command(snake_case_payload(payload), socket)
+    |> camelize_ok_reply()
+  end
+
+  # Issue #11 — every event of `@outbound_events` goes through here on its
+  # way to the client, whichever module broadcast it.
+  @impl true
+  def handle_out(event, payload, socket) do
+    push(socket, event, Casing.camelize_keys(payload))
+    {:noreply, socket}
+  end
+
+  defp handle_command("generate_menu", payload, socket) do
     user = socket.assigns.current_user
     membership = socket.assigns.current_membership
     request_id = Map.get(payload, "request_id", build_request_id())
@@ -101,7 +170,7 @@ defmodule MealPlannerApiWeb.PlanningChannel do
     end
   end
 
-  def handle_in("swap_constraints", payload, socket) do
+  defp handle_command("swap_constraints", payload, socket) do
     user = socket.assigns.current_user
     request_id = Map.get(payload, "request_id", build_request_id())
     base_payload = Map.get(payload, "base_payload", %{})
@@ -134,8 +203,7 @@ defmodule MealPlannerApiWeb.PlanningChannel do
     end
   end
 
-  @impl true
-  def handle_in("chat", %{"message" => message, "proposal_id" => proposal_id}, socket) do
+  defp handle_command("chat", %{"message" => message, "proposal_id" => proposal_id}, socket) do
     membership = socket.assigns.current_membership
 
     # Obtener el PID del GenerationServer para este account
@@ -152,7 +220,7 @@ defmodule MealPlannerApiWeb.PlanningChannel do
     end
   end
 
-  def handle_in("confirm_proposal", payload, socket) do
+  defp handle_command("confirm_proposal", payload, socket) do
     # PR2 of issue #35 — `session_id` is required and forwarded into
     # `Server.do_confirm/3`. The session row IS the confirmation lock —
     # no lock, no confirm. Missing or invalid payload returns
@@ -176,7 +244,7 @@ defmodule MealPlannerApiWeb.PlanningChannel do
     end
   end
 
-  def handle_in("reject_proposal", %{"proposal_id" => proposal_id}, socket) do
+  defp handle_command("reject_proposal", %{"proposal_id" => proposal_id}, socket) do
     user = socket.assigns.current_user
     membership = socket.assigns.current_membership
 
@@ -211,7 +279,7 @@ defmodule MealPlannerApiWeb.PlanningChannel do
     end
   end
 
-  def handle_in("start_planning", payload, socket) do
+  defp handle_command("start_planning", payload, socket) do
     # Phase 5 PR5 — capability re-check fires here too, not only at
     # join/3. If the Account's trial/entitlement expired mid-session,
     # refuse the start with `:subscription_required`. The join-time
@@ -267,7 +335,7 @@ defmodule MealPlannerApiWeb.PlanningChannel do
     end
   end
 
-  def handle_in("send_message", payload, socket) do
+  defp handle_command("send_message", payload, socket) do
     # Phase 4 PR4 task 4.8 — channel-layer intake for validated AI
     # intents. The `send_intent` broadcast from `AIChannel.new_message`
     # (task 4.6) is the public notification; THIS handler is the
@@ -312,7 +380,7 @@ defmodule MealPlannerApiWeb.PlanningChannel do
     end
   end
 
-  def handle_in("cancel_planning", payload, socket) do
+  defp handle_command("cancel_planning", payload, socket) do
     # Phase 4 PR4 task 4.4 — owner-scoped cancel.
     #
     # Authorization: the actor must either own the session (matching
@@ -350,9 +418,19 @@ defmodule MealPlannerApiWeb.PlanningChannel do
     end
   end
 
-  def handle_in(_event, _payload, socket) do
+  defp handle_command(_event, _payload, socket) do
     {:reply, {:error, error_payload(:invalid_payload)}, socket}
   end
+
+  # A payload that is not a map has no keys to normalize and is handed to the
+  # command as it arrived.
+  defp snake_case_payload(payload) when is_map(payload), do: Casing.snake_keys(payload)
+  defp snake_case_payload(payload), do: payload
+
+  defp camelize_ok_reply({:reply, {:ok, payload}, socket}),
+    do: {:reply, {:ok, Casing.camelize_keys(payload)}, socket}
+
+  defp camelize_ok_reply(result), do: result
 
   defp build_request_id do
     "req_" <> Integer.to_string(System.unique_integer([:positive, :monotonic]))
@@ -360,10 +438,21 @@ defmodule MealPlannerApiWeb.PlanningChannel do
 
   # Issue #11 — the payload of every error reply, joins and commands alike:
   # the `ApiError` envelope `%{error: %{code: code, message: message}}` for
-  # the reason a guard or a service returned. A reason outside the allowlist
-  # replies `unknown_error` and is logged, so nothing free-form reaches the
-  # client.
-  defp error_payload(reason) do
+  # the reason a guard or a service returned, with camelCase keys.
+  defp error_payload(reason), do: build_error_payload(reason, %{})
+
+  # A command that correlates its reply keeps `request_id` next to `error`
+  # (`requestId` on the wire).
+  defp error_payload(reason, request_id),
+    do: build_error_payload(reason, %{request_id: request_id})
+
+  defp build_error_payload(reason, correlation) do
+    reason |> error_envelope() |> Map.merge(correlation) |> Casing.camelize_keys()
+  end
+
+  # A reason outside the allowlist replies `unknown_error` and is logged, so
+  # nothing free-form reaches the client.
+  defp error_envelope(reason) do
     case error_code(reason) do
       {:ok, code} ->
         ApiError.envelope(code)
@@ -378,15 +467,18 @@ defmodule MealPlannerApiWeb.PlanningChannel do
     end
   end
 
-  # A command that correlates its reply keeps `request_id` next to `error`.
-  defp error_payload(reason, request_id) do
-    reason |> error_payload() |> Map.put(:request_id, request_id)
-  end
-
   # A reason is an atom or a string, depending on the service it comes from,
   # and is looked up by name. A changeset means the payload did not pass a
   # validation and keeps the `invalid_payload` it has always been replied as;
   # its details stay on the server. Any other term is a fault, not a reason.
+  #
+  # `:invalid_format` is what `Date.from_iso8601/1` answers for a string that
+  # is not a date, and `PlanningChatService` hands it through for a date the
+  # client sent (`swap_constraints`). It is a mistake of the client, like an
+  # impossible date, so it replies `invalid_date` instead of being logged as
+  # a fault of the server.
+  defp error_code(:invalid_format), do: {:ok, :invalid_date}
+
   defp error_code(reason) when is_atom(reason),
     do: Map.fetch(@codes_by_reason, Atom.to_string(reason))
 
@@ -394,7 +486,17 @@ defmodule MealPlannerApiWeb.PlanningChannel do
   defp error_code(%Ecto.Changeset{}), do: {:ok, :invalid_payload}
   defp error_code(_fault), do: :error
 
-  # The `reason` field of a `generation_error` event.
+  # The `reason` field of a `generation_error` event. It is not the code of
+  # the reply to the same command, and the two can differ:
+  #
+  #   * the event forwards the raw reason a service returned, as a string and
+  #     without consulting the `ApiError` allowlist, and falls back to
+  #     `"invalid_payload"` for a term that is neither an atom nor a string;
+  #   * the reply names an allowlisted code (`error_code/1`) and falls back
+  #     to `unknown_error`.
+  #
+  # A malformed date, for instance, is `"invalid_format"` in the event and
+  # `invalid_date` in the reply.
   defp serialize_reason(reason) when is_atom(reason), do: Atom.to_string(reason)
   defp serialize_reason(reason) when is_binary(reason), do: reason
   defp serialize_reason(_), do: "invalid_payload"

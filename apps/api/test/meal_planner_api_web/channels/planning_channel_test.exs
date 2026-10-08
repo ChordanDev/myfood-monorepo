@@ -6,12 +6,14 @@ defmodule MealPlannerApiWeb.PlanningChannelTest do
   import MealPlannerApi.FactoryHelpers
 
   alias MealPlannerApi.Data.{PlanningRepo, RecipeRepo, ShoppingRepo}
+  alias MealPlannerApi.Generation.PlanningSession.Sweeper
   alias MealPlannerApi.Generation.Server
   alias MealPlannerApi.Persistence.Accounts.Account, as: PersistenceAccount
   alias MealPlannerApi.Persistence.Catalog
   alias MealPlannerApi.Repo
-  alias MealPlannerApiWeb.{PlanningChannel, UserSocket}
+  alias MealPlannerApiWeb.{AIChannel, Endpoint, PlanningChannel, UserSocket}
 
+  import MealPlannerApiWeb.CasingAssertions, only: [assert_camel_case_keys: 1]
   import MealPlannerApiWeb.ChannelHelpers, only: [issue_identity_and_token: 2]
 
   # The channel logs a warning for every reason it replies as `unknown_error`;
@@ -19,9 +21,19 @@ defmodule MealPlannerApiWeb.PlanningChannelTest do
   @moduletag :capture_log
 
   setup do
+    _ = intent_atoms()
+
     {:ok, user, account, token} = issue_identity_and_token("u_plan_test", "acct_plan_test")
     %{user: user, account: account, token: token}
   end
+
+  # `IntentAtomizer` only atomizes a key that already exists as an atom
+  # (`String.to_existing_atom/1`). A release loads every module at boot, so
+  # the atoms of the intents exist there; the test VM loads modules on
+  # demand, and whether `:budget_cents` existed would depend on which test
+  # ran first. Naming the atoms of the intents this file sends makes them
+  # exist as soon as this module is loaded.
+  defp intent_atoms, do: [:kind, :payload, :change_constraints, :budget_cents]
 
   # Phase 4 — `revenuecat-access-enforcement` realtime enforcement
   # (task 4.1). Trial-window helper used to mark the seeded Account
@@ -250,7 +262,7 @@ defmodule MealPlannerApiWeb.PlanningChannelTest do
         })
 
       # Server should respond (either success or error with request_id)
-      assert_receive %{ref: ^ref, status: _status, payload: %{request_id: "test_req_1"}}
+      assert_receive %{ref: ^ref, status: _status, payload: %{"requestId" => "test_req_1"}}
     end
 
     test "error when Server.start_generation fails with invalid constraints", %{
@@ -275,7 +287,7 @@ defmodule MealPlannerApiWeb.PlanningChannelTest do
       # this setup (`DynamicSupervisor` answers `:invalid_child_spec`), which
       # is a fault and not a reason of the allowlist.
       payload = assert_error_reply(ref, :unknown_error)
-      assert payload.request_id == "test_req_invalid"
+      assert payload["requestId"] == "test_req_invalid"
     end
   end
 
@@ -300,14 +312,14 @@ defmodule MealPlannerApiWeb.PlanningChannelTest do
           "constraints" => %{"budget_cents" => 5000}
         })
 
-      # Should broadcast generation_started and return ok with proposal
-      assert_broadcast("generation_started", %{
-        request_id: "swap_req_1",
-        reason: "constraint_update"
+      # Should push generation_started and return ok with proposal
+      assert_push("generation_started", %{
+        "requestId" => "swap_req_1",
+        "reason" => "constraint_update"
       })
 
-      # Response should include the request_id
-      assert_receive %{ref: ^ref, payload: %{request_id: "swap_req_1"}}
+      # Response should include the request id
+      assert_receive %{ref: ^ref, payload: %{"requestId" => "swap_req_1"}}
     end
 
     test "broadcasts error when service fails", %{
@@ -328,17 +340,17 @@ defmodule MealPlannerApiWeb.PlanningChannelTest do
         })
 
       payload = assert_error_reply(ref, :invalid_date_range)
-      assert payload.request_id == "swap_req_error"
+      assert payload["requestId"] == "swap_req_error"
 
       # The `generation_error` event is not a command reply and keeps its
-      # `reason` field.
-      assert_broadcast("generation_error", %{
-        request_id: "swap_req_error",
-        reason: "invalid_date_range"
+      # `reason` field, value included.
+      assert_push("generation_error", %{
+        "requestId" => "swap_req_error",
+        "reason" => "invalid_date_range"
       })
     end
 
-    test "a reason outside the allowlist replies unknown_error and is logged", %{
+    test "a malformed date replies invalid_date and is not logged as a fault", %{
       account: account,
       token: token
     } do
@@ -347,22 +359,23 @@ defmodule MealPlannerApiWeb.PlanningChannelTest do
       {:ok, _reply, socket} =
         subscribe_and_join(socket, PlanningChannel, "planning:#{account.id}")
 
-      # `Date.from_iso8601/1` answers `:invalid_format`, a reason no service
-      # chose and the allowlist does not hold.
+      # `Date.from_iso8601/1` answers `:invalid_format` for a string that is
+      # not a date: a mistake of the client, not a fault of the server.
       log =
         capture_log(fn ->
           ref =
             push(socket, "swap_constraints", %{
-              "request_id" => "swap_req_unlisted",
+              "request_id" => "swap_req_malformed_date",
               "base_payload" => %{"date_from" => "not-a-date"},
               "constraints" => %{}
             })
 
-          payload = assert_error_reply(ref, :unknown_error)
-          assert payload.request_id == "swap_req_unlisted"
+          payload = assert_error_reply(ref, :invalid_date)
+          assert payload["requestId"] == "swap_req_malformed_date"
         end)
 
-      assert log =~ "invalid_format"
+      refute log =~ "unknown_error"
+      refute log =~ "invalid_format"
     end
   end
 
@@ -531,15 +544,30 @@ defmodule MealPlannerApiWeb.PlanningChannelTest do
     end
 
     # @task 4.3 — channel-layer end-to-end test: confirms that the cart
-    # fields (`shopping_items_count`, `checkout_session_id`, `cart`) flow
+    # fields (`shoppingItemsCount`, `checkoutSessionId`, `cart`) flow
     # through both the direct reply and the `proposal_confirmed`
-    # broadcast. This is the first test that exercises the registered
+    # event. This is the first test that exercises the registered
     # `Generation.Server` path (not the `PlanningChatService` fallback).
-    test "confirm reply AND proposal_confirmed broadcast carry cart fields end-to-end", %{
-      account: account,
-      user: user,
-      token: token
-    } do
+    #
+    # Issue #11 — the command is accepted in both casings, and the reply and
+    # the event `Generation.Server` broadcasts reach the client in camelCase,
+    # the nested `cart` list included.
+    for {casing, proposal_key, session_key} <- [
+          {"snake_case", "proposal_id", "session_id"},
+          {"camelCase", "proposalId", "sessionId"}
+        ] do
+      test "confirm reply AND proposal_confirmed push carry cart fields end-to-end " <>
+             "(#{casing} command)",
+           %{account: account, user: user, token: token} do
+        confirm_payload = fn proposal_id, session_id ->
+          %{unquote(proposal_key) => proposal_id, unquote(session_key) => session_id}
+        end
+
+        assert_confirm_carries_cart_fields(account, user, token, confirm_payload)
+      end
+    end
+
+    defp assert_confirm_carries_cart_fields(account, user, token, confirm_payload) do
       # Seed: a recipe with one ingredient, a proposal with one slot.
       {:ok, recipe} =
         Catalog.create_recipe(%{
@@ -609,29 +637,40 @@ defmodule MealPlannerApiWeb.PlanningChannelTest do
       # passes and the full atomic pipeline runs.
       session = insert_active_session(account, user)
 
-      ref =
-        push(socket, "confirm_proposal", %{
-          "proposal_id" => proposal.id,
-          "session_id" => session.id
-        })
+      ref = push(socket, "confirm_proposal", confirm_payload.(proposal.id, session.id))
 
-      assert_reply(ref, :ok, %{
-        shopping_items_count: 1,
-        checkout_session_id: checkout_session_id,
-        cart: [%{ingredient_id: ingredient_id, unit: :g, quantity_milli: 750_000}]
-      })
+      assert_reply(
+        ref,
+        :ok,
+        %{
+          "shoppingItemsCount" => 1,
+          "checkoutSessionId" => checkout_session_id,
+          "cart" => [
+            %{"ingredientId" => ingredient_id, "unit" => :g, "quantityMilli" => 750_000}
+          ]
+        } = reply
+      )
 
       assert is_binary(checkout_session_id)
       assert ingredient_id == flour_id
+      assert_camel_case_keys(reply)
 
-      assert_broadcast("proposal_confirmed", %{
-        shopping_items_count: 1,
-        checkout_session_id: broadcast_session_id,
-        cart: [%{ingredient_id: broadcast_ingredient_id, unit: :g, quantity_milli: 750_000}]
-      })
+      # The raw PubSub payload `Generation.Server` broadcasts is still
+      # snake_case; the client receives what `handle_out/3` pushes.
+      assert_push(
+        "proposal_confirmed",
+        %{
+          "shoppingItemsCount" => 1,
+          "checkoutSessionId" => pushed_session_id,
+          "cart" => [
+            %{"ingredientId" => pushed_ingredient_id, "unit" => :g, "quantityMilli" => 750_000}
+          ]
+        } = pushed
+      )
 
-      assert broadcast_session_id == checkout_session_id
-      assert broadcast_ingredient_id == flour_id
+      assert pushed_session_id == checkout_session_id
+      assert pushed_ingredient_id == flour_id
+      assert_camel_case_keys(pushed)
 
       # PR2 — the session row must be :committed by the same transaction
       # that wrote the cart and meals. The cart-payload test now also
@@ -1063,10 +1102,10 @@ defmodule MealPlannerApiWeb.PlanningChannelTest do
           "session_id" => session_id
         })
 
-      assert_reply(ref, :ok, %{session_id: ^session_id} = payload)
-      assert payload.status == :cancelled
+      assert_reply(ref, :ok, %{"sessionId" => ^session_id} = payload)
+      assert payload["status"] == :cancelled
 
-      assert_broadcast("session_cancelled", %{"session_id" => ^session_id})
+      assert_push("session_cancelled", %{"sessionId" => ^session_id})
 
       # Row flipped to :cancelled in the DB.
       reloaded =
@@ -1195,8 +1234,8 @@ defmodule MealPlannerApiWeb.PlanningChannelTest do
           "session_id" => session_id
         })
 
-      assert_reply(ref, :ok, %{session_id: ^session_id})
-      assert_broadcast("session_cancelled", %{"session_id" => ^session_id})
+      assert_reply(ref, :ok, %{"sessionId" => ^session_id})
+      assert_push("session_cancelled", %{"sessionId" => ^session_id})
 
       reloaded =
         MealPlannerApi.Persistence.Planning.PlanningSession
@@ -1254,9 +1293,9 @@ defmodule MealPlannerApiWeb.PlanningChannelTest do
           "range_to" => "2026-04-07"
         })
 
-      assert_reply(ref, :ok, %{session_id: session_id, status: :active})
+      assert_reply(ref, :ok, %{"sessionId" => session_id, "status" => :active})
       assert is_binary(session_id)
-      assert_broadcast("session_started", %{"session_id" => ^session_id})
+      assert_push("session_started", %{"sessionId" => ^session_id})
 
       reloaded =
         MealPlannerApi.Persistence.Planning.PlanningSession
@@ -1396,7 +1435,7 @@ defmodule MealPlannerApiWeb.PlanningChannelTest do
           "range_to" => "2026-05-07"
         })
 
-      assert_reply(ref_start, :ok, %{session_id: session_id, status: :active})
+      assert_reply(ref_start, :ok, %{"sessionId" => session_id, "status" => :active})
       # Drain the `session_started` broadcast that the server emits on
       # the planning topic, otherwise it sits in the mailbox ahead of
       # the `send_message` reply and `assert_reply` matches the wrong
@@ -1413,7 +1452,10 @@ defmodule MealPlannerApiWeb.PlanningChannelTest do
           }
         })
 
-      assert_reply(ref, :ok, %{kind: :change_constraints, payload: %{budget_cents: 5000}})
+      assert_reply(ref, :ok, %{
+        "kind" => :change_constraints,
+        "payload" => %{"budgetCents" => 5000}
+      })
     end
 
     test "forbidden key inside payload (recipe_id) is rejected by validate_ai_intent",
@@ -1431,7 +1473,7 @@ defmodule MealPlannerApiWeb.PlanningChannelTest do
           "range_to" => "2026-05-14"
         })
 
-      assert_reply(ref_start, :ok, %{session_id: session_id, status: :active})
+      assert_reply(ref_start, :ok, %{"sessionId" => session_id, "status" => :active})
       # Drain the `session_started` broadcast emitted by the server so
       # it doesn't sit in the mailbox ahead of the `send_message` reply.
       assert_broadcast("session_started", %{"session_id" => ^session_id})
@@ -1463,7 +1505,7 @@ defmodule MealPlannerApiWeb.PlanningChannelTest do
           "range_to" => "2026-05-21"
         })
 
-      assert_reply(ref_start, :ok, %{session_id: session_id, status: :active})
+      assert_reply(ref_start, :ok, %{"sessionId" => session_id, "status" => :active})
       assert_broadcast("session_started", %{"session_id" => ^session_id})
 
       ref =
@@ -1510,7 +1552,7 @@ defmodule MealPlannerApiWeb.PlanningChannelTest do
           "range_to" => "2026-05-28"
         })
 
-      assert_reply(ref_start, :ok, %{session_id: started_id, status: :active})
+      assert_reply(ref_start, :ok, %{"sessionId" => started_id, "status" => :active})
       assert_broadcast("session_started", %{"session_id" => ^started_id})
 
       other_session_id = Ecto.UUID.generate()
@@ -1553,7 +1595,11 @@ defmodule MealPlannerApiWeb.PlanningChannelTest do
           "range_to" => "2026-06-07"
         })
 
-      assert_reply(ref_a_start, :ok, %{session_id: a_session_id, status: :active})
+      assert_reply(ref_a_start, :ok, %{"sessionId" => a_session_id, "status" => :active})
+      assert_push("session_started", %{"sessionId" => ^a_session_id})
+      # The test process is subscribed to the topic too: take its raw copy of
+      # the broadcast out of the mailbox, so the refute below only sees a new
+      # one.
       assert_broadcast("session_started", %{"session_id" => ^a_session_id})
       _ = owner_membership_id
 
@@ -1578,19 +1624,427 @@ defmodule MealPlannerApiWeb.PlanningChannelTest do
           "range_to" => "2026-06-21"
         })
 
-      assert_reply(ref_b_ok, :ok, %{session_id: b_session_id, status: :active})
+      assert_reply(ref_b_ok, :ok, %{"sessionId" => b_session_id, "status" => :active})
       assert b_session_id != a_session_id
-      assert_broadcast("session_started", %{"session_id" => ^b_session_id})
+      assert_push("session_started", %{"sessionId" => ^b_session_id})
 
       # ── A cancels its session — BOTH sockets should see session_cancelled ──
       ref_a_cancel =
         push(socket_a, "cancel_planning", %{"session_id" => a_session_id})
 
-      assert_reply(ref_a_cancel, :ok, %{session_id: ^a_session_id, status: :cancelled})
+      assert_reply(ref_a_cancel, :ok, %{"sessionId" => ^a_session_id, "status" => :cancelled})
 
-      # Both A and B receive the broadcast.
-      assert_broadcast("session_cancelled", %{"session_id" => ^a_session_id})
-      assert_broadcast("session_cancelled", %{"session_id" => ^a_session_id})
+      # Both A and B receive the event: each channel pushes it to its client.
+      assert_push("session_cancelled", %{"sessionId" => ^a_session_id})
+      assert_push("session_cancelled", %{"sessionId" => ^a_session_id})
+    end
+  end
+
+  # ==========================================================================
+  # camelCase contract (issue #11): a command is accepted with camelCase keys
+  # (snake_case keeps working, see the tests above), and every reply and
+  # every event reaches the client with camelCase keys.
+  #
+  # `assert_push` sees what the client receives, after `handle_out/3`;
+  # `assert_broadcast` sees the raw PubSub payload, which is still the
+  # snake_case one the broadcasting module built.
+  # ==========================================================================
+
+  describe "camelCase commands (issue #11)" do
+    test "generate_menu reads requestId and the nested constraints", %{
+      account: account,
+      token: token
+    } do
+      {:ok, socket} = connect(UserSocket, %{"token" => token})
+
+      {:ok, _reply, socket} =
+        subscribe_and_join(socket, PlanningChannel, "planning:#{account.id}")
+
+      # `participant_ids` is validated before a generation starts, so the
+      # code of the reply proves the nested key was read.
+      ref =
+        push(socket, "generate_menu", %{
+          "requestId" => "gen_camel_refused",
+          "constraints" => %{"participantIds" => ["not-a-uuid"]}
+        })
+
+      payload = assert_error_reply(ref, :forbidden)
+      assert payload["requestId"] == "gen_camel_refused"
+
+      assert_push("generation_error", %{
+        "requestId" => "gen_camel_refused",
+        "reason" => "forbidden"
+      })
+    end
+
+    test "generate_menu replies and announces the generation in camelCase", %{
+      account: account,
+      user: user,
+      token: token
+    } do
+      {:ok, socket} = connect(UserSocket, %{"token" => token})
+
+      {:ok, _reply, socket} =
+        subscribe_and_join(socket, PlanningChannel, "planning:#{account.id}")
+
+      start_supervised!(
+        {Server, account_id: account.id, user_id: user.id, channel_pid: socket.channel_pid},
+        id: {:channel_server, account.id, :camel_case_generate_test}
+      )
+
+      ref =
+        push(socket, "generate_menu", %{
+          "requestId" => "gen_camel",
+          "constraints" => %{"participantIds" => [user.id]}
+        })
+
+      assert_reply(ref, :ok, reply)
+      assert %{"requestId" => "gen_camel", "runId" => run_id} = reply
+      assert Map.keys(reply) == ["requestId", "runId"]
+      assert is_binary(run_id)
+
+      assert_push("generation_started", started)
+      assert started == %{"requestId" => "gen_camel", "runId" => run_id}
+    end
+
+    test "swap_constraints reads basePayload and constraints, and replies in camelCase", %{
+      account: account,
+      token: token
+    } do
+      {:ok, socket} = connect(UserSocket, %{"token" => token})
+
+      {:ok, _reply, socket} =
+        subscribe_and_join(socket, PlanningChannel, "planning:#{account.id}")
+
+      ref =
+        push(socket, "swap_constraints", %{
+          "requestId" => "swap_camel",
+          "basePayload" => %{"dateFrom" => "2026-06-15", "dateTo" => "2026-06-21"},
+          "constraints" => %{"budgetCents" => 5000}
+        })
+
+      assert_push("generation_started", %{
+        "requestId" => "swap_camel",
+        "reason" => "constraint_update"
+      })
+
+      assert_reply(ref, :ok, reply)
+
+      # The dates of the reply are the ones of `basePayload`: without the
+      # normalization they would default to today.
+      assert %{
+               "requestId" => "swap_camel",
+               "runId" => run_id,
+               "proposalId" => proposal_id,
+               "dateFrom" => "2026-06-15",
+               "dateTo" => "2026-06-21",
+               "appliedConstraints" => %{"budgetCents" => 5000},
+               "proposal" => %{
+                 "dateFrom" => "2026-06-15",
+                 "dateTo" => "2026-06-21",
+                 "scheduledMeals" => scheduled_meals,
+                 "weeklyPlan" => %{"days" => days}
+               }
+             } = reply
+
+      assert is_binary(run_id) and is_binary(proposal_id)
+      assert is_list(scheduled_meals) and is_list(days)
+      assert_camel_case_keys(reply)
+
+      # The same payload is announced to every client of the topic.
+      assert_push("proposal_ready", pushed)
+      assert pushed == reply
+    end
+
+    test "swap_constraints refuses a camelCase range that ends before it starts", %{
+      account: account,
+      token: token
+    } do
+      {:ok, socket} = connect(UserSocket, %{"token" => token})
+
+      {:ok, _reply, socket} =
+        subscribe_and_join(socket, PlanningChannel, "planning:#{account.id}")
+
+      ref =
+        push(socket, "swap_constraints", %{
+          "requestId" => "swap_camel_error",
+          "basePayload" => %{"dateFrom" => "2026-06-21", "dateTo" => "2026-06-15"},
+          "constraints" => %{}
+        })
+
+      payload = assert_error_reply(ref, :invalid_date_range)
+      assert payload["requestId"] == "swap_camel_error"
+    end
+
+    test "start_planning, send_message and cancel_planning accept camelCase payloads", %{
+      account: account,
+      token: token
+    } do
+      _ = persist_trial_window!(account, :eligible)
+
+      {:ok, socket} = connect(UserSocket, %{"token" => token})
+
+      {:ok, _reply, socket} =
+        subscribe_and_join(socket, PlanningChannel, "planning:#{account.id}")
+
+      ref_start =
+        push(socket, "start_planning", %{
+          "rangeFrom" => "2026-07-01",
+          "rangeTo" => "2026-07-07"
+        })
+
+      assert_reply(ref_start, :ok, start_reply)
+      assert %{"sessionId" => session_id, "status" => :active} = start_reply
+      assert Map.keys(start_reply) == ["sessionId", "status"]
+
+      # `session_started` is broadcast by `PlanningSessionServer`.
+      assert_push("session_started", started)
+      assert started == %{"sessionId" => session_id}
+
+      session = Repo.get!(MealPlannerApi.Persistence.Planning.PlanningSession, session_id)
+      assert session.range_from == ~D[2026-07-01]
+      assert session.range_to == ~D[2026-07-07]
+
+      # The intent is atomized after the normalization: `budgetCents` is not
+      # a key the atomizer knows, `budget_cents` is.
+      ref_intent =
+        push(socket, "send_message", %{
+          "sessionId" => session_id,
+          "intent" => %{
+            "kind" => "change_constraints",
+            "payload" => %{"budgetCents" => 5000}
+          }
+        })
+
+      assert_reply(ref_intent, :ok, intent_reply)
+
+      assert intent_reply == %{
+               "kind" => :change_constraints,
+               "payload" => %{"budgetCents" => 5000}
+             }
+
+      ref_cancel = push(socket, "cancel_planning", %{"sessionId" => session_id})
+
+      assert_reply(ref_cancel, :ok, cancel_reply)
+      assert cancel_reply == %{"sessionId" => session_id, "status" => :cancelled}
+
+      assert_push("session_cancelled", cancelled)
+      assert cancelled == %{"sessionId" => session_id}
+    end
+
+    test "confirm_proposal reads proposalId and sessionId", %{account: account, token: token} do
+      {:ok, socket} = connect(UserSocket, %{"token" => token})
+
+      {:ok, _reply, socket} =
+        subscribe_and_join(socket, PlanningChannel, "planning:#{account.id}")
+
+      # Both ids pass their guards, so the command reaches the lookup of the
+      # generation server instead of stopping at `invalid_proposal_id`.
+      ref =
+        push(socket, "confirm_proposal", %{
+          "proposalId" => Ecto.UUID.generate(),
+          "sessionId" => Ecto.UUID.generate()
+        })
+
+      assert_error_reply(ref, :no_active_generation)
+    end
+
+    test "a key sent in both casings resolves to the snake_case one", %{
+      account: account,
+      token: token
+    } do
+      {:ok, socket} = connect(UserSocket, %{"token" => token})
+
+      {:ok, _reply, socket} =
+        subscribe_and_join(socket, PlanningChannel, "planning:#{account.id}")
+
+      ref =
+        push(socket, "swap_constraints", %{
+          "request_id" => "snake_wins",
+          "requestId" => "camel_loses",
+          "base_payload" => %{"date_from" => "2026-06-21", "date_to" => "2026-06-15"},
+          "constraints" => %{}
+        })
+
+      payload = assert_error_reply(ref, :invalid_date_range)
+      assert payload["requestId"] == "snake_wins"
+    end
+
+    test "a payload that is not a map is handed to the command as it is", %{
+      account: account,
+      token: token
+    } do
+      {:ok, socket} = connect(UserSocket, %{"token" => token})
+
+      {:ok, _reply, socket} =
+        subscribe_and_join(socket, PlanningChannel, "planning:#{account.id}")
+
+      for payload <- ["not a map", ["rangeFrom", "2026-07-01"], 42] do
+        ref = push(socket, "totally_unknown_event", payload)
+
+        assert_error_reply(ref, :invalid_payload)
+      end
+    end
+  end
+
+  describe "outbound events (issue #11)" do
+    test "every outbound event reaches the client with camelCase keys", %{
+      account: account,
+      token: token
+    } do
+      {:ok, socket} = connect(UserSocket, %{"token" => token})
+
+      {:ok, _reply, _socket} =
+        subscribe_and_join(socket, PlanningChannel, "planning:#{account.id}")
+
+      cooked_at = ~U[2026-06-15 12:30:00Z]
+
+      # Atom and string keys, a nested list, struct values and a value that
+      # looks like a key: only the keys are rewritten.
+      payload = %{
+        "session_id" => "session_1",
+        request_id: "req_1",
+        reason: "invalid_date_range",
+        date_from: ~D[2026-06-15],
+        scheduled_meals: [
+          %{recipe_id: "recipe_1", cooked_at: cooked_at, slot_tags: ["quick_meal"]},
+          %{recipe_id: "recipe_2", cooked_at: nil, slot_tags: []}
+        ]
+      }
+
+      expected = %{
+        "sessionId" => "session_1",
+        "requestId" => "req_1",
+        "reason" => "invalid_date_range",
+        "dateFrom" => ~D[2026-06-15],
+        "scheduledMeals" => [
+          %{"recipeId" => "recipe_1", "cookedAt" => cooked_at, "slotTags" => ["quick_meal"]},
+          %{"recipeId" => "recipe_2", "cookedAt" => nil, "slotTags" => []}
+        ]
+      }
+
+      for event <- PlanningChannel.outbound_events() do
+        Endpoint.broadcast!("planning:#{account.id}", event, payload)
+
+        assert_push(^event, pushed)
+        assert pushed == expected, "#{event} was pushed as #{inspect(pushed)}"
+      end
+    end
+
+    # Why the list below has to be complete: an event the channel does not
+    # intercept is sent to the client as it was broadcast.
+    test "an event outside the list is not rewritten", %{account: account, token: token} do
+      {:ok, socket} = connect(UserSocket, %{"token" => token})
+
+      {:ok, _reply, _socket} =
+        subscribe_and_join(socket, PlanningChannel, "planning:#{account.id}")
+
+      refute "unlisted_probe" in PlanningChannel.outbound_events()
+
+      Endpoint.broadcast!("planning:#{account.id}", "unlisted_probe", %{"session_id" => "s"})
+
+      assert_push("unlisted_probe", %{"session_id" => "s"})
+    end
+
+    # Drift guard. The events are collected from the source of every module
+    # under `lib` that names the planning topic: each string literal passed
+    # straight to a function whose name contains `broadcast` is an event.
+    # The list of the channel must be exactly that set, so an event added to
+    # any of those modules fails here until it is intercepted.
+    test "the outbound list is exactly the set of events broadcast on the planning topic" do
+      broadcasters = planning_topic_sources()
+
+      for module_file <- ~w(
+            generation/server.ex
+            generation/planning_session_server.ex
+            generation/planning_session_sweeper.ex
+            channels/ai_channel.ex
+            channels/planning_channel.ex
+          ) do
+        assert Enum.any?(broadcasters, &String.ends_with?(&1, module_file)),
+               "#{module_file} was not scanned"
+      end
+
+      broadcast = broadcasters |> Enum.flat_map(&broadcast_event_literals/1) |> Enum.uniq()
+      listed = PlanningChannel.outbound_events()
+
+      assert broadcast -- listed == [],
+             "broadcast on the planning topic but not intercepted by PlanningChannel: " <>
+               inspect(broadcast -- listed)
+
+      assert listed -- broadcast == [],
+             "intercepted by PlanningChannel but broadcast by no module: " <>
+               inspect(listed -- broadcast)
+
+      assert listed == Enum.uniq(listed)
+    end
+
+    test "the channel intercepts every outbound event" do
+      assert Enum.sort(PlanningChannel.__intercepts__()) ==
+               Enum.sort(PlanningChannel.outbound_events())
+    end
+
+    test "session_expired, broadcast by the sweeper, is pushed in camelCase", %{
+      account: account,
+      user: user,
+      token: token
+    } do
+      {:ok, socket} = connect(UserSocket, %{"token" => token})
+
+      {:ok, _reply, _socket} =
+        subscribe_and_join(socket, PlanningChannel, "planning:#{account.id}")
+
+      # A lease in the past, so the sweeper expires the session on its
+      # first tick.
+      {:ok, session} =
+        PlanningRepo.create_session(account.id, %{
+          range_from: ~D[2026-09-01],
+          range_to: ~D[2026-09-07],
+          lock_owner_user_id: user.id,
+          lock_owner_membership_id: owner_membership_id(account.id, user.id),
+          lease_expires_at: DateTime.add(DateTime.utc_now(), -1, :second)
+        })
+
+      session_id = session.id
+
+      start_supervised!({Sweeper, interval: 100, name: :planning_channel_test_sweeper},
+        id: :planning_channel_test_sweeper
+      )
+
+      assert_push("session_expired", pushed, 2_000)
+      assert pushed == %{"sessionId" => session_id}
+    end
+
+    test "send_intent, broadcast by the AI channel, is pushed in camelCase", %{
+      account: account,
+      token: token
+    } do
+      {:ok, planning_socket} = connect(UserSocket, %{"token" => token})
+
+      {:ok, _reply, _socket} =
+        subscribe_and_join(planning_socket, PlanningChannel, "planning:#{account.id}")
+
+      {:ok, ai_socket} = connect(UserSocket, %{"token" => token})
+
+      {:ok, _reply, ai_socket} =
+        subscribe_and_join(ai_socket, AIChannel, "ai_chat:planning_casing")
+
+      push(ai_socket, "new_message", %{
+        "message" => "ajusta el budget",
+        "intent" => %{
+          "kind" => "change_constraints",
+          "payload" => %{"budget_cents" => 5000}
+        }
+      })
+
+      assert_push("send_intent", pushed)
+
+      assert pushed == %{
+               "intent" => %{
+                 "kind" => :change_constraints,
+                 "payload" => %{"budgetCents" => 5000}
+               }
+             }
     end
   end
 
@@ -1735,7 +2189,7 @@ defmodule MealPlannerApiWeb.PlanningChannelTest do
       assert {:error, join_payload} =
                subscribe_and_join(socket, PlanningChannel, "planning:other_account_id")
 
-      refute Map.has_key?(join_payload, :reason)
+      refute has_reason_key?(join_payload)
 
       {:ok, _reply, socket} =
         subscribe_and_join(socket, PlanningChannel, "planning:#{account.id}")
@@ -1759,8 +2213,8 @@ defmodule MealPlannerApiWeb.PlanningChannelTest do
         ref = push(socket, event, command_payload)
 
         assert_receive %Phoenix.Socket.Reply{ref: ^ref, status: :error, payload: payload}
-        refute Map.has_key?(payload, :reason), "#{event} replied a reason: #{inspect(payload)}"
-        assert %{error: %{code: code, message: message}} = payload
+        refute has_reason_key?(payload), "#{event} replied a reason: #{inspect(payload)}"
+        assert %{"error" => %{"code" => code, "message" => message}} = payload
         assert is_atom(code) and is_binary(message), "#{event} replied #{inspect(payload)}"
       end
     end
@@ -1783,8 +2237,38 @@ defmodule MealPlannerApiWeb.PlanningChannelTest do
 
       payload = assert_error_reply(ref, :invalid_date_range)
 
-      assert Map.keys(payload) == [:error, :request_id]
-      assert payload.request_id == "swap_req_correlated"
+      assert Map.keys(payload) == ["error", "requestId"]
+      assert payload["requestId"] == "swap_req_correlated"
+    end
+
+    test "a reason outside the allowlist replies unknown_error and is logged", %{
+      account: account,
+      token: token
+    } do
+      {:ok, socket} = connect(UserSocket, %{"token" => token})
+
+      {:ok, _reply, socket} =
+        subscribe_and_join(socket, PlanningChannel, "planning:#{account.id}")
+
+      # A generation server that answers a reason no service chose and the
+      # allowlist does not hold.
+      start_generation_server_stub(account.id, {:error, {:storage_fault, "disk on fire"}})
+
+      log =
+        capture_log(fn ->
+          ref =
+            push(socket, "confirm_proposal", %{
+              "proposal_id" => Ecto.UUID.generate(),
+              "session_id" => Ecto.UUID.generate()
+            })
+
+          payload = assert_error_reply(ref, :unknown_error)
+          refute inspect(payload) =~ "storage_fault"
+          refute inspect(payload) =~ "disk on fire"
+        end)
+
+      assert log =~ "unknown_error"
+      assert log =~ "storage_fault"
     end
 
     test "a changeset error is replied as invalid_payload, without its details", %{
@@ -1811,7 +2295,7 @@ defmodule MealPlannerApiWeb.PlanningChannelTest do
   end
 
   # Asserts the error reply for `ref` is the envelope with `code` and nothing
-  # else, `request_id` aside, and returns the payload.
+  # else, `requestId` aside, and returns the payload.
   defp assert_error_reply(ref, code) do
     assert_receive %Phoenix.Socket.Reply{ref: ^ref, status: :error, payload: payload}
 
@@ -1825,11 +2309,79 @@ defmodule MealPlannerApiWeb.PlanningChannelTest do
   end
 
   defp assert_error_envelope(payload, code) do
-    assert %{error: %{code: ^code, message: message} = error} = payload
+    assert %{"error" => %{"code" => ^code, "message" => message} = error} = payload
     assert is_binary(message) and message != ""
-    assert Map.keys(error) == [:code, :message]
-    assert Map.keys(payload) -- [:request_id] == [:error]
+    assert Map.keys(error) == ["code", "message"]
+    assert Map.keys(payload) -- ["requestId"] == ["error"]
 
     payload
   end
+
+  # Registers a process as the generation server of the account. It answers
+  # `reply` to the first call it receives, whatever the call is.
+  defp start_generation_server_stub(account_id, reply) do
+    test_pid = self()
+
+    spawn_link(fn ->
+      {:ok, _owner} =
+        Registry.register(
+          MealPlannerApi.Generation.Generations,
+          {:generation, account_id},
+          nil
+        )
+
+      send(test_pid, :generation_server_stub_registered)
+
+      receive do
+        {:"$gen_call", from, _request} -> GenServer.reply(from, reply)
+      end
+    end)
+
+    assert_receive :generation_server_stub_registered
+  end
+
+  # The source files under `lib` that name the planning topic. A module has
+  # to spell `"planning:` to build the topic it broadcasts on.
+  defp planning_topic_sources do
+    [__DIR__, "../../../lib/**/*.ex"]
+    |> Path.join()
+    |> Path.expand()
+    |> Path.wildcard()
+    |> Enum.filter(&(File.read!(&1) =~ ~s("planning:)))
+  end
+
+  # The string literals passed straight to a call of a function whose name
+  # contains `broadcast`, local or remote: `broadcast!(socket, "event", _)`,
+  # `broadcast(state, "event", _)`, `Server.broadcast!(pubsub, topic, "event",
+  # _)`. A topic is built by interpolation, so it is not a literal.
+  defp broadcast_event_literals(path) do
+    {_ast, events} =
+      path
+      |> File.read!()
+      |> Code.string_to_quoted!()
+      |> Macro.prewalk([], fn
+        {{:., _, [_module, name]}, _meta, args} = node, events when is_atom(name) ->
+          {node, events ++ event_literals(name, args)}
+
+        {name, _meta, args} = node, events when is_atom(name) and is_list(args) ->
+          {node, events ++ event_literals(name, args)}
+
+        node, events ->
+          {node, events}
+      end)
+
+    events
+  end
+
+  defp event_literals(name, args) do
+    if name |> Atom.to_string() |> String.contains?("broadcast") do
+      Enum.filter(args, &is_binary/1)
+    else
+      []
+    end
+  end
+
+  # The old reply shape, in either spelling of the key.
+  defp has_reason_key?(payload),
+    do: Map.has_key?(payload, :reason) or Map.has_key?(payload, "reason")
 end

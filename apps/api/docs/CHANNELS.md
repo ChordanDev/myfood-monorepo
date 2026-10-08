@@ -132,6 +132,39 @@ Real-time meal planning workflow coordination.
 
 **Topic Pattern:** `planning:<account_id>`
 
+#### Payload Casing and Error Replies
+
+Payloads are camelCase in both directions:
+
+- **Commands (client to server):** send camelCase keys at any depth, for example `rangeFrom`, `sessionId` or `constraints.budgetCents`. snake_case keys are still accepted (`range_from`); the incoming tables below are written in snake_case. When a payload carries the same key in both spellings, the snake_case one is used.
+- **Replies and events (server to client):** every ok reply, every error reply and every event pushed on the topic has camelCase keys at any depth, nested lists included.
+
+Only keys are rewritten. Event names (`session_started`) and values stay as they are: ids, enum values and the `reason` of a `generation_error` event (`"invalid_date_range"`) are not changed. A key that is not a snake_case identifier is left untouched: a date, a UUID, or a name with a word that starts with a digit (`calories_per_100`).
+
+A failed join or command replies the error envelope, never a free-text reason:
+
+```json
+{
+  "error": {
+    "code": "overlapping_range",
+    "message": "The date range overlaps an active planning session."
+  }
+}
+```
+
+- `code` is always one of the codes of `MealPlannerApiWeb.ApiError` (`lib/meal_planner_api_web/controllers/api_error.ex`). A failure the server did not anticipate replies `unknown_error`. Clients branch on `code`; `message` is a human-readable description.
+- `generate_menu` and `swap_constraints` correlate their reply: it carries `requestId` (the one the command sent, or a generated one) next to `error`.
+
+**Example (start_planning, camelCase):**
+```json
+{ "rangeFrom": "2026-04-01", "rangeTo": "2026-04-07" }
+```
+
+Ok reply, followed by the `session_started` event with the same `sessionId`:
+```json
+{ "sessionId": "550e8400-e29b-41d4-a716-446655440002", "status": "active" }
+```
+
 #### Incoming Events
 
 | Event | Payload | Description |
@@ -160,18 +193,18 @@ Real-time meal planning workflow coordination.
 
 | Event | Payload | Description |
 |-------|---------|-------------|
-| `plan_started` | `{"plan_id": "uuid", "week_start": "YYYY-MM-DD"}` | Planning session started |
-| `plan_generated` | `{"plan_id": "uuid", "slots": [...], "confidence": 0.92}` | AI plan is ready |
-| `slot_chosen` | `{"slot_id": "uuid", "recipe": {...}}` | User confirmed a slot choice |
-| `slot_removed` | `{"slot_id": "uuid"}` | Slot was cleared |
-| `plan_conflict` | `{"slot_id": "uuid", "conflicts": [...], "suggestions": [...]}` | Conflict detected |
-| `plan_saved` | `{"plan_id": "uuid", "saved_count": 21}` | Plan committed to calendar |
+| `plan_started` | `{"planId": "uuid", "weekStart": "YYYY-MM-DD"}` | Planning session started |
+| `plan_generated` | `{"planId": "uuid", "slots": [...], "confidence": 0.92}` | AI plan is ready |
+| `slot_chosen` | `{"slotId": "uuid", "recipe": {...}}` | User confirmed a slot choice |
+| `slot_removed` | `{"slotId": "uuid"}` | Slot was cleared |
+| `plan_conflict` | `{"slotId": "uuid", "conflicts": [...], "suggestions": [...]}` | Conflict detected |
+| `plan_saved` | `{"planId": "uuid", "savedCount": 21}` | Plan committed to calendar |
 | `planning_error` | `{"code": "string", "message": "string"}` | Error during planning |
 
 **Example Response (plan_generated):**
 ```json
 {
-  "plan_id": "550e8400-e29b-41d4-a716-446655440002",
+  "planId": "550e8400-e29b-41d4-a716-446655440002",
   "slots": [
     {
       "date": "2026-06-09",
@@ -179,13 +212,13 @@ Real-time meal planning workflow coordination.
       "recipe": {
         "id": "101",
         "name": "Oatmeal with Berries",
-        "calories_per_serving": 280
+        "caloriesPerServing": 280
       },
       "confidence": 0.95
     }
   ],
   "confidence": 0.92,
-  "missing_meals": 2
+  "missingMeals": 2
 }
 ```
 
