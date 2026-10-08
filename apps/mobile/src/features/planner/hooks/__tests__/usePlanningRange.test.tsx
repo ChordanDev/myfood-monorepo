@@ -18,8 +18,8 @@ jest.mock('@/features/home', () => ({
 // Today is the 16th. One meal before it and one after: the 18th is the last planned day, so
 // the 19th is the first one that can be planned.
 const PLAN: MealPlanEntry[] = [
-  { id: 'mp1', date: '2026-09-15', type: 'almuerzo', recipeId: 'r1', isCooked: false },
-  { id: 'mp2', date: '2026-09-18', type: 'cena', recipeId: 'r1', isCooked: false },
+  { id: 'mp1', date: '2026-09-15', type: 'lunch', recipeId: 'r1', isCooked: false },
+  { id: 'mp2', date: '2026-09-18', type: 'dinner', recipeId: 'r1', isCooked: false },
 ];
 
 function planMeal(date: string) {
@@ -27,7 +27,7 @@ function planMeal(date: string) {
     useMealPlanStore.setState((state) => ({
       entries: [
         ...state.entries,
-        { id: `mp-${date}`, date, type: 'cena', recipeId: 'r1', isCooked: false },
+        { id: `mp-${date}`, date, type: 'dinner', recipeId: 'r1', isCooked: false },
       ],
     }));
   });
