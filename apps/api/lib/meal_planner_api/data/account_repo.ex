@@ -13,7 +13,8 @@ defmodule MealPlannerApi.Data.AccountRepo do
     AccountMembership,
     User,
     UserDietaryProfile,
-    UserExcludedIngredient
+    UserExcludedIngredient,
+    UserSlotCookingTime
   }
 
   # -------------------------------------------------------------------------
@@ -126,6 +127,21 @@ defmodule MealPlannerApi.Data.AccountRepo do
 
   @spec get_dietary_profile(pos_integer()) :: UserDietaryProfile.t() | nil
   def get_dietary_profile(user_id), do: Repo.get_by(UserDietaryProfile, user_id: user_id)
+
+  # -------------------------------------------------------------------------
+  # Slot cooking times
+  # -------------------------------------------------------------------------
+
+  @spec list_slot_cooking_times(Ecto.UUID.t()) :: [UserSlotCookingTime.t()]
+  defdelegate list_slot_cooking_times(user_id),
+    to: MealPlannerApi.Persistence.Accounts,
+    as: :list_user_slot_cooking_times
+
+  @spec replace_slot_cooking_times(Ecto.UUID.t(), map()) ::
+          {:ok, [UserSlotCookingTime.t()]} | {:error, Ecto.Changeset.t()}
+  defdelegate replace_slot_cooking_times(user_id, times),
+    to: MealPlannerApi.Persistence.Accounts,
+    as: :replace_user_slot_cooking_times
 
   # -------------------------------------------------------------------------
   # Excluded ingredients

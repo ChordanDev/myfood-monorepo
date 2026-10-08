@@ -3,10 +3,11 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { Redirect } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { NoisyBackground, SafeAreaContent, TitlePrimary } from '@/components';
+import { MEAL_SLOT_LABEL } from '@/constants/mealSlots';
 import { useRecipeTheme } from '@/context/RecipeThemeContext';
 import { useAuth } from '@/features/auth';
 import { CUSTOM_TAB_BAR_CONTENT_HEIGHT } from '@/features/planner/constants';
-import { MEAL_SLOTS, SLOT_LABELS } from '@/features/preferences/constants/preferenceOptions';
+import { MEAL_SLOTS } from '@/features/preferences/constants/preferenceOptions';
 import { useGradientCrossfade } from '@/hooks/useGradientCrossfade';
 import { getTitleMetrics } from '@/utils/responsive';
 import {
@@ -186,7 +187,7 @@ export function SettingsScreen() {
               <SettingsRow
                 key={slot}
                 testID={`settings-row-slot-${slot}`}
-                label={SLOT_LABELS[slot]}
+                label={MEAL_SLOT_LABEL[slot]}
                 value={slotTimes ? formatSlotSummary(slotTimes[slot]) : pendingLabel}
                 disabled={!canEditLoadedData}
                 onPress={() => openEditor({ kind: 'slot', slot })}

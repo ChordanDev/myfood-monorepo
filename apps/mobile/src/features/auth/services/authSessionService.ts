@@ -16,7 +16,7 @@ import type { AuthSession, CurrentMe } from '../types/auth';
 import { withPreservedProfileFields } from '../utils/currentMe';
 
 // Every fresh /me goes through here: the local completion flag and the
-// profile fields the server does not serve yet both come from the stored
+// profile fields the server still serves as null both come from the stored
 // snapshot.
 function withLocalState(me: CurrentMe, stored: CurrentMe | null, completedUserId: string | null) {
   return withPreservedProfileFields(withLocalOnboardingCompletion(me, completedUserId), stored);

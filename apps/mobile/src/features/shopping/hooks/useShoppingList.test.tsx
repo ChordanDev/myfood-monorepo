@@ -46,8 +46,8 @@ const RICE_STOCK: InventoryItem = {
 };
 
 const PLAN: MealPlanEntry[] = [
-  { id: 'mp1', date: '2026-10-06', type: 'almuerzo', recipeId: 'r1', isCooked: false },
-  { id: 'mp2', date: '2026-10-12', type: 'cena', recipeId: 'r2', isCooked: false },
+  { id: 'mp1', date: '2026-10-06', type: 'lunch', recipeId: 'r1', isCooked: false },
+  { id: 'mp2', date: '2026-10-12', type: 'dinner', recipeId: 'r2', isCooked: false },
 ];
 
 let tree: ReturnType<typeof create> | undefined;
@@ -821,7 +821,7 @@ describe('useShoppingList, choosing the last day to buy for', () => {
         useMealPlanStore.setState({
           entries: [
             ...PLAN,
-            { id: 'mp3', date: '2026-10-20', type: 'cena', recipeId: 'r2', isCooked: false },
+            { id: 'mp3', date: '2026-10-20', type: 'dinner', recipeId: 'r2', isCooked: false },
           ],
         });
       });

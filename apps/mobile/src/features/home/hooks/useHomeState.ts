@@ -11,7 +11,7 @@ import {
   getPendingHomeMealType,
   getSelectedLocalMeal,
 } from '../domain/localMealPlan';
-import type { HomeMealType } from '../domain/localMealPlan';
+import type { HomeMealSlot } from '../domain/localMealPlan';
 
 export function useHomeState() {
   const entries = useMealPlanStore((state) => state.entries);
@@ -32,7 +32,7 @@ export function useHomeState() {
   const [selectedDate, setSelectedDate] = useState<string | null>(() =>
     getInitialSelectedDate(upcomingDateKeys, todayKey)
   );
-  const [selectedMealType, setSelectedMealType] = useState<HomeMealType | null>(null);
+  const [selectedMealType, setSelectedMealType] = useState<HomeMealSlot | null>(null);
 
   useEffect(() => {
     if (selectedDate === null && upcomingDateKeys.length > 0) {
@@ -99,7 +99,7 @@ export function useHomeState() {
     [mealsForSelectedDate, recipes]
   );
 
-  const handleSelectDate = (dateString: string, mealType?: HomeMealType) => {
+  const handleSelectDate = (dateString: string, mealType?: HomeMealSlot) => {
     setSelectedDate(dateString);
 
     // Opening a pending day starts on its first unconfirmed meal instead of keeping the previous meal type.
@@ -113,7 +113,7 @@ export function useHomeState() {
     }
   };
 
-  const handleMealTypeChange = (mealType: HomeMealType) => {
+  const handleMealTypeChange = (mealType: HomeMealSlot) => {
     if (!availableMealTypes.includes(mealType)) return;
     setSelectedMealType(mealType);
   };

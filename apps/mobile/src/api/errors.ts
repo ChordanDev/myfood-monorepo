@@ -30,6 +30,8 @@ export const KNOWN_AUTH_ERROR_CODES = new Set<AuthErrorCode>([
   'onboarding_already_complete',
   'preferences_invalid',
   'slot_cooking_times_invalid',
+  'validation_error',
+  'invalid_cooking_skill',
   'generation_in_progress',
   'no_active_generation',
   'missing_session_id',
@@ -59,6 +61,7 @@ export const KNOWN_AUTH_ERROR_CODES = new Set<AuthErrorCode>([
   'optimization_failed',
   'optimizer_unavailable',
   'optimizer_timeout',
+  'recipe_not_found',
   'configuration_error',
   'network_error',
   'timeout',
@@ -105,6 +108,8 @@ export const AUTH_ERROR_MESSAGES: Partial<Record<AuthErrorCode, string>> = {
   preferences_invalid: 'Tus preferencias no son válidas. Revisá los valores ingresados.',
   slot_cooking_times_invalid:
     'Los tiempos de cocina no son válidos. Revisá los valores ingresados.',
+  validation_error: 'Los datos ingresados no son válidos.',
+  invalid_cooking_skill: 'La experiencia cocinando seleccionada no es válida.',
   generation_in_progress: 'Ya estamos generando un menú. Esperá a que termine.',
   no_active_generation: 'No hay un menú en generación. Generá uno nuevo para continuar.',
   missing_session_id: 'No encontramos tu sesión de planificación. Empezá una nueva para continuar.',
@@ -136,6 +141,7 @@ export const AUTH_ERROR_MESSAGES: Partial<Record<AuthErrorCode, string>> = {
   optimizer_unavailable:
     'No pudimos generar el menú en este momento. Probá de nuevo en un momento.',
   optimizer_timeout: 'La generación del menú tardó demasiado. Probá de nuevo en un momento.',
+  recipe_not_found: 'No encontramos esa receta.',
   configuration_error: 'Falta configurar EXPO_PUBLIC_API_URL para conectar con la API.',
   network_error: 'No pudimos conectar con el servidor. Revisá tu conexión.',
   timeout: 'La conexión tardó demasiado. Revisá tu señal e intentá nuevamente.',

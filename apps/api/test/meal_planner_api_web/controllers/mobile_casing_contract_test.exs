@@ -137,10 +137,17 @@ defmodule MealPlannerApiWeb.MobileCasingContractTest do
     test "GET /api/recipes/:id responds with camelCase keys", f do
       body = f |> request(:get, "/api/recipes/#{f.recipe.id}") |> success()
 
-      assert %{"id" => id, "version" => 1, "recipeVersionId" => version_id} = body["data"]
+      assert %{
+               "id" => id,
+               "recipeVersionId" => version_id,
+               "successorRecipeId" => nil,
+               "durationMinutes" => _,
+               "estimatedCostCents" => _,
+               "imageUrl" => nil
+             } = body["data"]
+
       assert id == f.recipe.id
       assert is_binary(version_id)
-      assert Map.has_key?(body["data"], "successorRecipeId")
     end
   end
 
@@ -323,6 +330,16 @@ defmodule MealPlannerApiWeb.MobileCasingContractTest do
 
       assert is_binary(trial_ends_at)
       assert body == f |> request(:get, "/api/auth/me") |> json_response(200)
+    end
+
+    test "PUT /api/me/profile reads camelCase params and responds with camelCase keys", f do
+      profile = %{"displayName" => "Ana", "householdSize" => 3, "cookingSkill" => "advanced"}
+
+      body = f |> request(:put, "/api/me/profile", profile) |> success()
+
+      assert %{"id" => _, "email" => _} = body["user"]
+      assert Map.take(body["user"], Map.keys(profile)) == profile
+      assert f |> request(:get, "/api/me") |> success() |> Map.fetch!("user") == body["user"]
     end
   end
 
