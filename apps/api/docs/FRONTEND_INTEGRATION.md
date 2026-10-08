@@ -176,6 +176,11 @@ Content-Type: application/json
 Cada refresh devuelve un refresh token nuevo: guardarlo y descartar el que se envió. El access token dura
 1 hora y el refresh token 30 días.
 
+Un refresh token sirve una sola vez. Si un segundo request envía el mismo token, recibe
+`401 refresh_token_replayed` y se revocan las sesiones de ese dispositivo. El cliente tiene que
+serializar el refresh: una sola llamada en vuelo, compartida por todos los requests que encontraron
+el access token vencido.
+
 **Errores (todos `401`):** `refresh_token_invalid`, `refresh_token_replayed`, `refresh_token_revoked`,
 `refresh_token_expired`, `refresh_token_session_mismatch` y `account_not_found` (la membership de la
 sesión ya no está activa).
@@ -222,7 +227,7 @@ claim shape es:
   "email": "user@example.com",
   "name": "User Name",
   "iat": 1700000000,
-  "exp": 1702592000
+  "exp": 1700003600
 }
 ```
 
@@ -910,7 +915,10 @@ async function postAuth(path, body) {
     // Los errores de auth usan el envelope `{ error: { code, message } }`;
     // un error de gateway puede no traer JSON.
     const body = await response.json().catch(() => null);
-    throw new Error(body?.error?.code || "auth_request_failed");
+    const failure = new Error(body?.error?.code || "auth_request_failed");
+    // En `429 rate_limited` la espera viaja en el header `retry-after` (segundos).
+    failure.retryAfterSeconds = Number(response.headers.get("retry-after")) || null;
+    throw failure;
   }
 
   return response.json();
@@ -1055,7 +1063,9 @@ El backend no maneja cache offline directamente. Se recomienda:
 ### ¿Cómo manejo tokens expirados?
 
 1. Capturar el error `401 access_token_expired`
-2. Llamar a `POST /api/auth/refresh` con el `refreshToken` y guardar el par nuevo
+2. Llamar a `POST /api/auth/refresh` con el `refreshToken` y guardar el par nuevo. Una sola llamada
+   a la vez: si varios requests vencen juntos, todos esperan el mismo refresh (un segundo envío del
+   mismo token revoca las sesiones del dispositivo)
 3. Reconectar socket con nuevo token
 4. Reintentar operación
 
