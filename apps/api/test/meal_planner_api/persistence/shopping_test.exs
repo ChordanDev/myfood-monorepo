@@ -1,6 +1,8 @@
 defmodule MealPlannerApi.Persistence.ShoppingTest do
   use ExUnit.Case, async: true
 
+  import ExUnit.CaptureLog
+
   alias MealPlannerApi.Persistence.Catalog
   alias MealPlannerApi.Persistence.Identity
   alias MealPlannerApi.Persistence.Planning
@@ -268,6 +270,100 @@ defmodule MealPlannerApi.Persistence.ShoppingTest do
                })
     end
   end
+
+  # ==========================================================================
+  # Set-based insert of the Shopping items derived from Scheduled meals.
+  # ==========================================================================
+
+  describe "insert_planned_items/2" do
+    test "stores each planned line once when called twice with the same lines" do
+      %{account_id: account_id} = attrs = planned_key_attrs()
+      lines = [planned_line(attrs), planned_line(%{attrs | unit: :ml})]
+
+      assert :ok = Shopping.insert_planned_items(account_id, lines)
+      assert :ok = Shopping.insert_planned_items(account_id, lines)
+
+      items = Shopping.list_items_for_account(account_id)
+      assert Enum.sort(Enum.map(items, & &1.unit)) == [:g, :ml]
+      assert Enum.all?(items, &(&1.status == :pending and &1.quantity_milli == 100))
+      assert Enum.all?(items, &(not is_nil(&1.id) and not is_nil(&1.inserted_at)))
+    end
+
+    test "keeps the first of two lines that share a planned key" do
+      %{account_id: account_id} = attrs = planned_key_attrs()
+      lines = [planned_line(attrs), planned_line(%{attrs | quantity_milli: 900})]
+
+      assert :ok = Shopping.insert_planned_items(account_id, lines)
+
+      assert [%{quantity_milli: 100}] = Shopping.list_items_for_account(account_id)
+    end
+
+    test "leaves an open Shopping item with the same planned key untouched" do
+      %{account_id: account_id} = attrs = planned_key_attrs()
+      {:ok, reserved} = Shopping.create_shopping_item(%{attrs | status: :in_cart})
+
+      assert :ok =
+               Shopping.insert_planned_items(account_id, [
+                 planned_line(%{attrs | quantity_milli: 900})
+               ])
+
+      assert [stored] = Shopping.list_items_for_account(account_id)
+      assert stored.id == reserved.id
+      assert stored.status == :in_cart
+      assert stored.quantity_milli == 100
+    end
+
+    test "logs and skips a line the changeset rejects, and stores the others" do
+      %{account_id: account_id} = attrs = planned_key_attrs()
+
+      lines = [
+        planned_line(attrs),
+        planned_line(%{attrs | unit: :ml, quantity_milli: 0}),
+        planned_line(%{attrs | unit: :unit})
+      ]
+
+      log =
+        capture_log(fn ->
+          assert :ok = Shopping.insert_planned_items(account_id, lines)
+        end)
+
+      assert log =~ "shopping planned item skipped"
+      assert log =~ "account_id=#{account_id}"
+
+      assert account_id |> Shopping.list_items_for_account() |> Enum.map(& &1.unit) |> Enum.sort() ==
+               [:g, :unit]
+    end
+
+    test "logs a line the database rejects and still stores the others" do
+      %{account_id: account_id} = attrs = planned_key_attrs()
+      unknown_ingredient_id = Ecto.UUID.generate()
+
+      lines = [
+        planned_line(attrs),
+        planned_line(%{attrs | ingredient_id: unknown_ingredient_id}),
+        planned_line(%{attrs | unit: :unit})
+      ]
+
+      log =
+        capture_log(fn ->
+          assert :ok = Shopping.insert_planned_items(account_id, lines)
+        end)
+
+      assert log =~ "shopping planned items batch insert failed"
+      assert log =~ "shopping planned item insert failed"
+      assert log =~ "ingredient_id=#{unknown_ingredient_id}"
+
+      items = Shopping.list_items_for_account(account_id)
+      assert Enum.sort(Enum.map(items, & &1.unit)) == [:g, :unit]
+      assert Enum.all?(items, &(&1.ingredient_id == attrs.ingredient_id))
+    end
+  end
+
+  # The shape `ShoppingRebuilder.compute_net_shortages/2` emits: no Account
+  # and no status.
+  defp planned_line(attrs),
+    do:
+      Map.take(attrs, [:scheduled_meal_id, :planned_date, :ingredient_id, :unit, :quantity_milli])
 
   defp planned_key_attrs do
     suffix = System.unique_integer([:positive])
