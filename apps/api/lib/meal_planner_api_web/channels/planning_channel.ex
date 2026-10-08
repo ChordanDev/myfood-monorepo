@@ -48,6 +48,9 @@ defmodule MealPlannerApiWeb.PlanningChannel do
   The code is always in the `ApiError` allowlist; a reason outside it
   replies `unknown_error`. Events such as `generation_error` are not replies
   and keep their `reason` field.
+
+  A command whose payload is not a map replies `invalid_payload`, whatever
+  the event.
   """
   use MealPlannerApiWeb, :channel
 
@@ -131,10 +134,17 @@ defmodule MealPlannerApiWeb.PlanningChannel do
   # leaves in camelCase. Error replies are already camelCase, see
   # `error_payload/1`.
   @impl true
-  def handle_in(event, payload, socket) do
+  def handle_in(event, payload, socket) when is_map(payload) do
     event
-    |> handle_command(snake_case_payload(payload), socket)
+    |> handle_command(Casing.snake_keys(payload), socket)
     |> camelize_ok_reply()
+  end
+
+  # A payload that is not a map has no keys for a command to read: it replies
+  # `invalid_payload` here, whatever the event, before a command clause sees
+  # it or looks at the state of the socket.
+  def handle_in(_event, _payload, socket) do
+    {:reply, {:error, error_payload(:invalid_payload)}, socket}
   end
 
   # Issue #11 — every event of `@outbound_events` goes through here on its
@@ -425,11 +435,6 @@ defmodule MealPlannerApiWeb.PlanningChannel do
   defp handle_command(_event, _payload, socket) do
     {:reply, {:error, error_payload(:invalid_payload)}, socket}
   end
-
-  # A payload that is not a map has no keys to normalize and is handed to the
-  # command as it arrived.
-  defp snake_case_payload(payload) when is_map(payload), do: Casing.snake_keys(payload)
-  defp snake_case_payload(payload), do: payload
 
   defp camelize_ok_reply({:reply, {:ok, payload}, socket}),
     do: {:reply, {:ok, Casing.camelize_keys(payload)}, socket}

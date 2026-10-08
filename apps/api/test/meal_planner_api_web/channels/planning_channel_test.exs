@@ -1944,7 +1944,7 @@ defmodule MealPlannerApiWeb.PlanningChannelTest do
       assert payload["requestId"] == "snake_wins"
     end
 
-    test "a payload that is not a map is handed to the command as it is", %{
+    test "a payload that is not a map replies invalid_payload on an unknown event", %{
       account: account,
       token: token
     } do
@@ -2136,6 +2136,63 @@ defmodule MealPlannerApiWeb.PlanningChannelTest do
       ref = push(socket, "totally_unknown_event", %{})
 
       assert_error_reply(ref, :invalid_payload)
+    end
+  end
+
+  # ==========================================================================
+  # Payload that is not a map: every command that reads its payload replies
+  # `invalid_payload` and the channel process stays alive. The socket has a
+  # started session, so `send_message` gets as far as reading its payload and
+  # the session proves the channel kept its state.
+  # ==========================================================================
+
+  describe "handle_in with a payload that is not a map" do
+    for event <- ~w(
+          generate_menu
+          swap_constraints
+          chat
+          confirm_proposal
+          reject_proposal
+          start_planning
+          send_message
+          cancel_planning
+        ),
+        {kind, payload} <- [
+          {"a string", "not a map"},
+          {"a list", ["rangeFrom", "2026-07-01"]},
+          {"an integer", 42}
+        ] do
+      test "#{event} with #{kind} replies :invalid_payload and the channel stays alive",
+           %{account: account, token: token} do
+        _ = persist_trial_window!(account, :eligible)
+
+        {:ok, socket} = connect(UserSocket, %{"token" => token})
+
+        {:ok, _reply, socket} =
+          subscribe_and_join(socket, PlanningChannel, "planning:#{account.id}")
+
+        ref_start =
+          push(socket, "start_planning", %{
+            "range_from" => "2026-06-12",
+            "range_to" => "2026-06-18"
+          })
+
+        assert_reply(ref_start, :ok, %{"sessionId" => session_id, "status" => :active})
+        assert_broadcast("session_started", %{"session_id" => ^session_id})
+
+        ref = push(socket, unquote(event), unquote(payload))
+
+        assert_error_reply(ref, :invalid_payload)
+
+        # The same socket still serves the session it started.
+        ref_next =
+          push(socket, "send_message", %{
+            "session_id" => session_id,
+            "intent" => %{"kind" => "change_constraints", "payload" => %{"budget_cents" => 5000}}
+          })
+
+        assert_reply(ref_next, :ok, %{"kind" => :change_constraints})
+      end
     end
   end
 
