@@ -5,9 +5,7 @@ defmodule MealPlannerApi.Persistence.Auth.EmailVerificationCode do
   One row per pending (or recently-consumed) email verification code.
   Codes are never stored in plaintext — only their SHA-256 hex digest.
 
-  See `specs/email-code-authentication/spec.md` requirement "Code
-  Request and Non-Enumerating Storage" and `design.md` §"Persistence
-  Shapes".
+  See `design.md` §"Persistence Shapes".
   """
   use Ecto.Schema
 
@@ -16,8 +14,8 @@ defmodule MealPlannerApi.Persistence.Auth.EmailVerificationCode do
 
   schema "email_verification_codes" do
     # Empty on a sign-up code, which is issued before its User exists
-    # (`MealPlannerApi.Services.EmailCodeSignup`). Login and the legacy
-    # flow only read rows that have one.
+    # (`MealPlannerApi.Services.EmailCodeSignup`). Login only reads rows
+    # that have one.
     belongs_to(:user, MealPlannerApi.Persistence.Accounts.User)
     field(:email, :string)
     field(:code_hash, :string)

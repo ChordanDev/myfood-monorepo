@@ -31,9 +31,9 @@ defmodule MealPlannerApi.AccountsMembership do
   pair. The result matches design §3.2 exactly (Guardian adds `iat` and
   `exp` at sign time — those are NOT application claims).
 
-  Phase 3 (issue #31 task 3.2) adds the explicit `"user_id"` claim so
-  `MealPlannerApi.Services.EmailCodeAuth.verify_code/3` can mint the
-  JWT from the consume-result without re-loading the User struct.
+  Phase 3 (issue #31 task 3.2) added the explicit `"user_id"` claim, so
+  the claim map names its User without the caller re-loading the User
+  struct.
 
   ## Examples
 
@@ -59,15 +59,13 @@ defmodule MealPlannerApi.AccountsMembership do
   end
 
   @doc """
-  Phase 3 (issue #31 task 3.2) — zero-membership outcome builder.
+  Phase 3 (issue #31 task 3.2) — zero-membership claims builder.
 
   Builds an `access_v2` claim map for a User that has zero `:active`
   memberships. The map intentionally OMITS `"membership_id"` (and every
   other membership-scoped field) so `LoadCurrentMembership` halts with
-  `401 membership_id_required` after a downstream JWT is minted, which
-  routes the client to invite acceptance per `specs/email-code-
-  authentication/spec.md` §"Verify Response Outcomes by Active-
-  Membership Count".
+  `401 membership_id_required` on a JWT minted from it, which is the
+  client's cue to route to invite acceptance.
 
   `iat` and `exp` are Guardian-managed (added at sign time) and are not
   the responsibility of this builder.

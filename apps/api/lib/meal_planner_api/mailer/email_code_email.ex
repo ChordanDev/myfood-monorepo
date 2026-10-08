@@ -1,9 +1,10 @@
 defmodule MealPlannerApi.Mailer.EmailCodeEmail do
   @moduledoc """
-  Verification-code delivery for the email-code authentication flow.
+  Verification-code email of the login and sign-up flows
+  (`MealPlannerApi.Services.EmailCodeLogin`,
+  `MealPlannerApi.Services.EmailCodeSignup`).
 
-  Phase 1 — Persistence and Code Request (issue #31). One email per
-  `request_code/2` call, carrying only the six-digit plaintext code
+  One email per issued code, carrying only the six-digit plaintext code
   (never the hash, never the user record). The plaintext is rendered
   in both a plain text body and an HTML body so the same template
   works in plain and rich mail clients.
