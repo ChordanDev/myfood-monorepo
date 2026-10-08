@@ -321,6 +321,149 @@ defmodule MealPlannerApi.Generation.ServerTest do
 
       stop_generation_server(account.id)
     end
+
+    # The window is resolved once, when the request is admitted, and kept
+    # explicit in the constraints the server holds and records with the run:
+    # a later expansion of the same generation (a chat modification, on
+    # another day) reads those dates and takes no default.
+    #
+    # Dates that depend on a default are offsets from the day of the test.
+    # The server reads the day on its own and it can already be the next
+    # one, so each assertion holds for both days.
+    test "a request without a window holds the default one, explicit" do
+      account = insert_account("generation window account")
+      actor = insert_user_with_membership(account, "generation-window@example.com")
+      today = Date.utc_today()
+
+      assert {:ok, run_id} = Server.start_generation(account.id, actor.id, %{}, self())
+
+      window = held_window(account)
+      assert %{"date_from" => date_from, "date_to" => date_to} = window
+      assert Date.from_iso8601!(date_from) in [today, Date.add(today, 1)]
+      assert Date.diff(Date.from_iso8601!(date_to), Date.from_iso8601!(date_from)) == 6
+      assert window["slot_types"] == ["breakfast", "lunch", "dinner"]
+
+      assert recorded_window(run_id) == window
+
+      stop_generation_server(account.id)
+    end
+
+    test "a request with only date_from holds the date_to it was admitted with" do
+      account = insert_account("generation window account")
+      actor = insert_user_with_membership(account, "generation-window@example.com")
+      today = Date.utc_today()
+      date_from = Date.to_iso8601(Date.add(today, 1))
+
+      assert {:ok, run_id} =
+               Server.start_generation(account.id, actor.id, %{"date_from" => date_from}, self())
+
+      window = held_window(account)
+      assert window["date_from"] == date_from
+
+      assert window["date_to"] in [
+               Date.to_iso8601(Date.add(today, 6)),
+               Date.to_iso8601(Date.add(today, 7))
+             ]
+
+      assert window["slot_types"] == ["breakfast", "lunch", "dinner"]
+
+      assert recorded_window(run_id) == window
+
+      stop_generation_server(account.id)
+    end
+
+    test "window fields under atom keys are held once, under string keys" do
+      account = insert_account("generation window account")
+      actor = insert_user_with_membership(account, "generation-window@example.com")
+
+      assert {:ok, _run_id} =
+               Server.start_generation(
+                 account.id,
+                 actor.id,
+                 %{
+                   date_from: "2026-02-01",
+                   date_to: "2026-02-03",
+                   slot_types: [:lunch, "lunch", :dinner]
+                 },
+                 self()
+               )
+
+      # `held_window/1` checks that nothing is left under the atom keys.
+      assert held_window(account) == %{
+               "date_from" => "2026-02-01",
+               "date_to" => "2026-02-03",
+               "slot_types" => ["lunch", "dinner"]
+             }
+
+      stop_generation_server(account.id)
+    end
+
+    test "the window recorded with a run is admitted again as it is" do
+      account = insert_account("generation window account")
+      actor = insert_user_with_membership(account, "generation-window@example.com")
+      date_from = Date.to_iso8601(Date.add(Date.utc_today(), 1))
+
+      assert {:ok, run_id} =
+               Server.start_generation(account.id, actor.id, %{"date_from" => date_from}, self())
+
+      window = held_window(account)
+      assert Map.keys(window) == ["date_from", "date_to", "slot_types"]
+
+      # The constraints as the run recorded them, back from the database:
+      # they name the whole window, so admitting them again resolves the
+      # same one whatever the defaults are by then.
+      recorded = generation_run(run_id).input_context["constraints"]
+
+      assert {:ok, next_run_id} =
+               Server.start_generation(account.id, actor.id, recorded, self())
+
+      assert next_run_id != run_id
+      assert held_window(account) == window
+      assert recorded_window(next_run_id) == window
+
+      stop_generation_server(account.id)
+    end
+
+    # A request that names one date gets the default of the other one: today
+    # for `date_from`, today plus six days for `date_to`. The date it names
+    # is an offset from the day of the test, T, chosen so the outcome is the
+    # same whether the server reads T or T + 1 as today:
+    #
+    #   * `date_from` T + 1: the window ends on T + 6 or T + 7, six or seven
+    #     days, accepted. T itself would make eight days on T + 1.
+    #   * `date_from` T + 8: later than both ends, refused.
+    #   * `date_to` T + 5: the window starts on T or T + 1, six or five days,
+    #     accepted.
+    #   * `date_to` T + 8: nine or eight days, refused. T + 7 would make
+    #     seven days on T + 1.
+    for {field, offset} <- [{"date_from", 1}, {"date_to", 5}] do
+      test "only #{field}, #{offset} days ahead, is accepted" do
+        account = insert_account("generation window account")
+        actor = insert_user_with_membership(account, "generation-window@example.com")
+        date = Date.to_iso8601(Date.add(Date.utc_today(), unquote(offset)))
+
+        assert {:ok, run_id} =
+                 Server.start_generation(account.id, actor.id, %{unquote(field) => date}, self())
+
+        assert %{current_run_id: ^run_id} = Server.get_status(account.id)
+        assert held_window(account)[unquote(field)] == date
+
+        stop_generation_server(account.id)
+      end
+    end
+
+    for {field, offset} <- [{"date_from", 8}, {"date_to", 8}] do
+      test "only #{field}, #{offset} days ahead, is refused before a run exists" do
+        account = insert_account("generation window account")
+        actor = insert_user_with_membership(account, "generation-window@example.com")
+        date = Date.to_iso8601(Date.add(Date.utc_today(), unquote(offset)))
+
+        assert {:error, :invalid_date_range} =
+                 Server.start_generation(account.id, actor.id, %{unquote(field) => date}, self())
+
+        refute_generation_started(account)
+      end
+    end
   end
 
   test "confirmation after a correction keeps the proposal version and rebuilds its frozen quantities" do
@@ -1152,6 +1295,30 @@ defmodule MealPlannerApi.Generation.ServerTest do
 
     assert Registry.lookup(MealPlannerApi.Generation.Generations, {:generation, account.id}) ==
              []
+  end
+
+  # The window fields of the constraints the generation server of the account
+  # holds, once the generation it is running has finished. Each field has one
+  # value, under its string key.
+  defp held_window(account) do
+    %{constraints: constraints} = Server.get_status(account.id)
+
+    assert Map.take(constraints, [:date_from, :date_to, :slot_types]) == %{}
+
+    Map.take(constraints, ["date_from", "date_to", "slot_types"])
+  end
+
+  # The window fields of the constraints a generation run recorded.
+  defp recorded_window(run_id) do
+    Map.take(generation_run(run_id).input_context["constraints"], [
+      "date_from",
+      "date_to",
+      "slot_types"
+    ])
+  end
+
+  defp generation_run(run_id) do
+    MealPlannerApi.Repo.get!(MealPlannerApi.Persistence.Planning.PlanningGenerationRun, run_id)
   end
 
   defp generation_run_count(account) do

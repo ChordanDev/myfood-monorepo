@@ -58,7 +58,7 @@ defmodule MealPlannerApi.Generation.Server do
   # `ScheduledMeal.slot` and of `Recipe.suitable_for_slots`.
   @known_slots ~w(breakfast lunch snack dinner)
 
-  @default_slot_types [:breakfast, :lunch, :dinner]
+  @default_slot_types ~w(breakfast lunch dinner)
 
   # -------------------------------------------------------------------------
   # Via constructor
@@ -99,8 +99,9 @@ defmodule MealPlannerApi.Generation.Server do
   def start_generation(account_id, user_id, constraints, channel_pid) do
     with {:ok, validated_constraints, _context} <-
            PlanningRequestValidator.validate_request(constraints, account_id, user_id),
-         {:ok, _window} <- generation_window(validated_constraints) do
-      dispatch_start_generation(account_id, user_id, validated_constraints, channel_pid)
+         {:ok, window} <- generation_window(validated_constraints) do
+      constraints = put_window(validated_constraints, window)
+      dispatch_start_generation(account_id, user_id, constraints, channel_pid)
     end
   end
 
@@ -566,6 +567,10 @@ defmodule MealPlannerApi.Generation.Server do
   # before a run exists, and `build_slot_descriptors/1` expands nothing but a
   # window that passed.
   #
+  # The defaults depend on the day, so a window is resolved once: an admitted
+  # request gets it written into its constraints (`put_window/2`), and what
+  # `build_slot_descriptors/1` reads afterwards is that explicit window.
+  #
   #   * `date_from` and `date_to` default to today and today plus six days.
   #     A value that is not an ISO 8601 date string is `:invalid_date`; a
   #     range that ends before it starts or covers more than
@@ -593,6 +598,26 @@ defmodule MealPlannerApi.Generation.Server do
     end
   end
 
+  # Writes the window a request was admitted with into its constraints. The
+  # constraints are what the server keeps in its state, records with the run
+  # and reads again each time it expands the generation, after a chat
+  # modification included: with the window explicit in them, a later reading
+  # resolves the same window whatever the day is by then.
+  #
+  # Each field ends with one value, under its string key: the key
+  # `constraint/2` reads first, the one a client sends and the one the run
+  # gets back from the database. The dates are ISO 8601 strings and the slot
+  # types are names, so the recorded run holds what the state holds.
+  defp put_window(constraints, %{from: from, to: to, slot_types: slot_types}) do
+    constraints
+    |> Map.drop([:date_from, :date_to, :slot_types])
+    |> Map.merge(%{
+      "date_from" => Date.to_iso8601(from),
+      "date_to" => Date.to_iso8601(to),
+      "slot_types" => slot_types
+    })
+  end
+
   defp window_date(nil, default), do: {:ok, default}
 
   defp window_date(value, _default) when is_binary(value) do
@@ -612,11 +637,12 @@ defmodule MealPlannerApi.Generation.Server do
 
   defp window_slot_types(nil), do: {:ok, @default_slot_types}
 
-  # The slot types keep the form the client sent them in, a string or an
-  # atom, and are never turned into atoms. A slot named twice is kept once.
+  # The slot types of a window are names: a slot the caller passed as an atom
+  # is written as its name, and no atom is made out of a string. A slot named
+  # twice is kept once.
   defp window_slot_types([_ | _] = slot_types) do
     if Enum.all?(slot_types, &known_slot?/1) do
-      {:ok, Enum.uniq_by(slot_types, &to_string/1)}
+      {:ok, slot_types |> Enum.map(&to_string/1) |> Enum.uniq()}
     else
       {:error, :invalid_payload}
     end
