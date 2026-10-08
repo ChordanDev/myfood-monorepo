@@ -148,6 +148,69 @@ defmodule MealPlannerApi.Generation.ServerTest do
       stop_generation_server(account.id)
       refute Process.alive?(server_pid)
     end
+
+    test "concurrent callers of an account that has no server share one server" do
+      account = insert_account("generation concurrent cold start account")
+      actor = insert_user_with_membership(account, "generation-concurrent@example.com")
+
+      supervisor = Process.whereis(MealPlannerApi.Generation.ServerSupervisor)
+      servers_before = DynamicSupervisor.count_children(supervisor).active
+
+      # Callers do not collide on their own: each one reads the database
+      # before it looks for the server, and the sandbox connection hands
+      # those reads out one at a time. So the supervisor of the servers is
+      # suspended: no server can start, every caller finds the Registry
+      # empty and leaves its own request to start one in the mailbox of the
+      # supervisor. The trace tells when the request of each caller is there.
+      :ok = :sys.suspend(supervisor)
+      :erlang.trace(supervisor, true, [:receive])
+
+      callers =
+        try do
+          callers =
+            for _caller <- 1..8 do
+              Task.async(fn -> Server.start_generation(account.id, actor.id, %{}, self()) end)
+            end
+
+          for %Task{pid: caller} <- callers do
+            assert_receive {:trace, ^supervisor, :receive,
+                            {:"$gen_call", {^caller, _tag}, _request}},
+                           5_000
+          end
+
+          callers
+        after
+          :erlang.trace(supervisor, false, [:receive])
+          :ok = :sys.resume(supervisor)
+        end
+
+      # Resumed, the supervisor serves the requests in turn: the first one
+      # starts the server and every other one finds it already started.
+      results = Task.await_many(callers, 30_000)
+
+      # A caller that lost the start is routed to the server that won it,
+      # and that server either takes a new run or is still busy with one,
+      # depending on when the call arrives: no caller sees the error of the
+      # start itself.
+      for result <- results do
+        assert match?({:ok, run_id} when is_binary(run_id), result) or
+                 result == {:error, :already_running},
+               "a caller got #{inspect(result)}"
+      end
+
+      run_ids = for {:ok, run_id} <- results, do: run_id
+      assert run_ids != []
+      assert Enum.uniq(run_ids) == run_ids
+
+      assert [{server_pid, _value}] =
+               Registry.lookup(MealPlannerApi.Generation.Generations, {:generation, account.id})
+
+      assert DynamicSupervisor.count_children(MealPlannerApi.Generation.ServerSupervisor).active ==
+               servers_before + 1
+
+      stop_generation_server(account.id)
+      refute Process.alive?(server_pid)
+    end
   end
 
   test "confirmation after a correction keeps the proposal version and rebuilds its frozen quantities" do

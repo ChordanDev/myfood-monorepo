@@ -518,7 +518,14 @@ defmodule MealPlannerApiWeb.PlanningChannelTest do
         })
 
       # The ok reply means the server is started and registered
-      assert_reply(ref_gen, :ok, %{"requestId" => "chat_req_init"})
+      assert_reply(ref_gen, :ok, %{"requestId" => "chat_req_init", "runId" => run_id})
+
+      # The server answers a call once the generation it is running has
+      # finished, so the chat below does not wait behind the pipeline. The
+      # call has to come before the chat is pushed: the channel process
+      # casts the chat, and a call of the test process sent after the push
+      # could reach the server ahead of that cast.
+      assert %{current_run_id: ^run_id} = Server.get_status(account.id)
 
       # Now send chat message - should find GenerationServer
       _ref_chat =
@@ -529,9 +536,8 @@ defmodule MealPlannerApiWeb.PlanningChannelTest do
 
       # chat returns noreply (cast to GenServer): the GenerationServer
       # responds via broadcast. The message is not a modification the server
-      # understands, and that is what it announces, once the generation it
-      # is running has finished.
-      assert_push("generation_error", %{"reason" => "invalid_modification"}, 1_000)
+      # understands, and that is what it announces.
+      assert_push("generation_error", %{"reason" => "invalid_modification"})
 
       stop_generation_server(account.id)
     end
@@ -2220,7 +2226,8 @@ defmodule MealPlannerApiWeb.PlanningChannelTest do
   # Payload that is not a map: every command that reads its payload replies
   # `invalid_payload` and the channel process stays alive. The socket has a
   # started session, so `send_message` gets as far as reading its payload and
-  # the session proves the channel kept its state.
+  # the session proves the channel kept its state. The last test is the same
+  # command on a socket without a session: the payload is refused first.
   # ==========================================================================
 
   describe "handle_in with a payload that is not a map" do
@@ -2270,6 +2277,30 @@ defmodule MealPlannerApiWeb.PlanningChannelTest do
 
         assert_reply(ref_next, :ok, %{"kind" => :change_constraints})
       end
+    end
+
+    test "send_message without a session replies :invalid_payload, not :no_active_session",
+         %{account: account, token: token} do
+      {:ok, socket} = connect(UserSocket, %{"token" => token})
+
+      {:ok, _reply, socket} =
+        subscribe_and_join(socket, PlanningChannel, "planning:#{account.id}")
+
+      # No start_planning has run. The payload is refused before the command
+      # looks at the socket for a session.
+      ref = push(socket, "send_message", "not a map")
+
+      assert_error_reply(ref, :invalid_payload)
+
+      # The channel is alive, and the same command with a map gets as far as
+      # the session check.
+      ref_next =
+        push(socket, "send_message", %{
+          "session_id" => Ecto.UUID.generate(),
+          "intent" => %{"kind" => "change_constraints"}
+        })
+
+      assert_error_reply(ref_next, :no_active_session)
     end
   end
 
