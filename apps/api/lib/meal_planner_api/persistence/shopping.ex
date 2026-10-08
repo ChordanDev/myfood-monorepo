@@ -147,6 +147,23 @@ defmodule MealPlannerApi.Persistence.Shopping do
     |> Repo.update_all(set: [status: :archived, updated_at: DateTime.utc_now()])
   end
 
+  @doc """
+  Deletes the open (`:pending`, `:in_cart`) Shopping items of one Scheduled meal, so the next
+  list read derives them again from the meal as it is now. Closed items are kept.
+  """
+  @spec delete_open_items_for_meal(Ecto.UUID.t(), Ecto.UUID.t()) :: non_neg_integer()
+  def delete_open_items_for_meal(account_id, scheduled_meal_id) do
+    {deleted, _} =
+      from(i in ShoppingItem,
+        where:
+          i.account_id == ^account_id and i.scheduled_meal_id == ^scheduled_meal_id and
+            i.status in [:pending, :in_cart]
+      )
+      |> Repo.delete_all()
+
+    deleted
+  end
+
   def update_open_items_for_ingredient(account_id, ingredient_id, attrs, from_date, to_date) do
     from(i in ShoppingItem,
       where:
