@@ -108,22 +108,35 @@ defmodule MealPlannerApiWeb.RouterTest do
     refute Enum.any?(remaining, &(&1.user_id == member_user.id))
   end
 
-  # Legacy authentication sweep (issue #14): the password routes are gone.
-  # The body is one the removed action used to accept, so a route that is
-  # still mounted answers 200 rather than a validation error.
-  describe "removed password routes" do
-    for path <- ["/api/auth/password", "/api/auth/login", "/api/auth/register"] do
+  # Legacy authentication sweep (issue #14): the password and social routes
+  # are gone. Each body is one the removed action answered without a 404, so
+  # a route that is still mounted fails the test: the password action
+  # registered the User (200) and the social action refused a payload
+  # without `id_token` (400).
+  describe "removed legacy auth routes" do
+    password_body = %{
+      "mode" => "register",
+      "email" => "router_legacy_auth_gone@example.com",
+      "password" => "supersecret123",
+      "name" => "Router Legacy Auth Gone"
+    }
+
+    social_body = %{"provider" => "google"}
+
+    for {path, body} <- [
+          {"/api/auth/password", password_body},
+          {"/api/auth/login", password_body},
+          {"/api/auth/register", password_body},
+          {"/api/auth/social", social_body},
+          {"/api/auth/google", social_body},
+          {"/api/auth/facebook", social_body},
+          {"/api/auth/apple", social_body}
+        ] do
       test "POST #{path} is no longer routed (404)", %{conn: conn} do
-        conn =
-          post(conn, unquote(path), %{
-            "mode" => "register",
-            "email" => "router_password_gone@example.com",
-            "password" => "supersecret123",
-            "name" => "Router Password Gone"
-          })
+        conn = post(conn, unquote(path), unquote(Macro.escape(body)))
 
         assert json_response(conn, 404) == %{"errors" => %{"detail" => "Not Found"}}
-        refute Repo.get_by(PersistenceUser, email: "router_password_gone@example.com")
+        refute Repo.get_by(PersistenceUser, email: "router_legacy_auth_gone@example.com")
       end
     end
 

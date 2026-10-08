@@ -17,22 +17,6 @@ defmodule MealPlannerApiWeb.AuthControllerTest do
   @logout_path "/api/auth/logout"
   @device_id "3f0c5f4e-6f0e-4a55-9d0b-1c7f1f6f2a10"
 
-  setup do
-    previous_verifier = Application.get_env(:meal_planner_api, :social_verifier)
-
-    Application.put_env(
-      :meal_planner_api,
-      :social_verifier,
-      MealPlannerApi.Auth.SocialVerifierFake
-    )
-
-    on_exit(fn ->
-      Application.put_env(:meal_planner_api, :social_verifier, previous_verifier)
-    end)
-
-    :ok
-  end
-
   test "authenticated me endpoint returns the mobile CurrentMe body", %{conn: conn} do
     user =
       user_with_memberships(%{email: "u_me@myfood.local", name: "U Me"}, [
@@ -81,83 +65,6 @@ defmodule MealPlannerApiWeb.AuthControllerTest do
 
     body = json_response(conn, 401)
     assert body["error"]["code"] == "unauthenticated"
-  end
-
-  test "social auth issues token for a verified provider identity", %{conn: conn} do
-    Process.put(
-      {MealPlannerApi.Auth.SocialVerifierFake, :response},
-      {:ok,
-       %{
-         provider: "google",
-         provider_user_id: "g_123",
-         email: "g_123@myfood.local",
-         name: "G User"
-       }}
-    )
-
-    conn =
-      post(conn, "/api/auth/social", %{
-        "provider" => "google",
-        "id_token" => "google-id-token",
-        "subscription_tier" => "free"
-      })
-
-    body = json_response(conn, 200)
-
-    assert is_binary(body["access_token"])
-    assert body["user"]["email"] == "g_123@myfood.local"
-    assert body["websocket"]["params"]["token"] == body["access_token"]
-  end
-
-  test "social auth supports facebook provider identity", %{conn: conn} do
-    Process.put(
-      {MealPlannerApi.Auth.SocialVerifierFake, :response},
-      {:ok,
-       %{
-         provider: "facebook",
-         provider_user_id: "fb_123",
-         email: "fb_123@myfood.local",
-         name: "FB User"
-       }}
-    )
-
-    conn =
-      post(conn, "/api/auth/social", %{
-        "provider" => "facebook",
-        "id_token" => "facebook-user-token",
-        "subscription_tier" => "free"
-      })
-
-    body = json_response(conn, 200)
-
-    assert is_binary(body["access_token"])
-    assert body["user"]["email"] == "fb_123@myfood.local"
-  end
-
-  test "social auth rejects unsupported provider", %{conn: conn} do
-    Process.put(
-      {MealPlannerApi.Auth.SocialVerifierFake, :response},
-      {:error, :unsupported_provider}
-    )
-
-    conn =
-      post(conn, "/api/auth/social", %{
-        "provider" => "twitter",
-        "id_token" => "tw-token"
-      })
-
-    body = json_response(conn, 401)
-    assert body["error"] == "unsupported_provider"
-  end
-
-  test "social auth validates required payload", %{conn: conn} do
-    conn =
-      post(conn, "/api/auth/social", %{
-        "provider" => "google"
-      })
-
-    body = json_response(conn, 400)
-    assert body["error"] == "invalid_social_payload"
   end
 
   # ----------------------------------------------------------------------

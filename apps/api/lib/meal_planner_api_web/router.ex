@@ -60,11 +60,6 @@ defmodule MealPlannerApiWeb.Router do
     pipe_through(:api)
 
     # Auth endpoints (no auth required)
-    post("/auth/social", AuthController, :social)
-    # Provider-named aliases of the social route
-    post("/auth/google", AuthController, :social)
-    post("/auth/facebook", AuthController, :social)
-    post("/auth/apple", AuthController, :social)
     # Refresh token (G6)
     post("/auth/refresh", AuthController, :refresh)
     # Logout (G7)

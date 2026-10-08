@@ -2,8 +2,8 @@ defmodule MealPlannerApi.Services.CookingAtomicityTest do
   use ExUnit.Case, async: false
 
   import Ecto.Query
+  import MealPlannerApi.IdentityFixtures
 
-  alias MealPlannerApi.Accounts
   alias MealPlannerApi.Persistence.Catalog
   alias MealPlannerApi.Persistence.Inventory.{InventoryItem, InventoryMutationEvent}
   alias MealPlannerApi.Persistence.Planning
@@ -246,13 +246,7 @@ defmodule MealPlannerApi.Services.CookingAtomicityTest do
   defp build_fixture do
     suffix = Ecto.UUID.generate()
 
-    {:ok, %{user: user, account: account}} =
-      Accounts.find_or_create_identity(%{
-        "user_id" => "cook_atomic_#{suffix}",
-        "account_id" => "cook_atomic_#{suffix}",
-        "account_type" => "group",
-        "subscription_tier" => "premium"
-      })
+    %{user: user, account: account} = insert_identity!(plan: :family_4)
 
     account = MealPlannerApiWeb.ChannelHelpers.persist_trial_window!(account, :eligible)
 

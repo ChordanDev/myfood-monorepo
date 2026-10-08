@@ -106,9 +106,8 @@ defmodule MealPlannerApiWeb.Controllers.AccountScopeHelpers do
   by Guardian's `set_type/3` (the same class of bug fixed in PR 2b for
   `Accounts.claims_for/2` — see `accounts.ex`). This is the single
   canonical implementation of "mint access + mint refresh with typ
-  stripped, else :error" — post-review fix pass item 4 consolidates 3
-  duplicate reimplementations (`AuthController.issue_auth_response/6`'s
-  two clauses + this module's old inline version) down to this one.
+  stripped, else :error" — post-review fix pass item 4 consolidated the
+  duplicate reimplementations down to this one.
   """
   @spec mint_token_pair(map(), map()) ::
           {:ok, String.t(), String.t()} | {:error, :token_refresh_failed}
