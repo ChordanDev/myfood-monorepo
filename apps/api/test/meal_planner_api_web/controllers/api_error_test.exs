@@ -29,6 +29,26 @@ defmodule MealPlannerApiWeb.ApiErrorTest do
       assert (conn |> ApiError.error(:trial_expired)).status == 403
     end
 
+    test "maps every mobile login code to its HTTP status", %{conn: conn} do
+      assert (conn |> ApiError.error(:invalid_email)).status == 422
+      assert (conn |> ApiError.error(:email_not_found)).status == 404
+      assert (conn |> ApiError.error(:rate_limited)).status == 429
+      assert (conn |> ApiError.error(:code_invalid)).status == 422
+      assert (conn |> ApiError.error(:code_expired)).status == 401
+      assert (conn |> ApiError.error(:too_many_attempts)).status == 429
+      assert (conn |> ApiError.error(:code_send_failed)).status == 502
+    end
+
+    test "keeps a response header set on the conn before rendering", %{conn: conn} do
+      conn =
+        conn
+        |> put_resp_header("retry-after", "42")
+        |> ApiError.error(:rate_limited)
+
+      assert get_resp_header(conn, "retry-after") == ["42"]
+      assert %{"error" => %{"code" => "rate_limited"}} = json_response(conn, 429)
+    end
+
     test "raises for a code outside the mobile allowlist", %{conn: conn} do
       assert_raise FunctionClauseError, fn ->
         ApiError.error(conn, :not_a_mobile_code)
