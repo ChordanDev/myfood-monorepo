@@ -655,7 +655,16 @@ Lo devuelven:
 - las rutas de autenticación de la app móvil: `/api/auth/login/request-code`,
   `/api/auth/login/verify-code`, `/api/auth/signup/request-code`, `/api/auth/signup/verify-code` y
   `/api/auth/refresh`;
-- `GET /api/me` y su alias `GET /api/auth/me`.
+- `GET /api/me` y su alias `GET /api/auth/me`;
+- `GET` y `PUT /api/me/slot-cooking-times`, los tiempos de cocina por comida del usuario
+  (`{ breakfast, lunch, dinner }`, cada uno con `cookingTimeMinutes` y `hungerLevel`):
+  `404 slot_cooking_times_not_found` cuando el usuario todavía no guardó los tres slots,
+  `422 validation_error` cuando el cuerpo no es válido (el `message` nombra el campo, por ejemplo
+  `lunch.cookingTimeMinutes`) y `422 invalid_hunger_level` cuando `hungerLevel` no es `light`, `normal` ni
+  `strong`. El `PUT` exige exactamente `breakfast`, `lunch` y `dinner`: `snack` no se requiere ni se
+  acepta. `cookingTimeMinutes` es un entero de `0` a `240`, y `0` significa que el usuario no cocina en
+  ese slot. El detalle está en las secciones 3.3 y 3.4 de
+  [`frontend_integration_guide.md`](../frontend_integration_guide.md).
 
 **Plano (anterior, no migrado al sobre).** El status lo elige cada endpoint:
 
