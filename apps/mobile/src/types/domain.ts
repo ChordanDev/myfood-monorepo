@@ -75,12 +75,16 @@ export interface CustomizedRecipe extends MasterRecipe {
   isFavorite: boolean;
 }
 
-export type MealType = 'desayuno' | 'almuerzo' | 'cena' | 'snack';
+// Meal slot codes of the API contract, in the order of the day. Their Spanish labels are
+// `MEAL_SLOT_LABEL`.
+export const ORDERED_MEAL_SLOTS = ['breakfast', 'lunch', 'snack', 'dinner'] as const;
+
+export type MealSlot = (typeof ORDERED_MEAL_SLOTS)[number];
 
 export interface MealPlanEntry {
   id: string;
   date: string; // ISO string format YYYY-MM-DD
-  type: MealType;
+  type: MealSlot;
   recipeId: string; // Referencia a MasterRecipe o CustomizedRecipe
   isCooked: boolean;
   isSkipped?: boolean; // The meal passed and was not cooked. Never true together with isCooked.

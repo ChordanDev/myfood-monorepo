@@ -1,6 +1,6 @@
 import React from 'react';
 import { act, create } from 'react-test-renderer';
-import type { MasterRecipe, MealPlanEntry, MealType } from '@/types/domain';
+import type { MasterRecipe, MealPlanEntry, MealSlot } from '@/types/domain';
 import { MOCK_MASTER_RECIPES } from '@/mocks/domainMocks';
 import { useMealPlanStore } from '@/store';
 import { useHomeState } from '../useHomeState';
@@ -22,7 +22,7 @@ const recipes: MasterRecipe[] = [
 
 function buildEntry(
   date: string,
-  type: MealType,
+  type: MealSlot,
   overrides: Partial<MealPlanEntry> = {}
 ): MealPlanEntry {
   return {
@@ -81,11 +81,11 @@ describe('useHomeState', () => {
 
   describe('with a pending yesterday and a plan for today', () => {
     const entries = [
-      buildEntry(TODAY, 'almuerzo'),
-      buildEntry(TODAY, 'cena', { recipeId: 'recipe-soup' }),
-      buildEntry(YESTERDAY, 'desayuno', { isCooked: true }),
-      buildEntry(YESTERDAY, 'almuerzo'),
-      buildEntry(YESTERDAY, 'cena', { recipeId: 'recipe-soup' }),
+      buildEntry(TODAY, 'lunch'),
+      buildEntry(TODAY, 'dinner', { recipeId: 'recipe-soup' }),
+      buildEntry(YESTERDAY, 'breakfast', { isCooked: true }),
+      buildEntry(YESTERDAY, 'lunch'),
+      buildEntry(YESTERDAY, 'dinner', { recipeId: 'recipe-soup' }),
     ];
 
     it('opens on today instead of jumping to the pending day', () => {
@@ -93,8 +93,8 @@ describe('useHomeState', () => {
 
       expect(hookResult.selectedDate).toBe(TODAY);
       expect(hookResult.isPendingConfirmationDay).toBe(false);
-      expect(hookResult.availableMealTypes).toEqual(['almuerzo', 'cena']);
-      expect(hookResult.selectedMealType).toBe('cena');
+      expect(hookResult.availableMealTypes).toEqual(['lunch', 'dinner']);
+      expect(hookResult.selectedMealType).toBe('dinner');
     });
 
     it('offers only the unconfirmed meals of the pending day, starting with the first one', () => {
@@ -103,9 +103,9 @@ describe('useHomeState', () => {
 
       expect(hookResult.selectedDate).toBe(YESTERDAY);
       expect(hookResult.isPendingConfirmationDay).toBe(true);
-      expect(hookResult.availableMealTypes).toEqual(['almuerzo', 'cena']);
-      expect(hookResult.selectedMealType).toBe('almuerzo');
-      expect(hookResult.selectedMeal?.id).toBe(`${YESTERDAY}-almuerzo`);
+      expect(hookResult.availableMealTypes).toEqual(['lunch', 'dinner']);
+      expect(hookResult.selectedMealType).toBe('lunch');
+      expect(hookResult.selectedMeal?.id).toBe(`${YESTERDAY}-lunch`);
     });
 
     it('lists every Home meal of the pending day with its recipe name', () => {
@@ -113,9 +113,9 @@ describe('useHomeState', () => {
       selectDate(YESTERDAY);
 
       expect(hookResult.selectedDayMeals).toEqual([
-        { id: `${YESTERDAY}-desayuno`, type: 'desayuno', name: 'Ensalada de tomate' },
-        { id: `${YESTERDAY}-almuerzo`, type: 'almuerzo', name: 'Ensalada de tomate' },
-        { id: `${YESTERDAY}-cena`, type: 'cena', name: 'Sopa de pollo' },
+        { id: `${YESTERDAY}-breakfast`, type: 'breakfast', name: 'Ensalada de tomate' },
+        { id: `${YESTERDAY}-lunch`, type: 'lunch', name: 'Ensalada de tomate' },
+        { id: `${YESTERDAY}-dinner`, type: 'dinner', name: 'Sopa de pollo' },
       ]);
     });
 
@@ -124,46 +124,46 @@ describe('useHomeState', () => {
       selectDate(YESTERDAY);
 
       act(() => {
-        hookResult.handleMealTypeChange('desayuno');
+        hookResult.handleMealTypeChange('breakfast');
       });
 
-      expect(hookResult.selectedMealType).toBe('almuerzo');
+      expect(hookResult.selectedMealType).toBe('lunch');
     });
 
     it('moves to the next pending meal after one of two is confirmed', () => {
       renderHomeState(entries);
       selectDate(YESTERDAY);
-      confirm('markAsCooked', `${YESTERDAY}-almuerzo`);
+      confirm('markAsCooked', `${YESTERDAY}-lunch`);
 
       expect(hookResult.selectedDate).toBe(YESTERDAY);
       expect(hookResult.isPendingConfirmationDay).toBe(true);
-      expect(hookResult.availableMealTypes).toEqual(['cena']);
-      expect(hookResult.selectedMealType).toBe('cena');
-      expect(hookResult.selectedMeal?.id).toBe(`${YESTERDAY}-cena`);
+      expect(hookResult.availableMealTypes).toEqual(['dinner']);
+      expect(hookResult.selectedMealType).toBe('dinner');
+      expect(hookResult.selectedMeal?.id).toBe(`${YESTERDAY}-dinner`);
     });
 
     it('returns to today once the last pending meal is confirmed', () => {
       renderHomeState(entries);
       selectDate(YESTERDAY);
       act(() => {
-        hookResult.handleMealTypeChange('cena');
+        hookResult.handleMealTypeChange('dinner');
       });
-      confirm('markAsSkipped', `${YESTERDAY}-cena`);
-      confirm('markAsCooked', `${YESTERDAY}-almuerzo`);
+      confirm('markAsSkipped', `${YESTERDAY}-dinner`);
+      confirm('markAsCooked', `${YESTERDAY}-lunch`);
 
       expect(hookResult.selectedDate).toBe(TODAY);
       expect(hookResult.isPendingConfirmationDay).toBe(false);
-      expect(hookResult.availableMealTypes).toEqual(['almuerzo', 'cena']);
-      expect(hookResult.selectedMealType).toBe('cena');
-      expect(hookResult.selectedMeal?.id).toBe(`${TODAY}-cena`);
+      expect(hookResult.availableMealTypes).toEqual(['lunch', 'dinner']);
+      expect(hookResult.selectedMealType).toBe('dinner');
+      expect(hookResult.selectedMeal?.id).toBe(`${TODAY}-dinner`);
     });
   });
 
   describe('without a plan for today', () => {
     const entries = [
-      buildEntry(TWO_DAYS_AGO, 'cena', { isCooked: true }),
-      buildEntry(YESTERDAY, 'cena'),
-      buildEntry(TOMORROW, 'almuerzo'),
+      buildEntry(TWO_DAYS_AGO, 'dinner', { isCooked: true }),
+      buildEntry(YESTERDAY, 'dinner'),
+      buildEntry(TOMORROW, 'lunch'),
     ];
 
     it('does not open on a past day', () => {
@@ -176,19 +176,19 @@ describe('useHomeState', () => {
     it('leaves the confirmed day for a selectable one, never for another past day', () => {
       renderHomeState(entries);
       selectDate(YESTERDAY);
-      confirm('markAsCooked', `${YESTERDAY}-cena`);
+      confirm('markAsCooked', `${YESTERDAY}-dinner`);
 
       expect(hookResult.selectedDate).toBe(TOMORROW);
-      expect(hookResult.selectedMealType).toBe('almuerzo');
+      expect(hookResult.selectedMealType).toBe('lunch');
     });
 
     it('stays on today when nothing is planned from today on', () => {
-      renderHomeState([buildEntry(YESTERDAY, 'cena')]);
+      renderHomeState([buildEntry(YESTERDAY, 'dinner')]);
 
       expect(hookResult.selectedDate).toBe(TODAY);
 
       selectDate(YESTERDAY);
-      confirm('markAsSkipped', `${YESTERDAY}-cena`);
+      confirm('markAsSkipped', `${YESTERDAY}-dinner`);
 
       expect(hookResult.selectedDate).toBe(TODAY);
       expect(hookResult.selectedMealType).toBeNull();

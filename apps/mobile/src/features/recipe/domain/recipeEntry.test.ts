@@ -6,13 +6,13 @@ const TODAY_KEY = '2026-08-25';
 const TOMORROW_KEY = '2026-08-26';
 
 function buildEntry(overrides: Partial<MealPlanEntry> & Pick<MealPlanEntry, 'id'>): MealPlanEntry {
-  return { date: TODAY_KEY, type: 'almuerzo', recipeId: 'r1', isCooked: false, ...overrides };
+  return { date: TODAY_KEY, type: 'lunch', recipeId: 'r1', isCooked: false, ...overrides };
 }
 
 describe('resolveRecipeEntry', () => {
   const entries: MealPlanEntry[] = [
     buildEntry({ id: 'past-r1', date: YESTERDAY_KEY }),
-    buildEntry({ id: 'today-r2', recipeId: 'r2', type: 'cena' }),
+    buildEntry({ id: 'today-r2', recipeId: 'r2', type: 'dinner' }),
     buildEntry({ id: 'today-r1' }),
     buildEntry({ id: 'future-r1', date: TOMORROW_KEY }),
   ];

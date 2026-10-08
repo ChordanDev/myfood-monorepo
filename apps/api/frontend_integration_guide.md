@@ -198,6 +198,45 @@ Notes:
 - Method: `GET`
 - Path: `/api/me`
 
+### 3.3 Edit the Onboarding profile
+
+- Method: `PUT`
+- Path: `/api/me/profile`
+- Not capability-gated: an Account whose access has expired can still use it.
+
+Request body, all three fields required:
+
+```json
+{
+  "displayName": "Ana María",
+  "householdSize": 4,
+  "cookingSkill": "intermediate"
+}
+```
+
+- `displayName`: string, 1 to 64 characters after trimming. A character is a grapheme (a joined emoji
+  counts as one); the name also holds at most 255 Unicode code points and no NUL character (`\u0000`).
+- `householdSize`: JSON integer, 1 to 20. The string `"4"` and the number `4.5` are rejected.
+- `cookingSkill`: `beginner`, `intermediate` or `advanced`.
+
+Success response (`200`), the same `user` object `GET /api/me` returns:
+
+```json
+{
+  "user": {
+    "id": "...",
+    "email": "ana@example.com",
+    "displayName": "Ana María",
+    "householdSize": 4,
+    "cookingSkill": "intermediate"
+  }
+}
+```
+
+Fields are validated in the order `displayName`, `householdSize`, `cookingSkill`, and the first offending
+one decides the response: `422 invalid_cooking_skill` when `cookingSkill` is a string outside the catalog,
+`422 validation_error` otherwise, with a `message` that names the field. A rejected request stores nothing.
+
 ## 4. Planning (REST)
 
 ### 4.1 Weekly planning generation
@@ -950,6 +989,7 @@ Two error body shapes are in use. Which one a request gets depends on the code p
   - the mobile auth routes `/api/auth/login/request-code`, `/api/auth/login/verify-code`,
     `/api/auth/signup/request-code`, `/api/auth/signup/verify-code` and `/api/auth/refresh`;
   - `GET /api/me` and its alias `GET /api/auth/me`;
+  - `PUT /api/me/profile`: `422 validation_error` and `422 invalid_cooking_skill`;
   - `GET /api/recipes/:id`: `404 recipe_not_found` and `403 forbidden` (section 11).
 - **Flat (legacy, not migrated to the envelope):** `{ "error": "<reason>" }`, with the status chosen by each
   endpoint (`422` in most controllers). It is still returned by:

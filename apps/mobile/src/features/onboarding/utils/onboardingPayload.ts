@@ -11,8 +11,8 @@
 
 import type {
   CookingSkill,
+  CookingTimeSlot,
   HungerLevel,
-  MealSlot,
   OnboardingCompletionRequest,
   SlotCookingTime,
   SlotCookingTimesPayload,
@@ -29,7 +29,7 @@ export interface OnboardingFormState {
   householdSize: number;
   cookingSkill: CookingSkill;
   preferences: PreferencesFormState;
-  slotCookingTimes: Record<MealSlot, SlotCookingTime>;
+  slotCookingTimes: Record<CookingTimeSlot, SlotCookingTime>;
 }
 
 export class OnboardingValidationError extends Error {
@@ -42,7 +42,7 @@ export class OnboardingValidationError extends Error {
   }
 }
 
-function validateSlot(slot: MealSlot, value: SlotCookingTime): void {
+function validateSlot(slot: CookingTimeSlot, value: SlotCookingTime): void {
   if (!Number.isInteger(value.cookingTimeMinutes) || value.cookingTimeMinutes < 0) {
     throw new OnboardingValidationError(
       `slotCookingTimes.${slot}.cookingTimeMinutes`,
@@ -82,7 +82,7 @@ export function buildOnboardingPayload(state: OnboardingFormState): OnboardingCo
     lunch: state.slotCookingTimes.lunch,
     dinner: state.slotCookingTimes.dinner,
   };
-  (Object.keys(slots) as MealSlot[]).forEach((slot) => validateSlot(slot, slots[slot]));
+  (Object.keys(slots) as CookingTimeSlot[]).forEach((slot) => validateSlot(slot, slots[slot]));
 
   return {
     profile,

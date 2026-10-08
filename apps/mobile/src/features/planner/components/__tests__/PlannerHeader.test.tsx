@@ -76,9 +76,9 @@ jest.mock('@/hooks/useAnimatedThemeStyle', () => ({
 // Today is the 16th. One meal before it and two after: the 18th is the last planned day, so
 // the 19th is the first one that can be planned.
 const PLAN: MealPlanEntry[] = [
-  { id: 'mp1', date: '2026-09-15', type: 'almuerzo', recipeId: 'r1', isCooked: false },
-  { id: 'mp2', date: '2026-09-17', type: 'cena', recipeId: 'r1', isCooked: false },
-  { id: 'mp3', date: '2026-09-18', type: 'cena', recipeId: 'r1', isCooked: false },
+  { id: 'mp1', date: '2026-09-15', type: 'lunch', recipeId: 'r1', isCooked: false },
+  { id: 'mp2', date: '2026-09-17', type: 'dinner', recipeId: 'r1', isCooked: false },
+  { id: 'mp3', date: '2026-09-18', type: 'dinner', recipeId: 'r1', isCooked: false },
 ];
 
 const DEFAULT_LABEL = '19 - 25 Septiembre';
@@ -230,7 +230,7 @@ describe('PlannerHeader', () => {
       useMealPlanStore.setState({
         entries: [
           ...PLAN,
-          { id: 'mp4', date: '2026-09-30', type: 'cena', recipeId: 'r1', isCooked: false },
+          { id: 'mp4', date: '2026-09-30', type: 'dinner', recipeId: 'r1', isCooked: false },
         ],
       });
       const root = renderHeader();
