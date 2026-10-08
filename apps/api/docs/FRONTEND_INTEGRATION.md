@@ -909,8 +909,9 @@ async function postAuth(path, body) {
   if (!response.ok) {
     // Los errores de auth usan el envelope `{ error: { code, message } }`;
     // un error de gateway puede no traer JSON.
-    const body = await response.json().catch(() => null);
-    throw new Error(body?.error?.code || "auth_request_failed");
+    const errorBody = await response.json().catch(() => null);
+    // "auth_request_failed" es un valor del cliente, no un código de la API.
+    throw new Error(errorBody?.error?.code || "auth_request_failed");
   }
 
   return response.json();
