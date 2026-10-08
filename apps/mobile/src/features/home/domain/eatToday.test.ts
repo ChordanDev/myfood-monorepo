@@ -1,4 +1,4 @@
-import type { MealPlanEntry, MealType } from '@/types/domain';
+import type { MealPlanEntry, MealSlot } from '@/types/domain';
 import {
   EAT_TODAY_CUTOFF_MINUTES,
   EAT_TODAY_DESTINATION_TYPES,
@@ -8,7 +8,7 @@ import {
 
 const TODAY_KEY = '2026-08-25';
 
-function buildEntry(type: MealType, isCooked = false): MealPlanEntry {
+function buildEntry(type: MealSlot, isCooked = false): MealPlanEntry {
   return { id: `entry-${type}`, date: TODAY_KEY, type, recipeId: `recipe-${type}`, isCooked };
 }
 
@@ -18,27 +18,27 @@ function at(hours: number, minutes = 0) {
 
 describe('eat today constants', () => {
   it('offers lunch and dinner as destinations, in that order', () => {
-    expect(EAT_TODAY_DESTINATION_TYPES).toEqual(['almuerzo', 'cena']);
+    expect(EAT_TODAY_DESTINATION_TYPES).toEqual(['lunch', 'dinner']);
   });
 
   it('closes lunch at 15:00 and dinner at 22:00', () => {
-    expect(EAT_TODAY_CUTOFF_MINUTES).toEqual({ almuerzo: 15 * 60, cena: 22 * 60 });
+    expect(EAT_TODAY_CUTOFF_MINUTES).toEqual({ lunch: 15 * 60, dinner: 22 * 60 });
   });
 
   it('labels each destination', () => {
-    expect(EAT_TODAY_LABEL).toEqual({ almuerzo: 'Mediodía', cena: 'Cena' });
+    expect(EAT_TODAY_LABEL).toEqual({ lunch: 'Mediodía', dinner: 'Cena' });
   });
 });
 
 describe('getAvailableEatTodayDestinations', () => {
-  const uncookedDay = [buildEntry('almuerzo'), buildEntry('cena')];
+  const uncookedDay = [buildEntry('lunch'), buildEntry('dinner')];
 
   it('returns both destinations before any cutoff', () => {
-    expect(getAvailableEatTodayDestinations(uncookedDay, at(10))).toEqual(['almuerzo', 'cena']);
+    expect(getAvailableEatTodayDestinations(uncookedDay, at(10))).toEqual(['lunch', 'dinner']);
   });
 
   it('returns only dinner after the lunch cutoff', () => {
-    expect(getAvailableEatTodayDestinations(uncookedDay, at(15, 1))).toEqual(['cena']);
+    expect(getAvailableEatTodayDestinations(uncookedDay, at(15, 1))).toEqual(['dinner']);
   });
 
   it('returns nothing after the dinner cutoff', () => {
@@ -46,35 +46,35 @@ describe('getAvailableEatTodayDestinations', () => {
   });
 
   it('keeps a destination open until the last minute before its cutoff', () => {
-    expect(getAvailableEatTodayDestinations(uncookedDay, at(14, 59))).toEqual(['almuerzo', 'cena']);
-    expect(getAvailableEatTodayDestinations(uncookedDay, at(21, 59))).toEqual(['cena']);
+    expect(getAvailableEatTodayDestinations(uncookedDay, at(14, 59))).toEqual(['lunch', 'dinner']);
+    expect(getAvailableEatTodayDestinations(uncookedDay, at(21, 59))).toEqual(['dinner']);
   });
 
   it('closes a destination exactly at its cutoff minute', () => {
-    expect(getAvailableEatTodayDestinations(uncookedDay, at(15))).toEqual(['cena']);
+    expect(getAvailableEatTodayDestinations(uncookedDay, at(15))).toEqual(['dinner']);
     expect(getAvailableEatTodayDestinations(uncookedDay, at(22))).toEqual([]);
   });
 
   it('excludes lunch when it is already cooked today', () => {
-    const entries = [buildEntry('almuerzo', true), buildEntry('cena')];
+    const entries = [buildEntry('lunch', true), buildEntry('dinner')];
 
-    expect(getAvailableEatTodayDestinations(entries, at(10))).toEqual(['cena']);
+    expect(getAvailableEatTodayDestinations(entries, at(10))).toEqual(['dinner']);
   });
 
   it('excludes dinner when it is already cooked today', () => {
-    const entries = [buildEntry('almuerzo'), buildEntry('cena', true)];
+    const entries = [buildEntry('lunch'), buildEntry('dinner', true)];
 
-    expect(getAvailableEatTodayDestinations(entries, at(10))).toEqual(['almuerzo']);
+    expect(getAvailableEatTodayDestinations(entries, at(10))).toEqual(['lunch']);
   });
 
   it('ignores cooked entries of other meal types', () => {
-    const entries = [buildEntry('desayuno', true), buildEntry('snack', true)];
+    const entries = [buildEntry('breakfast', true), buildEntry('snack', true)];
 
-    expect(getAvailableEatTodayDestinations(entries, at(10))).toEqual(['almuerzo', 'cena']);
+    expect(getAvailableEatTodayDestinations(entries, at(10))).toEqual(['lunch', 'dinner']);
   });
 
   it('treats a day without entries as fully available before the cutoffs', () => {
-    expect(getAvailableEatTodayDestinations([], at(10))).toEqual(['almuerzo', 'cena']);
+    expect(getAvailableEatTodayDestinations([], at(10))).toEqual(['lunch', 'dinner']);
     expect(getAvailableEatTodayDestinations([], at(23))).toEqual([]);
   });
 });
