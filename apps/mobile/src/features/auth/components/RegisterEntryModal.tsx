@@ -120,7 +120,7 @@ export function RegisterEntryModal({
 
             <InputErrorText
               visible={showEmailError}
-              text="Ingresa un correo v\u00e1lido para continuar."
+              text="Ingresa un correo válido para continuar."
               style={{ color: theme.primaryAccentIntense, marginTop: 7 }}
             />
 
