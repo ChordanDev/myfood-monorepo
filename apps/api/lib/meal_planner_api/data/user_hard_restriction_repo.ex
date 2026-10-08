@@ -16,4 +16,28 @@ defmodule MealPlannerApi.Data.UserHardRestrictionRepo do
     from(r in UserHardRestriction, where: r.user_id == ^user_id, select: r.code)
     |> Repo.all()
   end
+
+  @doc """
+  Makes the codes stored for a User exactly `codes`: the rows of the other
+  codes are deleted and the missing ones inserted. A code already stored
+  keeps its row.
+
+  It is two steps, so it belongs inside a transaction. The first code that
+  cannot be stored stops it with its changeset.
+  """
+  @spec replace_codes(Ecto.UUID.t(), [String.t()]) :: :ok | {:error, Ecto.Changeset.t()}
+  def replace_codes(user_id, codes) when is_list(codes) do
+    from(r in UserHardRestriction, where: r.user_id == ^user_id and r.code not in ^codes)
+    |> Repo.delete_all()
+
+    Enum.reduce_while(Enum.uniq(codes) -- list_codes(user_id), :ok, fn code, :ok ->
+      %UserHardRestriction{}
+      |> UserHardRestriction.changeset(%{user_id: user_id, code: code})
+      |> Repo.insert()
+      |> case do
+        {:ok, _restriction} -> {:cont, :ok}
+        {:error, changeset} -> {:halt, {:error, changeset}}
+      end
+    end)
+  end
 end

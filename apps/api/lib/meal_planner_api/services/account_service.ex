@@ -160,10 +160,15 @@ defmodule MealPlannerApi.Services.AccountService do
     %{
       id: p.id,
       user_id: p.user_id,
-      diet_type: Atom.to_string(p.diet_type),
-      macro_goal: Atom.to_string(p.macro_goal)
+      diet_type: enum_string(p.diet_type),
+      macro_goal: enum_string(p.macro_goal)
     }
   end
+
+  # A dietary profile saved through `PUT /api/me/preferences` can hold no
+  # Diet and no macro goal; `Atom.to_string/1` would render those as "nil".
+  defp enum_string(nil), do: nil
+  defp enum_string(value), do: Atom.to_string(value)
 
   defp serialize_exclusion(exclusion) do
     %{

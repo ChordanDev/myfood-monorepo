@@ -34,4 +34,18 @@ defmodule MealPlannerApi.Persistence.Accounts.UserPreference do
     |> Ecto.Changeset.unique_constraint(:user_id)
     |> Ecto.Changeset.foreign_key_constraint(:user_id)
   end
+
+  @doc """
+  Changeset of the Soft preferences the mobile app saves (issue #18).
+
+  Only `soft_preferences` is cast: the protein target and the default
+  exclusions keep the value they have.
+  """
+  def soft_preferences_changeset(preference, attrs) do
+    preference
+    |> Ecto.Changeset.cast(attrs, [:soft_preferences])
+    |> Ecto.Changeset.validate_required([:user_id])
+    |> Ecto.Changeset.unique_constraint(:user_id)
+    |> Ecto.Changeset.foreign_key_constraint(:user_id)
+  end
 end

@@ -33,6 +33,21 @@ defmodule MealPlannerApi.Data.UserPreferenceRepo do
     end
   end
 
+  @doc """
+  Stores the Soft preferences of a User and nothing else of the row,
+  creating it when it is missing.
+  """
+  @spec put_soft_preferences(Ecto.UUID.t(), [String.t()]) ::
+          {:ok, UserPreference.t()} | {:error, Ecto.Changeset.t()}
+  def put_soft_preferences(user_id, soft_preferences) when is_list(soft_preferences) do
+    preference =
+      Repo.get_by(UserPreference, user_id: user_id) || %UserPreference{user_id: user_id}
+
+    preference
+    |> UserPreference.soft_preferences_changeset(%{soft_preferences: soft_preferences})
+    |> Repo.insert_or_update()
+  end
+
   @spec delete(pos_integer()) :: {:ok, UserPreference.t()} | {:error, term()}
   def delete(user_id) do
     case Repo.get_by(UserPreference, user_id: user_id) do
