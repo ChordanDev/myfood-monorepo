@@ -14,7 +14,7 @@ This file and `docs/adr/` are the only durable docs in the repository. Specs, ma
 
 **Seat cap** — The maximum number of active Memberships an Account's plan allows (1 individual, 4 family_4, 6 family_6 and trial). `(code: AccountsMembership)`
 
-**Account selection continuation** — A short-lived single-use token handed to a User who verified an email code but belongs to several Accounts, so they can pick which one to enter. `(code: Persistence.Auth.AccountSelectionContinuation)`
+**Account selection continuation** — A short-lived single-use token that lets a User who belongs to several Accounts enter the one they pick through `POST /api/auth/switch-account`. No flow issues one today: an email code login lands on a single Membership. `(code: Persistence.Auth.AccountSelectionContinuation)`
 
 **Email code authentication** — Passwordless sign-in and sign-up: the User receives a short-lived numeric code by email and enters it in the app. `(code: Services.EmailCodeAuth, Persistence.Auth.EmailVerificationCode)` `(alias: magic link, OTP login)`
 

@@ -6,13 +6,10 @@
 **Test Suite:** 498 tests, 0 failures
 **Last Updated:** 2026-07-11 (Phase A — Tenancy Refactor / multi-familia, PR 3c)
 
-> **La autenticación de esta guía fue reemplazada por la spec #1.** El contrato de autenticación que usa
-> la app móvil está definido en
-> [ChordanDev/myfood-monorepo#1](https://github.com/ChordanDev/myfood-monorepo/issues/1), no en este
-> documento. La sección [Autenticación](#autenticación), el ejemplo "Login + Guardar Token" y la pregunta
-> sobre tokens expirados del FAQ describen el contrato anterior y se conservan solo como referencia. La
-> sección [Manejo de Errores](#manejo-de-errores) indica qué formato de error devuelve hoy cada grupo de
-> endpoints.
+> **La autenticación sigue la spec #1.** El contrato de autenticación que usa la app móvil está definido
+> en [ChordanDev/myfood-monorepo#1](https://github.com/ChordanDev/myfood-monorepo/issues/1). La sección
+> [Autenticación](#autenticación) lo resume. La sección [Manejo de Errores](#manejo-de-errores) indica qué
+> formato de error devuelve hoy cada grupo de endpoints.
 
 ---
 
@@ -61,51 +58,130 @@ headers: {
 
 ## Autenticación
 
-> **Reemplazada por la [spec #1](https://github.com/ChordanDev/myfood-monorepo/issues/1).** Esta sección
-> es contenido anterior y se conserva solo como referencia. Qué cambió:
->
-> - La app móvil inicia sesión y se registra con un código enviado por email:
->   `POST /api/auth/login/request-code`, `POST /api/auth/login/verify-code`,
->   `POST /api/auth/signup/request-code` y `POST /api/auth/signup/verify-code`. La sesión se renueva con
->   `POST /api/auth/refresh`, se cierra con `POST /api/auth/logout` y el usuario actual se lee con
->   `GET /api/me`. Los cuerpos de request y response de estas rutas están especificados en #1.
-> - Los errores de esas rutas usan el sobre `{ "error": { "code": "<código>", "message": "<texto>" } }`.
-> - Una ruta protegida responde a un token ausente o inválido con ese mismo sobre: `401 unauthenticated`,
->   o `401 access_token_expired` cuando el token expiró.
-> - `/api/auth/login` (alias de `/api/auth/password`) sigue existiendo, y los errores que arma su
->   controlador siguen usando el formato plano `{ "error": "<motivo>" }`. Sus refresh tokens no sirven
->   para `POST /api/auth/refresh`.
+La app inicia sesión y se registra con un código enviado por email; no hay login con password ni con
+proveedores sociales. El contrato completo está en la
+[spec #1](https://github.com/ChordanDev/myfood-monorepo/issues/1); esta sección lo resume.
+
+- El login atiende solo emails que ya tienen un usuario (`404 email_not_found` si no); el registro
+  atiende solo emails que todavía no lo tienen (`409 email_already_exists` si ya existe).
+- Los errores de estas rutas usan el sobre `{ "error": { "code": "<código>", "message": "<texto>" } }`.
+- Una ruta protegida responde a un token ausente o inválido con ese mismo sobre: `401 unauthenticated`,
+  o `401 access_token_expired` cuando el token expiró.
 
 ### Flujo JWT
 
-1. **Login** → Recibir JWT token
-2. **Usar token** → Incluir en header `Authorization: Bearer <token>`
-3. **WebSocket** → Pasar token en `params` al conectar
-4. **Refresh** → Implementar retry con nuevo token cuando expire
+1. **Pedir código** → `POST /api/auth/login/request-code` (o `/api/auth/signup/request-code`)
+2. **Verificar código** → Recibir `accessToken` y `refreshToken`
+3. **Usar token** → Incluir en header `Authorization: Bearer <accessToken>`
+4. **WebSocket** → Pasar el `accessToken` en `params` al conectar
+5. **Refresh** → `POST /api/auth/refresh` cuando el access token expire
 
 ### Login (ejemplo)
 
+Pedir el código:
+
 ```bash
-POST /api/auth/login
+POST /api/auth/login/request-code
+Content-Type: application/json
+
+{
+  "email": "user@example.com"
+}
+```
+
+**Response `200`:**
+```json
+{
+  "status": "code_sent",
+  "expiresInSeconds": 600,
+  "resendAvailableInSeconds": 60
+}
+```
+
+Verificar el código de seis dígitos que llegó por email. `deviceId` identifica el teléfono (en la
+práctica, un UUID que la app genera y conserva); la sesión que se abre reemplaza a la que ese usuario ya
+tenía en ese dispositivo:
+
+```bash
+POST /api/auth/login/verify-code
 Content-Type: application/json
 
 {
   "email": "user@example.com",
-  "password": "password123"
+  "code": "123456",
+  "deviceId": "<device_id>"
 }
 ```
 
-**Response:**
+**Response `200`:**
 ```json
 {
-  "token": "eyJhbGciOiJIUzI1NiIs...",
-  "user": {
-    "id": 1,
-    "email": "user@example.com",
-    "account_id": 1
+  "accessToken": "eyJhbGciOiJIUzI1NiIs...",
+  "refreshToken": "eyJhbGciOiJIUzI1NiIs...",
+  "tokenType": "Bearer",
+  "me": {
+    "user": {
+      "id": "...",
+      "email": "user@example.com",
+      "displayName": "User Name",
+      "householdSize": null,
+      "cookingSkill": null
+    },
+    "account": {
+      "id": "...",
+      "type": "individual",
+      "trialEndsAt": "2026-07-18T12:00:00Z",
+      "subscriptionStatus": "none",
+      "access": { "canUseApp": true, "reason": null }
+    },
+    "membership": { "role": "owner" },
+    "onboarding": { "isComplete": true }
   }
 }
 ```
+
+`me` es el mismo payload que devuelve `GET /api/me`.
+
+**Errores:** `422 code_invalid` (código incorrecto, o `deviceId` ausente o vacío), `401 code_expired`,
+`429 too_many_attempts` (el código quedó bloqueado; pedir uno nuevo) y `401 account_not_found` (el usuario
+no tiene una membership activa). Al pedir el código: `422 invalid_email`, `404 email_not_found`,
+`429 rate_limited` (con el header `retry-after` en segundos) y `502 code_send_failed`.
+
+### Registro
+
+Las mismas requests y responses que el login, sobre `POST /api/auth/signup/request-code` y
+`POST /api/auth/signup/verify-code`. Verificar el código crea el usuario, su cuenta individual, la
+membership `owner` y el trial, y abre la sesión. Pedir el código responde `409 email_already_exists` (en
+lugar de `email_not_found`) cuando el email ya tiene un usuario; verificarlo responde lo mismo si el email
+pasó a tener un usuario después de enviado el código.
+
+### Renovar y cerrar la sesión
+
+```bash
+POST /api/auth/refresh
+Content-Type: application/json
+
+{ "refreshToken": "eyJ..." }
+```
+
+**Response `200`** — un par nuevo, sin `me`:
+```json
+{
+  "accessToken": "eyJ...",
+  "refreshToken": "eyJ...",
+  "tokenType": "Bearer"
+}
+```
+
+Cada refresh devuelve un refresh token nuevo: guardarlo y descartar el que se envió. El access token dura
+1 hora y el refresh token 30 días.
+
+**Errores (todos `401`):** `refresh_token_invalid`, `refresh_token_replayed`, `refresh_token_revoked`,
+`refresh_token_expired`, `refresh_token_session_mismatch` y `account_not_found` (la membership de la
+sesión ya no está activa).
+
+`POST /api/auth/logout` recibe el mismo body `{ "refreshToken" }`, no requiere access token y responde
+`204` sin cuerpo.
 
 ### Conectar WebSocket con Token
 
@@ -150,11 +226,12 @@ claim shape es:
 }
 ```
 
-Cuál tipo de token emite el backend en cada login/registro/refresh
-depende de una feature flag del lado del servidor
+El login, el registro y el refresh con código emiten siempre
+`access_v2`. Cuál tipo de token emiten aceptar una invitación y
+`switch-account` depende de una feature flag del lado del servidor
 (`MEAL_PLANNER_TENANCY_V2`) — el frontend debe tratar ambos tipos de
-forma transparente (mismo header `Authorization: Bearer <token>`, mismo
-manejo de refresh) y NO asumir un tipo específico.
+forma transparente (mismo header `Authorization: Bearer <token>`) y NO
+asumir un tipo específico.
 
 ---
 
@@ -164,8 +241,13 @@ manejo de refresh) y NO asumir un tipo específico.
 
 | Método | Endpoint | Descripción |
 |--------|----------|-------------|
-| `POST` | `/api/auth/login` | Login con email/password |
-| `POST` | `/api/auth/social` | Login con Google/Apple/Facebook |
+| `POST` | `/api/auth/login/request-code` | Pedir código de login por email |
+| `POST` | `/api/auth/login/verify-code` | Verificar el código e iniciar sesión |
+| `POST` | `/api/auth/signup/request-code` | Pedir código de registro por email |
+| `POST` | `/api/auth/signup/verify-code` | Verificar el código y crear la cuenta |
+| `POST` | `/api/auth/refresh` | Renovar la sesión |
+| `POST` | `/api/auth/logout` | Cerrar la sesión |
+| `GET` | `/api/me` | Usuario actual |
 | `GET` | `/api/calendar` | Obtener calendario mensual |
 | `GET` | `/api/calendar/slot?date=YYYY-MM-DD&slot=breakfast` | Obtener slot específico |
 | `POST` | `/api/planning/generate` | Generar plan semanal |
@@ -320,8 +402,7 @@ Content-Type: application/json
 { "name": "Ana Pérez", "password": "supersecret123" }
 ```
 
-**Response `200`** — mismo shape que login/registro (ver
-[Login](#login-ejemplo)), con la membership recién aceptada:
+**Response `200`** — con la membership recién aceptada:
 ```json
 {
   "access_token": "eyJ...",
@@ -341,9 +422,12 @@ Content-Type: application/json
 }
 ```
 
-Guardar `access_token`/`refresh_token` exactamente igual que en el
-flujo de login normal — a partir de acá el usuario ya está autenticado
-y puede usar el resto de la API con esta nueva cuenta activa.
+Guardar el `access_token` — a partir de acá el usuario ya está
+autenticado y puede usar el resto de la API con esta nueva cuenta
+activa. Esta respuesta no usa el shape del login con código (ver
+[Login](#login-ejemplo)), y su `refresh_token` no pertenece a una
+sesión de dispositivo: `POST /api/auth/refresh` lo rechaza con
+`401 refresh_token_invalid`.
 
 **Errores:**
 
@@ -670,11 +754,7 @@ Lo siguen devolviendo:
 - los errores de validación y de dominio que arman los controladores que no son de autenticación:
   contexto de cuenta, perfil dietario, planning, chat de planning, calendario, cooking, recetas, shopping,
   inventario, memberships, invitaciones, abandono de cuenta y billing;
-- las rutas de autenticación anteriores, para los errores que arma su propio controlador o plug:
-  `/api/auth/password`, `/api/auth/social` y sus alias, `/api/auth/email-code/request`,
-  `/api/auth/email-code/verify` y `/api/auth/switch-account`. En `/api/auth/email-code/verify` esto vale solo
-  para los errores que arma su controlador: un bearer inválido en esa ruta lo rechaza su plug con el sobre
-  (`401 unauthenticated`). `/api/auth/email-code/request` no pasa por ese plug;
+- `/api/auth/switch-account`, para los errores que arma su propio controlador o plug;
 - la verificación de cuenta en `/api/accounts/:account_id/*`: `403` con `{ "error": "account_mismatch" }`.
 
 Para errores que ningún controlador maneja (por ejemplo, una ruta inexistente), Phoenix responde con su
@@ -818,25 +898,40 @@ const macros = {
 ### Login + Guardar Token
 
 ```javascript
-async function login(email, password) {
-  const response = await fetch("http://localhost:4000/api/auth/login", {
+async function postAuth(path, body) {
+  const response = await fetch(`http://localhost:4000/api/auth/${path}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ email, password })
+    body: JSON.stringify(body)
   });
 
   if (!response.ok) {
-    const error = await response.json();
-    throw new Error(error.error || "Login failed");
+    const { error } = await response.json();
+    throw new Error(error.code || "Login failed");
   }
 
-  const { token, user } = await response.json();
+  return response.json();
+}
 
-  // Guardar token (ejemplo con AsyncStorage)
-  await AsyncStorage.setItem("auth_token", token);
-  await AsyncStorage.setItem("user", JSON.stringify(user));
+// Paso 1: pedir el código que llega por email
+function requestLoginCode(email) {
+  return postAuth("login/request-code", { email });
+}
 
-  return { token, user };
+// Paso 2: verificar el código y abrir la sesión
+async function verifyLoginCode(email, code, deviceId) {
+  const { accessToken, refreshToken, me } = await postAuth("login/verify-code", {
+    email,
+    code,
+    deviceId
+  });
+
+  // Guardar tokens (ejemplo con AsyncStorage)
+  await AsyncStorage.setItem("auth_token", accessToken);
+  await AsyncStorage.setItem("refresh_token", refreshToken);
+  await AsyncStorage.setItem("user", JSON.stringify(me.user));
+
+  return { accessToken, me };
 }
 ```
 
@@ -954,10 +1049,12 @@ El backend no maneja cache offline directamente. Se recomienda:
 
 ### ¿Cómo manejo tokens expirados?
 
-1.捕获 error `unauthenticated`
-2. Llamar endpoint de refresh o re-login
+1. Capturar el error `401 access_token_expired`
+2. Llamar a `POST /api/auth/refresh` con el `refreshToken` y guardar el par nuevo
 3. Reconectar socket con nuevo token
 4. Reintentar operación
+
+Si el refresh responde `401`, la sesión terminó: volver a iniciar sesión con un código.
 
 ### ¿Qué pasa si el optimizador no encuentra solución?
 

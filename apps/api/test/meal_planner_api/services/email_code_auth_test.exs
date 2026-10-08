@@ -216,9 +216,8 @@ defmodule MealPlannerApi.Services.EmailCodeAuthTest do
   #   * `switch_account/2` failure (membership inactive) leaves the
   #     continuation UNCONSUMED.
   #
-  # RED-phase note: each test asserts `EmailCodeAuth.exchange_continuation/3`,
-  # which does NOT exist yet. The whole `describe` block fails to compile
-  # until task 3.4 GREEN lands.
+  # Each test calls `EmailCodeAuth.exchange_continuation/3` on a
+  # continuation minted by `EmailCodeAuth.mint_test_continuation/3`.
   describe "exchange_continuation/3 (Phase 3 task 3.3)" do
     setup do
       # The exchange MUST mint `access_v2` claims (with `membership_id`)
