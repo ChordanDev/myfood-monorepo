@@ -12,6 +12,13 @@ defmodule MealPlannerApi.Optimization.OptimizerServerTest do
   alias MealPlannerApi.Optimization.OptimizerServer
   alias MealPlannerApi.Optimization.TestSupport.FakePortRunner
 
+  defmodule MissingPythonRunner do
+    @moduledoc false
+    # Answers what `OptimizerPortRunner.open_port/1` answers when the configured
+    # Python executable cannot be found.
+    def open_port(_opts \\ []), do: {:error, {:python_not_found, "python3"}}
+  end
+
   @payload %{
     days: ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"],
     slots: ["breakfast", "lunch", "dinner"],
@@ -81,6 +88,24 @@ defmodule MealPlannerApi.Optimization.OptimizerServerTest do
 
       assert Process.whereis(name_a) == pid_a
       assert Process.whereis(name_b) == pid_b
+    end
+
+    test "refuses to start when the runner cannot find the Python executable" do
+      # start_link/1 links the server to the test process; trap the exit so the
+      # refused start is observed as a return value instead of killing the test.
+      Process.flag(:trap_exit, true)
+
+      log =
+        capture_log(fn ->
+          assert {:error, {:shutdown, {:python_not_found, "python3"}}} =
+                   OptimizerServer.start_link(
+                     name: unique_name(),
+                     port_runner: MissingPythonRunner
+                   )
+        end)
+
+      assert log =~ "failed to spawn Python"
+      assert log =~ "python_not_found"
     end
   end
 
