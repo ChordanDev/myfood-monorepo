@@ -18,7 +18,10 @@ defmodule MealPlannerApi.Generation.ServerTestFixtures do
       consumes (`slot_key`, `recipe_id`, `name`, `price_cents`).
   """
 
-  import ExUnit.Assertions, only: [assert_receive: 1]
+  # The whole module, not `only: [assert_receive: 1]`: on Elixir 1.17 the
+  # macro expands to a call to `flunk/1` in the caller, which must be
+  # imported too.
+  import ExUnit.Assertions
 
   alias MealPlannerApi.Data.{PlanningRepo, RecipeRepo, ShoppingRepo}
   alias MealPlannerApi.Persistence.Accounts.Account, as: PersistenceAccount
