@@ -1565,6 +1565,80 @@ defmodule MealPlannerApiWeb.PlanningChannelTest do
 
       assert_error_reply(ref, :session_mismatch)
     end
+
+    test "session_id that is not a UUID replies :invalid_payload and the channel stays alive",
+         %{account: account, token: token} do
+      _ = persist_trial_window!(account, :eligible)
+
+      {:ok, socket} = connect(UserSocket, %{"token" => token})
+
+      {:ok, _reply, socket} =
+        subscribe_and_join(socket, PlanningChannel, "planning:#{account.id}")
+
+      ref_start =
+        push(socket, "start_planning", %{
+          "range_from" => "2026-05-29",
+          "range_to" => "2026-06-04"
+        })
+
+      assert_reply(ref_start, :ok, %{"sessionId" => session_id, "status" => :active})
+      assert_broadcast("session_started", %{"session_id" => ^session_id})
+
+      ref =
+        push(socket, "send_message", %{
+          "session_id" => "not-a-uuid",
+          "intent" => %{"kind" => "change_constraints", "payload" => %{}}
+        })
+
+      assert_error_reply(ref, :invalid_payload)
+
+      # The same socket still serves the session it started.
+      ref_next =
+        push(socket, "send_message", %{
+          "session_id" => session_id,
+          "intent" => %{"kind" => "change_constraints", "payload" => %{"budget_cents" => 5000}}
+        })
+
+      assert_reply(ref_next, :ok, %{"kind" => :change_constraints})
+    end
+
+    test "intent the atomizer rejects replies :invalid_payload and the channel stays alive",
+         %{account: account, token: token} do
+      _ = persist_trial_window!(account, :eligible)
+
+      {:ok, socket} = connect(UserSocket, %{"token" => token})
+
+      {:ok, _reply, socket} =
+        subscribe_and_join(socket, PlanningChannel, "planning:#{account.id}")
+
+      ref_start =
+        push(socket, "start_planning", %{
+          "range_from" => "2026-06-05",
+          "range_to" => "2026-06-11"
+        })
+
+      assert_reply(ref_start, :ok, %{"sessionId" => session_id, "status" => :active})
+      assert_broadcast("session_started", %{"session_id" => ^session_id})
+
+      # `IntentAtomizer.atomize/1` rejects an intent that is not a map,
+      # whichever atoms the VM has loaded.
+      ref =
+        push(socket, "send_message", %{
+          "session_id" => session_id,
+          "intent" => "change_constraints"
+        })
+
+      assert_error_reply(ref, :invalid_payload)
+
+      # The same socket still serves the session it started.
+      ref_next =
+        push(socket, "send_message", %{
+          "session_id" => session_id,
+          "intent" => %{"kind" => "change_constraints", "payload" => %{"budget_cents" => 5000}}
+        })
+
+      assert_reply(ref_next, :ok, %{"kind" => :change_constraints})
+    end
   end
 
   # ==========================================================================

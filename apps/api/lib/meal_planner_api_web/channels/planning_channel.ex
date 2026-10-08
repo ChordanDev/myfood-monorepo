@@ -374,7 +374,11 @@ defmodule MealPlannerApiWeb.PlanningChannel do
           {:error, :session_mismatch} ->
             {:reply, {:error, error_payload(:session_mismatch)}, socket}
 
-          {:error, :atomize_failed} ->
+          {:error, :invalid_session_id} ->
+            {:reply, {:error, error_payload(:invalid_payload)}, socket}
+
+          # `IntentAtomizer.atomize/1` rejects an intent with a bare `:error`.
+          :error ->
             {:reply, {:error, error_payload(:invalid_payload)}, socket}
         end
     end
