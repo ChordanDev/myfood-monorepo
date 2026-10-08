@@ -56,6 +56,16 @@ From `apps/api`, with `MIX_ENV=test MYFOOD_TEST_DB_USERNAME=luccagiordana MYFOOD
 - 2026-10-08 — T3 (route: delegated writer; its commit is the one that adds this line). Passive docs, no RED: structural readback of both READMEs. Claims checked against the code: `mix setup` is `["deps.get"]` in `mix.exs`; `priv/repo/seeds.exs` is not re-runnable (it inserts a second `Familia Demo` Account, then `{:ok, owner} = Accounts.create_user(...)` fails on the unique `users.email` index); the runner logs the configured value and `OptimizerServer.init/1` stops.
 - 2026-10-08 — T3 commit: `bd2408e`. Parent spot check at `bd2408e` on a second fresh database (`meal_planner_api_test_fresh_verify`, create + migrate only): `family_4|4|7|NULL`, `family_6|6|30|family_6`, `individual|1|7|NULL`, `trial|6|30|trial`; `reference_plans_test.exs`, `optimizer_port_runner_test.exs`, `subscriptions_test.exs` and `mobile_auth_controller_test.exs` answer 90 passed. `OptimizerServer.start_link/1` with the real runner and the default `"python3"` answers `{:ok, pid}` (it raised `:enoent` before); `open_port(python_executable: "no-such-python")` answers `{:error, {:python_not_found, "no-such-python"}}` and logs the fix.
 
+## Review
+
+- 2026-10-08 — Candidate `507e107..f5c4235` (T1–T3 in one slice), assessed `high` (`hot_path`: auth controller test). Consent granted by the maintainer; four lenses ran; outcome `approved`, acknowledged (lineage `review-cd10cdc0347e0db3`). Reviewed boundary: `f5c4235`.
+- Advisory findings, none blocking, none applied (they are later work, to be accepted or dropped by the maintainer):
+  - WARNING — the `ensure_default_plan_id/1` log says to run `mix ecto.migrate`, which does nothing when the migration already ran and the row was deleted afterwards (`subscriptions.ex:116-119`).
+  - WARNING — `reference_plans_test.exs` can pass without the migration on a database that already holds the fixture rows, or when the concurrency suite runs first; a check that runs the migration's `up` against an emptied table would not depend on history.
+  - SUGGESTION — no automated assertion covers the `ON CONFLICT (name) DO NOTHING` branch of the migration.
+  - SUGGESTION — `:python_not_found` and its log also cover a path that exists but is not executable; "not found or not executable" would match the documented contract.
+  - SUGGESTION — the "Checks" section of this document records a local database account name; a placeholder would do.
+
 ## Out of scope, noticed
 
 - `priv/repo/seeds.exs` and `SubscriptionPlanFixtures` upsert `family_6` with `max_planning_days: 7` and no RevenueCat entitlement, overwriting the `30` / `"family_6"` the migration inserts.
