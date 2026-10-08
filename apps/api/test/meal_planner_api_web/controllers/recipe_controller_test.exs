@@ -106,6 +106,13 @@ defmodule MealPlannerApiWeb.RecipeControllerTest do
              ]
     end
 
+    test "answers a cost of 0 for a recipe no daily cost was computed for", f do
+      recipe = recipe!(f)
+
+      assert %{"estimatedCostCents" => 0} =
+               f |> request(recipe.id) |> json_response(200) |> Map.fetch!("data")
+    end
+
     test "has exactly the key sets of the frozen mobile payload fixture", f do
       recipe = recipe!(f, %{account_id: nil, source: :traditional})
       fixture = @fixture_path |> File.read!() |> Jason.decode!()
@@ -214,6 +221,20 @@ defmodule MealPlannerApiWeb.RecipeControllerTest do
                f |> request(recipe.id) |> json_response(403)
 
       assert is_binary(message) and message != ""
+    end
+
+    # The membership check of `RecipeAccess` is not reachable through the
+    # route: the auth pipeline answers first.
+    test "a member who is no longer active is stopped before the recipe is read", f do
+      recipe = recipe!(f)
+
+      f.user.memberships
+      |> hd()
+      |> Ecto.Changeset.change(status: :suspended)
+      |> Repo.update!()
+
+      assert %{"error" => %{"code" => "account_not_found"}} =
+               f |> request(recipe.id) |> json_response(401)
     end
   end
 
