@@ -12,8 +12,8 @@ import type { AuthAccount, AuthMembership, AuthSession } from '../auth';
  *   - `account.subscription_status`
  *                              -> `MyFoodBack.Accounts.Account.changeset/2`
  *                                 validate_inclusion(:subscription_status, [...])
- *   - `membership.role`        -> `MyFoodBack.Accounts.Membership.changeset/2`
- *                                 validate_inclusion(:role, [...])
+ *   - `membership.role`        -> `MealPlannerApi.Persistence.Accounts.AccountMembership.changeset/2`
+ *                                 validate_inclusion(:role, [:owner, :member])
  *   - `token_type`             -> `MyFoodBack.Auth.auth_response/6` and
  *                                 `token_response/3` (hard-coded `"Bearer"`)
  *
@@ -41,6 +41,14 @@ describe('auth literal unions are closed', () => {
     // @ts-expect-error — closed union should reject unknown role values
     const invalidRole: AuthMembership['role'] = 'unknown_value_xyz';
     void invalidRole;
+  });
+
+  it('accepts exactly the AuthMembership.role values the api emits', () => {
+    // `Record` over the union fails to compile both when a role the api
+    // emits is missing from the union and when the union gains a role
+    // that is not listed here.
+    const roles: Record<AuthMembership['role'], true> = { owner: true, member: true };
+    expect(Object.keys(roles).sort()).toEqual(['member', 'owner']);
   });
 
   it('rejects unknown AuthSession.tokenType values', () => {

@@ -307,6 +307,11 @@ class MealPlannerSocket {
 }
 ```
 
+> **Note:** `refreshToken()` above only illustrates where a refresh fits in the reconnection loop; its
+> request and response do not match the API. `POST /api/auth/refresh` takes `{ "refreshToken" }` in the
+> JSON body and answers `{ "accessToken", "refreshToken", "tokenType" }`, as defined in
+> [spec #1](https://github.com/ChordanDev/myfood-monorepo/issues/1).
+
 ---
 
 ## Error Handling

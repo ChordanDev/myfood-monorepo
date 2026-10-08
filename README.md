@@ -76,10 +76,13 @@ trigger neither.
 
 ## Pending
 
-The mobile app currently targets the auth / onboarding / preferences API
+The mobile app was built against the auth / onboarding / preferences API
 contract of [ChordanDev/progra-3-back](https://github.com/ChordanDev/progra-3-back)
-(email-code auth, onboarding, preferences, slot cooking times). `apps/api`
-does not expose those endpoints yet; porting them into `apps/api` is tracked
-as separate work (see `odd/tasks/monorepo-bootstrap.md`). Until then the
-mobile contract test `apps/mobile/src/services/__tests__/authErrorCodeContract.test.ts`
-keeps its api-side assertion skipped.
+(email-code auth, onboarding, preferences, slot cooking times). `apps/api` now
+serves the auth part as specified in
+[#1](https://github.com/ChordanDev/myfood-monorepo/issues/1), and the mobile
+contract test `apps/mobile/src/services/__tests__/authErrorCodeContract.test.ts`
+checks every error code `apps/api` emits through its error envelope against
+the mobile allowlist. `apps/api` does not expose the onboarding, preferences
+and slot cooking times endpoints yet; porting them into `apps/api` is tracked
+as separate work (see `odd/tasks/monorepo-bootstrap.md`).

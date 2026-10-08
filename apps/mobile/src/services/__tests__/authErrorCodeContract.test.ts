@@ -3,31 +3,42 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 
+import { AUTH_ERROR_MESSAGES, errorFromEnvelope, KNOWN_AUTH_ERROR_CODES } from '@/api/errors';
+
 /**
  * Contract test: every error code emitted by the api via the
- * `error(:atom)` domain-error helper MUST be present in the mobile app's
+ * `error(:atom)` envelope helper MUST be present in the mobile app's
  * `KNOWN_AUTH_ERROR_CODES` allowlist. Otherwise `errorFromEnvelope` on
  * the mobile side normalizes the code to `unknown_error` and the user sees
  * a generic "Request failed" message instead of a domain-specific one.
  *
+ * The allowlist and the message map are imported from `@/api/errors`,
+ * the module the app reads at runtime, so removing a code there fails
+ * this test. That module only has a type import, so importing it runs
+ * no side effects.
+ *
  * The api source is treated as a read-only fixture. We walk every
  * `.ex` file under `apps/api/lib/` and collect atoms from `error(:atom)`
- * calls — these are the domain codes the Auth context raises.
+ * calls — these are the codes the api renders through
+ * `MealPlannerApiWeb.ApiError.error/2`.
  */
 describe('auth error code contract (api -> mobile allowlist)', () => {
-  // The Auth domain context raises domain errors with `error(:atom)`.
-  // The atoms that pass through `ErrorRendering.safe_error/1` and out
-  // the wire as `error.code` are exactly the atoms in those calls.
+  // Controllers and plugs in `apps/api` render the mobile error envelope
+  // with `conn |> ApiError.error(:atom)`. The atom is the `error.code`
+  // that goes out on the wire, so the atoms in those calls are exactly
+  // the codes the envelope can carry.
   //
-  // We do NOT include codes that come from:
-  //   * `SafeError` (`internal_error`) — intentionally normalized.
-  //   * `RequireUnlockedAccount` plug (`account_locked`) — billing/UX
-  //     path handled outside the auth allowlist.
-  //   * `ErrorJSON` (`request_too_large`) — transport-level.
-  //   * `code: "..."` string literals in `accounts.ex` — those flow
-  //     through a different path (see `KNOWN_AUTH_ERROR_CODES`).
-  // The contract asserted here is: every `error(:atom)` raised by the
-  // api has a mobile-side allowlist entry, full stop.
+  // The scan does NOT see:
+  //   * `ApiError.server_fault/1` (`unknown_error`) — it has no
+  //     `error(:atom)` literal by design, and `unknown_error` is in the
+  //     allowlist anyway.
+  //   * The flat `{ "error": "<reason>" }` bodies the legacy and
+  //     non-auth controllers still build with `json/2` — they are not
+  //     part of the envelope contract.
+  //   * `MealPlannerApiWeb.ErrorJSON` (`{ "errors": { "detail" } }`) —
+  //     Phoenix's transport-level fallback.
+  // The contract asserted here is: every `error(:atom)` call in the api
+  // has a mobile-side allowlist entry, full stop.
 
   /**
    * Resolve the api source `lib/` directory inside the monorepo.
@@ -76,52 +87,15 @@ describe('auth error code contract (api -> mobile allowlist)', () => {
     return [...atoms].sort();
   }
 
-  // Importing the production module would also re-run the back-end of
-  // the auth service. Use a small local mirror of the allowlist to keep
-  // this contract test self-contained and explicit. If this mirror
-  // drifts from the real one, the mobile app would already be broken for
-  // other reasons — and the next two tests will still verify the real
-  // mobile allowlist against the api.
-  const KNOWN_AUTH_ERROR_CODES = new Set([
-    'invalid_email',
-    'email_already_exists',
-    'email_not_found',
-    'rate_limited',
-    'code_invalid',
-    'code_expired',
-    'code_send_failed',
-    'too_many_attempts',
-    'unauthenticated',
-    'access_token_expired',
-    'refresh_token_invalid',
-    'refresh_token_revoked',
-    'refresh_token_replayed',
-    'refresh_token_expired',
-    'refresh_token_session_mismatch',
-    'account_not_found',
-    'rate_limit_record_failed',
-    'trial_expired',
-    'onboarding_invalid',
-    'onboarding_already_complete',
-    'preferences_invalid',
-    'slot_cooking_times_invalid',
-    'configuration_error',
-    'network_error',
-    'timeout',
-    'unknown_error',
-  ]);
+  // The allowlist is a `Set<AuthErrorCode>`; the codes scanned from the
+  // api and parsed from the union source are plain strings, so read it
+  // through a string-typed view instead of casting at every call site.
+  const runtimeAllowlist: ReadonlySet<string> = KNOWN_AUTH_ERROR_CODES;
 
-  // Read the real allowlist + message map straight from the mobile
-  // source so the assertions are anchored to the shipping code, not a
-  // duplicated copy.
-  const frontServicePath = path.resolve(__dirname, '..', 'authService.ts');
-  const frontSource = fs.readFileSync(frontServicePath, 'utf8');
-
-  // Read the `AuthErrorCode` type from the auth types module. We
-  // anchor on the source file rather than importing the type because
-  // importing would pull the whole auth module graph and run side
-  // effects. The file path is resolved relative to this test, so it
-  // moves with the test directory.
+  // `AuthErrorCode` is a type-only union: it is erased at compile time
+  // and has no runtime value to import, so its members are parsed from
+  // the source text. The file path is resolved relative to this test,
+  // so it moves with the test directory.
   const authTypesPath = path.resolve(__dirname, '..', '..', 'features', 'auth', 'types', 'auth.ts');
   const authTypesSource = fs.readFileSync(authTypesPath, 'utf8');
 
@@ -149,27 +123,20 @@ describe('auth error code contract (api -> mobile allowlist)', () => {
     return extractAuthErrorCodeUnionMembersFrom(authTypesSource);
   }
 
-  /** Extract the single-quoted code keys from `new Set<AuthErrorCode>([...])`. */
-  function extractProductionAllowlistKeys(): string[] {
-    const setMatch = frontSource.match(
-      /const KNOWN_AUTH_ERROR_CODES\s*=\s*new Set<AuthErrorCode>\(\[([\s\S]*?)\]\)/
-    );
-    expect(setMatch).not.toBeNull();
-    return (setMatch![1].match(/'([a-z_]+)'/g) ?? []).map((s) => s.replace(/'/g, ''));
-  }
+  function scanApiErrorCodes(): string[] {
+    const apiLib = resolveApiLibPath();
+    if (!apiLib) {
+      throw new Error(
+        '[authErrorCodeContract] apps/api/lib not found next to apps/mobile. ' +
+          'This test depends on the monorepo layout.'
+      );
+    }
+    const apiCodes = extractApiErrorAtoms(apiLib);
 
-  /** Extract the message keys (top-level `foo:`) from the AUTH_ERROR_MESSAGES object literal. */
-  function extractProductionMessageKeys(): string[] {
-    // Match the first top-level `{` after the `=` and the matching `}`;
-    // we approximate matching with a non-greedy scan up to the first
-    // `};\n` outside a string, which is the object's terminator.
-    const messagesMatch = frontSource.match(
-      /const AUTH_ERROR_MESSAGES:\s*Partial<Record<AuthErrorCode,\s*string>>\s*=\s*\{([\s\S]*?)\n\};/
-    );
-    expect(messagesMatch).not.toBeNull();
-    return (messagesMatch![1].match(/^\s*([a-z_]+):/gm) ?? []).map((line) =>
-      line.replace(/^\s*([a-z_]+):.*$/, '$1')
-    );
+    // Sanity check: the extractor must actually have found something.
+    // If this ever goes to zero, the test is silently lying.
+    expect(apiCodes.length).toBeGreaterThan(0);
+    return apiCodes;
   }
 
   it('resolveApiLibPath() resolves apps/api/lib inside the monorepo', () => {
@@ -192,47 +159,39 @@ describe('auth error code contract (api -> mobile allowlist)', () => {
     }
   });
 
-  // TODO(porting): re-enable once the api exposes the progra-3-back auth error-code contract (see odd/tasks/monorepo-bootstrap.md).
-  // `apps/api` (meal_planner_api) currently has no `error(:atom)` helper
-  // calls, so the extractor returns an empty list and the `> 0` sanity
-  // check below fails by design until the auth contract is ported.
-  it.skip('every error code emitted by the api is in the mobile allowlist', () => {
-    const apiLib = resolveApiLibPath();
-    if (!apiLib) {
-      throw new Error(
-        '[authErrorCodeContract] apps/api/lib not found next to apps/mobile. ' +
-          'This test depends on the monorepo layout.'
-      );
-    }
-    const apiCodes = extractApiErrorAtoms(apiLib);
-
-    // Sanity check: the extractor must actually have found something.
-    // If this ever goes to zero, the test is silently lying.
-    expect(apiCodes.length).toBeGreaterThan(0);
-
-    const missing = apiCodes.filter((code) => !KNOWN_AUTH_ERROR_CODES.has(code));
+  // Scans the real `apps/api/lib` tree. The api keeps every envelope
+  // call in the piped `conn |> ApiError.error(:atom)` shape so this scan
+  // can see it (see the `ApiError` moduledoc).
+  it('every error code emitted by the api is in the mobile allowlist', () => {
+    const missing = scanApiErrorCodes().filter((code) => !runtimeAllowlist.has(code));
     expect(missing).toEqual([]);
   });
 
-  it('KNOWN_AUTH_ERROR_CODES in the mobile allowlist matches the production source', () => {
-    // The mirror above must stay in lockstep with the real
-    // KNOWN_AUTH_ERROR_CODES set in src/services/authService.ts. This
-    // is a guard against a silent divergence between this test's
-    // fixture and the real shipping code.
-    const listed = extractProductionAllowlistKeys();
-    const mirrorList = [...KNOWN_AUTH_ERROR_CODES].sort();
+  it('errorFromEnvelope() keeps every error code emitted by the api', () => {
+    // Behavioural anchor: this is the normalizer every api error goes
+    // through, so it proves the allowlist asserted above is the one the
+    // app applies, not just an exported value.
+    const normalized = scanApiErrorCodes().filter(
+      (code) => errorFromEnvelope({ error: { code, message: 'x' } }, 400).code !== code
+    );
+    expect(normalized).toEqual([]);
+  });
 
-    expect(listed.sort()).toEqual(mirrorList);
+  it('errorFromEnvelope() normalizes a code outside the allowlist to unknown_error', () => {
+    // Triangulation: the check above would pass trivially if the
+    // normalizer echoed back any code it was given.
+    expect(runtimeAllowlist.has('brand_new_code')).toBe(false);
+    expect(errorFromEnvelope({ error: { code: 'brand_new_code', message: 'x' } }, 400).code).toBe(
+      'unknown_error'
+    );
   });
 
   it('AUTH_ERROR_MESSAGES has an entry for every code in KNOWN_AUTH_ERROR_CODES', () => {
     // A code in the allowlist without a Spanish message would render
     // as the raw `error.message` from the api (often English) — i.e.
     // a regression. Lock the 1:1 coverage in.
-    const messageKeys = extractProductionMessageKeys();
-    const missing = [...KNOWN_AUTH_ERROR_CODES]
-      .filter((code) => !messageKeys.includes(code))
-      .sort();
+    const messageKeys = new Set(Object.keys(AUTH_ERROR_MESSAGES));
+    const missing = [...runtimeAllowlist].filter((code) => !messageKeys.has(code)).sort();
     expect(missing).toEqual([]);
   });
 
@@ -242,11 +201,12 @@ describe('auth error code contract (api -> mobile allowlist)', () => {
     // and forgets to add it to `KNOWN_AUTH_ERROR_CODES`, the runtime
     // normalizer (`errorFromEnvelope`) would coerce it to
     // `unknown_error` and the user would see a generic "Request
-    // failed" message. Lock the union ⊇ allowlist direction in.
+    // failed" message. Lock the union ⊆ allowlist direction in; the
+    // opposite one is enforced by tsc through `Set<AuthErrorCode>`.
     const unionMembers = extractAuthErrorCodeUnionMembers();
     expect(unionMembers.length).toBeGreaterThan(0);
 
-    const missing = unionMembers.filter((code) => !KNOWN_AUTH_ERROR_CODES.has(code)).sort();
+    const missing = unionMembers.filter((code) => !runtimeAllowlist.has(code)).sort();
     expect(missing).toEqual([]);
   });
 
