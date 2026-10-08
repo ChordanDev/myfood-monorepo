@@ -117,6 +117,12 @@ Test-first: each behaviour change starts from a failing test observed before the
   - One earlier full run by the writer reported 1 failure of 1257 that was not identified (its output was cut). Six later full runs passed; treated as a flake, not confirmed.
   - `ProfileController` answers `validation_error` with the static message when the changeset is invalid on none of the three fields, instead of raising. No public path reaches that branch today (`profile_changeset/2` declares no constraint), so it is covered by reading only.
   - Not taken from the reviews: `stale_error_field` on the update (no path deletes a User; the same read-then-update exists in two other functions), the 15-digit migration versions and the migrate-before-boot order (both pre-existing), and the redundant second assertion of the `user_json/1` test.
+- 2026-10-08: second native review, of the whole branch `f4b849d..347d05f` (high risk on the `features/auth` path signal, 22 files, 1214 lines, consent granted by the user; only `4ed9e29` was new since the first review). Four lenses ran; approved and acknowledged (lineage `review-bd5589cfb9252396`). The reviewed boundary is now `347d05f`. Six non-blocking findings, none opened a correction:
+  - Readability, warning: the router test for a 64-grapheme name of two codepoints each relies on a decomposed literal that looks identical to the precomposed one and does not assert the codepoint count, so a normalizing editor would silently turn it into the one-codepoint case. The changeset test for the same case does pin 128 codepoints.
+  - Reliability, suggestion: the `reject` clause for an error on no profile field has no direct test (unreachable today).
+  - Reliability, suggestion: no stale-entry guard between the read and the update in `update_user_profile/2`.
+  - Resilience, suggestion: a release that boots before the migration runs fails every User load; the deploy order is outside the repository.
+  - Readability, suggestions, both repeated from the first review: the `user_not_found` to `account_not_found` mapping has no comment at the call site, and the bounds 64 and 1 to 20 are bare literals next to the named 255 limit.
 - Limits of the round trip proof: the token was minted with `FactoryHelpers` because the dev server keeps the email code in an in-memory mailbox with no route to read it; the wire was Node's fetch (`EXPO_PUBLIC_USE_RN_FETCH=1`), not the device's `expo/fetch`; the Settings screen was not rendered against the real route. A simulator run covers those three.
 
 ## Notes and follow-ups
