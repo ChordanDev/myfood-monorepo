@@ -14,6 +14,11 @@ defmodule MealPlannerApi.Services.DeviceSessions do
   second time is known to be a replay: someone other than the app may
   hold it, and every session of that User on that device is revoked.
 
+  A User has at most one session that is not revoked per device. Logins
+  and refreshes of the same User on the same device take turns, so each
+  one sees what the one before it left; a unique index over the rows
+  that are not revoked holds the same rule in the database.
+
   The legacy routes mint their pairs with
   `MealPlannerApiWeb.Controllers.AccountScopeHelpers.mint_token_pair/2`
   and store nothing, so their refresh tokens are unknown here.
@@ -23,6 +28,7 @@ defmodule MealPlannerApi.Services.DeviceSessions do
 
   require Logger
 
+  alias Ecto.Adapters.SQL
   alias MealPlannerApi.AccountsMembership
   alias MealPlannerApi.Auth.Guardian
   alias MealPlannerApi.Persistence.Accounts.AccountMembership
@@ -32,6 +38,11 @@ defmodule MealPlannerApi.Services.DeviceSessions do
 
   # How long a revoked row is kept before `sweep/1` deletes it.
   @revoked_retention_days 7
+
+  # First key of the two-key advisory lock form. The only other locks of
+  # that form are the ones `EmailCodeLogin` takes under its own first
+  # key; the single-key locks elsewhere live in a separate key space.
+  @lock_namespace 0x4453_4553
 
   @type token_pair :: %{access_token: String.t(), refresh_token: String.t()}
 
@@ -45,28 +56,57 @@ defmodule MealPlannerApi.Services.DeviceSessions do
           | :session_issue_failed
 
   @doc """
+  Whether `device_id` can name the phone of a Device session: a string
+  of valid UTF-8 that is not blank, has no NUL character and takes at
+  most #{DeviceSession.max_device_id_bytes()} bytes.
+
+  This is the one statement of the rule. Anything it accepts can be
+  stored, so a caller that has something to lose by a failed `open/3`,
+  such as an email code, asks here first.
+  """
+  @spec valid_device_id?(term()) :: boolean()
+  def valid_device_id?(device_id) when is_binary(device_id) do
+    String.valid?(device_id) and String.trim(device_id) != "" and
+      not String.contains?(device_id, <<0>>) and
+      byte_size(device_id) <= DeviceSession.max_device_id_bytes()
+  end
+
+  def valid_device_id?(_device_id), do: false
+
+  @doc """
   Opens a Device session for `user` on `device_id`, scoped to
   `membership`, and returns its token pair.
 
-  A phone holds one session per User: the sessions `user` already had on
-  `device_id` are revoked. Sessions on other devices, and other Users'
-  sessions on this one, are left alone.
+  A phone holds one session per User: the session `user` already had on
+  `device_id` is revoked. Sessions on other devices, and other Users'
+  sessions on this one, are left alone. A login that arrives while
+  another login or a refresh of the same User on the same device is in
+  progress waits for it to finish.
 
   `{:error, :session_issue_failed}` means a token could not be signed or
-  its row could not be stored; nothing is stored or revoked then.
+  its row could not be stored, which is the answer for a `device_id`
+  that `valid_device_id?/1` refuses; nothing is stored or revoked then.
   """
   @spec open(User.t(), AccountMembership.t(), String.t()) ::
           {:ok, token_pair()} | {:error, :session_issue_failed}
-  def open(%User{} = user, %AccountMembership{} = membership, device_id)
-      when is_binary(device_id) do
-    Repo.transaction(fn ->
-      revoke_device(user.id, device_id, DateTime.utc_now())
+  def open(%User{} = user, %AccountMembership{} = membership, device_id) do
+    if valid_device_id?(device_id) do
+      Repo.transaction(fn -> take_over_device(user, membership, device_id) end)
+    else
+      {:error, :session_issue_failed}
+    end
+  end
 
-      case issue(user, membership, device_id) do
-        {:ok, _session, token_pair} -> token_pair
-        {:error, reason} -> Repo.rollback(reason)
-      end
-    end)
+  # The transaction of `open/3`: the device lock comes first, so the
+  # revocation sees whatever a login or refresh before this one stored.
+  defp take_over_device(user, membership, device_id) do
+    :ok = lock_device(user.id, device_id)
+    revoke_device(user.id, device_id, DateTime.utc_now())
+
+    case issue(user, membership, device_id) do
+      {:ok, _session, token_pair} -> token_pair
+      {:error, reason} -> Repo.rollback(reason)
+    end
   end
 
   @doc """
@@ -101,9 +141,8 @@ defmodule MealPlannerApi.Services.DeviceSessions do
   @spec rotate(term()) :: {:ok, token_pair()} | {:error, rotation_error()}
   def rotate(refresh_token) when is_binary(refresh_token) do
     Repo.transaction(fn ->
-      now = DateTime.utc_now()
-
       with {:ok, session} <- lock_session(refresh_token),
+           now = DateTime.utc_now(),
            :ok <- check_session(session, refresh_token, now),
            {:ok, user, membership} <- load_scope(session) do
         replace(session, user, membership, now)
@@ -168,17 +207,25 @@ defmodule MealPlannerApi.Services.DeviceSessions do
   # Rotation
   # ---------------------------------------------------------------------------
 
-  # The row lock is what makes rotation single-use: a second request with
-  # the same token waits here and then finds the row already replaced.
+  # The row is read twice. The first read takes no lock and only learns
+  # whose token this is, because the device lock is keyed by User and
+  # device and has to come before any row lock. The second read locks
+  # the row, and it is the one rotation decides on: while this request
+  # waited for the device lock, a login or another refresh on the same
+  # device may have revoked or replaced the row.
+  #
+  # That makes rotation single-use: a second request with the same token
+  # waits here and then finds the row already replaced. The row lock
+  # also keeps a logout, which takes no device lock, from landing in the
+  # middle of a rotation.
   defp lock_session(refresh_token) do
-    query =
-      from(s in DeviceSession,
-        where: s.token_hash == ^hash_token(refresh_token),
-        lock: "FOR UPDATE"
-      )
+    by_token = from(s in DeviceSession, where: s.token_hash == ^hash_token(refresh_token))
 
-    case Repo.one(query) do
-      %DeviceSession{} = session -> {:ok, session}
+    with %DeviceSession{user_id: user_id, device_id: device_id} <- Repo.one(by_token),
+         :ok <- lock_device(user_id, device_id),
+         %DeviceSession{} = session <- Repo.one(lock(by_token, "FOR UPDATE")) do
+      {:ok, session}
+    else
       nil -> {:error, :refresh_token_invalid}
     end
   end
@@ -244,12 +291,16 @@ defmodule MealPlannerApi.Services.DeviceSessions do
     end
   end
 
+  # The old row is revoked before its successor is stored, because the
+  # database allows a User one row that is not revoked per device, and
+  # only then pointed at the successor. A pair that cannot be issued
+  # rolls the revocation back with everything else.
   defp replace(%DeviceSession{} = session, user, membership, now) do
+    revoked = session |> Ecto.Changeset.change(revoked_at: now) |> Repo.update!()
+
     case issue(user, membership, session.device_id) do
       {:ok, successor, token_pair} ->
-        session
-        |> Ecto.Changeset.change(revoked_at: now, replaced_by_id: successor.id)
-        |> Repo.update!()
+        revoked |> Ecto.Changeset.change(replaced_by_id: successor.id) |> Repo.update!()
 
         {:ok, token_pair}
 
@@ -293,7 +344,24 @@ defmodule MealPlannerApi.Services.DeviceSessions do
     end
   end
 
-  # Revokes the active sessions of one User on one device.
+  # Makes the requests that open or rotate the session of one User on one
+  # device take turns, until the transaction ends. Without it, a login
+  # that revokes the device's session while a refresh is replacing that
+  # session does not see the successor, and both end up with a row.
+  #
+  # `open/3` and `rotate/1` take this lock before they lock any row, so
+  # neither can hold a row the other needs while waiting for it.
+  defp lock_device(user_id, device_id) do
+    SQL.query!(Repo, "SELECT pg_advisory_xact_lock($1, $2)", [
+      @lock_namespace,
+      :erlang.phash2({user_id, device_id})
+    ])
+
+    :ok
+  end
+
+  # Revokes the session one User has on one device, if it is not revoked
+  # yet. The caller holds the device lock.
   defp revoke_device(user_id, device_id, now) do
     from(s in DeviceSession,
       where: s.user_id == ^user_id and s.device_id == ^device_id,

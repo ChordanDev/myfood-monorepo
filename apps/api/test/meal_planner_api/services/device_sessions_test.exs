@@ -2,12 +2,16 @@ defmodule MealPlannerApi.Services.DeviceSessionsTest do
   @moduledoc """
   Branches of `MealPlannerApi.Services.DeviceSessions` that the HTTP tests
   in `auth_controller_test.exs` and `mobile_auth_controller_test.exs` do
-  not reach: refresh tokens that disagree with their row, a refresh JWT
-  past its own expiry, a Membership that stopped being active, and the
-  sweep.
+  not reach: the `deviceId` rule case by case, what the database itself
+  refuses to store, refresh tokens that disagree with their row, a
+  refresh JWT past its own expiry, a Membership that stopped being
+  active, and the sweep.
 
   A token that disagrees with its row cannot come out of `open/3`, so
   those cases store a row by hand for a token minted here.
+
+  Requests that overlap are in `device_sessions_concurrency_test.exs`:
+  under the SQL sandbox used here they cannot wait on one another.
   """
   use ExUnit.Case, async: false
 
@@ -27,6 +31,36 @@ defmodule MealPlannerApi.Services.DeviceSessionsTest do
     :ok
   end
 
+  describe "valid_device_id?/1" do
+    test "accepts what the app sends and anything else the column can hold" do
+      assert DeviceSessions.valid_device_id?(@device_id)
+      assert DeviceSessions.valid_device_id?("d")
+      assert DeviceSessions.valid_device_id?(String.duplicate("d", 255))
+      assert DeviceSessions.valid_device_id?("teléfono de Ana 📱")
+    end
+
+    test "refuses a value that is not a string, or is blank" do
+      refute DeviceSessions.valid_device_id?(nil)
+      refute DeviceSessions.valid_device_id?(7)
+      refute DeviceSessions.valid_device_id?(%{"id" => @device_id})
+      refute DeviceSessions.valid_device_id?("")
+      refute DeviceSessions.valid_device_id?(" \t\n")
+    end
+
+    test "refuses a NUL character and bytes that are not UTF-8" do
+      refute DeviceSessions.valid_device_id?("phone" <> <<0>>)
+      refute DeviceSessions.valid_device_id?(<<0>> <> "phone")
+      refute DeviceSessions.valid_device_id?(<<0xFF, 0xFE>>)
+    end
+
+    test "counts bytes, not characters: 255 at most" do
+      assert DeviceSessions.valid_device_id?(String.duplicate("é", 127))
+      refute DeviceSessions.valid_device_id?(String.duplicate("é", 128))
+      refute DeviceSessions.valid_device_id?(String.duplicate("d", 256))
+      refute DeviceSessions.valid_device_id?(String.duplicate("😀", 100))
+    end
+  end
+
   describe "open/3" do
     test "a session that cannot be stored is an error and revokes nothing" do
       {user, membership} = insert_owner!("sessions-unstorable@example.com")
@@ -38,6 +72,57 @@ defmodule MealPlannerApi.Services.DeviceSessionsTest do
       assert DeviceSessions.open(user, gone, @device_id) == {:error, :session_issue_failed}
       assert [%DeviceSession{revoked_at: nil} = session] = Repo.all(DeviceSession)
       assert session.id == session_of(current.refresh_token).id
+    end
+
+    test "a device_id the rule refuses is an error, not a raise, and revokes nothing" do
+      {user, membership} = insert_owner!("sessions-bad-device@example.com")
+      {:ok, _current} = DeviceSessions.open(user, membership, @device_id)
+
+      for refused <- ["phone" <> <<0>>, String.duplicate("😀", 100), <<0xFF>>, "  ", nil] do
+        assert DeviceSessions.open(user, membership, refused) == {:error, :session_issue_failed}
+      end
+
+      assert [%DeviceSession{revoked_at: nil, device_id: @device_id}] = Repo.all(DeviceSession)
+    end
+  end
+
+  describe "the Device session row" do
+    test "its device_id is limited in bytes, like the rule" do
+      {user, membership} = insert_owner!("sessions-row-bytes@example.com")
+
+      wide = session_changeset(user, membership, "wide", device_id: String.duplicate("😀", 100))
+      refute wide.valid?
+      assert %{device_id: [_too_long]} = errors_on(wide)
+
+      longest =
+        session_changeset(user, membership, "longest", device_id: String.duplicate("d", 255))
+
+      assert {:ok, %DeviceSession{}} = Repo.insert(longest)
+    end
+
+    test "the database refuses a second active row for the same User and device" do
+      {user, membership} = insert_owner!("sessions-row-unique@example.com")
+      {other_user, other_membership} = insert_owner!("sessions-row-unique-other@example.com")
+
+      assert {:ok, first} = Repo.insert(session_changeset(user, membership, "first"))
+
+      assert {:error, refused} = Repo.insert(session_changeset(user, membership, "second"))
+      assert %{device_id: [_already_active]} = errors_on(refused)
+
+      # Another device of the same User, and another User on the same
+      # device, are other sessions.
+      assert {:ok, _tablet} =
+               Repo.insert(session_changeset(user, membership, "tablet", device_id: "tablet"))
+
+      assert {:ok, _shared_phone} =
+               Repo.insert(session_changeset(other_user, other_membership, "shared-phone"))
+
+      # A revoked row makes room for the next one.
+      first |> Ecto.Changeset.change(revoked_at: DateTime.utc_now()) |> Repo.update!()
+      assert {:ok, second} = Repo.insert(session_changeset(user, membership, "second"))
+
+      second |> Ecto.Changeset.change(revoked_at: DateTime.utc_now()) |> Repo.update!()
+      assert {:ok, _third} = Repo.insert(session_changeset(user, membership, "third"))
     end
   end
 
@@ -165,8 +250,12 @@ defmodule MealPlannerApi.Services.DeviceSessionsTest do
 
       active = insert_session!(user, membership, "active")
 
+      # On another device: a User has one row that is not revoked per device.
       expired =
-        insert_session!(user, membership, "expired", expires_at: DateTime.add(now, -1, :second))
+        insert_session!(user, membership, "expired",
+          device_id: "old-phone",
+          expires_at: DateTime.add(now, -1, :second)
+        )
 
       revoked_long_ago =
         insert_session!(user, membership, "revoked-long-ago",
@@ -201,6 +290,7 @@ defmodule MealPlannerApi.Services.DeviceSessionsTest do
       {:ok, _tokens} = DeviceSessions.open(user, membership, @device_id)
 
       insert_session!(user, membership, "expired",
+        device_id: "old-phone",
         expires_at: DateTime.add(DateTime.utc_now(), -60, :second)
       )
 
@@ -277,6 +367,29 @@ defmodule MealPlannerApi.Services.DeviceSessionsTest do
       )
 
     %DeviceSession{} |> Ecto.Changeset.change(attrs) |> Repo.insert!()
+  end
+
+  # The changeset `DeviceSessions` stores a row through, for `token`;
+  # `overrides` replaces any attribute.
+  defp session_changeset(user, membership, token, overrides \\ []) do
+    attrs =
+      Map.merge(
+        %{
+          id: Ecto.UUID.generate(),
+          user_id: user.id,
+          membership_id: membership.id,
+          device_id: @device_id,
+          token_hash: token_hash(token),
+          expires_at: DateTime.add(DateTime.utc_now(), 30 * 86_400, :second)
+        },
+        Map.new(overrides)
+      )
+
+    DeviceSession.changeset(%DeviceSession{}, attrs)
+  end
+
+  defp errors_on(changeset) do
+    Ecto.Changeset.traverse_errors(changeset, fn {message, _opts} -> message end)
   end
 
   defp session_of(refresh_token) do

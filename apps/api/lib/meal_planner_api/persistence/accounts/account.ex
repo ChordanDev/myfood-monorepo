@@ -13,6 +13,8 @@ defmodule MealPlannerApi.Persistence.Accounts.Account do
   @primary_key {:id, :binary_id, autogenerate: true}
   @foreign_key_type :binary_id
 
+  @type t :: %__MODULE__{}
+
   schema "accounts" do
     field(:name, :string)
     field(:plan, Ecto.Enum, values: [:individual, :family_4, :family_6, :trial])

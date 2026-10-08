@@ -10,6 +10,8 @@ defmodule MealPlannerApi.Persistence.Accounts.AccountMembership do
   @primary_key {:id, :binary_id, autogenerate: true}
   @foreign_key_type :binary_id
 
+  @type t :: %__MODULE__{}
+
   schema "account_memberships" do
     belongs_to(:account, MealPlannerApi.Persistence.Accounts.Account)
     belongs_to(:user, MealPlannerApi.Persistence.Accounts.User)

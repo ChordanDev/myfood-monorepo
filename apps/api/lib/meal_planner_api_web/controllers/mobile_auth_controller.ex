@@ -27,9 +27,6 @@ defmodule MealPlannerApiWeb.MobileAuthController do
   alias MealPlannerApiWeb.ClientIp
   alias MealPlannerApiWeb.CurrentMe
 
-  # The width of `device_sessions.device_id`.
-  @max_device_id_length 255
-
   @doc """
   `POST /api/auth/login/request-code`.
 
@@ -89,8 +86,9 @@ defmodule MealPlannerApiWeb.MobileAuthController do
   `me` is the same payload `GET /api/me` returns, or `code_invalid`,
   `code_expired`, `too_many_attempts` or `account_not_found`.
 
-  `deviceId` must be a non-empty string of at most #{@max_device_id_length}
-  characters. It names the phone the Device session belongs to: the
+  `deviceId` must be one `MealPlannerApi.Services.DeviceSessions.valid_device_id?/1`
+  accepts: a string that is not blank, in practice the UUID the app
+  generates. It names the phone the Device session belongs to: the
   session is stored with it, and it replaces the one this User already
   had on that phone. A request without a valid `deviceId` is answered
   `code_invalid` before the code is looked at, so it neither spends the
@@ -139,13 +137,9 @@ defmodule MealPlannerApiWeb.MobileAuthController do
     end
   end
 
-  defp validate_device_id(device_id) when is_binary(device_id) do
-    if String.trim(device_id) == "" or String.length(device_id) > @max_device_id_length do
-      {:error, :device_id_invalid}
-    else
-      :ok
-    end
+  # The rule is `DeviceSessions.valid_device_id?/1`; it is asked first so
+  # that a `deviceId` no session could be stored with never costs a code.
+  defp validate_device_id(device_id) do
+    if DeviceSessions.valid_device_id?(device_id), do: :ok, else: {:error, :device_id_invalid}
   end
-
-  defp validate_device_id(_device_id), do: {:error, :device_id_invalid}
 end

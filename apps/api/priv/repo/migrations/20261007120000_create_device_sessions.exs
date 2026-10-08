@@ -14,10 +14,14 @@ defmodule MealPlannerApi.Repo.Migrations.CreateDeviceSessions do
     * `replaced_by_id` — the row a rotation put in this one's place. It
       is cleared when that row is swept.
 
-  Indexes: `(user_id, device_id)` finds the sessions of one phone, the
-  `expires_at` and `revoked_at` indexes serve the sweep, and the
-  `membership_id` and `replaced_by_id` indexes keep the cascades from
-  scanning the table.
+  A User has at most one session that is not revoked per device: the
+  unique index on `(user_id, device_id)` over the rows with no
+  `revoked_at` is what holds that when two requests race, and it is the
+  index that finds the session to revoke.
+
+  Other indexes: the `expires_at` and `revoked_at` indexes serve the
+  sweep, and the `user_id`, `membership_id` and `replaced_by_id` indexes
+  keep the cascades from scanning the table.
   """
   use Ecto.Migration
 
@@ -30,7 +34,7 @@ defmodule MealPlannerApi.Repo.Migrations.CreateDeviceSessions do
           references(:account_memberships, type: :binary_id, on_delete: :delete_all),
           null: false
 
-      add :device_id, :string, null: false
+      add :device_id, :string, size: 255, null: false
       add :token_hash, :string, null: false
       add :expires_at, :utc_datetime_usec, null: false
       add :revoked_at, :utc_datetime_usec
@@ -45,9 +49,12 @@ defmodule MealPlannerApi.Repo.Migrations.CreateDeviceSessions do
              name: :device_sessions_token_hash_unique_index
            )
 
-    create index(:device_sessions, [:user_id, :device_id],
-             name: :device_sessions_user_id_device_id_index
+    create unique_index(:device_sessions, [:user_id, :device_id],
+             name: :device_sessions_active_user_id_device_id_unique_index,
+             where: "revoked_at IS NULL"
            )
+
+    create index(:device_sessions, [:user_id], name: :device_sessions_user_id_index)
 
     create index(:device_sessions, [:membership_id],
              name: :device_sessions_membership_id_index

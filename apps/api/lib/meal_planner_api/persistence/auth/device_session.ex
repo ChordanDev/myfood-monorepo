@@ -22,6 +22,10 @@ defmodule MealPlannerApi.Persistence.Auth.DeviceSession do
 
   @type t :: %__MODULE__{}
 
+  # `device_id` is `varchar(255)`. The limit is counted in bytes, which is
+  # never more than the column counts in characters.
+  @max_device_id_bytes 255
+
   schema "device_sessions" do
     belongs_to(:user, MealPlannerApi.Persistence.Accounts.User)
     belongs_to(:membership, MealPlannerApi.Persistence.Accounts.AccountMembership)
@@ -36,19 +40,33 @@ defmodule MealPlannerApi.Persistence.Auth.DeviceSession do
   end
 
   @doc """
+  The most bytes a `device_id` may take.
+  """
+  @spec max_device_id_bytes() :: pos_integer()
+  def max_device_id_bytes, do: @max_device_id_bytes
+
+  @doc """
   Casts and validates a new Device session. Required: `id`, `user_id`,
   `membership_id`, `device_id`, `token_hash`, `expires_at`. The `id` is
   chosen by the caller because the refresh token names it in its `sid`
   claim, so it exists before the row does. `revoked_at` and
   `replaced_by_id` are set by rotation and revocation, not here.
+
+  A User has at most one row without `revoked_at` per `device_id`.
+  Inserting a second one is an error on `device_id`, so the row it
+  replaces has to be revoked first.
   """
   def changeset(session, attrs) do
     session
     |> cast(attrs, [:id, :user_id, :membership_id, :device_id, :token_hash, :expires_at])
     |> validate_required([:id, :user_id, :membership_id, :device_id, :token_hash, :expires_at])
-    |> validate_length(:device_id, max: 255)
+    |> validate_length(:device_id, max: @max_device_id_bytes, count: :bytes)
     |> foreign_key_constraint(:user_id)
     |> foreign_key_constraint(:membership_id)
     |> unique_constraint(:token_hash, name: :device_sessions_token_hash_unique_index)
+    |> unique_constraint(:device_id,
+      name: :device_sessions_active_user_id_device_id_unique_index,
+      message: "already has an active session for this user"
+    )
   end
 end

@@ -37,6 +37,12 @@ defmodule MealPlannerApiWeb.MobileAuthControllerTest do
   @signup_verify_path "/api/auth/signup/verify-code"
   @device_id "3f0c5f4e-6f0e-4a55-9d0b-1c7f1f6f2a10"
 
+  # Two values a count of characters lets through: Postgres text cannot
+  # hold a NUL, and 100 four-byte characters take 400 bytes, over the 255
+  # a `deviceId` may take.
+  @device_id_with_nul "3f0c5f4e" <> <<0>> <> "6f0e"
+  @device_id_of_wide_characters String.duplicate("😀", 100)
+
   defmodule FailingMailAdapter do
     @moduledoc false
     @behaviour Bamboo.Adapter
@@ -452,7 +458,7 @@ defmodule MealPlannerApiWeb.MobileAuthControllerTest do
       assert %{"accessToken" => _} = conn |> post(@verify_path, body) |> json_response(200)
     end
 
-    test "a deviceId over 255 characters is refused without spending the code", %{conn: conn} do
+    test "a deviceId over 255 bytes is refused without spending the code", %{conn: conn} do
       user = insert_owner!("login-device-long@example.com")
       insert_code!(user, "123456")
       body = verify_body(user.email, "123456")
@@ -466,6 +472,24 @@ defmodule MealPlannerApiWeb.MobileAuthControllerTest do
 
       assert %{"refreshToken" => refresh_token} = json_response(conn, 200)
       assert device_session(refresh_token).device_id == longest
+    end
+
+    test "a deviceId with a NUL character or of 100 four-byte characters is refused without spending the code",
+         %{conn: conn} do
+      user = insert_owner!("login-device-unstorable@example.com")
+      insert_code!(user, "123456")
+      body = verify_body(user.email, "123456")
+
+      for refused <- [@device_id_with_nul, @device_id_of_wide_characters] do
+        assert_error(
+          post(conn, @verify_path, %{body | "deviceId" => refused}),
+          422,
+          "code_invalid"
+        )
+      end
+
+      assert Repo.aggregate(DeviceSession, :count) == 0
+      assert %{"accessToken" => _} = conn |> post(@verify_path, body) |> json_response(200)
     end
 
     test "a missing code or email gets code_invalid", %{conn: conn} do
@@ -1114,7 +1138,7 @@ defmodule MealPlannerApiWeb.MobileAuthControllerTest do
       assert %{"accessToken" => _} = conn |> post(@signup_verify_path, body) |> json_response(200)
     end
 
-    test "a deviceId over 255 characters is refused without spending the code", %{conn: conn} do
+    test "a deviceId over 255 bytes is refused without spending the code", %{conn: conn} do
       insert_signup_code!("signup-device-long@example.com", "123456")
       body = verify_body("signup-device-long@example.com", "123456")
 
@@ -1122,6 +1146,27 @@ defmodule MealPlannerApiWeb.MobileAuthControllerTest do
       assert_error(post(conn, @signup_verify_path, too_long), 422, "code_invalid")
       assert_nothing_registered()
 
+      longest = String.duplicate("d", 255)
+      conn = post(conn, @signup_verify_path, %{body | "deviceId" => longest})
+
+      assert %{"refreshToken" => refresh_token} = json_response(conn, 200)
+      assert device_session(refresh_token).device_id == longest
+    end
+
+    test "a deviceId with a NUL character or of 100 four-byte characters is refused without spending the code",
+         %{conn: conn} do
+      insert_signup_code!("signup-device-unstorable@example.com", "123456")
+      body = verify_body("signup-device-unstorable@example.com", "123456")
+
+      for refused <- [@device_id_with_nul, @device_id_of_wide_characters] do
+        assert_error(
+          post(conn, @signup_verify_path, %{body | "deviceId" => refused}),
+          422,
+          "code_invalid"
+        )
+      end
+
+      assert_nothing_registered()
       assert %{"accessToken" => _} = conn |> post(@signup_verify_path, body) |> json_response(200)
     end
 
