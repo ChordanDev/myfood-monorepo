@@ -48,7 +48,7 @@ function entry(overrides: Partial<MealPlanEntry>): MealPlanEntry {
   return {
     id: `${overrides.date}-${overrides.type}`,
     date: '2026-08-25',
-    type: 'almuerzo',
+    type: 'lunch',
     recipeId: 'r1',
     isCooked: false,
     ...overrides,

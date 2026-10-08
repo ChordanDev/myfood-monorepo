@@ -11,12 +11,11 @@ defmodule MealPlannerApiWeb.ApiError do
   ## Call-site shape (contract scan)
 
   `apps/mobile` runs a contract test that scans every `.ex` file under
-  `apps/api/lib` for the literal `error(:<code>` followed by `)` or `,` and
-  requires each captured code to be in its `KNOWN_AUTH_ERROR_CODES`
-  allowlist. For that scan to see a call, the conn MUST be piped in:
+  `apps/api/lib` for the literal `error(:<code>)` and requires each captured
+  code to be in its `KNOWN_AUTH_ERROR_CODES` allowlist. For that scan to see
+  a call, the conn MUST be piped in:
 
       conn |> ApiError.error(:unauthenticated)
-      conn |> ApiError.error(:validation_error, "lunch is required.")
 
   `ApiError.error(conn, :unauthenticated)` renders the same response but is
   invisible to the scan, so it is not an accepted call shape in this
@@ -31,13 +30,28 @@ defmodule MealPlannerApiWeb.ApiError do
   renders `unknown_error` with 500 without a literal the scan would pick
   up, so an internal failure can never leak a non-allowlisted code.
 
+  ## Field validation
+
+  A message in `@codes` is static, and a request that fails validation has
+  to say which field failed. `validation_error/2` renders the
+  `validation_error` code with a message naming that field, in its wire
+  spelling:
+
+      conn |> ApiError.validation_error("householdSize")
+
+  The contract scan does not see this call either. It sees the code through
+  the one rejection that has no field to name, which goes through `error/2`
+  and keeps the static message:
+
+      conn |> ApiError.error(:validation_error)
+
   ## Outside a conn
 
   `envelope/1` and `unknown_error_envelope/0` return the envelope as a plain
   map, for a transport that has no `Plug.Conn`: the planning channel replies
-  them to a failed join or command (issue #11). `error/2` and
-  `server_fault/1` send the same maps, so the envelope is shaped in one
-  place.
+  them to a failed join or command (issue #11). `error/2`,
+  `validation_error/2` and `server_fault/1` send the same shape, so the
+  envelope is shaped in one place.
 
   The planning channel codes share `@codes` with the HTTP codes. Their status
   is the one an HTTP route replying the same code would use; a channel reply
@@ -66,8 +80,10 @@ defmodule MealPlannerApiWeb.ApiError do
           | :refresh_token_replayed
           | :refresh_token_expired
           | :refresh_token_session_mismatch
-          | :slot_cooking_times_not_found
+          | :recipe_not_found
           | :validation_error
+          | :invalid_cooking_skill
+          | :slot_cooking_times_not_found
           | :invalid_hunger_level
           | :generation_in_progress
           | :no_active_generation
@@ -119,10 +135,16 @@ defmodule MealPlannerApiWeb.ApiError do
     refresh_token_replayed: {401, "The refresh token has already been used."},
     refresh_token_expired: {401, "The refresh token has expired."},
     refresh_token_session_mismatch: {401, "The refresh token does not match its session."},
-    # Slot cooking times (issue #19). A `validation_error` is sent with
-    # `error/3`, which names the field at fault in place of this text.
-    slot_cooking_times_not_found: {404, "No slot cooking times are saved for this user."},
+    # Recipe detail (issue #32): a missing recipe, a malformed id and a recipe
+    # of another Account share the code, so existence is not revealed.
+    recipe_not_found: {404, "The recipe was not found."},
+    # Onboarding profile (issue #17). `validation_error/2` replaces the
+    # message of `validation_error` with one naming the field.
     validation_error: {422, "The request is not valid."},
+    invalid_cooking_skill: {422, "The cooking skill is not valid."},
+    # Slot cooking times (issue #19). They share `validation_error` with the
+    # Onboarding profile.
+    slot_cooking_times_not_found: {404, "No slot cooking times are saved for this user."},
     invalid_hunger_level: {422, "The hunger level must be one of light, normal or strong."},
     # Planning channel (issue #11): every deliberate reason a join or a
     # command of `PlanningChannel` replies, named as the reason was.
@@ -179,25 +201,28 @@ defmodule MealPlannerApiWeb.ApiError do
   end
 
   @doc """
-  Like `error/2`, with `message` in place of the fixed text of `code`, for
-  an answer that has to say what was wrong with the request:
-
-      conn |> ApiError.error(:validation_error, "lunch.cookingTimeMinutes must be ...")
-  """
-  @spec error(Plug.Conn.t(), code(), String.t()) :: Plug.Conn.t()
-  def error(%Plug.Conn{} = conn, code, message)
-      when is_map_key(@codes, code) and is_binary(message) do
-    {status, _fixed_message} = Map.fetch!(@codes, code)
-    send_envelope(conn, status, build_envelope(code, message))
-  end
-
-  @doc """
   Sends `unknown_error` with 500 and halts. Use for unexpected server-side
   failures so the response still carries the envelope.
   """
   @spec server_fault(Plug.Conn.t()) :: Plug.Conn.t()
   def server_fault(%Plug.Conn{} = conn) do
     send_envelope(conn, 500, unknown_error_envelope())
+  end
+
+  @doc """
+  Sends `validation_error` with its mapped status and a message naming
+  `field`, and halts. `field` is the wire spelling of the first field that
+  failed validation, such as `"householdSize"`.
+  """
+  @spec validation_error(Plug.Conn.t(), String.t()) :: Plug.Conn.t()
+  def validation_error(%Plug.Conn{} = conn, field) when is_binary(field) do
+    {status, _message} = Map.fetch!(@codes, :validation_error)
+
+    send_envelope(
+      conn,
+      status,
+      build_envelope(:validation_error, "The field #{field} is not valid.")
+    )
   end
 
   @doc """

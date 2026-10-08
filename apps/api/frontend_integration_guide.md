@@ -198,10 +198,49 @@ Notes:
 - Method: `GET`
 - Path: `/api/me`
 
-### 3.3 Get slot cooking times
+### 3.3 Edit the Onboarding profile
+
+- Method: `PUT`
+- Path: `/api/me/profile`
+- Not capability-gated: an Account whose access has expired can still use it.
+
+Request body, all three fields required:
+
+```json
+{
+  "displayName": "Ana María",
+  "householdSize": 4,
+  "cookingSkill": "intermediate"
+}
+```
+
+- `displayName`: string, 1 to 64 characters after trimming. A character is a grapheme (a joined emoji
+  counts as one); the name also holds at most 255 Unicode code points and no NUL character (`\u0000`).
+- `householdSize`: JSON integer, 1 to 20. The string `"4"` and the number `4.5` are rejected.
+- `cookingSkill`: `beginner`, `intermediate` or `advanced`.
+
+Success response (`200`), the same `user` object `GET /api/me` returns:
+
+```json
+{
+  "user": {
+    "id": "...",
+    "email": "ana@example.com",
+    "displayName": "Ana María",
+    "householdSize": 4,
+    "cookingSkill": "intermediate"
+  }
+}
+```
+
+Fields are validated in the order `displayName`, `householdSize`, `cookingSkill`, and the first offending
+one decides the response: `422 invalid_cooking_skill` when `cookingSkill` is a string outside the catalog,
+`422 validation_error` otherwise, with a `message` that names the field. A rejected request stores nothing.
+
+### 3.4 Get slot cooking times
 
 For each of breakfast, lunch and dinner: the minutes the signed-in User will cook and their Hunger level.
-The times belong to the User, not to the Account. Like `GET /api/me`, this route and the one in 3.4 are not
+The times belong to the User, not to the Account. Like `GET /api/me`, this route and the one in 3.5 are not
 behind the capability guard, so they stay reachable when the Account's trial has expired. Both read and
 render camelCase keys.
 
@@ -223,12 +262,12 @@ Errors (envelope, see section 10):
 - `404 slot_cooking_times_not_found`: the User has not saved the three slots yet. The mobile settings
   screen reads this code as "none saved" and starts from its default set; any other failure is an error.
 
-### 3.4 Replace slot cooking times
+### 3.5 Replace slot cooking times
 
 - Method: `PUT`
 - Path: `/api/me/slot-cooking-times`
 
-Request body: the same shape as the response in 3.3. The body is the whole set and replaces the saved one;
+Request body: the same shape as the response in 3.4. The body is the whole set and replaces the saved one;
 nothing is saved when it is refused.
 
 Rules:
@@ -239,15 +278,17 @@ Rules:
   decimal (`30.0`), a numeric string or a boolean is refused.
 - `hungerLevel`: `light`, `normal` or `strong`.
 
-Success response (`200`): the stored set, in the shape of 3.3.
+Success response (`200`): the stored set, in the shape of 3.4.
 
 Errors (envelope, see section 10):
 
-- `422 validation_error`: the body is not an object, a slot is missing or is not an object, a key is not
-  one of the three slots, `cookingTimeMinutes` is missing, not an integer or outside `0` to `240`, or
-  `hungerLevel` is missing or not a string. The `message` names the field at fault in camelCase, for
-  example `lunch.cookingTimeMinutes must be an integer between 0 and 240.` or
-  `snack is not an accepted slot.`
+- `422 validation_error`: a slot is missing or is not an object, a key is not one of the three slots,
+  `cookingTimeMinutes` is missing, not an integer or outside `0` to `240`, or `hungerLevel` is missing or
+  not a string. The `message` is `The field <field> is not valid.`, where `<field>` is the field at fault
+  in camelCase: a slot (`lunch`), a key that is not a slot (`snack`) or a field of a slot
+  (`lunch.cookingTimeMinutes`, `dinner.hungerLevel`).
+- `422 validation_error` with the `message` `The request is not valid.`: the body is not a JSON object,
+  or no parser read it (for example a `text/plain` body). There is no field to name.
 - `422 invalid_hunger_level`: `hungerLevel` is a string outside `light`, `normal` and `strong`.
 
 Only the first problem is reported: a key that is not a slot, then each slot in the order breakfast,
@@ -1005,13 +1046,15 @@ Two error body shapes are in use. Which one a request gets depends on the code p
   - the mobile auth routes `/api/auth/login/request-code`, `/api/auth/login/verify-code`,
     `/api/auth/signup/request-code`, `/api/auth/signup/verify-code` and `/api/auth/refresh`;
   - `GET /api/me` and its alias `GET /api/auth/me`;
+  - `PUT /api/me/profile`: `422 validation_error` and `422 invalid_cooking_skill`;
   - `GET` and `PUT /api/me/slot-cooking-times`: `404 slot_cooking_times_not_found`, `422 validation_error`
-    and `422 invalid_hunger_level` (see 3.3 and 3.4).
+    and `422 invalid_hunger_level` (see 3.4 and 3.5);
+  - `GET /api/recipes/:id`: `404 recipe_not_found` and `403 forbidden` (section 11).
 - **Flat (legacy, not migrated to the envelope):** `{ "error": "<reason>" }`, with the status chosen by each
   endpoint (`422` in most controllers). It is still returned by:
   - the validation and domain errors that the non-auth controllers build themselves: account context,
-    dietary profile, planning, planning chat, calendar, cooking, recipes, shopping, inventory, memberships,
-    invites, account leave and billing;
+    dietary profile, planning, planning chat, calendar, cooking, shopping, inventory, memberships, invites,
+    account leave and billing;
   - the legacy auth routes, for the errors their own controller or plug builds: `/api/auth/password`,
     `/api/auth/social` and their aliases, `/api/auth/email-code/request`, `/api/auth/email-code/verify` and
     `/api/auth/switch-account`. On `/api/auth/email-code/verify` this covers only the errors its controller
@@ -1020,3 +1063,69 @@ Two error body shapes are in use. Which one a request gets depends on the code p
   - the account scope check on `/api/accounts/:account_id/*`: `403` with `{ "error": "account_mismatch" }`.
 - Planning weekly has explicit `400` for known request-shape/limits errors (including `exceeds_max_planning_days`).
 - Channel generation errors are emitted and replied with `reason` as string.
+
+## 11. Recipe Detail (REST)
+
+- Method: `GET`
+- Path: `/api/recipes/:id`
+
+Returns the frozen version of a recipe the Account can see: a catalog recipe or one of its own (`source` is
+`traditional`, `ai_generated` or `user_created`). Every source answers the same shape, with camelCase keys.
+
+```json
+{
+  "data": {
+    "id": "5b0c9d6e-2f4a-4c1b-9e3d-7a8f1c2b3d4e",
+    "recipeVersionId": "0e7a4c52-9b1d-4f36-8a2c-6d5e4f3a2b1c",
+    "successorRecipeId": null,
+    "source": "traditional",
+    "name": "Tortilla de papas",
+    "description": "Tortilla clásica de papas y cebolla.",
+    "servings": 4,
+    "durationMinutes": 40,
+    "ingredients": [
+      {
+        "ingredientId": "1c3e5a7b-9d2f-4b6c-8e1a-3f5d7b9c2e4a",
+        "name": "Papa",
+        "category": "verduras",
+        "quantityMilli": 500000,
+        "unit": "g"
+      }
+    ],
+    "steps": [{ "order": 1, "text": "Pelar las papas y cortarlas en láminas finas.", "durationMinutes": 15 }],
+    "estimatedCostCents": 385000,
+    "tags": [],
+    "imageUrl": null,
+    "theme": null
+  }
+}
+```
+
+Fields:
+
+- `recipeVersionId`: id of the immutable version served. A recipe id always answers the same version, so a
+  client can cache the body by this id.
+- `successorRecipeId`: id of the recipe that corrects this one, or `null`. It is not version content: it is
+  read when the request is served, like `ingredients[].category`, so a cached body does not learn that the
+  recipe was corrected afterwards.
+- `servings`: servings the quantities are for, or `null`. Quantities are not scaled.
+- `durationMinutes`: preparation plus cooking time in minutes; `null` when the recipe has neither.
+- `ingredients[].quantityMilli`: quantity in thousandths of `unit` (`g`, `ml` or `unit`): `500000` with `g`
+  is 500 g. Formatting is up to the client.
+- `ingredients[].category`: current category of the ingredient (`lacteos`, `frutas`, `verduras`, `carnes`,
+  `granos`, `congelados`, `no_perecederos`, `otros`), or `null` when the ingredient no longer exists. It is
+  read at request time, not frozen with the version.
+- `steps[]`: ordered by `order`. `steps[].durationMinutes` is in minutes, or `null`.
+- `estimatedCostCents`: estimated cost of the recipe in cents; `0` when no cost is known.
+- `tags`, `imageUrl` and `theme` are placeholders: they answer `[]`, `null` and `null` until the backend
+  stores them.
+
+Errors use the envelope of section 10:
+
+- `404 recipe_not_found`: the recipe does not exist, the id is not a UUID, or the recipe belongs to another
+  Account.
+- `403 forbidden`: the Account has no access (expired trial without a subscription). A User without an
+  active Membership is stopped earlier, by the auth pipeline, with `401 account_not_found`.
+
+`apps/mobile/src/features/recipe/fixtures/recipeDetail.json` is a full example body. A route test keeps its
+keys equal to the ones this route answers.

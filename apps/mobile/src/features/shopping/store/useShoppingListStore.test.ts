@@ -447,7 +447,7 @@ describe('confirming the purchase', () => {
   const meal = (id: string, isCooked = false): MealPlanEntry => ({
     id,
     date: '2026-10-06',
-    type: 'almuerzo',
+    type: 'lunch',
     recipeId: 'r1',
     isCooked,
   });

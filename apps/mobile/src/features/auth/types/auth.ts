@@ -1,14 +1,21 @@
 // Authentication types aligned with the Slice 1 backend contract.
 
+import type { MealSlot } from '@/types/domain';
+
 export type AuthFlow = 'login' | 'register';
 
 export type CookingSkill = 'beginner' | 'intermediate' | 'advanced';
 
 export type HungerLevel = 'light' | 'normal' | 'strong';
 
-export type MealSlot = 'breakfast' | 'lunch' | 'dinner';
+// The meal slots the User cooks: the ones that carry a Slot cooking time.
+export type CookingTimeSlot = Exclude<MealSlot, 'snack'>;
 
-export const SUPPORTED_MEAL_SLOTS: readonly MealSlot[] = ['breakfast', 'lunch', 'dinner'] as const;
+export const SUPPORTED_MEAL_SLOTS: readonly CookingTimeSlot[] = [
+  'breakfast',
+  'lunch',
+  'dinner',
+] as const;
 
 export interface OnboardingProfile {
   displayName: string;
@@ -29,7 +36,7 @@ export interface SlotCookingTime {
   hungerLevel: HungerLevel;
 }
 
-export type SlotCookingTimesPayload = Record<MealSlot, SlotCookingTime>;
+export type SlotCookingTimesPayload = Record<CookingTimeSlot, SlotCookingTime>;
 
 export type SlotCookingTimes = SlotCookingTimesPayload;
 
@@ -94,8 +101,9 @@ export type AuthErrorCode =
   | 'onboarding_already_complete'
   | 'preferences_invalid'
   | 'slot_cooking_times_invalid'
-  | 'slot_cooking_times_not_found'
   | 'validation_error'
+  | 'invalid_cooking_skill'
+  | 'slot_cooking_times_not_found'
   | 'invalid_hunger_level'
   | 'generation_in_progress'
   | 'no_active_generation'
@@ -126,6 +134,7 @@ export type AuthErrorCode =
   | 'optimization_failed'
   | 'optimizer_unavailable'
   | 'optimizer_timeout'
+  | 'recipe_not_found'
   | 'configuration_error'
   | 'network_error'
   | 'timeout'
@@ -135,9 +144,9 @@ export interface AuthUser {
   id: string;
   email: string;
   displayName: string | null;
-  /** Null until the user sets it, or while the backend does not send it. */
+  /** Null until the user sets it. */
   householdSize: number | null;
-  /** Null until the user sets it, or while the backend does not send it. */
+  /** Null until the user sets it. */
   cookingSkill: CookingSkill | null;
 }
 

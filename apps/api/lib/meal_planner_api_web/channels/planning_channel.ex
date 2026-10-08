@@ -48,6 +48,9 @@ defmodule MealPlannerApiWeb.PlanningChannel do
   The code is always in the `ApiError` allowlist; a reason outside it
   replies `unknown_error`. Events such as `generation_error` are not replies
   and keep their `reason` field.
+
+  A command whose payload is not a map replies `invalid_payload`, whatever
+  the event.
   """
   use MealPlannerApiWeb, :channel
 
@@ -131,10 +134,17 @@ defmodule MealPlannerApiWeb.PlanningChannel do
   # leaves in camelCase. Error replies are already camelCase, see
   # `error_payload/1`.
   @impl true
-  def handle_in(event, payload, socket) do
+  def handle_in(event, payload, socket) when is_map(payload) do
     event
-    |> handle_command(snake_case_payload(payload), socket)
+    |> handle_command(Casing.snake_keys(payload), socket)
     |> camelize_ok_reply()
+  end
+
+  # A payload that is not a map has no keys for a command to read: it replies
+  # `invalid_payload` here, whatever the event, before a command clause sees
+  # it or looks at the state of the socket.
+  def handle_in(_event, _payload, socket) do
+    {:reply, {:error, error_payload(:invalid_payload)}, socket}
   end
 
   # Issue #11 — every event of `@outbound_events` goes through here on its
@@ -150,10 +160,12 @@ defmodule MealPlannerApiWeb.PlanningChannel do
     membership = socket.assigns.current_membership
     request_id = Map.get(payload, "request_id", build_request_id())
 
-    # Constraints viene del payload (date_from, date_to, budget_cents, etc.)
-    constraints = Map.get(payload, "constraints", %{}) |> Map.merge(payload)
+    result =
+      with {:ok, constraints} <- generation_constraints(payload) do
+        Server.start_generation(membership.account_id, user.id, constraints, socket.channel_pid)
+      end
 
-    case Server.start_generation(membership.account_id, user.id, constraints, socket.channel_pid) do
+    case result do
       {:ok, run_id} ->
         broadcast!(socket, "generation_started", %{request_id: request_id, run_id: run_id})
         {:reply, {:ok, %{request_id: request_id, run_id: run_id}}, socket}
@@ -375,7 +387,11 @@ defmodule MealPlannerApiWeb.PlanningChannel do
           {:error, :session_mismatch} ->
             {:reply, {:error, error_payload(:session_mismatch)}, socket}
 
-          {:error, :atomize_failed} ->
+          {:error, :invalid_session_id} ->
+            {:reply, {:error, error_payload(:invalid_payload)}, socket}
+
+          # `IntentAtomizer.atomize/1` rejects an intent with a bare `:error`.
+          :error ->
             {:reply, {:error, error_payload(:invalid_payload)}, socket}
         end
     end
@@ -423,10 +439,16 @@ defmodule MealPlannerApiWeb.PlanningChannel do
     {:reply, {:error, error_payload(:invalid_payload)}, socket}
   end
 
-  # A payload that is not a map has no keys to normalize and is handed to the
-  # command as it arrived.
-  defp snake_case_payload(payload) when is_map(payload), do: Casing.snake_keys(payload)
-  defp snake_case_payload(payload), do: payload
+  # The constraints of `generate_menu` come nested under `constraints` and
+  # flat in the payload (date_from, date_to, budget_cents, etc.), a flat key
+  # winning over a nested one. A `constraints` that is not a map cannot be
+  # merged and fails the command as `invalid_payload`.
+  defp generation_constraints(payload) do
+    case Map.get(payload, "constraints", %{}) do
+      nested when is_map(nested) -> {:ok, Map.merge(nested, payload)}
+      _not_a_map -> {:error, :invalid_payload}
+    end
+  end
 
   defp camelize_ok_reply({:reply, {:ok, payload}, socket}),
     do: {:reply, {:ok, Casing.camelize_keys(payload)}, socket}

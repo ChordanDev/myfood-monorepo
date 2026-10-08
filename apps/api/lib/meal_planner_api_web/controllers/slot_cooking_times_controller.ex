@@ -10,6 +10,12 @@ defmodule MealPlannerApiWeb.SlotCookingTimesController do
       { breakfast, lunch, dinner }, each { cookingTimeMinutes, hungerLevel }
 
   The times belong to the User, never to the Account they are acting in.
+
+  A `PUT` that is refused answers `invalid_hunger_level` for a Hunger level
+  that is a string outside the catalog, and `validation_error` for anything
+  else: naming the field at fault, such as `lunch.cookingTimeMinutes`, or
+  with the static message of the code when the body is not an object and
+  there is no field to name.
   """
   use MealPlannerApiWeb, :controller
 
@@ -44,8 +50,12 @@ defmodule MealPlannerApiWeb.SlotCookingTimesController do
          {:ok, stored} <- AccountService.replace_slot_cooking_times(user.id, times) do
       json(conn, render_times(stored))
     else
-      {:error, {:validation_error, message}} ->
-        conn |> ApiError.error(:validation_error, message)
+      {:error, {:validation_error, field}} ->
+        conn |> ApiError.validation_error(field)
+
+      # A body that is not an object leaves no field to name.
+      {:error, :validation_error} ->
+        conn |> ApiError.error(:validation_error)
 
       {:error, :invalid_hunger_level} ->
         conn |> ApiError.error(:invalid_hunger_level)
@@ -62,17 +72,16 @@ defmodule MealPlannerApiWeb.SlotCookingTimesController do
   # `Plug.Parsers` hands over a JSON document that is not an object, such as
   # an array or a number, under the single key `_json`.
   defp validate(%{"_json" => _not_an_object} = body) when map_size(body) == 1,
-    do: invalid("The request body must be an object.")
+    do: {:error, :validation_error}
 
   # A body no parser read, such as `text/plain`, stays a
   # `%Plug.Conn.Unfetched{}` struct.
-  defp validate(body) when is_struct(body),
-    do: invalid("The request body must be an object.")
+  defp validate(body) when is_struct(body), do: {:error, :validation_error}
 
   defp validate(body) do
     case body |> Map.keys() |> Enum.reject(&(&1 in @slot_names)) |> Enum.sort() do
       [] -> validate_slots(body)
-      [key | _] -> invalid("#{camel_case(key)} is not an accepted slot.")
+      [key | _] -> invalid(camel_case(key))
     end
   end
 
@@ -93,11 +102,8 @@ defmodule MealPlannerApiWeb.SlotCookingTimesController do
           {:ok, %{cooking_time_minutes: minutes, hunger_level: hunger_level}}
         end
 
-      %{^name => _not_an_object} ->
-        invalid("#{name} must be an object.")
-
-      _missing ->
-        invalid("#{name} is required.")
+      _missing_or_not_an_object ->
+        invalid(name)
     end
   end
 
@@ -105,11 +111,7 @@ defmodule MealPlannerApiWeb.SlotCookingTimesController do
        when is_integer(minutes) and minutes in @cooking_time_minutes,
        do: {:ok, minutes}
 
-  defp validate_minutes(name, _time) do
-    first..last//_ = @cooking_time_minutes
-
-    invalid("#{name}.cookingTimeMinutes must be an integer between #{first} and #{last}.")
-  end
+  defp validate_minutes(name, _time), do: invalid("#{name}.cookingTimeMinutes")
 
   defp validate_hunger_level(_name, %{"hunger_level" => hunger_level})
        when hunger_level in @hunger_levels,
@@ -119,9 +121,11 @@ defmodule MealPlannerApiWeb.SlotCookingTimesController do
        when is_binary(hunger_level),
        do: {:error, :invalid_hunger_level}
 
-  defp validate_hunger_level(name, _time), do: invalid("#{name}.hungerLevel must be a string.")
+  defp validate_hunger_level(name, _time), do: invalid("#{name}.hungerLevel")
 
-  defp invalid(message), do: {:error, {:validation_error, message}}
+  # `field` is the wire spelling of the field at fault, which
+  # `ApiError.validation_error/2` names in the message.
+  defp invalid(field), do: {:error, {:validation_error, field}}
 
   # `Plugs.MobileCasing` has rewritten the request keys to snake_case; a
   # message names a key in the casing the app sent it.

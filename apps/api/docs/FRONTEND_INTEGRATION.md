@@ -174,6 +174,47 @@ manejo de refresh) y NO asumir un tipo específico.
 | `POST` | `/api/shopping/checkout` | Confirmar compra |
 | `GET` | `/api/recipes` | Lista de recetas |
 | `GET` | `/api/inventory` | Inventario del usuario |
+| `PUT` | `/api/me/profile` | Editar el perfil de Onboarding del usuario actual |
+
+### Editar el perfil de Onboarding
+
+`PUT /api/me/profile` guarda el nombre, el tamaño del hogar y la experiencia cocinando del usuario actual.
+No requiere acceso vigente: una cuenta con el acceso vencido también puede usarla.
+
+```json
+{
+  "displayName": "Ana María",
+  "householdSize": 4,
+  "cookingSkill": "intermediate"
+}
+```
+
+Los tres campos son obligatorios:
+
+- `displayName`: string de 1 a 64 caracteres, contados después de quitar los espacios de los extremos.
+  Un carácter es un grafema (un emoji compuesto cuenta como uno); además el nombre no puede superar los
+  255 code points Unicode ni contener el carácter NUL (`\u0000`).
+- `householdSize`: entero JSON de 1 a 20. El string `"4"` y el número `4.5` se rechazan.
+- `cookingSkill`: `beginner`, `intermediate` o `advanced`.
+
+Respuesta `200`, con el mismo objeto `user` que devuelve `GET /api/me`:
+
+```json
+{
+  "user": {
+    "id": "…",
+    "email": "ana@example.com",
+    "displayName": "Ana María",
+    "householdSize": 4,
+    "cookingSkill": "intermediate"
+  }
+}
+```
+
+Los campos se validan en el orden `displayName`, `householdSize`, `cookingSkill`, y el primero que falla
+decide la respuesta: `422 invalid_cooking_skill` cuando `cookingSkill` es un string fuera del catálogo, y
+`422 validation_error` en cualquier otro caso, con un `message` que nombra el campo. Una request rechazada
+no guarda nada.
 
 ### Ejemplo: Obtener Calendario
 
@@ -656,14 +697,17 @@ Lo devuelven:
   `/api/auth/login/verify-code`, `/api/auth/signup/request-code`, `/api/auth/signup/verify-code` y
   `/api/auth/refresh`;
 - `GET /api/me` y su alias `GET /api/auth/me`;
+- `PUT /api/me/profile`: `422 validation_error` y `422 invalid_cooking_skill`;
 - `GET` y `PUT /api/me/slot-cooking-times`, los tiempos de cocina por comida del usuario
   (`{ breakfast, lunch, dinner }`, cada uno con `cookingTimeMinutes` y `hungerLevel`):
   `404 slot_cooking_times_not_found` cuando el usuario todavía no guardó los tres slots,
-  `422 validation_error` cuando el cuerpo no es válido (el `message` nombra el campo, por ejemplo
-  `lunch.cookingTimeMinutes`) y `422 invalid_hunger_level` cuando `hungerLevel` no es `light`, `normal` ni
-  `strong`. El `PUT` exige exactamente `breakfast`, `lunch` y `dinner`: `snack` no se requiere ni se
-  acepta. `cookingTimeMinutes` es un entero de `0` a `240`, y `0` significa que el usuario no cocina en
-  ese slot. El detalle está en las secciones 3.3 y 3.4 de
+  `422 validation_error` cuando el cuerpo no es válido y `422 invalid_hunger_level` cuando `hungerLevel`
+  no es `light`, `normal` ni `strong`. El `message` de `validation_error` es
+  `The field <field> is not valid.`, con el campo en camelCase (por ejemplo `lunch.cookingTimeMinutes` o
+  `snack`), o `The request is not valid.` cuando el cuerpo no es un objeto JSON o ningún parser lo leyó.
+  El `PUT` exige exactamente `breakfast`, `lunch` y `dinner`: `snack` no se requiere ni se acepta.
+  `cookingTimeMinutes` es un entero de `0` a `240`, y `0` significa que el usuario no cocina en ese slot.
+  El detalle está en las secciones 3.4 y 3.5 de
   [`frontend_integration_guide.md`](../frontend_integration_guide.md).
 
 **Plano (anterior, no migrado al sobre).** El status lo elige cada endpoint:
@@ -707,6 +751,8 @@ formato por defecto:
 | `account_mismatch` | El `:account_id` de la URL no coincide con la cuenta activa del token (multi-familia) | Hacer `switch-account` a la cuenta correcta primero, ver [Multi-Familia](#multi-familia-cuentas-múltiples) |
 | `not_found` | Recurso no existe | Verificar IDs |
 | `invalid_payload` | Datos inválidos | Validar input del usuario |
+| `validation_error` | Un campo de la request no es válido; el `message` nombra el campo | Corregir ese campo |
+| `invalid_cooking_skill` | `cookingSkill` no está en el catálogo | Enviar `beginner`, `intermediate` o `advanced` |
 | `generation_in_progress` | Ya hay una generación en curso | Esperar o cancelar |
 | `no_active_generation` | No hay generación activa | Generar primero |
 | `budget_exceeded` | Supera el presupuesto | Reducir constraints |
