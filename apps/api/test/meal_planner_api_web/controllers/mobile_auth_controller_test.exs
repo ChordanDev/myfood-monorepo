@@ -12,14 +12,20 @@ defmodule MealPlannerApiWeb.MobileAuthControllerTest do
   and `apps/mobile/src/api/errors.ts`. Expiry and cooldown are simulated by
   inserting rows with past timestamps; delivery is read back from
   `Bamboo.SentEmail` (the test mailer adapter is `Bamboo.LocalAdapter`).
+
+  The Device session a verified code opens (issue #9) is asserted here;
+  what `POST /api/auth/refresh` and `POST /api/auth/logout` then do with
+  it is covered in `auth_controller_test.exs`.
   """
   use MealPlannerApiWeb.ConnCase, async: false
 
   import MealPlannerApi.FactoryHelpers
 
+  alias MealPlannerApi.Auth.Guardian
   alias MealPlannerApi.Persistence.Accounts.Account
   alias MealPlannerApi.Persistence.Accounts.AccountMembership
   alias MealPlannerApi.Persistence.Accounts.User
+  alias MealPlannerApi.Persistence.Auth.DeviceSession
   alias MealPlannerApi.Persistence.Auth.EmailAuthEvent
   alias MealPlannerApi.Persistence.Auth.EmailVerificationCode
   alias MealPlannerApi.Repo
@@ -446,6 +452,22 @@ defmodule MealPlannerApiWeb.MobileAuthControllerTest do
       assert %{"accessToken" => _} = conn |> post(@verify_path, body) |> json_response(200)
     end
 
+    test "a deviceId over 255 characters is refused without spending the code", %{conn: conn} do
+      user = insert_owner!("login-device-long@example.com")
+      insert_code!(user, "123456")
+      body = verify_body(user.email, "123456")
+
+      too_long = %{body | "deviceId" => String.duplicate("d", 256)}
+      assert_error(post(conn, @verify_path, too_long), 422, "code_invalid")
+      assert Repo.aggregate(DeviceSession, :count) == 0
+
+      longest = String.duplicate("d", 255)
+      conn = post(conn, @verify_path, %{body | "deviceId" => longest})
+
+      assert %{"refreshToken" => refresh_token} = json_response(conn, 200)
+      assert device_session(refresh_token).device_id == longest
+    end
+
     test "a missing code or email gets code_invalid", %{conn: conn} do
       user = insert_owner!("login-missing@example.com")
       insert_code!(user, "123456")
@@ -591,6 +613,87 @@ defmodule MealPlannerApiWeb.MobileAuthControllerTest do
                "canUseApp" => false,
                "reason" => "trial_expired"
              }
+    end
+  end
+
+  describe "POST /api/auth/login/verify-code — Device session" do
+    test "opening a session stores a Device session for the refresh token", %{conn: conn} do
+      user = insert_owner!("login-device-session@example.com")
+      [membership] = user.memberships
+
+      body = verify!(conn, user)
+
+      assert [%DeviceSession{} = session] = Repo.all(DeviceSession)
+      assert session.token_hash == token_hash(body["refreshToken"])
+      assert session.user_id == user.id
+      assert session.membership_id == membership.id
+      assert session.device_id == @device_id
+      assert session.revoked_at == nil
+      assert session.replaced_by_id == nil
+      assert_in_delta DateTime.diff(session.expires_at, DateTime.utc_now()), 30 * 86_400, 5
+    end
+
+    test "the refresh token names its Device session and expires with it", %{conn: conn} do
+      user = insert_owner!("login-device-claims@example.com")
+
+      body = verify!(conn, user)
+
+      assert [%DeviceSession{} = session] = Repo.all(DeviceSession)
+
+      assert {:ok, %{"typ" => "refresh", "sid" => sid, "sub" => sub, "exp" => exp}} =
+               Guardian.decode_and_verify(body["refreshToken"])
+
+      assert sid == session.id
+      assert sub == user.id
+      assert DateTime.compare(DateTime.from_unix!(exp), session.expires_at) == :eq
+    end
+
+    test "the access token carries the claims of the User and the Membership", %{conn: conn} do
+      user = insert_owner!("login-device-access@example.com")
+      [membership] = user.memberships
+
+      body = verify!(conn, user)
+
+      assert {:ok, claims} = Guardian.decode_and_verify(body["accessToken"])
+      assert claims["typ"] == "access_v2"
+      assert claims["sub"] == user.id
+      assert claims["membership_id"] == membership.id
+      assert claims["account_id"] == membership.account_id
+      refute Map.has_key?(claims, "sid")
+    end
+
+    test "logging in again on the same device ends the session it had", %{conn: conn} do
+      user = insert_owner!("login-device-again@example.com")
+
+      first = verify!(conn, user)
+      second = verify!(conn, user)
+
+      assert %DeviceSession{revoked_at: %DateTime{}, replaced_by_id: nil} =
+               device_session(first["refreshToken"])
+
+      assert %DeviceSession{revoked_at: nil} = device_session(second["refreshToken"])
+
+      conn = post(conn, "/api/auth/refresh", %{"refreshToken" => first["refreshToken"]})
+      assert_error(conn, 401, "refresh_token_revoked")
+    end
+
+    test "a login leaves the User's other devices and other Users' sessions alone", %{
+      conn: conn
+    } do
+      user = insert_owner!("login-device-own@example.com")
+      other_user = insert_owner!("login-device-other@example.com")
+
+      other_device = verify!(conn, user, "another-phone")
+      other_person = verify!(conn, other_user)
+      verify!(conn, user)
+
+      assert %DeviceSession{revoked_at: nil, device_id: "another-phone"} =
+               device_session(other_device["refreshToken"])
+
+      assert %DeviceSession{revoked_at: nil, device_id: @device_id} =
+               device_session(other_person["refreshToken"])
+
+      assert Repo.aggregate(DeviceSession, :count) == 3
     end
   end
 
@@ -820,6 +923,20 @@ defmodule MealPlannerApiWeb.MobileAuthControllerTest do
       assert body["me"]["user"]["email"] == "signup-verify@example.com"
     end
 
+    test "the session it opens stores a Device session for the refresh token", %{conn: conn} do
+      body = signup!(conn, "signup-device-session@example.com")
+
+      assert [%User{} = user] = Repo.all(User)
+      assert [%AccountMembership{} = membership] = Repo.all(AccountMembership)
+
+      assert [%DeviceSession{} = session] = Repo.all(DeviceSession)
+      assert session.token_hash == token_hash(body["refreshToken"])
+      assert session.user_id == user.id
+      assert session.membership_id == membership.id
+      assert session.device_id == @device_id
+      assert session.revoked_at == nil
+    end
+
     test "a fresh sign-up is on a seven day Trial, can use the app and has not onboarded", %{
       conn: conn
     } do
@@ -997,6 +1114,17 @@ defmodule MealPlannerApiWeb.MobileAuthControllerTest do
       assert %{"accessToken" => _} = conn |> post(@signup_verify_path, body) |> json_response(200)
     end
 
+    test "a deviceId over 255 characters is refused without spending the code", %{conn: conn} do
+      insert_signup_code!("signup-device-long@example.com", "123456")
+      body = verify_body("signup-device-long@example.com", "123456")
+
+      too_long = %{body | "deviceId" => String.duplicate("d", 256)}
+      assert_error(post(conn, @signup_verify_path, too_long), 422, "code_invalid")
+      assert_nothing_registered()
+
+      assert %{"accessToken" => _} = conn |> post(@signup_verify_path, body) |> json_response(200)
+    end
+
     test "a missing code or email gets code_invalid", %{conn: conn} do
       insert_signup_code!("signup-missing@example.com", "123456")
       body = verify_body("signup-missing@example.com", "123456")
@@ -1036,10 +1164,12 @@ defmodule MealPlannerApiWeb.MobileAuthControllerTest do
     assert Repo.aggregate(AccountMembership, :count) == 0
   end
 
-  # Verifies a known pending code for `user` and returns the 200 body.
-  defp verify!(conn, user) do
+  # Verifies a known pending code for `user` on `device_id` and returns
+  # the 200 body.
+  defp verify!(conn, user, device_id \\ @device_id) do
     insert_code!(user, "123456")
-    conn |> post(@verify_path, verify_body(user.email, "123456")) |> json_response(200)
+    body = %{verify_body(user.email, "123456") | "deviceId" => device_id}
+    conn |> post(@verify_path, body) |> json_response(200)
   end
 
   # Signs `email` up with a known pending code and returns the 200 body.
@@ -1089,6 +1219,14 @@ defmodule MealPlannerApiWeb.MobileAuthControllerTest do
   defp retry_after(conn) do
     assert [value] = get_resp_header(conn, "retry-after")
     String.to_integer(value)
+  end
+
+  # The digest a Device session keeps of its refresh token.
+  defp token_hash(token), do: :sha256 |> :crypto.hash(token) |> Base.encode16(case: :lower)
+
+  # The Device session row of `refresh_token`.
+  defp device_session(refresh_token) do
+    Repo.get_by!(DeviceSession, token_hash: token_hash(refresh_token))
   end
 
   defp seconds_ago(seconds), do: DateTime.add(DateTime.utc_now(), -seconds, :second)

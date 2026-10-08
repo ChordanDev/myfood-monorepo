@@ -12,16 +12,23 @@ defmodule MealPlannerApiWeb.MobileAuthController do
   and renders either the success body typed in
   `apps/mobile/src/features/auth/types/auth.ts` or the error envelope
   through `MealPlannerApiWeb.ApiError`.
+
+  A verified code ends in a Device session opened by
+  `MealPlannerApi.Services.DeviceSessions` (issue #9); its refresh token
+  is rotated and revoked by `POST /api/auth/refresh` and
+  `POST /api/auth/logout` in `MealPlannerApiWeb.AuthController`.
   """
   use MealPlannerApiWeb, :controller
 
-  alias MealPlannerApi.AccountsMembership
+  alias MealPlannerApi.Services.DeviceSessions
   alias MealPlannerApi.Services.EmailCodeLogin
   alias MealPlannerApi.Services.EmailCodeSignup
   alias MealPlannerApiWeb.ApiError
   alias MealPlannerApiWeb.ClientIp
-  alias MealPlannerApiWeb.Controllers.AccountScopeHelpers
   alias MealPlannerApiWeb.CurrentMe
+
+  # The width of `device_sessions.device_id`.
+  @max_device_id_length 255
 
   @doc """
   `POST /api/auth/login/request-code`.
@@ -82,10 +89,12 @@ defmodule MealPlannerApiWeb.MobileAuthController do
   `me` is the same payload `GET /api/me` returns, or `code_invalid`,
   `code_expired`, `too_many_attempts` or `account_not_found`.
 
-  `deviceId` must be a non-empty string. It is not stored yet: Device
-  sessions start persisting it with the refresh-rotation work. A request
-  without it is answered `code_invalid` before the code is looked at, so it
-  neither spends the code nor counts as an attempt.
+  `deviceId` must be a non-empty string of at most #{@max_device_id_length}
+  characters. It names the phone the Device session belongs to: the
+  session is stored with it, and it replaces the one this User already
+  had on that phone. A request without a valid `deviceId` is answered
+  `code_invalid` before the code is looked at, so it neither spends the
+  code nor counts as an attempt.
   """
   def verify_login_code(conn, params) do
     conn |> open_session(params, &EmailCodeLogin.verify_code/2)
@@ -105,38 +114,38 @@ defmodule MealPlannerApiWeb.MobileAuthController do
   end
 
   # `verify` checks the code and answers the User and Membership the
-  # session is for.
+  # Device session is opened for.
   defp open_session(conn, params, verify) do
     with :ok <- validate_device_id(params["deviceId"]),
          {:ok, %{user: user, membership: membership}} <-
            verify.(params["email"], params["code"]),
          {:ok, me} <- CurrentMe.load(user, membership),
-         {:ok, access_token, refresh_token} <-
-           AccountScopeHelpers.mint_token_pair(
-             user,
-             AccountsMembership.claims_for(user, membership)
-           ) do
+         {:ok, tokens} <- DeviceSessions.open(user, membership, params["deviceId"]) do
       json(conn, %{
-        accessToken: access_token,
-        refreshToken: refresh_token,
+        accessToken: tokens.access_token,
+        refreshToken: tokens.refresh_token,
         tokenType: "Bearer",
         me: me
       })
     else
-      {:error, :device_id_required} -> conn |> ApiError.error(:code_invalid)
+      {:error, :device_id_invalid} -> conn |> ApiError.error(:code_invalid)
       {:error, :code_invalid} -> conn |> ApiError.error(:code_invalid)
       {:error, :code_expired} -> conn |> ApiError.error(:code_expired)
       {:error, :too_many_attempts} -> conn |> ApiError.error(:too_many_attempts)
       {:error, :account_not_found} -> conn |> ApiError.error(:account_not_found)
       {:error, :email_already_exists} -> conn |> ApiError.error(:email_already_exists)
       {:error, :registration_failed} -> conn |> ApiError.server_fault()
-      {:error, :token_refresh_failed} -> conn |> ApiError.server_fault()
+      {:error, :session_issue_failed} -> conn |> ApiError.server_fault()
     end
   end
 
   defp validate_device_id(device_id) when is_binary(device_id) do
-    if String.trim(device_id) == "", do: {:error, :device_id_required}, else: :ok
+    if String.trim(device_id) == "" or String.length(device_id) > @max_device_id_length do
+      {:error, :device_id_invalid}
+    else
+      :ok
+    end
   end
 
-  defp validate_device_id(_device_id), do: {:error, :device_id_required}
+  defp validate_device_id(_device_id), do: {:error, :device_id_invalid}
 end

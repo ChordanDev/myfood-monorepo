@@ -45,6 +45,23 @@ defmodule MealPlannerApiWeb.ApiErrorTest do
       assert %{"error" => %{"code" => "email_already_exists"}} = json_response(conn, 409)
     end
 
+    test "maps every refresh token code to 401", %{conn: conn} do
+      assert (conn |> ApiError.error(:refresh_token_invalid)).status == 401
+      assert (conn |> ApiError.error(:refresh_token_revoked)).status == 401
+      assert (conn |> ApiError.error(:refresh_token_replayed)).status == 401
+      assert (conn |> ApiError.error(:refresh_token_expired)).status == 401
+      assert (conn |> ApiError.error(:refresh_token_session_mismatch)).status == 401
+    end
+
+    test "renders a refresh token code in the envelope", %{conn: conn} do
+      conn = conn |> ApiError.error(:refresh_token_replayed)
+
+      assert %{"error" => %{"code" => "refresh_token_replayed", "message" => message}} =
+               json_response(conn, 401)
+
+      assert is_binary(message) and message != ""
+    end
+
     test "keeps a response header set on the conn before rendering", %{conn: conn} do
       conn =
         conn

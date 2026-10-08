@@ -46,6 +46,11 @@ defmodule MealPlannerApiWeb.ApiError do
           | :too_many_attempts
           | :code_send_failed
           | :email_already_exists
+          | :refresh_token_invalid
+          | :refresh_token_revoked
+          | :refresh_token_replayed
+          | :refresh_token_expired
+          | :refresh_token_session_mismatch
 
   @codes %{
     unauthenticated: {401, "Authentication is required for this request."},
@@ -59,7 +64,12 @@ defmodule MealPlannerApiWeb.ApiError do
     code_expired: {401, "The verification code has expired."},
     too_many_attempts: {429, "Too many failed attempts for this code. Request a new one."},
     code_send_failed: {502, "The verification code could not be sent."},
-    email_already_exists: {409, "An account already exists for this email address."}
+    email_already_exists: {409, "An account already exists for this email address."},
+    refresh_token_invalid: {401, "The refresh token is not valid."},
+    refresh_token_revoked: {401, "The refresh token has been revoked."},
+    refresh_token_replayed: {401, "The refresh token has already been used."},
+    refresh_token_expired: {401, "The refresh token has expired."},
+    refresh_token_session_mismatch: {401, "The refresh token does not match its session."}
   }
 
   @doc """
