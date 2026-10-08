@@ -1,0 +1,204 @@
+import type { UnitType } from '@/types/domain';
+import type {
+  ShoppingLineAllocation,
+  ShoppingLineStatus,
+  ShoppingListLine,
+  ShoppingListRead,
+  ShoppingMealSlot,
+} from '../types/shoppingApi';
+
+// Reads of `GET /api/shopping-list` for one plan, as the server answers them: four meals over
+// three days, six ingredients, and a Cart holding the rice and the oil of the first meal.
+
+type Meal = { scheduledMealId: string; date: string; slot: ShoppingMealSlot };
+
+type Ingredient = { ingredientId: string; name: string; category: string; unit: UnitType };
+
+const LUNCH_OCT_8: Meal = {
+  scheduledMealId: 'fa64644f-e007-4539-9cd6-2a9d49570540',
+  date: '2026-10-08',
+  slot: 'lunch',
+};
+const DINNER_OCT_10: Meal = {
+  scheduledMealId: '1fec839a-f789-4e70-92ef-94fb63f1efac',
+  date: '2026-10-10',
+  slot: 'dinner',
+};
+const BREAKFAST_OCT_12: Meal = {
+  scheduledMealId: '6b1d1c0e-3c56-4d0a-9a43-0f6f4f1c2a10',
+  date: '2026-10-12',
+  slot: 'breakfast',
+};
+const LUNCH_OCT_12: Meal = {
+  scheduledMealId: '9d2f7a35-8f0b-4c1e-b0d6-5a7e2c9b4f21',
+  date: '2026-10-12',
+  slot: 'lunch',
+};
+
+const RICE: Ingredient = {
+  ingredientId: 'dc0c856d-af87-4efb-8e75-1da2b0f57597',
+  name: 'Arroz',
+  category: 'granos',
+  unit: 'g',
+};
+const CHICKEN: Ingredient = {
+  ingredientId: '2a9c1f5e-7b3d-4e68-a1c4-93d0b6e7f812',
+  name: 'Pollo',
+  category: 'carnes',
+  unit: 'g',
+};
+const TOMATO: Ingredient = {
+  ingredientId: '5e8b2d74-1c9a-4f03-8d6e-b47a0c3f9e15',
+  name: 'Tomate',
+  category: 'verduras',
+  unit: 'unit',
+};
+const OLIVE_OIL: Ingredient = {
+  ingredientId: '8f3a6c12-4d7e-4b95-a2f0-c81e5d9b7a34',
+  name: 'Aceite de oliva',
+  category: 'no_perecederos',
+  unit: 'ml',
+};
+const MILK: Ingredient = {
+  ingredientId: 'b7d4e9a1-6f2c-4a58-9e3b-0d5c8f1a2e67',
+  name: 'Leche',
+  category: 'lacteos',
+  unit: 'ml',
+};
+const BANANA: Ingredient = {
+  ingredientId: 'c1e5f8b3-9a4d-4c72-8b1f-6e0a3d7c5f90',
+  name: 'Banana',
+  category: 'frutas',
+  unit: 'unit',
+};
+
+function allocation(itemId: string, meal: Meal, quantityMilli: number): ShoppingLineAllocation {
+  return { itemId, ...meal, quantityMilli };
+}
+
+// The shares of each meal, one per Shopping item. Quantities are thousandths of the unit.
+const RICE_OCT_8 = allocation('ec18bfeb-0d2c-4e11-b772-e6e2fa3d9473', LUNCH_OCT_8, 400_000);
+const CHICKEN_OCT_8 = allocation('0a4f6d28-b1c3-4e59-8a7d-2f9e1c5b3d46', LUNCH_OCT_8, 600_000);
+const TOMATO_OCT_8 = allocation('3c7e9b15-d2a4-4f86-b0c1-7a5d8e2f4b69', LUNCH_OCT_8, 2_000);
+const OLIVE_OIL_OCT_8 = allocation('4d8fa026-e3b5-4a97-91d2-8b6e9f3a5c7a', LUNCH_OCT_8, 30_000);
+const RICE_OCT_10 = allocation('7eabbc7a-4d46-49a2-a44a-4a06b663d25f', DINNER_OCT_10, 400_000);
+const TOMATO_OCT_10 = allocation('5e90b137-f4c6-4ba8-a2e3-9c7fa04b6d8b', DINNER_OCT_10, 3_000);
+const MILK_OCT_10 = allocation('6fa1c248-05d7-4cb9-b3f4-ad80b15c7e9c', DINNER_OCT_10, 500_000);
+const MILK_OCT_12 = allocation('70b2d359-16e8-4dca-84a5-be91c26d8fad', BREAKFAST_OCT_12, 750_000);
+const BANANA_OCT_12 = allocation('81c3e46a-27f9-4edb-95b6-cfa2d37e90be', BREAKFAST_OCT_12, 2_000);
+const RICE_OCT_12 = allocation('92d4f57b-380a-4fec-a6c7-d0b3e48fa1cf', LUNCH_OCT_12, 450_000);
+const CHICKEN_OCT_12 = allocation('a3e5068c-491b-40fd-b7d8-e1c4f590b2d0', LUNCH_OCT_12, 500_000);
+
+function sumQuantities(allocations: ShoppingLineAllocation[]) {
+  return allocations.reduce((total, { quantityMilli }) => total + quantityMilli, 0);
+}
+
+// The line of an ingredient for all of these meals: what `groupBy=ingredient` serves.
+function ingredientLine(
+  ingredient: Ingredient,
+  allocations: ShoppingLineAllocation[],
+  status: ShoppingLineStatus = 'needed'
+): ShoppingListLine {
+  return {
+    id: `${ingredient.ingredientId}:${ingredient.unit}`,
+    ...ingredient,
+    quantityMilli: sumQuantities(allocations),
+    status,
+    source: 'planned_meal',
+    supermarketId: null,
+    allocations,
+  };
+}
+
+// The line of an ingredient for one meal: what `groupBy=meal` serves.
+function mealLine(
+  ingredient: Ingredient,
+  share: ShoppingLineAllocation,
+  status: ShoppingLineStatus = 'needed'
+): ShoppingListLine {
+  return { ...ingredientLine(ingredient, [share], status), id: share.itemId };
+}
+
+const PLANNED_DATES = ['2026-10-08', '2026-10-10', '2026-10-12'];
+
+const CART = {
+  sessionId: '36d3abb6-dd68-4728-a33a-ab33b02ecdfe',
+  leaseExpiresAt: '2026-10-08T18:12:27.085974Z',
+};
+
+/**
+ * `GET /api/shopping-list`: one line per ingredient. The rice adds up three meals and crosses
+ * the kilo; only one of its shares is in the Cart, so the line still reads `needed`.
+ */
+export const SHOPPING_LIST_BY_INGREDIENT: ShoppingListRead = {
+  planned: [
+    ingredientLine(RICE, [RICE_OCT_8, RICE_OCT_10, RICE_OCT_12]),
+    ingredientLine(CHICKEN, [CHICKEN_OCT_8, CHICKEN_OCT_12]),
+    ingredientLine(TOMATO, [TOMATO_OCT_8, TOMATO_OCT_10]),
+    ingredientLine(OLIVE_OIL, [OLIVE_OIL_OCT_8], 'in_cart'),
+    ingredientLine(MILK, [MILK_OCT_10, MILK_OCT_12]),
+    ingredientLine(BANANA, [BANANA_OCT_12]),
+  ],
+  manual: [],
+  cart: CART,
+  totals: { needed: 5, inCart: 1, removed: 0, estimatedCents: 0 },
+  plannedDates: PLANNED_DATES,
+};
+
+/** `GET /api/shopping-list?groupBy=meal`: the same plan, one line per meal and ingredient. */
+export const SHOPPING_LIST_BY_MEAL: ShoppingListRead = {
+  planned: [
+    mealLine(RICE, RICE_OCT_8, 'in_cart'),
+    mealLine(CHICKEN, CHICKEN_OCT_8),
+    mealLine(TOMATO, TOMATO_OCT_8),
+    mealLine(OLIVE_OIL, OLIVE_OIL_OCT_8, 'in_cart'),
+    mealLine(RICE, RICE_OCT_10),
+    mealLine(TOMATO, TOMATO_OCT_10),
+    mealLine(MILK, MILK_OCT_10),
+    mealLine(MILK, MILK_OCT_12),
+    mealLine(BANANA, BANANA_OCT_12),
+    mealLine(RICE, RICE_OCT_12),
+    mealLine(CHICKEN, CHICKEN_OCT_12),
+  ],
+  manual: [],
+  cart: CART,
+  totals: { needed: 9, inCart: 2, removed: 0, estimatedCents: 0 },
+  plannedDates: PLANNED_DATES,
+};
+
+/**
+ * `GET /api/shopping-list?untilDate=2026-10-10`: the meals of the 12th are left out, and the
+ * planned dates still list that day.
+ */
+export const SHOPPING_LIST_UNTIL_OCT_10: ShoppingListRead = {
+  planned: [
+    ingredientLine(RICE, [RICE_OCT_8, RICE_OCT_10]),
+    ingredientLine(CHICKEN, [CHICKEN_OCT_8]),
+    ingredientLine(TOMATO, [TOMATO_OCT_8, TOMATO_OCT_10]),
+    ingredientLine(OLIVE_OIL, [OLIVE_OIL_OCT_8], 'in_cart'),
+    ingredientLine(MILK, [MILK_OCT_10]),
+  ],
+  manual: [],
+  cart: CART,
+  totals: { needed: 4, inCart: 1, removed: 0, estimatedCents: 0 },
+  plannedDates: PLANNED_DATES,
+};
+
+/** The read of an Account with nothing planned from its today on. */
+export const EMPTY_SHOPPING_LIST: ShoppingListRead = {
+  planned: [],
+  manual: [],
+  cart: null,
+  totals: { needed: 0, inCart: 0, removed: 0, estimatedCents: 0 },
+  plannedDates: [],
+};
+
+/** The body of a read, as the route wraps it. */
+export function toShoppingListResponse(read: ShoppingListRead) {
+  return { data: read };
+}
+
+/** The 422 body of a read whose `untilDate` or `groupBy` the server rejects. */
+export const SHOPPING_LIST_VALIDATION_ERROR = {
+  error: { code: 'validation_error', message: 'A request parameter is not valid.' },
+};
