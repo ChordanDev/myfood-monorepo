@@ -34,6 +34,7 @@ defmodule MealPlannerApi.Persistence.Accounts.UserHardRestriction do
     |> cast(attrs, [:user_id, :code])
     |> validate_required([:user_id, :code])
     |> validate_inclusion(:code, @codes)
+    |> check_constraint(:code, name: :user_hard_restrictions_code_check)
     |> unique_constraint([:user_id, :code])
     |> foreign_key_constraint(:user_id)
   end
