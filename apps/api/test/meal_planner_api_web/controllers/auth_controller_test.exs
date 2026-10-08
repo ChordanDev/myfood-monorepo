@@ -1,9 +1,19 @@
 defmodule MealPlannerApiWeb.AuthControllerTest do
   use MealPlannerApiWeb.ConnCase, async: false
 
+  import MealPlannerApi.FactoryHelpers
+
+  alias Guardian.Token.Jwt, as: GuardianJwt
   alias MealPlannerApi.Auth.Guardian
-  alias MealPlannerApi.Repo
   alias MealPlannerApi.Persistence.Accounts.User
+  alias MealPlannerApi.Persistence.Auth.DeviceSession
+  alias MealPlannerApi.Persistence.Auth.EmailVerificationCode
+  alias MealPlannerApi.Repo
+  alias MealPlannerApi.Services.EmailCodeAuth
+
+  @refresh_path "/api/auth/refresh"
+  @logout_path "/api/auth/logout"
+  @device_id "3f0c5f4e-6f0e-4a55-9d0b-1c7f1f6f2a10"
 
   setup do
     previous_verifier = Application.get_env(:meal_planner_api, :social_verifier)
@@ -284,9 +294,7 @@ defmodule MealPlannerApiWeb.AuthControllerTest do
   # `auth_controller.ex` consults `:meal_planner_api, :tenancy_v2_only` to
   # decide whether `password/2` (register + login modes) mints `access_v2`
   # (via `AccountsMembership.claims_for/2`) or the legacy `access_v1`
-  # (via `Accounts.claims_for/2`). `refresh/2` MUST preserve whichever
-  # `typ` the ORIGINAL token carried, independent of the flag's value at
-  # refresh time — no silent re-scoping in either direction.
+  # (via `Accounts.claims_for/2`).
   describe "tenancy_v2_only flag (task 3.8)" do
     setup do
       previous = Application.get_env(:meal_planner_api, :tenancy_v2_only)
@@ -364,124 +372,327 @@ defmodule MealPlannerApiWeb.AuthControllerTest do
       assert claims["typ"] == "access"
       refute Map.has_key?(claims, "membership_id")
     end
-
-    test "refresh preserves access_v2 typ across rotation, regardless of the flag at refresh time",
-         %{conn: conn} do
-      Application.put_env(:meal_planner_api, :tenancy_v2_only, true)
-
-      register_body =
-        conn
-        |> post("/api/auth/password", %{
-          "mode" => "register",
-          "email" => "v2_refresh@myfood.local",
-          "password" => "supersecret123",
-          "name" => "V2 Refresh"
-        })
-        |> json_response(200)
-
-      {:ok, original_claims} = Guardian.decode_and_verify(register_body["access_token"])
-      original_membership_id = original_claims["membership_id"]
-
-      # Flip the flag OFF before refreshing — the refreshed access token
-      # must still be access_v2 because the ORIGINAL token was access_v2.
-      Application.put_env(:meal_planner_api, :tenancy_v2_only, false)
-
-      refresh_body =
-        conn
-        |> post("/api/auth/refresh", %{"refresh_token" => register_body["refresh_token"]})
-        |> json_response(200)
-
-      {:ok, refreshed_claims} = Guardian.decode_and_verify(refresh_body["access_token"])
-
-      assert refreshed_claims["typ"] == "access_v2"
-      assert refreshed_claims["membership_id"] == original_membership_id
-    end
-
-    test "refresh preserves access_v1 typ across rotation, regardless of the flag at refresh time",
-         %{conn: conn} do
-      Application.put_env(:meal_planner_api, :tenancy_v2_only, false)
-
-      register_body =
-        conn
-        |> post("/api/auth/password", %{
-          "mode" => "register",
-          "email" => "v1_refresh@myfood.local",
-          "password" => "supersecret123",
-          "name" => "V1 Refresh"
-        })
-        |> json_response(200)
-
-      # Flip the flag ON before refreshing — the refreshed access token
-      # must still be access_v1 because the ORIGINAL token was access_v1.
-      Application.put_env(:meal_planner_api, :tenancy_v2_only, true)
-
-      refresh_body =
-        conn
-        |> post("/api/auth/refresh", %{"refresh_token" => register_body["refresh_token"]})
-        |> json_response(200)
-
-      {:ok, refreshed_claims} = Guardian.decode_and_verify(refresh_body["access_token"])
-
-      assert refreshed_claims["typ"] == "access"
-      refute Map.has_key?(refreshed_claims, "membership_id")
-    end
   end
 
   # ----------------------------------------------------------------------
-  # Post-review fix pass, item 8 (security)
+  # Device sessions (issue #9)
   # ----------------------------------------------------------------------
   #
-  # Guardian's `token_type:` option at `decode_and_verify` time is NEVER
-  # actually checked by Guardian itself — it is only consumed at ENCODE
-  # time. Without an explicit `claims["typ"] == "refresh"` assertion,
-  # any validly-signed `access` or `access_v2` token could be POSTed as
-  # `refresh_token` and would be accepted, minting a fresh long-lived
-  # refresh+access pair from a short-lived access token.
-  describe "refresh token typ validation (post-review fix, item 8)" do
-    test "an access token posted as refresh_token is rejected", %{conn: conn} do
+  # `POST /api/auth/refresh` and `POST /api/auth/logout` act on the Device
+  # session a mobile verify route opened. Every session below is opened
+  # through `POST /api/auth/login/verify-code`, so rotation, replay
+  # detection and revocation are observed end to end over HTTP.
+  describe "POST /api/auth/refresh" do
+    test "rotates the pair and answers the new tokens without me", %{conn: conn} do
+      user = insert_owner!("refresh-rotate@example.com")
+      [membership] = user.memberships
+      session = login!(conn, user)
+
+      conn = post(conn, @refresh_path, %{"refreshToken" => session["refreshToken"]})
+
+      body = json_response(conn, 200)
+      assert Map.keys(body) == ["accessToken", "refreshToken", "tokenType"]
+      assert body["tokenType"] == "Bearer"
+      assert body["refreshToken"] != session["refreshToken"]
+
+      assert {:ok, claims} = Guardian.decode_and_verify(body["accessToken"])
+      assert claims["typ"] == "access_v2"
+      assert claims["sub"] == user.id
+      assert claims["membership_id"] == membership.id
+    end
+
+    test "the new refresh token rotates again and the old Device session is replaced", %{
+      conn: conn
+    } do
+      user = insert_owner!("refresh-chain@example.com")
+      first = login!(conn, user)
+
+      second = refresh!(conn, first["refreshToken"])
+      third = refresh!(conn, second["refreshToken"])
+
+      assert %DeviceSession{revoked_at: %DateTime{}, replaced_by_id: second_id} =
+               device_session(first["refreshToken"])
+
+      assert %DeviceSession{id: ^second_id, revoked_at: %DateTime{}, replaced_by_id: third_id} =
+               device_session(second["refreshToken"])
+
+      assert %DeviceSession{id: ^third_id, revoked_at: nil, replaced_by_id: nil} =
+               latest = device_session(third["refreshToken"])
+
+      original = device_session(first["refreshToken"])
+      assert latest.device_id == original.device_id
+      assert latest.membership_id == original.membership_id
+      assert latest.user_id == user.id
+      assert_in_delta DateTime.diff(latest.expires_at, DateTime.utc_now()), 30 * 86_400, 5
+    end
+
+    test "a token that never had a Device session gets refresh_token_invalid", %{conn: conn} do
+      {:ok, typeless_token} =
+        GuardianJwt.create_token(Guardian, %{"sub" => Ecto.UUID.generate()}, [])
+
+      for bad <- ["not-a-jwt", "", "   ", 42, nil, %{"nested" => "value"}, typeless_token] do
+        conn = post(conn, @refresh_path, %{"refreshToken" => bad})
+        assert_error(conn, 401, "refresh_token_invalid")
+      end
+
+      assert_error(post(conn, @refresh_path, %{}), 401, "refresh_token_invalid")
+    end
+
+    test "tokens the legacy routes minted have no Device session and are refused", %{conn: conn} do
       register_body =
         conn
         |> post("/api/auth/password", %{
           "mode" => "register",
-          "email" => "access_as_refresh@myfood.local",
+          "email" => "legacy_refresh@myfood.local",
           "password" => "supersecret123",
-          "name" => "Access As Refresh"
+          "name" => "Legacy Refresh"
         })
         |> json_response(200)
 
-      access_token = register_body["access_token"]
-      {:ok, access_claims} = Guardian.decode_and_verify(access_token)
-      assert access_claims["typ"] == "access"
+      assert {:ok, %{"typ" => "refresh"}} =
+               Guardian.decode_and_verify(register_body["refresh_token"])
 
-      conn = post(conn, "/api/auth/refresh", %{"refresh_token" => access_token})
-
-      assert json_response(conn, 401)["error"] == "invalid_refresh_token"
+      for body <- [
+            %{"refreshToken" => register_body["refresh_token"]},
+            %{"refresh_token" => register_body["refresh_token"]}
+          ] do
+        assert_error(post(conn, @refresh_path, body), 401, "refresh_token_invalid")
+      end
     end
 
-    # Second post-review fix pass: `refresh/2`'s `case` only has 3 clauses —
-    # `{:ok, %{"typ" => "refresh"} = claims}`, `{:ok, %{"typ" => other_typ}}`,
-    # `{:error, reason}`. A claims map with NO `"typ"` key at all matches
-    # neither `:ok` clause, raising `CaseClauseError` (500) instead of the
-    # intended fail-closed 401. `Guardian.build_claims/3`'s `set_type/3`
-    # always injects a `"typ"` if the claims map passed to `encode_and_sign/3`
-    # doesn't already carry one, so a normal mint can never produce this
-    # shape — we bypass `build_claims/3` entirely via the lower-level
-    # `Guardian.Token.Jwt.create_token/3` (raw sign, no claim post-processing)
-    # to reproduce a token whose decoded claims genuinely lack `"typ"`.
-    test "a refresh token whose claims are missing typ entirely returns 401, not a crash", %{
+    test "an access token posted as the refresh token is refused", %{conn: conn} do
+      session = login!(conn, insert_owner!("refresh-access@example.com"))
+
+      conn = post(conn, @refresh_path, %{"refreshToken" => session["accessToken"]})
+
+      assert_error(conn, 401, "refresh_token_invalid")
+      assert %DeviceSession{revoked_at: nil} = device_session(session["refreshToken"])
+    end
+
+    @tag :capture_log
+    test "a rotated token presented again is a replay and ends the session on that device", %{
       conn: conn
     } do
-      {:ok, typeless_token} =
-        Elixir.Guardian.Token.Jwt.create_token(Guardian, %{"sub" => Ecto.UUID.generate()}, [])
+      user = insert_owner!("refresh-replay@example.com")
+      first = login!(conn, user)
+      second = refresh!(conn, first["refreshToken"])
 
-      {:ok, decoded_claims} =
-        Guardian.decode_and_verify(typeless_token, %{}, token_type: "refresh")
+      conn_replay = post(conn, @refresh_path, %{"refreshToken" => first["refreshToken"]})
+      assert_error(conn_replay, 401, "refresh_token_replayed")
 
-      refute Map.has_key?(decoded_claims, "typ")
+      # The token that replaced it is revoked with the rest of the chain.
+      conn_latest = post(conn, @refresh_path, %{"refreshToken" => second["refreshToken"]})
+      assert_error(conn_latest, 401, "refresh_token_revoked")
 
-      conn = post(conn, "/api/auth/refresh", %{"refresh_token" => typeless_token})
-
-      assert json_response(conn, 401)["error"] == "invalid_refresh_token"
+      assert Repo.aggregate(DeviceSession, :count) == 2
+      assert Enum.all?(Repo.all(DeviceSession), &match?(%DateTime{}, &1.revoked_at))
     end
+
+    test "a Membership that is no longer active gets account_not_found", %{conn: conn} do
+      user = insert_owner!("refresh-suspended@example.com")
+      [membership] = user.memberships
+      session = login!(conn, user)
+
+      membership |> Ecto.Changeset.change(status: :suspended) |> Repo.update!()
+
+      conn = post(conn, @refresh_path, %{"refreshToken" => session["refreshToken"]})
+
+      assert_error(conn, 401, "account_not_found")
+      assert %DeviceSession{revoked_at: nil} = device_session(session["refreshToken"])
+    end
+
+    test "a Device session past its expiry gets refresh_token_expired", %{conn: conn} do
+      session = login!(conn, insert_owner!("refresh-expired@example.com"))
+
+      session["refreshToken"]
+      |> device_session()
+      |> Ecto.Changeset.change(expires_at: DateTime.add(DateTime.utc_now(), -1, :second))
+      |> Repo.update!()
+
+      conn = post(conn, @refresh_path, %{"refreshToken" => session["refreshToken"]})
+
+      assert_error(conn, 401, "refresh_token_expired")
+      assert Repo.aggregate(DeviceSession, :count) == 1
+    end
+  end
+
+  describe "POST /api/auth/logout" do
+    test "revokes the Device session and answers 204 with no body", %{conn: conn} do
+      session = login!(conn, insert_owner!("logout@example.com"))
+
+      conn_logout = post(conn, @logout_path, %{"refreshToken" => session["refreshToken"]})
+
+      assert response(conn_logout, 204) == ""
+
+      assert %DeviceSession{revoked_at: %DateTime{}, replaced_by_id: nil} =
+               device_session(session["refreshToken"])
+
+      conn_refresh = post(conn, @refresh_path, %{"refreshToken" => session["refreshToken"]})
+      assert_error(conn_refresh, 401, "refresh_token_revoked")
+    end
+
+    test "works when the access token in the header has expired or is garbage", %{conn: conn} do
+      user = insert_owner!("logout-expired-access@example.com")
+
+      {:ok, expired_access_token, _claims} =
+        Guardian.encode_and_sign(user, %{"typ" => "access_v2"},
+          token_type: "access",
+          ttl: {-1, :minute}
+        )
+
+      assert {:error, :token_expired} = Guardian.decode_and_verify(expired_access_token)
+
+      for authorization <- ["Bearer " <> expired_access_token, "Bearer not-a-jwt"] do
+        session = login!(conn, user, Ecto.UUID.generate())
+
+        conn =
+          conn
+          |> put_req_header("authorization", authorization)
+          |> post(@logout_path, %{"refreshToken" => session["refreshToken"]})
+
+        assert response(conn, 204) == ""
+        assert %DeviceSession{revoked_at: %DateTime{}} = device_session(session["refreshToken"])
+      end
+    end
+
+    test "answers 204 for an unknown, malformed or missing token and revokes nothing", %{
+      conn: conn
+    } do
+      session = login!(conn, insert_owner!("logout-unknown@example.com"))
+
+      {:ok, unknown_token, _claims} =
+        Guardian.encode_and_sign(%{id: Ecto.UUID.generate()}, %{"sid" => Ecto.UUID.generate()},
+          token_type: "refresh"
+        )
+
+      for body <- [
+            %{"refreshToken" => unknown_token},
+            %{"refreshToken" => "not-a-jwt"},
+            %{"refreshToken" => ""},
+            %{"refreshToken" => 42},
+            %{"refreshToken" => nil},
+            %{"refresh_token" => session["refreshToken"]},
+            %{}
+          ] do
+        assert conn |> post(@logout_path, body) |> response(204) == ""
+      end
+
+      assert conn |> post(@logout_path) |> response(204) == ""
+      assert %DeviceSession{revoked_at: nil} = device_session(session["refreshToken"])
+    end
+
+    test "logging out twice answers 204 both times and keeps the first revocation", %{conn: conn} do
+      session = login!(conn, insert_owner!("logout-twice@example.com"))
+      body = %{"refreshToken" => session["refreshToken"]}
+
+      assert conn |> post(@logout_path, body) |> response(204) == ""
+      %DeviceSession{revoked_at: revoked_at} = device_session(session["refreshToken"])
+
+      assert conn |> post(@logout_path, body) |> response(204) == ""
+      assert device_session(session["refreshToken"]).revoked_at == revoked_at
+    end
+
+    test "logging out a rotated token does not end the session that replaced it", %{conn: conn} do
+      first = login!(conn, insert_owner!("logout-rotated@example.com"))
+      second = refresh!(conn, first["refreshToken"])
+
+      assert conn
+             |> post(@logout_path, %{"refreshToken" => first["refreshToken"]})
+             |> response(204) == ""
+
+      assert %{"accessToken" => _} = refresh!(conn, second["refreshToken"])
+    end
+  end
+
+  describe "Device sessions of one User" do
+    test "logging out of one device leaves the other refreshable", %{conn: conn} do
+      user = insert_owner!("two-devices-logout@example.com")
+      phone = login!(conn, user, "phone")
+      tablet = login!(conn, user, "tablet")
+
+      assert conn
+             |> post(@logout_path, %{"refreshToken" => phone["refreshToken"]})
+             |> response(204) == ""
+
+      conn_phone = post(conn, @refresh_path, %{"refreshToken" => phone["refreshToken"]})
+      assert_error(conn_phone, 401, "refresh_token_revoked")
+
+      assert %{"refreshToken" => rotated} = refresh!(conn, tablet["refreshToken"])
+      assert %DeviceSession{device_id: "tablet", revoked_at: nil} = device_session(rotated)
+    end
+
+    @tag :capture_log
+    test "a replay on one device leaves the other refreshable", %{conn: conn} do
+      user = insert_owner!("two-devices-replay@example.com")
+      phone = login!(conn, user, "phone")
+      tablet = login!(conn, user, "tablet")
+
+      rotated_phone = refresh!(conn, phone["refreshToken"])
+
+      conn_replay = post(conn, @refresh_path, %{"refreshToken" => phone["refreshToken"]})
+      assert_error(conn_replay, 401, "refresh_token_replayed")
+
+      conn_phone = post(conn, @refresh_path, %{"refreshToken" => rotated_phone["refreshToken"]})
+      assert_error(conn_phone, 401, "refresh_token_revoked")
+
+      assert %{"accessToken" => _} = refresh!(conn, tablet["refreshToken"])
+    end
+
+    @tag :capture_log
+    test "a replay does not touch another User's session on the same device", %{conn: conn} do
+      user = insert_owner!("shared-device-replay@example.com")
+      other_user = insert_owner!("shared-device-other@example.com")
+      mine = login!(conn, user)
+      theirs = login!(conn, other_user)
+
+      refresh!(conn, mine["refreshToken"])
+      conn_replay = post(conn, @refresh_path, %{"refreshToken" => mine["refreshToken"]})
+      assert_error(conn_replay, 401, "refresh_token_replayed")
+
+      assert %{"accessToken" => _} = refresh!(conn, theirs["refreshToken"])
+    end
+  end
+
+  # ---- helpers ---------------------------------------------------------------
+
+  defp insert_owner!(email) do
+    user_with_memberships(%{email: email, name: "Owner #{email}"}, [
+      {%{plan: :individual, name: "Solo #{email}"}, :owner}
+    ])
+  end
+
+  # Logs `user` in on `device_id` through the mobile verify route and
+  # returns the 200 body.
+  defp login!(conn, user, device_id \\ @device_id) do
+    Repo.insert!(%EmailVerificationCode{
+      user_id: user.id,
+      email: user.email,
+      code_hash: EmailCodeAuth.hash_code("123456"),
+      expires_at: DateTime.add(DateTime.utc_now(), 600, :second)
+    })
+
+    conn
+    |> post("/api/auth/login/verify-code", %{
+      "email" => user.email,
+      "code" => "123456",
+      "deviceId" => device_id
+    })
+    |> json_response(200)
+  end
+
+  # Rotates `refresh_token` and returns the 200 body.
+  defp refresh!(conn, refresh_token) do
+    conn |> post(@refresh_path, %{"refreshToken" => refresh_token}) |> json_response(200)
+  end
+
+  # The Device session row of `refresh_token`, or nil.
+  defp device_session(refresh_token) do
+    hash = :sha256 |> :crypto.hash(refresh_token) |> Base.encode16(case: :lower)
+    Repo.get_by(DeviceSession, token_hash: hash)
+  end
+
+  defp assert_error(conn, status, code) do
+    assert %{"error" => %{"code" => ^code, "message" => message}} = json_response(conn, status)
+    assert is_binary(message) and message != ""
   end
 end

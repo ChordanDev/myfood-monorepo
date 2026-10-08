@@ -16,6 +16,8 @@ defmodule MealPlannerApi.Persistence.Accounts.User do
   @primary_key {:id, :binary_id, autogenerate: true}
   @foreign_key_type :binary_id
 
+  @type t :: %__MODULE__{}
+
   schema "users" do
     field(:email, :string)
     field(:name, :string)

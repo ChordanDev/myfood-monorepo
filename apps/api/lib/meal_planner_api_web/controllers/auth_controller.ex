@@ -1,14 +1,13 @@
 defmodule MealPlannerApiWeb.AuthController do
   use MealPlannerApiWeb, :controller
 
-  require Logger
-
   alias MealPlannerApi.Accounts
   alias MealPlannerApi.AccountsMembership
-  alias MealPlannerApi.Auth.Guardian
   alias MealPlannerApi.Persistence.Accounts.AccountMembership
+  alias MealPlannerApi.Services.DeviceSessions
   alias MealPlannerApi.Services.RevenuecatService
   alias MealPlannerApi.Services.SubscriptionService
+  alias MealPlannerApiWeb.ApiError
   alias MealPlannerApiWeb.Controllers.AccountScopeHelpers
 
   def social(conn, %{"provider" => provider, "id_token" => id_token} = params) do
@@ -98,94 +97,64 @@ defmodule MealPlannerApiWeb.AuthController do
     end
   end
 
-  # POST /auth/refresh
-  #
-  # Phase A — Tenancy Refactor (PR 3a task 3.8): re-issues WHATEVER `typ`
-  # the incoming refresh token carried — `access` or `access_v2` — no
-  # silent re-scoping in either direction, independent of the current
-  # `MEAL_PLANNER_TENANCY_V2` flag value at refresh time. The flag only
-  # controls issuance on `password/2`; `refresh/2` never consults it.
-  #
-  # Post-review fix pass, item 8 (security): Guardian's `token_type:`
-  # option passed to `decode_and_verify/3` is NEVER actually checked by
-  # Guardian itself — `token_type:` is only consumed at ENCODE time by
-  # `set_type/3`. Without the explicit `claims["typ"] == "refresh"`
-  # assertion below, any validly-signed `access`/`access_v2` token could
-  # be POSTed here as `refresh_token` and would be accepted, minting a
-  # fresh long-lived refresh+access pair from a leaked short-lived access
-  # token.
-  def refresh(conn, %{"refresh_token" => refresh_token}) do
-    case Guardian.decode_and_verify(refresh_token, %{}, token_type: "refresh") do
-      {:ok, %{"typ" => "refresh"} = claims} ->
-        case reissue_from_refresh_claims(conn, claims) do
-          {:ok, new_access_token, new_refresh_token} ->
-            json(conn, %{
-              access_token: new_access_token,
-              refresh_token: new_refresh_token
-            })
+  @doc """
+  `POST /api/auth/refresh` — body `{ "refreshToken" }`.
 
-          {:error, :token_refresh_failed} ->
-            Logger.warning("refresh token rotation failed reason=token_refresh_failed")
+  Rotates the Device session of the presented refresh token and answers
+  `200 { "accessToken", "refreshToken", "tokenType": "Bearer" }`, without
+  `me`. A token that cannot be rotated gets `refresh_token_invalid`,
+  `refresh_token_replayed`, `refresh_token_revoked`,
+  `refresh_token_expired` or `refresh_token_session_mismatch`, and a
+  session whose Membership is no longer active gets `account_not_found`;
+  all of them answer `401`. See `MealPlannerApi.Services.DeviceSessions.rotate/1`
+  for what each one means.
 
-            conn
-            |> put_status(:unauthorized)
-            |> json(%{error: "token_refresh_failed"})
+  Only tokens handed out by the mobile verify routes can be rotated: the
+  pairs the legacy routes of this controller mint have no Device session.
+  """
+  def refresh(conn, params) do
+    case DeviceSessions.rotate(params["refreshToken"]) do
+      {:ok, tokens} ->
+        json(conn, %{
+          accessToken: tokens.access_token,
+          refreshToken: tokens.refresh_token,
+          tokenType: "Bearer"
+        })
 
-          {:error, reason} ->
-            Logger.warning("refresh token rotation failed reason=#{inspect(reason)}")
+      {:error, :refresh_token_invalid} ->
+        conn |> ApiError.error(:refresh_token_invalid)
 
-            conn
-            |> put_status(:unauthorized)
-            |> json(%{error: "invalid_refresh_token"})
-        end
+      {:error, :refresh_token_replayed} ->
+        conn |> ApiError.error(:refresh_token_replayed)
 
-      {:ok, %{"typ" => other_typ}} ->
-        Logger.warning("refresh token rejected: wrong typ=#{inspect(other_typ)}")
+      {:error, :refresh_token_revoked} ->
+        conn |> ApiError.error(:refresh_token_revoked)
 
-        conn
-        |> put_status(:unauthorized)
-        |> json(%{error: "invalid_refresh_token"})
+      {:error, :refresh_token_expired} ->
+        conn |> ApiError.error(:refresh_token_expired)
 
-      # Second post-review fix pass: `%{"typ" => other_typ}` only matches
-      # a claims map that HAS a `"typ"` key (of any value) — a claims map
-      # missing `"typ"` entirely (e.g. a token minted outside the normal
-      # `encode_and_sign/3` + `set_type/3` path) matched none of the above
-      # clauses and raised `CaseClauseError` (500) instead of failing
-      # closed. Treat a missing `typ` the same as a wrong `typ`.
-      {:ok, claims} when is_map(claims) ->
-        Logger.warning("refresh token rejected: missing typ claim")
+      {:error, :refresh_token_session_mismatch} ->
+        conn |> ApiError.error(:refresh_token_session_mismatch)
 
-        conn
-        |> put_status(:unauthorized)
-        |> json(%{error: "invalid_refresh_token"})
+      {:error, :account_not_found} ->
+        conn |> ApiError.error(:account_not_found)
 
-      {:error, reason} ->
-        Logger.warning("refresh token decode_and_verify failed reason=#{inspect(reason)}")
-
-        conn
-        |> put_status(:unauthorized)
-        |> json(%{error: "invalid_refresh_token"})
+      {:error, :session_issue_failed} ->
+        conn |> ApiError.server_fault()
     end
   end
 
-  def refresh(conn, _params) do
-    conn
-    |> put_status(:bad_request)
-    |> json(%{error: "missing_refresh_token"})
-  end
+  @doc """
+  `POST /api/auth/logout` — body `{ "refreshToken" }`.
 
-  # POST /auth/logout
-  def logout(conn, _params) do
-    # For now, just acknowledge logout
-    # Token invalidation would require denylist or token tracking
-    json(conn, %{message: "Logged out successfully"})
-  end
-
-  defp load_user_and_account(user_id, account_id) do
-    user = MealPlannerApi.Repo.get(MealPlannerApi.Persistence.Accounts.User, user_id)
-    account = MealPlannerApi.Repo.get(MealPlannerApi.Persistence.Accounts.Account, account_id)
-
-    if user && account, do: {:ok, user, account}, else: {:error, :not_found}
+  Revokes the Device session of the presented refresh token and answers
+  `204` with no body. The route takes no access token, so the app can log
+  out after its access token expired, and it answers the same `204` for a
+  token that is unknown, already revoked or missing.
+  """
+  def logout(conn, params) do
+    DeviceSessions.revoke(params["refreshToken"])
+    send_resp(conn, :no_content, "")
   end
 
   # Phase A — Tenancy Refactor (PR 3a task 3.8): `password/2` (register +
@@ -258,45 +227,6 @@ defmodule MealPlannerApiWeb.AuthController do
       }
     })
   end
-
-  # Phase A — Tenancy Refactor (PR 3a task 3.8): dispatches on the
-  # INCOMING refresh token's claims to decide which claim builder
-  # re-mints the pair — `membership_id` present means the original
-  # access token was `access_v2`; its absence means legacy `access`.
-  # This is independent of the CURRENT `tenancy_v2_only?/0` flag value —
-  # that is what "no silent re-scoping on refresh" (design §3, §5.2)
-  # means in practice.
-  defp reissue_from_refresh_claims(_conn, %{"sub" => user_id, "membership_id" => membership_id})
-       when is_binary(membership_id) and membership_id != "" do
-    with %MealPlannerApi.Persistence.Accounts.User{} = user <-
-           MealPlannerApi.Repo.get(MealPlannerApi.Persistence.Accounts.User, user_id),
-         {:ok, uuid} <- Ecto.UUID.cast(membership_id),
-         %AccountMembership{} = membership <- MealPlannerApi.Repo.get(AccountMembership, uuid) do
-      claims = AccountsMembership.claims_for(user, membership)
-      mint_token_pair(user, claims)
-    else
-      _ -> {:error, :invalid_refresh_token}
-    end
-  end
-
-  defp reissue_from_refresh_claims(conn, %{"sub" => user_id, "account_id" => account_id}) do
-    case load_user_and_account(user_id, account_id) do
-      {:ok, user, account} ->
-        requested_tier =
-          SubscriptionService.normalize_tier(Map.get(conn.params, "subscription_tier", "free"))
-
-        resolved_tier = RevenuecatService.resolve_tier(account.id, requested_tier)
-        user = Map.put(user, :subscription_tier, resolved_tier)
-        account = Map.put(account, :subscription_tier, resolved_tier)
-
-        mint_token_pair(user, Accounts.claims_for(user, account))
-
-      _ ->
-        {:error, :invalid_refresh_token}
-    end
-  end
-
-  defp reissue_from_refresh_claims(_conn, _claims), do: {:error, :invalid_refresh_token}
 
   # Post-review fix pass item 4: delegates to the single canonical
   # implementation in `AccountScopeHelpers`, shared with
