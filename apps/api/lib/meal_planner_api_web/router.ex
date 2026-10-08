@@ -61,10 +61,7 @@ defmodule MealPlannerApiWeb.Router do
 
     # Auth endpoints (no auth required)
     post("/auth/social", AuthController, :social)
-    post("/auth/password", AuthController, :password)
-    # Route aliases for frontend compatibility (G1-G5)
-    post("/auth/login", AuthController, :password)
-    post("/auth/register", AuthController, :password)
+    # Provider-named aliases of the social route
     post("/auth/google", AuthController, :social)
     post("/auth/facebook", AuthController, :social)
     post("/auth/apple", AuthController, :social)

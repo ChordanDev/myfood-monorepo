@@ -107,4 +107,34 @@ defmodule MealPlannerApiWeb.RouterTest do
     remaining = AccountsMembership.list_memberships(account)
     refute Enum.any?(remaining, &(&1.user_id == member_user.id))
   end
+
+  # Legacy authentication sweep (issue #14): the password routes are gone.
+  # The body is one the removed action used to accept, so a route that is
+  # still mounted answers 200 rather than a validation error.
+  describe "removed password routes" do
+    for path <- ["/api/auth/password", "/api/auth/login", "/api/auth/register"] do
+      test "POST #{path} is no longer routed (404)", %{conn: conn} do
+        conn =
+          post(conn, unquote(path), %{
+            "mode" => "register",
+            "email" => "router_password_gone@example.com",
+            "password" => "supersecret123",
+            "name" => "Router Password Gone"
+          })
+
+        assert json_response(conn, 404) == %{"errors" => %{"detail" => "Not Found"}}
+        refute Repo.get_by(PersistenceUser, email: "router_password_gone@example.com")
+      end
+    end
+
+    test "the email-code login routes under /api/auth/login are still routed" do
+      for {path, action} <- [
+            {"/api/auth/login/request-code", :request_login_code},
+            {"/api/auth/login/verify-code", :verify_login_code}
+          ] do
+        assert %{plug: MealPlannerApiWeb.MobileAuthController, plug_opts: ^action} =
+                 Phoenix.Router.route_info(MealPlannerApiWeb.Router, "POST", path, "")
+      end
+    end
+  end
 end

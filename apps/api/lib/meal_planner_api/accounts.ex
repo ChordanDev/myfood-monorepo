@@ -18,12 +18,12 @@ defmodule MealPlannerApi.Accounts do
 
   alias Ecto.Multi
   alias MealPlannerApi.AccountAccess
-  alias MealPlannerApi.Repo
-  alias MealPlannerApi.Subscriptions
   alias MealPlannerApi.Accounts.Account
   alias MealPlannerApi.Persistence.Accounts.Account, as: PersistenceAccount
   alias MealPlannerApi.Persistence.Accounts.AccountMembership
   alias MealPlannerApi.Persistence.Accounts.User, as: PersistenceUser
+  alias MealPlannerApi.Repo
+  alias MealPlannerApi.Subscriptions
 
   @plan_values [:individual, :family_4, :family_6, :trial]
 
@@ -148,37 +148,6 @@ defmodule MealPlannerApi.Accounts do
     )
   end
 
-  @spec register_with_password(map()) ::
-          {:ok,
-           %{
-             user: PersistenceUser.t(),
-             account: PersistenceAccount.t(),
-             membership: AccountMembership.t()
-           }}
-          | {:error,
-             :email_already_registered
-             | :invalid_email
-             | :invalid_password
-             | :password_too_short
-             | :unable_to_issue_identity}
-  def register_with_password(params) when is_map(params) do
-    with {:ok, email} <- fetch_email(params),
-         {:ok, password} <- fetch_password(params),
-         :ok <- ensure_password_strength(password),
-         nil <- user_by_email(email),
-         plan <- normalize_plan(Map.get(params, "account_type", "individual")),
-         {:ok, subscription_plan_id} <- Subscriptions.ensure_default_plan_id(plan),
-         password_hash <- Bcrypt.hash_pwd_salt(password),
-         {:ok, result} <-
-           create_account_and_user(email, password_hash, plan, params, subscription_plan_id) do
-      {:ok, %{user: result.user, account: result.account, membership: result.membership}}
-    else
-      %PersistenceUser{} -> {:error, :email_already_registered}
-      {:error, _} = error -> error
-      _ -> {:error, :unable_to_issue_identity}
-    end
-  end
-
   @doc """
   Registers the person who proved they own `email` (already normalized)
   with an email code: a User without a password, their individual
@@ -245,42 +214,6 @@ defmodule MealPlannerApi.Accounts do
   defp verified_email_registration_error(step, _reason) do
     Logger.error("email registration failed at step=#{inspect(step)}")
     {:error, :unable_to_issue_identity}
-  end
-
-  @spec authenticate_with_password(map()) ::
-          {:ok,
-           %{
-             user: PersistenceUser.t(),
-             account: PersistenceAccount.t(),
-             membership: AccountMembership.t() | nil
-           }}
-          | {:error, :invalid_email | :invalid_password | :invalid_credentials}
-  def authenticate_with_password(params) when is_map(params) do
-    with {:ok, email} <- fetch_email(params),
-         {:ok, password} <- fetch_password(params),
-         %PersistenceUser{} = user <- user_by_email(email),
-         true <- is_binary(user.password_hash) and user.password_hash != "",
-         true <- Bcrypt.verify_pass(password, user.password_hash),
-         %PersistenceAccount{} = account <- Repo.get(PersistenceAccount, user.account_id) do
-      membership = first_active_membership_for(user, account)
-
-      {:ok, %{user: user, account: account, membership: membership}}
-    else
-      nil ->
-        Bcrypt.no_user_verify()
-        {:error, :invalid_credentials}
-
-      false ->
-        Bcrypt.no_user_verify()
-        {:error, :invalid_credentials}
-
-      {:error, _} = error ->
-        error
-
-      _ ->
-        Bcrypt.no_user_verify()
-        {:error, :invalid_credentials}
-    end
   end
 
   @spec link_user(Account.t(), String.t()) ::
@@ -397,61 +330,8 @@ defmodule MealPlannerApi.Accounts do
 
   # ---- private helpers -------------------------------------------------------
 
-  defp fetch_email(params) when is_map(params) do
-    params
-    |> Map.get("email")
-    |> normalize_email()
-    |> case do
-      nil -> {:error, :invalid_email}
-      email -> {:ok, email}
-    end
-  end
-
-  defp fetch_password(params) when is_map(params) do
-    case Map.get(params, "password") do
-      value when is_binary(value) and value != "" -> {:ok, value}
-      _ -> {:error, :invalid_password}
-    end
-  end
-
-  defp ensure_password_strength(password) when is_binary(password) do
-    if String.length(password) >= 8,
-      do: :ok,
-      else: {:error, :password_too_short}
-  end
-
-  defp create_account_and_user(email, password_hash, plan, params, subscription_plan_id) do
-    account_attrs = %{
-      name: Map.get(params, "name", "MyFood User"),
-      plan: plan,
-      default_budget_cents: 0,
-      subscription_plan_id: subscription_plan_id
-    }
-
-    user_attrs = %{
-      email: email,
-      name: Map.get(params, "name", "MyFood User"),
-      role: :owner,
-      password_hash: password_hash
-    }
-
-    transaction = account_and_owner_multi(account_attrs, user_attrs, DateTime.utc_now())
-
-    case Repo.transaction(transaction) do
-      {:ok, %{account: account, user: user, membership: membership}} ->
-        {:ok, %{account: account, user: user, membership: membership}}
-
-      {:error, step, reason, _changes} ->
-        Logger.error(
-          "registration transaction failed at step=#{inspect(step)} reason=#{inspect(reason)}"
-        )
-
-        {:error, :unable_to_issue_identity}
-    end
-  end
-
   # An Account, the User who owns it and the owner's active Membership,
-  # inserted together. Shared by every registration path.
+  # inserted together.
   defp account_and_owner_multi(account_attrs, user_attrs, joined_at) do
     Multi.new()
     |> Multi.insert(
@@ -476,44 +356,6 @@ defmodule MealPlannerApi.Accounts do
 
   defp user_by_email(email) when is_binary(email),
     do: Repo.get_by(PersistenceUser, email: email)
-
-  # Look up the first :active AccountMembership for a User, SCOPED to the
-  # Account being authenticated into. Used by authenticate_with_password/1
-  # when the MEAL_PLANNER_TENANCY_V2 flag is on, so the PR 3 auth_controller
-  # layer has the membership row it needs to mint an `access_v2` JWT.
-  # Returns `nil` when the User has no membership on this Account (the
-  # controller should fall back to the synthesized `current_membership`
-  # path in that case).
-  #
-  # MUST filter by account_id: a multi-familia User can have :active
-  # memberships on 2+ different Accounts. Without this filter, the
-  # returned membership could belong to a different Account than the
-  # `account` returned alongside it by authenticate_with_password/1 —
-  # a tenancy-isolation bug (PR 2b post-review fix pass item 2).
-  defp first_active_membership_for(%PersistenceUser{id: user_id}, %PersistenceAccount{
-         id: account_id
-       }) do
-    query =
-      from(m in AccountMembership,
-        where: m.user_id == ^user_id and m.account_id == ^account_id and m.status == :active,
-        order_by: [asc: m.inserted_at],
-        limit: 1
-      )
-
-    Repo.one(query)
-  end
-
-  defp first_active_membership_for(_, _), do: nil
-
-  defp normalize_email(value) when is_binary(value) do
-    value = value |> String.trim() |> String.downcase()
-
-    if String.contains?(value, "@") and value != "@",
-      do: value,
-      else: nil
-  end
-
-  defp normalize_email(_), do: nil
 
   defp fetch_required_identity(params, key) do
     case Map.get(params, key) do
@@ -569,8 +411,8 @@ defmodule MealPlannerApi.Accounts do
   # Post-PR-3b review — BLOCKER fix (legacy membership synthesis): this
   # social-login identity path used to create/update the User row with
   # `account_id` set, but NEVER inserted a real `AccountMembership` row —
-  # unlike `register_with_password/1` (PR 2b task 2.10), which does so
-  # atomically. `LoadCurrentMembership` and its siblings now REQUIRE a
+  # unlike registration, which does so atomically.
+  # `LoadCurrentMembership` and its siblings now REQUIRE a
   # real `:active` AccountMembership row before granting access via a
   # legacy `access` token (they no longer trust `user.account_id` alone —
   # see those modules' docs). Without this upsert, every social-login user

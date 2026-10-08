@@ -2,8 +2,6 @@ defmodule MealPlannerApiWeb.AuthController do
   use MealPlannerApiWeb, :controller
 
   alias MealPlannerApi.Accounts
-  alias MealPlannerApi.AccountsMembership
-  alias MealPlannerApi.Persistence.Accounts.AccountMembership
   alias MealPlannerApi.Services.DeviceSessions
   alias MealPlannerApi.Services.RevenuecatService
   alias MealPlannerApi.Services.SubscriptionService
@@ -46,55 +44,6 @@ defmodule MealPlannerApiWeb.AuthController do
     conn
     |> put_status(:bad_request)
     |> json(%{error: "invalid_social_payload"})
-  end
-
-  def password(conn, params) when is_map(params) do
-    requested_tier =
-      SubscriptionService.normalize_tier(Map.get(params, "subscription_tier", "free"))
-
-    result =
-      case Map.get(params, "mode", "login") do
-        "register" -> Accounts.register_with_password(params)
-        "login" -> Accounts.authenticate_with_password(params)
-        _ -> {:error, :invalid_auth_mode}
-      end
-
-    case result do
-      {:ok, %{user: user, account: account, membership: membership}} ->
-        issue_auth_response(
-          conn,
-          user,
-          account,
-          requested_tier,
-          issuance_typ(membership),
-          membership
-        )
-
-      {:error, reason}
-      when reason in [
-             :invalid_email,
-             :invalid_password,
-             :password_too_short,
-             :invalid_auth_mode
-           ] ->
-        conn
-        |> put_status(:bad_request)
-        |> json(%{error: Atom.to_string(reason)})
-
-      {:error, reason}
-      when reason in [
-             :invalid_credentials,
-             :email_already_registered
-           ] ->
-        conn
-        |> put_status(:unauthorized)
-        |> json(%{error: Atom.to_string(reason)})
-
-      _ ->
-        conn
-        |> put_status(:unprocessable_entity)
-        |> json(%{error: "unable_to_issue_token"})
-    end
   end
 
   @doc """
@@ -157,48 +106,11 @@ defmodule MealPlannerApiWeb.AuthController do
     send_resp(conn, :no_content, "")
   end
 
-  # Phase A — Tenancy Refactor (PR 3a task 3.8): `password/2` (register +
-  # login modes) picks `:access_v2` only when the flag is on AND a real
-  # `AccountMembership` row came back from `Accounts.register_with_password/1`
-  # / `Accounts.authenticate_with_password/1`. Without a membership row
-  # (e.g. a legacy User with no matching membership on this Account yet)
-  # falls back to `:access` rather than crashing `AccountsMembership.claims_for/2`.
-  defp issuance_typ(%AccountMembership{}) do
-    if tenancy_v2_only?(), do: :access_v2, else: :access
-  end
-
-  defp issuance_typ(_membership), do: :access
-
-  defp tenancy_v2_only? do
-    Application.get_env(:meal_planner_api, :tenancy_v2_only, false)
-  end
-
-  # `issue_auth_response/6` — the `typ:`-and-`membership` arguments control
-  # which claim builder mints the token pair. `social/2` still calls the
-  # 4-arg form (defaults to `:access`, `nil` membership) — social auth is
-  # out of Phase A scope (design.md does not mention it). Both clauses
-  # delegate the actual mint to `AccountScopeHelpers.mint_token_pair/2`
+  # `social/2` mints the legacy `access` pair through `Accounts.claims_for/2`
+  # — social auth is out of Phase A scope (design.md does not mention it).
+  # The mint itself is delegated to `AccountScopeHelpers.mint_token_pair/2`
   # (post-review fix pass item 4 — single canonical implementation).
-  defp issue_auth_response(conn, user, account, requested_tier, typ \\ :access, membership \\ nil)
-
-  defp issue_auth_response(
-         conn,
-         user,
-         account,
-         requested_tier,
-         :access_v2,
-         %AccountMembership{} = membership
-       ) do
-    with resolved_tier <- RevenuecatService.resolve_tier(account.id, requested_tier),
-         account <- Map.put(account, :subscription_tier, resolved_tier),
-         claims <- AccountsMembership.claims_for(user, membership),
-         user <- Map.put(user, :subscription_tier, resolved_tier),
-         {:ok, access_token, refresh_token} <- mint_token_pair(user, claims) do
-      render_auth_json(conn, user, account, resolved_tier, access_token, refresh_token)
-    end
-  end
-
-  defp issue_auth_response(conn, user, account, requested_tier, _typ, _membership) do
+  defp issue_auth_response(conn, user, account, requested_tier) do
     with resolved_tier <- RevenuecatService.resolve_tier(account.id, requested_tier),
          user <- Map.put(user, :subscription_tier, resolved_tier),
          account <- Map.put(account, :subscription_tier, resolved_tier),

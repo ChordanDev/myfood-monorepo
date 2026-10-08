@@ -374,11 +374,9 @@ defmodule MealPlannerApi.AccountsMembership do
 
   # Post-review fix pass, item 2: `switch_account/2` and `accept_invite/2`
   # used to call `claims_for/2` directly, unconditionally minting
-  # `access_v2` regardless of `MEAL_PLANNER_TENANCY_V2` — unlike
-  # `auth_controller.ex`'s `password/2`, which gates issuance through the
-  # same flag (see its private `issuance_typ/1`). This made the flag not a
-  # real killswitch for these two flows. Mirrors `auth_controller.ex`'s
-  # `tenancy_v2_only?/0` check exactly (same config key).
+  # `access_v2` regardless of `MEAL_PLANNER_TENANCY_V2`, which made the
+  # flag not a real killswitch for these two flows. They are the only
+  # readers of that flag in `lib`.
   defp build_response_claims(user, account, membership) do
     if tenancy_v2_only?() do
       claims_for(user, membership)
