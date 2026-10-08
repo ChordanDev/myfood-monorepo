@@ -213,6 +213,116 @@ defmodule MealPlannerApi.Generation.ServerTest do
     end
   end
 
+  # The window of a generation (its dates and slot types) comes from the
+  # client and is expanded into one descriptor per day and slot, so it is
+  # checked before a run exists: a refused window leaves no generation run
+  # for the account and no server registered for it.
+  describe "start_generation/4 generation window" do
+    test "a range of ten years with fifty slot types is refused before a run exists" do
+      account = insert_account("generation window account")
+      actor = insert_user_with_membership(account, "generation-window@example.com")
+
+      # About 180 thousand descriptors, every slot type a known one.
+      slot_types = ~w(breakfast lunch snack dinner) |> Stream.cycle() |> Enum.take(50)
+
+      assert {:error, :invalid_date_range} =
+               Server.start_generation(
+                 account.id,
+                 actor.id,
+                 %{
+                   "date_from" => "2026-01-01",
+                   "date_to" => "2035-12-31",
+                   "slot_types" => slot_types
+                 },
+                 self()
+               )
+
+      refute_generation_started(account)
+    end
+
+    for {label, constraints, reason} <- [
+          {"a date_from that is not an ISO 8601 date",
+           %{"date_from" => "01/02/2026", "date_to" => "2026-02-03"}, :invalid_date},
+          {"a date_to that is not an ISO 8601 date",
+           %{"date_from" => "2026-02-01", "date_to" => "next week"}, :invalid_date},
+          {"a date that does not exist, under atom keys",
+           %{date_from: "2026-02-30", date_to: "2026-03-01"}, :invalid_date},
+          {"a date that is not a string", %{"date_from" => 20_260_201, "date_to" => "2026-02-03"},
+           :invalid_date},
+          {"a range that ends before it starts",
+           %{"date_from" => "2026-02-07", "date_to" => "2026-02-01"}, :invalid_date_range},
+          {"a range of eight days", %{"date_from" => "2026-02-01", "date_to" => "2026-02-08"},
+           :invalid_date_range},
+          {"slot types that are not a list", %{"slot_types" => "lunch"}, :invalid_payload},
+          {"an empty list of slot types", %{"slot_types" => []}, :invalid_payload},
+          {"a slot type that is not a known slot", %{"slot_types" => ["lunch", "brunch"]},
+           :invalid_payload},
+          {"an atom slot type that is not a known slot, under atom keys",
+           %{slot_types: [:lunch, :brunch]}, :invalid_payload},
+          {"a slot type that is neither a string nor an atom", %{"slot_types" => ["lunch", 3]},
+           :invalid_payload}
+        ] do
+      test "#{label} is refused before a run exists" do
+        account = insert_account("generation window account")
+        actor = insert_user_with_membership(account, "generation-window@example.com")
+
+        assert {:error, unquote(reason)} =
+                 Server.start_generation(
+                   account.id,
+                   actor.id,
+                   unquote(Macro.escape(constraints)),
+                   self()
+                 )
+
+        refute_generation_started(account)
+      end
+    end
+
+    for {label, constraints} <- [
+          {"a range of seven days", %{"date_from" => "2026-02-01", "date_to" => "2026-02-07"}},
+          {"known slot types, as strings and atoms and with duplicates",
+           %{"slot_types" => ["lunch", :lunch, "snack", :dinner, "dinner"]}}
+        ] do
+      test "#{label} is accepted" do
+        account = insert_account("generation window account")
+        actor = insert_user_with_membership(account, "generation-window@example.com")
+
+        assert {:ok, run_id} =
+                 Server.start_generation(
+                   account.id,
+                   actor.id,
+                   unquote(Macro.escape(constraints)),
+                   self()
+                 )
+
+        assert %{current_run_id: ^run_id} = Server.get_status(account.id)
+
+        stop_generation_server(account.id)
+      end
+    end
+
+    test "a refused window creates no run on the server an account already has" do
+      account = insert_account("generation window account")
+      actor = insert_user_with_membership(account, "generation-window@example.com")
+
+      assert {:ok, run_id} = Server.start_generation(account.id, actor.id, %{}, self())
+
+      assert {:error, :invalid_date_range} =
+               Server.start_generation(
+                 account.id,
+                 actor.id,
+                 %{"date_from" => "2026-02-01", "date_to" => "2026-02-08"},
+                 self()
+               )
+
+      # The first run is still the one the server holds, and the only one.
+      assert %{current_run_id: ^run_id} = Server.get_status(account.id)
+      assert generation_run_count(account) == 1
+
+      stop_generation_server(account.id)
+    end
+  end
+
   test "confirmation after a correction keeps the proposal version and rebuilds its frozen quantities" do
     account = insert_account("Versioned confirmation")
     user = insert_user_with_membership(account, "versioned-confirmation@example.com")
@@ -1033,6 +1143,24 @@ defmodule MealPlannerApi.Generation.ServerTest do
     )
 
     :ok
+  end
+
+  # No generation run was created for the account and no generation server
+  # is registered for it.
+  defp refute_generation_started(account) do
+    assert generation_run_count(account) == 0
+
+    assert Registry.lookup(MealPlannerApi.Generation.Generations, {:generation, account.id}) ==
+             []
+  end
+
+  defp generation_run_count(account) do
+    MealPlannerApi.Repo.aggregate(
+      from(r in MealPlannerApi.Persistence.Planning.PlanningGenerationRun,
+        where: r.account_id == ^account.id
+      ),
+      :count
+    )
   end
 
   defp pid_for_account(account) do

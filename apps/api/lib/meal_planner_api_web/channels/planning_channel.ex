@@ -160,10 +160,12 @@ defmodule MealPlannerApiWeb.PlanningChannel do
     membership = socket.assigns.current_membership
     request_id = Map.get(payload, "request_id", build_request_id())
 
-    # Constraints viene del payload (date_from, date_to, budget_cents, etc.)
-    constraints = Map.get(payload, "constraints", %{}) |> Map.merge(payload)
+    result =
+      with {:ok, constraints} <- generation_constraints(payload) do
+        Server.start_generation(membership.account_id, user.id, constraints, socket.channel_pid)
+      end
 
-    case Server.start_generation(membership.account_id, user.id, constraints, socket.channel_pid) do
+    case result do
       {:ok, run_id} ->
         broadcast!(socket, "generation_started", %{request_id: request_id, run_id: run_id})
         {:reply, {:ok, %{request_id: request_id, run_id: run_id}}, socket}
@@ -435,6 +437,17 @@ defmodule MealPlannerApiWeb.PlanningChannel do
 
   defp handle_command(_event, _payload, socket) do
     {:reply, {:error, error_payload(:invalid_payload)}, socket}
+  end
+
+  # The constraints of `generate_menu` come nested under `constraints` and
+  # flat in the payload (date_from, date_to, budget_cents, etc.), a flat key
+  # winning over a nested one. A `constraints` that is not a map cannot be
+  # merged and fails the command as `invalid_payload`.
+  defp generation_constraints(payload) do
+    case Map.get(payload, "constraints", %{}) do
+      nested when is_map(nested) -> {:ok, Map.merge(nested, payload)}
+      _not_a_map -> {:error, :invalid_payload}
+    end
   end
 
   defp camelize_ok_reply({:reply, {:ok, payload}, socket}),

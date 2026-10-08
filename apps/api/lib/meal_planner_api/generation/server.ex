@@ -48,6 +48,18 @@ defmodule MealPlannerApi.Generation.Server do
 
   @type reason :: :already_running | :not_found | :forbidden | :optimization_failed | term()
 
+  # The longest window a generation covers, in days. Seven is the default
+  # window of this pipeline (today plus six days) and the highest `max_days`
+  # of `MealPlannerApi.Planning.weekly_plan_for/2` (7 for premium, 5
+  # otherwise). The limit of each tier is not applied here.
+  @max_window_days 7
+
+  # The slots a meal can be planned for, by name: the vocabulary of
+  # `ScheduledMeal.slot` and of `Recipe.suitable_for_slots`.
+  @known_slots ~w(breakfast lunch snack dinner)
+
+  @default_slot_types [:breakfast, :lunch, :dinner]
+
   # -------------------------------------------------------------------------
   # Via constructor
   # -------------------------------------------------------------------------
@@ -86,7 +98,8 @@ defmodule MealPlannerApi.Generation.Server do
           {:ok, run_id :: pos_integer()} | {:error, reason()}
   def start_generation(account_id, user_id, constraints, channel_pid) do
     with {:ok, validated_constraints, _context} <-
-           PlanningRequestValidator.validate_request(constraints, account_id, user_id) do
+           PlanningRequestValidator.validate_request(constraints, account_id, user_id),
+         {:ok, _window} <- generation_window(validated_constraints) do
       dispatch_start_generation(account_id, user_id, validated_constraints, channel_pid)
     end
   end
@@ -537,24 +550,84 @@ defmodule MealPlannerApi.Generation.Server do
   end
 
   defp build_slot_descriptors(constraints) do
-    date_from =
-      constraints["date_from"] || constraints[:date_from] || Date.to_iso8601(Date.utc_today())
+    case generation_window(constraints) do
+      {:ok, %{from: from, to: to, slot_types: slot_types}} ->
+        for date <- Date.range(from, to), slot <- slot_types, do: %{date: date, slot: slot}
 
-    date_to =
-      constraints["date_to"] || constraints[:date_to] ||
-        Date.to_iso8601(Date.add(Date.utc_today(), 6))
-
-    slot_types =
-      constraints["slot_types"] || constraints[:slot_types] || [:breakfast, :lunch, :dinner]
-
-    with {:ok, from} <- Date.from_iso8601(date_from),
-         {:ok, to} <- Date.from_iso8601(date_to),
-         true <- Date.compare(from, to) != :gt do
-      for date <- Date.range(from, to), slot <- slot_types, do: %{date: date, slot: slot}
-    else
-      _ -> []
+      {:error, _reason} ->
+        []
     end
   end
+
+  # The window of a generation: the days and the slot types it is expanded
+  # into, one descriptor per day and slot. Both come from the constraints of
+  # the client, so this is the only place that reads them:
+  # `start_generation/4` refuses the request with the reason returned here
+  # before a run exists, and `build_slot_descriptors/1` expands nothing but a
+  # window that passed.
+  #
+  #   * `date_from` and `date_to` default to today and today plus six days.
+  #     A value that is not an ISO 8601 date string is `:invalid_date`; a
+  #     range that ends before it starts or covers more than
+  #     `@max_window_days` days is `:invalid_date_range`.
+  #   * `slot_types` defaults to `@default_slot_types`. Anything but a
+  #     non-empty list of known slots is `:invalid_payload`.
+  #
+  # A key is read as a string and then as an atom, and a `nil` value counts
+  # as an omitted key.
+  defp generation_window(constraints) do
+    today = Date.utc_today()
+
+    with {:ok, from} <- window_date(constraint(constraints, :date_from), today),
+         {:ok, to} <- window_date(constraint(constraints, :date_to), Date.add(today, 6)),
+         :ok <- window_length(from, to),
+         {:ok, slot_types} <- window_slot_types(constraint(constraints, :slot_types)) do
+      {:ok, %{from: from, to: to, slot_types: slot_types}}
+    end
+  end
+
+  defp constraint(constraints, key) do
+    case Map.get(constraints, Atom.to_string(key)) do
+      nil -> Map.get(constraints, key)
+      value -> value
+    end
+  end
+
+  defp window_date(nil, default), do: {:ok, default}
+
+  defp window_date(value, _default) when is_binary(value) do
+    case Date.from_iso8601(value) do
+      {:ok, date} -> {:ok, date}
+      {:error, _reason} -> {:error, :invalid_date}
+    end
+  end
+
+  defp window_date(_value, _default), do: {:error, :invalid_date}
+
+  defp window_length(from, to) do
+    days = Date.diff(to, from) + 1
+
+    if days in 1..@max_window_days, do: :ok, else: {:error, :invalid_date_range}
+  end
+
+  defp window_slot_types(nil), do: {:ok, @default_slot_types}
+
+  # The slot types keep the form the client sent them in, a string or an
+  # atom, and are never turned into atoms. A slot named twice is kept once.
+  defp window_slot_types([_ | _] = slot_types) do
+    if Enum.all?(slot_types, &known_slot?/1) do
+      {:ok, Enum.uniq_by(slot_types, &to_string/1)}
+    else
+      {:error, :invalid_payload}
+    end
+  end
+
+  defp window_slot_types(_slot_types), do: {:error, :invalid_payload}
+
+  defp known_slot?(slot) when is_atom(slot) or is_binary(slot),
+    do: to_string(slot) in @known_slots
+
+  defp known_slot?(_slot), do: false
 
   defp build_canonical_optimizer_payload(canonical_slots, account_id) do
     candidates_by_slot =

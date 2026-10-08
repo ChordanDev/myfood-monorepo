@@ -357,6 +357,53 @@ defmodule MealPlannerApiWeb.PlanningChannelTest do
         "reason" => "invalid_payload"
       })
     end
+
+    # The window of a generation (its dates) and the constraints themselves
+    # are refused before a generation starts: the reply is the envelope with
+    # the request id, the event keeps its reason, and no generation server is
+    # started for the account.
+    for {label, constraints, code, reason} <- [
+          {"a malformed date", %{"date_from" => "not-a-date"}, :invalid_date, "invalid_date"},
+          {"a range that ends before it starts",
+           %{"date_from" => "2026-02-07", "date_to" => "2026-02-01"}, :invalid_date_range,
+           "invalid_date_range"},
+          {"a range of eight days", %{"date_from" => "2026-02-01", "date_to" => "2026-02-08"},
+           :invalid_date_range, "invalid_date_range"},
+          {"constraints that are null", nil, :invalid_payload, "invalid_payload"},
+          {"constraints that are a string", "2026-02-01", :invalid_payload, "invalid_payload"}
+        ] do
+      test "#{label} replies #{code} and starts no generation", %{
+        account: account,
+        token: token
+      } do
+        {:ok, socket} = connect(UserSocket, %{"token" => token})
+
+        {:ok, _reply, socket} =
+          subscribe_and_join(socket, PlanningChannel, "planning:#{account.id}")
+
+        ref =
+          push(socket, "generate_menu", %{
+            "request_id" => "gen_refused",
+            "constraints" => unquote(Macro.escape(constraints))
+          })
+
+        payload = assert_error_reply(ref, unquote(code))
+        assert payload["requestId"] == "gen_refused"
+
+        assert_push("generation_error", %{
+          "requestId" => "gen_refused",
+          "reason" => unquote(reason)
+        })
+
+        assert Registry.lookup(MealPlannerApi.Generation.Generations, {:generation, account.id}) ==
+                 []
+
+        # The channel is alive, and a chat finds no generation to talk to.
+        ref_next = push(socket, "chat", %{"proposal_id" => "999", "message" => "Hello"})
+
+        assert_error_reply(ref_next, :no_active_generation)
+      end
+    end
   end
 
   # ==========================================================================
