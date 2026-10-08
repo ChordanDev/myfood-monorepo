@@ -5,10 +5,18 @@ alias MealPlannerApi.Persistence.Planning
 alias MealPlannerApi.Repo
 alias MealPlannerApi.Subscriptions.Plan
 
+# The upsert below replaces on conflict, so these have to be the values the
+# migrations insert (`family_6` comes from
+# `20260625000002_alter_accounts_to_plan_enum.exs`).
 plans = [
   %{name: "individual", max_users: 1, max_planning_days: 7, revenuecat_entitlement_id: nil},
   %{name: "family_4", max_users: 4, max_planning_days: 7, revenuecat_entitlement_id: nil},
-  %{name: "family_6", max_users: 6, max_planning_days: 7, revenuecat_entitlement_id: nil}
+  %{
+    name: "family_6",
+    max_users: 6,
+    max_planning_days: 30,
+    revenuecat_entitlement_id: "family_6"
+  }
 ]
 
 Enum.each(plans, fn attrs ->

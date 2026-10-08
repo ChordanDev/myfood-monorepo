@@ -32,6 +32,13 @@ defmodule MealPlannerApi.SubscriptionsTest do
     assert plan.max_planning_days == 7
   end
 
+  test "the fixtures leave family_6 as its migration inserts it" do
+    assert {:ok, plan} = Subscriptions.get_plan_by_name("family_6")
+    assert plan.max_users == 6
+    assert plan.max_planning_days == 30
+    assert plan.revenuecat_entitlement_id == "family_6"
+  end
+
   test "max_planning_days resolves from account plan" do
     {:ok, account} =
       MealPlannerApi.Persistence.Accounts.create_account(%{
