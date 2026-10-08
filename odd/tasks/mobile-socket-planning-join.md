@@ -102,7 +102,13 @@ Forecast: about 700 authored changed lines (API about 120, socket module about 4
   - `usePlanningTopic()` returns `idle` (no Account), `joining`, `joined` or `refused` with the `ApiError`. It connects the app socket, joins `planning:<me.account.id>`, leaves on unmount and never disconnects the socket.
   - `PlanningJoinNotice` renders `getAuthErrorMessage(error)` inline under the header, themed with `colorLight` and `textDark`.
 
+- Review of the fixes and T3 (range `57b57b9..1329884`, medium, lens `review-reliability`): consent granted, approved, acknowledged. Reviewed boundary: `1329884`. Four advisory findings, not fixed, listed under follow-ups. One is answered by existing code: two socket runs cannot send overlapping rotations, because `refreshTokens` in `src/api/authRefresh.ts` is single-flight per refresh token.
+
 ## Follow-ups (not in this ticket)
+
+- Socket status after an invalid session across runs: when a refresh is pending, the client is disconnected and connected again, and the refresh then finds the session invalid, the client ends `disconnected` instead of `unauthenticated` (`socketClient.ts`, the superseded branch). No consumer reads the status yet.
+- A superseded join refresh resets the topic's refresh mark unconditionally and can allow one extra refresh on the same connection (`socketClient.ts`, join `superseded` continuation).
+- `usePlanningTopic` discards the `connect()` promise; a throw from the token subscription or the socket constructor would be an unhandled rejection with the hook left in `joining`.
 
 - `start_planning` and confirm still reply `subscription_required` for the rule the join now names `trial_expired`.
 - The access token travels as a connect param, so it is part of the WebSocket URL. Phoenix 1.8 can send it as `authToken` (a subprotocol header) if `UserSocket` reads `connect_info: [:auth_token]`.
