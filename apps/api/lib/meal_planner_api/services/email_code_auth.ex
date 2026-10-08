@@ -64,6 +64,8 @@ defmodule MealPlannerApi.Services.EmailCodeAuth do
   @code_length 6
   @max_code_attempts 5
   @continuation_ttl_seconds 300
+  # Per-IP bucket of the requests whose client address is not an IP.
+  @unresolved_ip_key "unresolved"
 
   # Lock keys are 64-bit signed integers fed to `pg_advisory_xact_lock`.
   # We hash the normalized inputs so neither key collides with another
@@ -299,9 +301,13 @@ defmodule MealPlannerApi.Services.EmailCodeAuth do
 
   @doc """
   Reserves one slot in the rolling 1-hour request window for `email`
-  (already normalized) and, when `client_ip` is a usable address, for
-  that IP. Returns `{:error, :rate_limited, retry_after}` when either
-  counter is exhausted.
+  (already normalized) and one for `client_ip`. Returns
+  `{:error, :rate_limited, retry_after}` when either counter is
+  exhausted.
+
+  `client_ip` is an IPv4 or IPv6 address as text. One that is not (`nil`
+  included) is not let through uncounted: all such requests draw from a
+  single shared bucket.
 
   Must run inside a `Repo.transaction/2`: the advisory locks that
   serialize concurrent requesters are transaction-scoped. Shared with
@@ -317,9 +323,9 @@ defmodule MealPlannerApi.Services.EmailCodeAuth do
   Reserves one slot in the rolling 1-hour request window for `client_ip`
   alone, in the same per-IP counter `reserve_request_slots/2` draws
   from. No per-email event is recorded. Returns
-  `{:error, :rate_limited, retry_after}` when the counter is exhausted,
-  and `:ok` without recording anything when `client_ip` is not a usable
-  address.
+  `{:error, :rate_limited, retry_after}` when the counter is exhausted.
+  A `client_ip` that is not an IP address (`nil` included) draws from the
+  same shared bucket as in `reserve_request_slots/2`.
 
   Must run inside a `Repo.transaction/2`, like `reserve_request_slots/2`.
   Used by `MealPlannerApi.Services.EmailCodeLogin` to count requests for
@@ -327,14 +333,10 @@ defmodule MealPlannerApi.Services.EmailCodeAuth do
   """
   @spec reserve_ip_request_slot(String.t() | nil) :: :ok | rate_limited()
   def reserve_ip_request_slot(client_ip) do
-    case normalize_client_ip(client_ip) do
-      nil ->
-        :ok
+    ip = normalize_client_ip(client_ip)
 
-      ip ->
-        SQL.query!(Repo, "SELECT pg_advisory_xact_lock($1)", [ip_lock_key(ip)])
-        reserve_ip_slot(ip)
-    end
+    SQL.query!(Repo, "SELECT pg_advisory_xact_lock($1)", [ip_lock_key(ip)])
+    reserve_ip_slot(ip)
   end
 
   @doc """
@@ -350,12 +352,10 @@ defmodule MealPlannerApi.Services.EmailCodeAuth do
   # Rate limiting
   # ---------------------------------------------------------------------------
 
-  # Reserves a slot in the rolling 1-hour window for the email and
-  # (when present) the IP. The two counters are serialized by hash-
-  # derived advisory locks so concurrent requesters cannot race past
-  # the limit on the same key.
-  defp reserve_slots(email, nil), do: reserve_email_slot(email)
-
+  # Reserves a slot in the rolling 1-hour window for the email and the
+  # IP (an address or the shared unresolved bucket). The two counters
+  # are serialized by hash-derived advisory locks so concurrent
+  # requesters cannot race past the limit on the same key.
   defp reserve_slots(email, ip) do
     SQL.query!(Repo, "SELECT pg_advisory_xact_lock($1)", [email_lock_key(email)])
 
@@ -491,38 +491,32 @@ defmodule MealPlannerApi.Services.EmailCodeAuth do
     email |> String.trim() |> String.downcase()
   end
 
-  # Coerce the IP into a stable string that fits the schema's
-  # `:string` column. `nil` and unparsable inputs collapse to `nil`
-  # so the per-email counter still applies.
-  defp normalize_client_ip(nil), do: nil
-
+  # Coerce the IP into a stable rate-limit key that fits the schema's
+  # `:string` column: the canonical text of an IPv4 or IPv6 address, so
+  # two spellings of one address share a bucket. Anything else (`nil`,
+  # garbage, oversized input) collapses to one fixed key, so a request
+  # whose address cannot be resolved is still counted.
   defp normalize_client_ip(ip) when is_binary(ip) do
-    trimmed = String.trim(ip)
-
-    if valid_ip_string?(trimmed), do: trimmed, else: nil
+    ip |> String.trim() |> canonical_ip() || @unresolved_ip_key
   end
 
-  defp normalize_client_ip(_), do: nil
+  defp normalize_client_ip(_), do: @unresolved_ip_key
 
-  # `:inet.parse_address/1` is broken in this OTP/runtime combo (it
-  # raises instead of returning `{:error, _}` for invalid input and
-  # silently misbehaves for valid input), so we validate dotted IPv4
-  # literals ourselves. IPv6 addresses are intentionally not accepted:
-  # the rate-limit key only needs a stable bucket identifier, and the
-  # test fixtures use IPv4 only.
-  defp valid_ip_string?(ip) do
-    case String.split(ip, ".") do
-      [a, b, c, d] -> ipv4_octet?(a) and ipv4_octet?(b) and ipv4_octet?(c) and ipv4_octet?(d)
-      _ -> false
+  # `:inet.parse_strict_address/1` takes a charlist (given a binary it
+  # answers `{:error, :einval}`) and, unlike `:inet.parse_address/1`,
+  # refuses short forms such as "1.2.3". The length guard keeps
+  # oversized input away from the parser; 45 bytes is the longest
+  # textual IPv6 address.
+  defp canonical_ip(ip) when byte_size(ip) <= 45 do
+    with {:ok, address} <- ip |> String.to_charlist() |> :inet.parse_strict_address(),
+         rendered when is_list(rendered) <- :inet.ntoa(address) do
+      List.to_string(rendered)
+    else
+      _ -> nil
     end
   end
 
-  defp ipv4_octet?(octet) do
-    case Integer.parse(octet) do
-      {n, ""} when n >= 0 and n <= 255 -> true
-      _ -> false
-    end
-  end
+  defp canonical_ip(_ip), do: nil
 
   defp fetch_user(email) do
     from(u in PersistenceUser, where: u.email == ^email, limit: 1)

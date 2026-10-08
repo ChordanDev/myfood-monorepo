@@ -146,6 +146,22 @@ defmodule MealPlannerApiWeb.EmailCodeAuthControllerTest do
       assert seconds > 0
       assert seconds <= 3600
     end
+
+    test "rotating x-forwarded-for does not give each request a fresh per-IP bucket", %{
+      conn: conn
+    } do
+      request = fn n ->
+        conn
+        |> put_req_header("x-forwarded-for", "203.0.113.#{n}")
+        |> post("/api/auth/email-code/request", %{"email" => "rotate-#{n}@example.com"})
+      end
+
+      for n <- 1..20, do: assert(request.(n).status == 202)
+
+      limited = request.(21)
+      assert limited.status == 429
+      assert [_seconds] = Plug.Conn.get_resp_header(limited, "retry-after")
+    end
   end
 
   # ---------------------------------------------------------------------------

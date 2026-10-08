@@ -106,7 +106,7 @@ defmodule MealPlannerApiWeb.MobileAuthControllerTest do
     } do
       conn =
         conn
-        |> put_req_header("x-forwarded-for", "203.0.113.20")
+        |> from_client("203.0.113.20")
         |> post(@request_path, %{"email" => "nobody@example.com"})
 
       assert_error(conn, 404, "email_not_found")
@@ -127,7 +127,7 @@ defmodule MealPlannerApiWeb.MobileAuthControllerTest do
       end
 
       probe = fn ip, email ->
-        conn |> put_req_header("x-forwarded-for", ip) |> post(@request_path, %{"email" => email})
+        conn |> from_client(ip) |> post(@request_path, %{"email" => email})
       end
 
       # The twentieth request of the hour still gets the plain answer.
@@ -148,16 +148,63 @@ defmodule MealPlannerApiWeb.MobileAuthControllerTest do
       assert Bamboo.SentEmail.all() == []
     end
 
-    test "an unknown email from an unusable client IP is answered without being counted", %{
+    test "rotating x-forwarded-for does not give an unknown email a fresh per-IP bucket", %{
+      conn: conn
+    } do
+      for n <- 1..19 do
+        insert_request_event!("other-#{n}@example.com", "127.0.0.1", seconds_ago(600))
+      end
+
+      probe = fn forwarded_for, email ->
+        conn
+        |> put_req_header("x-forwarded-for", forwarded_for)
+        |> post(@request_path, %{"email" => email})
+      end
+
+      # The twentieth request of the hour from this socket address.
+      assert_error(probe.("203.0.113.40", "nobody-1@example.com"), 404, "email_not_found")
+
+      limited = probe.("203.0.113.41", "nobody-2@example.com")
+      assert_error(limited, 429, "rate_limited")
+      assert retry_after(limited) in 2_990..3_000
+    end
+
+    test "a client address header that is not an IP is counted under the socket address", %{
       conn: conn
     } do
       conn =
         conn
-        |> put_req_header("x-forwarded-for", "not-an-ip")
+        |> from_client("not-an-ip")
         |> post(@request_path, %{"email" => "nobody@example.com"})
 
       assert_error(conn, 404, "email_not_found")
-      assert Repo.aggregate(EmailAuthEvent, :count) == 0
+      assert [%EmailAuthEvent{kind: "request", client_ip: "127.0.0.1"}] = Repo.all(EmailAuthEvent)
+    end
+
+    test "without the client address header the socket address is counted, IPv4 or IPv6", %{
+      conn: conn
+    } do
+      for remote_ip <- [{198, 51, 100, 7}, {0x2001, 0xDB8, 0, 0, 0, 0, 0, 0x7}] do
+        conn =
+          post(%{conn | remote_ip: remote_ip}, @request_path, %{"email" => "nobody@example.com"})
+
+        assert_error(conn, 404, "email_not_found")
+      end
+
+      counted = EmailAuthEvent |> Repo.all() |> Enum.map(& &1.client_ip) |> Enum.sort()
+      assert counted == ["198.51.100.7", "2001:db8::7"]
+    end
+
+    test "an IPv6 client is rate limited once its hourly limit is spent", %{conn: conn} do
+      for n <- 1..20 do
+        insert_request_event!("other-#{n}@example.com", "2001:db8::7", seconds_ago(600))
+      end
+
+      conn = %{conn | remote_ip: {0x2001, 0xDB8, 0, 0, 0, 0, 0, 0x7}}
+
+      limited = post(conn, @request_path, %{"email" => "nobody@example.com"})
+      assert_error(limited, 429, "rate_limited")
+      assert retry_after(limited) in 2_990..3_000
     end
 
     test "a malformed or missing email gets invalid_email", %{conn: conn} do
@@ -220,7 +267,7 @@ defmodule MealPlannerApiWeb.MobileAuthControllerTest do
 
       conn =
         conn
-        |> put_req_header("x-forwarded-for", "203.0.113.9")
+        |> from_client("203.0.113.9")
         |> post(@request_path, %{"email" => user.email})
 
       assert_error(conn, 429, "rate_limited")
@@ -586,7 +633,7 @@ defmodule MealPlannerApiWeb.MobileAuthControllerTest do
 
       conn =
         conn
-        |> put_req_header("x-forwarded-for", "203.0.113.30")
+        |> from_client("203.0.113.30")
         |> post(@signup_request_path, %{"email" => "signup-taken-ip@example.com"})
 
       assert_error(conn, 409, "email_already_exists")
@@ -608,7 +655,7 @@ defmodule MealPlannerApiWeb.MobileAuthControllerTest do
 
       conn =
         conn
-        |> put_req_header("x-forwarded-for", "203.0.113.30")
+        |> from_client("203.0.113.30")
         |> post(@signup_request_path, %{"email" => "signup-probed@example.com"})
 
       assert_error(conn, 429, "rate_limited")
@@ -667,12 +714,57 @@ defmodule MealPlannerApiWeb.MobileAuthControllerTest do
 
       conn =
         conn
-        |> put_req_header("x-forwarded-for", "203.0.113.31")
+        |> from_client("203.0.113.31")
         |> post(@signup_request_path, %{"email" => "signup-hourly-ip@example.com"})
 
       assert_error(conn, 429, "rate_limited")
       assert retry_after(conn) in 2_990..3_000
       assert Bamboo.SentEmail.all() == []
+    end
+
+    test "rotating x-forwarded-for does not give a new email a fresh per-IP bucket", %{
+      conn: conn
+    } do
+      for n <- 1..19 do
+        insert_request_event!("other-#{n}@example.com", "127.0.0.1", seconds_ago(600))
+      end
+
+      request = fn forwarded_for, email ->
+        conn
+        |> put_req_header("x-forwarded-for", forwarded_for)
+        |> post(@signup_request_path, %{"email" => email})
+      end
+
+      # The twentieth request of the hour from this socket address.
+      assert %{"status" => "code_sent"} =
+               "203.0.113.40" |> request.("signup-rotate-1@example.com") |> json_response(200)
+
+      limited = request.("203.0.113.41", "signup-rotate-2@example.com")
+      assert_error(limited, 429, "rate_limited")
+      assert retry_after(limited) in 2_990..3_000
+      assert [_only_the_first] = Bamboo.SentEmail.all()
+    end
+
+    test "a client whose address cannot be resolved is counted in the shared bucket", %{
+      conn: conn
+    } do
+      for n <- 1..19 do
+        insert_request_event!("other-#{n}@example.com", "unresolved", seconds_ago(600))
+      end
+
+      # What a listener on a Unix socket reports. (`nil` would not do: the
+      # test adapter replaces it with 127.0.0.1.)
+      conn = %{conn | remote_ip: {:local, "/tmp/api.sock"}}
+
+      assert %{"status" => "code_sent"} =
+               conn
+               |> post(@signup_request_path, %{"email" => "signup-unresolved-1@example.com"})
+               |> json_response(200)
+
+      limited = post(conn, @signup_request_path, %{"email" => "signup-unresolved-2@example.com"})
+      assert_error(limited, 429, "rate_limited")
+      assert retry_after(limited) in 2_990..3_000
+      assert [_only_the_first] = Bamboo.SentEmail.all()
     end
 
     @tag :capture_log
@@ -980,6 +1072,13 @@ defmodule MealPlannerApiWeb.MobileAuthControllerTest do
 
   defp verify_body(email, code) do
     %{"email" => email, "code" => code, "deviceId" => @device_id}
+  end
+
+  # Makes the request come from `ip` as the proxy in front of the app
+  # would report it: through the header `config/test.exs` names as
+  # `:client_ip_header`.
+  defp from_client(conn, ip) do
+    put_req_header(conn, Application.fetch_env!(:meal_planner_api, :client_ip_header), ip)
   end
 
   defp assert_error(conn, status, code) do

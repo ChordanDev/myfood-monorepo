@@ -313,6 +313,93 @@ defmodule MealPlannerApi.Services.EmailCodeAuthTest do
     end
   end
 
+  # The per-IP counter is the only bound on mail sent to addresses nobody
+  # registered, so every request has to land in some bucket: its own
+  # address, IPv4 or IPv6, or the one shared by the requests whose
+  # address could not be resolved.
+  describe "per-IP request slots" do
+    test "reserve_ip_request_slot/1 counts an unresolvable IP in the shared bucket" do
+      for client_ip <- [nil, "", "not-an-ip", "203.0.113", String.duplicate("1", 4_096), 42] do
+        assert :ok = in_transaction(fn -> EmailCodeAuth.reserve_ip_request_slot(client_ip) end)
+      end
+
+      assert request_ips() == List.duplicate("unresolved", 6)
+    end
+
+    test "reserve_ip_request_slot/1 rate limits the shared bucket once its hourly limit is spent" do
+      for client_ip <- Enum.take(Stream.cycle([nil, "not-an-ip"]), 20) do
+        assert :ok = in_transaction(fn -> EmailCodeAuth.reserve_ip_request_slot(client_ip) end)
+      end
+
+      assert {:error, :rate_limited, retry_after} =
+               in_transaction(fn -> EmailCodeAuth.reserve_ip_request_slot(nil) end)
+
+      assert retry_after in 3_590..3_600
+
+      # A resolved address still has its own bucket.
+      assert :ok = in_transaction(fn -> EmailCodeAuth.reserve_ip_request_slot("203.0.113.50") end)
+    end
+
+    test "reserve_request_slots/2 counts an unresolvable IP in the shared bucket" do
+      assert :ok =
+               in_transaction(fn ->
+                 EmailCodeAuth.reserve_request_slots("slots@example.com", nil)
+               end)
+
+      assert request_ips() == ["unresolved"]
+
+      assert Repo.aggregate(from(e in "email_auth_events", where: is_nil(e.client_ip)), :count) ==
+               1
+    end
+
+    test "reserve_request_slots/2 rate limits the shared bucket once its hourly limit is spent" do
+      for n <- 1..20 do
+        assert :ok =
+                 in_transaction(fn ->
+                   EmailCodeAuth.reserve_request_slots("slots-#{n}@example.com", "not-an-ip")
+                 end)
+      end
+
+      assert {:error, :rate_limited, retry_after} =
+               in_transaction(fn ->
+                 EmailCodeAuth.reserve_request_slots("slots-21@example.com", nil)
+               end)
+
+      assert retry_after in 3_590..3_600
+    end
+
+    test "request_code/2 counts an unresolvable IP in the shared bucket" do
+      assert {:ok, :sent} = EmailCodeAuth.request_code("legacy-nobody@example.com", nil)
+
+      assert request_ips() == ["unresolved"]
+    end
+
+    test "an IPv6 address is a bucket of its own, whatever its spelling" do
+      for client_ip <- ["2001:db8::1", " 2001:0DB8:0:0:0:0:0:1 "] do
+        assert :ok = in_transaction(fn -> EmailCodeAuth.reserve_ip_request_slot(client_ip) end)
+      end
+
+      assert :ok =
+               in_transaction(fn ->
+                 EmailCodeAuth.reserve_request_slots("slots@example.com", "2001:db8::1")
+               end)
+
+      assert request_ips() == List.duplicate("2001:db8::1", 3)
+    end
+
+    test "an IPv6 address is rate limited once its hourly limit is spent" do
+      for _ <- 1..20 do
+        assert :ok =
+                 in_transaction(fn -> EmailCodeAuth.reserve_ip_request_slot("2001:db8::1") end)
+      end
+
+      assert {:error, :rate_limited, _retry_after} =
+               in_transaction(fn -> EmailCodeAuth.reserve_ip_request_slot("2001:db8::1") end)
+
+      assert :ok = in_transaction(fn -> EmailCodeAuth.reserve_ip_request_slot("2001:db8::2") end)
+    end
+  end
+
   describe "Bamboo LocalAdapter delivery" do
     test "captures delivery in test without outbound SMTP" do
       _user =
@@ -1041,5 +1128,20 @@ defmodule MealPlannerApi.Services.EmailCodeAuthTest do
       joined_at: DateTime.utc_now()
     })
     |> Repo.insert!()
+  end
+
+  defp in_transaction(fun) do
+    {:ok, result} = Repo.transaction(fun)
+    result
+  end
+
+  # The `client_ip` of every per-IP request event, in no particular order.
+  defp request_ips do
+    Repo.all(
+      from(e in "email_auth_events",
+        where: e.kind == "request" and not is_nil(e.client_ip),
+        select: e.client_ip
+      )
+    )
   end
 end

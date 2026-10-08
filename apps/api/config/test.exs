@@ -44,3 +44,8 @@ config :meal_planner_api,
 # Email-code auth — Bamboo LocalAdapter captures deliveries in test
 # (`Bamboo.SentEmail.all/0` under LocalAdapter). No outbound SMTP.
 config :meal_planner_api, MealPlannerApi.Mailer, adapter: Bamboo.LocalAdapter
+
+# Client address for rate limiting (`MealPlannerApiWeb.ClientIp`): a
+# header no real proxy sends, so controller tests can pose as distinct
+# clients.
+config :meal_planner_api, client_ip_header: "x-test-client-ip"

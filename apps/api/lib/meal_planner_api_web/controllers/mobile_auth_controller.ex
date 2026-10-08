@@ -19,6 +19,7 @@ defmodule MealPlannerApiWeb.MobileAuthController do
   alias MealPlannerApi.Services.EmailCodeLogin
   alias MealPlannerApi.Services.EmailCodeSignup
   alias MealPlannerApiWeb.ApiError
+  alias MealPlannerApiWeb.ClientIp
   alias MealPlannerApiWeb.Controllers.AccountScopeHelpers
   alias MealPlannerApiWeb.CurrentMe
 
@@ -30,7 +31,8 @@ defmodule MealPlannerApiWeb.MobileAuthController do
   header in whole seconds) or `code_send_failed`.
   """
   def request_login_code(conn, params) do
-    conn |> render_code_request(EmailCodeLogin.request_code(params["email"], client_ip(conn)))
+    conn
+    |> render_code_request(EmailCodeLogin.request_code(params["email"], ClientIp.resolve(conn)))
   end
 
   @doc """
@@ -41,7 +43,8 @@ defmodule MealPlannerApiWeb.MobileAuthController do
   `email_not_found`.
   """
   def request_signup_code(conn, params) do
-    conn |> render_code_request(EmailCodeSignup.request_code(params["email"], client_ip(conn)))
+    conn
+    |> render_code_request(EmailCodeSignup.request_code(params["email"], ClientIp.resolve(conn)))
   end
 
   defp render_code_request(conn, result) do
@@ -136,17 +139,4 @@ defmodule MealPlannerApiWeb.MobileAuthController do
   end
 
   defp validate_device_id(_device_id), do: {:error, :device_id_required}
-
-  # Same client address rule as `EmailCodeAuthController`, so both request
-  # routes count against one per-IP bucket: the first `x-forwarded-for`
-  # entry when present, else the socket address as a dotted IPv4.
-  defp client_ip(conn) do
-    case get_req_header(conn, "x-forwarded-for") do
-      [ip | _] when byte_size(ip) > 0 -> String.trim(ip)
-      _ -> format_remote_ip(conn.remote_ip)
-    end
-  end
-
-  defp format_remote_ip({a, b, c, d}), do: "#{a}.#{b}.#{c}.#{d}"
-  defp format_remote_ip(_), do: nil
 end

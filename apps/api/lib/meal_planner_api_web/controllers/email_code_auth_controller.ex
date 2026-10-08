@@ -32,6 +32,7 @@ defmodule MealPlannerApiWeb.EmailCodeAuthController do
   alias MealPlannerApi.Persistence.Accounts.User, as: PersistenceUser
   alias MealPlannerApi.Repo
   alias MealPlannerApi.Services.EmailCodeAuth
+  alias MealPlannerApiWeb.ClientIp
   alias MealPlannerApiWeb.Controllers.AccountScopeHelpers
 
   @doc """
@@ -44,7 +45,7 @@ defmodule MealPlannerApiWeb.EmailCodeAuthController do
   endpoint — the configured mailer is the only delivery channel.
   """
   def request(conn, %{"email" => email}) when is_binary(email) do
-    client_ip = client_ip(conn)
+    client_ip = ClientIp.resolve(conn)
 
     case EmailCodeAuth.request_code(email, client_ip) do
       {:ok, :sent} ->
@@ -189,22 +190,4 @@ defmodule MealPlannerApiWeb.EmailCodeAuthController do
       expires_at: DateTime.to_iso8601(expires_at)
     })
   end
-
-  # Best-effort client IP extraction. We prefer the first
-  # `X-Forwarded-For` entry (the original client when behind a proxy),
-  # then fall back to `conn.remote_ip` rendered as a dotted IPv4. Any
-  # unparsable shape collapses to `nil` so the per-email counter still
-  # applies.
-  defp client_ip(conn) do
-    case Plug.Conn.get_req_header(conn, "x-forwarded-for") do
-      [ip | _] when is_binary(ip) and byte_size(ip) > 0 -> String.trim(ip)
-      _ -> format_remote_ip(conn.remote_ip)
-    end
-  end
-
-  defp format_remote_ip({a, b, c, d}) when is_integer(a) and is_integer(d) do
-    "#{a}.#{b}.#{c}.#{d}"
-  end
-
-  defp format_remote_ip(_), do: nil
 end
