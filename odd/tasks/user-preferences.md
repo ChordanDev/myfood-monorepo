@@ -58,7 +58,11 @@ The mobile app already calls `GET`/`PUT /api/me/preferences` (`apps/mobile/src/f
 ### Side effects kept safe
 
 - `Services.AccountService` renders a null `diet_type` / `macro_goal` as `null`, not `"nil"`.
-- `Services.PriceService` keeps the 25 g protein default when the preferences row exists with a null `protein_g_per_meal` (a mobile save creates that row).
+- `Services.PriceService` needs no guard: the only code that reads `protein_g_per_meal` from the row is `build_slot_list/1`, which has no caller in `apps/api/lib` and always answers `{:error, :no_slots}` (its catalog query preloads an association `Recipe` does not define). A one-line guard was written, could not be tested and was dropped.
+- A NUL character in a Soft preference is refused with `validation_error`: Postgres cannot store it and the write would otherwise raise.
+- A save takes a row lock on the User first, so two concurrent saves of one User cannot leave the union of both Hard restriction sets. The SQL sandbox cannot run two transactions side by side, so the lock has no test.
+- `user_hard_restrictions.code` has a check constraint for the seven codes. The table is created by this same branch, so no deployed database can hold an off-catalog row when the constraint is added.
+- The migration that makes `diet_type` and `macro_goal` nullable is fix-forward in practice: its rollback fails once a profile holds a null, which the first mobile Diet save on a new row produces.
 
 ## Tasks
 
@@ -66,33 +70,49 @@ The mobile app already calls `GET`/`PUT /api/me/preferences` (`apps/mobile/src/f
   - Commit `bfa4485`. RED: 8/8 failing with 404 before the route existed. GREEN: 8 passed; full suite 1214 passed, 20 skipped, 0 failures on a database created from scratch (`meal_planner_api_test_issue18`), which also proves the migration order.
   - Review: assessed `medium`, due (`slice_budget_reached`), consent granted, lens `review-reliability`, approved and acknowledged (lineage `review-20772b0f592e75b4`). Reviewed boundary is now `bfa4485`.
   - Advisory findings, both taken into T2: an off-catalog Hard restriction row is dropped silently on read and nothing prevents it in the database (add a check constraint on `code`); the expired-Trial test has no negative control (assert that a capability-gated route refuses the same token).
-- [ ] **T2** `PUT /api/me/preferences` with its error codes, mobile allowlist and side-effect guards. Route: delegated direct (migration, replace function, `ApiError`, controller, tests, mobile allowlist).
+- [x] **T2** `PUT /api/me/preferences` with its error codes, mobile allowlist and side-effect guards. Route: delegated direct (migration, replace function, `ApiError`, controller, tests, mobile allowlist).
+  - Commits `db74183` (error codes, field-naming `validation_error`, mobile allowlist), `6abe118` (migration, validation, transactional replace, legacy serializer) and `57648e3` (route and its HTTP tests).
+  - RED: 36 of 70 failing before the implementation (PUT answered 404, `validation_error/2` and `replace/2` undefined, no check constraint, NOT NULL on `diet_type`); legacy serializer rendered `"nil"`; mobile contract test failed on `invalid_diet` and `invalid_hard_restriction` before the allowlist; the NUL case raised `Postgrex.Error 22021`.
+  - GREEN on the final tree: API `mix compile --warnings-as-errors` and `mix format --check-formatted` clean, `mix test` 1248 passed, 20 skipped, 0 failures on a database migrated from scratch; the new migration proved reversible by a single-version down and up. Mobile `npx tsc --noEmit` clean, `npm run lint` 0 errors, `npx jest --ci` 1471 passed (92 suites); the contract test and the unchanged payload builder test re-run green after the last edit. The three commits were not built one by one in isolation.
+  - Not covered: the `server_fault` branch of the controller has no HTTP test (the rollback is covered at service level); the row lock (above).
+  - Review: assessed `high` (`hot_path`, `apps/mobile/src/features/auth/types/auth.ts`), consent granted, four lenses, approved and acknowledged (lineage `review-b2938bcb1a3c04a2`). Reviewed boundary is now `57648e3`. No blocking finding.
+  - Size: about 1,000 authored lines against a forecast of 400, of which about 630 are tests (one HTTP test per validation rule and per storage rule). Kept whole rather than trimmed.
 
 ## Acceptance criteria
 
 - [x] `GET /api/me/preferences` returns the three keys, with `null` / `[]` / `[]` for a User with no rows (never 404). (T1)
-- [ ] A stored `celiac` reads back as `diet: null` (T1) and is left untouched until the User saves a Diet (T2).
-- [ ] `PUT /api/me/preferences` replaces the Diet, the Hard restriction set and the Soft preferences, collapsing duplicates. (T2)
-- [ ] Unknown Diet → `invalid_diet`; unknown restriction → `invalid_hard_restriction`; Soft preference over 80 characters or more than 20 entries → `validation_error`. (T2)
-- [ ] Mobile reads and saves through the real route; existing preferences payload builder test green and unchanged. (T2)
+- [x] A stored `celiac` reads back as `diet: null` (T1) and is left untouched until the User saves a Diet (T2).
+- [x] `PUT /api/me/preferences` replaces the Diet, the Hard restriction set and the Soft preferences, collapsing duplicates. (T2)
+- [x] Unknown Diet → `invalid_diet`; unknown restriction → `invalid_hard_restriction`; Soft preference over 80 characters or more than 20 entries → `validation_error`. (T2)
+- [x] Mobile reads and saves through the real route; existing preferences payload builder test green and unchanged. (T2)
 
 ## Checks
 
 Test-first: each behaviour change starts from a failing test observed before the implementation (ExUnit for the API, jest for the mobile allowlist contract).
 
 - API, from `apps/api`: `mix compile --warnings-as-errors`, `mix format --check-formatted`, `mix test`.
-- Local runs need `MYFOOD_TEST_DB_USERNAME=luccagiordana MYFOOD_TEST_DB_PASSWORD=""`, and use `MYFOOD_TEST_DATABASE=meal_planner_api_test_issue18` because sibling worktrees share the default test database.
+- Local runs: when the default `postgres` role does not exist, set `MYFOOD_TEST_DB_USERNAME` and `MYFOOD_TEST_DB_PASSWORD` to a local role; a dedicated `MYFOOD_TEST_DATABASE` keeps sibling worktrees from sharing one test database.
 - Mobile, from `apps/mobile` (T2): `npx tsc --noEmit`, `npm run lint`, `npx jest --ci`.
 
 ## Delivery
 
-Strategy `ask-on-risk`. Forecast: about 700 authored changed lines (T1 about 300, T2 about 400), above the 400-line budget, so the work is cut as two slices, one per task. Chain strategy (stacked to main or feature-branch chain): pending the user's answer; it does not change the commits.
+Strategy `ask-on-risk`. Forecast was about 700 authored changed lines; actual is 1,467 insertions over 22 files, about two thirds of it tests. Slices follow the reviewed boundaries: T1 = `bfa4485`; T2 = `db74183`, `6abe118`, `57648e3`, which can also ship as three pull requests, one per commit. Chain strategy (stacked to main or feature-branch chain): pending the user's answer. No push and no pull request yet.
 
 ## Progress
 
 - 2026-10-08: branch fast-forwarded to `f4b849d`; exploration done; feature document created. Next: T1.
 - 2026-10-08: T1 done and reviewed (`bfa4485`). Next: T2.
+- 2026-10-08: T2 done and reviewed (`57648e3`). Next: the user decides push, pull requests and chain strategy.
 
 ## Known limits
 
 - Settings loads preferences and Slot cooking times together (`useSettingsState.ts`, `Promise.all`), so the screen only works end to end once #19 ships its route.
+- Sibling tickets #17 and #19 add `validation_error` and their own routes on parallel branches, touching the same lines of `api_error.ex`, `router.ex` and the mobile allowlist. Whichever merges later rebases and keeps one `validation_error` renderer.
+
+## Follow-ups (advisory review findings, not done here)
+
+- Log the failed step and reason before `server_fault` in `PreferencesController.update/2`.
+- `Data.AccountRepo` and neighbours declare the user id as `pos_integer()` in older specs and `Ecto.UUID.t()` in the new ones; the ids are UUIDs.
+- Test naming in `preferences_controller_test.exs`: `over_count` / `over_length` hold accepted responses, and `rejected_message/3` is an assertion named like a getter.
+- `@wire_fields` in `PreferencesController` restates the camelCase spelling by hand and must cover every validated field.
+- The 80-character limit counts graphemes, so the stored byte size of an entry is bounded only by the request body limit.
