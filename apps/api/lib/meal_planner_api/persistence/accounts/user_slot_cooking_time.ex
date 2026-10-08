@@ -13,6 +13,7 @@ defmodule MealPlannerApi.Persistence.Accounts.UserSlotCookingTime do
 
   @slots [:breakfast, :lunch, :dinner]
   @hunger_levels [:light, :normal, :strong]
+  @cooking_time_minutes 0..240
 
   @primary_key {:id, :binary_id, autogenerate: true}
   @foreign_key_type :binary_id
@@ -33,13 +34,19 @@ defmodule MealPlannerApi.Persistence.Accounts.UserSlotCookingTime do
   @doc "The Hunger level catalog."
   def hunger_levels, do: @hunger_levels
 
+  @doc """
+  The minutes a slot accepts. The check constraint of the table repeats the
+  bounds.
+  """
+  def cooking_time_minutes, do: @cooking_time_minutes
+
   def changeset(slot_cooking_time, attrs) do
     slot_cooking_time
     |> cast(attrs, [:user_id, :slot, :cooking_time_minutes, :hunger_level])
     |> validate_required([:user_id, :slot, :cooking_time_minutes, :hunger_level])
     |> validate_number(:cooking_time_minutes,
-      greater_than_or_equal_to: 0,
-      less_than_or_equal_to: 240
+      greater_than_or_equal_to: @cooking_time_minutes.first,
+      less_than_or_equal_to: @cooking_time_minutes.last
     )
     |> unique_constraint([:user_id, :slot])
     |> foreign_key_constraint(:user_id)

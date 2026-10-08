@@ -237,6 +237,63 @@ Fields are validated in the order `displayName`, `householdSize`, `cookingSkill`
 one decides the response: `422 invalid_cooking_skill` when `cookingSkill` is a string outside the catalog,
 `422 validation_error` otherwise, with a `message` that names the field. A rejected request stores nothing.
 
+### 3.4 Get slot cooking times
+
+For each of breakfast, lunch and dinner: the minutes the signed-in User will cook and their Hunger level.
+The times belong to the User, not to the Account. Like `GET /api/me`, this route and the one in 3.5 are not
+behind the capability guard, so they stay reachable when the Account's trial has expired. Both read and
+render camelCase keys.
+
+- Method: `GET`
+- Path: `/api/me/slot-cooking-times`
+
+Success response (`200`), with no wrapper:
+
+```json
+{
+  "breakfast": { "cookingTimeMinutes": 0, "hungerLevel": "light" },
+  "lunch": { "cookingTimeMinutes": 30, "hungerLevel": "normal" },
+  "dinner": { "cookingTimeMinutes": 45, "hungerLevel": "strong" }
+}
+```
+
+Errors (envelope, see section 10):
+
+- `404 slot_cooking_times_not_found`: the User has not saved the three slots yet. The mobile settings
+  screen reads this code as "none saved" and starts from its default set; any other failure is an error.
+
+### 3.5 Replace slot cooking times
+
+- Method: `PUT`
+- Path: `/api/me/slot-cooking-times`
+
+Request body: the same shape as the response in 3.4. The body is the whole set and replaces the saved one;
+nothing is saved when it is refused.
+
+Rules:
+
+- Exactly the three slots `breakfast`, `lunch` and `dinner`, each an object. `snack` is neither required
+  nor accepted, and neither is any other key.
+- `cookingTimeMinutes`: an integer from `0` to `240`. `0` means the User does not cook that slot. A
+  decimal (`30.0`), a numeric string or a boolean is refused.
+- `hungerLevel`: `light`, `normal` or `strong`.
+
+Success response (`200`): the stored set, in the shape of 3.4.
+
+Errors (envelope, see section 10):
+
+- `422 validation_error`: a slot is missing or is not an object, a key is not one of the three slots,
+  `cookingTimeMinutes` is missing, not an integer or outside `0` to `240`, or `hungerLevel` is missing or
+  not a string. The `message` is `The field <field> is not valid.`, where `<field>` is the field at fault
+  in camelCase: a slot (`lunch`), a key that is not a slot (`snack`) or a field of a slot
+  (`lunch.cookingTimeMinutes`, `dinner.hungerLevel`).
+- `422 validation_error` with the `message` `The request is not valid.`: the body is not a JSON object,
+  or no parser read it (for example a `text/plain` body). There is no field to name.
+- `422 invalid_hunger_level`: `hungerLevel` is a string outside `light`, `normal` and `strong`.
+
+Only the first problem is reported: a key that is not a slot, then each slot in the order breakfast,
+lunch, dinner, and within a slot its minutes before its Hunger level.
+
 ## 4. Planning (REST)
 
 ### 4.1 Weekly planning generation
@@ -990,6 +1047,8 @@ Two error body shapes are in use. Which one a request gets depends on the code p
     `/api/auth/signup/request-code`, `/api/auth/signup/verify-code` and `/api/auth/refresh`;
   - `GET /api/me` and its alias `GET /api/auth/me`;
   - `PUT /api/me/profile`: `422 validation_error` and `422 invalid_cooking_skill`;
+  - `GET` and `PUT /api/me/slot-cooking-times`: `404 slot_cooking_times_not_found`, `422 validation_error`
+    and `422 invalid_hunger_level` (see 3.4 and 3.5);
   - `GET /api/recipes/:id`: `404 recipe_not_found` and `403 forbidden` (section 11).
 - **Flat (legacy, not migrated to the envelope):** `{ "error": "<reason>" }`, with the status chosen by each
   endpoint (`422` in most controllers). It is still returned by:
