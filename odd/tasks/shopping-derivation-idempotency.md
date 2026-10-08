@@ -86,6 +86,10 @@ At most one open Shopping item (`status` in `pending`, `in_cart`) per `(account_
   - Parent spot check: the three commands re-run with the same results. The gated suites were then run with `MIX_ENV=test mix run --no-start test/support/issue38_concurrency_runner.exs` on a fresh database it created and migrated from zero (`cooking_atomicity_test.exs` and `cart_concurrency_test.exs`): `18 passed`, with the changed fixture and the new purchase order.
 - [x] T5 (inline, one mechanical line plus its test): the rebuild upsert also replaces `reservation_token`, so a reserved item it turns back to `pending` does not keep a stale reservation, as the cart release already does.
   - RED: both "replaces the … Shopping item that has the same planned key" tests failed on `assert stored.reservation_token == nil` (`3/5 passed`). GREEN: `mix test` gave `1332 passed, 20 skipped`; format and compile checks exit 0.
+- [x] T6 (inline, two test files): the two advisory findings of the first review, accepted by the user.
+  - `R3-batch-path-unproved`: "stores each planned line once when called twice with the same lines" now refutes the `shopping planned items batch insert failed` log, so a batch that always falls back to the one-by-one retry fails the test.
+  - `R3-prune-failure-untested`: "archives past-dated pending items on every call" now asserts the same row is archived in place with its quantity and `inserted_at` kept and `updated_at` advanced.
+  - RED by mutation (reverted with `git checkout -- lib`): with the batch statement replaced by a raise and `updated_at` dropped from the prune update, both tests failed (`16/18 passed`). GREEN on the real code: `mix test` gave `1332 passed, 20 skipped`; format and compile checks exit 0.
 
 ## Checks
 
@@ -96,6 +100,8 @@ Test-first applies to T2 and T3: each new test is observed failing before its im
 ## Review
 
 RDD is on (global). One whole-branch review at the end, base `2e544f4`.
+
+- First review, at `66deff2`: granted, lens `review-reliability`, approved and acknowledged (lineage `review-3bd4efcaa8836950`). Two advisory findings, both applied in T6. The T6 commits change the candidate, so the branch asks for a review again.
 
 ## Out of scope, noted
 
@@ -111,8 +117,8 @@ RDD is on (global). One whole-branch review at the end, base `2e544f4`.
 
 ## Progress
 
-T1 to T5 are done on `claude/strange-kepler-5720ad`: `d58ff7a` (index, constraint, cart order, fixtures), `74598e7` (derivation, prune, logged rescue, rebuild upsert) and the follow-up commit that clears the reservation token in the rebuild upsert, plus the commits that record this document. All three checks pass on the per-worktree test database. Nothing is pushed.
+T1 to T6 are done on `claude/strange-kepler-5720ad`: `d58ff7a` (index, constraint, cart order, fixtures), `74598e7` (derivation, prune, logged rescue, rebuild upsert) and the follow-up commit that clears the reservation token in the rebuild upsert, plus the commits that record this document. All three checks pass on the per-worktree test database. Nothing is pushed.
 
 Authored changed lines are 937 against the 400 heuristic (882 added, 55 deleted): 327 in `lib` and the migration, 610 in tests.
 
-Next step: the whole-branch review, base `2e544f4`.
+Next step: the review of the branch with T6 on top, then the pull request, which is the user's decision.
