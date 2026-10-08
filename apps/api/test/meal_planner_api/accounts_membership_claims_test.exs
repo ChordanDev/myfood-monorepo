@@ -70,7 +70,7 @@ defmodule MealPlannerApi.AccountsMembershipClaimsTest do
     end
 
     # Phase 3 task 3.1 — `claims_for/2` MUST emit an explicit `user_id`
-    # claim so the email-code verify outcome can mint the JWT without
+    # claim, so the claim map names its User without the caller
     # consulting the User struct again.
     test "explicitly emits the user_id claim (Phase 3 task 3.1)" do
       user =
@@ -143,12 +143,10 @@ defmodule MealPlannerApi.AccountsMembershipClaimsTest do
     end
   end
 
-  # Phase 3 task 3.1 — zero-membership outcome builder. The verify
-  # outcome returns this for a User with no `:active` memberships; the
-  # caller mints a JWT and `LoadCurrentMembership` halts with `401
-  # membership_id_required` because `membership_id` is absent from the
-  # claim set. See `specs/email-code-authentication/spec.md` §"Verify
-  # Response Outcomes by Active-Membership Count".
+  # Phase 3 task 3.1 — zero-membership claims builder, for a User with
+  # no `:active` memberships. `LoadCurrentMembership` halts a JWT minted
+  # from these claims with `401 membership_id_required` because
+  # `membership_id` is absent from the claim set.
   describe "claims_for/1 — no-membership access_v2 (Phase 3 task 3.1)" do
     test "emits access_v2 claims without membership_id, account_id, role, plan, or status" do
       user =

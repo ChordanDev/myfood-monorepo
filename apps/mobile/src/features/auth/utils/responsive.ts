@@ -32,13 +32,6 @@ export interface AuthLandingMetrics extends TitleMetrics {
   buttonTopMargin: number;
   sectionGap: number;
   keyboardLiftDistance: number;
-  socialBottomMargin: number;
-  socialLabelFontSize: number;
-  socialDividerWidth: number;
-  socialDividerBottomMargin: number;
-  socialIconsSize: number;
-  socialIconsContainerSize: number;
-  socialIconsGap: number;
 }
 
 export function getAuthLandingMetrics(width: number, height: number): AuthLandingMetrics {
@@ -50,8 +43,7 @@ export function getAuthLandingMetrics(width: number, height: number): AuthLandin
   const titleMetrics = getTitleMetrics(width, height);
 
   const horizontalPadding = scaleByBucket(phoneSize, [20, 24, 28, 32]);
-  const socialLabel = scaleByBucket(phoneSize, [14, 15, 16, 16]);
-  const socialIcon = scaleByBucket(phoneSize, [34, 37, 40, 42]);
+  const formErrorBaseFontSize = scaleByBucket(phoneSize, [14, 15, 16, 16]);
   const buttonPadding = scaleByBucket(phoneSize, [13, 14, 15, 16]);
   const formFieldPadding = scaleByBucket(phoneSize, [11, 12, 13, 14]);
 
@@ -75,19 +67,12 @@ export function getAuthLandingMetrics(width: number, height: number): AuthLandin
     formFieldFontSize: scaleByBucket(phoneSize, [14, 15, 16, 16]),
     formFieldGap: clamp(10 * compactFactor, 8, 12),
     formFieldSeparatorWidth: clamp(width - horizontalPadding * 2 - 24, 180, 420),
-    formErrorFontSize: clamp(socialLabel - 2, 12, 14),
+    formErrorFontSize: clamp(formErrorBaseFontSize - 2, 12, 14),
     buttonVerticalPadding: clamp(buttonPadding * compactFactor, 12, 20),
     buttonFontSize: scaleByBucket(phoneSize, [17, 18, 19, 19]),
     buttonRadius: 24,
     buttonTopMargin: clamp(14 * compactFactor, 10, 16),
     sectionGap: clamp(12 * compactFactor, 8, 14),
     keyboardLiftDistance: clamp(shortestSide * 0.08, 24, 40),
-    socialBottomMargin: clamp(60 * compactFactor, 46, 60),
-    socialLabelFontSize: socialLabel,
-    socialDividerWidth: clamp(width * 0.5, 150, 250),
-    socialDividerBottomMargin: clamp(24 * compactFactor, 14, 24),
-    socialIconsSize: socialIcon,
-    socialIconsContainerSize: clamp(socialIcon + 12, 42, 54),
-    socialIconsGap: scaleByBucket(phoneSize, [34, 40, 52, 64]),
   };
 }

@@ -86,4 +86,54 @@ defmodule MealPlannerApiWeb.DietaryProfileControllerTest do
       assert response(delete_conn, 204) == ""
     end
   end
+
+  # `PUT /api/me/preferences` (issue #18) can leave a dietary profile without
+  # a Diet, and creates one without a macro goal.
+  describe "a dietary profile the mobile app wrote" do
+    setup do
+      user =
+        user_with_memberships(%{email: "dietary-mobile@example.com"}, [
+          {%{plan: :individual, name: "Dietary Mobile"}, :owner}
+        ])
+
+      [membership] = user.memberships
+
+      %{user: user, token: issue_access_v2_token(user, membership)}
+    end
+
+    test "reads a missing Diet and a missing macro goal as null", %{
+      conn: conn,
+      user: user,
+      token: token
+    } do
+      Repo.insert!(%UserDietaryProfile{user_id: user.id})
+
+      conn =
+        conn
+        |> put_req_header("authorization", "Bearer " <> token)
+        |> get("/api/account/dietary-profile")
+
+      assert %{"user_id" => user_id, "diet_type" => nil, "macro_goal" => nil} =
+               json_response(conn, 200)["data"]
+
+      assert user_id == user.id
+    end
+
+    test "the legacy write still requires a Diet and a macro goal", %{
+      conn: conn,
+      user: user,
+      token: token
+    } do
+      for attrs <- [%{"diet_type" => "vegan"}, %{"macro_goal" => "balanced"}] do
+        conn =
+          conn
+          |> put_req_header("authorization", "Bearer " <> token)
+          |> put("/api/account/dietary-profile", attrs)
+
+        assert json_response(conn, 422) == %{"error" => "invalid_dietary_profile"}
+      end
+
+      assert Repo.get_by(UserDietaryProfile, user_id: user.id) == nil
+    end
+  end
 end

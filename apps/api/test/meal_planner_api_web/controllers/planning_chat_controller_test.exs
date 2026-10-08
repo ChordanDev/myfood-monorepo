@@ -1,12 +1,11 @@
 defmodule MealPlannerApiWeb.PlanningChatControllerTest do
   use MealPlannerApiWeb.ConnCase, async: false
   import MealPlannerApi.FactoryHelpers
+  import MealPlannerApi.IdentityFixtures
 
-  alias MealPlannerApi.Accounts
   alias MealPlannerApi.Auth.Guardian
   alias MealPlannerApi.Persistence.Calendar
   alias MealPlannerApi.Persistence.Catalog
-  alias MealPlannerApi.Persistence.Identity
 
   # ─── Phase A — Tenancy Refactor (PR 3c task 3.19) ───────────────────────────
   # See calendar_controller_test.exs (task 3.14) for why a tampered
@@ -63,7 +62,7 @@ defmodule MealPlannerApiWeb.PlanningChatControllerTest do
   # rather than silently bypassing the lock.
   test "POST /api/planning/proposals/:proposal_id/confirm is retired (404, no route)",
        %{conn: conn} do
-    token = issue_token(conn, %{"user_id" => "u_chat_404", "account_id" => "acct_chat_404"})
+    %{token: token} = insert_identity_with_token!()
     fake_proposal_id = Ecto.UUID.generate()
 
     conn =
@@ -75,14 +74,8 @@ defmodule MealPlannerApiWeb.PlanningChatControllerTest do
   end
 
   test "planning chat creates a proposal (PR3 retired HTTP confirm)", %{conn: conn} do
-    token = issue_token(conn, %{"user_id" => "u_chat", "account_id" => "acct_chat"})
-
-    {:ok, %{account_id: account_id, user_id: user_id}} =
-      Identity.ensure_persistent_identity(%{
-        id: "u_chat",
-        account_id: "acct_chat",
-        plan: :family_4
-      })
+    %{token: token, user: %{id: user_id}, account: %{id: account_id}} =
+      insert_identity_with_token!(plan: :family_4)
 
     {:ok, breakfast_recipe} =
       Catalog.create_recipe(%{
@@ -137,14 +130,8 @@ defmodule MealPlannerApiWeb.PlanningChatControllerTest do
   end
 
   test "favorites endpoint returns user starred recipes", %{conn: conn} do
-    token = issue_token(conn, %{"user_id" => "u_fav", "account_id" => "acct_fav"})
-
-    {:ok, %{account_id: account_id, user_id: user_id}} =
-      Identity.ensure_persistent_identity(%{
-        id: "u_fav",
-        account_id: "acct_fav",
-        plan: :family_4
-      })
+    %{token: token, user: %{id: user_id}, account: %{id: account_id}} =
+      insert_identity_with_token!(plan: :family_4)
 
     {:ok, recipe} =
       Catalog.create_recipe(%{
@@ -166,14 +153,5 @@ defmodule MealPlannerApiWeb.PlanningChatControllerTest do
     body = json_response(conn, 200)
 
     assert Enum.any?(body["data"], &(&1["recipeId"] == recipe.id))
-  end
-
-  defp issue_token(_conn, params) do
-    {:ok, %{user: user, account: account}} = Accounts.find_or_create_identity(params)
-
-    {:ok, token, _claims} =
-      Guardian.encode_and_sign(user, Accounts.claims_for(user, account), token_type: "access")
-
-    token
   end
 end
