@@ -132,8 +132,10 @@ defmodule MealPlannerApiWeb.Casing do
 
   # Returns the new key and its rank among the keys that share that name: a
   # key already in the target casing (0 for a string, 1 for an atom) comes
-  # before a rewritten one (2 for a string, 3 for an atom). A map holds a
-  # given atom or string once, so two colliding keys never share a rank.
+  # before a rewritten one (2 for a string, 3 for an atom). Two keys that
+  # collide never share a rank, because two distinct keys of the same kind
+  # cannot be given the same name: left as they are they stay distinct, and
+  # each rewrite is injective, so two rewritten keys stay distinct too.
   defp rewrite_key(key, rewrite) when is_binary(key) do
     name = rewrite.(key)
     {name, if(name == key, do: 0, else: 2)}

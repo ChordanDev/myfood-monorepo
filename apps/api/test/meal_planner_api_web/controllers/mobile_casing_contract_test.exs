@@ -12,6 +12,9 @@ defmodule MealPlannerApiWeb.MobileCasingContractTest do
   import MealPlannerApi.CartFixtures
   import MealPlannerApi.FactoryHelpers
 
+  import MealPlannerApiWeb.ChannelHelpers,
+    only: [persist_trial_window!: 2, with_enforcement_enabled!: 1]
+
   alias MealPlannerApi.Persistence.Accounts.AccountMembership
   alias MealPlannerApi.Persistence.Catalog
   alias MealPlannerApi.Persistence.Planning
@@ -337,6 +340,63 @@ defmodule MealPlannerApiWeb.MobileCasingContractTest do
 
       assert f |> request(:post, path, exclusion) |> json_response(201) == %{"data" => exclusion}
       assert f |> request(:get, path) |> json_response(200) == %{"data" => [exclusion]}
+    end
+  end
+
+  # The router wiring, read off the conn the endpoint returns: a camelCase
+  # query param comes back in snake_case only when the request went through
+  # `Plugs.MobileCasing`. Removing the pipeline from a scope fails these
+  # tests, and so does moving it after a pipeline that halts, because Phoenix
+  # runs no pipeline after a halt.
+  describe "router wiring" do
+    @query "?selectedSlot=dinner"
+    @rewritten %{"selected_slot" => "dinner"}
+    @untouched %{"selectedSlot" => "dinner"}
+
+    test "a product request halted by :auth has been through the plug first" do
+      conn = dispatch(build_conn(), @endpoint, :get, "/api/planning/weekly" <> @query)
+
+      assert conn.halted
+      assert %{"error" => %{"code" => "unauthenticated"}} = json_response(conn, 401)
+      assert conn.query_params == @rewritten
+    end
+
+    test "a product request halted by :enforce_capability has been through the plug first", f do
+      persist_trial_window!(f.account, :expired)
+
+      conn =
+        with_enforcement_enabled!(fn -> request(f, :get, "/api/planning/weekly" <> @query) end)
+
+      assert conn.halted
+      assert %{"error" => %{"code" => "trial_expired"}} = json_response(conn, 403)
+      assert conn.query_params == @rewritten
+    end
+
+    test "GET /api/me goes through the plug, halted by :auth or not", f do
+      halted = dispatch(build_conn(), @endpoint, :get, "/api/me" <> @query)
+
+      assert halted.halted
+      assert halted.status == 401
+      assert halted.query_params == @rewritten
+
+      served = request(f, :get, "/api/me" <> @query)
+
+      assert served.status == 200
+      assert served.query_params == @rewritten
+    end
+
+    test "GET /api/auth/me and /api/account/* never go through the plug", f do
+      for path <- ["/api/auth/me", "/api/account/excluded-ingredients"] do
+        halted = dispatch(build_conn(), @endpoint, :get, path <> @query)
+
+        assert {path, halted.status} == {path, 401}
+        assert {path, halted.query_params} == {path, @untouched}
+
+        served = request(f, :get, path <> @query)
+
+        assert {path, served.status} == {path, 200}
+        assert {path, served.query_params} == {path, @untouched}
+      end
     end
   end
 
