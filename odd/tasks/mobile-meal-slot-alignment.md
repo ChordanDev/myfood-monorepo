@@ -82,7 +82,7 @@ PR.
 
 - [x] T1 — Expand: add `MealSlot`, its ordered list and `MEAL_SLOT_LABEL`,
   with a test for the mapping. Route: delegated (writer trigger: 2+ files).
-- [ ] T2 — Derive `CookingTimeSlot` from `MealSlot` and move onboarding and
+- [x] T2 — Derive `CookingTimeSlot` from `MealSlot` and move onboarding and
   settings onto it; remove the three-code `MealSlot` from auth types.
   Route: delegated.
 - [x] T3 — Migrate home domain, components, hooks, screens, mocks, the meal
@@ -90,6 +90,9 @@ PR.
   Tests first (RED), then source (GREEN). Route: delegated.
 - [x] T4 — Contract: delete `MealType` and its re-exports; run every check.
   Route: delegated.
+- [ ] T5 — Keep `favoriteRecipeIds` when the stored plan is discarded: a
+  `migrate` replaces only the stored entries. Tests first (RED), then the
+  store (GREEN). Route: delegated.
 
 ## Progress
 
@@ -110,13 +113,6 @@ next task's commit.
   `Cannot find module './mealSlots'`. GREEN: 3 tests passed.
   Checks: typecheck clean, `npm test` 93 suites / 1474 tests passed, lint
   0 errors (same 4 warnings).
-- T2 — BLOCKED, not started. The three-code `MealSlot` in
-  `src/features/auth/types/auth.ts` is also imported by
-  `src/features/preferences/constants/catalog.ts` (`isSupportedMealSlot`) and
-  `src/features/preferences/constants/preferenceOptions.ts` (`MEAL_SLOTS`,
-  `SLOT_LABELS`). `features/preferences/**` is outside the writer's allowed
-  edit surfaces, and removing the type without moving those two files breaks
-  the type check. T3 and T4 do not depend on it and went ahead.
 - T3 — `9268be0` `refactor(mobile): use English meal slot codes`.
   `MealPlanEntry.type` is `MealSlot`; `HomeMealType` became `HomeMealSlot`;
   `FoodTypeSwitcher` reads `MEAL_SLOT_LABEL`; the meal plan store persists
@@ -134,8 +130,7 @@ next task's commit.
   No other persisted store holds Meal slot values: the shopping store keeps
   ids, manual items, the grouping mode and a date; the inventory store keeps
   items and ingredients.
-- T4 — `refactor(mobile): remove Spanish MealType` (SHA in the writer's
-  report: a commit cannot record its own). `MealType` and its re-exports in
+- T4 — `5559a81` `refactor(mobile): remove Spanish MealType`. `MealType` and its re-exports in
   `src/mocks/mealPlans.ts` and `src/mocks/index.ts` are gone. Pure type
   removal, no meaningful RED.
   Checks: typecheck clean, `npm test` 94 suites / 1478 tests passed, lint
@@ -145,7 +140,19 @@ next task's commit.
   `getDefaultHomeMealType`, `getPendingHomeMealType`,
   `getClosestHomeMealType`, `nextMealType`); with a leading word boundary
   (`\bMealType\b`) it matches nothing.
+- T2 — `refactor(mobile): derive cooking time slots from MealSlot`, done
+  after T4: it was blocked until `features/preferences/**` joined the edit
+  surfaces, because `preferences/constants/catalog.ts` and
+  `preferenceOptions.ts` import the auth slot type.
+  `CookingTimeSlot = Exclude<MealSlot, 'snack'>` in
+  `src/features/auth/types/auth.ts` replaces the three-code `MealSlot`;
+  onboarding, settings and preferences use it. `SLOT_LABELS` is deleted from
+  `preferenceOptions.ts` and its four users read `MEAL_SLOT_LABEL`; the three
+  labels were compared byte for byte first and are identical.
+  Type-level refactor with no behavior change, so no meaningful RED.
+  Checks: typecheck clean, `npm test` 94 suites / 1478 tests passed, lint
+  0 errors (same 4 warnings), prettier clean.
+  `rg -n "type MealSlot\b|SLOT_LABELS" src` matches only the definition in
+  `src/types/domain.ts`.
 
-Next step: T2. It needs `src/features/preferences/constants/catalog.ts` and
-`src/features/preferences/constants/preferenceOptions.ts` added to the
-writer's edit surfaces.
+Next step: T5.
