@@ -2,11 +2,10 @@ defmodule MealPlannerApiWeb.InventoryControllerTest do
   use MealPlannerApiWeb.ConnCase, async: false
 
   import MealPlannerApi.FactoryHelpers
+  import MealPlannerApi.IdentityFixtures
 
-  alias MealPlannerApi.Accounts
   alias MealPlannerApi.Auth.Guardian
   alias MealPlannerApi.Persistence.Catalog
-  alias MealPlannerApi.Persistence.Identity
   alias MealPlannerApi.Persistence.Inventory
   alias MealPlannerApi.Persistence.Planning
 
@@ -65,15 +64,9 @@ defmodule MealPlannerApiWeb.InventoryControllerTest do
     end
   end
 
-  test "inventory list, manual adjust, dispose and voice flow", %{conn: conn} do
-    token = issue_token(conn, %{"user_id" => "u_inv", "account_id" => "acct_inv"})
-
-    {:ok, %{account_id: account_id, user_id: user_id}} =
-      Identity.ensure_persistent_identity(%{
-        id: "u_inv",
-        account_id: "acct_inv",
-        plan: :family_4
-      })
+  test "inventory list, manual adjust, dispose and voice flow" do
+    %{token: token, user: %{id: user_id}, account: %{id: account_id}} =
+      insert_identity_with_token!(plan: :family_4)
 
     {:ok, ingredient} =
       Catalog.upsert_ingredient_by_name(%{
@@ -145,15 +138,9 @@ defmodule MealPlannerApiWeb.InventoryControllerTest do
     assert dispose_body["data"]["itemId"] == item_id
   end
 
-  test "rescue plan schedules meal for today", %{conn: conn} do
-    token = issue_token(conn, %{"user_id" => "u_rescue", "account_id" => "acct_rescue"})
-
-    {:ok, %{account_id: account_id, user_id: user_id}} =
-      Identity.ensure_persistent_identity(%{
-        id: "u_rescue",
-        account_id: "acct_rescue",
-        plan: :family_4
-      })
+  test "rescue plan schedules meal for today" do
+    %{token: token, user: %{id: user_id}, account: %{id: account_id}} =
+      insert_identity_with_token!(plan: :family_4)
 
     {:ok, tomato} =
       Catalog.upsert_ingredient_by_name(%{
@@ -214,14 +201,5 @@ defmodule MealPlannerApiWeb.InventoryControllerTest do
 
     meals = Planning.list_scheduled_meals(account_id, Date.utc_today(), Date.utc_today())
     assert Enum.any?(meals, &(&1.recipe_id == recipe.id))
-  end
-
-  defp issue_token(_conn, params) do
-    {:ok, %{user: user, account: account}} = Accounts.find_or_create_identity(params)
-
-    {:ok, token, _claims} =
-      Guardian.encode_and_sign(user, Accounts.claims_for(user, account), token_type: "access")
-
-    token
   end
 end

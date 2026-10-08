@@ -2,11 +2,10 @@ defmodule MealPlannerApiWeb.CookingControllerTest do
   use MealPlannerApiWeb.ConnCase, async: false
 
   import MealPlannerApi.FactoryHelpers
+  import MealPlannerApi.IdentityFixtures
 
-  alias MealPlannerApi.Accounts
   alias MealPlannerApi.Auth.Guardian
   alias MealPlannerApi.Persistence.Catalog
-  alias MealPlannerApi.Persistence.Identity
   alias MealPlannerApi.Persistence.Planning
 
   # ─── Phase A — Tenancy Refactor (PR 3c task 3.16) ───────────────────────────
@@ -61,14 +60,8 @@ defmodule MealPlannerApiWeb.CookingControllerTest do
   end
 
   test "start step finish cooking session", %{conn: conn} do
-    token = issue_token(conn, %{"user_id" => "u_cook", "account_id" => "acct_cook"})
-
-    {:ok, %{account_id: account_id, user_id: user_id}} =
-      Identity.ensure_persistent_identity(%{
-        id: "u_cook",
-        account_id: "acct_cook",
-        plan: :family_4
-      })
+    %{token: token, user: %{id: user_id}, account: %{id: account_id}} =
+      insert_identity_with_token!(plan: :family_4)
 
     MealPlannerApiWeb.ChannelHelpers.persist_trial_window!(
       MealPlannerApi.Repo.get!(MealPlannerApi.Persistence.Accounts.Account, account_id),
@@ -152,14 +145,5 @@ defmodule MealPlannerApiWeb.CookingControllerTest do
     finish_body = json_response(finish_conn, 200)
     assert finish_body["data"]["status"] == "completed"
     assert finish_body["data"]["inventoryMutations"] == 1
-  end
-
-  defp issue_token(_conn, params) do
-    {:ok, %{user: user, account: account}} = Accounts.find_or_create_identity(params)
-
-    {:ok, token, _claims} =
-      Guardian.encode_and_sign(user, Accounts.claims_for(user, account), token_type: "access")
-
-    token
   end
 end

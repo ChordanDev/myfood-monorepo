@@ -47,18 +47,18 @@ Defines the HTTP authentication pipeline that verifies Bearer JWTs, the dual-wri
 
 ### Requirement: Minting is gated by the `tenancy_v2_only` flag
 
-`Application.get_env(:meal_planner_api, :tenancy_v2_only, false)` MUST default to `false` (fail-closed). `AuthController.password/2`, `Accounts.authenticate_with_password/1`, `AccountsMembership.accept_invite/2`, and `AccountsMembership.switch_account/2` MUST mint `access` when the flag is `false` and `access_v2` when `true`.
+`Application.get_env(:meal_planner_api, :tenancy_v2_only, false)` MUST default to `false` (fail-closed). `AccountsMembership.accept_invite/2` and `AccountsMembership.switch_account/2` MUST mint `access` when the flag is `false` and `access_v2` when `true`.
 
 #### Scenario: Flag off mints access_v1 (regression)
 
 - GIVEN `Application.get_env(:meal_planner_api, :tenancy_v2_only)` is `false`
-- WHEN a User registers or logs in
+- WHEN a User accepts an invite or switches account
 - THEN the minted access token has `typ: "access"`
 
 #### Scenario: Flag on mints access_v2
 
 - GIVEN the flag is set to `true`
-- WHEN a User registers or logs in
+- WHEN a User accepts an invite or switches account
 - THEN the minted access token has `typ: "access_v2"` with a `membership_id` claim
 
 #### Scenario: Env var drives the flag (fail-closed)

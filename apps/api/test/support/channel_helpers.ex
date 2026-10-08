@@ -3,27 +3,30 @@ defmodule MealPlannerApiWeb.ChannelHelpers do
   Shared helper functions for channel tests.
   """
 
-  alias MealPlannerApi.Accounts
-  alias MealPlannerApi.Auth.Guardian
+  alias MealPlannerApi.IdentityFixtures
   alias MealPlannerApi.Persistence.Accounts.Account, as: PersistenceAccount
+  alias MealPlannerApi.Persistence.Accounts.User, as: PersistenceUser
   alias MealPlannerApi.Repo
 
   @doc """
-  Creates a test user and account, then generates a JWT token.
+  Creates a test user who owns an individual account, then generates a
+  legacy `typ: "access"` JWT token for them.
+
+  `user_id` and `account_id` are labels: the first names the user's email
+  (`<user_id>@myfood.local`), the second the account.
 
   Returns `{:ok, user, account, token}`.
   """
   @spec issue_identity_and_token(String.t(), String.t()) ::
-          {:ok, MealPlannerApi.Accounts.User.t(), MealPlannerApi.Accounts.Account.t(), String.t()}
+          {:ok, PersistenceUser.t(), PersistenceAccount.t(), String.t()}
   def issue_identity_and_token(user_id, account_id) do
-    with {:ok, %{user: user, account: account}} <-
-           Accounts.find_or_create_identity(%{"user_id" => user_id, "account_id" => account_id}),
-         {:ok, token, _claims} <-
-           Guardian.encode_and_sign(user, Accounts.claims_for(user, account),
-             token_type: "access"
-           ) do
-      {:ok, user, account, token}
-    end
+    %{user: user, account: account, token: token} =
+      IdentityFixtures.insert_identity_with_token!(
+        email: "#{user_id}@myfood.local",
+        account_name: account_id
+      )
+
+    {:ok, user, account, token}
   end
 
   # Phase 4 — `revenuecat-access-enforcement` realtime enforcement

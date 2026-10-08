@@ -5,8 +5,8 @@ defmodule MealPlannerApi.Persistence.Identity do
 
   import Ecto.Query, warn: false
 
-  alias MealPlannerApi.Repo
   alias MealPlannerApi.Persistence.Accounts.{Account, AccountMembership, User}
+  alias MealPlannerApi.Repo
 
   @spec ensure_persistent_identity(map()) ::
           {:ok, %{account_id: Ecto.UUID.t(), user_id: Ecto.UUID.t()}}
@@ -56,8 +56,8 @@ defmodule MealPlannerApi.Persistence.Identity do
   # through to the "mint a shadow User" branch below for ANY real
   # multi-membership User — inserting a second `users` row with the same
   # email and crashing on the `users.email` unique index. Both checks are
-  # kept (`or`) so the legacy `find_or_create_identity/1` single-account
-  # flow (which still sets `users.account_id` directly) is unaffected.
+  # kept (`or`) so a single-account User whose `users.account_id` is set
+  # directly keeps the fast path as well.
   defp legacy_account_match?(%User{account_id: account_id}, account_id), do: true
   defp legacy_account_match?(_user, _account_id), do: false
 

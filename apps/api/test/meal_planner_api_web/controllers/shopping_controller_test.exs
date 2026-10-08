@@ -2,15 +2,14 @@ defmodule MealPlannerApiWeb.ShoppingControllerTest do
   use MealPlannerApiWeb.ConnCase, async: false
 
   import MealPlannerApi.FactoryHelpers
+  import MealPlannerApi.IdentityFixtures
 
-  alias MealPlannerApi.Accounts
   alias MealPlannerApi.Auth.Guardian
   alias MealPlannerApi.Data.PlanningRepo
   alias MealPlannerApi.Generation.ServerTestFixtures, as: Fixtures
   alias MealPlannerApi.Persistence.Accounts.Account, as: PersistenceAccount
   alias MealPlannerApi.Persistence.Accounts.AccountMembership
   alias MealPlannerApi.Persistence.Catalog
-  alias MealPlannerApi.Persistence.Identity
   alias MealPlannerApi.Persistence.Inventory
   alias MealPlannerApi.Persistence.Planning
   alias MealPlannerApi.Persistence.Shopping
@@ -499,18 +498,13 @@ defmodule MealPlannerApiWeb.ShoppingControllerTest do
     end
   end
 
-  test "shopping list supports grouping, assignment, cart marking and checkout", %{conn: conn} do
-    token = issue_token(conn, %{"user_id" => "u_shop", "account_id" => "acct_shop"})
+  test "shopping list supports grouping, assignment, cart marking and checkout" do
+    %{token: token, user: %{id: user_id}, account: %{id: account_id}} =
+      insert_identity_with_token!(plan: :family_4)
+
     start_date = Date.utc_today()
     end_date = Date.add(start_date, 6)
     second_meal_date = Date.add(start_date, 3)
-
-    {:ok, %{account_id: account_id, user_id: user_id}} =
-      Identity.ensure_persistent_identity(%{
-        id: "u_shop",
-        account_id: "acct_shop",
-        plan: :family_4
-      })
 
     {:ok, ingredient} =
       Catalog.upsert_ingredient_by_name(%{
@@ -696,18 +690,11 @@ defmodule MealPlannerApiWeb.ShoppingControllerTest do
     assert Enum.all?(shopping_items, &(&1.status == :checked_out))
   end
 
-  test "shopping list creates only the missing quantity after subtracting available inventory", %{
-    conn: conn
-  } do
-    token = issue_token(conn, %{"user_id" => "u_shop_delta", "account_id" => "acct_shop_delta"})
-    start_date = Date.add(Date.utc_today(), 1)
+  test "shopping list creates only the missing quantity after subtracting available inventory" do
+    %{token: token, user: %{id: user_id}, account: %{id: account_id}} =
+      insert_identity_with_token!(plan: :family_4)
 
-    {:ok, %{account_id: account_id, user_id: user_id}} =
-      Identity.ensure_persistent_identity(%{
-        id: "u_shop_delta",
-        account_id: "acct_shop_delta",
-        plan: :family_4
-      })
+    start_date = Date.add(Date.utc_today(), 1)
 
     {:ok, ingredient} =
       Catalog.upsert_ingredient_by_name(%{
@@ -770,15 +757,9 @@ defmodule MealPlannerApiWeb.ShoppingControllerTest do
     assert body["data"]["plannedDates"] == [Date.to_iso8601(start_date)]
   end
 
-  test "past unpurchased rows are auto-pruned", %{conn: conn} do
-    token = issue_token(conn, %{"user_id" => "u_prune", "account_id" => "acct_prune"})
-
-    {:ok, %{account_id: account_id, user_id: user_id}} =
-      Identity.ensure_persistent_identity(%{
-        id: "u_prune",
-        account_id: "acct_prune",
-        plan: :family_4
-      })
+  test "past unpurchased rows are auto-pruned" do
+    %{token: token, user: %{id: user_id}, account: %{id: account_id}} =
+      insert_identity_with_token!(plan: :family_4)
 
     {:ok, ingredient} =
       Catalog.upsert_ingredient_by_name(%{
@@ -837,20 +818,13 @@ defmodule MealPlannerApiWeb.ShoppingControllerTest do
     assert Enum.any?(items, &(&1.status == :archived))
   end
 
-  test "online purchase confirmation adds inventory immediately under the approved contract", %{
-    conn: conn
-  } do
-    token = issue_token(conn, %{"user_id" => "u_online", "account_id" => "acct_online"})
+  test "online purchase confirmation adds inventory immediately under the approved contract" do
+    %{token: token, user: %{id: user_id}, account: %{id: account_id}} =
+      insert_identity_with_token!(plan: :family_4)
+
     start_date = Date.utc_today()
     end_date = Date.add(start_date, 6)
     planned_date = Date.add(start_date, 1)
-
-    {:ok, %{account_id: account_id, user_id: user_id}} =
-      Identity.ensure_persistent_identity(%{
-        id: "u_online",
-        account_id: "acct_online",
-        plan: :family_4
-      })
 
     {:ok, ingredient} =
       Catalog.upsert_ingredient_by_name(%{
@@ -971,15 +945,6 @@ defmodule MealPlannerApiWeb.ShoppingControllerTest do
   end
 
   defp sorted_keys(map), do: map |> Map.keys() |> Enum.sort()
-
-  defp issue_token(_conn, params) do
-    {:ok, %{user: user, account: account}} = Accounts.find_or_create_identity(params)
-
-    {:ok, token, _claims} =
-      Guardian.encode_and_sign(user, Accounts.claims_for(user, account), token_type: "access")
-
-    token
-  end
 
   # ---- capability-gate helpers (#36 AC 1) ---------------------------------
 

@@ -149,13 +149,20 @@ their isolation is enforced by always reading
 ### Env-var cutover (`MEAL_PLANNER_TENANCY_V2`)
 
 `Application.get_env(:meal_planner_api, :tenancy_v2_only, false)`
-controls which token TYPE is *minted* (verification always accepts
-both):
+controls which token TYPE is *minted* by invite accept and
+switch-account (verification always accepts both). Its only reader is
+`AccountsMembership.build_response_claims/3`:
 
-- `false` (default) — `AuthController`, `AccountLifecycleController`, and
-  `Accounts.authenticate_with_password/1` mint `access` (`access_v1`).
-- `true` — the same code paths mint `access_v2` instead, using the
-  User's membership via `AccountsMembership.claims_for/2`.
+- `false` (default) — `AccountsMembership.accept_invite/2` and
+  `AccountsMembership.switch_account/2` return `access` (`access_v1`)
+  claims.
+- `true` — the same code paths return `access_v2` claims instead, using
+  the User's membership via `AccountsMembership.claims_for/2`.
+
+The email code sign-in does not read the flag: a Device session
+(`Services.DeviceSessions`, opened by the login and sign-up verify
+routes and rotated by `POST /api/auth/refresh`) always carries an
+`access_v2` access token.
 
 The flip is a pure config/env-var change — no DB migration, no app
 release. Existing `access` tokens keep verifying after the flip (until
