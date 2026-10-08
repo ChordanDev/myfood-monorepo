@@ -82,7 +82,10 @@ At most one open Shopping item (`status` in `pending`, `in_cart`) per `(account_
 - [x] T4: `mix format --check-formatted`, `mix compile --warnings-as-errors`, `mix test` in `apps/api`; this document updated with evidence.
   - `mix format --check-formatted`: exit 0, no output.
   - `mix compile --warnings-as-errors`: exit 0.
-  - `mix test`: `1332 passed, 20 skipped`. The skipped tests are the suites gated on a fresh isolated database (`cart_concurrency_test.exs` among them); they use `CartFixtures` and were not observed running with the changed fixture.
+  - `mix test`: `1332 passed, 20 skipped`. The skipped tests are the suites gated on a fresh isolated database (`cart_concurrency_test.exs` among them); they use `CartFixtures`.
+  - Parent spot check: the three commands re-run with the same results. The gated suites were then run with `MIX_ENV=test mix run --no-start test/support/issue38_concurrency_runner.exs` on a fresh database it created and migrated from zero (`cooking_atomicity_test.exs` and `cart_concurrency_test.exs`): `18 passed`, with the changed fixture and the new purchase order.
+- [x] T5 (inline, one mechanical line plus its test): the rebuild upsert also replaces `reservation_token`, so a reserved item it turns back to `pending` does not keep a stale reservation, as the cart release already does.
+  - RED: both "replaces the … Shopping item that has the same planned key" tests failed on `assert stored.reservation_token == nil` (`3/5 passed`). GREEN: `mix test` gave `1332 passed, 20 skipped`; format and compile checks exit 0.
 
 ## Checks
 
@@ -103,13 +106,12 @@ RDD is on (global). One whole-branch review at the end, base `2e544f4`.
 ## Noticed, left alone
 
 - The dedupe keeps one row per key even when two twins are both `in_cart`: the deleted one disappears from a live Cart, and a purchase that still names it answers `:item_not_found`.
-- The rebuild upsert replaces the four designed columns only. An `in_cart` row it turns back to `pending` keeps its `reservation_token`.
 - The existence check counts every status and the insert only skips open rows: a key stored, reserved and fully bought between the two steps of one read would be derived again.
 - `prune_past_items/2` still takes a `from_date` it does not use.
 
 ## Progress
 
-T1 to T4 are done on `claude/strange-kepler-5720ad`: `d58ff7a` (index, constraint, cart order, fixtures) and `74598e7` (derivation, prune, logged rescue, rebuild upsert), plus the commit that records this document. All three checks pass on the per-worktree test database. Nothing is pushed.
+T1 to T5 are done on `claude/strange-kepler-5720ad`: `d58ff7a` (index, constraint, cart order, fixtures), `74598e7` (derivation, prune, logged rescue, rebuild upsert) and the follow-up commit that clears the reservation token in the rebuild upsert, plus the commits that record this document. All three checks pass on the per-worktree test database. Nothing is pushed.
 
 Authored changed lines are 937 against the 400 heuristic (882 added, 55 deleted): 327 in `lib` and the migration, 610 in tests.
 
