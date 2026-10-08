@@ -66,7 +66,7 @@ The route answers the raw decoded snapshot (`recipeSteps`, `recipeIngredients[].
 
 ## Delivery
 
-Forecast: about 700 authored changed lines over three work-unit commits (T1 about 250, T2 about 200, T3 about 250), above the 400-line budget. Strategy `ask-on-risk`: the chain strategy (`stacked-to-main` or `feature-branch-chain`) is asked once, at delivery; the three commits are the slice boundaries either way. Push and pull requests are the user's decision.
+Forecast: about 700 authored changed lines over three work-unit commits (T1 about 250, T2 about 200, T3 about 250), above the 400-line budget. Strategy `ask-on-risk`; chain strategy `stacked-to-main`, chosen by the user at delivery (see the delivery record). The real count was about 2,400: the test matrices dominate and nothing was compressed to fit. Push and pull requests are the user's decision.
 
 ## Progress
 
@@ -101,4 +101,9 @@ T1 to T3 done; the four acceptance criteria are covered by tests. Next step: del
 
 ## Delivery record
 
-Branch `claude/issue-32-e3aa6a`, four commits on `f4b849d`: `04da8ea` (T1, API), `b983e77` (T2, mobile type, API module, cache), `546cb99` (T1b, API tests), `0cd25b0` (T3, recipe screen). About 2,400 changed lines, tests and docs included. Not pushed; no pull request yet. Chain strategy to be chosen by the user.
+- Work branch `claude/issue-32-e3aa6a`, on `f4b849d`: `04da8ea` (T1, API), `b983e77` (T2, mobile type, API module, cache), `546cb99` (T1b, API tests), `0cd25b0` (T3, recipe screen), `450c579` (this document). The native reviews recorded above ran on these commits; a fourth one, over the whole branch (`review-70b71303242f0a1d`, four lenses), was approved and acknowledged on `450c579`.
+- 2026-10-08: chain strategy `stacked-to-main`, chosen by the user ("as #11"). The commits were cherry-picked onto `main` at `f4b849d` so that T1b sits with T1. Commit identities changed: T1 `04da8ea` is now `24db770`, T1b `546cb99` is `cf99c05`, T2 `b983e77` is `1119985`, T3 `0cd25b0` is `1c767b9`. The tree is the reviewed one plus one sentence of the integration guide.
+- Slices, stacked to main, each pull request based on the previous branch: S1 `feat/recipe-detail-api` (T1, T1b, `c674096`), S2 `feat/recipe-detail-cache` (T2), S3 `feat/recipe-detail-screen` (T3, this document).
+- `c674096` `docs(api)`: follow-up of a whole-branch review warning. The guide said `forbidden` also covers a User without an active Membership; the auth pipeline answers `account_not_found` (401) first, as the T1b route test shows.
+- Review budget: S1 683, S2 434, S3 about 1,400 changed lines, against 400. One slicing pass, one work unit per slice; tests are most of each diff (S3: about 700 lines of tests). Recommended as `size:exception`.
+- Whole-branch review advisories still open, none blocking: the recipe cache is not scoped to the Account, is never evicted and never refreshes a cached snapshot (`category` and `successorRecipeId` can go stale); the response guard of `recipeApi` is shallow; `forbidden` is shown on the screen as a retryable failure; the `nil` branches of `RecipeService.get_recipe/2` have no test of their own.
