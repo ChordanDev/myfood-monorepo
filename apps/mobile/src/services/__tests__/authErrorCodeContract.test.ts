@@ -5,29 +5,33 @@ import * as path from 'node:path';
 
 /**
  * Contract test: every error code emitted by the api via the
- * `error(:atom)` domain-error helper MUST be present in the mobile app's
+ * `error(:atom)` envelope helper MUST be present in the mobile app's
  * `KNOWN_AUTH_ERROR_CODES` allowlist. Otherwise `errorFromEnvelope` on
  * the mobile side normalizes the code to `unknown_error` and the user sees
  * a generic "Request failed" message instead of a domain-specific one.
  *
  * The api source is treated as a read-only fixture. We walk every
  * `.ex` file under `apps/api/lib/` and collect atoms from `error(:atom)`
- * calls — these are the domain codes the Auth context raises.
+ * calls — these are the codes the api renders through
+ * `MealPlannerApiWeb.ApiError.error/2`.
  */
 describe('auth error code contract (api -> mobile allowlist)', () => {
-  // The Auth domain context raises domain errors with `error(:atom)`.
-  // The atoms that pass through `ErrorRendering.safe_error/1` and out
-  // the wire as `error.code` are exactly the atoms in those calls.
+  // Controllers and plugs in `apps/api` render the mobile error envelope
+  // with `conn |> ApiError.error(:atom)`. The atom is the `error.code`
+  // that goes out on the wire, so the atoms in those calls are exactly
+  // the codes the envelope can carry.
   //
-  // We do NOT include codes that come from:
-  //   * `SafeError` (`internal_error`) — intentionally normalized.
-  //   * `RequireUnlockedAccount` plug (`account_locked`) — billing/UX
-  //     path handled outside the auth allowlist.
-  //   * `ErrorJSON` (`request_too_large`) — transport-level.
-  //   * `code: "..."` string literals in `accounts.ex` — those flow
-  //     through a different path (see `KNOWN_AUTH_ERROR_CODES`).
-  // The contract asserted here is: every `error(:atom)` raised by the
-  // api has a mobile-side allowlist entry, full stop.
+  // The scan does NOT see:
+  //   * `ApiError.server_fault/1` (`unknown_error`) — it has no
+  //     `error(:atom)` literal by design, and `unknown_error` is in the
+  //     allowlist anyway.
+  //   * The flat `{ "error": "<reason>" }` bodies the legacy and
+  //     non-auth controllers still build with `json/2` — they are not
+  //     part of the envelope contract.
+  //   * `MealPlannerApiWeb.ErrorJSON` (`{ "errors": { "detail" } }`) —
+  //     Phoenix's transport-level fallback.
+  // The contract asserted here is: every `error(:atom)` call in the api
+  // has a mobile-side allowlist entry, full stop.
 
   /**
    * Resolve the api source `lib/` directory inside the monorepo.
@@ -192,11 +196,10 @@ describe('auth error code contract (api -> mobile allowlist)', () => {
     }
   });
 
-  // TODO(porting): re-enable once the api exposes the progra-3-back auth error-code contract (see odd/tasks/monorepo-bootstrap.md).
-  // `apps/api` (meal_planner_api) currently has no `error(:atom)` helper
-  // calls, so the extractor returns an empty list and the `> 0` sanity
-  // check below fails by design until the auth contract is ported.
-  it.skip('every error code emitted by the api is in the mobile allowlist', () => {
+  // Scans the real `apps/api/lib` tree. The api keeps every envelope
+  // call in the piped `conn |> ApiError.error(:atom)` shape so this scan
+  // can see it (see the `ApiError` moduledoc).
+  it('every error code emitted by the api is in the mobile allowlist', () => {
     const apiLib = resolveApiLibPath();
     if (!apiLib) {
       throw new Error(

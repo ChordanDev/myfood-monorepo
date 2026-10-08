@@ -133,12 +133,17 @@ export type AuthAccountType = 'individual' | 'family' | 'family_plus';
 export type AuthSubscriptionStatus = 'none' | 'active' | 'past_due' | 'canceled';
 
 /**
- * Closed union for `memberships.role`.
+ * Closed union for `membership.role` in the `CurrentMe` payload.
  *
- * Source of truth: `MyFoodBack.Accounts.Membership.changeset/2`, which
- * validates `role` against `["owner"]`.
+ * Source of truth:
+ * `MealPlannerApi.Persistence.Accounts.AccountMembership`
+ * (`apps/api/lib/meal_planner_api/persistence/accounts/account_membership.ex`),
+ * whose `role` field is an `Ecto.Enum` with values `[:owner, :member]`
+ * and whose `changeset/2` validates `role` against the same list.
+ * `MealPlannerApiWeb.CurrentMe.build/4` renders the atom as a string.
+ * Adding a role on the api MUST be paired with an update here.
  */
-export type AuthMembershipRole = 'owner';
+export type AuthMembershipRole = 'owner' | 'member';
 
 /**
  * Closed union for OAuth-style `token_type`.
