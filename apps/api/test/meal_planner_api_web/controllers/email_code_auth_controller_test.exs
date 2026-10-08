@@ -146,6 +146,22 @@ defmodule MealPlannerApiWeb.EmailCodeAuthControllerTest do
       assert seconds > 0
       assert seconds <= 3600
     end
+
+    test "rotating x-forwarded-for does not give each request a fresh per-IP bucket", %{
+      conn: conn
+    } do
+      request = fn n ->
+        conn
+        |> put_req_header("x-forwarded-for", "203.0.113.#{n}")
+        |> post("/api/auth/email-code/request", %{"email" => "rotate-#{n}@example.com"})
+      end
+
+      for n <- 1..20, do: assert(request.(n).status == 202)
+
+      limited = request.(21)
+      assert limited.status == 429
+      assert [_seconds] = Plug.Conn.get_resp_header(limited, "retry-after")
+    end
   end
 
   # ---------------------------------------------------------------------------
@@ -459,6 +475,29 @@ defmodule MealPlannerApiWeb.EmailCodeAuthControllerTest do
 
       assert %{"access_token" => token} = json_response(conn, 200)
       assert is_binary(token)
+    end
+  end
+
+  # A sign-up code (`POST /api/auth/signup/request-code`) is a row of the
+  # same table that names no User. This route only serves codes that do.
+  describe "POST /api/auth/email-code/verify and sign-up codes" do
+    test "a sign-up code returns 401 invalid_code and is not consumed", %{conn: conn} do
+      %EmailVerificationCode{}
+      |> Ecto.Changeset.change(%{
+        email: "verify-signup@example.com",
+        code_hash: MealPlannerApi.Services.EmailCodeAuth.hash_code("123456"),
+        expires_at: DateTime.add(DateTime.utc_now(), 600, :second)
+      })
+      |> Repo.insert!()
+
+      conn =
+        post(conn, "/api/auth/email-code/verify", %{
+          "email" => "verify-signup@example.com",
+          "code" => "123456"
+        })
+
+      assert json_response(conn, 401) == %{"error" => "invalid_code"}
+      assert [%EmailVerificationCode{consumed_at: nil}] = Repo.all(EmailVerificationCode)
     end
   end
 

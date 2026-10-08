@@ -1,12 +1,15 @@
 defmodule MealPlannerApiWeb.MobileAuthController do
   @moduledoc """
-  Mobile login with an email code (issue #7):
+  Mobile login (issue #7) and sign-up (issue #8) with an email code:
 
     * `POST /api/auth/login/request-code` — body `{ "email" }`
     * `POST /api/auth/login/verify-code` — body `{ "email", "code", "deviceId" }`
+    * `POST /api/auth/signup/request-code` — body `{ "email" }`
+    * `POST /api/auth/signup/verify-code` — body `{ "email", "code", "deviceId" }`
 
-  A thin translator over `MealPlannerApi.Services.EmailCodeLogin`: it reads
-  the camelCase body, and renders either the success body typed in
+  A thin translator over `MealPlannerApi.Services.EmailCodeLogin` and
+  `MealPlannerApi.Services.EmailCodeSignup`: it reads the camelCase body,
+  and renders either the success body typed in
   `apps/mobile/src/features/auth/types/auth.ts` or the error envelope
   through `MealPlannerApiWeb.ApiError`.
   """
@@ -14,7 +17,9 @@ defmodule MealPlannerApiWeb.MobileAuthController do
 
   alias MealPlannerApi.AccountsMembership
   alias MealPlannerApi.Services.EmailCodeLogin
+  alias MealPlannerApi.Services.EmailCodeSignup
   alias MealPlannerApiWeb.ApiError
+  alias MealPlannerApiWeb.ClientIp
   alias MealPlannerApiWeb.Controllers.AccountScopeHelpers
   alias MealPlannerApiWeb.CurrentMe
 
@@ -26,7 +31,24 @@ defmodule MealPlannerApiWeb.MobileAuthController do
   header in whole seconds) or `code_send_failed`.
   """
   def request_login_code(conn, params) do
-    case EmailCodeLogin.request_code(params["email"], client_ip(conn)) do
+    conn
+    |> render_code_request(EmailCodeLogin.request_code(params["email"], ClientIp.resolve(conn)))
+  end
+
+  @doc """
+  `POST /api/auth/signup/request-code`.
+
+  Same answers as `request_login_code/2`, except that the email must not
+  have a User yet: one that does gets `email_already_exists` instead of
+  `email_not_found`.
+  """
+  def request_signup_code(conn, params) do
+    conn
+    |> render_code_request(EmailCodeSignup.request_code(params["email"], ClientIp.resolve(conn)))
+  end
+
+  defp render_code_request(conn, result) do
+    case result do
       {:ok, sent} ->
         json(conn, %{
           status: "code_sent",
@@ -44,6 +66,9 @@ defmodule MealPlannerApiWeb.MobileAuthController do
 
       {:error, :email_not_found} ->
         conn |> ApiError.error(:email_not_found)
+
+      {:error, :email_already_exists} ->
+        conn |> ApiError.error(:email_already_exists)
 
       {:error, :code_send_failed} ->
         conn |> ApiError.error(:code_send_failed)
@@ -63,9 +88,28 @@ defmodule MealPlannerApiWeb.MobileAuthController do
   neither spends the code nor counts as an attempt.
   """
   def verify_login_code(conn, params) do
+    conn |> open_session(params, &EmailCodeLogin.verify_code/2)
+  end
+
+  @doc """
+  `POST /api/auth/signup/verify-code`.
+
+  The body and the `200` answer of `verify_login_code/2`: a sign-up ends
+  in the same session a login does. A right code creates the User, their
+  Account, the owner Membership and the Trial before the session opens.
+  Errors are `code_invalid`, `code_expired`, `too_many_attempts`, or
+  `email_already_exists` when the email got a User after the code was sent.
+  """
+  def verify_signup_code(conn, params) do
+    conn |> open_session(params, &EmailCodeSignup.verify_code/2)
+  end
+
+  # `verify` checks the code and answers the User and Membership the
+  # session is for.
+  defp open_session(conn, params, verify) do
     with :ok <- validate_device_id(params["deviceId"]),
          {:ok, %{user: user, membership: membership}} <-
-           EmailCodeLogin.verify_code(params["email"], params["code"]),
+           verify.(params["email"], params["code"]),
          {:ok, me} <- CurrentMe.load(user, membership),
          {:ok, access_token, refresh_token} <-
            AccountScopeHelpers.mint_token_pair(
@@ -84,6 +128,8 @@ defmodule MealPlannerApiWeb.MobileAuthController do
       {:error, :code_expired} -> conn |> ApiError.error(:code_expired)
       {:error, :too_many_attempts} -> conn |> ApiError.error(:too_many_attempts)
       {:error, :account_not_found} -> conn |> ApiError.error(:account_not_found)
+      {:error, :email_already_exists} -> conn |> ApiError.error(:email_already_exists)
+      {:error, :registration_failed} -> conn |> ApiError.server_fault()
       {:error, :token_refresh_failed} -> conn |> ApiError.server_fault()
     end
   end
@@ -93,17 +139,4 @@ defmodule MealPlannerApiWeb.MobileAuthController do
   end
 
   defp validate_device_id(_device_id), do: {:error, :device_id_required}
-
-  # Same client address rule as `EmailCodeAuthController`, so both request
-  # routes count against one per-IP bucket: the first `x-forwarded-for`
-  # entry when present, else the socket address as a dotted IPv4.
-  defp client_ip(conn) do
-    case get_req_header(conn, "x-forwarded-for") do
-      [ip | _] when byte_size(ip) > 0 -> String.trim(ip)
-      _ -> format_remote_ip(conn.remote_ip)
-    end
-  end
-
-  defp format_remote_ip({a, b, c, d}), do: "#{a}.#{b}.#{c}.#{d}"
-  defp format_remote_ip(_), do: nil
 end

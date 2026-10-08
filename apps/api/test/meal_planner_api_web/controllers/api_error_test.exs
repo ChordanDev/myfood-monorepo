@@ -39,6 +39,12 @@ defmodule MealPlannerApiWeb.ApiErrorTest do
       assert (conn |> ApiError.error(:code_send_failed)).status == 502
     end
 
+    test "maps the mobile sign-up code to its HTTP status", %{conn: conn} do
+      conn = conn |> ApiError.error(:email_already_exists)
+
+      assert %{"error" => %{"code" => "email_already_exists"}} = json_response(conn, 409)
+    end
+
     test "keeps a response header set on the conn before rendering", %{conn: conn} do
       conn =
         conn

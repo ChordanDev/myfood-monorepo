@@ -45,6 +45,7 @@ defmodule MealPlannerApiWeb.ApiError do
           | :code_expired
           | :too_many_attempts
           | :code_send_failed
+          | :email_already_exists
 
   @codes %{
     unauthenticated: {401, "Authentication is required for this request."},
@@ -57,7 +58,8 @@ defmodule MealPlannerApiWeb.ApiError do
     code_invalid: {422, "The verification code is not valid."},
     code_expired: {401, "The verification code has expired."},
     too_many_attempts: {429, "Too many failed attempts for this code. Request a new one."},
-    code_send_failed: {502, "The verification code could not be sent."}
+    code_send_failed: {502, "The verification code could not be sent."},
+    email_already_exists: {409, "An account already exists for this email address."}
   }
 
   @doc """

@@ -17,6 +17,7 @@ defmodule MealPlannerApi.Accounts do
   require Logger
 
   alias Ecto.Multi
+  alias MealPlannerApi.AccountAccess
   alias MealPlannerApi.Repo
   alias MealPlannerApi.Subscriptions
   alias MealPlannerApi.Accounts.Account
@@ -176,6 +177,74 @@ defmodule MealPlannerApi.Accounts do
       {:error, _} = error -> error
       _ -> {:error, :unable_to_issue_identity}
     end
+  end
+
+  @doc """
+  Registers the person who proved they own `email` (already normalized)
+  with an email code: a User without a password, their individual
+  Account, the owner Membership and the Trial, which starts at `now`.
+
+  The User and the Account are named after the email's local part until
+  onboarding asks for a real name. Both Trial columns are written, so a
+  later provider event finds a Trial already started and leaves it alone.
+
+  Returns `{:error, :email_already_registered}` when a User has the email,
+  whether it is found up front or by the unique index on `users.email`.
+  A failure leaves nothing behind; inside a caller's transaction it also
+  leaves that transaction unusable, so the caller must roll it back.
+  """
+  @spec register_with_verified_email(String.t(), DateTime.t()) ::
+          {:ok,
+           %{
+             user: PersistenceUser.t(),
+             account: PersistenceAccount.t(),
+             membership: AccountMembership.t()
+           }}
+          | {:error, :email_already_registered | :unable_to_issue_identity}
+  def register_with_verified_email(email, %DateTime{} = now \\ DateTime.utc_now())
+      when is_binary(email) do
+    with nil <- user_by_email(email),
+         {:ok, subscription_plan_id} <- Subscriptions.ensure_default_plan_id(:individual) do
+      [name | _] = String.split(email, "@", parts: 2)
+      trial = AccountAccess.trial_window(now)
+
+      account_attrs = %{
+        name: name,
+        plan: :individual,
+        default_budget_cents: 0,
+        subscription_plan_id: subscription_plan_id,
+        trial_started_at: trial.started_at,
+        trial_ends_at: trial.ends_at
+      }
+
+      user_attrs = %{email: email, name: name, role: :owner}
+
+      case account_attrs |> account_and_owner_multi(user_attrs, now) |> Repo.transaction() do
+        {:ok, %{account: account, user: user, membership: membership}} ->
+          {:ok, %{account: account, user: user, membership: %{membership | account: account}}}
+
+        {:error, step, reason, _changes} ->
+          verified_email_registration_error(step, reason)
+      end
+    else
+      %PersistenceUser{} -> {:error, :email_already_registered}
+      _ -> {:error, :unable_to_issue_identity}
+    end
+  end
+
+  # Only the changeset's errors are logged: its changes carry the email.
+  defp verified_email_registration_error(:user, %Ecto.Changeset{errors: errors}) do
+    if Enum.any?(errors, &match?({:email, {_message, [{:constraint, :unique} | _]}}, &1)) do
+      {:error, :email_already_registered}
+    else
+      Logger.error("email registration failed at step=:user changeset_errors=#{inspect(errors)}")
+      {:error, :unable_to_issue_identity}
+    end
+  end
+
+  defp verified_email_registration_error(step, _reason) do
+    Logger.error("email registration failed at step=#{inspect(step)}")
+    {:error, :unable_to_issue_identity}
   end
 
   @spec authenticate_with_password(map()) ::
@@ -366,26 +435,7 @@ defmodule MealPlannerApi.Accounts do
       password_hash: password_hash
     }
 
-    transaction =
-      Multi.new()
-      |> Multi.insert(
-        :account,
-        PersistenceAccount.changeset(%PersistenceAccount{}, account_attrs)
-      )
-      |> Multi.insert(:user, fn %{account: account} ->
-        attrs = Map.put(user_attrs, :account_id, account.id)
-        PersistenceUser.changeset(%PersistenceUser{}, attrs)
-      end)
-      |> Multi.insert(:membership, fn %{account: account, user: user} ->
-        %AccountMembership{}
-        |> AccountMembership.changeset(%{
-          account_id: account.id,
-          user_id: user.id,
-          role: :owner,
-          status: :active,
-          joined_at: DateTime.utc_now()
-        })
-      end)
+    transaction = account_and_owner_multi(account_attrs, user_attrs, DateTime.utc_now())
 
     case Repo.transaction(transaction) do
       {:ok, %{account: account, user: user, membership: membership}} ->
@@ -398,6 +448,30 @@ defmodule MealPlannerApi.Accounts do
 
         {:error, :unable_to_issue_identity}
     end
+  end
+
+  # An Account, the User who owns it and the owner's active Membership,
+  # inserted together. Shared by every registration path.
+  defp account_and_owner_multi(account_attrs, user_attrs, joined_at) do
+    Multi.new()
+    |> Multi.insert(
+      :account,
+      PersistenceAccount.changeset(%PersistenceAccount{}, account_attrs)
+    )
+    |> Multi.insert(:user, fn %{account: account} ->
+      attrs = Map.put(user_attrs, :account_id, account.id)
+      PersistenceUser.changeset(%PersistenceUser{}, attrs)
+    end)
+    |> Multi.insert(:membership, fn %{account: account, user: user} ->
+      %AccountMembership{}
+      |> AccountMembership.changeset(%{
+        account_id: account.id,
+        user_id: user.id,
+        role: :owner,
+        status: :active,
+        joined_at: joined_at
+      })
+    end)
   end
 
   defp user_by_email(email) when is_binary(email),

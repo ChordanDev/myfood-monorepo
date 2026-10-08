@@ -12,6 +12,13 @@ config :meal_planner_api, MealPlannerApiWeb.Endpoint,
     ]
   ]
 
+# Client address for rate limiting (`MealPlannerApiWeb.ClientIp`). The app
+# is deployed on Fly, whose proxy always sets `Fly-Client-IP` to the client
+# address as it sees it (https://docs.fly.io/networking/request-headers).
+# The header is only trustworthy while traffic reaches the app through Fly
+# Proxy alone: a request arriving any other way could write it itself.
+config :meal_planner_api, client_ip_header: "fly-client-ip"
+
 # Do not print debug messages in production
 config :logger, level: :info
 
