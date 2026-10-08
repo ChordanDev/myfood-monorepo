@@ -82,6 +82,10 @@ Test-first: each behaviour change starts from a failing test observed before the
 
 - Forecast: about 430 authored changed lines (T1 about 110, T2 about 300, T3 about 20), most of them tests. That is at the delivery budget, so the two API commits are kept as separable slices (T1 storage and serializer, T2 route).
 - Strategy `ask-on-risk`: the chain strategy is asked once, before any pull request is prepared. Push, pull request and merge stay with the user.
+- Chain strategy chosen by the user (2026-10-08): `stacked-to-main`, two pull requests. The branch history is linear, so each slice is a prefix of it:
+  - Slice 1, branch `feat/onboarding-profile-storage` at `f8e088c`, base `main`: `80dd4a7` (this document), `3e54966` (storage and serializer), `f8e088c` (T1 record). 255 authored lines without this document.
+  - Slice 2, branch `claude/issue-17-d258e7`, base `feat/onboarding-profile-storage`: `dc483d9` (route, error codes, mobile allowlist, docs), `b849f14` (mobile comments) and the later records of this document. 701 authored lines without this document, 466 of them tests; `size:exception` recommended, the route is one behaviour with its tests and docs.
+  - After slice 1 merges, slice 2 is retargeted to `main` so its diff shows only its own commits.
 - Actual size at `b849f14`, feature document excluded: 21 files, 923 insertions, 33 deletions. The forecast was low by about half, almost all of it in tests (about 640 lines) and docs (about 85). Work units, in order: `3e54966` storage and serializer (255 lines), `dc483d9` route, error codes, mobile allowlist and docs (678 lines), `b849f14` mobile comments (23 lines). The route commit is over the budget on its own; it is one behaviour with its tests and docs and was not split further.
 
 ## Progress
