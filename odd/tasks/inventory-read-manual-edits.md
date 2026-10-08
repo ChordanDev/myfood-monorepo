@@ -1,7 +1,7 @@
 # Feature: Inventory read and manual edits (issue #42, S4)
 
 Ticket: ChordanDev/myfood-monorepo#42, part of spec #5 (shopping list, inventory and leftovers).
-Base: `main` at `f4b849d`. Branch: `claude/epic-brattain-b6d202`.
+Base: `main`, branched at `f4b849d` and rebased onto `2ac302b` before delivery (commit ids below are the rebased ones). Branch: `claude/epic-brattain-b6d202`.
 
 ## Objective
 
@@ -57,24 +57,24 @@ The Inventory screen shows lots with milli quantities, units and freshness secti
 
 ## Delivery
 
-Forecast: about 1100 to 1400 authored changed lines, above the 400-line budget. Each task is one work-unit commit and one candidate slice (T1, T2, T3, T4). Chain strategy and pull requests are decided by the user at delivery.
+Forecast: about 1100 to 1400 authored changed lines, above the 400-line budget. Each task is one work-unit commit and one candidate slice (T1, T2, T3, T4). Chain strategy chosen by the user: stacked to main. Slices: #88 `feat/inventory-read-shape` (T1 and this document), #89 `feat/inventory-writes-envelope` (T2), #90 `feat/mobile-inventory-cache` (T3), #91 `feat/mobile-inventory-screen` (T4). #89, #90 and #91 exceed the budget after one slicing pass by work unit; `size:exception` is recommended in each.
 
 ## Progress
 
 | Task | Commit | Checks | Review |
 | ---- | ------ | ------ | ------ |
-| T1   | `650b214` | RED 7 failing of 43, GREEN 102 passed; format, compile clean; `mix test` 1211 passed, 20 skipped; parent spot check 27 passed | medium, under budget; covered by review `review-17aa8dd30a7a45bb` (approved, acknowledged) |
-| T2   | `40b26fb` | RED 28 failing of 76 (API), 2 of 8 (mobile contract); GREEN 76 and 8; format, compile clean; `mix test` 1226 passed, 20 skipped; mobile typecheck clean, lint 0 errors 4 warnings; parent spot check 16 passed | high (auth hot path); consent granted; four lenses approved, acknowledged, authority burned |
-| T3   | `9e84cc1` | RED 23 failing of 28 (new modules), GREEN 89; type migration had no RED-first (boundary conversions removed: 56 failing, restored: passing); two shopping tests outside the writer surface patched by the parent and squashed in; commit not verified in isolation | medium, slice budget reached; consent granted; START refused with `lens_context_budget_exceeded`, no review ran |
-| T4   | `84356fb` | RED then GREEN per unit (inventory folder 13 suites, 206 tests); final tree: lint 0 errors 4 warnings, typecheck clean, `npm test` 97 suites, 1594 passed; no simulator run | same candidate as T3: not reviewed |
+| T1   | `c7bae85` | RED 7 failing of 43, GREEN 102 passed; format, compile clean; `mix test` 1211 passed, 20 skipped; parent spot check 27 passed | medium, under budget; covered by review `review-17aa8dd30a7a45bb` (approved, acknowledged) |
+| T2   | `e3f13b5` | RED 28 failing of 76 (API), 2 of 8 (mobile contract); GREEN 76 and 8; format, compile clean; `mix test` 1226 passed, 20 skipped; mobile typecheck clean, lint 0 errors 4 warnings; parent spot check 16 passed | high (auth hot path); consent granted; four lenses approved, acknowledged, authority burned |
+| T3   | `981e3da` | RED 23 failing of 28 (new modules), GREEN 89; type migration had no RED-first (boundary conversions removed: 56 failing, restored: passing); two shopping tests outside the writer surface patched by the parent and squashed in; commit not verified in isolation | medium, slice budget reached; consent granted; START refused with `lens_context_budget_exceeded`, no review ran |
+| T4   | `bf585cc` | RED then GREEN per unit (inventory folder 13 suites, 206 tests); final tree: lint 0 errors 4 warnings, typecheck clean, `npm test` 97 suites, 1594 passed; no simulator run | same candidate as T3: not reviewed |
 
-Next step: user decisions below, then delivery. Reviewed boundary: `40b26fb` (T3 and T4 are unreviewed).
+Next step: review and merge the chain in order, retargeting each child after its parent merges. API suite on the rebased head: 1284 passed, 20 skipped. Reviewed boundary: `e3f13b5` (T3 and T4 are unreviewed).
 
 ## Notes and follow-ups
 
 - Checkout and cooking slices must replace the `addItem` and `consumeIngredient` shims (D8).
 - No endpoint edits `notes` or the name of an existing lot (D7).
-- Needs a decision: the mobile slice (`40b26fb..84356fb`, 4713 lines) exceeds the native reviewer context budget; review it as smaller candidates or deliver under ordinary policy.
+- Decided: the mobile slice (`e3f13b5..bf585cc`, 4713 lines) exceeds the native reviewer context budget; the user chose on 2026-10-08 to deliver it without native review.
 - Needs a decision: `inventory-storage` now persists real Account data and nothing clears it on sign-out, so a second Account on the same device sees the previous lots until its first read.
 - Add flow sends `ingredientName` (D9): the mobile scope has no ingredient catalogue route, and an unknown name surfaces only the generic `validation_error` message.
 - The catalogue is still `MOCK_INGREDIENTS` (ids `i1`...), so shopping and recipe never match stock against API lots, and the `addItem`/`consumeIngredient` shim writes are lost on the next read (D8); only the Inventory screen calls `refresh()`.
