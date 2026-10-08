@@ -198,6 +198,9 @@ defmodule MealPlannerApiWeb.Router do
   # Issue #17 — `PUT /me/profile` shares the exemption, so a User whose
   # Account Access state is `expired` can still edit the Onboarding profile.
   #
+  # Issue #19 — `GET` and `PUT /me/slot-cooking-times` share the exemption
+  # too: Slot cooking times belong to the User, not to the Account.
+  #
   # Issue #18 — `GET /me/preferences` sits here for the same exemption: a
   # User of an Account whose Trial expired can still read their preferences.
   scope "/api", MealPlannerApiWeb do
@@ -205,6 +208,8 @@ defmodule MealPlannerApiWeb.Router do
 
     get("/me", AccountsController, :me)
     put("/me/profile", ProfileController, :update)
+    get("/me/slot-cooking-times", SlotCookingTimesController, :show)
+    put("/me/slot-cooking-times", SlotCookingTimesController, :update)
     get("/me/preferences", PreferencesController, :show)
   end
 

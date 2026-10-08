@@ -1,7 +1,7 @@
 // Builders for one meal slot's cooking time, shared by the onboarding wizard
 // and the settings screen.
 
-import type { HungerLevel, SlotCookingTime } from '@/features/auth/types/auth';
+import type { HungerLevel, SlotCookingTime, SlotCookingTimes } from '@/features/auth/types/auth';
 
 export type SlotMode = 'noCook' | 'preset' | 'custom';
 
@@ -19,4 +19,9 @@ export function buildSlot(mode: SlotMode, value: number, hunger: HungerLevel): S
 
 export function defaultSlot(mode: SlotMode = 'noCook'): SlotCookingTime {
   return { cookingTimeMinutes: mode === 'noCook' ? 0 : 30, hungerLevel: 'normal' };
+}
+
+// What a user who never saved their slot cooking times starts from.
+export function defaultSlotCookingTimes(): SlotCookingTimes {
+  return { breakfast: defaultSlot(), lunch: defaultSlot(), dinner: defaultSlot() };
 }
