@@ -34,6 +34,10 @@ defmodule MealPlannerApi.Services.UserPreferencesService do
 
   # The limits of the Soft preferences, counted on the normalized list.
   @soft_preference_max_length 80
+  # What the `varchar(255)[]` column holds for one entry. The limit above
+  # counts characters as a User sees them, and one of those can be several
+  # code points.
+  @soft_preference_max_code_points 255
   @soft_preferences_max_count 20
 
   @doc "The Diet codes of the mobile app."
@@ -73,7 +77,9 @@ defmodule MealPlannerApi.Services.UserPreferencesService do
   Duplicated Hard restrictions collapse. Soft preferences are trimmed, the
   blank ones are dropped and exact duplicates collapse onto their first
   occurrence; the limits (#{@soft_preference_max_length} characters an entry,
-  #{@soft_preferences_max_count} entries) apply to what is left.
+  #{@soft_preferences_max_count} entries) apply to what is left. An entry the
+  column cannot store is refused as well: one over
+  #{@soft_preference_max_code_points} code points, or holding a NUL character.
   """
   @spec validate(map()) :: {:ok, preferences()} | {:error, rejection()}
   def validate(params) when is_map(params) do
@@ -189,10 +195,13 @@ defmodule MealPlannerApi.Services.UserPreferencesService do
       Enum.all?(soft_preferences, &storable_soft_preference?/1)
   end
 
-  # Postgres cannot store a NUL character in text, so an entry holding one
-  # is refused here instead of failing inside the write.
+  # Postgres cannot store a NUL character in text, nor more code points
+  # than the column allows, so such an entry is refused here instead of
+  # failing inside the write.
   defp storable_soft_preference?(entry) do
-    String.length(entry) <= @soft_preference_max_length and not String.contains?(entry, <<0>>)
+    String.length(entry) <= @soft_preference_max_length and
+      length(String.codepoints(entry)) <= @soft_preference_max_code_points and
+      not String.contains?(entry, <<0>>)
   end
 
   defp diet(nil), do: nil
