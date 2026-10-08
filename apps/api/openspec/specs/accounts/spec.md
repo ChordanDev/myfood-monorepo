@@ -53,7 +53,7 @@ The system MUST backfill one `:active` membership per legacy `(users.id, users.a
 
 ### Requirement: Atomic registration creates the owner membership
 
-`Accounts.register_with_password/1` MUST create the Account, the User, and one `:owner :active` membership in a single `Ecto.Multi` transaction; any step failing MUST roll back the entire registration (no orphan Account or User).
+`Accounts.register_with_verified_email/2` MUST create the Account, the User, and one `:owner :active` membership in a single `Ecto.Multi` transaction; any step failing MUST roll back the entire registration (no orphan Account or User).
 
 ### Requirement: `users.role` and `account_id` retained for dual-write window
 

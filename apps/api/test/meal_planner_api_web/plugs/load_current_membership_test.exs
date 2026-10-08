@@ -71,9 +71,8 @@ defmodule MealPlannerApiWeb.Plugs.LoadCurrentMembershipTest do
     # full access for up to 4 weeks. The plug now REQUIRES a real,
     # `:active` `AccountMembership` row before granting access — it no
     # longer fabricates one. PR 1's backfill migration (task 1.4) plus
-    # PR 2b's atomic `register_with_password/1` (and this fix's own
-    # `Accounts.find_or_create_identity/1` upsert) guarantee every
-    # currently-valid legacy member has such a row.
+    # the account-creating paths, which write the membership with the
+    # User, guarantee every currently-valid legacy member has such a row.
     # ------------------------------------------------------------------
     test "access_v1 (legacy) token with no real membership row is rejected (fail-closed)", %{
       conn: conn
