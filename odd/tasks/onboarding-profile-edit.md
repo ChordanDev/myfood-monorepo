@@ -48,7 +48,7 @@ The mobile app already calls `PUT /api/me/profile` (`apps/mobile/src/features/pr
 
 ## Tasks
 
-- [ ] **T1** Store Household size and Cooking skill on the User and serve them from `CurrentMe`. Route: delegated direct (migration, schema, serializer, tests: 2+ non-trivial files).
+- [x] **T1** Store Household size and Cooking skill on the User and serve them from `CurrentMe`. Route: delegated direct (migration, schema, serializer, tests: 2+ non-trivial files). Commit `3e54966`.
 - [ ] **T2** `PUT /api/me/profile` with its error codes, mobile allowlist and docs. Route: delegated direct (controller, router, `ApiError`, tests, mobile allowlist, docs).
 - [ ] **T3** Correct stale mobile comments and prove the round trip against the real route. Route: delegated direct for the verification run; the comment edit is mechanical.
 
@@ -86,6 +86,9 @@ Test-first: each behaviour change starts from a failing test observed before the
 ## Progress
 
 - 2026-10-08: branch fast-forwarded from `9b057b8` to `main` at `f4b849d`. Feature document created. No source written yet.
+- 2026-10-08: T1 done in `3e54966` (5 files, 239 insertions, 16 deletions; about 170 of them tests). RED observed first: 17 failures (`User.profile_changeset/2` and `User.cooking_skills/0` undefined, `KeyError :household_size`). After: focused files 44 passed (re-run by the parent), full `mix test` 1223 passed, 20 skipped; `mix compile --warnings-as-errors` and `mix format --check-formatted` clean. `mix lint` exits 30: `credo --strict` reports 283 findings repo-wide, none in the lines this commit wrote (not confirmed on a base checkout); `mix sobelow --config` alone exits 0. Review assessment for `f4b849d..3e54966`: medium, `under_budget`, stays pending in the slice.
+- T1 decisions: the serializer is `CurrentMe.user_json/1`; `cooking_skill` is a plain string with `validate_inclusion`, so an unknown skill is an `:inclusion` error and a missing one a `:required` error; the name is trimmed before validation and counted in graphemes.
+- Carried to T2: `profile_changeset/2` follows Ecto casting, so it accepts `"4"` for the household size and treats an omitted name as unchanged. The route must check presence and JSON types before the changeset.
 
 ## Notes and follow-ups
 
