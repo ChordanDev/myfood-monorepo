@@ -1,5 +1,5 @@
 // Datos mock para desarrollo. Usa la forma canonica del Plan de Comidas Local.
-import type { MealPlanEntry, MealType } from '@/types/domain';
+import type { MealPlanEntry, MealSlot, MealType } from '@/types/domain';
 import type { PlanByDate } from '@/features/home/types/calendar';
 
 // Re-exporta los tipos canonicos para consumidores existentes.
@@ -30,14 +30,14 @@ function buildMockPlanByDate(): PlanByDate {
       {
         id: 'mock-mp1',
         date: todayKey,
-        type: 'almuerzo',
+        type: 'lunch',
         recipeId: 'r1',
         isCooked: false,
       },
       {
         id: 'mock-mp2',
         date: todayKey,
-        type: 'cena',
+        type: 'dinner',
         recipeId: 'r2',
         isCooked: false,
       },
@@ -46,14 +46,14 @@ function buildMockPlanByDate(): PlanByDate {
       {
         id: 'mock-mp3',
         date: tomorrowKey,
-        type: 'desayuno',
+        type: 'breakfast',
         recipeId: 'r2',
         isCooked: false,
       },
       {
         id: 'mock-mp4',
         date: tomorrowKey,
-        type: 'almuerzo',
+        type: 'lunch',
         recipeId: 'r1',
         isCooked: false,
       },
@@ -62,7 +62,7 @@ function buildMockPlanByDate(): PlanByDate {
       {
         id: 'mock-mp5',
         date: inTwoDaysKey,
-        type: 'cena',
+        type: 'dinner',
         recipeId: 'r1',
         isCooked: false,
       },
@@ -71,7 +71,7 @@ function buildMockPlanByDate(): PlanByDate {
       {
         id: 'mock-mp6',
         date: inThreeDaysKey,
-        type: 'almuerzo',
+        type: 'lunch',
         recipeId: 'r2',
         isCooked: false,
       },
@@ -92,7 +92,7 @@ export function getMockMealsForDate(planByDate: PlanByDate, dateKey: string): Me
 export function getMockMealsByType(
   planByDate: PlanByDate,
   dateKey: string,
-  mealType: MealType
+  mealType: MealSlot
 ): MealPlanEntry[] {
   return getMockMealsForDate(planByDate, dateKey).filter((meal) => meal.type === mealType);
 }

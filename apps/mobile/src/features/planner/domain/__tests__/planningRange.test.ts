@@ -17,7 +17,7 @@ jest.mock('@/features/home', () => ({
 }));
 
 function buildEntry(id: string, date: string): MealPlanEntry {
-  return { id, date, type: 'almuerzo', recipeId: 'r1', isCooked: false };
+  return { id, date, type: 'lunch', recipeId: 'r1', isCooked: false };
 }
 
 describe('getFirstPlannableDate', () => {

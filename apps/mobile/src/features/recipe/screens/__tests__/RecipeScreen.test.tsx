@@ -130,7 +130,7 @@ function entry(overrides: Partial<MealPlanEntry> = {}): MealPlanEntry {
   return {
     id: 'e-today',
     date: TODAY,
-    type: 'almuerzo',
+    type: 'lunch',
     recipeId: 'r1',
     isCooked: false,
     ...overrides,

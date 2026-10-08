@@ -86,7 +86,7 @@ export type MealType = 'desayuno' | 'almuerzo' | 'cena' | 'snack';
 export interface MealPlanEntry {
   id: string;
   date: string; // ISO string format YYYY-MM-DD
-  type: MealType;
+  type: MealSlot;
   recipeId: string; // Referencia a MasterRecipe o CustomizedRecipe
   isCooked: boolean;
   isSkipped?: boolean; // The meal passed and was not cooked. Never true together with isCooked.

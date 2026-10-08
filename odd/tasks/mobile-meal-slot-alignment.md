@@ -85,7 +85,7 @@ PR.
 - [ ] T2 — Derive `CookingTimeSlot` from `MealSlot` and move onboarding and
   settings onto it; remove the three-code `MealSlot` from auth types.
   Route: delegated.
-- [ ] T3 — Migrate home domain, components, hooks, screens, mocks, the meal
+- [x] T3 — Migrate home domain, components, hooks, screens, mocks, the meal
   plan store (version bump) and every fixture and test to the English codes.
   Tests first (RED), then source (GREEN). Route: delegated.
 - [ ] T4 — Contract: delete `MealType` and its re-exports; run every check.
@@ -100,7 +100,7 @@ warnings), prettier clean.
 A commit cannot record its own SHA, so each task's SHA is filled in by the
 next task's commit.
 
-- T1 — `feat(mobile): add English meal slot type and labels`.
+- T1 — `4ab1ba3` `feat(mobile): add English meal slot type and labels`.
   `ORDERED_MEAL_SLOTS` and `MealSlot` in `src/types/domain.ts`;
   `MEAL_SLOT_LABEL` in `src/constants/mealSlots.ts`, next to
   `ingredientCategories.ts`. The list is not named `MEAL_SLOTS` because
@@ -110,3 +110,27 @@ next task's commit.
   `Cannot find module './mealSlots'`. GREEN: 3 tests passed.
   Checks: typecheck clean, `npm test` 93 suites / 1474 tests passed, lint
   0 errors (same 4 warnings).
+- T2 — BLOCKED, not started. The three-code `MealSlot` in
+  `src/features/auth/types/auth.ts` is also imported by
+  `src/features/preferences/constants/catalog.ts` (`isSupportedMealSlot`) and
+  `src/features/preferences/constants/preferenceOptions.ts` (`MEAL_SLOTS`,
+  `SLOT_LABELS`). `features/preferences/**` is outside the writer's allowed
+  edit surfaces, and removing the type without moving those two files breaks
+  the type check. T3 and T4 do not depend on it and went ahead.
+- T3 — `refactor(mobile): use English meal slot codes`.
+  `MealPlanEntry.type` is `MealSlot`; `HomeMealType` became `HomeMealSlot`;
+  `FoodTypeSwitcher` reads `MEAL_SLOT_LABEL`; the meal plan store persists
+  under version 2.
+  RED (tests and fixtures moved first, source untouched): `npx jest` 7 suites
+  / 40 tests failed — `eatToday`, `localMealPlan`, `useHomeState`,
+  `EatTodaySheet`, `Calendar`, the new `mocks/mealPlanFixtures.test.ts` and
+  the two new persistence tests in `useMealPlanStore.test.ts`. The planner,
+  recipe, shopping and `PendingDayCard` tests never went RED: the slot value
+  is an opaque fixture field there, so the rename cannot fail them.
+  GREEN: `npm test` 94 suites / 1478 tests passed, typecheck clean, lint
+  0 errors (same 4 warnings).
+  The version bump discards the whole persisted meal plan state, which
+  includes `favoriteRecipeIds`: the store has no `partialize`.
+  No other persisted store holds Meal slot values: the shopping store keeps
+  ids, manual items, the grouping mode and a date; the inventory store keeps
+  items and ingredients.

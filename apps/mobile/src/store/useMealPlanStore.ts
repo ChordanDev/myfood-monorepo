@@ -106,7 +106,9 @@ export const useMealPlanStore = create<MealPlanState>()(
     }),
     {
       name: 'meal-plan-storage',
-      version: 1, // Incrementado para forzar la carga de los nuevos mocks
+      // Bumped whenever the stored entries stop matching the fixtures, so the stored plan is
+      // discarded and the fixtures load. Version 2: meal slots became the API codes.
+      version: 2,
       storage: createJSONStorage(() => safeAsyncStorage),
     }
   )

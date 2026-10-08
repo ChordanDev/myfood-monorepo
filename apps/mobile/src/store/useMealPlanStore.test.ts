@@ -1,3 +1,4 @@
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import type { MasterRecipe, MealPlanEntry } from '@/types/domain';
 import { MOCK_MASTER_RECIPES } from '@/mocks/domainMocks';
 import { useInventoryStore } from '@/features/inventory/store';
@@ -40,7 +41,7 @@ describe('marking a meal as cooked', () => {
   const entry: MealPlanEntry = {
     id: 'entry-1',
     date: '2026-08-25',
-    type: 'almuerzo',
+    type: 'lunch',
     recipeId: recipe.id,
     isCooked: false,
   };
@@ -107,7 +108,7 @@ describe('meal confirmation', () => {
     const entry: MealPlanEntry = {
       id: 'entry-1',
       date: '2026-08-24',
-      type: 'cena',
+      type: 'dinner',
       recipeId: recipe.id,
       isCooked: false,
       ...overrides,
@@ -171,5 +172,50 @@ describe('meal confirmation', () => {
 
     expect(getEntry()).toMatchObject({ isSkipped: true, isCooked: false });
     expect(getInventory()).toEqual(initialInventory);
+  });
+});
+
+describe('a plan stored on the device', () => {
+  const STORAGE_KEY = 'meal-plan-storage';
+  const fixtures = useMealPlanStore.getInitialState().entries;
+  const storedEntry: MealPlanEntry = {
+    id: 'stored-1',
+    date: '2026-08-25',
+    type: 'lunch',
+    recipeId: 'r1',
+    isCooked: false,
+  };
+
+  beforeEach(() => {
+    useMealPlanStore.setState({ entries: fixtures });
+  });
+
+  afterEach(async () => {
+    jest.restoreAllMocks();
+    await AsyncStorage.clear();
+  });
+
+  it('comes back when it was stored with the current version', async () => {
+    await AsyncStorage.setItem(
+      STORAGE_KEY,
+      JSON.stringify({ version: 2, state: { entries: [storedEntry] } })
+    );
+
+    await useMealPlanStore.persist.rehydrate();
+
+    expect(useMealPlanStore.getState().entries).toEqual([storedEntry]);
+  });
+
+  it('is discarded when it was stored before the API meal slot codes, so the fixtures stay', async () => {
+    // zustand reports the state it could not migrate through console.error.
+    jest.spyOn(console, 'error').mockImplementation(() => {});
+    await AsyncStorage.setItem(
+      STORAGE_KEY,
+      JSON.stringify({ version: 1, state: { entries: [storedEntry] } })
+    );
+
+    await useMealPlanStore.persist.rehydrate();
+
+    expect(useMealPlanStore.getState().entries).toEqual(fixtures);
   });
 });
