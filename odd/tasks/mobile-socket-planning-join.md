@@ -54,8 +54,8 @@ The `start_planning` and confirm capability re-checks keep replying `subscriptio
 ## Tasks
 
 - [x] T1 API: planning join replies `unauthenticated`, `forbidden` or `trial_expired`; join tests cover the three refusals; `CHANNELS.md` join section updated. Route: delegated (reading prepares the write; code, tests and docs).
-- [ ] T2 Mobile: token-change subscription in the token store, `phoenix` dependency, socket module with connect, auth param, join, reconnect and re-auth, ESLint restriction, fake-socket tests. Route: delegated (several non-trivial files).
-- [ ] T3 Mobile: `usePlanningTopic` and the refusal reason on `PlannerScreen`, with a test. Route: delegated (several non-trivial files).
+- [x] T2 Mobile: token-change subscription in the token store, `phoenix` dependency, socket module with connect, auth param, join, reconnect and re-auth, ESLint restriction, fake-socket tests. Route: delegated (several non-trivial files).
+- [x] T3 Mobile: `usePlanningTopic` and the refusal reason on `PlannerScreen`, with a test. Route: delegated (several non-trivial files).
 
 ## Acceptance criteria
 
@@ -71,7 +71,14 @@ The `start_planning` and confirm capability re-checks keep replying `subscriptio
 
 ## Delivery
 
-Forecast: about 700 authored changed lines (API about 120, socket module about 430, planner about 150), above the 400-line budget. Strategy `ask-on-risk`: the chain strategy is asked before any pull request is opened. Work units are committed so either slicing works: T1, T2, T3.
+Forecast: about 700 authored changed lines (API about 120, socket module about 430, planner about 150), above the 400-line budget. Actual: about 2,870 (insertions plus deletions, lockfile and this document excluded; most of it is tests). Strategy `ask-on-risk`: the chain strategy is asked before any pull request is opened. Work units are committed so either slicing works:
+
+| Slice | Commits | Authored lines |
+| --- | --- | --- |
+| API join refusals | `4818f68` | 227 |
+| Token subscription and socket URL | `f6d548f` | 165 |
+| Socket module | `57b57b9`, `89a08a2` | 2,130 |
+| Planner join and notice | `7ff1b93` | 430 |
 
 ## Progress
 
@@ -81,4 +88,30 @@ Forecast: about 700 authored changed lines (API about 120, socket module about 4
   - A token without an integer `exp` is not treated as expired.
   - Local Postgres has no `postgres` role: API test commands also need `MYFOOD_TEST_DB_USERNAME=luccagiordana`.
 
-Next: T2.
+- T2 done, commits `f6d548f` (token-change subscription, socket URL) and `57b57b9` (socket module, `phoenix` ~1.8.9, `@types/phoenix`, ESLint restriction). RED: 11 tests failed on the missing `subscribeToAccessToken` and `getSocketUrl`; the socket suite could not load its module (weak RED, compensated with mutation checks on every guard). GREEN: `npm test -- --ci` 97 suites, 1549 tests; `npm run typecheck` clean; `npm run lint` 0 errors (4 warnings on the base).
+  - Public surface (`@/api/socket`): `getSocketClient()`, `planningTopic(accountId)`, `SocketClient` with `connect`, `disconnect`, `joinTopic`, `getStatus`, `subscribeToStatus`. `createSocketClient(deps)` takes the socket factory, so tests inject `createFakeSocket` from `src/api/socket/testing/fakeSocket.ts`.
+  - Phoenix facts the wrapper relies on, verified in `node_modules/phoenix` 1.8.15: `params` is called on every connection attempt; `connect()` during a pending `disconnect()` is unsafe, so the wrapper reconnects only from the `disconnect` callback; a refused channel rejoins on a timer until `leave()`.
+  - `socketClient.phoenix.test.ts` runs the wrapper on the real Phoenix `Socket` over a scripted transport, to catch a semantic change on a `phoenix` upgrade.
+  - Accepted change to the design: a refresh that fails on the network does not spend the streak (a phone that was offline with an expired token would otherwise never refresh on its own).
+- Review of T1 and T2 (range `f4b849d..57b57b9`, medium, lens `review-reliability`): consent granted, approved, acknowledged. Reviewed boundary: `57b57b9`. Four advisory findings, all fixed in commit `89a08a2`:
+  - Refresh retries during an outage are bounded by a cool-down (5 s doubling to 60 s), reset on open and on stop. Worst case after the network returns: about 65 s before the socket refreshes on its own; an authenticated HTTP call in that window refreshes and reconnects at once.
+  - Refresh outcomes and stored-token reads are tied to the client run that started them, so one that outlives a `disconnect()` changes nothing in the next run. Exception: a session-invalid refresh still reports `unauthenticated` when the cleared session itself ended the run.
+  - Test suites delete `EXPO_PUBLIC_API_URL` when it was unset instead of assigning `undefined`.
+  - Checks after the fix: `npm test -- --ci` 97 suites, 1562 tests; typecheck and lint clean.
+- T3 done, commit `7ff1b93`. RED: 15 of the new tests failed against inert stubs. GREEN: `npm test -- --ci` 98 suites, 1578 tests; typecheck clean; lint 0 errors.
+  - `usePlanningTopic()` returns `idle` (no Account), `joining`, `joined` or `refused` with the `ApiError`. It connects the app socket, joins `planning:<me.account.id>`, leaves on unmount and never disconnects the socket.
+  - `PlanningJoinNotice` renders `getAuthErrorMessage(error)` inline under the header, themed with `colorLight` and `textDark`.
+
+## Follow-ups (not in this ticket)
+
+- `start_planning` and confirm still reply `subscription_required` for the rule the join now names `trial_expired`.
+- The access token travels as a connect param, so it is part of the WebSocket URL. Phoenix 1.8 can send it as `authToken` (a subprotocol header) if `UserSocket` reads `connect_info: [:auth_token]`.
+- `UserSocket.connect/3` refuses with no reason, so the app cannot tell a rejected token from an unreachable server. A socket `error_handler` would let the wrapper skip the refresh on network failures.
+- `AuthContext` does not learn about a refresh or a cleared session triggered outside it (HTTP client or socket), so a session ended by the socket does not route to sign-in by itself.
+- The hook does not follow the socket status: after `joined`, a dropped connection reads `joined` until the next reply.
+- The socket client's `onJoined` is not guarded by its `left` flag; the hook guards it.
+- If a connection takes longer than about 1.5 s to close, Phoenix detaches its handlers without marking channels errored and a joined topic may not rejoin (not fixable through the public API).
+- Not run on a device or under Metro; `phoenix` bundling is unverified outside jest.
+- Merge with PR #67 will conflict in `planning_channel_test.exs` (join blocks only on this side).
+
+Next: delivery (chain strategy and pull requests are the user's decision).
