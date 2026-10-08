@@ -30,26 +30,28 @@ defmodule MealPlannerApiWeb.ApiError do
   renders `unknown_error` with 500 without a literal the scan would pick
   up, so an internal failure can never leak a non-allowlisted code.
 
-  ## A field that is missing or not valid
+  ## Field validation
 
-  The message of a code is the same for every request, and `validation_error`
-  has to name the field that failed. It has its own renderer,
-  `validation_error/2`, which takes the field in its wire spelling:
+  A message in `@codes` is static, and a request that fails validation has
+  to say which field failed. `validation_error/2` renders the
+  `validation_error` code with a message naming that field, in its wire
+  spelling:
 
-      conn |> ApiError.validation_error("softPreferences")
+      conn |> ApiError.validation_error("householdSize")
 
-  Like `server_fault/1`, that call carries no literal the scan would pick
-  up, so the mobile allowlist lists `validation_error` by hand. The code
-  still has a row in `@codes`, for its status and for a message that names
-  no field.
+  The contract scan does not see this call either. It sees the code through
+  the one rejection that has no field to name, which goes through `error/2`
+  and keeps the static message:
+
+      conn |> ApiError.error(:validation_error)
 
   ## Outside a conn
 
   `envelope/1` and `unknown_error_envelope/0` return the envelope as a plain
   map, for a transport that has no `Plug.Conn`: the planning channel replies
-  them to a failed join or command (issue #11). `error/2`, `server_fault/1`
-  and `validation_error/2` send their envelope through the same private
-  builder, so the envelope is shaped in one place.
+  them to a failed join or command (issue #11). `error/2`,
+  `validation_error/2` and `server_fault/1` send the same shape, so the
+  envelope is shaped in one place.
 
   The planning channel codes share `@codes` with the HTTP codes. Their status
   is the one an HTTP route replying the same code would use; a channel reply
@@ -78,9 +80,11 @@ defmodule MealPlannerApiWeb.ApiError do
           | :refresh_token_replayed
           | :refresh_token_expired
           | :refresh_token_session_mismatch
+          | :recipe_not_found
+          | :validation_error
+          | :invalid_cooking_skill
           | :invalid_diet
           | :invalid_hard_restriction
-          | :validation_error
           | :generation_in_progress
           | :no_active_generation
           | :missing_session_id
@@ -131,12 +135,17 @@ defmodule MealPlannerApiWeb.ApiError do
     refresh_token_replayed: {401, "The refresh token has already been used."},
     refresh_token_expired: {401, "The refresh token has expired."},
     refresh_token_session_mismatch: {401, "The refresh token does not match its session."},
-    # User preferences (issue #18). `validation_error` is rendered by
-    # `validation_error/2`, which names the field; the message here names
-    # none.
+    # Recipe detail (issue #32): a missing recipe, a malformed id and a recipe
+    # of another Account share the code, so existence is not revealed.
+    recipe_not_found: {404, "The recipe was not found."},
+    # Onboarding profile (issue #17). `validation_error/2` replaces the
+    # message of `validation_error` with one naming the field.
+    validation_error: {422, "The request is not valid."},
+    invalid_cooking_skill: {422, "The cooking skill is not valid."},
+    # User preferences (issue #18). A field that is missing or malformed
+    # goes through `validation_error/2` instead.
     invalid_diet: {422, "The diet is not valid."},
     invalid_hard_restriction: {422, "A hard restriction is not valid."},
-    validation_error: {422, "A field of the request is missing or not valid."},
     # Planning channel (issue #11): every deliberate reason a join or a
     # command of `PlanningChannel` replies, named as the reason was.
     generation_in_progress: {409, "A menu generation is already in progress for this account."},
@@ -201,18 +210,19 @@ defmodule MealPlannerApiWeb.ApiError do
   end
 
   @doc """
-  Sends `validation_error` with its mapped status and halts, with a message
-  that names `field`: the first field of the request that is missing or not
-  valid, spelled as the client sends it.
-
-      conn |> ApiError.validation_error("softPreferences")
+  Sends `validation_error` with its mapped status and a message naming
+  `field`, and halts. `field` is the wire spelling of the first field that
+  failed validation, such as `"householdSize"`.
   """
   @spec validation_error(Plug.Conn.t(), String.t()) :: Plug.Conn.t()
   def validation_error(%Plug.Conn{} = conn, field) when is_binary(field) do
     {status, _message} = Map.fetch!(@codes, :validation_error)
-    message = "The field #{field} is missing or not valid."
 
-    send_envelope(conn, status, build_envelope(:validation_error, message))
+    send_envelope(
+      conn,
+      status,
+      build_envelope(:validation_error, "The field #{field} is not valid.")
+    )
   end
 
   @doc """

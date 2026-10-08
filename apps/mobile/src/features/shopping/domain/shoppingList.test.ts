@@ -30,7 +30,7 @@ const TOMATO: Ingredient = {
 };
 
 function buildEntry(id: string, date: string, recipeId: string, isCooked = false): MealPlanEntry {
-  return { id, date, type: 'almuerzo', recipeId, isCooked };
+  return { id, date, type: 'lunch', recipeId, isCooked };
 }
 
 function buildRecipe(id: string, ingredients: RecipeIngredient[]) {

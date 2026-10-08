@@ -55,6 +55,17 @@ defmodule MealPlannerApi.Data.RecipeRepo do
     from(i in Ingredient, where: i.name in ^names) |> Repo.all()
   end
 
+  @doc """
+  Returns the category of the given ingredients, keyed by ingredient id, in
+  one query. An id with no Ingredient row is absent from the map.
+  """
+  @spec ingredient_categories([binary()]) :: %{binary() => atom()}
+  def ingredient_categories(ingredient_ids) when is_list(ingredient_ids) do
+    from(i in Ingredient, where: i.id in ^ingredient_ids, select: {i.id, i.category})
+    |> Repo.all()
+    |> Map.new()
+  end
+
   # -------------------------------------------------------------------------
   # Recipes
   # -------------------------------------------------------------------------

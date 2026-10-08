@@ -195,6 +195,9 @@ defmodule MealPlannerApiWeb.Router do
   # authentication and capability exemption as the design-exempt scope; its alias
   # `GET /auth/me` stays in that scope, outside the pipeline.
   #
+  # Issue #17 — `PUT /me/profile` shares the exemption, so a User whose
+  # Account Access state is `expired` can still edit the Onboarding profile.
+  #
   # Issue #18 — `GET` and `PUT /me/preferences` sit here for the same
   # exemption: a User of an Account whose Trial expired can still read and
   # save their preferences.
@@ -202,6 +205,7 @@ defmodule MealPlannerApiWeb.Router do
     pipe_through([:api, :mobile_casing, :auth])
 
     get("/me", AccountsController, :me)
+    put("/me/profile", ProfileController, :update)
     get("/me/preferences", PreferencesController, :show)
     put("/me/preferences", PreferencesController, :update)
   end

@@ -114,11 +114,19 @@ defmodule MealPlannerApiWeb.CurrentMeTest do
       assert json["onboarding"] == %{"isComplete" => false}
     end
 
-    test "profile fields are null until the backend stores them" do
+    test "profile fields are null until the User saves a profile" do
       me = CurrentMe.build(user(), account(%{}), membership(), @now)
 
       assert me.user.householdSize == nil
       assert me.user.cookingSkill == nil
+    end
+
+    test "serializes the stored Household size and Cooking skill" do
+      user = %{user() | household_size: 4, cooking_skill: "intermediate"}
+      me = CurrentMe.build(user, account(%{}), membership(), @now)
+
+      assert me.user.householdSize == 4
+      assert me.user.cookingSkill == "intermediate"
     end
 
     test "membership role is rendered as a string" do
@@ -138,6 +146,23 @@ defmodule MealPlannerApiWeb.CurrentMeTest do
       me = CurrentMe.build(user, account(%{}), membership(), @now)
 
       assert me.onboarding == %{isComplete: true}
+    end
+  end
+
+  describe "user_json/1" do
+    test "is the user object of the payload" do
+      user = %{user() | household_size: 2, cooking_skill: "advanced"}
+
+      assert CurrentMe.user_json(user) == %{
+               id: user.id,
+               email: "ana@example.com",
+               displayName: "Ana",
+               householdSize: 2,
+               cookingSkill: "advanced"
+             }
+
+      assert CurrentMe.user_json(user) ==
+               CurrentMe.build(user, account(%{}), membership(), @now).user
     end
   end
 
@@ -184,6 +209,23 @@ defmodule MealPlannerApiWeb.CurrentMeTest do
                   membership: %{role: "owner"},
                   onboarding: %{isComplete: false}
                 }}
+    end
+
+    test "serializes the profile the User saved", %{user: user, membership: membership} do
+      user =
+        user
+        |> User.profile_changeset(%{name: "Ana", household_size: 3, cooking_skill: "beginner"})
+        |> Repo.update!()
+
+      assert {:ok, %{user: profile}} = CurrentMe.load(Repo.get!(User, user.id), membership, @now)
+
+      assert profile == %{
+               id: user.id,
+               email: "current_me_load@example.com",
+               displayName: "Ana",
+               householdSize: 3,
+               cookingSkill: "beginner"
+             }
     end
 
     test "reads persisted entitlements for the access decision", %{

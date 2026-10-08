@@ -1,18 +1,18 @@
 import type { MealPlanEntry } from '@/types/domain';
-import type { HomeMealType } from './localMealPlan';
+import type { HomeMealSlot } from './localMealPlan';
 
-export type EatTodayDestinationType = Extract<HomeMealType, 'almuerzo' | 'cena'>;
+export type EatTodayDestinationType = Extract<HomeMealSlot, 'lunch' | 'dinner'>;
 
-export const EAT_TODAY_DESTINATION_TYPES: EatTodayDestinationType[] = ['almuerzo', 'cena'];
+export const EAT_TODAY_DESTINATION_TYPES: EatTodayDestinationType[] = ['lunch', 'dinner'];
 
 export const EAT_TODAY_CUTOFF_MINUTES: Record<EatTodayDestinationType, number> = {
-  almuerzo: 15 * 60,
-  cena: 22 * 60,
+  lunch: 15 * 60,
+  dinner: 22 * 60,
 };
 
 export const EAT_TODAY_LABEL: Record<EatTodayDestinationType, string> = {
-  almuerzo: 'Mediodía',
-  cena: 'Cena',
+  lunch: 'Mediodía',
+  dinner: 'Cena',
 };
 
 export function getAvailableEatTodayDestinations(

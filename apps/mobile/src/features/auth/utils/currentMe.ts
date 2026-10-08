@@ -17,16 +17,18 @@ export function normalizeProfileFields<T extends Partial<ProfileFields>>(
   };
 }
 
-// The backend does not send the profile fields on /api/me yet, and
-// sessions stored by earlier builds lack them too.
+// Sessions stored by earlier builds lack the profile fields. /api/me always
+// sends them, as null until the server has stored a value.
 export function normalizeCurrentMe(me: CurrentMe): CurrentMe {
   return { ...me, user: normalizeProfileFields(me.user) };
 }
 
-// GET /api/me does not send householdSize or cookingSkill yet, so a fresh
-// snapshot would erase the values a completed onboarding or a profile
-// edit already put in `me`. Only fields the fresh snapshot lacks are
-// filled, and only for the same user: a value the server does send wins.
+// GET /api/me serves householdSize and cookingSkill as null until the
+// server has stored them: a profile edit stores them, onboarding
+// completion does not yet. A fresh snapshot would otherwise erase the
+// values a completed onboarding already put in `me`. Only fields the fresh
+// snapshot lacks are filled, and only for the same user: a value the
+// server does send wins.
 export function withPreservedProfileFields(
   fresh: CurrentMe,
   previous: CurrentMe | null

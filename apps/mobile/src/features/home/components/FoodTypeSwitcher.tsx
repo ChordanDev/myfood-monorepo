@@ -7,31 +7,24 @@ import Animated, {
   Easing,
 } from 'react-native-reanimated';
 import { ShadowSurface } from '@/components';
-import type { HomeMealType } from '../domain/localMealPlan';
+import { MEAL_SLOT_LABEL } from '@/constants/mealSlots';
+import type { HomeMealSlot } from '../domain/localMealPlan';
 import type { HomeMetrics } from '../utils/responsive';
 
 import { useThemeColor } from '@/hooks/useThemeColor';
 import { useAnimatedThemeStyle } from '@/hooks/useAnimatedThemeStyle';
 
 interface FoodTypeSwitcherProps {
-  value: MealType | null;
-  availableTypes?: MealType[];
-  onChange?: (mealType: MealType) => void;
+  value: HomeMealSlot | null;
+  availableTypes?: HomeMealSlot[];
+  onChange?: (mealType: HomeMealSlot) => void;
   metrics: HomeMetrics;
 }
 
-type MealType = HomeMealType;
-
-const ORDERED_MEAL_TYPES: MealType[] = ['desayuno', 'almuerzo', 'cena'];
-
-const MEAL_TYPE_LABEL: Record<MealType, string> = {
-  desayuno: 'Desayuno',
-  almuerzo: 'Almuerzo',
-  cena: 'Cena',
-};
+const ORDERED_MEAL_TYPES: HomeMealSlot[] = ['breakfast', 'lunch', 'dinner'];
 
 interface SwitcherItemProps {
-  mealType: MealType;
+  mealType: HomeMealSlot;
   isActive: boolean;
   isUnavailable: boolean;
   onPress: () => void;
@@ -71,7 +64,7 @@ const SwitcherItem = ({
       ]}>
       <Animated.Text
         style={[styles.itemLabel, { fontSize: metrics.switcherFontSize, zIndex: 1 }, textStyle]}>
-        {MEAL_TYPE_LABEL[mealType]}
+        {MEAL_SLOT_LABEL[mealType]}
       </Animated.Text>
     </Pressable>
   );
