@@ -37,9 +37,9 @@ describe('auth error code contract (api -> mobile allowlist)', () => {
   //     `error(:atom)` literal. The scan still collects the code, from
   //     the rejection that names no field and goes through
   //     `error(:validation_error)`.
-  //   * The flat `{ "error": "<reason>" }` bodies the legacy and
-  //     non-auth controllers still build with `json/2` — they are not
-  //     part of the envelope contract.
+  //   * The flat `{ "error": "<reason>" }` bodies that invite accept,
+  //     switch-account and the controllers outside auth build with
+  //     `json/2` — they are not part of the envelope contract.
   //   * `MealPlannerApiWeb.ErrorJSON` (`{ "errors": { "detail" } }`) —
   //     Phoenix's transport-level fallback.
   // The contract asserted here is: every `error(:atom)` call in the api

@@ -969,8 +969,9 @@ async function postAuth(path, body) {
   if (!response.ok) {
     // Los errores de auth usan el envelope `{ error: { code, message } }`;
     // un error de gateway puede no traer JSON.
-    const body = await response.json().catch(() => null);
-    const failure = new Error(body?.error?.code || "auth_request_failed");
+    const errorBody = await response.json().catch(() => null);
+    // "auth_request_failed" es un valor del cliente, no un código de la API.
+    const failure = new Error(errorBody?.error?.code || "auth_request_failed");
     // En `429 rate_limited` la espera viaja en el header `retry-after` (segundos).
     failure.retryAfterSeconds = Number(response.headers.get("retry-after")) || null;
     throw failure;
