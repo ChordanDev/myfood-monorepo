@@ -58,7 +58,14 @@ Mobile, from `apps/mobile`: `npx tsc --noEmit`, `npm run lint`, `npx jest --ci`,
 ## Delivery
 
 - Forecast: about 4,000 authored changed lines, nearly all deletions (`email_code_auth_controller_test.exs` 572, `social_verifier.ex` 315, `accounts_registration_test.exs` 253, the legacy halves of `accounts_test.exs`, `auth_controller_test.exs` and `email_code_auth_test.exs`). Exceeds the delivery budget of about 400 lines.
-- Strategy: `ask-on-risk`; chain strategy `stacked-to-main`, the maintainer's choice of 2026-10-07 for `mobile-auth-contract`, reused here. Slices follow the tasks: S1 = T1, S2 = T2, S3 = T3, S4 = T4, S5 = T5. PR creation is the maintainer's call.
+- Strategy: `ask-on-risk`; chain strategy `stacked-to-main`, the maintainer's choice of 2026-10-07 for `mobile-auth-contract`, reused here and confirmed on 2026-10-08 when the maintainer asked for the stacked pull requests. Slices follow the tasks, one branch per slice on the same linear history, each pull request based on the branch before it:
+  - S1 `refactor/legacy-auth-password` at `92c3e8b` (`d1ced07`, `9fdd10b`, `92c3e8b`), base `main`.
+  - S2 `refactor/legacy-auth-social` at `238f568` (`c123a7b`, `238f568`).
+  - S3 `refactor/legacy-auth-email-code` at `49024fc` (`bf80996`, `49024fc`).
+  - S4 `docs/legacy-auth-sweep` at `f1915df` (`4dab34f`, `bc0bafe`, `f1915df`).
+  - S5 `claude/issue-14-81c9a9` at the tip (`6a35c8e`, `f22137c`, `2f2bd51` and the commit that records this plan). `f22137c` is a three-line follow-up to the guide sample of S4 that was written after the S5 review.
+- Every slice is over the 400-line budget except S5, and none can shrink: they are deletions of whole files and of the tests of the removed code. `size:exception` is requested in each pull request.
+- Branch-level review (stop hook, `9b057b8..2f2bd51`, 69 files, 6,515 lines): consent granted, START refused with `lens_context_budget_exceeded`; no review authority was created. The maintainer chose on 2026-10-08 to leave S2 and S3 without a native review. Verification of record for those two slices: the writers' runs and the parent's re-runs listed under Progress.
 
 ## Progress
 
