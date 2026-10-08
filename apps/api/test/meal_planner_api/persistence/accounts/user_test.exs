@@ -162,6 +162,56 @@ defmodule MealPlannerApi.Persistence.Accounts.UserTest do
       assert %{name: ["should be at most 64 character(s)"]} = errors_on(changeset)
     end
 
+    test "counts the 64 characters in graphemes, not in codepoints" do
+      # "n" and a combining tilde: one grapheme of two codepoints.
+      name = String.duplicate("ñ", 64)
+
+      assert String.length(name) == 64
+      assert length(String.codepoints(name)) == 128
+      assert profile_changeset(%{name: name}).valid?
+    end
+
+    test "accepts a name of 64 characters that fills the 255 codepoints of the column" do
+      name = String.duplicate("á̂̃", 63) <> "á̂"
+
+      assert String.length(name) == 64
+      assert length(String.codepoints(name)) == 255
+      assert profile_changeset(%{name: name}).valid?
+    end
+
+    test "invalid when a name of 64 characters takes 256 codepoints" do
+      name = String.duplicate("á̂̃", 64)
+
+      assert String.length(name) == 64
+      assert length(String.codepoints(name)) == 256
+
+      changeset = profile_changeset(%{name: name})
+
+      refute changeset.valid?
+      assert %{name: ["should be at most 255 character(s)"]} = errors_on(changeset)
+    end
+
+    test "invalid when a name of 64 joined emoji is longer than the column" do
+      # A family emoji: one grapheme of seven codepoints.
+      name = String.duplicate("\u{1F468}‍\u{1F469}‍\u{1F467}‍\u{1F466}", 64)
+
+      assert String.length(name) == 64
+
+      changeset = profile_changeset(%{name: name})
+
+      refute changeset.valid?
+      assert %{name: ["should be at most 255 character(s)"]} = errors_on(changeset)
+    end
+
+    test "invalid when the name contains a NUL character" do
+      for name <- ["Ana\0María", "\0Ana", "Ana\0", "\0"] do
+        changeset = profile_changeset(%{name: name})
+
+        refute changeset.valid?, "expected #{inspect(name)} to be invalid"
+        assert %{name: ["must not contain a NUL character"]} = errors_on(changeset)
+      end
+    end
+
     test "accepts a Household size of 1 and of 20" do
       assert profile_changeset(%{household_size: 1}).valid?
       assert profile_changeset(%{household_size: 20}).valid?

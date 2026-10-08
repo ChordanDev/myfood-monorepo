@@ -94,6 +94,8 @@ export type AuthErrorCode =
   | 'onboarding_already_complete'
   | 'preferences_invalid'
   | 'slot_cooking_times_invalid'
+  | 'validation_error'
+  | 'invalid_cooking_skill'
   | 'generation_in_progress'
   | 'no_active_generation'
   | 'missing_session_id'
@@ -132,9 +134,9 @@ export interface AuthUser {
   id: string;
   email: string;
   displayName: string | null;
-  /** Null until the user sets it, or while the backend does not send it. */
+  /** Null until the user sets it. */
   householdSize: number | null;
-  /** Null until the user sets it, or while the backend does not send it. */
+  /** Null until the user sets it. */
   cookingSkill: CookingSkill | null;
 }
 

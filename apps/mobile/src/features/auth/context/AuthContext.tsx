@@ -252,7 +252,8 @@ export function AuthProvider({ children }: AuthProviderProps) {
       const result = await authService.completeOnboarding(payload);
 
       // The completion answer carries householdSize and cookingSkill,
-      // which GET /api/me does not serve yet. They go to the stored
+      // which GET /api/me serves as null until the server stores them,
+      // and onboarding completion does not yet. They go to the stored
       // snapshot before the refresh below, so neither the refreshed nor a
       // later restored /me drops them, and into `me` after it.
       const email = meRef.current?.user.email;
