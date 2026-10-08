@@ -74,8 +74,8 @@ Forecast: about 700 authored changed lines over three work-unit commits (T1 abou
 | ---- | ------ | -------- | ------ |
 | T1   | `04da8ea` | RED: 11 failures before implementation (flat error bodies, missing `durationMinutes`, `FunctionClauseError` for `:recipe_not_found`); no RED for the two successor tests. `mix format --check-formatted` ok, `mix compile --warnings-as-errors` ok, `mix test` 1215 passed / 20 skipped / 0 failures, mobile `typecheck` ok, `lint` 0 errors, `jest --ci` 1471 passed. Parent re-ran the two recipe test files: 27 passed. | high (`hot_path` auth types); consent granted; four lenses approved and acknowledged (`review-e19d0945a73eec46`), 8 non-blocking advisories |
 | T2   | `b983e77` | RED: suites failed on missing modules, then 8 of 11 failed against no-cache stubs; no real RED for "fetches when the known version is not cached". `typecheck` ok, `lint` 0 errors, `jest --ci` 94 suites / 1482 passed. Parent re-ran the two new suites: 11 passed. | medium (`slice_budget_reached`); consent granted; reliability lens approved and acknowledged (`review-a6e74ce6273773fd`), 7 non-blocking advisories |
-| T1b  | `546cb99` | Follow-up of two T1 review warnings, tests only: `estimatedCostCents` 0 without a daily cost; an inactive member answers `account_not_found` (401) from the auth pipeline, so `forbidden` is reachable only through an ineligible Account. Route test file: 10 passed. | passive follow-up of a reviewed slice, assessed with T3 |
-| T3   | (this commit) | RED: 6 failures for the T2 follow-ups, 17 of 21 for the row resolver, 1 for the palette, 11 for servings/duration/mock cost; screen tests were written after the hook and mutation-checked instead. `typecheck` ok, `lint` 0 errors, `jest --ci` 96 suites / 1520 passed. Parent re-ran the recipe feature suites: 14 suites, 203 passed. | pending assessment |
+| T1b  | `546cb99` | Follow-up of two T1 review warnings, tests only: `estimatedCostCents` 0 without a daily cost; an inactive member answers `account_not_found` (401) from the auth pipeline, so `forbidden` is reachable only through an ineligible Account. Route test file: 10 passed. | reviewed with T3 |
+| T3   | `0cd25b0` | RED: 6 failures for the T2 follow-ups, 17 of 21 for the row resolver, 1 for the palette, 11 for servings/duration/mock cost; screen tests were written after the hook and mutation-checked instead. `typecheck` ok, `lint` 0 errors, `jest --ci` 96 suites / 1520 passed. Parent re-ran the recipe feature suites: 14 suites, 203 passed. | medium (`slice_budget_reached`); consent granted; reliability lens approved and acknowledged (`review-8e97bc3f6a6913cf`), 2 non-blocking advisories |
 
 T1 to T3 done; the four acceptance criteria are covered by tests. Next step: delivery, on the user's instruction.
 
@@ -92,3 +92,13 @@ T1 to T3 done; the four acceptance criteria are covered by tests. Next step: del
 13. **Ingredient rows of an API recipe.** Stock and Shopping list state come from the local mock inventory, which does not know server ingredient ids, so every row of an API recipe reads "Falta" and cannot be pressed until Inventory comes from the API. A catalog ingredient counted in another unit than the line is treated the same way.
 14. **Themeless recipes** (`theme: null`, every API recipe until R2) draw in the default palette.
 15. **T2 review follow-ups applied in T3:** `getRecipe` rejects a 2xx body without `id`, `recipeVersionId`, `ingredients[]` and `steps[]`, so a partial payload is never cached; a load in flight when `clear()` runs does not repopulate the cache.
+
+### Open review advisories (non-blocking, all three receipts stand)
+
+- `useRecipeCacheStore`: the guard that keeps a load started before `clear()` from repopulating the cache is tested through its effect, not through the identity check itself.
+- `recipeApi`: the response guard checks `id`, `recipeVersionId`, `ingredients[]` and `steps[]` only; it is not a schema validator, so a payload with a wrong field type inside a line would still be cached.
+- Earlier ones are listed under "Notes and follow-ups".
+
+## Delivery record
+
+Branch `claude/issue-32-e3aa6a`, four commits on `f4b849d`: `04da8ea` (T1, API), `b983e77` (T2, mobile type, API module, cache), `546cb99` (T1b, API tests), `0cd25b0` (T3, recipe screen). About 2,400 changed lines, tests and docs included. Not pushed; no pull request yet. Chain strategy to be chosen by the user.
