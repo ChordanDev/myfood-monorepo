@@ -45,10 +45,11 @@ Mobile only (`apps/mobile`), expand–contract:
 - Value identifiers such as `selectedMealType` or `getAvailableHomeMealTypes`
   keep their names. Only type names and slot values change; the home mock
   store is replaced by the live-plan cache in a later slice of #3.
-- The persisted meal plan store bumps its `version` so entries saved with
-  Spanish codes are discarded and the fixtures reload, the convention the
-  store already documents. No Spanish-to-English migration: it would keep the
-  Spanish values alive in code.
+- The persisted meal plan store bumps its `version` to 2 with a `migrate`
+  that discards only the stored entries: a plan stored before version 2 gets
+  the fixture plan and keeps everything else, `favoriteRecipeIds` included.
+  Entries are discarded, never translated: a Spanish-to-English mapping would
+  keep the Spanish values alive in code.
 
 ## Constraints
 
@@ -90,7 +91,7 @@ PR.
   Tests first (RED), then source (GREEN). Route: delegated.
 - [x] T4 — Contract: delete `MealType` and its re-exports; run every check.
   Route: delegated.
-- [ ] T5 — Keep `favoriteRecipeIds` when the stored plan is discarded: a
+- [x] T5 — Keep `favoriteRecipeIds` when the stored plan is discarded: a
   `migrate` replaces only the stored entries. Tests first (RED), then the
   store (GREEN). Route: delegated.
 
@@ -125,8 +126,9 @@ next task's commit.
   is an opaque fixture field there, so the rename cannot fail them.
   GREEN: `npm test` 94 suites / 1478 tests passed, typecheck clean, lint
   0 errors (same 4 warnings).
-  The version bump discards the whole persisted meal plan state, which
-  includes `favoriteRecipeIds`: the store has no `partialize`.
+  As committed here, the version bump discarded the whole persisted meal
+  plan state, `favoriteRecipeIds` included (the store has no `partialize`).
+  T5 fixes that.
   No other persisted store holds Meal slot values: the shopping store keeps
   ids, manual items, the grouping mode and a date; the inventory store keeps
   items and ingredients.
@@ -140,7 +142,7 @@ next task's commit.
   `getDefaultHomeMealType`, `getPendingHomeMealType`,
   `getClosestHomeMealType`, `nextMealType`); with a leading word boundary
   (`\bMealType\b`) it matches nothing.
-- T2 — `refactor(mobile): derive cooking time slots from MealSlot`, done
+- T2 — `e3d331d` `refactor(mobile): derive cooking time slots from MealSlot`, done
   after T4: it was blocked until `features/preferences/**` joined the edit
   surfaces, because `preferences/constants/catalog.ts` and
   `preferenceOptions.ts` import the auth slot type.
@@ -154,5 +156,20 @@ next task's commit.
   0 errors (same 4 warnings), prettier clean.
   `rg -n "type MealSlot\b|SLOT_LABELS" src` matches only the definition in
   `src/types/domain.ts`.
+- T5 — `fix(mobile): keep favorites when discarding the stored meal plan`
+  (SHA in the writer's report: a commit cannot record its own).
+  `migrateMealPlanState` in `src/store/useMealPlanStore.ts`: below version 2
+  it replaces the stored entries with `MOCK_MEAL_PLAN` and keeps the rest;
+  otherwise it returns the stored state unchanged.
+  RED: `npx jest src/store/useMealPlanStore.test.ts` 1 failed / 11 passed —
+  rehydrating a version-1 payload with a `'legacy-slot'` entry and two
+  favorites left the entries empty instead of loading the fixtures.
+  GREEN: 12 passed, with the fixture entries, the same favorites and no
+  `console.error`.
+  Checks: typecheck clean, `npm test` 94 suites / 1478 tests passed, lint
+  0 errors (same 4 warnings), prettier clean.
+  A payload stored before version 1 now also keeps its stored `recipes`,
+  which the old no-`migrate` bump used to discard.
 
-Next step: T5.
+Next step: none in this ticket. Push, pull request and merge are the user's
+decisions.

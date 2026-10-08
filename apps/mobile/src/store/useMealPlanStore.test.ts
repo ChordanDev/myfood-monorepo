@@ -206,16 +206,24 @@ describe('a plan stored on the device', () => {
     expect(useMealPlanStore.getState().entries).toEqual([storedEntry]);
   });
 
-  it('is discarded when it was stored before the API meal slot codes, so the fixtures stay', async () => {
-    // zustand reports the state it could not migrate through console.error.
-    jest.spyOn(console, 'error').mockImplementation(() => {});
+  it('loads the fixture plan and keeps the favorites when it was stored before the API meal slot codes', async () => {
+    const consoleError = jest.spyOn(console, 'error').mockImplementation(() => {});
+    useMealPlanStore.setState({ entries: [], favoriteRecipeIds: [] });
     await AsyncStorage.setItem(
       STORAGE_KEY,
-      JSON.stringify({ version: 1, state: { entries: [storedEntry] } })
+      JSON.stringify({
+        version: 1,
+        state: {
+          entries: [{ ...storedEntry, type: 'legacy-slot' }],
+          favoriteRecipeIds: ['recipe-1', 'recipe-2'],
+        },
+      })
     );
 
     await useMealPlanStore.persist.rehydrate();
 
     expect(useMealPlanStore.getState().entries).toEqual(fixtures);
+    expect(useMealPlanStore.getState().favoriteRecipeIds).toEqual(['recipe-1', 'recipe-2']);
+    expect(consoleError).not.toHaveBeenCalled();
   });
 });

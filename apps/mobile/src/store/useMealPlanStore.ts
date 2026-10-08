@@ -25,6 +25,17 @@ interface MealPlanState {
   getRecipeById: (id: string) => MasterRecipe | undefined;
 }
 
+// Runs when the stored version is another one. A plan stored before version 2 has entries
+// that no longer match the fixtures, so only its entries are replaced by the fixture plan:
+// the rest of what the User stored, such as the favorite recipes, is kept.
+function migrateMealPlanState(persistedState: unknown, version: number): MealPlanState {
+  const stored = (
+    typeof persistedState === 'object' && persistedState !== null ? persistedState : {}
+  ) as MealPlanState;
+
+  return version < 2 ? { ...stored, entries: MOCK_MEAL_PLAN } : stored;
+}
+
 export const useMealPlanStore = create<MealPlanState>()(
   persist(
     (set, get) => ({
@@ -106,9 +117,10 @@ export const useMealPlanStore = create<MealPlanState>()(
     }),
     {
       name: 'meal-plan-storage',
-      // Bumped whenever the stored entries stop matching the fixtures, so the stored plan is
-      // discarded and the fixtures load. Version 2: meal slots became the API codes.
+      // Bumped whenever the stored entries stop matching the fixtures; `migrate` then swaps
+      // them for the fixture plan. Version 2: meal slots became the API codes.
       version: 2,
+      migrate: migrateMealPlanState,
       storage: createJSONStorage(() => safeAsyncStorage),
     }
   )
