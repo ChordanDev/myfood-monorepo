@@ -73,7 +73,7 @@ Strategy: `ask-on-risk`. Forecast: about 550 authored changed lines. Actual: abo
 
 ## Progress
 
-All tasks done and committed on `claude/issue-19-2861a0`; nothing pushed.
+All tasks done and committed.
 
 Observed checks:
 
@@ -85,16 +85,30 @@ Observed checks:
 Review (receipt-driven development on):
 
 - `f4b849d..cd58f3a` (T1, T2): assessed high (`hot_path`, `apps/mobile/src/features/auth/types/auth.ts`); consent granted; four-lens review approved and acknowledged, lineage `review-9243dd03c7a152ff`. Six non-blocking findings.
-- `cd58f3a..c2bb019` (T2b, T3, T4): assessed medium, `under_budget` (232 changed lines); no review due, pending in the slice.
+- `cd58f3a..c2bb019` (T2b, T3, T4): assessed medium, `under_budget` (232 changed lines); no review due on its own.
+- `f4b849d..dce2046` (whole branch): assessed high; consent granted; four-lens review approved and acknowledged, lineage `review-20f7295fccd610be`. Six non-blocking suggestions, listed under follow-ups.
 
 ## Notes and follow-ups
 
 - `GET /api/me/preferences` (#18) is not served yet and the settings screen loads it together with the slot times, so the screen only works end to end once #18 lands.
 - Mobile still knows the older `slot_cooking_times_invalid` code; removing it belongs to the sweep (#22).
 - A `PUT` with malformed JSON never reaches the controller: `Plug.Parsers` raises and Phoenix answers 400 outside the envelope. Not specific to these routes; left as is.
-- Review findings accepted in T2b: the untested non-object body and the duplicated 0 to 240 range. Left as is: the three new codes sit above the planning channel comment in `api_error.ex` because a mobile test counts the rows below it; the controller's `server_fault` branch has no test and drops the changeset, since it is unreachable after validation.
+- Review findings accepted in T2b: the untested non-object body and the duplicated 0 to 240 range. Left as is: the three new codes sit above the planning channel comment in `api_error.ex` because a mobile test counts the rows below it.
+- Open follow-ups from the second review, not done here:
+  - The `PUT` changeset branch answers 500 through `server_fault`, drops the changeset without logging it and has no test. It is reachable: a User deleted between authentication and the write fails the `user_id` foreign key.
+  - No test asserts that a refused replace rolls back an outer transaction that is already open; #20 depends on that case.
+  - `replace_user_slot_cooking_times/2` only works with atom-keyed slot maps and its `@doc` does not say so.
+  - `validation_error` and `ApiError.error/3` are general purpose but sit under a Slot cooking times heading in `api_error.ex` and its test.
 - `apps/api/docs/FRONTEND_INTEGRATION.md` still carries a legacy endpoints table and slots section that list `snack` and omit `/api/me`; not touched here.
 
 ## Delivery record
 
-Commits on `claude/issue-19-2861a0`: `8c02376`, `cd58f3a`, `8115edc`, `ccd3aa3`, `c2bb019`. No pull request yet.
+Chain strategy chosen by the user: stacked pull requests, each one based on its parent branch, as in #11. No tracker pull request.
+
+| Slice | Branch | Base | Commits | Changed lines |
+|-------|--------|------|---------|---------------|
+| 1 Storage | `feat/slot-cooking-times-storage` | `main` | `8c02376` | 542 |
+| 2 Routes and error codes | `feat/slot-cooking-times-routes` | slice 1 | `cd58f3a`, `8115edc` | 528 |
+| 3 Mobile fallback and docs | `feat/slot-cooking-times-mobile` | slice 2 | `ccd3aa3`, `c2bb019` and the task record commits | about 250 |
+
+Slices 1 and 2 are over the 400-line budget; about two thirds of each is tests, so `size:exception` is recommended instead of a further split.
