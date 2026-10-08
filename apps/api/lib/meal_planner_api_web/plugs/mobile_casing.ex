@@ -12,7 +12,9 @@ defmodule MealPlannerApiWeb.Plugs.MobileCasing do
   `conn.params`, `conn.body_params` and `conn.query_params` are rewritten with
   `Casing.snake_keys/1` before the controller runs, so a controller keeps
   reading `"recipe_id"` whether the client sent `recipeId` or `recipe_id`.
-  When a param arrives in both casings, the snake_case one is kept.
+  When one source sends a param in both casings, the snake_case one is kept.
+  Between sources the usual precedence holds whatever the casing: a path param
+  wins over the body, and the body over the query string.
 
   Path params are named by the router and are left as they are. The query
   string is fetched if it was not yet; a body no parser has read stays
@@ -54,13 +56,32 @@ defmodule MealPlannerApiWeb.Plugs.MobileCasing do
   # `Casing.snake_keys/1` returns a struct untouched, which covers a
   # `%Plug.Conn.Unfetched{}` body as well as a `%Plug.Upload{}` value.
   defp snake_request_params(conn) do
+    query_params = Casing.snake_keys(conn.query_params)
+    body_params = Casing.snake_keys(conn.body_params)
+
     %{
       conn
-      | params: Casing.snake_keys(conn.params),
-        body_params: Casing.snake_keys(conn.body_params),
-        query_params: Casing.snake_keys(conn.query_params)
+      | params: merge_params(conn, query_params, body_params),
+        body_params: body_params,
+        query_params: query_params
     }
   end
+
+  # `conn.params` arrives already merged, so two sources that spell one param
+  # differently are still two keys in it. Rewriting that map alone would let
+  # the snake_case spelling win whichever source sent it. The sources are
+  # merged again after the rewrite, in the order Plug and the router use:
+  # query string, then body, then path params.
+  defp merge_params(conn, query_params, body_params) do
+    conn.params
+    |> Casing.snake_keys()
+    |> Map.merge(query_params)
+    |> Map.merge(fetched(body_params))
+    |> Map.merge(conn.path_params)
+  end
+
+  defp fetched(%Plug.Conn.Unfetched{}), do: %{}
+  defp fetched(params), do: params
 
   # State `:set` means a whole body is about to be sent with `send_resp/3`.
   # Chunked and file responses reach the hook in another state, without a
