@@ -188,11 +188,22 @@ defmodule MealPlannerApi.Persistence.ShoppingTest do
           status: :pending
         })
 
-      # Item without session (or different session)
+      # Item without session (or different session). It belongs to a second
+      # Scheduled meal: only one open Shopping item is allowed per Scheduled
+      # meal, planned date, Ingredient and unit.
+      {:ok, second_meal} =
+        Planning.schedule_meal(%{
+          account_id: account_id,
+          date: Date.utc_today(),
+          slot: :dinner,
+          recipe_id: recipe.id,
+          is_cooked: false
+        })
+
       {:ok, _item_no_session} =
         Shopping.create_shopping_item(%{
           account_id: account_id,
-          scheduled_meal_id: meal.id,
+          scheduled_meal_id: second_meal.id,
           planned_date: Date.utc_today(),
           ingredient_id: ingredient.id,
           quantity_milli: 200,
@@ -206,5 +217,109 @@ defmodule MealPlannerApi.Persistence.ShoppingTest do
       assert length(items_session1) == 1
       assert length(items_session2) == 0
     end
+  end
+
+  # ==========================================================================
+  # At most one open Shopping item (:pending or :in_cart) per planned key:
+  # Account, Scheduled meal, planned date, Ingredient and unit.
+  # ==========================================================================
+
+  describe "create_shopping_item/1 open planned key" do
+    for open_status <- [:pending, :in_cart] do
+      test "rejects a second open Shopping item when the first one is #{open_status}" do
+        attrs = planned_key_attrs()
+
+        assert {:ok, _first} =
+                 Shopping.create_shopping_item(Map.put(attrs, :status, unquote(open_status)))
+
+        assert {:error, changeset} =
+                 Shopping.create_shopping_item(Map.put(attrs, :status, :pending))
+
+        assert %{ingredient_id: [_message]} = errors_on(changeset)
+        assert [_only_one] = Shopping.list_items_for_account(attrs.account_id)
+      end
+    end
+
+    test "accepts an open Shopping item next to closed twins" do
+      attrs = planned_key_attrs()
+
+      for closed_status <- [:checked_out, :pending_delivery, :archived] do
+        assert {:ok, _closed} =
+                 Shopping.create_shopping_item(Map.put(attrs, :status, closed_status))
+      end
+
+      assert {:ok, open} = Shopping.create_shopping_item(Map.put(attrs, :status, :pending))
+      assert open.status == :pending
+
+      assert length(Shopping.list_items_for_account(attrs.account_id, include_archived: true)) ==
+               4
+    end
+
+    test "accepts open Shopping items that differ in one part of the planned key" do
+      attrs = planned_key_attrs()
+
+      assert {:ok, _} = Shopping.create_shopping_item(attrs)
+      assert {:ok, _} = Shopping.create_shopping_item(%{attrs | unit: :ml})
+
+      assert {:ok, _} =
+               Shopping.create_shopping_item(%{
+                 attrs
+                 | planned_date: Date.add(attrs.planned_date, 1)
+               })
+    end
+  end
+
+  defp planned_key_attrs do
+    suffix = System.unique_integer([:positive])
+
+    {:ok, identity} =
+      Identity.ensure_persistent_identity(%{
+        id: "u_planned_key_#{suffix}",
+        account_id: "acct_planned_key_#{suffix}",
+        plan: :family_4
+      })
+
+    {:ok, ingredient} =
+      Catalog.upsert_ingredient_by_name(%{
+        name: "Planned Key Ingredient #{suffix}",
+        category: :frutas,
+        calories_per_100: 30,
+        protein_g_per_100: Decimal.new("0.5"),
+        carbs_g_per_100: Decimal.new("7.0"),
+        fat_g_per_100: Decimal.new("0.2")
+      })
+
+    {:ok, recipe} =
+      Catalog.create_recipe(%{
+        account_id: identity.account_id,
+        created_by_user_id: identity.user_id,
+        name: "Planned Key Recipe #{suffix}",
+        source: :user_created,
+        servings: 2,
+        suitable_for_slots: [:lunch]
+      })
+
+    {:ok, meal} =
+      Planning.schedule_meal(%{
+        account_id: identity.account_id,
+        date: Date.utc_today(),
+        slot: :lunch,
+        recipe_id: recipe.id,
+        is_cooked: false
+      })
+
+    %{
+      account_id: identity.account_id,
+      scheduled_meal_id: meal.id,
+      planned_date: meal.date,
+      ingredient_id: ingredient.id,
+      quantity_milli: 100,
+      unit: :g,
+      status: :pending
+    }
+  end
+
+  defp errors_on(changeset) do
+    Ecto.Changeset.traverse_errors(changeset, fn {message, _opts} -> message end)
   end
 end

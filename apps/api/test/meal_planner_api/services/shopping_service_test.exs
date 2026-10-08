@@ -176,10 +176,21 @@ defmodule MealPlannerApi.ShoppingServiceTest do
           status: :pending
         })
 
+      # A second Scheduled meal: only one open Shopping item is allowed per
+      # Scheduled meal, planned date, Ingredient and unit.
+      {:ok, second_meal} =
+        Planning.schedule_meal(%{
+          account_id: account_id,
+          date: Date.utc_today(),
+          slot: :lunch,
+          recipe_id: recipe.id,
+          is_cooked: false
+        })
+
       {:ok, item2} =
         Shopping.create_shopping_item(%{
           account_id: account_id,
-          scheduled_meal_id: meal.id,
+          scheduled_meal_id: second_meal.id,
           checkout_session_id: session.id,
           planned_date: Date.utc_today(),
           ingredient_id: ingredient.id,
