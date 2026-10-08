@@ -15,7 +15,10 @@
     "e2e:maestro": "sh ./scripts/run-maestro-e2e-macos.sh",
     "e2e:maestro:restore": "sh ./scripts/run-maestro-e2e-macos.sh restore",
     "web": "expo start --web",
-    "test": "jest"
+    "test": "jest",
+    "typecheck": "tsc --noEmit",
+    "knip": "knip",
+    "verify": "npm run typecheck && npm run lint && npm test"
   },
   "jest": {
     "preset": "jest-expo",
@@ -72,6 +75,7 @@
     "eslint-config-prettier": "^10.1.2",
     "jest": "^29.7.0",
     "jest-expo": "~57.0.5",
+    "knip": "^6.40.0",
     "prettier": "^3.8.1",
     "react-test-renderer": "19.2.3",
     "typescript": "~6.0.3"
