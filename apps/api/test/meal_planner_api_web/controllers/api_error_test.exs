@@ -62,6 +62,12 @@ defmodule MealPlannerApiWeb.ApiErrorTest do
       assert is_binary(message) and message != ""
     end
 
+    test "maps every User preferences code to 422", %{conn: conn} do
+      assert (conn |> ApiError.error(:invalid_diet)).status == 422
+      assert (conn |> ApiError.error(:invalid_hard_restriction)).status == 422
+      assert (conn |> ApiError.error(:validation_error)).status == 422
+    end
+
     test "keeps a response header set on the conn before rendering", %{conn: conn} do
       conn =
         conn
@@ -94,6 +100,37 @@ defmodule MealPlannerApiWeb.ApiErrorTest do
     end
   end
 
+  describe "validation_error/2" do
+    test "renders validation_error with 422, names the field and halts", %{conn: conn} do
+      conn = conn |> ApiError.validation_error("softPreferences")
+
+      assert conn.halted
+      assert [content_type] = get_resp_header(conn, "content-type")
+      assert content_type =~ "application/json"
+
+      assert json_response(conn, 422) == %{
+               "error" => %{
+                 "code" => "validation_error",
+                 "message" => "The field softPreferences is missing or not valid."
+               }
+             }
+    end
+
+    test "names the field it was given", %{conn: conn} do
+      conn = conn |> ApiError.validation_error("diet")
+
+      assert %{"error" => %{"code" => "validation_error", "message" => message}} =
+               json_response(conn, 422)
+
+      assert message == "The field diet is missing or not valid."
+    end
+
+    test "keeps the status error/2 maps for the code", %{conn: conn} do
+      assert (conn |> ApiError.validation_error("diet")).status ==
+               ApiError.error(conn, :validation_error).status
+    end
+  end
+
   describe "envelope/1" do
     test "returns the bare envelope map for an allowlisted code" do
       assert ApiError.envelope(:unauthenticated) == %{
@@ -110,6 +147,15 @@ defmodule MealPlannerApiWeb.ApiErrorTest do
 
         assert Jason.decode!(rendered.resp_body) == json_round_trip(ApiError.envelope(code))
       end
+    end
+
+    test "returns validation_error with a message that names no field" do
+      assert ApiError.envelope(:validation_error) == %{
+               error: %{
+                 code: :validation_error,
+                 message: "A field of the request is missing or not valid."
+               }
+             }
     end
 
     test "raises for a code outside the allowlist" do
@@ -177,14 +223,18 @@ defmodule MealPlannerApiWeb.ApiErrorTest do
       end
     end
 
-    test "are listed by codes/0 next to the auth codes" do
+    test "are listed by codes/0 next to the auth and the User preferences codes" do
       auth_codes =
         ~w(unauthenticated access_token_expired account_not_found trial_expired invalid_email
            email_not_found rate_limited code_invalid code_expired too_many_attempts
            code_send_failed email_already_exists refresh_token_invalid refresh_token_revoked
            refresh_token_replayed refresh_token_expired refresh_token_session_mismatch)a
 
-      assert Enum.sort(ApiError.codes()) == Enum.sort(auth_codes ++ Map.keys(@channel_codes))
+      # The codes of `PUT /api/me/preferences` (issue #18).
+      preferences_codes = ~w(invalid_diet invalid_hard_restriction validation_error)a
+
+      assert Enum.sort(ApiError.codes()) ==
+               Enum.sort(auth_codes ++ preferences_codes ++ Map.keys(@channel_codes))
     end
   end
 

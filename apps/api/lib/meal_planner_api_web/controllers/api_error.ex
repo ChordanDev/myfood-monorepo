@@ -30,13 +30,26 @@ defmodule MealPlannerApiWeb.ApiError do
   renders `unknown_error` with 500 without a literal the scan would pick
   up, so an internal failure can never leak a non-allowlisted code.
 
+  ## A field that is missing or not valid
+
+  The message of a code is the same for every request, and `validation_error`
+  has to name the field that failed. It has its own renderer,
+  `validation_error/2`, which takes the field in its wire spelling:
+
+      conn |> ApiError.validation_error("softPreferences")
+
+  Like `server_fault/1`, that call carries no literal the scan would pick
+  up, so the mobile allowlist lists `validation_error` by hand. The code
+  still has a row in `@codes`, for its status and for a message that names
+  no field.
+
   ## Outside a conn
 
   `envelope/1` and `unknown_error_envelope/0` return the envelope as a plain
   map, for a transport that has no `Plug.Conn`: the planning channel replies
-  them to a failed join or command (issue #11). `error/2` and
-  `server_fault/1` send the same maps, so the envelope is shaped in one
-  place.
+  them to a failed join or command (issue #11). `error/2`, `server_fault/1`
+  and `validation_error/2` send their envelope through the same private
+  builder, so the envelope is shaped in one place.
 
   The planning channel codes share `@codes` with the HTTP codes. Their status
   is the one an HTTP route replying the same code would use; a channel reply
@@ -65,6 +78,9 @@ defmodule MealPlannerApiWeb.ApiError do
           | :refresh_token_replayed
           | :refresh_token_expired
           | :refresh_token_session_mismatch
+          | :invalid_diet
+          | :invalid_hard_restriction
+          | :validation_error
           | :generation_in_progress
           | :no_active_generation
           | :missing_session_id
@@ -115,6 +131,12 @@ defmodule MealPlannerApiWeb.ApiError do
     refresh_token_replayed: {401, "The refresh token has already been used."},
     refresh_token_expired: {401, "The refresh token has expired."},
     refresh_token_session_mismatch: {401, "The refresh token does not match its session."},
+    # User preferences (issue #18). `validation_error` is rendered by
+    # `validation_error/2`, which names the field; the message here names
+    # none.
+    invalid_diet: {422, "The diet is not valid."},
+    invalid_hard_restriction: {422, "A hard restriction is not valid."},
+    validation_error: {422, "A field of the request is missing or not valid."},
     # Planning channel (issue #11): every deliberate reason a join or a
     # command of `PlanningChannel` replies, named as the reason was.
     generation_in_progress: {409, "A menu generation is already in progress for this account."},
@@ -176,6 +198,21 @@ defmodule MealPlannerApiWeb.ApiError do
   @spec server_fault(Plug.Conn.t()) :: Plug.Conn.t()
   def server_fault(%Plug.Conn{} = conn) do
     send_envelope(conn, 500, unknown_error_envelope())
+  end
+
+  @doc """
+  Sends `validation_error` with its mapped status and halts, with a message
+  that names `field`: the first field of the request that is missing or not
+  valid, spelled as the client sends it.
+
+      conn |> ApiError.validation_error("softPreferences")
+  """
+  @spec validation_error(Plug.Conn.t(), String.t()) :: Plug.Conn.t()
+  def validation_error(%Plug.Conn{} = conn, field) when is_binary(field) do
+    {status, _message} = Map.fetch!(@codes, :validation_error)
+    message = "The field #{field} is missing or not valid."
+
+    send_envelope(conn, status, build_envelope(:validation_error, message))
   end
 
   @doc """
