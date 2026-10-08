@@ -188,6 +188,27 @@ defmodule MealPlannerApiWeb.RecipeControllerTest do
       assert current["recipeVersionId"] == successor.id
       assert current["successorRecipeId"] == nil
     end
+
+    # The version of a corrected recipe is not frozen by the SQL function that
+    # orders the steps of a first version.
+    test "answers the steps of a corrected recipe by step number", f do
+      recipe = recipe!(f)
+
+      {:ok, successor} =
+        RecipeVersions.correct(recipe.id, %{
+          recipe_steps: [
+            %{step_number: 2, instructions: "Fry them in butter", duration_minutes: nil},
+            %{step_number: 1, instructions: "Dice the potatoes", duration_minutes: 10}
+          ]
+        })
+
+      steps = json_response(request(f, successor.recipe_id), 200)["data"]["steps"]
+
+      assert Enum.map(steps, &{&1["order"], &1["text"]}) == [
+               {1, "Dice the potatoes"},
+               {2, "Fry them in butter"}
+             ]
+    end
   end
 
   describe "GET /api/recipes/:id errors" do
