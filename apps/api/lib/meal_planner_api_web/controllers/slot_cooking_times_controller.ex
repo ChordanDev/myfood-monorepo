@@ -21,6 +21,7 @@ defmodule MealPlannerApiWeb.SlotCookingTimesController do
   @slots UserSlotCookingTime.slots()
   @slot_names Enum.map(@slots, &Atom.to_string/1)
   @hunger_levels Enum.map(UserSlotCookingTime.hunger_levels(), &Atom.to_string/1)
+  @cooking_time_minutes UserSlotCookingTime.cooking_time_minutes()
 
   def show(conn, _params) do
     user = Guardian.Plug.current_resource(conn)
@@ -57,6 +58,12 @@ defmodule MealPlannerApiWeb.SlotCookingTimesController do
 
   # The first problem found decides the answer: a key that is not a slot,
   # then each slot in meal order, its minutes before its Hunger level.
+  #
+  # `Plug.Parsers` hands over a JSON document that is not an object, such as
+  # an array or a number, under the single key `_json`.
+  defp validate(%{"_json" => _not_an_object} = body) when map_size(body) == 1,
+    do: invalid("The request body must be an object.")
+
   defp validate(body) do
     case body |> Map.keys() |> Enum.reject(&(&1 in @slot_names)) |> Enum.sort() do
       [] -> validate_slots(body)
@@ -90,11 +97,14 @@ defmodule MealPlannerApiWeb.SlotCookingTimesController do
   end
 
   defp validate_minutes(_name, %{"cooking_time_minutes" => minutes})
-       when is_integer(minutes) and minutes in 0..240,
+       when is_integer(minutes) and minutes in @cooking_time_minutes,
        do: {:ok, minutes}
 
-  defp validate_minutes(name, _time),
-    do: invalid("#{name}.cookingTimeMinutes must be an integer between 0 and 240.")
+  defp validate_minutes(name, _time) do
+    first..last//_ = @cooking_time_minutes
+
+    invalid("#{name}.cookingTimeMinutes must be an integer between #{first} and #{last}.")
+  end
 
   defp validate_hunger_level(_name, %{"hunger_level" => hunger_level})
        when hunger_level in @hunger_levels,

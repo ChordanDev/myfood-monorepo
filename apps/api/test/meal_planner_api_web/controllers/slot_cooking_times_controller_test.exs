@@ -92,6 +92,18 @@ defmodule MealPlannerApiWeb.SlotCookingTimesControllerTest do
       assert validation_error(token, %{}) == "breakfast is required."
     end
 
+    test "refuses a body that is not a JSON object", %{token: token} do
+      for body <- [[], [@times], 30, "breakfast", true, nil] do
+        assert {body, validation_error(token, body)} ==
+                 {body, "The request body must be an object."}
+      end
+    end
+
+    test "treats _json as any other key that is not a slot", %{token: token} do
+      assert validation_error(token, Map.put(@times, "_json", [])) ==
+               "_json is not an accepted slot."
+    end
+
     test "refuses a slot that is not an object", %{token: token} do
       for value <- [nil, 30, "normal", [10, "light"]] do
         assert validation_error(token, Map.put(@times, "lunch", value)) ==
