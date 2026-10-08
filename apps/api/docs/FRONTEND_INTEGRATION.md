@@ -427,7 +427,8 @@ autenticado y puede usar el resto de la API con esta nueva cuenta
 activa. Esta respuesta no usa el shape del login con código (ver
 [Login](#login-ejemplo)), y su `refresh_token` no pertenece a una
 sesión de dispositivo: `POST /api/auth/refresh` lo rechaza con
-`401 refresh_token_invalid`.
+`401 refresh_token_invalid`. Cuando el `access_token` expira, el
+usuario vuelve a iniciar sesión con un código.
 
 **Errores:**
 
@@ -906,8 +907,10 @@ async function postAuth(path, body) {
   });
 
   if (!response.ok) {
-    const { error } = await response.json();
-    throw new Error(error.code || "Login failed");
+    // Los errores de auth usan el envelope `{ error: { code, message } }`;
+    // un error de gateway puede no traer JSON.
+    const body = await response.json().catch(() => null);
+    throw new Error(body?.error?.code || "auth_request_failed");
   }
 
   return response.json();
@@ -926,7 +929,9 @@ async function verifyLoginCode(email, code, deviceId) {
     deviceId
   });
 
-  // Guardar tokens (ejemplo con AsyncStorage)
+  // Guardar tokens. AsyncStorage es solo ilustrativo: el refresh token
+  // dura 30 días y en un dispositivo real va en almacenamiento seguro
+  // (Keychain / Keystore).
   await AsyncStorage.setItem("auth_token", accessToken);
   await AsyncStorage.setItem("refresh_token", refreshToken);
   await AsyncStorage.setItem("user", JSON.stringify(me.user));
