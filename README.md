@@ -87,7 +87,7 @@ trigger neither.
 
 The mobile app was built against the auth / onboarding / preferences API
 contract of [ChordanDev/progra-3-back](https://github.com/ChordanDev/progra-3-back)
-(email-code auth, onboarding, preferences, slot cooking times). `apps/api` now
+(email code auth, onboarding, preferences, slot cooking times). `apps/api` now
 serves the auth part as specified in
 [#1](https://github.com/ChordanDev/myfood-monorepo/issues/1) and the slot
 cooking times routes

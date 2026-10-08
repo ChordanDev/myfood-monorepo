@@ -231,9 +231,9 @@ defmodule MealPlannerApiWeb.InviteAcceptControllerTest do
     end
   end
 
-  # Post-review fix pass, item 2: `accept_invite/2` must consult the same
-  # `MEAL_PLANNER_TENANCY_V2` flag `auth_controller.ex` uses, instead of
-  # unconditionally minting `access_v2` regardless of the flag.
+  # Post-review fix pass, item 2: `accept_invite/2` must consult the
+  # `MEAL_PLANNER_TENANCY_V2` flag, instead of unconditionally minting
+  # `access_v2` regardless of the flag.
   describe "tenancy_v2_only flag (post-review fix)" do
     setup do
       previous = Application.get_env(:meal_planner_api, :tenancy_v2_only)

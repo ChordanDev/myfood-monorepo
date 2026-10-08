@@ -27,10 +27,11 @@ Ready to run in production? Please [check our deployment guides](https://hexdocs
 
 ## Auth Policy
 
-Current supported sign-in methods:
+Sign-in and sign-up use a code sent by email. Supported routes:
 
-* `POST /api/auth/password`
-* `POST /api/auth/social`
+* `POST /api/auth/login/request-code` and `POST /api/auth/login/verify-code`
+* `POST /api/auth/signup/request-code` and `POST /api/auth/signup/verify-code`
+* `POST /api/auth/refresh` and `POST /api/auth/logout`
 
 Removed endpoint:
 
@@ -38,84 +39,78 @@ Removed endpoint:
 
 Reason:
 
-* The app login surface is intentionally limited to email/password and social providers (Google, Apple, Facebook).
+* The app login surface is intentionally limited to the email code routes above.
 
-## Social Auth Setup (Google / Apple / Facebook)
+## Email Code Auth
 
-This API supports social sign-in via `POST /api/auth/social`.
-It also supports email/password auth via `POST /api/auth/password`.
+Login serves only emails that already have a User (`email_not_found` otherwise). Sign-up serves only emails that do not (`email_already_exists` otherwise); verifying a sign-up code creates the User, their Account, the owner Membership and the Trial.
 
-Required environment variables (set them in `.envrc.local`):
-
-```env
-# Google: one or more OAuth client IDs separated by commas
-GOOGLE_OAUTH_CLIENT_IDS=your_google_ios_client_id,your_google_web_client_id
-
-# Apple: one or more Services IDs / client IDs separated by commas
-APPLE_OAUTH_CLIENT_IDS=com.myfood.app,com.myfood.web
-
-# Facebook app credentials
-FACEBOOK_APP_ID=123456789012345
-FACEBOOK_APP_SECRET=your_facebook_app_secret
-
-# Optional overrides (normally keep defaults)
-GOOGLE_TOKENINFO_URL=https://oauth2.googleapis.com/tokeninfo
-APPLE_JWKS_URL=https://appleid.apple.com/auth/keys
-FACEBOOK_GRAPH_URL=https://graph.facebook.com
-```
+In development the mailer uses `Bamboo.LocalAdapter` (`config/dev.exs`), so no email leaves the machine. Read the code from `Bamboo.SentEmail.all/0` in the `iex -S mix phx.server` session.
 
 Endpoint contract:
 
-* Path: `POST /api/auth/social`
+* Request a code: `POST /api/auth/login/request-code` or `POST /api/auth/signup/request-code`
 * Body:
 
 ```json
 {
-	"provider": "google",
-	"id_token": "<provider_token>",
-	"subscription_tier": "free"
+	"email": "user@example.com"
 }
 ```
 
-Provider token type for `id_token`:
+* Verify it: `POST /api/auth/login/verify-code` or `POST /api/auth/signup/verify-code`
+* Body:
 
-* `google`: Google ID token (JWT)
-* `apple`: Apple identity token (JWT)
-* `facebook`: Facebook user access token
+```json
+{
+	"email": "user@example.com",
+	"code": "123456",
+	"deviceId": "<device_id>"
+}
+```
+
+Field notes:
+
+* `code`: the six-digit code from the email. It expires after 10 minutes, and a new one can be requested after 60 seconds
+* `deviceId`: a non-blank string that names the phone, in practice a UUID the app generates. The session it opens replaces the one the same User had on that device
 
 Example calls:
 
 ```bash
-curl -X POST http://localhost:4000/api/auth/social \
+curl -X POST http://localhost:4000/api/auth/login/request-code \
 	-H 'content-type: application/json' \
-	-d '{"provider":"google","id_token":"GOOGLE_ID_TOKEN"}'
+	-d '{"email":"user@example.com"}'
 
-curl -X POST http://localhost:4000/api/auth/social \
+curl -X POST http://localhost:4000/api/auth/login/verify-code \
 	-H 'content-type: application/json' \
-	-d '{"provider":"apple","id_token":"APPLE_ID_TOKEN"}'
-
-curl -X POST http://localhost:4000/api/auth/social \
-	-H 'content-type: application/json' \
-	-d '{"provider":"facebook","id_token":"FACEBOOK_USER_ACCESS_TOKEN"}'
+	-d '{"email":"user@example.com","code":"123456","deviceId":"DEVICE_ID"}'
 ```
 
-On success, both auth endpoints return this payload and include:
+On success, a code request returns:
 
-* `access_token`
-* `token_type`
-* `user`
-* `account`
-* `subscription`
-* `websocket` connection params
+* `status` (`"code_sent"`)
+* `expiresInSeconds`
+* `resendAvailableInSeconds`
 
-Email/password examples:
+On success, both verify endpoints return:
+
+* `accessToken`
+* `refreshToken`
+* `tokenType`
+* `me`, the same payload `GET /api/me` returns
+
+Errors on these routes use the envelope `{ "error": { "code": "<code>", "message": "<text>" } }`.
+
+Session examples:
 
 ```bash
-curl -X POST http://localhost:4000/api/auth/password \
+curl -X POST http://localhost:4000/api/auth/refresh \
 	-H 'content-type: application/json' \
-	-d '{"mode":"register","email":"user@example.com","password":"supersecret123","name":"User"}'
+	-d '{"refreshToken":"REFRESH_TOKEN"}'
 
-curl -X POST http://localhost:4000/api/auth/password \
+curl -X POST http://localhost:4000/api/auth/logout \
 	-H 'content-type: application/json' \
-	-d '{"mode":"login","email":"user@example.com","password":"supersecret123"}'
+	-d '{"refreshToken":"REFRESH_TOKEN"}'
 ```
+
+`POST /api/auth/refresh` returns a new `accessToken` and `refreshToken` (the presented refresh token stops working), and `POST /api/auth/logout` answers `204` with no body.
