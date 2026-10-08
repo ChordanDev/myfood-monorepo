@@ -1,13 +1,35 @@
 /* eslint-disable @typescript-eslint/no-require-imports */
 
 import React from 'react';
-import { StyleSheet, Text, TextInput } from 'react-native';
+import { StyleSheet, Text, TextInput, View } from 'react-native';
 import { act, create, ReactTestInstance } from 'react-test-renderer';
 import { InventoryVoiceButton } from '../components';
-import { MILK, ONION, RICE, dataResponse, errorResponse, mutationEvent } from '../mocks';
+import { INVENTORY_CATEGORY_COLORS } from '../constants/categories';
+import {
+  CHICKEN,
+  INVENTORY_VIEW,
+  MILK,
+  ONION,
+  RICE,
+  STEW,
+  buildInventoryItem,
+  dataResponse,
+  errorResponse,
+  mutationEvent,
+} from '../mocks';
 import { useInventoryStore } from '../store';
-import type { InventoryItem } from '../types';
+import type { InventoryItem, InventoryView } from '../types';
 import { InventoryScreen } from './InventoryScreen';
+
+// What the screen runs when its tab gets the focus. The mount counts as the first focus.
+let mockFocusEffect: (() => void) | null = null;
+
+jest.mock('expo-router', () => ({
+  useFocusEffect: (effect: () => void) => {
+    mockFocusEffect = effect;
+    require('react').useEffect(effect, [effect]);
+  },
+}));
 
 jest.mock('@react-native-async-storage/async-storage', () =>
   jest.requireActual('@react-native-async-storage/async-storage/jest/async-storage-mock')
@@ -65,7 +87,11 @@ jest.mock('@/hooks/useGradientCrossfade', () => ({
 }));
 
 jest.mock('@/hooks/useKeyboardAnimation', () => ({
-  useKeyboardAnimation: () => ({ inputAnimatedStyle: {}, isKeyboardOpen: false }),
+  useKeyboardAnimation: () => ({
+    inputAnimatedStyle: {},
+    isKeyboardOpen: false,
+    keyboardLift: 0,
+  }),
 }));
 
 jest.mock('react-native-safe-area-context', () => ({
@@ -90,38 +116,67 @@ jest.mock('@/context/RecipeThemeContext', () => ({
 
 const API_URL = 'https://api.example.test';
 
-// The API the screen talks to: each test queues the answers it needs.
+// The fake API the screen talks to: each test queues the answers it needs, the read first.
 const fetchMock = jest.fn();
 const originalApiUrl = process.env.EXPO_PUBLIC_API_URL;
 
-beforeEach(() => {
-  fetchMock.mockReset();
-  global.fetch = fetchMock;
-  process.env.EXPO_PUBLIC_API_URL = API_URL;
-});
+const EMPTY_STATE = 'Todavía no hay nada en tu inventario.';
+const LOADING = 'Cargando tu inventario…';
+const VALIDATION_MESSAGE = 'Los datos ingresados no son válidos.';
 
-afterAll(() => {
-  process.env.EXPO_PUBLIC_API_URL = originalApiUrl;
-});
+function viewOf(items: InventoryItem[]): InventoryView {
+  return {
+    ...INVENTORY_VIEW,
+    sections: {
+      ok: items.filter((item) => item.freshness === 'ok'),
+      warning: items.filter((item) => item.freshness === 'warning'),
+      expired: items.filter((item) => item.freshness === 'expired'),
+    },
+  };
+}
 
-function sentRequest(call = 0) {
+function queueRead(view: InventoryView = INVENTORY_VIEW) {
+  fetchMock.mockReturnValueOnce(dataResponse(view));
+}
+
+function queueValidationError() {
+  fetchMock.mockReturnValueOnce(
+    errorResponse('validation_error', 'The request data is not valid.', 422)
+  );
+}
+
+// A response the test settles by hand, to look at the screen while a request is on its way.
+function deferredResponse() {
+  let resolve!: (response: Promise<Response>) => void;
+  const response = new Promise<Response>((settle) => {
+    resolve = settle;
+  });
+  return { response, resolve };
+}
+
+function sentRequest(call: number) {
   const [url, init] = fetchMock.mock.calls[call];
   return { url, method: init.method, body: init.body ? JSON.parse(init.body) : undefined };
 }
 
-const EMPTY_STATE = 'Todavía no hay nada en tu inventario.';
-
 let mountedScreen: ReturnType<typeof create> | null = null;
 
-function renderScreen(items: InventoryItem[]) {
-  useInventoryStore.setState({ items });
-
-  act(() => {
+// Mounts the screen and lets the read it starts be answered.
+async function renderScreen() {
+  await act(async () => {
     mountedScreen = create(<InventoryScreen />);
   });
 
   return mountedScreen!.root;
 }
+
+beforeEach(() => {
+  fetchMock.mockReset();
+  global.fetch = fetchMock;
+  process.env.EXPO_PUBLIC_API_URL = API_URL;
+  mockFocusEffect = null;
+  useInventoryStore.setState({ items: [], loadStatus: 'idle', loadError: null });
+});
 
 // The store outlives each test, so a screen left mounted would re-render on the next setState.
 afterEach(() => {
@@ -132,46 +187,58 @@ afterEach(() => {
   mountedScreen = null;
 });
 
+afterAll(() => {
+  process.env.EXPO_PUBLIC_API_URL = originalApiUrl;
+});
+
 function getTexts(root: ReactTestInstance): string[] {
   return root.findAllByType(Text).map((node) => node.props.children as string);
 }
 
-function findButtons(root: ReactTestInstance, label: string): ReactTestInstance[] {
+function findControls(root: ReactTestInstance, label: string, role = 'button') {
   return root.findAll(
     (node) =>
-      node.props.accessibilityRole === 'button' &&
+      node.props.accessibilityRole === role &&
       typeof node.props.onPress === 'function' &&
       (node.props.accessibilityLabel === label || getTexts(node).includes(label))
   );
 }
 
-function press(root: ReactTestInstance, label: string) {
-  const [button] = findButtons(root, label);
+function getControl(root: ReactTestInstance, label: string, role = 'button') {
+  const [control] = findControls(root, label, role);
 
-  if (!button) {
-    throw new Error(`No button labelled "${label}"`);
+  if (!control) {
+    throw new Error(`No ${role} labelled "${label}"`);
   }
 
+  return control;
+}
+
+function press(root: ReactTestInstance, label: string, role = 'button') {
   act(() => {
-    button.props.onPress();
+    getControl(root, label, role).props.onPress();
   });
 }
 
 // Presses and lets the request the press started be answered.
 async function pressAndSettle(root: ReactTestInstance, label: string) {
-  const [button] = findButtons(root, label);
-
-  if (!button) {
-    throw new Error(`No button labelled "${label}"`);
-  }
-
   await act(async () => {
-    button.props.onPress();
+    getControl(root, label).props.onPress();
   });
 }
 
-function findStoredItem(id: string) {
-  return useInventoryStore.getState().items.find((item) => item.id === id);
+function type(root: ReactTestInstance, label: string, text: string) {
+  const input = root
+    .findAllByType(TextInput)
+    .find((candidate) => candidate.props.accessibilityLabel === label);
+
+  if (!input) {
+    throw new Error(`No input labelled "${label}"`);
+  }
+
+  act(() => {
+    input.props.onChangeText(text);
+  });
 }
 
 // The size of "COMPRAS", the title of the shopping screen.
@@ -184,117 +251,431 @@ function getTitleFontSize(root: ReactTestInstance) {
 }
 
 describe('InventoryScreen', () => {
-  it('writes its title at the size of the shopping title', () => {
-    const root = renderScreen([MILK]);
+  it('writes its title at the size of the shopping title', async () => {
+    queueRead();
+    const root = await renderScreen();
 
     expect(getTitleFontSize(root)).toBe(SHOPPING_TITLE_FONT_SIZE);
   });
 
-  it('keeps that title size on a small phone', () => {
+  it('keeps that title size on a small phone', async () => {
     mockWindow = { width: 320, height: 568, scale: 2, fontScale: 1 };
+    queueRead();
 
-    const root = renderScreen([MILK]);
+    const root = await renderScreen();
 
     expect(getTitleFontSize(root)).toBe(SHOPPING_TITLE_FONT_SIZE);
   });
 
-  it('lists what is in stock grouped by category, under the title and the hint', () => {
-    const root = renderScreen([MILK, ONION, RICE]);
+  describe('reading the inventory', () => {
+    it('reads the API when it opens and lists the lots by freshness, what to use first on top', async () => {
+      queueRead();
+      const root = await renderScreen();
 
-    const texts = getTexts(root);
+      const texts = getTexts(root);
 
-    expect(texts).toEqual(
-      expect.arrayContaining([
+      expect(sentRequest(0)).toEqual({ url: `${API_URL}/api/inventory`, method: 'GET' });
+      expect(texts.slice(0, 2)).toEqual([
         'INVENTARIO',
         'Cantidades aproximadas. Decile al micrófono qué usaste.',
-        'Verduras',
-        'Cebolla',
-        '3 u',
-        'Lácteos',
-        'Leche',
+      ]);
+      // Each section with its count, then its rows: quantity, name, notes, leftover mark.
+      expect(texts.slice(texts.indexOf('Vencidos'))).toEqual([
+        'Vencidos',
+        1,
+        '300 g',
+        'Pollo',
+        'Por vencer',
+        1,
         '750 ml',
-        'Despensa',
-        'Arroz',
+        'Leche',
+        'Abierta',
+        'En buen estado',
+        3,
+        '0,5 u',
+        'Guiso de lentejas',
+        'Del martes',
+        'Sobra',
+        '3 u',
+        'Cebolla',
         '1,5 kg',
-      ])
-    );
-    expect(texts.indexOf('Verduras')).toBeLessThan(texts.indexOf('Lácteos'));
-    expect(texts).not.toContain(EMPTY_STATE);
-  });
-
-  it('says so when nothing is in stock', () => {
-    const root = renderScreen([]);
-
-    expect(getTexts(root)).toContain(EMPTY_STATE);
-  });
-
-  it('disposes of an item through the API, which removes its row', async () => {
-    fetchMock.mockReturnValueOnce(
-      dataResponse({ disposed: true, mutationEvent: mutationEvent(ONION, { operation: 'delete' }) })
-    );
-    const root = renderScreen([MILK, ONION]);
-
-    await pressAndSettle(root, 'Borrar Cebolla');
-
-    expect(sentRequest()).toEqual({
-      url: `${API_URL}/api/inventory/items/${ONION.id}/dispose`,
-      method: 'POST',
+        'Arroz',
+      ]);
+      expect(texts).not.toContain(EMPTY_STATE);
+      expect(texts).not.toContain(LOADING);
     });
-    expect(findStoredItem(ONION.id)).toBeUndefined();
-    expect(getTexts(root)).not.toContain('Cebolla');
-    expect(getTexts(root)).toContain('Leche');
-  });
 
-  it('sets the quantity through the sheet, in thousandths, and closes it on save', async () => {
-    const updated = { ...MILK, quantityMilli: 1_500_000 };
-    fetchMock.mockReturnValueOnce(
-      dataResponse({ item: updated, mutationEvent: mutationEvent(updated) })
-    );
-    const root = renderScreen([MILK, ONION]);
+    it('no longer tags a quantity as approximate', async () => {
+      queueRead();
+      const root = await renderScreen();
 
-    expect(root.findAllByType(TextInput)).toHaveLength(0);
-
-    press(root, 'Editar Leche');
-    act(() => {
-      root.findByType(TextInput).props.onChangeText('1500');
+      expect(getTexts(root)).not.toContain('aprox.');
     });
-    await pressAndSettle(root, 'Guardar');
 
-    expect(sentRequest()).toEqual({
-      url: `${API_URL}/api/inventory/items/${MILK.id}/quantity`,
-      method: 'POST',
-      body: { quantityMilli: 1_500_000 },
+    it('leaves out a section that has no items', async () => {
+      queueRead(viewOf([RICE, MILK]));
+      const root = await renderScreen();
+
+      const texts = getTexts(root);
+
+      expect(texts).toEqual(expect.arrayContaining(['Por vencer', 'En buen estado']));
+      expect(texts).not.toContain('Vencidos');
     });
-    expect(findStoredItem(MILK.id)).toEqual(updated);
-    expect(getTexts(root)).toContain('1,5 L');
-    expect(root.findAllByType(TextInput)).toHaveLength(0);
+
+    it('paints a row with the display color of its category', async () => {
+      queueRead(viewOf([RICE]));
+      const root = await renderScreen();
+
+      const colors = root
+        .findAllByType(View)
+        .map((view) => StyleSheet.flatten(view.props.style)?.backgroundColor);
+
+      // The API files the rice under `no_perecederos`, which is drawn as "Despensa".
+      expect(colors).toContain(INVENTORY_CATEGORY_COLORS.almacen);
+    });
+
+    it('says it is loading until the first read is answered', async () => {
+      const read = deferredResponse();
+      fetchMock.mockReturnValueOnce(read.response);
+      const root = await renderScreen();
+
+      expect(getTexts(root)).toContain(LOADING);
+      expect(getTexts(root)).not.toContain(EMPTY_STATE);
+
+      await act(async () => {
+        read.resolve(dataResponse(INVENTORY_VIEW));
+      });
+
+      expect(getTexts(root)).not.toContain(LOADING);
+      expect(getTexts(root)).toContain('Arroz');
+    });
+
+    it('shows the last read while a new one is on its way', async () => {
+      useInventoryStore.setState({ items: [RICE], loadStatus: 'ready' });
+      fetchMock.mockReturnValueOnce(deferredResponse().response);
+
+      const root = await renderScreen();
+
+      expect(getTexts(root)).toContain('Arroz');
+      expect(getTexts(root)).not.toContain(LOADING);
+    });
+
+    it('says so when the inventory is empty', async () => {
+      queueRead(viewOf([]));
+      const root = await renderScreen();
+
+      expect(getTexts(root)).toContain(EMPTY_STATE);
+      expect(getTexts(root)).not.toContain(LOADING);
+    });
+
+    it('shows the message of the error when the read fails, and reads again on retry', async () => {
+      fetchMock.mockReturnValueOnce(errorResponse('account_expired', 'Account expired', 403));
+      const root = await renderScreen();
+
+      const alert = root.find((node) => node.props.accessibilityRole === 'alert');
+
+      expect(alert.props.children).toBe('El acceso de tu cuenta venció.');
+      expect(getTexts(root).join(' ')).not.toContain('account_expired');
+      expect(getTexts(root)).not.toContain(EMPTY_STATE);
+      expect(getTexts(root)).not.toContain(LOADING);
+
+      queueRead();
+      await pressAndSettle(root, 'Reintentar');
+
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+      expect(getTexts(root)).toContain('Arroz');
+      expect(getTexts(root)).not.toContain('El acceso de tu cuenta venció.');
+      expect(findControls(root, 'Reintentar')).toHaveLength(0);
+    });
+
+    it('keeps the last read on screen under the error of a failed one', async () => {
+      useInventoryStore.setState({ items: [RICE], loadStatus: 'ready' });
+      fetchMock.mockReturnValueOnce(errorResponse('account_expired', 'Account expired', 403));
+
+      const root = await renderScreen();
+
+      expect(getTexts(root)).toEqual(
+        expect.arrayContaining(['El acceso de tu cuenta venció.', 'Reintentar', 'Arroz'])
+      );
+    });
+
+    it('reads again every time its tab gets the focus back', async () => {
+      queueRead(viewOf([RICE]));
+      const root = await renderScreen();
+
+      queueRead(viewOf([RICE, ONION]));
+      await act(async () => {
+        mockFocusEffect?.();
+      });
+
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+      expect(getTexts(root)).toContain('Cebolla');
+    });
   });
 
-  it('leaves the list as it was when the API rejects a write', async () => {
-    fetchMock.mockReturnValueOnce(
-      errorResponse('inventory_item_not_found', 'Inventory item not found', 404)
+  describe('editing a lot', () => {
+    it('sets the quantity in thousandths and draws the row the API answers', async () => {
+      const updated = { ...MILK, quantityMilli: 1_500_000 };
+      queueRead();
+      const root = await renderScreen();
+
+      expect(root.findAllByType(TextInput)).toHaveLength(0);
+
+      press(root, 'Editar Leche');
+      type(root, 'Cantidad', '1500');
+      fetchMock.mockReturnValueOnce(
+        dataResponse({ item: updated, mutationEvent: mutationEvent(updated) })
+      );
+      await pressAndSettle(root, 'Guardar');
+
+      expect(sentRequest(1)).toEqual({
+        url: `${API_URL}/api/inventory/items/${MILK.id}/quantity`,
+        method: 'POST',
+        body: { quantityMilli: 1_500_000 },
+      });
+      expect(getTexts(root)).toContain('1,5 L');
+      expect(getTexts(root)).not.toContain('750 ml');
+      // The sheet closed.
+      expect(root.findAllByType(TextInput)).toHaveLength(0);
+    });
+
+    it('shows the name and the notes of the lot without letting them be edited', async () => {
+      queueRead();
+      const root = await renderScreen();
+
+      press(root, 'Editar Leche');
+
+      const inputs = root.findAllByType(TextInput);
+
+      expect(inputs.map((input) => input.props.accessibilityLabel)).toEqual(['Cantidad']);
+      expect(inputs[0].props.value).toBe('750');
+    });
+
+    it.each(['-1', 'mucho', ''])(
+      'rejects the quantity "%s" without calling the API',
+      async (quantity) => {
+        queueRead();
+        const root = await renderScreen();
+
+        press(root, 'Editar Leche');
+        type(root, 'Cantidad', quantity);
+
+        expect(getControl(root, 'Guardar').props.disabled).toBe(true);
+
+        await pressAndSettle(root, 'Guardar');
+
+        // Only the read went out.
+        expect(fetchMock).toHaveBeenCalledTimes(1);
+        expect(getTexts(root)).toContain('750 ml');
+      }
     );
-    const root = renderScreen([MILK, ONION]);
 
-    await pressAndSettle(root, 'Borrar Cebolla');
+    it('shows the message of a validation error and leaves the list as it was', async () => {
+      queueRead();
+      const root = await renderScreen();
+      const itemsBefore = useInventoryStore.getState().items;
 
-    expect(findStoredItem(ONION.id)).toEqual(ONION);
-    expect(getTexts(root)).toContain('Cebolla');
+      press(root, 'Editar Leche');
+      type(root, 'Cantidad', '2');
+      queueValidationError();
+      await pressAndSettle(root, 'Guardar');
+
+      const alert = root.find((node) => node.props.accessibilityRole === 'alert');
+
+      expect(alert.props.children).toBe(VALIDATION_MESSAGE);
+      expect(getTexts(root).join(' ')).not.toContain('validation_error');
+      expect(useInventoryStore.getState().items).toBe(itemsBefore);
+      expect(getTexts(root)).toContain('750 ml');
+      // The sheet stays open, so the quantity can be corrected.
+      expect(root.findAllByType(TextInput)).toHaveLength(1);
+    });
+
+    it('disposes of the lot through the API, which removes its row', async () => {
+      queueRead();
+      const root = await renderScreen();
+
+      press(root, 'Editar Cebolla');
+      fetchMock.mockReturnValueOnce(
+        dataResponse({
+          disposed: true,
+          mutationEvent: mutationEvent(ONION, { operation: 'delete' }),
+        })
+      );
+      await pressAndSettle(root, 'Borrar del inventario');
+
+      expect(sentRequest(1)).toEqual({
+        url: `${API_URL}/api/inventory/items/${ONION.id}/dispose`,
+        method: 'POST',
+      });
+      expect(getTexts(root)).not.toContain('Cebolla');
+      expect(getTexts(root)).toContain('Leche');
+      expect(root.findAllByType(TextInput)).toHaveLength(0);
+    });
+
+    it('removes the section when its last lot is disposed of', async () => {
+      queueRead();
+      const root = await renderScreen();
+
+      press(root, 'Editar Pollo');
+      fetchMock.mockReturnValueOnce(
+        dataResponse({
+          disposed: true,
+          mutationEvent: mutationEvent(CHICKEN, { operation: 'delete' }),
+        })
+      );
+      await pressAndSettle(root, 'Borrar del inventario');
+
+      expect(getTexts(root)).not.toContain('Vencidos');
+    });
+
+    it('keeps the row when the lot cannot be disposed of, with the message of the error', async () => {
+      queueRead();
+      const root = await renderScreen();
+
+      press(root, 'Editar Cebolla');
+      fetchMock.mockReturnValueOnce(
+        errorResponse('inventory_item_not_found', 'Inventory item not found', 404)
+      );
+      await pressAndSettle(root, 'Borrar del inventario');
+
+      expect(getTexts(root)).toEqual(
+        expect.arrayContaining(['No encontramos ese producto en tu inventario.', '3 u'])
+      );
+    });
+
+    it('closes the sheet without calling the API when the edit is cancelled', async () => {
+      queueRead();
+      const root = await renderScreen();
+
+      press(root, 'Editar Leche');
+      press(root, 'Cancelar');
+
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      expect(root.findAllByType(TextInput)).toHaveLength(0);
+    });
   });
 
-  it('closes the sheet without touching the item when the edit is cancelled', () => {
-    const root = renderScreen([MILK]);
+  describe('adding an item from outside the app', () => {
+    const YOGURT = buildInventoryItem({
+      id: '0b7a1c52-6f0e-4d0a-9d3f-1c2b3a4d5e06',
+      ingredientId: '7d1e2f30-0000-4000-8000-000000000006',
+      name: 'Yogur',
+      category: 'lacteos',
+      quantityMilli: 2_000,
+      unit: 'unit',
+      sourceKind: 'extra',
+      acquiredAt: null,
+      expiresAt: '2026-10-20',
+      isLeftover: true,
+      notes: 'Del desayuno',
+    });
 
-    press(root, 'Editar Leche');
-    press(root, 'Cancelar');
+    it('sends the item to add-extra and draws the lot the API answers', async () => {
+      queueRead();
+      const root = await renderScreen();
 
-    expect(fetchMock).not.toHaveBeenCalled();
-    expect(findStoredItem(MILK.id)).toEqual(MILK);
-    expect(root.findAllByType(TextInput)).toHaveLength(0);
+      press(root, 'Agregar producto');
+      type(root, 'Nombre', 'Yogur');
+      type(root, 'Cantidad', '2');
+      press(root, 'Unidades', 'radio');
+      type(root, 'Vence', '20/10/2026');
+      type(root, 'Notas', 'Del desayuno');
+      press(root, 'Es una sobra', 'checkbox');
+      fetchMock.mockReturnValueOnce(
+        dataResponse({ item: YOGURT, mutationEvent: mutationEvent(YOGURT, { operation: 'add' }) })
+      );
+      await pressAndSettle(root, 'Agregar');
+
+      expect(sentRequest(1)).toEqual({
+        url: `${API_URL}/api/inventory/items/add-extra`,
+        method: 'POST',
+        body: {
+          ingredientName: 'Yogur',
+          quantityMilli: 2_000,
+          unit: 'unit',
+          expiresAt: '2026-10-20',
+          notes: 'Del desayuno',
+          isLeftover: true,
+        },
+      });
+      expect(getTexts(root)).toEqual(expect.arrayContaining(['2 u', 'Yogur', 'Del desayuno']));
+      // The sheet closed.
+      expect(root.findAllByType(TextInput)).toHaveLength(0);
+    });
+
+    it('sends only the name, the quantity and the unit when the rest is left blank', async () => {
+      const moreRice = { ...RICE, quantityMilli: 2_000_000 };
+      queueRead();
+      const root = await renderScreen();
+
+      press(root, 'Agregar producto');
+      type(root, 'Nombre', 'Arroz');
+      type(root, 'Cantidad', '500');
+      fetchMock.mockReturnValueOnce(
+        dataResponse({ item: moreRice, mutationEvent: mutationEvent(moreRice) })
+      );
+      await pressAndSettle(root, 'Agregar');
+
+      expect(sentRequest(1).body).toEqual({
+        ingredientName: 'Arroz',
+        quantityMilli: 500_000,
+        unit: 'g',
+      });
+      // The add accumulated in the lot the inventory had: one row, with the total.
+      expect(getTexts(root).filter((text) => text === 'Arroz')).toHaveLength(1);
+      expect(getTexts(root)).toContain('2 kg');
+    });
+
+    it('shows the message of a validation error and leaves the list as it was', async () => {
+      queueRead();
+      const root = await renderScreen();
+      const itemsBefore = useInventoryStore.getState().items;
+
+      press(root, 'Agregar producto');
+      type(root, 'Nombre', 'Algo que el catálogo no tiene');
+      type(root, 'Cantidad', '1');
+      queueValidationError();
+      await pressAndSettle(root, 'Agregar');
+
+      expect(getTexts(root)).toContain(VALIDATION_MESSAGE);
+      expect(getTexts(root).join(' ')).not.toContain('validation_error');
+      expect(useInventoryStore.getState().items).toBe(itemsBefore);
+      expect(root.findAllByType(TextInput).length).toBeGreaterThan(0);
+    });
+
+    it('rejects a quantity of zero without calling the API', async () => {
+      queueRead();
+      const root = await renderScreen();
+
+      press(root, 'Agregar producto');
+      type(root, 'Nombre', 'Yogur');
+      type(root, 'Cantidad', '0');
+      await pressAndSettle(root, 'Agregar');
+
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    });
+
+    it('can add to an empty inventory', async () => {
+      queueRead(viewOf([]));
+      const root = await renderScreen();
+
+      press(root, 'Agregar producto');
+      type(root, 'Nombre', 'Guiso de lentejas');
+      type(root, 'Cantidad', '0,5');
+      press(root, 'Unidades', 'radio');
+      fetchMock.mockReturnValueOnce(
+        dataResponse({ item: STEW, mutationEvent: mutationEvent(STEW, { operation: 'add' }) })
+      );
+      await pressAndSettle(root, 'Agregar');
+
+      expect(getTexts(root)).toEqual(expect.arrayContaining(['En buen estado', '0,5 u']));
+      expect(getTexts(root)).not.toContain(EMPTY_STATE);
+    });
   });
 
-  it('offers the voice button without wiring it to anything yet', () => {
-    const root = renderScreen([MILK]);
+  it('offers the voice button without wiring it to anything yet', async () => {
+    queueRead();
+    const root = await renderScreen();
 
     expect(root.findByType(InventoryVoiceButton).props.onPress).toBeUndefined();
   });

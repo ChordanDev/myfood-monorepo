@@ -1,6 +1,7 @@
-export { groupInventoryByCategory } from './groupInventoryByCategory';
-export type { InventoryGroup } from './groupInventoryByCategory';
+export { groupInventoryByFreshness } from './groupInventoryByFreshness';
+export type { InventorySection } from './groupInventoryByFreshness';
 export { toDisplayCategory } from './inventoryCategory';
+export { parseExpiryInput } from './parseExpiryInput';
 export {
   formatQuantityMilli,
   milliToInputText,

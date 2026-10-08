@@ -22,18 +22,22 @@ jest.mock('@/context/RecipeThemeContext', () => ({
   }),
 }));
 
-const MILK: InventoryItem = { ...MILK_LOT, name: 'Leche entera', quantityMilli: 1_000_000 };
+const MILK: InventoryItem = {
+  ...MILK_LOT,
+  name: 'Leche entera',
+  quantityMilli: 1_000_000,
+  notes: null,
+};
 
 function renderRow(item: InventoryItem) {
   const onEdit = jest.fn();
-  const onDelete = jest.fn();
   let tree: ReturnType<typeof create>;
 
   act(() => {
-    tree = create(<InventoryRow item={item} onEdit={onEdit} onDelete={onDelete} />);
+    tree = create(<InventoryRow item={item} onEdit={onEdit} />);
   });
 
-  return { tree: tree!, root: tree!.root, onEdit, onDelete };
+  return { tree: tree!, root: tree!.root, onEdit };
 }
 
 function getButton(root: ReactTestInstance, label: string): ReactTestInstance {
@@ -87,27 +91,50 @@ describe('InventoryRow', () => {
     expect(getTexts(root)).not.toContain('aprox.');
   });
 
-  it('edits and deletes through buttons labelled with the item name', () => {
-    const { root, onEdit, onDelete } = renderRow(MILK);
+  it('marks a leftover', () => {
+    const { root } = renderRow({ ...MILK, isLeftover: true });
 
+    expect(getTexts(root)).toContain('Sobra');
+  });
+
+  it('does not mark a lot that is not a leftover', () => {
+    const { root } = renderRow(MILK);
+
+    expect(getTexts(root)).not.toContain('Sobra');
+  });
+
+  it('shows the notes under the name, on a single line', () => {
+    const { root } = renderRow({ ...MILK, notes: 'Abierta, usar pronto' });
+
+    const notes = root
+      .findAllByType(Text)
+      .find((node) => node.props.children === 'Abierta, usar pronto');
+
+    expect(getTexts(root).slice(0, 3)).toEqual(['1 L', 'Leche entera', 'Abierta, usar pronto']);
+    expect(notes!.props.numberOfLines).toBe(1);
+  });
+
+  it('shows only the name when the lot has no notes', () => {
+    const { root } = renderRow(MILK);
+
+    expect(getTexts(root)).toEqual(['1 L', 'Leche entera']);
+  });
+
+  it('edits through a button labelled with the item name, its only action', () => {
+    const { root, onEdit } = renderRow(MILK);
+
+    const buttons = root.findAll(
+      (node) =>
+        node.props.accessibilityRole === 'button' && typeof node.props.onPress === 'function'
+    );
     const editButton = getButton(root, 'Editar Leche entera');
-    const deleteButton = getButton(root, 'Borrar Leche entera');
 
-    expect(editButton.props.accessibilityRole).toBe('button');
-    expect(deleteButton.props.accessibilityRole).toBe('button');
+    expect(buttons).toEqual([editButton]);
 
     act(() => {
       editButton.props.onPress();
     });
 
-    expect(onEdit).toHaveBeenCalledTimes(1);
-    expect(onDelete).not.toHaveBeenCalled();
-
-    act(() => {
-      deleteButton.props.onPress();
-    });
-
-    expect(onDelete).toHaveBeenCalledTimes(1);
     expect(onEdit).toHaveBeenCalledTimes(1);
   });
 });
