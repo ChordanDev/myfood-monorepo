@@ -39,8 +39,8 @@ The Inventory screen shows lots with milli quantities, units and freshness secti
 
 - [x] **T1 API read shape and new columns.** Migration and schema for `is_leftover` (boolean, default false, not null) and `notes` (nullable text); item serialization per D2; zero-quantity lots hidden (D1). Route: delegated direct (migration, schema, service, tests).
 - [x] **T2 API writes and envelope errors.** `add-extra` reads `expires_at`, `notes`, `is_leftover` (D3, D9); the three writes return `{ item, mutation_event }` or `{ disposed: true, mutation_event }`; errors per D4 including the mobile code contract files; integration guide updated. Route: delegated direct (controller, service, persistence, ApiError, mobile contract, tests, docs).
-- [ ] **T3 Mobile inventory client and cache store.** `features/inventory/api`, API types, milli formatting and input conversion, category mapping (D6); store without fixture seeding or `confidence`, integer milli, replaced by read and mutation responses; cross-feature callers adapted (D8). Route: delegated direct (many files across features).
-- [ ] **T4 Mobile screen and edit flows.** Inventory screen renders freshness sections from the API; add, set-quantity and dispose flows call the API and surface envelope errors (D7); screen and flow tests against a fake API with frozen fixtures. Route: delegated direct (screens, components, tests).
+- [x] **T3 Mobile inventory client and cache store.** `features/inventory/api`, API types, milli formatting and input conversion, category mapping (D6); store without fixture seeding or `confidence`, integer milli, replaced by read and mutation responses; cross-feature callers adapted (D8). Route: delegated direct (many files across features).
+- [x] **T4 Mobile screen and edit flows.** Inventory screen renders freshness sections from the API; add, set-quantity and dispose flows call the API and surface envelope errors (D7); screen and flow tests against a fake API with frozen fixtures. Route: delegated direct (screens, components, tests).
 
 ## Acceptance criteria (from the ticket)
 
@@ -65,15 +65,21 @@ Forecast: about 1100 to 1400 authored changed lines, above the 400-line budget. 
 | ---- | ------ | ------ | ------ |
 | T1   | `650b214` | RED 7 failing of 43, GREEN 102 passed; format, compile clean; `mix test` 1211 passed, 20 skipped; parent spot check 27 passed | medium, under budget; covered by review `review-17aa8dd30a7a45bb` (approved, acknowledged) |
 | T2   | `40b26fb` | RED 28 failing of 76 (API), 2 of 8 (mobile contract); GREEN 76 and 8; format, compile clean; `mix test` 1226 passed, 20 skipped; mobile typecheck clean, lint 0 errors 4 warnings; parent spot check 16 passed | high (auth hot path); consent granted; four lenses approved, acknowledged, authority burned |
-| T3   |        |        |        |
-| T4   |        |        |        |
+| T3   | `9e84cc1` | RED 23 failing of 28 (new modules), GREEN 89; type migration had no RED-first (boundary conversions removed: 56 failing, restored: passing); two shopping tests outside the writer surface patched by the parent and squashed in; commit not verified in isolation | medium, slice budget reached; consent granted; START refused with `lens_context_budget_exceeded`, no review ran |
+| T4   | `84356fb` | RED then GREEN per unit (inventory folder 13 suites, 206 tests); final tree: lint 0 errors 4 warnings, typecheck clean, `npm test` 97 suites, 1594 passed; no simulator run | same candidate as T3: not reviewed |
 
-Next step: T3. Reviewed boundary: `40b26fb`.
+Next step: user decisions below, then delivery. Reviewed boundary: `40b26fb` (T3 and T4 are unreviewed).
 
 ## Notes and follow-ups
 
 - Checkout and cooking slices must replace the `addItem` and `consumeIngredient` shims (D8).
 - No endpoint edits `notes` or the name of an existing lot (D7).
+- Needs a decision: the mobile slice (`40b26fb..84356fb`, 4713 lines) exceeds the native reviewer context budget; review it as smaller candidates or deliver under ordinary policy.
+- Needs a decision: `inventory-storage` now persists real Account data and nothing clears it on sign-out, so a second Account on the same device sees the previous lots until its first read.
+- Add flow sends `ingredientName` (D9): the mobile scope has no ingredient catalogue route, and an unknown name surfaces only the generic `validation_error` message.
+- The catalogue is still `MOCK_INGREDIENTS` (ids `i1`...), so shopping and recipe never match stock against API lots, and the `addItem`/`consumeIngredient` shim writes are lost on the next read (D8); only the Inventory screen calls `refresh()`.
+- Dispose moved from the row trash button into the edit sheet (D7); `updateItem`, `removeItem` and `InventoryItemPatch` are gone.
+- Stale after this change: the screen subtitle "Cantidades aproximadas...", `apps/mobile/docs/design/screens/Inventario.dc.html`, `apps/mobile/odd/tasks/inventory-screen.md`.
 - T2 moved every `InventoryController` error to the envelope, including voice preview/apply and `/api/planning/rescue`; an unrecognised reason is now 500 `unknown_error`.
 - The mutation event is serialized with `trigger_type` (schema field name), so the wire key is `triggerType`.
 - Advisory review findings on T1+T2 (non-blocking, later work): `notes` has no length bound (`inventory_item.ex:16`); a nil `mutation_event` would be dereferenced in the write result (`inventory_service.ex:87-98`); the controller catch-all drops the failure reason and its reason allowlist can drift from the service (`inventory_controller.ex:94-115`); zero lots are filtered in memory (`inventory_service.ex:45-48`); a date-boundary flake risk in `inventory_controller_test.exs:293-326`; `acquired_at`/price are not validated on add-extra (`inventory_service.ex:541-542`).
