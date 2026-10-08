@@ -81,8 +81,6 @@ export const ORDERED_MEAL_SLOTS = ['breakfast', 'lunch', 'snack', 'dinner'] as c
 
 export type MealSlot = (typeof ORDERED_MEAL_SLOTS)[number];
 
-export type MealType = 'desayuno' | 'almuerzo' | 'cena' | 'snack';
-
 export interface MealPlanEntry {
   id: string;
   date: string; // ISO string format YYYY-MM-DD

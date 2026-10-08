@@ -88,7 +88,7 @@ PR.
 - [x] T3 — Migrate home domain, components, hooks, screens, mocks, the meal
   plan store (version bump) and every fixture and test to the English codes.
   Tests first (RED), then source (GREEN). Route: delegated.
-- [ ] T4 — Contract: delete `MealType` and its re-exports; run every check.
+- [x] T4 — Contract: delete `MealType` and its re-exports; run every check.
   Route: delegated.
 
 ## Progress
@@ -117,7 +117,7 @@ next task's commit.
   `SLOT_LABELS`). `features/preferences/**` is outside the writer's allowed
   edit surfaces, and removing the type without moving those two files breaks
   the type check. T3 and T4 do not depend on it and went ahead.
-- T3 — `refactor(mobile): use English meal slot codes`.
+- T3 — `9268be0` `refactor(mobile): use English meal slot codes`.
   `MealPlanEntry.type` is `MealSlot`; `HomeMealType` became `HomeMealSlot`;
   `FoodTypeSwitcher` reads `MEAL_SLOT_LABEL`; the meal plan store persists
   under version 2.
@@ -134,3 +134,18 @@ next task's commit.
   No other persisted store holds Meal slot values: the shopping store keeps
   ids, manual items, the grouping mode and a date; the inventory store keeps
   items and ingredients.
+- T4 — `refactor(mobile): remove Spanish MealType` (SHA in the writer's
+  report: a commit cannot record its own). `MealType` and its re-exports in
+  `src/mocks/mealPlans.ts` and `src/mocks/index.ts` are gone. Pure type
+  removal, no meaningful RED.
+  Checks: typecheck clean, `npm test` 94 suites / 1478 tests passed, lint
+  0 errors (same 4 warnings), prettier clean.
+  `rg -n "MealType\b|desayuno|almuerzo|'cena'" src` only matches value
+  identifiers kept by decision (`selectedMealType`,
+  `getDefaultHomeMealType`, `getPendingHomeMealType`,
+  `getClosestHomeMealType`, `nextMealType`); with a leading word boundary
+  (`\bMealType\b`) it matches nothing.
+
+Next step: T2. It needs `src/features/preferences/constants/catalog.ts` and
+`src/features/preferences/constants/preferenceOptions.ts` added to the
+writer's edit surfaces.

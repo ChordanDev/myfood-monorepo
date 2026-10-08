@@ -1,9 +1,9 @@
 // Datos mock para desarrollo. Usa la forma canonica del Plan de Comidas Local.
-import type { MealPlanEntry, MealSlot, MealType } from '@/types/domain';
+import type { MealPlanEntry, MealSlot } from '@/types/domain';
 import type { PlanByDate } from '@/features/home/types/calendar';
 
-// Re-exporta los tipos canonicos para consumidores existentes.
-export type { MealType, PlanByDate };
+// Re-exporta el tipo canonico para consumidores existentes.
+export type { PlanByDate };
 
 function formatDateKey(date: Date): string {
   const year = date.getFullYear();
