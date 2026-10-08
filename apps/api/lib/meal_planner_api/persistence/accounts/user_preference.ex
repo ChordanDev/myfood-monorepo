@@ -1,6 +1,7 @@
 defmodule MealPlannerApi.Persistence.Accounts.UserPreference do
   @moduledoc """
-  User-level planning preferences: protein target and dietary exclusions.
+  User-level planning preferences: protein target, dietary exclusions and
+  Soft preferences.
 
   Stored separately from User so the core User schema stays lean.
   Created or updated on first access or when the user saves preferences.
@@ -14,6 +15,8 @@ defmodule MealPlannerApi.Persistence.Accounts.UserPreference do
   schema "user_preferences" do
     field(:protein_g_per_meal, :integer)
     field(:default_exclusions, {:array, :string}, default: [])
+    # The User's Soft preferences, in the order they were saved.
+    field(:soft_preferences, {:array, :string}, default: [])
 
     belongs_to(:user, MealPlannerApi.Persistence.Accounts.User)
 

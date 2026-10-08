@@ -194,10 +194,14 @@ defmodule MealPlannerApiWeb.Router do
   # Issue #11 — `GET /me` through the opt-in `:mobile_casing` pipeline. Same
   # authentication and capability exemption as the design-exempt scope; its alias
   # `GET /auth/me` stays in that scope, outside the pipeline.
+  #
+  # Issue #18 — `GET /me/preferences` sits here for the same exemption: a
+  # User of an Account whose Trial expired can still read their preferences.
   scope "/api", MealPlannerApiWeb do
     pipe_through([:api, :mobile_casing, :auth])
 
     get("/me", AccountsController, :me)
+    get("/me/preferences", PreferencesController, :show)
   end
 
   # Product routes of the mobile app. `:mobile_casing` is opt-in and this is
