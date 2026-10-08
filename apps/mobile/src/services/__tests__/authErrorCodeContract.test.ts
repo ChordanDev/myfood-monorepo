@@ -32,9 +32,9 @@ describe('auth error code contract (api -> mobile allowlist)', () => {
   //   * `ApiError.server_fault/1` (`unknown_error`) — it has no
   //     `error(:atom)` literal by design, and `unknown_error` is in the
   //     allowlist anyway.
-  //   * The flat `{ "error": "<reason>" }` bodies the legacy and
-  //     non-auth controllers still build with `json/2` — they are not
-  //     part of the envelope contract.
+  //   * The flat `{ "error": "<reason>" }` bodies that invite accept,
+  //     switch-account and the controllers outside auth build with
+  //     `json/2` — they are not part of the envelope contract.
   //   * `MealPlannerApiWeb.ErrorJSON` (`{ "errors": { "detail" } }`) —
   //     Phoenix's transport-level fallback.
   // The contract asserted here is: every `error(:atom)` call in the api
