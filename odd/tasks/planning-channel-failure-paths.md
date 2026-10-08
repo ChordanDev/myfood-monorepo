@@ -1,6 +1,6 @@
 # Planning channel failure paths
 
-Feature: `planning-channel-failure-paths`. Branch: `fix/planning-channel-failure-paths`, based on `claude/issue-11-b445e9` at `908fc00` (ticket #11 is not merged into `main`). Engram mirror: `odd/planning-channel-failure-paths/tasks`.
+Feature: `planning-channel-failure-paths`. Branch: `fix/planning-channel-failure-paths`, first based on `claude/issue-11-b445e9` at `908fc00` (ticket #11 is not merged into `main`), now on `feat/mobile-channel-casing` (see the delivery record). Engram mirror: `odd/planning-channel-failure-paths/tasks`.
 
 ## Objective
 
@@ -60,6 +60,13 @@ From `apps/api`, with `MYFOOD_TEST_DB_USERNAME=<local role>`, `MYFOOD_TEST_DB_PA
 ## Delivery
 
 Strategy `ask-on-risk`. Forecast: under 400 authored changed lines, one slice. Push, pull request and merge are the user's decisions.
+
+### Delivery record
+
+- 2026-10-08: ticket #11 was rebased onto `main` and published as the stack #63 to #66 while this feature was in progress, so the branch was rebased from `908fc00` onto the top of that stack, `feat/mobile-channel-casing` at `6e12d5e` (pull request #66), with no conflict. Commit identities changed: T1 `f84137e` is now `637f13d`, T2 `60692bc` is `b471e30`, T3 `d76800c` is `fb01fca`, T4 `edffe4a` is `eff0518`; the document commits `e9f6fc2`, `391145e` and `6688a4e` are `59ee541`, `62d00ef` and `c3828b2`. The native review recorded below ran on the pre-rebase commits.
+- Checks after the rebase (parent run): `mix format --check-formatted` ok, `mix compile --warnings-as-errors` ok, `mix test` 1233 passed, 20 skipped, 0 failures.
+- Running count: 561 changed lines (about 50 in `lib`, about 415 in tests, 95 in this document), above the 400 budget. The user chose one pull request with `size:exception` over three stacked slices: position 5 of the stack, based on `feat/mobile-channel-casing`.
+- The user declined the native review of the whole accumulated branch (the ticket #11 commits plus this feature); the slice review below stands for T1 to T3, and T4 was under the budget.
 
 ## Progress
 
