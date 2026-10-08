@@ -2,14 +2,14 @@ defmodule MealPlannerApiWeb.CalendarControllerTest do
   use MealPlannerApiWeb.ConnCase, async: true
 
   import MealPlannerApi.FactoryHelpers
+  import MealPlannerApi.IdentityFixtures
 
   alias MealPlannerApi.Auth.Guardian
+  alias MealPlannerApi.Persistence.Accounts.Account
   alias MealPlannerApi.Persistence.Calendar
   alias MealPlannerApi.Persistence.Catalog
-  alias MealPlannerApi.Persistence.Identity
   alias MealPlannerApi.Persistence.Planning
   alias MealPlannerApi.Repo
-  alias MealPlannerApi.Persistence.Accounts.Account
 
   # ─── Phase A — Tenancy Refactor (PR 3c task 3.14) ───────────────────────────
   # Controller sweep: `CalendarController` must resolve tenancy scope from
@@ -138,19 +138,9 @@ defmodule MealPlannerApiWeb.CalendarControllerTest do
   # ─── Gap 1: show_slot endpoint ──────────────────────────────────────────────
 
   describe "GET /api/calendar/slot — filled slot" do
-    test "returns meal with canCreate: false", %{conn: conn} do
-      token =
-        issue_token(conn, %{
-          "user_id" => "u_slot_filled",
-          "account_id" => "acct_slot_filled"
-        })
-
-      {:ok, %{account_id: account_id, user_id: user_id}} =
-        Identity.ensure_persistent_identity(%{
-          id: "u_slot_filled",
-          account_id: "acct_slot_filled",
-          plan: :family_4
-        })
+    test "returns meal with canCreate: false" do
+      %{token: token, user: %{id: user_id}, account: %{id: account_id}} =
+        insert_identity_with_token!(plan: :family_4)
 
       # Create a recipe and scheduled meal for the target slot
       {:ok, recipe} =
@@ -195,19 +185,8 @@ defmodule MealPlannerApiWeb.CalendarControllerTest do
   end
 
   describe "GET /api/calendar/slot — empty slot" do
-    test "returns canCreate: true when no meal exists", %{conn: conn} do
-      token =
-        issue_token(conn, %{
-          "user_id" => "u_slot_empty",
-          "account_id" => "acct_slot_empty"
-        })
-
-      {:ok, _} =
-        Identity.ensure_persistent_identity(%{
-          id: "u_slot_empty",
-          account_id: "acct_slot_empty",
-          plan: :family_4
-        })
+    test "returns canCreate: true when no meal exists" do
+      %{token: token} = insert_identity_with_token!(plan: :family_4)
 
       # No scheduled meal for 2026-06-20 / dinner
       conn =
@@ -235,19 +214,8 @@ defmodule MealPlannerApiWeb.CalendarControllerTest do
   end
 
   describe "GET /api/calendar/slot — validation errors" do
-    test "returns 422 for invalid date format", %{conn: conn} do
-      token =
-        issue_token(conn, %{
-          "user_id" => "u_slot_bad_date",
-          "account_id" => "acct_slot_bad_date"
-        })
-
-      {:ok, _} =
-        Identity.ensure_persistent_identity(%{
-          id: "u_slot_bad_date",
-          account_id: "acct_slot_bad_date",
-          plan: :family_4
-        })
+    test "returns 422 for invalid date format" do
+      %{token: token} = insert_identity_with_token!(plan: :family_4)
 
       conn =
         build_conn()
@@ -260,19 +228,8 @@ defmodule MealPlannerApiWeb.CalendarControllerTest do
       assert %{"error" => "invalid_date_format"} = json_response(conn, 422)
     end
 
-    test "returns 422 for invalid slot value", %{conn: conn} do
-      token =
-        issue_token(conn, %{
-          "user_id" => "u_slot_bad_slot",
-          "account_id" => "acct_slot_bad_slot"
-        })
-
-      {:ok, _} =
-        Identity.ensure_persistent_identity(%{
-          id: "u_slot_bad_slot",
-          account_id: "acct_slot_bad_slot",
-          plan: :family_4
-        })
+    test "returns 422 for invalid slot value" do
+      %{token: token} = insert_identity_with_token!(plan: :family_4)
 
       conn =
         build_conn()
@@ -285,19 +242,8 @@ defmodule MealPlannerApiWeb.CalendarControllerTest do
       assert %{"error" => "invalid_slot"} = json_response(conn, 422)
     end
 
-    test "returns 422 for missing date param", %{conn: conn} do
-      token =
-        issue_token(conn, %{
-          "user_id" => "u_slot_no_date",
-          "account_id" => "acct_slot_no_date"
-        })
-
-      {:ok, _} =
-        Identity.ensure_persistent_identity(%{
-          id: "u_slot_no_date",
-          account_id: "acct_slot_no_date",
-          plan: :family_4
-        })
+    test "returns 422 for missing date param" do
+      %{token: token} = insert_identity_with_token!(plan: :family_4)
 
       conn =
         build_conn()
@@ -307,19 +253,8 @@ defmodule MealPlannerApiWeb.CalendarControllerTest do
       assert %{"error" => "missing_date_param"} = json_response(conn, 422)
     end
 
-    test "returns 422 for missing slot param", %{conn: conn} do
-      token =
-        issue_token(conn, %{
-          "user_id" => "u_slot_no_slot",
-          "account_id" => "acct_slot_no_slot"
-        })
-
-      {:ok, _} =
-        Identity.ensure_persistent_identity(%{
-          id: "u_slot_no_slot",
-          account_id: "acct_slot_no_slot",
-          plan: :family_4
-        })
+    test "returns 422 for missing slot param" do
+      %{token: token} = insert_identity_with_token!(plan: :family_4)
 
       conn =
         build_conn()
@@ -333,19 +268,9 @@ defmodule MealPlannerApiWeb.CalendarControllerTest do
   # ─── Gap 3: canCreate in index response ─────────────────────────────────────
 
   describe "GET /api/calendar — canCreate in selectedMeal" do
-    test "selectedMeal has canCreate: false when slot is filled", %{conn: conn} do
-      token =
-        issue_token(conn, %{
-          "user_id" => "u_idx_filled",
-          "account_id" => "acct_idx_filled"
-        })
-
-      {:ok, %{account_id: account_id, user_id: user_id}} =
-        Identity.ensure_persistent_identity(%{
-          id: "u_idx_filled",
-          account_id: "acct_idx_filled",
-          plan: :family_4
-        })
+    test "selectedMeal has canCreate: false when slot is filled" do
+      %{token: token, user: %{id: user_id}, account: %{id: account_id}} =
+        insert_identity_with_token!(plan: :family_4)
 
       today = Date.utc_today()
 
@@ -390,19 +315,8 @@ defmodule MealPlannerApiWeb.CalendarControllerTest do
       assert is_binary(meal_id)
     end
 
-    test "selectedMeal has canCreate: true when slot is empty", %{conn: conn} do
-      token =
-        issue_token(conn, %{
-          "user_id" => "u_idx_empty",
-          "account_id" => "acct_idx_empty"
-        })
-
-      {:ok, _} =
-        Identity.ensure_persistent_identity(%{
-          id: "u_idx_empty",
-          account_id: "acct_idx_empty",
-          plan: :family_4
-        })
+    test "selectedMeal has canCreate: true when slot is empty" do
+      %{token: token} = insert_identity_with_token!(plan: :family_4)
 
       tomorrow = Date.add(Date.utc_today(), 10)
 
@@ -425,19 +339,9 @@ defmodule MealPlannerApiWeb.CalendarControllerTest do
   end
 
   describe "GET /api/calendar — canCreate in meals list" do
-    test "meals list items have canCreate: false", %{conn: conn} do
-      token =
-        issue_token(conn, %{
-          "user_id" => "u_meals_list",
-          "account_id" => "acct_meals_list"
-        })
-
-      {:ok, %{account_id: account_id, user_id: user_id}} =
-        Identity.ensure_persistent_identity(%{
-          id: "u_meals_list",
-          account_id: "acct_meals_list",
-          plan: :family_4
-        })
+    test "meals list items have canCreate: false" do
+      %{token: token, user: %{id: user_id}, account: %{id: account_id}} =
+        insert_identity_with_token!(plan: :family_4)
 
       today = Date.utc_today()
 
@@ -739,24 +643,4 @@ defmodule MealPlannerApiWeb.CalendarControllerTest do
   end
 
   # ─── Helper functions ────────────────────────────────────────────────────────
-
-  defp issue_token(_conn, params) do
-    {:ok, %{user: user, account: account}} =
-      MealPlannerApi.Accounts.find_or_create_identity(params)
-
-    user =
-      user
-      |> Map.put(:subscription_tier, String.to_atom(Map.get(params, "subscription_tier", "free")))
-
-    account =
-      account
-      |> Map.put(:subscription_tier, String.to_atom(Map.get(params, "subscription_tier", "free")))
-
-    {:ok, token, _claims} =
-      Guardian.encode_and_sign(user, MealPlannerApi.Accounts.claims_for(user, account),
-        token_type: "access"
-      )
-
-    token
-  end
 end

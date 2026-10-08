@@ -14,7 +14,7 @@ defmodule MealPlannerApiWeb.AccountLifecycleControllerTest do
   # is. The continuation exchange only mints `access_v2` (it does
   # NOT mint the legacy `access` typ), so we flip the v2-only flag
   # inside the continuation describe block to keep the issued JWT
-  # shape consistent with the rest of the email-code flow.
+  # `access_v2`.
   describe "POST /api/auth/switch-account (task 3.5)" do
     test "a multi-familia User can switch to a second :active Account", %{conn: conn} do
       user =
@@ -103,8 +103,8 @@ defmodule MealPlannerApiWeb.AccountLifecycleControllerTest do
   end
 
   # Post-review fix pass, item 2: `switch_account/2` must consult the
-  # same `MEAL_PLANNER_TENANCY_V2` flag `auth_controller.ex` uses, instead
-  # of unconditionally minting `access_v2` regardless of the flag.
+  # `MEAL_PLANNER_TENANCY_V2` flag, instead of unconditionally minting
+  # `access_v2` regardless of the flag.
   describe "tenancy_v2_only flag (post-review fix)" do
     setup do
       previous = Application.get_env(:meal_planner_api, :tenancy_v2_only)
@@ -145,9 +145,8 @@ defmodule MealPlannerApiWeb.AccountLifecycleControllerTest do
   # Phase 4 task 4.1 — Conditional switch-account (continuation mode).
   # ---------------------------------------------------------------------------
   #
-  # Coverage (`specs/email-code-authentication/spec.md` §"Selection
-  # Continuation Security", `design.md` §"Architecture Decisions" +
-  # §"Interfaces / Contracts"):
+  # Coverage (`design.md` §"Architecture Decisions" + §"Interfaces /
+  # Contracts"):
   #
   #   * `{membership_id, continuation_token}` with NO bearer returns 200 +
   #     `access_v2` (the random continuation IS the credential).

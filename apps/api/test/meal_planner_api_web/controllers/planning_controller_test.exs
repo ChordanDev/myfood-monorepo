@@ -2,8 +2,8 @@ defmodule MealPlannerApiWeb.PlanningControllerTest do
   use MealPlannerApiWeb.ConnCase, async: true
 
   import MealPlannerApi.FactoryHelpers
+  import MealPlannerApi.IdentityFixtures
 
-  alias MealPlannerApi.Accounts
   alias MealPlannerApi.Auth.Guardian
   alias MealPlannerApi.Persistence.Catalog
   alias MealPlannerApi.Persistence.Planning
@@ -125,12 +125,7 @@ defmodule MealPlannerApiWeb.PlanningControllerTest do
   end
 
   test "account plan returns 7 planning days", %{conn: conn} do
-    token =
-      issue_token(conn, %{
-        "user_id" => "u_free",
-        "account_id" => "acct_free",
-        "subscription_tier" => "premium"
-      })
+    %{token: token} = insert_identity_with_token!(subscription_tier: :premium)
 
     conn =
       conn
@@ -145,12 +140,7 @@ defmodule MealPlannerApiWeb.PlanningControllerTest do
   end
 
   test "premium tier receives 7 planning days", %{conn: conn} do
-    token =
-      issue_token(conn, %{
-        "user_id" => "u_premium",
-        "account_id" => "acct_premium",
-        "subscription_tier" => "premium"
-      })
+    %{token: token} = insert_identity_with_token!(subscription_tier: :premium)
 
     conn =
       conn
@@ -165,12 +155,7 @@ defmodule MealPlannerApiWeb.PlanningControllerTest do
   end
 
   test "weekly endpoint rejects days exceeding account max", %{conn: conn} do
-    token =
-      issue_token(conn, %{
-        "user_id" => "u_days_exceeded",
-        "account_id" => "acct_days_exceeded",
-        "subscription_tier" => "free"
-      })
+    %{token: token} = insert_identity_with_token!()
 
     conn =
       conn
@@ -182,20 +167,8 @@ defmodule MealPlannerApiWeb.PlanningControllerTest do
   end
 
   test "confirm endpoint persists scheduled meals", %{conn: conn} do
-    token =
-      issue_token(conn, %{
-        "user_id" => "u_plan_confirm",
-        "account_id" => "acct_plan_confirm",
-        "subscription_tier" => "premium"
-      })
-
-    {:ok, %{user: user, account: account}} =
-      Accounts.find_or_create_identity(%{
-        "user_id" => "u_plan_confirm",
-        "account_id" => "acct_plan_confirm",
-        "subscription_tier" => "premium",
-        "account_type" => "group"
-      })
+    %{token: token, user: user, account: account} =
+      insert_identity_with_token!(plan: :family_4, subscription_tier: :premium)
 
     {:ok, breakfast} =
       Catalog.create_recipe(%{
@@ -240,12 +213,7 @@ defmodule MealPlannerApiWeb.PlanningControllerTest do
   end
 
   test "confirm endpoint rejects invalid payload", %{conn: conn} do
-    token =
-      issue_token(conn, %{
-        "user_id" => "u_plan_bad",
-        "account_id" => "acct_plan_bad",
-        "subscription_tier" => "free"
-      })
+    %{token: token} = insert_identity_with_token!()
 
     conn =
       conn
@@ -254,22 +222,5 @@ defmodule MealPlannerApiWeb.PlanningControllerTest do
 
     body = json_response(conn, 400)
     assert body["error"] == "invalid_payload"
-  end
-
-  defp issue_token(_conn, params) do
-    {:ok, %{user: user, account: account}} = Accounts.find_or_create_identity(params)
-
-    requested_tier =
-      params
-      |> Map.get("subscription_tier", "free")
-      |> MealPlannerApi.Subscriptions.normalize_tier()
-
-    user = Map.put(user, :subscription_tier, requested_tier)
-    account = Map.put(account, :subscription_tier, requested_tier)
-
-    {:ok, token, _claims} =
-      Guardian.encode_and_sign(user, Accounts.claims_for(user, account), token_type: "access")
-
-    token
   end
 end

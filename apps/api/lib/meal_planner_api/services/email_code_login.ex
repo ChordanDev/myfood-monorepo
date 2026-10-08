@@ -3,15 +3,12 @@ defmodule MealPlannerApi.Services.EmailCodeLogin do
   Email-code login for the mobile app (issue #7), served by
   `POST /api/auth/login/request-code` and `POST /api/auth/login/verify-code`.
 
-  It lives beside `MealPlannerApi.Services.EmailCodeAuth` instead of inside
-  it because the two contracts disagree on purpose: the legacy flow never
-  reveals whether an email has a User and reports an expired code as an
-  invalid one, while the mobile contract answers `email_not_found` and
-  tells `code_expired` from `code_invalid`.
+  The mobile contract says whether an email has a User (`email_not_found`)
+  and tells `code_expired` from `code_invalid`.
 
-  Both flows share the `email_verification_codes` table, the SHA-256 code
-  digest, the hourly request counters in `email_auth_events` and the mailer.
-  What is specific to login:
+  The SHA-256 code digest, the code minting, the hourly request counters in
+  `email_auth_events` and the verification-code email come from
+  `MealPlannerApi.Services.EmailCodeAuth`. What this module adds:
 
     * a 60-second resend cooldown per email;
     * a new code consumes every earlier pending code for that email, so

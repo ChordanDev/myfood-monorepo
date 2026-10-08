@@ -2,10 +2,9 @@
 
 This document is the integration reference for the current backend contracts in `meal_planner_api`.
 
-> **Auth is superseded by spec #1.** The authentication contract the mobile app uses is defined in
-> [ChordanDev/myfood-monorepo#1](https://github.com/ChordanDev/myfood-monorepo/issues/1), not in this guide.
-> Section 2 and the login step of section 9 describe the legacy password and social routes and are kept
-> for reference only. Section 10 states which error body shape each group of endpoints returns today.
+> **Auth follows spec #1.** The authentication contract the mobile app uses is defined in
+> [ChordanDev/myfood-monorepo#1](https://github.com/ChordanDev/myfood-monorepo/issues/1). Section 2
+> summarises it. Section 10 states which error body shape each group of endpoints returns today.
 
 ## 1. Base URL and Transport
 
@@ -16,153 +15,180 @@ This document is the integration reference for the current backend contracts in 
 
 ## 2. Authentication
 
-> **Superseded by [spec #1](https://github.com/ChordanDev/myfood-monorepo/issues/1).** This section is
-> legacy content, kept for reference only. What changed:
->
-> - The mobile app signs in and signs up with an email code: `POST /api/auth/login/request-code`,
->   `POST /api/auth/login/verify-code`, `POST /api/auth/signup/request-code` and
->   `POST /api/auth/signup/verify-code`. Sessions are renewed with `POST /api/auth/refresh`, ended with
->   `POST /api/auth/logout`, and the signed-in user is read with `GET /api/me`. Request and response
->   bodies for these routes are specified in #1.
-> - Errors on those routes use the envelope `{ "error": { "code": "<code>", "message": "<text>" } }`.
-> - The `401` body shown in 2.4 is no longer emitted. A protected route answers a missing or invalid
->   token with the same envelope (`unauthenticated`, or `access_token_expired` for an expired token).
-> - `/api/auth/password` and `/api/auth/social` (and their aliases) still exist, and the errors their
->   controller builds still use the flat `{ "error": "<reason>" }` body listed in 2.2 and 2.3. Their
->   refresh tokens cannot be used with `POST /api/auth/refresh`.
+Sign-in and sign-up use a code sent by email; there is no password or social login. Login serves emails
+that already have a User, sign-up serves emails that do not. Both end in the same session: a short-lived
+access token and a refresh token bound to the device. The full contract is spec
+[#1](https://github.com/ChordanDev/myfood-monorepo/issues/1); this section summarises it.
 
-Auth policy note:
+Errors on the routes in 2.1, 2.2 and `POST /api/auth/refresh` use the envelope
+`{ "error": { "code": "<code>", "message": "<text>" } }` (see section 10).
 
-- Supported login entry points are `/api/auth/password` and `/api/auth/social`.
-- Legacy `/api/auth/token` has been removed.
-
-### 2.1 Shared auth success response
-
-Both `/api/auth/social` and `/api/auth/password` return this payload on success:
-
-```json
-{
-  "access_token": "<jwt>",
-  "token_type": "Bearer",
-  "user": {
-    "id": "...",
-    "account_id": "..."
-  },
-  "account": {
-    "id": "...",
-    "subscription_tier": "free"
-  },
-  "subscription": {
-    "tier": "free",
-    "max_planning_days": 7
-  },
-  "websocket": {
-    "path": "/socket/websocket",
-    "params": {
-      "token": "<jwt>"
-    }
-  }
-}
-```
-
-### 2.2 Social auth (Google / Apple / Facebook)
+### 2.1 Request a code
 
 - Method: `POST`
-- Path: `/api/auth/social`
+- Path: `/api/auth/login/request-code` (existing User) or `/api/auth/signup/request-code` (new User)
 - Auth required: No
 
 Request body:
 
 ```json
 {
-  "provider": "google",
-  "id_token": "<provider_id_token>",
-  "subscription_tier": "free"
+  "email": "user@example.com"
 }
 ```
-
-Supported `provider` values:
-
-- `google`
-- `apple`
-- `facebook`
-
-Provider token semantics for `id_token` field:
-
-- `google`: Google ID token (JWT)
-- `apple`: Apple identity token (JWT)
-- `facebook`: Facebook user access token
 
 Success response (`200`):
 
-- Uses the shared auth payload described in `2.1`.
-
-Error responses:
-
-- `400`: invalid payload shape (`invalid_social_payload`)
-- `401`: invalid token/provider errors (`invalid_social_token`, `unsupported_provider`, etc.)
-- `422`: token issuance/identity persistence errors
-
-### 2.3 Email/password auth
-
-- Method: `POST`
-- Path: `/api/auth/password`
-- Auth required: No
-
-Request body (register):
-
 ```json
 {
-  "mode": "register",
-  "email": "user@example.com",
-  "password": "supersecret123",
-  "name": "Vicenzo",
-  "account_type": "individual",
-  "subscription_tier": "free"
+  "status": "code_sent",
+  "expiresInSeconds": 600,
+  "resendAvailableInSeconds": 60
 }
 ```
 
-Request body (login):
+Error responses:
+
+- `422 invalid_email`
+- `404 email_not_found`: login only, no User has this email
+- `409 email_already_exists`: sign-up only, a User already has this email
+- `429 rate_limited`: resend cooldown or hourly request limit; the `retry-after` header carries the wait in seconds
+- `502 code_send_failed`: the email could not be sent; the request can be retried at once
+
+### 2.2 Verify the code
+
+- Method: `POST`
+- Path: `/api/auth/login/verify-code` or `/api/auth/signup/verify-code`
+- Auth required: No
+
+Request body:
 
 ```json
 {
-  "mode": "login",
   "email": "user@example.com",
-  "password": "supersecret123"
+  "code": "123456",
+  "deviceId": "<device_id>"
 }
 ```
 
 Rules:
 
-- `mode` supports `register` and `login` (defaults to `login` if omitted).
-- `password` minimum length is 8 for register.
+- `code` is the six-digit code from the email. Only the latest code requested for an email can verify.
+- `deviceId` is a non-blank string that names the phone, in practice a UUID the app generates and keeps.
+  The session it opens replaces the one the same User already had on that device.
+- A sign-up verify creates the User, their individual Account, the owner Membership and the Trial.
 
 Success response (`200`):
 
-- Uses the shared auth payload described in `2.1`.
+```json
+{
+  "accessToken": "<jwt>",
+  "refreshToken": "<jwt>",
+  "tokenType": "Bearer",
+  "me": {
+    "user": {
+      "id": "...",
+      "email": "user@example.com",
+      "displayName": "user",
+      "householdSize": null,
+      "cookingSkill": null
+    },
+    "account": {
+      "id": "...",
+      "type": "individual",
+      "trialEndsAt": "2026-01-08T12:00:00Z",
+      "subscriptionStatus": "none",
+      "access": {
+        "canUseApp": true,
+        "reason": null
+      }
+    },
+    "membership": {
+      "role": "owner"
+    },
+    "onboarding": {
+      "isComplete": false
+    }
+  }
+}
+```
+
+`me` is the same payload `GET /api/me` returns.
 
 Error responses:
 
-- `400`: invalid payload or mode (`invalid_email`, `invalid_password`, `password_too_short`, `invalid_auth_mode`)
-- `401`: auth errors (`invalid_credentials`, `email_already_registered`)
-- `422`: persistence/token issuance errors
+- `422 code_invalid`: wrong code, or a missing or blank `deviceId` (which does not spend the code or count as an attempt)
+- `401 code_expired`
+- `429 too_many_attempts`: the code is locked; request a new one
+- `401 account_not_found`: login only, the User has no active Membership
+- `409 email_already_exists`: sign-up only, the email got a User after the code was sent
+
+### 2.3 Renew and end the session
+
+Renew:
+
+- Method: `POST`
+- Path: `/api/auth/refresh`
+- Auth required: No (the refresh token in the body is the credential)
+
+Request body:
+
+```json
+{
+  "refreshToken": "<jwt>"
+}
+```
+
+Success response (`200`), without `me`:
+
+```json
+{
+  "accessToken": "<jwt>",
+  "refreshToken": "<jwt>",
+  "tokenType": "Bearer"
+}
+```
+
+Every refresh returns a new refresh token; store it and discard the one that was sent. Access tokens live
+1 hour and refresh tokens 30 days.
+
+A refresh token works once. A second request that sends the same token gets `401 refresh_token_replayed`
+and the sessions of that device are revoked. The client must serialize the refresh: one call in flight,
+shared by every request that found the access token expired.
+
+Error responses (all `401`): `refresh_token_invalid`, `refresh_token_replayed`, `refresh_token_revoked`,
+`refresh_token_expired`, `refresh_token_session_mismatch`, and `account_not_found` when the Membership of
+the session is no longer active.
+
+End:
+
+- Method: `POST`
+- Path: `/api/auth/logout`
+- Auth required: No
+- Request body: `{ "refreshToken": "<jwt>" }`
+- Response: `204` with no body, also for a refresh token that is unknown, already revoked or missing.
 
 ### 2.4 Authenticated user endpoints
 
 All routes below require:
 
 ```http
-Authorization: Bearer <access_token>
+Authorization: Bearer <accessToken>
 ```
 
-If invalid/missing token, backend returns `401`:
+If the token is missing or invalid, the backend returns `401` with the envelope:
 
 ```json
 {
-  "error": "unauthorized",
-  "reason": "unauthenticated"
+  "error": {
+    "code": "unauthenticated",
+    "message": "Authentication is required for this request."
+  }
 }
 ```
+
+An expired access token gets `401 access_token_expired` in the same envelope: refresh (2.3) and retry,
+running one refresh at a time.
 
 ## 3. Account Context and Budget Inputs
 
@@ -236,6 +262,63 @@ Success response (`200`), the same `user` object `GET /api/me` returns:
 Fields are validated in the order `displayName`, `householdSize`, `cookingSkill`, and the first offending
 one decides the response: `422 invalid_cooking_skill` when `cookingSkill` is a string outside the catalog,
 `422 validation_error` otherwise, with a `message` that names the field. A rejected request stores nothing.
+
+### 3.4 Get slot cooking times
+
+For each of breakfast, lunch and dinner: the minutes the signed-in User will cook and their Hunger level.
+The times belong to the User, not to the Account. Like `GET /api/me`, this route and the one in 3.5 are not
+behind the capability guard, so they stay reachable when the Account's trial has expired. Both read and
+render camelCase keys.
+
+- Method: `GET`
+- Path: `/api/me/slot-cooking-times`
+
+Success response (`200`), with no wrapper:
+
+```json
+{
+  "breakfast": { "cookingTimeMinutes": 0, "hungerLevel": "light" },
+  "lunch": { "cookingTimeMinutes": 30, "hungerLevel": "normal" },
+  "dinner": { "cookingTimeMinutes": 45, "hungerLevel": "strong" }
+}
+```
+
+Errors (envelope, see section 10):
+
+- `404 slot_cooking_times_not_found`: the User has not saved the three slots yet. The mobile settings
+  screen reads this code as "none saved" and starts from its default set; any other failure is an error.
+
+### 3.5 Replace slot cooking times
+
+- Method: `PUT`
+- Path: `/api/me/slot-cooking-times`
+
+Request body: the same shape as the response in 3.4. The body is the whole set and replaces the saved one;
+nothing is saved when it is refused.
+
+Rules:
+
+- Exactly the three slots `breakfast`, `lunch` and `dinner`, each an object. `snack` is neither required
+  nor accepted, and neither is any other key.
+- `cookingTimeMinutes`: an integer from `0` to `240`. `0` means the User does not cook that slot. A
+  decimal (`30.0`), a numeric string or a boolean is refused.
+- `hungerLevel`: `light`, `normal` or `strong`.
+
+Success response (`200`): the stored set, in the shape of 3.4.
+
+Errors (envelope, see section 10):
+
+- `422 validation_error`: a slot is missing or is not an object, a key is not one of the three slots,
+  `cookingTimeMinutes` is missing, not an integer or outside `0` to `240`, or `hungerLevel` is missing or
+  not a string. The `message` is `The field <field> is not valid.`, where `<field>` is the field at fault
+  in camelCase: a slot (`lunch`), a key that is not a slot (`snack`) or a field of a slot
+  (`lunch.cookingTimeMinutes`, `dinner.hungerLevel`).
+- `422 validation_error` with the `message` `The request is not valid.`: the body is not a JSON object,
+  or no parser read it (for example a `text/plain` body). There is no field to name.
+- `422 invalid_hunger_level`: `hungerLevel` is a string outside `light`, `normal` and `strong`.
+
+Only the first problem is reported: a key that is not a slot, then each slot in the order breakfast,
+lunch, dinner, and within a slot its minutes before its Hunger level.
 
 ## 4. Planning (REST)
 
@@ -723,7 +806,7 @@ Shopping errors are returned as `422` with:
 
 ## 8.1 Connect socket
 
-Use token returned by either `/api/auth/password` or `/api/auth/social`:
+Use the access token of the current session (section 2):
 
 ```ts
 import { Socket } from "phoenix";
@@ -965,7 +1048,7 @@ For unsupported event name, channel reply error is:
 
 ## 9. Recommended React Native Integration Sequence
 
-1. `POST /api/auth/password` or `POST /api/auth/social` and persist `access_token` securely.
+1. Request and verify an email code (section 2) and persist `accessToken` and `refreshToken` securely.
 2. Configure HTTP client with `Authorization: Bearer <token>`.
 3. Load `/api/account/context` for budget, inventory names, and plan limits.
 4. Open socket with token and join `planning:<account_id>`.
@@ -990,17 +1073,15 @@ Two error body shapes are in use. Which one a request gets depends on the code p
     `/api/auth/signup/request-code`, `/api/auth/signup/verify-code` and `/api/auth/refresh`;
   - `GET /api/me` and its alias `GET /api/auth/me`;
   - `PUT /api/me/profile`: `422 validation_error` and `422 invalid_cooking_skill`;
+  - `GET` and `PUT /api/me/slot-cooking-times`: `404 slot_cooking_times_not_found`, `422 validation_error`
+    and `422 invalid_hunger_level` (see 3.4 and 3.5);
   - `GET /api/recipes/:id`: `404 recipe_not_found` and `403 forbidden` (section 11).
 - **Flat (legacy, not migrated to the envelope):** `{ "error": "<reason>" }`, with the status chosen by each
   endpoint (`422` in most controllers). It is still returned by:
   - the validation and domain errors that the non-auth controllers build themselves: account context,
     dietary profile, planning, planning chat, calendar, cooking, shopping, inventory, memberships, invites,
     account leave and billing;
-  - the legacy auth routes, for the errors their own controller or plug builds: `/api/auth/password`,
-    `/api/auth/social` and their aliases, `/api/auth/email-code/request`, `/api/auth/email-code/verify` and
-    `/api/auth/switch-account`. On `/api/auth/email-code/verify` this covers only the errors its controller
-    builds: an invalid bearer on that route is rejected by its plug with the envelope
-    (`401 unauthenticated`). `/api/auth/email-code/request` does not go through that plug;
+  - `/api/auth/switch-account`, for the errors its own controller or plug builds;
   - the account scope check on `/api/accounts/:account_id/*`: `403` with `{ "error": "account_mismatch" }`.
 - Planning weekly has explicit `400` for known request-shape/limits errors (including `exceeds_max_planning_days`).
 - Channel generation errors are emitted and replied with `reason` as string.

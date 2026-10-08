@@ -2,13 +2,12 @@ defmodule MealPlannerApi.Persistence.Auth.EmailAuthEvent do
   @moduledoc """
   Phase 1 — Persistence and Code Request (issue #31).
 
-  Append-only rate-limit / lockout event log. One row per `request` or
-  `verification_failure` attempt; the `Retry-After` policy reads the
-  earliest counted event from this table.
+  Append-only rate-limit event log. One row per counted `request`; the
+  `Retry-After` policy reads the earliest counted event from this table.
+  The `kind` check of the table also admits `verification_failure`,
+  which nothing writes.
 
-  See `specs/email-code-authentication/spec.md` requirements "Code
-  Request Rate Limits" and "Failed-Verification Lockout", and
-  `design.md` §"Persistence Shapes".
+  See `design.md` §"Persistence Shapes".
   """
   use Ecto.Schema
 

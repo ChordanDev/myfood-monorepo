@@ -1,12 +1,13 @@
 defmodule MealPlannerApi.PlanningTest do
   use ExUnit.Case, async: false
 
+  import MealPlannerApi.IdentityFixtures
+
   alias Ecto.Adapters.SQL.Sandbox
-  alias MealPlannerApi.Accounts
   alias MealPlannerApi.Persistence.Catalog
   alias MealPlannerApi.Persistence.Shopping
-  alias MealPlannerApi.Repo
   alias MealPlannerApi.Planning
+  alias MealPlannerApi.Repo
 
   setup do
     :ok = Sandbox.checkout(Repo)
@@ -151,13 +152,8 @@ defmodule MealPlannerApi.PlanningTest do
   end
 
   defp create_identity_with_recipes(user_id, subscription_tier, account_type) do
-    {:ok, %{user: user, account: account}} =
-      Accounts.find_or_create_identity(%{
-        "user_id" => user_id,
-        "account_id" => "acct_#{user_id}",
-        "subscription_tier" => subscription_tier,
-        "account_type" => account_type
-      })
+    %{user: user, account: account} =
+      insert_identity!(plan: if(account_type == "group", do: :family_4, else: :individual))
 
     {:ok, _breakfast} =
       Catalog.create_recipe(%{

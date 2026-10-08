@@ -4,64 +4,26 @@ defmodule MealPlannerApiWeb.AuthControllerTest do
   import MealPlannerApi.FactoryHelpers
 
   alias Guardian.Token.Jwt, as: GuardianJwt
+  alias MealPlannerApi.AccountsMembership
   alias MealPlannerApi.Auth.Guardian
   alias MealPlannerApi.Persistence.Accounts.User
   alias MealPlannerApi.Persistence.Auth.DeviceSession
   alias MealPlannerApi.Persistence.Auth.EmailVerificationCode
   alias MealPlannerApi.Repo
   alias MealPlannerApi.Services.EmailCodeAuth
+  alias MealPlannerApiWeb.Controllers.AccountScopeHelpers
 
   @refresh_path "/api/auth/refresh"
   @logout_path "/api/auth/logout"
   @device_id "3f0c5f4e-6f0e-4a55-9d0b-1c7f1f6f2a10"
 
-  setup do
-    previous_verifier = Application.get_env(:meal_planner_api, :social_verifier)
-
-    Application.put_env(
-      :meal_planner_api,
-      :social_verifier,
-      MealPlannerApi.Auth.SocialVerifierFake
-    )
-
-    on_exit(fn ->
-      Application.put_env(:meal_planner_api, :social_verifier, previous_verifier)
-    end)
-
-    :ok
-  end
-
-  test "password register issues token with account and subscription claims", %{conn: conn} do
-    conn =
-      post(conn, "/api/auth/password", %{
-        "mode" => "register",
-        "email" => "u_auth@myfood.local",
-        "password" => "supersecret123",
-        "name" => "U Auth",
-        "account_type" => "group",
-        "subscription_tier" => "premium"
-      })
-
-    body = json_response(conn, 200)
-
-    assert is_binary(body["access_token"])
-    assert body["subscription"]["tier"] == "premium"
-    assert body["subscription"]["max_planning_days"] == 7
-
-    {:ok, claims} = Guardian.decode_and_verify(body["access_token"])
-    assert claims["account_id"] == body["account"]["id"]
-    assert claims["account_type"] == "group"
-    assert claims["subscription_tier"] == "premium"
-  end
-
   test "authenticated me endpoint returns the mobile CurrentMe body", %{conn: conn} do
-    token =
-      issue_password_token(conn, %{
-        "email" => "u_me@myfood.local",
-        "password" => "supersecret123",
-        "name" => "U Me",
-        "subscription_tier" => "free"
-      })
+    user =
+      user_with_memberships(%{email: "u_me@myfood.local", name: "U Me"}, [
+        {%{plan: :individual, name: "U Me"}, :owner}
+      ])
+
+    token = login!(conn, user)["accessToken"]
 
     conn =
       conn
@@ -88,13 +50,7 @@ defmodule MealPlannerApiWeb.AuthControllerTest do
   end
 
   test "authenticated me endpoint rejects token when user no longer exists", %{conn: conn} do
-    token =
-      issue_password_token(conn, %{
-        "email" => "u_me_deleted@myfood.local",
-        "password" => "supersecret123",
-        "name" => "U Me Deleted",
-        "subscription_tier" => "free"
-      })
+    token = login!(conn, insert_owner!("u_me_deleted@myfood.local"))["accessToken"]
 
     {:ok, claims} = Guardian.decode_and_verify(token)
 
@@ -109,269 +65,6 @@ defmodule MealPlannerApiWeb.AuthControllerTest do
 
     body = json_response(conn, 401)
     assert body["error"]["code"] == "unauthenticated"
-  end
-
-  test "password endpoint fails when required fields are missing", %{conn: conn} do
-    conn =
-      post(conn, "/api/auth/password", %{
-        "mode" => "register",
-        "email" => "u_missing_password@myfood.local",
-        "subscription_tier" => "free"
-      })
-
-    body = json_response(conn, 400)
-    assert body["error"] == "invalid_password"
-  end
-
-  test "social auth issues token for a verified provider identity", %{conn: conn} do
-    Process.put(
-      {MealPlannerApi.Auth.SocialVerifierFake, :response},
-      {:ok,
-       %{
-         provider: "google",
-         provider_user_id: "g_123",
-         email: "g_123@myfood.local",
-         name: "G User"
-       }}
-    )
-
-    conn =
-      post(conn, "/api/auth/social", %{
-        "provider" => "google",
-        "id_token" => "google-id-token",
-        "subscription_tier" => "free"
-      })
-
-    body = json_response(conn, 200)
-
-    assert is_binary(body["access_token"])
-    assert body["user"]["email"] == "g_123@myfood.local"
-    assert body["websocket"]["params"]["token"] == body["access_token"]
-  end
-
-  test "social auth supports facebook provider identity", %{conn: conn} do
-    Process.put(
-      {MealPlannerApi.Auth.SocialVerifierFake, :response},
-      {:ok,
-       %{
-         provider: "facebook",
-         provider_user_id: "fb_123",
-         email: "fb_123@myfood.local",
-         name: "FB User"
-       }}
-    )
-
-    conn =
-      post(conn, "/api/auth/social", %{
-        "provider" => "facebook",
-        "id_token" => "facebook-user-token",
-        "subscription_tier" => "free"
-      })
-
-    body = json_response(conn, 200)
-
-    assert is_binary(body["access_token"])
-    assert body["user"]["email"] == "fb_123@myfood.local"
-  end
-
-  test "social auth rejects unsupported provider", %{conn: conn} do
-    Process.put(
-      {MealPlannerApi.Auth.SocialVerifierFake, :response},
-      {:error, :unsupported_provider}
-    )
-
-    conn =
-      post(conn, "/api/auth/social", %{
-        "provider" => "twitter",
-        "id_token" => "tw-token"
-      })
-
-    body = json_response(conn, 401)
-    assert body["error"] == "unsupported_provider"
-  end
-
-  test "social auth validates required payload", %{conn: conn} do
-    conn =
-      post(conn, "/api/auth/social", %{
-        "provider" => "google"
-      })
-
-    body = json_response(conn, 400)
-    assert body["error"] == "invalid_social_payload"
-  end
-
-  test "password auth register creates user and returns token", %{conn: conn} do
-    conn =
-      post(conn, "/api/auth/password", %{
-        "mode" => "register",
-        "email" => "password_user@myfood.local",
-        "password" => "supersecret123",
-        "name" => "Password User",
-        "account_type" => "individual"
-      })
-
-    body = json_response(conn, 200)
-
-    assert is_binary(body["access_token"])
-    assert body["user"]["email"] == "password_user@myfood.local"
-  end
-
-  test "password auth login returns token for existing credentials", %{conn: conn} do
-    _register_response =
-      conn
-      |> post("/api/auth/password", %{
-        "mode" => "register",
-        "email" => "password_login@myfood.local",
-        "password" => "supersecret123",
-        "name" => "Password Login User"
-      })
-      |> json_response(200)
-
-    conn =
-      post(conn, "/api/auth/password", %{
-        "mode" => "login",
-        "email" => "password_login@myfood.local",
-        "password" => "supersecret123"
-      })
-
-    body = json_response(conn, 200)
-    assert is_binary(body["access_token"])
-    assert body["user"]["email"] == "password_login@myfood.local"
-  end
-
-  test "password auth rejects wrong credentials", %{conn: conn} do
-    _register_response =
-      conn
-      |> post("/api/auth/password", %{
-        "mode" => "register",
-        "email" => "password_wrong@myfood.local",
-        "password" => "supersecret123",
-        "name" => "Password Wrong User"
-      })
-      |> json_response(200)
-
-    conn =
-      post(conn, "/api/auth/password", %{
-        "mode" => "login",
-        "email" => "password_wrong@myfood.local",
-        "password" => "wrong-password"
-      })
-
-    body = json_response(conn, 401)
-    assert body["error"] == "invalid_credentials"
-  end
-
-  test "password auth validates minimum password length", %{conn: conn} do
-    conn =
-      post(conn, "/api/auth/password", %{
-        "mode" => "register",
-        "email" => "short_pass@myfood.local",
-        "password" => "short"
-      })
-
-    body = json_response(conn, 400)
-    assert body["error"] == "password_too_short"
-  end
-
-  defp issue_password_token(conn, params) do
-    register_payload =
-      Map.merge(
-        %{
-          "mode" => "register",
-          "account_type" => "individual"
-        },
-        params
-      )
-
-    response = conn |> post("/api/auth/password", register_payload) |> json_response(200)
-    response["access_token"]
-  end
-
-  # ----------------------------------------------------------------------
-  # Phase A — Tenancy Refactor (PR 3a task 3.8)
-  # ----------------------------------------------------------------------
-  #
-  # `auth_controller.ex` consults `:meal_planner_api, :tenancy_v2_only` to
-  # decide whether `password/2` (register + login modes) mints `access_v2`
-  # (via `AccountsMembership.claims_for/2`) or the legacy `access_v1`
-  # (via `Accounts.claims_for/2`).
-  describe "tenancy_v2_only flag (task 3.8)" do
-    setup do
-      previous = Application.get_env(:meal_planner_api, :tenancy_v2_only)
-
-      on_exit(fn ->
-        Application.put_env(:meal_planner_api, :tenancy_v2_only, previous)
-      end)
-
-      :ok
-    end
-
-    test "password register mints access_v2 with membership claims when the flag is on", %{
-      conn: conn
-    } do
-      Application.put_env(:meal_planner_api, :tenancy_v2_only, true)
-
-      conn =
-        post(conn, "/api/auth/password", %{
-          "mode" => "register",
-          "email" => "v2_register@myfood.local",
-          "password" => "supersecret123",
-          "name" => "V2 Register"
-        })
-
-      body = json_response(conn, 200)
-      {:ok, claims} = Guardian.decode_and_verify(body["access_token"])
-
-      assert claims["typ"] == "access_v2"
-      assert is_binary(claims["membership_id"])
-      assert claims["account_id"] == body["account"]["id"]
-      assert claims["role"] == "owner"
-    end
-
-    test "password login mints access_v2 with membership claims when the flag is on", %{
-      conn: conn
-    } do
-      _ =
-        post(conn, "/api/auth/password", %{
-          "mode" => "register",
-          "email" => "v2_login@myfood.local",
-          "password" => "supersecret123",
-          "name" => "V2 Login"
-        })
-
-      Application.put_env(:meal_planner_api, :tenancy_v2_only, true)
-
-      conn =
-        post(conn, "/api/auth/password", %{
-          "mode" => "login",
-          "email" => "v2_login@myfood.local",
-          "password" => "supersecret123"
-        })
-
-      body = json_response(conn, 200)
-      {:ok, claims} = Guardian.decode_and_verify(body["access_token"])
-
-      assert claims["typ"] == "access_v2"
-      assert is_binary(claims["membership_id"])
-    end
-
-    test "password register mints access_v1 when the flag is off (regression)", %{conn: conn} do
-      Application.put_env(:meal_planner_api, :tenancy_v2_only, false)
-
-      conn =
-        post(conn, "/api/auth/password", %{
-          "mode" => "register",
-          "email" => "v1_register_flagoff@myfood.local",
-          "password" => "supersecret123",
-          "name" => "V1 Register"
-        })
-
-      body = json_response(conn, 200)
-      {:ok, claims} = Guardian.decode_and_verify(body["access_token"])
-
-      assert claims["typ"] == "access"
-      refute Map.has_key?(claims, "membership_id")
-    end
   end
 
   # ----------------------------------------------------------------------
@@ -438,24 +131,16 @@ defmodule MealPlannerApiWeb.AuthControllerTest do
       assert_error(post(conn, @refresh_path, %{}), 401, "refresh_token_invalid")
     end
 
-    test "tokens the legacy routes minted have no Device session and are refused", %{conn: conn} do
-      register_body =
-        conn
-        |> post("/api/auth/password", %{
-          "mode" => "register",
-          "email" => "legacy_refresh@myfood.local",
-          "password" => "supersecret123",
-          "name" => "Legacy Refresh"
-        })
-        |> json_response(200)
+    test "a signed refresh token minted without a Device session is refused", %{conn: conn} do
+      user = insert_owner!("sessionless_refresh@myfood.local")
+      [membership] = user.memberships
 
-      assert {:ok, %{"typ" => "refresh"}} =
-               Guardian.decode_and_verify(register_body["refresh_token"])
+      {:ok, _access_token, refresh_token} =
+        AccountScopeHelpers.mint_token_pair(user, AccountsMembership.claims_for(user, membership))
 
-      for body <- [
-            %{"refreshToken" => register_body["refresh_token"]},
-            %{"refresh_token" => register_body["refresh_token"]}
-          ] do
+      assert {:ok, %{"typ" => "refresh"}} = Guardian.decode_and_verify(refresh_token)
+
+      for body <- [%{"refreshToken" => refresh_token}, %{"refresh_token" => refresh_token}] do
         assert_error(post(conn, @refresh_path, body), 401, "refresh_token_invalid")
       end
     end

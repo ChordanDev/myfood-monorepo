@@ -2,9 +2,9 @@ defmodule MealPlannerApi.InventoryTest do
   use ExUnit.Case, async: false
 
   import Ecto.Query, warn: false
+  import MealPlannerApi.IdentityFixtures
 
   alias Ecto.Adapters.SQL.Sandbox
-  alias MealPlannerApi.Accounts
   alias MealPlannerApi.Inventory
   alias MealPlannerApi.Persistence.Catalog
   alias MealPlannerApi.Persistence.Identity
@@ -20,13 +20,7 @@ defmodule MealPlannerApi.InventoryTest do
   end
 
   test "available_for subtracts future reservations and releases past uncooked meals" do
-    {:ok, %{user: user, account: account}} =
-      Accounts.find_or_create_identity(%{
-        "user_id" => "u_inv_reserved",
-        "account_id" => "acct_inv_reserved",
-        "account_type" => "group",
-        "subscription_tier" => "premium"
-      })
+    %{user: user, account: account} = insert_identity!(plan: :family_4)
 
     {:ok, %{user_id: user_id}} =
       Identity.ensure_persistent_identity(%{
@@ -150,13 +144,7 @@ defmodule MealPlannerApi.InventoryTest do
   defp inventory_scenario(stock_quantity, reservations) do
     suffix = System.unique_integer([:positive])
 
-    {:ok, %{user: user, account: account}} =
-      Accounts.find_or_create_identity(%{
-        "user_id" => "u_inv_range_#{suffix}",
-        "account_id" => "acct_inv_range_#{suffix}",
-        "account_type" => "group",
-        "subscription_tier" => "premium"
-      })
+    %{user: user, account: account} = insert_identity!(plan: :family_4)
 
     {:ok, %{user_id: user_id}} =
       Identity.ensure_persistent_identity(%{
@@ -469,13 +457,7 @@ defmodule MealPlannerApi.InventoryTest do
     test "concurrent initial deltas on non-existent item accumulate into one item without race collisions" do
       suffix = System.unique_integer([:positive])
 
-      {:ok, %{user: user, account: account}} =
-        Accounts.find_or_create_identity(%{
-          "user_id" => "u_conc_init_#{suffix}",
-          "account_id" => "acct_conc_init_#{suffix}",
-          "account_type" => "group",
-          "subscription_tier" => "premium"
-        })
+      %{user: user, account: account} = insert_identity!(plan: :family_4)
 
       {:ok, %{user_id: user_id}} =
         Identity.ensure_persistent_identity(%{
@@ -552,13 +534,7 @@ defmodule MealPlannerApi.InventoryTest do
     test "concurrent deltas on existing item accumulate without silent lost updates" do
       suffix = System.unique_integer([:positive])
 
-      {:ok, %{user: user, account: account}} =
-        Accounts.find_or_create_identity(%{
-          "user_id" => "u_conc_exist_#{suffix}",
-          "account_id" => "acct_conc_exist_#{suffix}",
-          "account_type" => "group",
-          "subscription_tier" => "premium"
-        })
+      %{user: user, account: account} = insert_identity!(plan: :family_4)
 
       {:ok, %{user_id: user_id}} =
         Identity.ensure_persistent_identity(%{
@@ -635,13 +611,7 @@ defmodule MealPlannerApi.InventoryTest do
     test "concurrent deltas across different accounts remain strictly isolated" do
       suffix = System.unique_integer([:positive])
 
-      {:ok, %{user: user_a, account: account_a}} =
-        Accounts.find_or_create_identity(%{
-          "user_id" => "u_iso_a_#{suffix}",
-          "account_id" => "acct_iso_a_#{suffix}",
-          "account_type" => "group",
-          "subscription_tier" => "premium"
-        })
+      %{user: user_a, account: account_a} = insert_identity!(plan: :family_4)
 
       {:ok, %{user_id: user_id_a}} =
         Identity.ensure_persistent_identity(%{
@@ -650,13 +620,7 @@ defmodule MealPlannerApi.InventoryTest do
           plan: :family_4
         })
 
-      {:ok, %{user: user_b, account: account_b}} =
-        Accounts.find_or_create_identity(%{
-          "user_id" => "u_iso_b_#{suffix}",
-          "account_id" => "acct_iso_b_#{suffix}",
-          "account_type" => "group",
-          "subscription_tier" => "premium"
-        })
+      %{user: user_b, account: account_b} = insert_identity!(plan: :family_4)
 
       {:ok, %{user_id: user_id_b}} =
         Identity.ensure_persistent_identity(%{
@@ -729,13 +693,7 @@ defmodule MealPlannerApi.InventoryTest do
     test "rollback boundary: invalid transaction rolls back both item state and mutation event" do
       suffix = System.unique_integer([:positive])
 
-      {:ok, %{user: _user, account: account}} =
-        Accounts.find_or_create_identity(%{
-          "user_id" => "u_rb_#{suffix}",
-          "account_id" => "acct_rb_#{suffix}",
-          "account_type" => "group",
-          "subscription_tier" => "premium"
-        })
+      %{account: account} = insert_identity!(plan: :family_4)
 
       {:ok, ingredient} =
         Catalog.upsert_ingredient_by_name(%{
@@ -779,13 +737,7 @@ defmodule MealPlannerApi.InventoryTest do
   defp lot_identity(label) do
     suffix = System.unique_integer([:positive])
 
-    {:ok, %{user: user, account: account}} =
-      Accounts.find_or_create_identity(%{
-        "user_id" => "u_lot_#{label}_#{suffix}",
-        "account_id" => "acct_lot_#{label}_#{suffix}",
-        "account_type" => "group",
-        "subscription_tier" => "premium"
-      })
+    %{user: user, account: account} = insert_identity!(plan: :family_4)
 
     {:ok, %{user_id: user_id}} =
       Identity.ensure_persistent_identity(%{

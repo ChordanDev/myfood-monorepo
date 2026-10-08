@@ -36,22 +36,13 @@ defmodule MealPlannerApiWeb.Router do
     plug(MealPlannerApiWeb.Plugs.EnforceCapability)
   end
 
-  # Phase 2 — Email-code authentication: optional Bearer decoder used by
-  # `/api/auth/email-code/verify`. Absent header → no assignment
-  # (passwordless). Present + invalid → halts with 401. Present + valid
-  # → assigns the decoded `sub` for principal binding.
-  pipeline :optional_bearer do
-    plug(MealPlannerApiWeb.Plugs.OptionalBearerUser)
-  end
-
   # Phase 4 — Conditional authentication for `/api/auth/switch-account`
-  # (`email-code-auth-account-selection`, task 4.2). When the request
-  # body lacks `continuation_token` the plug delegates to the standard
-  # `:auth` pipeline (legacy bearer-authenticated switch). When the
-  # body carries a `continuation_token` the plug validates it as the
-  # sole credential: hash → row lookup → unconsumed / unexpired /
-  # optional bearer match. See `Plugs.SwitchAccountAuth` for the full
-  # matrix.
+  # (task 4.2). When the request body lacks `continuation_token` the
+  # plug delegates to the standard `:auth` pipeline (legacy
+  # bearer-authenticated switch). When the body carries a
+  # `continuation_token` the plug validates it as the sole credential:
+  # hash → row lookup → unconsumed / unexpired / optional bearer match.
+  # See `Plugs.SwitchAccountAuth` for the full matrix.
   pipeline :switch_account_auth do
     plug(MealPlannerApiWeb.Plugs.SwitchAccountAuth)
   end
@@ -59,40 +50,15 @@ defmodule MealPlannerApiWeb.Router do
   scope "/api", MealPlannerApiWeb do
     pipe_through(:api)
 
-    # Auth endpoints (no auth required)
-    post("/auth/social", AuthController, :social)
-    post("/auth/password", AuthController, :password)
-    # Route aliases for frontend compatibility (G1-G5)
-    post("/auth/login", AuthController, :password)
-    post("/auth/register", AuthController, :password)
-    post("/auth/google", AuthController, :social)
-    post("/auth/facebook", AuthController, :social)
-    post("/auth/apple", AuthController, :social)
-    # Refresh token (G6)
+    # Device session rotation and revocation (issue #9). Neither route
+    # takes an access token: the refresh token in the body is the
+    # credential.
     post("/auth/refresh", AuthController, :refresh)
-    # Logout (G7)
     post("/auth/logout", AuthController, :logout)
 
-    # Phase 1 — Email-code authentication: unauthenticated request
-    # endpoint (`specs/email-code-authentication/spec.md` §"Code Request
-    # and Non-Enumerating Storage"). Always returns 202; rate limits
-    # surface as `429 + Retry-After`.
-    post("/auth/email-code/request", EmailCodeAuthController, :request)
-
-    # Phase 2 — Email-code authentication: verify endpoint
-    # (`specs/email-code-authentication/spec.md` §"Atomic Single-Use
-    # Code Verification" + §"Failed-Verification Lockout"). Accepts
-    # optional Bearer — the `OptionalBearerUser` plug decodes it and
-    # the controller forwards the resolved `user_id` (or `nil`) to the
-    # service for principal binding.
-    scope "/auth/email-code" do
-      pipe_through(:optional_bearer)
-      post("/verify", EmailCodeAuthController, :verify)
-    end
-
     # Mobile login (issue #7) and sign-up (issue #8) with an email code.
-    # Unlike the `/auth/email-code/*` routes above, these reveal whether
-    # the email has a User and answer with the mobile error envelope.
+    # Both answer with the mobile error envelope and say whether the
+    # email has a User (`email_not_found`, `email_already_exists`).
     post("/auth/login/request-code", MobileAuthController, :request_login_code)
     post("/auth/login/verify-code", MobileAuthController, :verify_login_code)
     post("/auth/signup/request-code", MobileAuthController, :request_signup_code)
@@ -148,7 +114,7 @@ defmodule MealPlannerApiWeb.Router do
 
     # User endpoints (auth required, capability-exempt by design).
     # `GET /me` is declared in the `:mobile_casing` scope below.
-    # Alias for frontend (G8)
+    # Alias of `/me`
     get("/auth/me", AccountsController, :me)
     get("/account/context", AccountsController, :context)
     get("/account/dietary-profile", DietaryProfileController, :show)
@@ -179,8 +145,7 @@ defmodule MealPlannerApiWeb.Router do
   #     body lacks `continuation_token` (legacy bearer-authenticated
   #     switch — existing behaviour);
   #   * validates the opaque continuation token as the sole credential
-  #     when the body carries one (multi-membership verify flow —
-  #     task 3.4's continuation exchange).
+  #     when the body carries one (task 3.4's continuation exchange).
   #
   # The route stays out of `:enforce_capability` per the design-exempt
   # matrix in `design.md` §"Interfaces / Contracts" so an expired
@@ -197,11 +162,22 @@ defmodule MealPlannerApiWeb.Router do
   #
   # Issue #17 — `PUT /me/profile` shares the exemption, so a User whose
   # Account Access state is `expired` can still edit the Onboarding profile.
+  #
+  # Issue #19 — `GET` and `PUT /me/slot-cooking-times` share the exemption
+  # too: Slot cooking times belong to the User, not to the Account.
+  #
+  # Issue #18 — `GET` and `PUT /me/preferences` sit here for the same
+  # exemption: a User of an Account whose Trial expired can still read and
+  # save their preferences.
   scope "/api", MealPlannerApiWeb do
     pipe_through([:api, :mobile_casing, :auth])
 
     get("/me", AccountsController, :me)
     put("/me/profile", ProfileController, :update)
+    get("/me/slot-cooking-times", SlotCookingTimesController, :show)
+    put("/me/slot-cooking-times", SlotCookingTimesController, :update)
+    get("/me/preferences", PreferencesController, :show)
+    put("/me/preferences", PreferencesController, :update)
   end
 
   # Product routes of the mobile app. `:mobile_casing` is opt-in and this is
