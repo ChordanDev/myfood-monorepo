@@ -246,10 +246,12 @@ defmodule MealPlannerApi.AccountsTest do
       :ok = Sandbox.checkin(Repo)
       :ok = Sandbox.checkout(Repo, sandbox: false)
       # The plan fixtures inserted by this file's module-level `setup`
-      # only committed inside the (now abandoned) sandboxed connection —
-      # re-run it for real so the new non-sandboxed connection (and every
-      # racer's own non-sandboxed connection below) can see them.
-      :ok = MealPlannerApi.SubscriptionPlanFixtures.ensure_plans!()
+      # only lived inside the (now abandoned) sandboxed connection. The
+      # Account below is `:individual`, so that Plan has to be a committed
+      # row the racers' own connections can see. It is inserted only when
+      # the database lacks it and deleted when the test is over;
+      # `ensure_plans!/0` here would commit every fixture Plan for good.
+      :ok = MealPlannerApi.SubscriptionPlanFixtures.ensure_committed_plan!("individual")
 
       shared_external_account_id = "acct_concurrency_race_#{Ecto.UUID.generate()}"
 

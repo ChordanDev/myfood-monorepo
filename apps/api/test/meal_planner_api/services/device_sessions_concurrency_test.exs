@@ -8,7 +8,8 @@ defmodule MealPlannerApi.Services.DeviceSessionsConcurrencyTest do
   on a lock another request holds. Here every request runs in a process
   with a database connection of its own and commits: the sandbox is
   left in `:auto` mode and no connection is checked out, so the rows
-  are real and `on_exit` deletes them.
+  are real and `on_exit` deletes them. The suite leaves the database as
+  it found it, the reference Plans included.
 
   Two kinds of test:
 
@@ -33,6 +34,7 @@ defmodule MealPlannerApi.Services.DeviceSessionsConcurrencyTest do
   alias MealPlannerApi.Persistence.Auth.DeviceSession
   alias MealPlannerApi.Repo
   alias MealPlannerApi.Services.DeviceSessions
+  alias MealPlannerApi.SubscriptionPlanFixtures
 
   @moduletag :runtime_db_concurrency
 
@@ -46,8 +48,11 @@ defmodule MealPlannerApi.Services.DeviceSessionsConcurrencyTest do
     # The mode `test/test_helper.exs` sets; a suite that ran before this
     # one may have left the sandbox shared with its own test process.
     Sandbox.mode(Repo, :auto)
-    :ok = MealPlannerApi.SubscriptionPlanFixtures.ensure_plans!()
-    :ok
+
+    # Every Account here is `:individual`, so that is the only Plan the suite
+    # needs. `ensure_plans!/0` is not used: outside the sandbox it would
+    # commit every fixture Plan and rewrite the ones the migrations inserted.
+    :ok = SubscriptionPlanFixtures.ensure_committed_plan!("individual")
   end
 
   setup do
