@@ -246,19 +246,36 @@ defmodule MealPlannerApi.Services.InventoryServiceTest do
       }
 
       assert {:ok, result} = InventoryService.add_extra_item(scoped_user, payload)
-      assert result.status == "ok"
-      assert result.operation == "add_extra"
-      assert result.quantity_milli == 500
-      assert result.unit == "g"
-      assert result.event_id != nil
+      assert result |> Map.keys() |> Enum.sort() == [:item, :mutation_event]
 
       # Verify persistence and event
       [item] = InventoryPersistence.list_inventory(account.id)
       assert item.quantity_milli == 500
       assert item.source_kind == :extra
       assert item.unit == :g
+      assert item.is_leftover == false
+      assert item.notes == nil
+      assert item.expired_at == nil
 
-      event = Repo.get!(InventoryMutationEvent, result.event_id)
+      # The item is the one the read lists.
+      assert {:ok, view} = InventoryService.inventory_view(scoped_user)
+      assert view.sections.ok == [result.item]
+      assert %{id: item_id, quantity_milli: 500, unit: "g", source_kind: "extra"} = result.item
+      assert item_id == item.id
+
+      event = Repo.get!(InventoryMutationEvent, result.mutation_event.id)
+
+      assert result.mutation_event == %{
+               id: event.id,
+               inventory_item_id: item.id,
+               trigger_type: "manual",
+               operation: "add",
+               quantity_before_milli: 0,
+               quantity_delta_milli: 500,
+               quantity_after_milli: 500,
+               inserted_at: DateTime.to_iso8601(event.inserted_at)
+             }
+
       assert event.account_id == account.id
       assert event.source_user_id == user.id
       assert event.inventory_item_id == item.id
@@ -267,6 +284,133 @@ defmodule MealPlannerApi.Services.InventoryServiceTest do
       assert event.quantity_before_milli == 0
       assert event.quantity_delta_milli == 500
       assert event.quantity_after_milli == 500
+    end
+
+    test "stores expires_at, notes and the leftover flag on the lot" do
+      account = insert_account("Service Extra Meta Acc")
+      user = insert_user_with_active_membership(account.id, "extra_meta@example.com", :owner)
+      scoped_user = %{id: user.id, account_id: account.id, plan: :family_4}
+      stew = insert_ingredient("Service Meta Stew")
+      expires_on = Date.add(Date.utc_today(), 3)
+
+      assert {:ok, result} =
+               InventoryService.add_extra_item(scoped_user, %{
+                 "ingredient_id" => stew.id,
+                 "quantity_milli" => 300,
+                 "unit" => "g",
+                 "expires_at" => Date.to_iso8601(expires_on),
+                 "notes" => "  Sunday stew  ",
+                 "is_leftover" => true
+               })
+
+      assert %{expires_at: expires_at, notes: "Sunday stew", is_leftover: true} = result.item
+      assert expires_at == Date.to_iso8601(expires_on)
+
+      assert [lot] = InventoryPersistence.list_inventory(account.id)
+      assert %{notes: "Sunday stew", is_leftover: true} = lot
+      assert DateTime.to_date(lot.expired_at) == expires_on
+    end
+
+    test "an ISO datetime expires_at is stored and read back as its date" do
+      account = insert_account("Service Extra Datetime Acc")
+      user = insert_user_with_active_membership(account.id, "extra_dt@example.com", :owner)
+      scoped_user = %{id: user.id, account_id: account.id, plan: :family_4}
+      flour = insert_ingredient("Service Datetime Flour")
+      expires_at = DateTime.new!(Date.add(Date.utc_today(), 9), ~T[18:45:00], "Etc/UTC")
+
+      assert {:ok, result} =
+               InventoryService.add_extra_item(scoped_user, %{
+                 "ingredient_id" => flour.id,
+                 "quantity_milli" => 100,
+                 "unit" => "g",
+                 "expires_at" => DateTime.to_iso8601(expires_at)
+               })
+
+      assert result.item.expires_at == expires_at |> DateTime.to_date() |> Date.to_iso8601()
+      assert [lot] = InventoryPersistence.list_inventory(account.id)
+      assert DateTime.compare(lot.expired_at, expires_at) == :eq
+    end
+
+    test "a lot with notes or the leftover flag stays distinct while plain adds merge" do
+      account = insert_account("Service Extra Lots Acc")
+      user = insert_user_with_active_membership(account.id, "extra_lots@example.com", :owner)
+      scoped_user = %{id: user.id, account_id: account.id, plan: :family_4}
+      rice = insert_ingredient("Service Lots Rice")
+      add = &Map.merge(%{"ingredient_id" => rice.id, "unit" => "g"}, &1)
+
+      payloads = [
+        add.(%{"quantity_milli" => 100, "is_leftover" => true}),
+        add.(%{"quantity_milli" => 200, "notes" => "Opened bag"}),
+        add.(%{"quantity_milli" => 300}),
+        # A blank note and an explicit `false` carry no lot metadata.
+        add.(%{"quantity_milli" => 400, "notes" => "  ", "is_leftover" => false}),
+        add.(%{"quantity_milli" => 500, "is_leftover" => true})
+      ]
+
+      results =
+        Enum.map(payloads, fn payload ->
+          assert {:ok, result} = InventoryService.add_extra_item(scoped_user, payload)
+          result
+        end)
+
+      lots = InventoryPersistence.list_inventory(account.id)
+
+      assert lots |> Enum.map(&{&1.quantity_milli, &1.is_leftover, &1.notes}) |> Enum.sort() == [
+               {100, true, nil},
+               {200, false, "Opened bag"},
+               {500, true, nil},
+               {700, false, nil}
+             ]
+
+      # The merging add answers with the accumulated lot.
+      assert [_, _, plain, merged, _] = results
+      assert plain.item.id == merged.item.id
+      assert merged.item.quantity_milli == 700
+      assert %{quantity_before_milli: 300, quantity_after_milli: 700} = merged.mutation_event
+    end
+
+    test "rejects an unknown unit, a bad expiry, bad notes and a bad leftover flag" do
+      account = insert_account("Service Invalid Meta Acc")
+      user = insert_user_with_active_membership(account.id, "invalid_meta@example.com", :owner)
+      scoped_user = %{id: user.id, account_id: account.id, plan: :family_4}
+      flour = insert_ingredient("Service Invalid Meta Flour")
+      valid = %{"ingredient_id" => flour.id, "quantity_milli" => 100, "unit" => "g"}
+
+      for {payload, reason} <- [
+            {%{valid | "unit" => "kg"}, :invalid_unit},
+            {Map.delete(valid, "unit"), :missing_unit},
+            {Map.put(valid, "expires_at", "tomorrow"), :invalid_expires_at},
+            {Map.put(valid, "expires_at", "2026-02-30"), :invalid_expires_at},
+            {Map.put(valid, "notes", 42), :invalid_notes},
+            {Map.put(valid, "is_leftover", "yes"), :invalid_is_leftover},
+            {%{valid | "quantity_milli" => 0}, :invalid_quantity},
+            {%{valid | "quantity_milli" => "12abc"}, :invalid_quantity},
+            {%{valid | "quantity_milli" => 1.5}, :invalid_quantity}
+          ] do
+        assert {payload, InventoryService.add_extra_item(scoped_user, payload)} ==
+                 {payload, {:error, reason}}
+      end
+
+      assert InventoryPersistence.list_inventory(account.id) == []
+    end
+
+    test "rejects notes longer than 1000 characters once trimmed" do
+      account = insert_account("Service Notes Bound Acc")
+      user = insert_user_with_active_membership(account.id, "notes_bound@example.com", :owner)
+      scoped_user = %{id: user.id, account_id: account.id, plan: :family_4}
+      flour = insert_ingredient("Service Notes Bound Flour")
+      valid = %{"ingredient_id" => flour.id, "quantity_milli" => 100, "unit" => "g"}
+
+      too_long = Map.put(valid, "notes", String.duplicate("a", 1001))
+
+      assert InventoryService.add_extra_item(scoped_user, too_long) == {:error, :invalid_notes}
+      assert InventoryPersistence.list_inventory(account.id) == []
+
+      at_the_limit = String.duplicate("a", 1000)
+      padded = Map.put(valid, "notes", "  " <> at_the_limit <> "  ")
+
+      assert {:ok, result} = InventoryService.add_extra_item(scoped_user, padded)
+      assert result.item.notes == at_the_limit
     end
 
     test "rejects missing or negative quantity" do
@@ -296,6 +440,29 @@ defmodule MealPlannerApi.Services.InventoryServiceTest do
                InventoryService.add_extra_item(scoped_user, %{
                  "quantity_milli" => 500
                })
+
+      assert {:error, :ingredient_not_found} =
+               InventoryService.add_extra_item(scoped_user, %{
+                 "ingredient_id" => Ecto.UUID.generate(),
+                 "quantity_milli" => 500,
+                 "unit" => "g"
+               })
+
+      assert {:error, :ingredient_not_found} =
+               InventoryService.add_extra_item(scoped_user, %{
+                 "ingredient_name" => "Service No Such Ingredient",
+                 "quantity_milli" => 500,
+                 "unit" => "g"
+               })
+
+      assert {:error, :invalid_ingredient_id} =
+               InventoryService.add_extra_item(scoped_user, %{
+                 "ingredient_id" => "12abc",
+                 "quantity_milli" => 500,
+                 "unit" => "g"
+               })
+
+      assert InventoryPersistence.list_inventory(account.id) == []
     end
   end
 
@@ -327,10 +494,17 @@ defmodule MealPlannerApi.Services.InventoryServiceTest do
                  "quantity_milli" => 750
                })
 
-      assert res.item_id == item_id
-      assert res.quantity_before_milli == 1000
-      assert res.quantity_after_milli == 750
-      assert res.delta_applied_milli == -250
+      assert res |> Map.keys() |> Enum.sort() == [:item, :mutation_event]
+      assert %{id: ^item_id, quantity_milli: 750, name: "Service Adjust Flour"} = res.item
+
+      assert %{
+               inventory_item_id: ^item_id,
+               trigger_type: "manual",
+               operation: "set",
+               quantity_before_milli: 1000,
+               quantity_delta_milli: -250,
+               quantity_after_milli: 750
+             } = res.mutation_event
 
       # Check database item state
       updated_item = InventoryPersistence.get_inventory_item_for_account(account.id, item_id)
@@ -361,10 +535,44 @@ defmodule MealPlannerApi.Services.InventoryServiceTest do
       user = insert_user_with_active_membership(account.id, "missing_item@example.com", :owner)
       scoped_user = %{id: user.id, account_id: account.id, plan: :family_4}
 
-      assert {:error, :item_not_found} =
+      assert {:error, :inventory_item_not_found} =
                InventoryService.adjust_item_quantity(scoped_user, Ecto.UUID.generate(), %{
                  "quantity_milli" => 500
                })
+
+      assert {:error, :inventory_item_not_found} =
+               InventoryService.adjust_item_quantity(scoped_user, "not-a-uuid", %{
+                 "quantity_milli" => 500
+               })
+    end
+
+    test "rejects a negative or non-integer quantity without touching the lot or the ledger" do
+      account = insert_account("Service Adjust Invalid Acc")
+      user = insert_user_with_active_membership(account.id, "adjust_bad@example.com", :owner)
+      scoped_user = %{id: user.id, account_id: account.id, plan: :family_4}
+
+      lot =
+        seed_lot(account, user, insert_ingredient("Service Adjust Invalid Flour"), %{delta: 800})
+
+      for {quantity, reason} <- [
+            {-1, :invalid_quantity},
+            {7.5, :invalid_quantity},
+            {"7.5", :invalid_quantity},
+            {"abc", :invalid_quantity},
+            {nil, :missing_quantity}
+          ] do
+        assert {quantity,
+                InventoryService.adjust_item_quantity(scoped_user, lot.id, %{
+                  "quantity_milli" => quantity
+                })} == {quantity, {:error, reason}}
+      end
+
+      assert [%{quantity_milli: 800}] = InventoryPersistence.list_inventory(account.id)
+
+      assert Repo.aggregate(
+               from(e in InventoryMutationEvent, where: e.inventory_item_id == ^lot.id),
+               :count
+             ) == 1
     end
 
     test "refuses cross-account item adjustment (account isolation)" do
@@ -389,7 +597,7 @@ defmodule MealPlannerApi.Services.InventoryServiceTest do
         })
 
       # User with Account A scope attempts to adjust Account B's item
-      assert {:error, :item_not_found} =
+      assert {:error, :inventory_item_not_found} =
                InventoryService.adjust_item_quantity(scoped_user_a, seed_b.item.id, %{
                  "quantity_milli" => 100
                })
@@ -420,8 +628,19 @@ defmodule MealPlannerApi.Services.InventoryServiceTest do
       assert {:ok, res} =
                InventoryService.dispose_item(scoped_user, seed.item.id, %{"reason" => "spoiled"})
 
-      assert res.item_id == seed.item.id
-      assert res.disposed_quantity_milli == 600
+      assert res |> Map.keys() |> Enum.sort() == [:disposed, :mutation_event]
+      assert res.disposed == true
+
+      assert %{
+               inventory_item_id: item_id,
+               trigger_type: "manual",
+               operation: "delete",
+               quantity_before_milli: 600,
+               quantity_delta_milli: -600,
+               quantity_after_milli: 0
+             } = res.mutation_event
+
+      assert item_id == seed.item.id
 
       item = InventoryPersistence.get_inventory_item_for_account(account.id, seed.item.id)
       assert item.quantity_milli == 0
@@ -448,6 +667,9 @@ defmodule MealPlannerApi.Services.InventoryServiceTest do
 
       assert {:error, :inventory_item_not_found} =
                InventoryService.dispose_item(scoped_user, Ecto.UUID.generate(), %{})
+
+      assert {:error, :inventory_item_not_found} =
+               InventoryService.dispose_item(scoped_user, "not-a-uuid", %{})
     end
   end
 
@@ -475,7 +697,7 @@ defmodule MealPlannerApi.Services.InventoryServiceTest do
         end)
 
       results = Enum.map(tasks, &Task.await/1)
-      assert Enum.all?(results, &match?({:ok, %{status: "ok"}}, &1))
+      assert Enum.all?(results, &match?({:ok, %{item: _, mutation_event: _}}, &1))
 
       [item] = InventoryPersistence.list_inventory(account.id)
       assert item.quantity_milli == expected_total
