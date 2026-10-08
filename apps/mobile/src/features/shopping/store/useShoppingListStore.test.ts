@@ -462,6 +462,15 @@ describe('the user the list was read for', () => {
       expect(shopping()).toMatchObject({ ownerId: null, list: null, status: 'idle' });
     });
 
+    it('sends nothing for a read that signing out overtook before its request', async () => {
+      const read = shopping().refresh(USER_A);
+      const signedOut = shopping().refresh(null);
+      await Promise.all([read, signedOut]);
+
+      expect(fetchMock).not.toHaveBeenCalled();
+      expect(shopping()).toMatchObject({ ownerId: null, list: null, status: 'idle' });
+    });
+
     it('keeps a preference that is chosen, without reading', async () => {
       await shopping().refresh(null);
 

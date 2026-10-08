@@ -80,6 +80,8 @@ export const useShoppingListStore = create<ShoppingListState>()(
 
         set({ status: 'loading', error: null });
         await storedPreferences;
+        // Overtaken while it waited, by a newer read or by a sign-out: nothing is asked for.
+        if (!isLastRead()) return;
         const { chosenUntilDate, groupBy } = get();
 
         // A chosen day stops being one the list can reach without this device knowing: only

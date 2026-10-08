@@ -111,7 +111,7 @@ None. Settled by the User on 2026-10-08: the mobile slice is **read-only** (D11)
 | T2 | delegated | `04431d5` | RED 8/31 then 31 passed; parent spot check 52 passed | medium, granted, approved; 3 advisory findings folded into T3 |
 | T3 | delegated | `e299f62` | RED observed (service 4/12, rebuilder 31/36, `validation_error` 32/37) then green; full suite 1267 passed, 20 skipped; format and `compile --warnings-as-errors` clean; mobile contract test 8 passed, typecheck clean; parent spot check 67 passed | high, granted, 4 lenses, approved (`review-6cdbb3482ec51f43`); advisory only |
 | T4 | delegated | `7b64a8e` | RED (module missing) then 22 passed; parent spot check 103 passed with the auth service suites | reviewed with T5 |
-| T5 | delegated | this commit | RED store 35 failed / screen 33 failed, then green; owner binding RED store 11 / screen 7, then green; `npm test` 89 suites, 1351 passed, 0 failed (parent re-run); typecheck clean; lint 0 errors (4 warnings in untouched files) | see below |
+| T5 | delegated | `671f836` + fix below | RED store 35 failed / screen 33 failed, then green; owner binding RED store 11 / screen 7, then green; `npm test` 89 suites, 1351 passed, 0 failed (parent re-run); typecheck clean; lint 0 errors (4 warnings in untouched files) | native review unavailable (see below); independent read-only review: no blockers |
 
 Reviewed boundary: `e299f62`. Engram mirror: pending (save rejected, several active sessions for this project).
 
@@ -150,4 +150,17 @@ Mobile notes (T4, T5):
 
 Follow-up outside this issue: duplicate Shopping items under concurrent reads (no unique index; task chip raised).
 
-Next step: native review of the mobile slice (`e299f62..HEAD`), then delivery (chain strategy to ask).
+Review of the mobile slice (`e299f62..671f836`, 63 files, 8067 changed lines, medium): consent granted, but
+`review start` refused with `lens_context_budget_exceeded` (the evidence does not fit the native budget;
+no authority was created). The slice cannot be cut smaller without splitting T5 artificially, so the
+native reviewed boundary stays at `e299f62`. An independent read-only reviewer read the mobile sources
+instead: no blockers. Its findings:
+- Fixed (RED 1 failed, then `npm test` 1352 passed): a read overtaken while it waited for the stored
+  preferences still sent its request, for example after a sign-out.
+- Open, low impact: `getShoppingList` validates only the top-level members, so a malformed line would
+  throw while rendering instead of showing the load error.
+- Open, display only: the shared home calendar still highlights the device's today in the date pill popover.
+- Test gaps: guard ordering on the two auto-retry paths; hydration failure; the pill is asserted
+  through a mocked `FloatingCalendar`.
+
+Next step: delivery. Push, PRs and the chain strategy are the User's decision.
