@@ -21,10 +21,17 @@ defmodule MealPlannerApi.Repo.Migrations.AddOpenPlannedKeyIndexToShoppingItems d
   @index_name :shopping_items_open_planned_key_index
   @planned_key [:account_id, :scheduled_meal_id, :planned_date, :ingredient_id, :unit]
   @open_statuses "status IN ('pending', 'in_cart')"
+  @lock_timeout "3s"
 
   def up do
-    # Blocks writers, not readers, until the transaction commits, so no
-    # insert lands between the dedupe and the index build.
+    # Fails fast instead of waiting behind a long transaction: every write
+    # that arrives while this migration waits for its lock queues behind it.
+    execute("SET LOCAL lock_timeout = '#{@lock_timeout}'")
+
+    # Blocks every write to the table until the transaction commits, so no
+    # insert lands between the dedupe and the index build. A Shopping list
+    # read archives and derives Shopping items, so it waits as well; only a
+    # plain SELECT goes through.
     execute("LOCK TABLE shopping_items IN SHARE ROW EXCLUSIVE MODE")
 
     execute(fn ->
@@ -61,6 +68,7 @@ defmodule MealPlannerApi.Repo.Migrations.AddOpenPlannedKeyIndexToShoppingItems d
   # The deleted duplicates are not restored: they are derived rows, and the
   # next Shopping list read derives whatever is missing.
   def down do
+    execute("SET LOCAL lock_timeout = '#{@lock_timeout}'")
     drop(index(:shopping_items, [], name: @index_name))
   end
 end
