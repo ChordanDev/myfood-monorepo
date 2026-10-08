@@ -43,6 +43,20 @@ defmodule MealPlannerApi.Services.EmailCodeLoginTest do
     def supports_attachments?, do: true
   end
 
+  defmodule ExitingMailAdapter do
+    @moduledoc false
+    @behaviour Bamboo.Adapter
+
+    @impl true
+    def deliver(_email, _config), do: exit(:timeout)
+
+    @impl true
+    def handle_config(config), do: config
+
+    @impl true
+    def supports_attachments?, do: true
+  end
+
   setup do
     :ok = Sandbox.checkout(Repo)
     :ok = MealPlannerApi.SubscriptionPlanFixtures.ensure_plans!()
@@ -81,6 +95,17 @@ defmodule MealPlannerApi.Services.EmailCodeLoginTest do
                end)
 
       assert Repo.aggregate(EmailVerificationCode, :count) == 0
+    end
+
+    @tag :capture_log
+    test "an adapter that exits is reported as code_send_failed", %{user: user} do
+      assert {:error, :code_send_failed} =
+               with_mail_adapter(ExitingMailAdapter, fn ->
+                 EmailCodeLogin.request_code(user.email, "203.0.113.1")
+               end)
+
+      assert Repo.aggregate(EmailVerificationCode, :count) == 0
+      assert Repo.aggregate(EmailAuthEvent, :count) == 0
     end
   end
 

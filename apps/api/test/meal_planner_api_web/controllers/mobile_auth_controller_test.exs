@@ -39,6 +39,21 @@ defmodule MealPlannerApiWeb.MobileAuthControllerTest do
     def supports_attachments?, do: true
   end
 
+  defmodule ExitingMailAdapter do
+    @moduledoc false
+    @behaviour Bamboo.Adapter
+
+    # What an HTTP client timeout looks like: an exit, not an exception.
+    @impl true
+    def deliver(_email, _config), do: exit({:timeout, {:gen_server, :call, [:mail_client]}})
+
+    @impl true
+    def handle_config(config), do: config
+
+    @impl true
+    def supports_attachments?, do: true
+  end
+
   setup do
     Bamboo.SentEmail.reset()
     :ok
@@ -70,15 +85,73 @@ defmodule MealPlannerApiWeb.MobileAuthControllerTest do
       assert [_email] = Bamboo.SentEmail.all()
     end
 
-    test "an email without a User gets email_not_found and nothing is stored or sent", %{
+    test "an email without a User gets email_not_found and no code is stored or sent", %{
       conn: conn
     } do
       conn = post(conn, @request_path, %{"email" => "nobody@example.com"})
 
       assert_error(conn, 404, "email_not_found")
       assert Repo.aggregate(EmailVerificationCode, :count) == 0
-      assert Repo.aggregate(EmailAuthEvent, :count) == 0
       assert Bamboo.SentEmail.all() == []
+    end
+
+    test "an unknown email counts against the caller's IP and not against the email", %{
+      conn: conn
+    } do
+      conn =
+        conn
+        |> put_req_header("x-forwarded-for", "203.0.113.20")
+        |> post(@request_path, %{"email" => "nobody@example.com"})
+
+      assert_error(conn, 404, "email_not_found")
+
+      assert [%EmailAuthEvent{kind: "request", client_ip: "203.0.113.20"} = event] =
+               Repo.all(EmailAuthEvent)
+
+      assert event.email != "nobody@example.com"
+    end
+
+    test "unknown emails from one IP are rate limited once its hourly limit is spent", %{
+      conn: conn
+    } do
+      user = insert_owner!("login-probed@example.com")
+
+      for n <- 1..19 do
+        insert_request_event!("other-#{n}@example.com", "203.0.113.20", seconds_ago(600))
+      end
+
+      probe = fn ip, email ->
+        conn |> put_req_header("x-forwarded-for", ip) |> post(@request_path, %{"email" => email})
+      end
+
+      # The twentieth request of the hour still gets the plain answer.
+      assert_error(probe.("203.0.113.20", "nobody-1@example.com"), 404, "email_not_found")
+
+      limited = probe.("203.0.113.20", "nobody-2@example.com")
+      assert_error(limited, 429, "rate_limited")
+      assert retry_after(limited) in 2_990..3_000
+
+      # The spent IP no longer tells a known email from an unknown one.
+      known = probe.("203.0.113.20", user.email)
+      assert_error(known, 429, "rate_limited")
+      assert retry_after(known) in 2_990..3_000
+
+      assert_error(probe.("203.0.113.21", "nobody-2@example.com"), 404, "email_not_found")
+
+      assert Repo.aggregate(EmailVerificationCode, :count) == 0
+      assert Bamboo.SentEmail.all() == []
+    end
+
+    test "an unknown email from an unusable client IP is answered without being counted", %{
+      conn: conn
+    } do
+      conn =
+        conn
+        |> put_req_header("x-forwarded-for", "not-an-ip")
+        |> post(@request_path, %{"email" => "nobody@example.com"})
+
+      assert_error(conn, 404, "email_not_found")
+      assert Repo.aggregate(EmailAuthEvent, :count) == 0
     end
 
     test "a malformed or missing email gets invalid_email", %{conn: conn} do
@@ -154,11 +227,32 @@ defmodule MealPlannerApiWeb.MobileAuthControllerTest do
       insert_owner!("login-mail-down@example.com")
       body = %{"email" => "login-mail-down@example.com"}
 
-      with_failing_mailer(fn ->
+      with_mailer(FailingMailAdapter, fn ->
         assert_error(post(conn, @request_path, body), 502, "code_send_failed")
       end)
 
       assert %{"status" => "code_sent"} = conn |> post(@request_path, body) |> json_response(200)
+    end
+
+    @tag :capture_log
+    test "a delivery that exits gets code_send_failed and keeps the previous code valid", %{
+      conn: conn
+    } do
+      user = insert_owner!("login-mail-timeout@example.com")
+      insert_code!(user, "123456", inserted_at: seconds_ago(61))
+
+      with_mailer(ExitingMailAdapter, fn ->
+        assert_error(
+          post(conn, @request_path, %{"email" => user.email}),
+          502,
+          "code_send_failed"
+        )
+      end)
+
+      assert [%EmailVerificationCode{consumed_at: nil}] = Repo.all(EmailVerificationCode)
+
+      assert %{"accessToken" => _} =
+               conn |> post(@verify_path, verify_body(user.email, "123456")) |> json_response(200)
     end
   end
 
@@ -532,9 +626,9 @@ defmodule MealPlannerApiWeb.MobileAuthControllerTest do
     })
   end
 
-  defp with_failing_mailer(fun) do
+  defp with_mailer(adapter, fun) do
     original = Application.fetch_env!(:meal_planner_api, MealPlannerApi.Mailer)
-    Application.put_env(:meal_planner_api, MealPlannerApi.Mailer, adapter: FailingMailAdapter)
+    Application.put_env(:meal_planner_api, MealPlannerApi.Mailer, adapter: adapter)
 
     try do
       fun.()
