@@ -200,6 +200,9 @@ defmodule MealPlannerApiWeb.Router do
   #
   # Issue #19 — `GET` and `PUT /me/slot-cooking-times` share the exemption
   # too: Slot cooking times belong to the User, not to the Account.
+  #
+  # Issue #18 — `GET /me/preferences` sits here for the same exemption: a
+  # User of an Account whose Trial expired can still read their preferences.
   scope "/api", MealPlannerApiWeb do
     pipe_through([:api, :mobile_casing, :auth])
 
@@ -207,6 +210,7 @@ defmodule MealPlannerApiWeb.Router do
     put("/me/profile", ProfileController, :update)
     get("/me/slot-cooking-times", SlotCookingTimesController, :show)
     put("/me/slot-cooking-times", SlotCookingTimesController, :update)
+    get("/me/preferences", PreferencesController, :show)
   end
 
   # Product routes of the mobile app. `:mobile_casing` is opt-in and this is
