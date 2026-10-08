@@ -86,16 +86,15 @@ defmodule MealPlannerApiWeb.SlotCookingTimesControllerTest do
     test "refuses a body with a slot missing and names it", %{token: token} do
       for slot <- ["breakfast", "lunch", "dinner"] do
         assert {slot, validation_error(token, Map.delete(@times, slot))} ==
-                 {slot, "#{slot} is required."}
+                 {slot, "The field #{slot} is not valid."}
       end
 
-      assert validation_error(token, %{}) == "breakfast is required."
+      assert validation_error(token, %{}) == "The field breakfast is not valid."
     end
 
-    test "refuses a body that is not a JSON object", %{token: token} do
+    test "refuses a body that is not a JSON object and names no field", %{token: token} do
       for body <- [[], [@times], 30, "breakfast", true, nil] do
-        assert {body, validation_error(token, body)} ==
-                 {body, "The request body must be an object."}
+        assert {body, validation_error(token, body)} == {body, "The request is not valid."}
       end
     end
 
@@ -109,27 +108,27 @@ defmodule MealPlannerApiWeb.SlotCookingTimesControllerTest do
       assert %{"error" => %{"code" => "validation_error", "message" => message}} =
                json_response(conn, 422)
 
-      assert message == "The request body must be an object."
+      assert message == "The request is not valid."
     end
 
     test "treats _json as any other key that is not a slot", %{token: token} do
       assert validation_error(token, Map.put(@times, "_json", [])) ==
-               "_json is not an accepted slot."
+               "The field _json is not valid."
     end
 
     test "refuses a slot that is not an object", %{token: token} do
       for value <- [nil, 30, "normal", [10, "light"]] do
         assert validation_error(token, Map.put(@times, "lunch", value)) ==
-                 "lunch must be an object."
+                 "The field lunch is not valid."
       end
     end
 
     test "refuses snack, and any other key that is not one of the three slots", %{token: token} do
       assert validation_error(token, Map.put(@times, "snack", @times["lunch"])) ==
-               "snack is not an accepted slot."
+               "The field snack is not valid."
 
       assert validation_error(token, Map.put(@times, "midnightSnack", @times["lunch"])) ==
-               "midnightSnack is not an accepted slot."
+               "The field midnightSnack is not valid."
     end
 
     test "refuses minutes that are missing, not an integer or outside 0 to 240", %{token: token} do
@@ -137,13 +136,13 @@ defmodule MealPlannerApiWeb.SlotCookingTimesControllerTest do
         times = put_in(@times, ["lunch", "cookingTimeMinutes"], minutes)
 
         assert {minutes, validation_error(token, times)} ==
-                 {minutes, "lunch.cookingTimeMinutes must be an integer between 0 and 240."}
+                 {minutes, "The field lunch.cookingTimeMinutes is not valid."}
       end
 
       missing = Map.update!(@times, "lunch", &Map.delete(&1, "cookingTimeMinutes"))
 
       assert validation_error(token, missing) ==
-               "lunch.cookingTimeMinutes must be an integer between 0 and 240."
+               "The field lunch.cookingTimeMinutes is not valid."
     end
 
     test "refuses a Hunger level that is missing or not a string", %{token: token} do
@@ -151,12 +150,12 @@ defmodule MealPlannerApiWeb.SlotCookingTimesControllerTest do
         times = put_in(@times, ["dinner", "hungerLevel"], hunger_level)
 
         assert {hunger_level, validation_error(token, times)} ==
-                 {hunger_level, "dinner.hungerLevel must be a string."}
+                 {hunger_level, "The field dinner.hungerLevel is not valid."}
       end
 
       missing = Map.update!(@times, "dinner", &Map.delete(&1, "hungerLevel"))
 
-      assert validation_error(token, missing) == "dinner.hungerLevel must be a string."
+      assert validation_error(token, missing) == "The field dinner.hungerLevel is not valid."
     end
 
     test "refuses a Hunger level outside the catalog with invalid_hunger_level", %{token: token} do
@@ -177,7 +176,7 @@ defmodule MealPlannerApiWeb.SlotCookingTimesControllerTest do
         Map.put(@times, "lunch", %{"cookingTimeMinutes" => 999, "hungerLevel" => "ravenous"})
 
       assert validation_error(token, both_in_one_slot) ==
-               "lunch.cookingTimeMinutes must be an integer between 0 and 240."
+               "The field lunch.cookingTimeMinutes is not valid."
 
       hunger_level_first =
         @times

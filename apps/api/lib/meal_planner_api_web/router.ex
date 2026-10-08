@@ -194,13 +194,17 @@ defmodule MealPlannerApiWeb.Router do
   # Issue #11 — `GET /me` through the opt-in `:mobile_casing` pipeline. Same
   # authentication and capability exemption as the design-exempt scope; its alias
   # `GET /auth/me` stays in that scope, outside the pipeline.
+  #
+  # Issue #17 — `PUT /me/profile` shares the exemption, so a User whose
+  # Account Access state is `expired` can still edit the Onboarding profile.
+  #
+  # Issue #19 — `GET` and `PUT /me/slot-cooking-times` share the exemption
+  # too: Slot cooking times belong to the User, not to the Account.
   scope "/api", MealPlannerApiWeb do
     pipe_through([:api, :mobile_casing, :auth])
 
     get("/me", AccountsController, :me)
-
-    # Issue #19 — Slot cooking times belong to the User, not to the Account,
-    # so they share the capability exemption of `GET /me`.
+    put("/me/profile", ProfileController, :update)
     get("/me/slot-cooking-times", SlotCookingTimesController, :show)
     put("/me/slot-cooking-times", SlotCookingTimesController, :update)
   end

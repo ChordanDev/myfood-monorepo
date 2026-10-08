@@ -53,8 +53,8 @@ jest.mock('@/context/RecipeThemeContext', () => ({
 const metrics = getHomeMetrics(390, 844);
 
 const meals: HomeMealSummary[] = [
-  { id: 'meal-1', type: 'almuerzo', name: 'Ensalada de tomate y lechuga' },
-  { id: 'meal-2', type: 'cena', name: 'Sopa de pollo con verdura' },
+  { id: 'meal-1', type: 'lunch', name: 'Ensalada de tomate y lechuga' },
+  { id: 'meal-2', type: 'dinner', name: 'Sopa de pollo con verdura' },
 ];
 
 function renderTexts() {

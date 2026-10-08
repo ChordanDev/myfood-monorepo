@@ -41,6 +41,22 @@ defmodule MealPlannerApi.Persistence.Accounts do
 
   def get_user!(id), do: Repo.get!(User, id)
 
+  @doc """
+  Stores the Onboarding profile (`name`, `household_size`, `cooking_skill`)
+  on the User with `user_id`. The User is read by id here because the
+  authenticated resource is a decorated struct, not the stored row. The
+  rules are the ones of `User.profile_changeset/2`; nothing is stored when
+  it rejects `attrs`.
+  """
+  @spec update_user_profile(Ecto.UUID.t(), map()) ::
+          {:ok, User.t()} | {:error, :user_not_found | Ecto.Changeset.t()}
+  def update_user_profile(user_id, attrs) do
+    case Repo.get(User, user_id) do
+      %User{} = user -> user |> User.profile_changeset(attrs) |> Repo.update()
+      nil -> {:error, :user_not_found}
+    end
+  end
+
   def upsert_user_dietary_profile(user_id, attrs) do
     attrs = Map.put(attrs, :user_id, user_id)
 

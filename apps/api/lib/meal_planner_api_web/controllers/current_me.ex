@@ -21,14 +21,16 @@ defmodule MealPlannerApiWeb.CurrentMe do
   alias MealPlannerApi.Persistence.Accounts.User
   alias MealPlannerApi.Repo
 
+  @type user_json :: %{
+          id: Ecto.UUID.t(),
+          email: String.t(),
+          displayName: String.t() | nil,
+          householdSize: pos_integer() | nil,
+          cookingSkill: String.t() | nil
+        }
+
   @type t :: %{
-          user: %{
-            id: Ecto.UUID.t(),
-            email: String.t(),
-            displayName: String.t() | nil,
-            householdSize: nil,
-            cookingSkill: nil
-          },
+          user: user_json(),
           account: %{
             id: Ecto.UUID.t(),
             type: String.t(),
@@ -68,17 +70,26 @@ defmodule MealPlannerApiWeb.CurrentMe do
   @spec build(User.t(), Account.t(), AccountMembership.t(), DateTime.t()) :: t()
   def build(user, %Account{} = account, membership, %DateTime{} = now) do
     %{
-      user: %{
-        id: user.id,
-        email: user.email,
-        displayName: user.name,
-        # Not stored yet; mobile reads null as "not set".
-        householdSize: nil,
-        cookingSkill: nil
-      },
+      user: user_json(user),
       account: account(account, now),
       membership: %{role: Atom.to_string(membership.role)},
       onboarding: %{isComplete: not is_nil(user.onboarding_completed_at)}
+    }
+  end
+
+  @doc """
+  The `user` object of the payload, for responses that return it on its own.
+  Household size and Cooking skill are `nil` until the User saves a profile;
+  mobile reads null as "not set".
+  """
+  @spec user_json(User.t()) :: user_json()
+  def user_json(user) do
+    %{
+      id: user.id,
+      email: user.email,
+      displayName: user.name,
+      householdSize: user.household_size,
+      cookingSkill: user.cooking_skill
     }
   end
 
