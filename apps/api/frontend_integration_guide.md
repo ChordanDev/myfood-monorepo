@@ -1006,7 +1006,9 @@ Fields:
 
 - `recipeVersionId`: id of the immutable version served. A recipe id always answers the same version, so a
   client can cache the body by this id.
-- `successorRecipeId`: id of the recipe that corrects this one, or `null`.
+- `successorRecipeId`: id of the recipe that corrects this one, or `null`. It is not version content: it is
+  read when the request is served, like `ingredients[].category`, so a cached body does not learn that the
+  recipe was corrected afterwards.
 - `servings`: servings the quantities are for, or `null`. Quantities are not scaled.
 - `durationMinutes`: preparation plus cooking time in minutes; `null` when the recipe has neither.
 - `ingredients[].quantityMilli`: quantity in thousandths of `unit` (`g`, `ml` or `unit`): `500000` with `g`
