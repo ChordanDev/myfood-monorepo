@@ -102,7 +102,10 @@ Slices 3 and 5 exceed the 400-line budget and cannot be cut further without sepa
 from the tests it rewrites (`size:exception`).
 
 What the re-cut changed:
-- The migration is `20261008140000_add_timezone_to_accounts.exs`: `main` already had version `20261008130000`.
+- The migration is `20261008183907_add_timezone_to_accounts.exs`. Its first two versions (`20261008130000`,
+  then `20261008140000`) were each taken on `main` by another migration while this stack was open.
+- `main` at `29a0f3e` was merged into the stack afterwards (one merge per branch, bottom up), which also
+  brought the fix of the duplicated version `20261008130000` that kept the API job of #99 and #100 red.
 - `main` already ships the `validation_error` code (Onboarding profile, #17). The stack adds no error
   code: the shopping read replies `main`'s (message "The request is not valid."), and the original
   `aa5a2df` was dropped. `main` also has `ApiError.validation_error/2`, which names the failing field;
@@ -110,10 +113,9 @@ What the re-cut changed:
 - The recipe screen change (D11) was re-applied on the recipe-detail stack: everything it added is
   kept, and `RecipeScreen.test.tsx` goes from 55 tests on `main` to 46.
 
-Checks on the stack: API at slice 3 `mix test` 1408 passed, 20 skipped (run with one of `main`'s two
-migrations of version `20261008130000` renamed in the working tree only; `main` cannot migrate until
-that duplicate is fixed there, and its API job fails for it); mobile at slice 5 `npm test` 1411 passed,
-typecheck clean, lint 0 errors.
+Checks on the stack with `main` at `29a0f3e` merged in: API at slice 3 `mix test` 1410 passed, 20
+skipped, on a freshly migrated database; no duplicated migration version; mobile at slice 5 `npm test`
+97 suites, 1423 passed; typecheck clean; lint 0 errors.
 
 ## Open questions
 
