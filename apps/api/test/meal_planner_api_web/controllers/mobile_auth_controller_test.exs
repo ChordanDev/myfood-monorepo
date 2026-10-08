@@ -19,6 +19,7 @@ defmodule MealPlannerApiWeb.MobileAuthControllerTest do
   """
   use MealPlannerApiWeb.ConnCase, async: false
 
+  import ExUnit.CaptureLog
   import MealPlannerApi.FactoryHelpers
 
   alias MealPlannerApi.Auth.Guardian
@@ -30,6 +31,7 @@ defmodule MealPlannerApiWeb.MobileAuthControllerTest do
   alias MealPlannerApi.Persistence.Auth.EmailVerificationCode
   alias MealPlannerApi.Repo
   alias MealPlannerApi.Services.EmailCodeAuth
+  alias MealPlannerApi.Subscriptions.Plan
 
   @request_path "/api/auth/login/request-code"
   @verify_path "/api/auth/login/verify-code"
@@ -1025,6 +1027,32 @@ defmodule MealPlannerApiWeb.MobileAuthControllerTest do
       )
 
       assert_nothing_registered()
+    end
+
+    test "a missing individual Plan row gets unknown_error, is logged and keeps the code pending",
+         %{conn: conn} do
+      post(conn, @signup_request_path, %{"email" => "signup-no-plan@example.com"})
+      code = mailed_code()
+
+      # What a database looks like when the reference Plans were never
+      # inserted, or the row was deleted afterwards.
+      Plan |> Repo.get_by!(name: "individual") |> Repo.delete!()
+
+      log =
+        capture_log(fn ->
+          assert_error(
+            post(conn, @signup_verify_path, verify_body("signup-no-plan@example.com", code)),
+            500,
+            "unknown_error"
+          )
+        end)
+
+      assert log =~ ~s(Plan "individual")
+      assert log =~ "subscription_plans"
+      refute log =~ "signup-no-plan@example.com"
+
+      assert_nothing_registered()
+      assert [%EmailVerificationCode{consumed_at: nil}] = Repo.all(EmailVerificationCode)
     end
 
     test "a wrong code gets code_invalid and the right one still works", %{conn: conn} do

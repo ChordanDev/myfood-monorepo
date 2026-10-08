@@ -14,6 +14,8 @@ defmodule MealPlannerApi.SubscriptionsTest do
   """
   use ExUnit.Case, async: false
 
+  import ExUnit.CaptureLog
+
   alias Ecto.Adapters.SQL.Sandbox
   alias MealPlannerApi.Persistence.Accounts.Account, as: PersistenceAccount
   alias MealPlannerApi.Repo
@@ -102,6 +104,28 @@ defmodule MealPlannerApi.SubscriptionsTest do
 
       policy = Subscriptions.policy_for_account(account.id)
       assert policy.error == "plan_not_found"
+    end
+  end
+
+  describe "ensure_default_plan_id/1" do
+    test "answers the id of the Plan row" do
+      assert {:ok, %Plan{id: plan_id}} = Subscriptions.get_plan_by_name("individual")
+      assert {:ok, ^plan_id} = Subscriptions.ensure_default_plan_id(:individual)
+    end
+
+    test "a missing Plan row answers :plan_not_found and logs which row is missing" do
+      assert {:ok, plan_row} = Subscriptions.get_plan_by_name("individual")
+      Repo.delete!(plan_row)
+
+      log =
+        capture_log(fn ->
+          assert {:error, :plan_not_found} = Subscriptions.ensure_default_plan_id(:individual)
+        end)
+
+      assert log =~ "[error]"
+      assert log =~ ~s(Plan "individual")
+      assert log =~ "subscription_plans"
+      assert log =~ "mix ecto.migrate"
     end
   end
 
