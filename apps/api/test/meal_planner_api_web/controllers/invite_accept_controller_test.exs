@@ -8,6 +8,7 @@ defmodule MealPlannerApiWeb.InviteAcceptControllerTest do
   alias MealPlannerApi.Persistence.Accounts.AccountMembership
   alias MealPlannerApi.Repo
   alias MealPlannerApi.Services.InviteService
+  alias MealPlannerApiWeb.Controllers.AccountScopeHelpers
 
   describe "POST /api/invites/:token/accept (task 3.4)" do
     test "existing User accepts and receives a fresh auth payload", %{conn: conn} do
@@ -200,17 +201,18 @@ defmodule MealPlannerApiWeb.InviteAcceptControllerTest do
       [owner_membership] = owner.memberships
       account = owner_membership.account
 
-      register_body =
-        conn
-        |> post("/api/auth/password", %{
-          "mode" => "register",
-          "email" => "invitee_reftyp@example.com",
-          "password" => "supersecret123",
-          "name" => "Invitee RefTyp"
-        })
-        |> json_response(200)
+      invitee =
+        user_with_memberships(%{email: "invitee_reftyp@example.com", name: "Invitee RefTyp"}, [
+          {%{plan: :individual, name: "Invitee RefTyp Own Account"}, :owner}
+        ])
 
-      refresh_token = register_body["refresh_token"]
+      [invitee_own_membership] = invitee.memberships
+
+      {:ok, _access_token, refresh_token} =
+        AccountScopeHelpers.mint_token_pair(
+          invitee,
+          AccountsMembership.claims_for(invitee, invitee_own_membership)
+        )
 
       {:ok, refresh_claims} =
         Guardian.decode_and_verify(refresh_token, %{}, token_type: "refresh")

@@ -122,10 +122,9 @@ defmodule MealPlannerApiWeb.Plugs.LoadCurrentMembership do
   # with no server-side revocation — so a removed member's stale legacy
   # token retained full access for up to 4 weeks. We now REQUIRE a real,
   # `:active` `AccountMembership` row for `(user_id, account_id)` before
-  # granting access. PR 1's backfill migration (task 1.4), PR 2b's atomic
-  # `register_with_password/1` (task 2.10), and `Accounts.
-  # find_or_create_identity/1`'s membership upsert (this fix) guarantee
-  # every currently-valid legacy member has such a row — so "no active
+  # granting access. PR 1's backfill migration (task 1.4) and the
+  # account-creating paths, which write the membership with the User,
+  # guarantee every currently-valid legacy member has such a row — so "no active
   # row found" now correctly means "no longer an active member" (removed,
   # or never was), not "trust the token's claim". (Renamed from
   # `synthesize_legacy_membership/2` — it hasn't synthesized anything
