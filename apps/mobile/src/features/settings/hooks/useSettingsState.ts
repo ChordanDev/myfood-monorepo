@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
+import { isApiError } from '@/api/errors';
 import { useAuth } from '@/features/auth';
 import type {
   ProfileUpdatePayload,
@@ -7,7 +8,7 @@ import type {
 } from '@/features/auth/types/auth';
 import { PreferencesValidationError } from '@/features/preferences/utils/preferencesPayload';
 import { buildProfilePayload } from '@/features/preferences/utils/profilePayload';
-import { defaultSlot } from '@/features/preferences/utils/slotCookingTime';
+import { defaultSlot, defaultSlotCookingTimes } from '@/features/preferences/utils/slotCookingTime';
 import { getAuthErrorMessage } from '@/services/authService';
 import { PROFILE_FIELD_ERRORS } from '../constants/settingsLabels';
 import {
@@ -50,6 +51,16 @@ function withEverySlot(slotTimes: SlotCookingTimes): SlotCookingTimes {
     lunch: slotTimes.lunch ?? defaultSlot(),
     dinner: slotTimes.dinner ?? defaultSlot(),
   };
+}
+
+// A user who never saved their slot times has no server row a save could
+// overwrite, so they start from the defaults. Only that code means "none
+// saved": any other failure is rethrown and fails the load.
+function defaultsWhenNoneSaved(error: unknown): SlotCookingTimes {
+  if (isApiError(error) && error.code === 'slot_cooking_times_not_found') {
+    return defaultSlotCookingTimes();
+  }
+  throw error;
 }
 
 // Validation failures become an inline message next to the field. A field
@@ -102,14 +113,15 @@ export function useSettingsState() {
     try {
       const [loadedPreferences, loadedSlotTimes] = await Promise.all([
         fetchUserPreferences(),
-        fetchSlotCookingTimes(),
+        fetchSlotCookingTimes().catch(defaultsWhenNoneSaved),
       ]);
       setPreferences(loadedPreferences);
       setSlotTimes(withEverySlot(loadedSlotTimes));
       setLoadState((prev) => loadSucceeded(prev));
     } catch (error) {
-      // Distinct from "empty": nothing that depends on this data may be
-      // edited, or a save would overwrite the server row with defaults.
+      // Distinct from "none saved", which `defaultsWhenNoneSaved` resolves:
+      // nothing that depends on this data may be edited, or a save would
+      // overwrite the server row with defaults.
       console.warn('[Settings] Failed to load preferences/slot times:', error);
       setLoadState((prev) => loadFailed(prev, error));
     }
