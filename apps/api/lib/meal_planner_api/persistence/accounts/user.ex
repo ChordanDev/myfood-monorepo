@@ -22,6 +22,8 @@ defmodule MealPlannerApi.Persistence.Accounts.User do
     field(:role, Ecto.Enum, values: [:owner, :member])
     field(:password_hash, :string)
     field(:avatar_url, :string)
+    # Set when the user finishes onboarding; nil means not completed.
+    field(:onboarding_completed_at, :utc_datetime_usec)
 
     belongs_to(:account, MealPlannerApi.Persistence.Accounts.Account)
     has_many(:memberships, MealPlannerApi.Persistence.Accounts.AccountMembership)

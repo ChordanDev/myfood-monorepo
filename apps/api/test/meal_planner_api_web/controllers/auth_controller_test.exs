@@ -44,7 +44,7 @@ defmodule MealPlannerApiWeb.AuthControllerTest do
     assert claims["subscription_tier"] == "premium"
   end
 
-  test "authenticated me endpoint returns user and claims", %{conn: conn} do
+  test "authenticated me endpoint returns the mobile CurrentMe body", %{conn: conn} do
     token =
       issue_password_token(conn, %{
         "email" => "u_me@myfood.local",
@@ -60,9 +60,21 @@ defmodule MealPlannerApiWeb.AuthControllerTest do
 
     body = json_response(conn, 200)
 
-    assert body["user"]["id"] == body["claims"]["sub"]
-    assert body["user"]["subscription_tier"] == "free"
-    assert body["claims"]["subscription_tier"] == "free"
+    {:ok, claims} = Guardian.decode_and_verify(token)
+
+    assert body["user"] == %{
+             "id" => claims["sub"],
+             "email" => "u_me@myfood.local",
+             "displayName" => "U Me",
+             "householdSize" => nil,
+             "cookingSkill" => nil
+           }
+
+    assert body["account"]["id"] == claims["account_id"]
+    assert body["account"]["type"] == "individual"
+    assert body["membership"] == %{"role" => "owner"}
+    assert body["onboarding"] == %{"isComplete" => false}
+    refute Map.has_key?(body, "claims")
   end
 
   test "authenticated me endpoint rejects token when user no longer exists", %{conn: conn} do

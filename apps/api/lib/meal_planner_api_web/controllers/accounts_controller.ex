@@ -2,6 +2,8 @@ defmodule MealPlannerApiWeb.AccountsController do
   use MealPlannerApiWeb, :controller
 
   alias MealPlannerApi.Services.AccountService
+  alias MealPlannerApiWeb.ApiError
+  alias MealPlannerApiWeb.CurrentMe
 
   # Phase A — Tenancy Refactor (PR 3c task 3.22): tenancy scope is always
   # resolved from `conn.assigns.current_membership.account_id`, never
@@ -9,33 +11,15 @@ defmodule MealPlannerApiWeb.AccountsController do
   # updates this existing controller's own reads — roster/remove is
   # handled by `MembershipController` (PR 3a).
 
+  # `GET /api/me` and its alias `GET /api/auth/me`: the body is the mobile
+  # `CurrentMe` payload itself, with no wrapper.
   def me(conn, _params) do
     user = Guardian.Plug.current_resource(conn)
     membership = conn.assigns.current_membership
 
-    case AccountService.me(%{
-           account_id: membership.account_id,
-           user_id: user.id
-         }) do
-      {:ok, account_data} ->
-        # Return full response matching test expectations: {user, account, claims}
-        json(conn, %{
-          user: %{
-            id: user.id,
-            email: user.email,
-            name: user.name,
-            subscription_tier: to_string(user.subscription_tier || :free)
-          },
-          account: account_data,
-          claims: %{
-            sub: user.id,
-            account_id: membership.account_id,
-            subscription_tier: to_string(user.subscription_tier || :free)
-          }
-        })
-
-      {:error, reason} ->
-        render_error(conn, reason)
+    case CurrentMe.load(user, membership) do
+      {:ok, me} -> json(conn, me)
+      {:error, :account_not_found} -> conn |> ApiError.error(:account_not_found)
     end
   end
 
