@@ -10,7 +10,7 @@
 //
 // `null` for diet means "user did not pick a diet" and is a valid state.
 
-import type { HungerLevel, MealSlot } from '@/features/auth/types/auth';
+import type { CookingTimeSlot, HungerLevel } from '@/features/auth/types/auth';
 
 export const DIET_CODES = ['omnivore', 'vegetarian', 'vegan', 'pescatarian'] as const;
 
@@ -57,7 +57,7 @@ export function isValidHardRestrictionCode(value: unknown): value is HardRestric
 
 // Type guard re-export for the slot/hunger unions so the UI layer can
 // validate its own form state against the typed enum.
-export function isSupportedMealSlot(value: string): value is MealSlot {
+export function isSupportedMealSlot(value: string): value is CookingTimeSlot {
   return value === 'breakfast' || value === 'lunch' || value === 'dinner';
 }
 

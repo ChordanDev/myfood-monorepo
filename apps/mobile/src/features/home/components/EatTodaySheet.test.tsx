@@ -62,7 +62,7 @@ function pressButton(root: ReactTestInstance, label: string) {
 
 describe('EatTodaySheet', () => {
   it('renders one button per destination followed by the cancel action', () => {
-    const { root } = renderSheet(['almuerzo', 'cena']);
+    const { root } = renderSheet(['lunch', 'dinner']);
 
     expect(getButtonLabels(root)).toEqual(['Mediodía', 'Cena', 'Cancelar']);
     expect(getTexts(root)).toEqual(
@@ -74,23 +74,23 @@ describe('EatTodaySheet', () => {
   });
 
   it('only offers the destinations it receives', () => {
-    const { root } = renderSheet(['cena']);
+    const { root } = renderSheet(['dinner']);
 
     expect(getButtonLabels(root)).toEqual(['Cena', 'Cancelar']);
   });
 
   it('selects the meal type of the pressed destination', () => {
-    const { root, onSelect, onClose } = renderSheet(['almuerzo', 'cena']);
+    const { root, onSelect, onClose } = renderSheet(['lunch', 'dinner']);
 
     pressButton(root, 'Cena');
 
     expect(onSelect).toHaveBeenCalledTimes(1);
-    expect(onSelect).toHaveBeenCalledWith('cena');
+    expect(onSelect).toHaveBeenCalledWith('dinner');
     expect(onClose).not.toHaveBeenCalled();
   });
 
   it('closes from the cancel action without selecting', () => {
-    const { root, onSelect, onClose } = renderSheet(['almuerzo', 'cena']);
+    const { root, onSelect, onClose } = renderSheet(['lunch', 'dinner']);
 
     pressButton(root, 'Cancelar');
 
@@ -99,7 +99,7 @@ describe('EatTodaySheet', () => {
   });
 
   it('closes from the backdrop', () => {
-    const { root, onClose } = renderSheet(['almuerzo']);
+    const { root, onClose } = renderSheet(['lunch']);
 
     const backdrop = getButtons(root).find(
       (candidate) => candidate.props.accessibilityLabel === 'Cerrar'

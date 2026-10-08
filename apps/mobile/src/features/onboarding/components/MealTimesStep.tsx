@@ -1,16 +1,16 @@
 import { View } from 'react-native';
-import type { HungerLevel, MealSlot } from '@/features/auth/types/auth';
+import type { CookingTimeSlot, HungerLevel } from '@/features/auth/types/auth';
 import type { RecipeThemeConfig } from '@/types/domain';
 import { MEAL_SLOTS } from '@/features/preferences/constants/preferenceOptions';
 import { SlotEditor } from '@/features/onboarding/components/SlotEditor';
 import type { SlotFormState, SlotMode } from '@/features/onboarding/utils/onboardingSlot';
 
 interface MealTimesStepProps {
-  onSlotCustomChange: (slot: MealSlot, text: string) => void;
-  onSlotHungerChange: (slot: MealSlot, hunger: HungerLevel) => void;
-  onSlotModeChange: (slot: MealSlot, mode: SlotMode) => void;
-  onSlotPresetChange: (slot: MealSlot, value: number) => void;
-  slots: Record<MealSlot, SlotFormState>;
+  onSlotCustomChange: (slot: CookingTimeSlot, text: string) => void;
+  onSlotHungerChange: (slot: CookingTimeSlot, hunger: HungerLevel) => void;
+  onSlotModeChange: (slot: CookingTimeSlot, mode: SlotMode) => void;
+  onSlotPresetChange: (slot: CookingTimeSlot, value: number) => void;
+  slots: Record<CookingTimeSlot, SlotFormState>;
   theme: RecipeThemeConfig;
 }
 

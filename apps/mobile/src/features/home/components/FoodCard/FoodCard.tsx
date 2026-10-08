@@ -3,7 +3,7 @@ import { Text, View, Pressable, StyleSheet } from 'react-native';
 import Animated from 'react-native-reanimated';
 import Svg, { Defs, LinearGradient as SvgLinearGradient, Path, Stop } from 'react-native-svg';
 import { ShadowSurface } from '@/components';
-import type { MealType } from '@/types/domain';
+import type { MealSlot } from '@/types/domain';
 import type { HomeMetrics } from '../../utils/responsive';
 
 import { FOOD_CARD_SHAPE_PATH, FOOD_CARD_GRADIENT_ACTIVE_ID } from './constants';
@@ -14,7 +14,7 @@ import { useThemeColor } from '@/hooks/useThemeColor';
 import { useAnimatedThemeStyle } from '@/hooks/useAnimatedThemeStyle';
 
 interface FoodCardProps {
-  mealType: MealType | null;
+  mealType: MealSlot | null;
   description: string | null;
   selectedDate: string | null;
   metrics: HomeMetrics;

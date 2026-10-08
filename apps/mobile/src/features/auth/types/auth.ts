@@ -1,14 +1,21 @@
 // Authentication types aligned with the Slice 1 backend contract.
 
+import type { MealSlot } from '@/types/domain';
+
 export type AuthFlow = 'login' | 'register';
 
 export type CookingSkill = 'beginner' | 'intermediate' | 'advanced';
 
 export type HungerLevel = 'light' | 'normal' | 'strong';
 
-export type MealSlot = 'breakfast' | 'lunch' | 'dinner';
+// The meal slots the User cooks: the ones that carry a Slot cooking time.
+export type CookingTimeSlot = Exclude<MealSlot, 'snack'>;
 
-export const SUPPORTED_MEAL_SLOTS: readonly MealSlot[] = ['breakfast', 'lunch', 'dinner'] as const;
+export const SUPPORTED_MEAL_SLOTS: readonly CookingTimeSlot[] = [
+  'breakfast',
+  'lunch',
+  'dinner',
+] as const;
 
 export interface OnboardingProfile {
   displayName: string;
@@ -29,7 +36,7 @@ export interface SlotCookingTime {
   hungerLevel: HungerLevel;
 }
 
-export type SlotCookingTimesPayload = Record<MealSlot, SlotCookingTime>;
+export type SlotCookingTimesPayload = Record<CookingTimeSlot, SlotCookingTime>;
 
 export type SlotCookingTimes = SlotCookingTimesPayload;
 
