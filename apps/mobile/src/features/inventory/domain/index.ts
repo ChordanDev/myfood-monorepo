@@ -1,3 +1,10 @@
 export { groupInventoryByCategory } from './groupInventoryByCategory';
 export type { InventoryGroup } from './groupInventoryByCategory';
-export { parseQuantityInput } from './parseQuantityInput';
+export { toDisplayCategory } from './inventoryCategory';
+export {
+  formatQuantityMilli,
+  milliToInputText,
+  milliToQuantity,
+  parseQuantityInputMilli,
+  quantityToMilli,
+} from './quantityMilli';

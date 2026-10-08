@@ -1,9 +1,9 @@
-import type { IngredientCategory } from '@/types/domain';
-import type { InventoryItem } from '../types';
+import { ONION } from '../mocks';
+import type { InventoryCategory, InventoryItem } from '../types';
 import { groupInventoryByCategory } from './groupInventoryByCategory';
 
-function buildItem(name: string, category: IngredientCategory, quantity = 1): InventoryItem {
-  return { id: `inv-${name}`, name, category, quantity, unit: 'unit', confidence: 'exact' };
+function buildItem(name: string, category: InventoryCategory, quantityMilli = 1000): InventoryItem {
+  return { ...ONION, id: `inv-${name}`, name, category, quantityMilli };
 }
 
 describe('groupInventoryByCategory', () => {
@@ -24,8 +24,8 @@ describe('groupInventoryByCategory', () => {
 
   it('orders the groups as the category list does, whatever the item order', () => {
     const groups = groupInventoryByCategory([
-      buildItem('Sal', 'condimentos'),
-      buildItem('Arroz', 'almacen'),
+      buildItem('Guiso', 'otros'),
+      buildItem('Arroz', 'no_perecederos'),
       buildItem('Banana', 'frutas'),
       buildItem('Cebolla', 'verduras'),
     ]);
@@ -34,14 +34,23 @@ describe('groupInventoryByCategory', () => {
       'verduras',
       'frutas',
       'almacen',
-      'condimentos',
+      'otros',
+    ]);
+  });
+
+  it('puts the categories of the API that share a display category in one group', () => {
+    const rice = buildItem('Arroz', 'no_perecederos');
+    const oats = buildItem('Avena', 'granos');
+
+    expect(groupInventoryByCategory([rice, oats])).toEqual([
+      { category: 'almacen', items: [rice, oats] },
     ]);
   });
 
   it('hides the items that ran out', () => {
-    const rice = buildItem('Arroz', 'almacen');
+    const rice = buildItem('Arroz', 'no_perecederos');
 
-    expect(groupInventoryByCategory([rice, buildItem('Fideos', 'almacen', 0)])).toEqual([
+    expect(groupInventoryByCategory([rice, buildItem('Fideos', 'no_perecederos', 0)])).toEqual([
       { category: 'almacen', items: [rice] },
     ]);
   });
