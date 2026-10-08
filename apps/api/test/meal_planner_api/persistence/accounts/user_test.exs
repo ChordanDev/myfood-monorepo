@@ -10,6 +10,8 @@ defmodule MealPlannerApi.Persistence.Accounts.UserTest do
       5.1)
     * the new `has_many :memberships` association preloads without error
     * the changeset still validates `email` and `name` as required
+    * `profile_changeset/2` validates the Onboarding profile fields and
+      casts nothing else
   """
   use ExUnit.Case, async: false
 
@@ -104,7 +106,132 @@ defmodule MealPlannerApi.Persistence.Accounts.UserTest do
     end
   end
 
+  describe "cooking_skills/0" do
+    test "lists the Cooking skill catalog" do
+      assert User.cooking_skills() == ["beginner", "intermediate", "advanced"]
+    end
+  end
+
+  describe "profile_changeset/2" do
+    test "valid with a name, a Household size and a Cooking skill" do
+      changeset = profile_changeset(%{})
+
+      assert changeset.valid?, "expected valid, got: #{inspect(changeset.errors)}"
+
+      assert changeset.changes == %{
+               name: "Ana",
+               household_size: 4,
+               cooking_skill: "intermediate"
+             }
+    end
+
+    test "trims surrounding whitespace from the name" do
+      changeset = profile_changeset(%{name: "  Ana María \n"})
+
+      assert changeset.valid?
+      assert Ecto.Changeset.get_change(changeset, :name) == "Ana María"
+    end
+
+    test "invalid when the name is blank or whitespace-only" do
+      for name <- ["", "   ", "\n\t "] do
+        changeset = profile_changeset(%{name: name})
+
+        refute changeset.valid?, "expected #{inspect(name)} to be invalid"
+        assert %{name: ["can't be blank"]} = errors_on(changeset)
+      end
+    end
+
+    test "invalid when a blank name replaces a stored one" do
+      changeset = User.profile_changeset(%User{name: "Stored"}, profile_attrs(%{name: "   "}))
+
+      refute changeset.valid?
+      assert %{name: ["can't be blank"]} = errors_on(changeset)
+    end
+
+    test "accepts a name of 64 characters, counted after trimming and not in bytes" do
+      name = String.duplicate("ñ", 64)
+
+      assert profile_changeset(%{name: name}).valid?
+      assert profile_changeset(%{name: "  " <> name <> "  "}).valid?
+    end
+
+    test "invalid when the name is 65 characters" do
+      changeset = profile_changeset(%{name: String.duplicate("a", 65)})
+
+      refute changeset.valid?
+      assert %{name: ["should be at most 64 character(s)"]} = errors_on(changeset)
+    end
+
+    test "accepts a Household size of 1 and of 20" do
+      assert profile_changeset(%{household_size: 1}).valid?
+      assert profile_changeset(%{household_size: 20}).valid?
+    end
+
+    test "invalid when the Household size is 0" do
+      changeset = profile_changeset(%{household_size: 0})
+
+      refute changeset.valid?
+      assert %{household_size: ["must be greater than or equal to 1"]} = errors_on(changeset)
+    end
+
+    test "invalid when the Household size is 21" do
+      changeset = profile_changeset(%{household_size: 21})
+
+      refute changeset.valid?
+      assert %{household_size: ["must be less than or equal to 20"]} = errors_on(changeset)
+    end
+
+    test "accepts every Cooking skill of the catalog" do
+      for cooking_skill <- User.cooking_skills() do
+        assert profile_changeset(%{cooking_skill: cooking_skill}).valid?
+      end
+    end
+
+    test "invalid when the Cooking skill is outside the catalog" do
+      changeset = profile_changeset(%{cooking_skill: "expert"})
+
+      refute changeset.valid?
+      assert %{cooking_skill: ["is invalid"]} = errors_on(changeset)
+    end
+
+    test "invalid when any of the three fields is missing" do
+      for field <- [:name, :household_size, :cooking_skill] do
+        changeset = User.profile_changeset(%User{}, Map.delete(profile_attrs(), field))
+
+        refute changeset.valid?, "expected a missing #{field} to be invalid"
+        assert errors_on(changeset) == %{field => ["can't be blank"]}
+      end
+    end
+
+    test "leaves onboarding_completed_at and every other field untouched" do
+      completed_at = ~U[2026-06-09 08:00:00.000000Z]
+      user = %User{email: "ana@example.com", role: :member, onboarding_completed_at: completed_at}
+
+      attrs =
+        profile_attrs(%{
+          onboarding_completed_at: ~U[2027-01-01 00:00:00.000000Z],
+          email: "other@example.com",
+          role: :owner
+        })
+
+      changeset = User.profile_changeset(user, attrs)
+
+      assert changeset.valid?
+
+      assert changeset.changes |> Map.keys() |> Enum.sort() ==
+               [:cooking_skill, :household_size, :name]
+
+      assert Ecto.Changeset.apply_changes(changeset).onboarding_completed_at == completed_at
+    end
+  end
+
   # ---- helpers ---------------------------------------------------------------
+
+  defp profile_changeset(overrides), do: User.profile_changeset(%User{}, profile_attrs(overrides))
+
+  defp profile_attrs(overrides \\ %{}) do
+    Map.merge(%{name: "Ana", household_size: 4, cooking_skill: "intermediate"}, overrides)
+  end
 
   defp insert_account_with_plan!(name, plan_name) do
     plan = Repo.get_by!(MealPlannerApi.Subscriptions.Plan, name: plan_name)
