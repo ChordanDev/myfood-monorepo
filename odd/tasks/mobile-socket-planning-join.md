@@ -43,7 +43,7 @@ The `start_planning` and confirm capability re-checks keep replying `subscriptio
 
 - Connect: URL derived from `EXPO_PUBLIC_API_URL` (`http` to `ws`, `/socket`), `params` is a function returning `{ token }` so every (re)connect sends the current access token.
 - Rejected connect: the first error of a failure streak before the socket opened triggers `refreshTokens()` (single-flight, Auth A4). On success the socket reconnects with the new token. On a session-invalid refresh the socket stops and reports `unauthenticated`. On a network failure Phoenix's backoff keeps retrying. One refresh per streak; the streak resets on open.
-- Re-auth after refresh: the token store notifies subscribers when tokens are persisted or cleared. A new access token makes an open socket reconnect, and Phoenix rejoins the joined topics. A cleared session disconnects.
+- Re-auth after refresh: the token store notifies subscribers when tokens are persisted or cleared. A new access token makes an open socket reconnect, and Phoenix rejoins the joined topics. A cleared session closes the socket and leaves the client dormant (still subscribed) until the next token; only `disconnect()` ends it.
 - Join: `joinTopic(topic, handlers)`. A refused join is parsed with `errorFromEnvelope` into an `ApiError`. `unauthenticated` triggers one refresh and reconnect; any other code leaves the channel (no rejoin loop) and is handed to `onRefused`.
 - Tested against a fake socket injected through a factory.
 
@@ -71,14 +71,16 @@ The `start_planning` and confirm capability re-checks keep replying `subscriptio
 
 ## Delivery
 
-Forecast: about 700 authored changed lines (API about 120, socket module about 430, planner about 150), above the 400-line budget. Actual: about 2,870 (insertions plus deletions, lockfile and this document excluded; most of it is tests). Strategy `ask-on-risk`: the chain strategy is asked before any pull request is opened. Work units are committed so either slicing works:
+Forecast: about 700 authored changed lines (API about 120, socket module about 430, planner about 150), above the 400-line budget. Actual: about 3,630 (insertions plus deletions summed per commit, lockfile and this document excluded; most of it is tests). Strategy `ask-on-risk`: the chain strategy is asked before any pull request is opened. Work units are committed so either slicing works:
 
 | Slice | Commits | Authored lines |
 | --- | --- | --- |
 | API join refusals | `4818f68` | 227 |
-| Token subscription and socket URL | `f6d548f` | 165 |
-| Socket module | `57b57b9`, `89a08a2` | 2,130 |
-| Planner join and notice | `7ff1b93` | 430 |
+| Token subscription and socket URL | `f6d548f`, `18d17c8` | 239 |
+| Socket module | `57b57b9`, `89a08a2`, `c5e77f2` | 2,692 |
+| Planner join and notice | `7ff1b93`, `ec462dd` | 471 |
+
+Chain strategy chosen by the user (2026-10-08): stacked pull requests to `main`, one per slice in the order of the table, each branch built on the previous one. The socket slice cannot be cut further without separating the wrapper from the tests that pin its races (about 1,900 of its lines are tests and the fake socket), so it carries a `size:exception` recommendation.
 
 ## Progress
 
@@ -104,11 +106,20 @@ Forecast: about 700 authored changed lines (API about 120, socket module about 4
 
 - Review of the fixes and T3 (range `57b57b9..1329884`, medium, lens `review-reliability`): consent granted, approved, acknowledged. Reviewed boundary: `1329884`. Four advisory findings, not fixed, listed under follow-ups. One is answered by existing code: two socket runs cannot send overlapping rotations, because `refreshTokens` in `src/api/authRefresh.ts` is single-flight per refresh token.
 
+- Review of the whole branch (range `f4b849d..eda31a1`, medium, lens `review-reliability`, asked by the stop hook): consent granted, approved, acknowledged. Four advisory findings, fixed at the user's request in commits `18d17c8`, `c5e77f2` and `ec462dd`:
+  - A refresh that fails on the network no longer refuses a topic: the channel stays alive, Phoenix keeps rejoining and a later `unauthenticated` refusal asks again. Rejected connects and refused joins share one refresh budget and one cool-down.
+  - A streak may refresh again 10 minutes after a successful refresh (`REFRESH_HOLD_AFTER_SUCCESS_MS`), so a socket that keeps failing never sends an expired token; at most six rotations an hour during a WebSocket-only outage.
+  - `connect()` means "stay connected whenever a session exists": a cleared session, an invalid session or a start without a stored token leaves the client dormant, and the next announced token reopens the socket and rejoins the topics. `connect()` never rejects. The planner hook needed no behaviour change; a test covers a session that arrives after mount.
+  - `clearSession` always announces `null`, and `persistTokens` announces the access token once its own write succeeded, even when a later storage call throws.
+  - Checks after the fix: `npm test -- --ci` 98 suites, 1598 tests; typecheck clean; lint 0 errors.
+  - Known effects: a topic refused after a session-invalid refresh stays left until the hook remounts; during a refresh outage the hook reads `joining` (there is no retrying state); a failed socket open is swallowed silently.
+
 ## Follow-ups (not in this ticket)
+
+The first two were raised before the last fix round and were not re-verified after it.
 
 - Socket status after an invalid session across runs: when a refresh is pending, the client is disconnected and connected again, and the refresh then finds the session invalid, the client ends `disconnected` instead of `unauthenticated` (`socketClient.ts`, the superseded branch). No consumer reads the status yet.
 - A superseded join refresh resets the topic's refresh mark unconditionally and can allow one extra refresh on the same connection (`socketClient.ts`, join `superseded` continuation).
-- `usePlanningTopic` discards the `connect()` promise; a throw from the token subscription or the socket constructor would be an unhandled rejection with the hook left in `joining`.
 
 - `start_planning` and confirm still reply `subscription_required` for the rule the join now names `trial_expired`.
 - The access token travels as a connect param, so it is part of the WebSocket URL. Phoenix 1.8 can send it as `authToken` (a subprotocol header) if `UserSocket` reads `connect_info: [:auth_token]`.
@@ -120,4 +131,6 @@ Forecast: about 700 authored changed lines (API about 120, socket module about 4
 - Not run on a device or under Metro; `phoenix` bundling is unverified outside jest.
 - Merge with PR #67 will conflict in `planning_channel_test.exs` (join blocks only on this side).
 
-Next: delivery (chain strategy and pull requests are the user's decision).
+A last whole-branch review runs on the head that carries this document (the fix commits are part of it). Its outcome is reported in the pull requests, because a commit after it would change the reviewed candidate.
+
+Next: open the four stacked pull requests; merge stays with the user.
