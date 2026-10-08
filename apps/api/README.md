@@ -4,7 +4,9 @@ To start your Phoenix server:
 
 * Create local direnv file: `cp .envrc.local.example .envrc.local` and set required values
 * Allow direnv to load variables: `direnv allow`
-* Run `mix setup` to install and setup dependencies
+* Run `mix setup` to install dependencies (it only runs `deps.get`)
+* Create and migrate the database: `mix ecto.create && mix ecto.migrate`. The migrations insert the reference Plans, so sign-up works without the seeds
+* Optionally load demo data (a demo Account, two Users, a recipe and a scheduled meal) with `mix run priv/repo/seeds.exs`: once, on a fresh development database, never in production
 * Start Phoenix endpoint with `mix phx.server` or inside IEx with `iex -S mix phx.server`
 
 Now you can visit [`localhost:4000`](http://localhost:4000) from your browser.

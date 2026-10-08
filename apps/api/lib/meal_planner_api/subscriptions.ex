@@ -24,6 +24,8 @@ defmodule MealPlannerApi.Subscriptions do
 
   import Ecto.Query, warn: false
 
+  require Logger
+
   alias MealPlannerApi.Repo
   alias MealPlannerApi.Persistence.Accounts.Account
   alias MealPlannerApi.Subscriptions.Plan
@@ -102,8 +104,24 @@ defmodule MealPlannerApi.Subscriptions do
   @spec ensure_default_plan_id(atom() | binary()) ::
           {:ok, Ecto.UUID.t()} | {:error, :plan_not_found}
   def ensure_default_plan_id(plan) do
-    with {:ok, plan_row} <- get_plan_by_name(default_plan_name_for_plan(plan)) do
-      {:ok, plan_row.id}
+    name = default_plan_name_for_plan(plan)
+
+    case get_plan_by_name(name) do
+      {:ok, plan_row} ->
+        {:ok, plan_row.id}
+
+      {:error, :plan_not_found} = error ->
+        # Callers fold this into a generic failure (sign-up answers 500), so
+        # this is the only place that can say which row is missing. Migrating
+        # only helps a database that has not run the inserting migration yet.
+        Logger.error(
+          "Plan #{inspect(name)} is missing from the subscription_plans table. " <>
+            "Migration 20261008120000 inserts it on a database that has not run " <>
+            "it yet; when migrations are already up to date the row was removed " <>
+            "and has to be inserted again."
+        )
+
+        error
     end
   end
 
