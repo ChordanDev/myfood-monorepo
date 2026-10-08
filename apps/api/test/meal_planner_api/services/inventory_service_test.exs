@@ -81,6 +81,135 @@ defmodule MealPlannerApi.Services.InventoryServiceTest do
     end
   end
 
+  describe "inventory_view/1 — item shape" do
+    test "an item carries exactly the read fields, with the leftover and notes defaults" do
+      account = insert_account("Service View Shape Acc")
+      user = insert_user_with_active_membership(account.id, "view_shape@example.com", :owner)
+      scoped_user = %{id: user.id, account_id: account.id, plan: :family_4}
+      flour = insert_ingredient("Service View Flour")
+      lot = seed_lot(account, user, flour, %{delta: 500, source_kind: :extra})
+
+      assert {:ok, view} = InventoryService.inventory_view(scoped_user)
+      assert [item] = view.sections.ok
+
+      assert item |> Map.keys() |> Enum.sort() == [
+               :acquired_at,
+               :category,
+               :expires_at,
+               :freshness,
+               :id,
+               :ingredient_id,
+               :is_leftover,
+               :name,
+               :notes,
+               :quantity_milli,
+               :source_kind,
+               :unit
+             ]
+
+      assert %{
+               name: "Service View Flour",
+               category: "otros",
+               quantity_milli: 500,
+               unit: "g",
+               source_kind: "extra",
+               acquired_at: nil,
+               freshness: "ok",
+               is_leftover: false,
+               notes: nil
+             } = item
+
+      assert item.id == lot.id
+      assert item.ingredient_id == flour.id
+
+      assert view.sections == %{ok: [item], warning: [], expired: []}
+      assert view.by_category == %{"otros" => [item]}
+      assert view.extras == [item]
+      assert view.totals == %{items_count: 1, warning_count: 0, expired_count: 0}
+    end
+
+    test "an item carries the leftover flag and the notes stored on its lot" do
+      account = insert_account("Service View Leftover Acc")
+      user = insert_user_with_active_membership(account.id, "view_leftover@example.com", :owner)
+      scoped_user = %{id: user.id, account_id: account.id, plan: :family_4}
+      lot = seed_lot(account, user, insert_ingredient("Service View Stew"), %{delta: 300})
+
+      assert {:ok, _lot} =
+               InventoryPersistence.update_inventory_item(lot, %{
+                 is_leftover: true,
+                 notes: "Sunday stew"
+               })
+
+      assert {:ok, view} = InventoryService.inventory_view(scoped_user)
+      assert [%{is_leftover: true, notes: "Sunday stew"}] = view.sections.ok
+    end
+
+    test "expires_at is the date of the explicit expiry when the lot has one, else the inferred one" do
+      account = insert_account("Service View Expiry Acc")
+      user = insert_user_with_active_membership(account.id, "view_expiry@example.com", :owner)
+      scoped_user = %{id: user.id, account_id: account.id, plan: :family_4}
+      flour = insert_ingredient("Service View Expiry Flour")
+
+      today = Date.utc_today()
+      acquired_at = DateTime.new!(Date.add(today, -1), ~T[12:00:00.000000], "Etc/UTC")
+      explicit_expiry = DateTime.new!(Date.add(today, 30), ~T[12:00:00.000000], "Etc/UTC")
+
+      explicit =
+        seed_lot(account, user, flour, %{
+          delta: 100,
+          acquired_at: acquired_at,
+          expired_at: explicit_expiry
+        })
+
+      inferred = seed_lot(account, user, flour, %{delta: 200, acquired_at: acquired_at})
+
+      assert {:ok, view} = InventoryService.inventory_view(scoped_user)
+      items = Map.new(view.sections.ok, &{&1.id, &1})
+
+      assert items[explicit.id].expires_at == Date.to_iso8601(Date.add(today, 30))
+      assert items[explicit.id].acquired_at == DateTime.to_iso8601(acquired_at)
+
+      # `otros` falls back to a 14-day shelf life counted from the acquisition date.
+      assert items[inferred.id].expires_at == Date.to_iso8601(Date.add(today, 13))
+    end
+
+    test "a lot at quantity zero is absent from every group and from the totals" do
+      account = insert_account("Service View Zero Acc")
+      user = insert_user_with_active_membership(account.id, "view_zero@example.com", :owner)
+      scoped_user = %{id: user.id, account_id: account.id, plan: :family_4}
+      kept = seed_lot(account, user, insert_ingredient("Service View Kept"), %{delta: 400})
+
+      # An expired extra lot would show up in `expired`, `extras`, its own category
+      # and two of the totals if it were not hidden once disposed.
+      disposed =
+        seed_lot(account, user, insert_ingredient("Service View Disposed", :lacteos), %{
+          delta: 250,
+          source_kind: :extra,
+          expired_at: DateTime.add(DateTime.utc_now(), -3 * 86_400)
+        })
+
+      assert {:ok, before_dispose} = InventoryService.inventory_view(scoped_user)
+      assert [%{id: disposed_id}] = before_dispose.sections.expired
+      assert disposed_id == disposed.id
+      assert before_dispose.totals == %{items_count: 2, warning_count: 0, expired_count: 1}
+
+      assert {:ok, _result} = InventoryService.dispose_item(scoped_user, disposed.id, %{})
+
+      # The lot is kept at zero for the ledger.
+      assert %{quantity_milli: 0} =
+               InventoryPersistence.get_inventory_item_for_account(account.id, disposed.id)
+
+      assert {:ok, view} = InventoryService.inventory_view(scoped_user)
+      assert [%{id: kept_id} = kept_item] = view.sections.ok
+      assert kept_id == kept.id
+
+      assert view.sections == %{ok: [kept_item], warning: [], expired: []}
+      assert view.by_category == %{"otros" => [kept_item]}
+      assert view.extras == []
+      assert view.totals == %{items_count: 1, warning_count: 0, expired_count: 0}
+    end
+  end
+
   describe "function signatures" do
     test "inventory_view/1 is callable" do
       assert is_function(&InventoryService.inventory_view/1)
@@ -412,9 +541,26 @@ defmodule MealPlannerApi.Services.InventoryServiceTest do
     |> Repo.insert!()
   end
 
-  defp insert_ingredient(name) do
+  defp insert_ingredient(name, category \\ :otros) do
     %Ingredient{}
-    |> Ingredient.changeset(%{name: name, category: :otros})
+    |> Ingredient.changeset(%{name: name, category: category})
     |> Repo.insert!()
+  end
+
+  defp seed_lot(account, user, ingredient, attrs) do
+    {:ok, result} =
+      %{
+        account_id: account.id,
+        ingredient_id: ingredient.id,
+        unit: :g,
+        source_kind: :planned,
+        source_user_id: user.id,
+        trigger_type: :purchase,
+        operation: :add
+      }
+      |> Map.merge(attrs)
+      |> InventoryPersistence.apply_delta_and_log()
+
+    result.item
   end
 end

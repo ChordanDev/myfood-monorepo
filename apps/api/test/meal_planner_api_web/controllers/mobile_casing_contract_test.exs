@@ -330,12 +330,17 @@ defmodule MealPlannerApiWeb.MobileCasingContractTest do
 
       assert %{
                "ingredientId" => ingredient_id,
+               "name" => "Casing contract rice",
                "quantityMilli" => 250,
                "sourceKind" => "extra",
-               "freshnessStatus" => "ok"
+               "expiresAt" => expires_at,
+               "freshness" => "ok",
+               "isLeftover" => false,
+               "notes" => nil
              } = item
 
       assert ingredient_id == ingredient.id
+      assert is_binary(expires_at)
       assert body["data"]["extras"] == [item]
     end
   end

@@ -136,6 +136,79 @@ defmodule MealPlannerApiWeb.InventoryControllerTest do
 
     dispose_body = json_response(dispose_conn, 200)
     assert dispose_body["data"]["itemId"] == item_id
+
+    # The disposed lot stays as a zero row for the ledger and leaves the read.
+    after_dispose_conn =
+      build_conn()
+      |> put_req_header("authorization", "Bearer " <> token)
+      |> get("/api/inventory")
+
+    assert json_response(after_dispose_conn, 200)["data"] == %{
+             "sections" => %{"ok" => [], "warning" => [], "expired" => []},
+             "byCategory" => %{},
+             "extras" => [],
+             "totals" => %{"itemsCount" => 0, "warningCount" => 0, "expiredCount" => 0}
+           }
+  end
+
+  test "GET /api/inventory lists each lot with its read fields in camelCase", %{conn: conn} do
+    %{token: token, user: %{id: user_id}, account: %{id: account_id}} =
+      insert_identity_with_token!(plan: :family_4)
+
+    {:ok, ingredient} =
+      Catalog.upsert_ingredient_by_name(%{
+        name: "Arroz Test Forma",
+        category: :no_perecederos,
+        calories_per_100: 130,
+        protein_g_per_100: Decimal.new("2.7"),
+        carbs_g_per_100: Decimal.new("28.0"),
+        fat_g_per_100: Decimal.new("0.3")
+      })
+
+    acquired_at = DateTime.add(DateTime.utc_now(), -86_400)
+    expires_at = DateTime.add(DateTime.utc_now(), 20 * 86_400)
+
+    {:ok, seed} =
+      Inventory.apply_delta_and_log(%{
+        account_id: account_id,
+        ingredient_id: ingredient.id,
+        unit: :g,
+        source_kind: :extra,
+        delta: 400,
+        acquired_at: acquired_at,
+        expired_at: expires_at,
+        source_user_id: user_id,
+        trigger_type: :manual,
+        operation: :add
+      })
+
+    body =
+      conn
+      |> put_req_header("authorization", "Bearer " <> token)
+      |> get("/api/inventory")
+      |> json_response(200)
+
+    item = %{
+      "id" => seed.item.id,
+      "ingredientId" => ingredient.id,
+      "name" => "Arroz Test Forma",
+      "category" => "no_perecederos",
+      "quantityMilli" => 400,
+      "unit" => "g",
+      "sourceKind" => "extra",
+      "acquiredAt" => DateTime.to_iso8601(acquired_at),
+      "expiresAt" => expires_at |> DateTime.to_date() |> Date.to_iso8601(),
+      "freshness" => "ok",
+      "isLeftover" => false,
+      "notes" => nil
+    }
+
+    assert body["data"] == %{
+             "sections" => %{"ok" => [item], "warning" => [], "expired" => []},
+             "byCategory" => %{"no_perecederos" => [item]},
+             "extras" => [item],
+             "totals" => %{"itemsCount" => 1, "warningCount" => 0, "expiredCount" => 0}
+           }
   end
 
   test "rescue plan schedules meal for today" do
