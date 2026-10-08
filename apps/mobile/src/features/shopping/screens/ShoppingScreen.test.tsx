@@ -1,28 +1,74 @@
 /* eslint-disable @typescript-eslint/no-require-imports */
+/// <reference types="node" />
 
 import React from 'react';
-import { ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, ScrollView, StyleSheet, Text } from 'react-native';
 import { act, create, ReactTestInstance } from 'react-test-renderer';
-import type { MasterRecipe, MealPlanEntry } from '@/types/domain';
+import { Check } from 'lucide-react-native';
 import type { FloatingCalendarProps } from '@/features/home';
 import { useInventoryStore } from '@/features/inventory/store';
 import { CUSTOM_TAB_BAR_CONTENT_HEIGHT } from '@/features/planner/constants';
-import { MOCK_INGREDIENTS } from '@/mocks/domainMocks';
-import { useAnimatedThemeStyle } from '@/hooks/useAnimatedThemeStyle';
 import { useMealPlanStore } from '@/store';
+import {
+  EMPTY_SHOPPING_LIST,
+  SHOPPING_LIST_BY_INGREDIENT,
+  SHOPPING_LIST_BY_MEAL,
+  SHOPPING_LIST_UNTIL_OCT_10,
+  SHOPPING_LIST_VALIDATION_ERROR,
+  toShoppingListResponse,
+} from '../fixtures';
 import { useShoppingListStore } from '../store';
+import type { ShoppingListRead } from '../types';
 import { ShoppingScreen } from './ShoppingScreen';
 
 jest.mock('@react-native-async-storage/async-storage', () =>
   jest.requireActual('@react-native-async-storage/async-storage/jest/async-storage-mock')
 );
 
+const mockSecureStore = new Map<string, string>();
+
+jest.mock('expo-secure-store', () => ({
+  getItemAsync: jest.fn((key: string) => Promise.resolve(mockSecureStore.get(key) ?? null)),
+  setItemAsync: jest.fn((key: string, value: string) => {
+    mockSecureStore.set(key, value);
+    return Promise.resolve();
+  }),
+  deleteItemAsync: jest.fn((key: string) => {
+    mockSecureStore.delete(key);
+    return Promise.resolve();
+  }),
+}));
+
 jest.mock('react-native-safe-area-context', () => ({
   useSafeAreaInsets: () => ({ top: 47, right: 0, bottom: 34, left: 0 }),
 }));
 
-// The day the list takes for today: before both planned meals.
-jest.mock('../store/today', () => ({ getTodayKey: () => '2026-10-01' }));
+// Who is signed in. The barrel of the auth feature holds its screens, which this suite cannot
+// load, and the screen only asks it for the user: the hook is replaced by that answer.
+let mockUser: { id: string } | null = null;
+
+jest.mock('@/features/auth', () => ({
+  useAuth: () => ({ user: mockUser }),
+}));
+
+// What the screen does when it comes into focus. The mock runs it on mount, as the router
+// does for the screen it opens on, and a test runs it again to come back to the screen.
+let mockFocusEffect: (() => void) | undefined;
+// A test turns this off to see the screen as it is drawn before it has asked for anything.
+let mockIsFocused = true;
+
+jest.mock('expo-router', () => {
+  const { useEffect } = require('react');
+
+  return {
+    useFocusEffect: (effect: () => void) => {
+      useEffect(() => {
+        mockFocusEffect = effect;
+        if (mockIsFocused) effect();
+      }, [effect]);
+    },
+  };
+});
 
 const mockFloatingCalendars: FloatingCalendarProps[] = [];
 const mockAnchor = { x: 14, y: 60, width: 150, height: 42 };
@@ -66,6 +112,8 @@ jest.mock('react-native-reanimated', () => {
   };
 });
 
+// The barrel of the components also holds the ones that are off the screen for now: the cart
+// button and the two sheets. These are what they need to be loaded.
 jest.mock('expo-linear-gradient', () => {
   const { View } = require('react-native');
 
@@ -74,14 +122,8 @@ jest.mock('expo-linear-gradient', () => {
   };
 });
 
-// iOS keeps the children of a modal mounted while it fades out; the stock Jest mock drops
-// them at once. A test turns this on to press what is still on screen during that fade.
-let mockKeepsChildrenWhileHidden = false;
-
-jest.mock('react-native/Libraries/Modal/Modal', () => ({
-  __esModule: true,
-  default: ({ visible, children }: { visible: boolean; children: React.ReactNode }) =>
-    visible || mockKeepsChildrenWhileHidden ? children : null,
+jest.mock('@/hooks/useKeyboardAnimation', () => ({
+  useKeyboardAnimation: () => ({ inputAnimatedStyle: {}, isKeyboardOpen: false }),
 }));
 
 // Only what the screen uses: the barrel would load every shared component.
@@ -107,10 +149,6 @@ jest.mock('expo-haptics', () => ({
   notificationAsync: jest.fn(),
 }));
 
-jest.mock('@/hooks/useKeyboardAnimation', () => ({
-  useKeyboardAnimation: () => ({ inputAnimatedStyle: {}, isKeyboardOpen: false }),
-}));
-
 jest.mock('@/context/RecipeThemeContext', () => ({
   useRecipeTheme: () => ({
     theme: {
@@ -119,9 +157,7 @@ jest.mock('@/context/RecipeThemeContext', () => ({
       colorDark: '#111111',
       colorLight: '#999999',
       colorMedium: '#444444',
-      icon: '#cccccc',
       primaryAccent: '#ff6600',
-      primaryAccentIntense: '#ff3300',
       textBlack: '#111111',
       textDark: '#222222',
       textLight: '#eeeeee',
@@ -130,30 +166,71 @@ jest.mock('@/context/RecipeThemeContext', () => ({
   }),
 }));
 
-// Returns the colors as the style and records the options, so `immediateKey` can be asserted.
 jest.mock('@/hooks/useAnimatedThemeStyle', () => ({
-  useAnimatedThemeStyle: jest.fn((colors: object) => colors),
+  useAnimatedThemeStyle: (colors: object) => colors,
 }));
 
-// Chicken and tomato on the 6th, spinach on the 12th. Nothing is in stock.
-const RECIPES = [
-  {
-    id: 'r1',
-    ingredients: [
-      { ingredientId: 'i2', amount: 200 },
-      { ingredientId: 'i3', amount: 2 },
-    ],
-  },
-  { id: 'r2', ingredients: [{ ingredientId: 'i7', amount: 100 }] },
-];
+const LIST_URL = 'https://api.example.test/api/shopping-list';
 
-const PLAN: MealPlanEntry[] = [
-  { id: 'mp1', date: '2026-10-06', type: 'lunch', recipeId: 'r1', isCooked: false },
-  { id: 'mp2', date: '2026-10-12', type: 'dinner', recipeId: 'r2', isCooked: false },
-];
+const fetchMock = jest.fn();
+const originalApiUrl = process.env.EXPO_PUBLIC_API_URL;
+
+function jsonResponse(payload: unknown, ok = true, status = ok ? 200 : 422) {
+  return { ok, status, text: () => Promise.resolve(JSON.stringify(payload)) } as Response;
+}
+
+function listResponse(read: ShoppingListRead) {
+  return jsonResponse(toShoppingListResponse(read));
+}
+
+// What the server answers for the plan of the fixtures, by the filters of the request.
+function readFor(url: string): ShoppingListRead {
+  if (url.includes('groupBy=meal')) return SHOPPING_LIST_BY_MEAL;
+  if (url.includes('untilDate=2026-10-10')) return SHOPPING_LIST_UNTIL_OCT_10;
+  return SHOPPING_LIST_BY_INGREDIENT;
+}
+
+function serveThePlan() {
+  fetchMock.mockImplementation((url: string) => Promise.resolve(listResponse(readFor(url))));
+}
+
+// Answers the next request with this read, whatever it asks for.
+function answerOnceWith(read: ShoppingListRead) {
+  fetchMock.mockResolvedValueOnce(listResponse(read));
+}
+
+// The server cannot be reached: the transport asks twice before it gives up.
+function failTheNetworkOnce() {
+  fetchMock
+    .mockRejectedValueOnce(new TypeError('Network request failed'))
+    .mockRejectedValueOnce(new TypeError('Network request failed'));
+}
+
+// A request the test answers when it chooses to.
+function holdTheNextRequest() {
+  let answer: (read: ShoppingListRead) => void = () => {};
+
+  fetchMock.mockReturnValueOnce(
+    new Promise<Response>((resolve) => {
+      answer = (read) => resolve(listResponse(read));
+    })
+  );
+
+  return { answer: (read: ShoppingListRead) => answer(read) };
+}
+
+const requestedUrls = () => fetchMock.mock.calls.map(([url]) => url as string);
 
 let tree: ReturnType<typeof create> | undefined;
 
+// Lets the reads that were asked for go out, and their answers land on the screen.
+async function settle() {
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+}
+
+// The screen as it is first drawn, with its first read still on its way.
 function renderScreen(): ReactTestInstance {
   act(() => {
     tree = create(<ShoppingScreen />);
@@ -162,64 +239,52 @@ function renderScreen(): ReactTestInstance {
   return tree!.root;
 }
 
-// The badge of the cart button holds a number: every text is read as a string.
+// The screen once its first read has landed.
+async function renderLoadedScreen(): Promise<ReactTestInstance> {
+  const root = renderScreen();
+  await settle();
+
+  return root;
+}
+
+// Leaves the tab and comes back to it.
+async function focusScreen() {
+  act(() => {
+    mockFocusEffect?.();
+  });
+  await settle();
+}
+
 function getTexts(root: ReactTestInstance): string[] {
   return root.findAllByType(Text).map((node) => String(node.props.children));
 }
 
-function getPressables(root: ReactTestInstance, role: 'button' | 'checkbox') {
+function getButtons(root: ReactTestInstance) {
   return root.findAll(
-    (node) => node.props.accessibilityRole === role && typeof node.props.onPress === 'function'
+    (node) => node.props.accessibilityRole === 'button' && typeof node.props.onPress === 'function'
   );
 }
 
-function press(root: ReactTestInstance, role: 'button' | 'checkbox', label: string) {
-  const target = getPressables(root, role).find(
-    (candidate) => candidate.props.accessibilityLabel === label
-  );
+function getButtonLabels(root: ReactTestInstance): string[] {
+  return getButtons(root).map((button) => button.props.accessibilityLabel);
+}
+
+async function press(root: ReactTestInstance, label: string) {
+  const target = getButtons(root).find((button) => button.props.accessibilityLabel === label);
 
   if (!target) {
-    throw new Error(`No ${role} labelled "${label}"`);
+    throw new Error(`No button labelled "${label}"`);
   }
 
   act(() => {
     target.props.onPress();
   });
+  await settle();
 }
 
-function longPress(root: ReactTestInstance, label: string) {
-  const row = getPressables(root, 'checkbox').find(
-    (candidate) => candidate.props.accessibilityLabel === label
-  );
-
-  if (!row) {
-    throw new Error(`No row labelled "${label}"`);
-  }
-
-  act(() => {
-    row.props.onLongPress();
-  });
-}
-
-// A boolean, not the node: a failed assertion on a test instance prints its whole tree.
-function isAddSheetOpen(root: ReactTestInstance) {
-  return root.findAllByType(TextInput).length > 0;
-}
-
-// Opens the add sheet from the plus button, types the name and confirms it.
-function addManualItem(root: ReactTestInstance, name: string) {
-  press(root, 'button', 'Agregar a la lista');
-  act(() => {
-    root.findByType(TextInput).props.onChangeText(name);
-  });
-  act(() => {
-    root.findByType(TextInput).props.onSubmitEditing();
-  });
-}
-
-// Presses a button by the text it shows: the actions of a sheet have no label of their own.
-function pressText(root: ReactTestInstance, text: string) {
-  const target = getPressables(root, 'button').find((button) => getTexts(button).includes(text));
+// Presses a button by the text it shows.
+async function pressText(root: ReactTestInstance, text: string) {
+  const target = getButtons(root).find((button) => getTexts(button).includes(text));
 
   if (!target) {
     throw new Error(`No button showing "${text}"`);
@@ -228,648 +293,740 @@ function pressText(root: ReactTestInstance, text: string) {
   act(() => {
     target.props.onPress();
   });
+  await settle();
 }
 
-const CART_TITLE = 'Tu carrito';
-const CART_EMPTY_HINT = 'Todavía no marcaste nada.';
-const CONFIRM = 'Marcar como comprado';
-
-function isCartSheetOpen(root: ReactTestInstance) {
-  return getTexts(root).includes(CART_TITLE);
+function isLoading(root: ReactTestInstance) {
+  return root.findAllByType(ActivityIndicator).length > 0;
 }
 
-// What the cart sheet shows, from its title to its last action.
-function getCartSheetTexts(root: ReactTestInstance) {
-  const texts = getTexts(root);
-
-  return texts.slice(texts.indexOf(CART_TITLE), texts.indexOf('Cancelar') + 1);
+// The first line of every row that is struck through: the ones shown as in the cart.
+function getStruckNames(root: ReactTestInstance): string[] {
+  return root
+    .findAllByType(Text)
+    .filter((node) => StyleSheet.flatten(node.props.style).textDecorationLine === 'line-through')
+    .map((node) => String(node.props.children));
 }
-
-function getCheckedLabels(root: ReactTestInstance) {
-  return getPressables(root, 'checkbox')
-    .filter((checkbox) => checkbox.props.accessibilityState.checked)
-    .map((checkbox) => checkbox.props.accessibilityLabel);
-}
-
-function stockOf(ingredientId: string) {
-  return useInventoryStore.getState().items.find((item) => item.ingredientId === ingredientId)
-    ?.quantity;
-}
-
-const UNTIL_THE_12TH = 'Elegir hasta qué día comprar, ahora 12 Oct';
 
 // What the date pill hands the floating calendar on its last render.
 function untilCalendar() {
   return mockFloatingCalendars[mockFloatingCalendars.length - 1];
 }
 
-function pickUntilDate(dateKey: string) {
+async function pickUntilDate(dateKey: string) {
   act(() => {
     untilCalendar().onSelectDate?.(dateKey);
   });
+  await settle();
 }
 
+const UNTIL_THE_12TH = 'Elegir hasta qué día comprar, ahora 12 Oct';
 const EMPTY_LABEL = 'No hay nada para comprar';
-const MANUAL_TITLE = 'Agregados a mano';
-const MANUAL_HINT = 'Todavía no agregaste nada.';
+const NETWORK_ERROR = 'No pudimos conectar con el servidor. Revisá tu conexión.';
+const RETRY = 'Reintentar';
 
-// The `immediateKey` of every style that has one, in render order: the rows and checkboxes.
-function getImmediateKeys() {
-  return jest
-    .mocked(useAnimatedThemeStyle)
-    .mock.calls.flatMap(([, options]) => (options ? [options.immediateKey] : []));
+const HEADER = ['Hasta 12 Oct', 'Por ingrediente', 'Por comida', 'COMPRAS'];
+
+// The cards of the plan read per ingredient: each card a category, each row its lines.
+const CARDS_BY_INGREDIENT = [
+  'Verduras',
+  '5 u · Tomate',
+  'Para 2 comidas',
+  'Frutas',
+  '2 u · Banana',
+  'Carnes',
+  '1,1 kg · Pollo',
+  'Para 2 comidas',
+  'Lácteos',
+  '1,25 L · Leche',
+  'Para 2 comidas',
+  'Granos',
+  '1,25 kg · Arroz',
+  'Para 3 comidas',
+  'No perecederos',
+  '30 ml · Aceite de oliva',
+];
+
+const USER_A = { id: 'user-a' };
+const USER_B = { id: 'user-b' };
+
+// Another user signs in on the same device: the screen is drawn again for them.
+function signInAs(user: { id: string } | null) {
+  mockUser = user;
+  act(() => {
+    tree?.update(<ShoppingScreen />);
+  });
 }
 
-beforeEach(() => {
-  mockKeepsChildrenWhileHidden = false;
+beforeEach(async () => {
+  mockUser = USER_A;
+  mockIsFocused = true;
+  mockFocusEffect = undefined;
   mockFloatingCalendars.length = 0;
-  jest.mocked(useAnimatedThemeStyle).mockClear();
-  useMealPlanStore.setState({
-    entries: PLAN,
-    recipes: RECIPES as MasterRecipe[],
-  });
-  useInventoryStore.setState({ items: [], ingredients: MOCK_INGREDIENTS });
-  useShoppingListStore.setState({
-    cartIds: [],
-    removedIds: [],
-    manualItems: [],
-    lastManualItemSequence: 0,
-    groupingMode: 'category',
-    chosenUntilDate: undefined,
-  });
+  mockSecureStore.clear();
+  mockSecureStore.set('auth_access_token', 'access-1');
+  fetchMock.mockReset();
+  global.fetch = fetchMock;
+  process.env.EXPO_PUBLIC_API_URL = 'https://api.example.test';
+  useShoppingListStore.setState(useShoppingListStore.getInitialState(), true);
+  serveThePlan();
 });
 
-afterEach(() => {
+afterEach(async () => {
   act(() => tree?.unmount());
   tree = undefined;
+  // No answer of this test is left to land on the next one.
+  await settle();
+});
+
+afterAll(() => {
+  process.env.EXPO_PUBLIC_API_URL = originalApiUrl;
 });
 
 describe('ShoppingScreen', () => {
-  it('lists the plan by category under the date, the switcher, the title and the counter', () => {
-    const root = renderScreen();
+  describe('the first read', () => {
+    it('asks the server for the list as soon as the screen is shown', async () => {
+      await renderLoadedScreen();
 
-    expect(getTexts(root)).toEqual([
-      'Hasta 12 Oct',
-      'Por categoría',
-      'Por súper',
-      'COMPRAS',
-      '3 ítems · 0 en el carrito',
-      'Verduras',
-      'Marcar todos',
-      '100 g · Espinaca',
-      'Sin precio',
-      '2 u · Tomate',
-      'Coto · $1.100',
-      'Carnes',
-      'Marcar todos',
-      '200 g · Pollo (Pechuga)',
-      'Día · $1.520',
-      MANUAL_TITLE,
-      MANUAL_HINT,
-    ]);
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      expect(fetchMock).toHaveBeenCalledWith(
+        `${LIST_URL}?groupBy=ingredient`,
+        expect.objectContaining({
+          method: 'GET',
+          headers: expect.objectContaining({ Authorization: 'Bearer access-1' }),
+        })
+      );
+    });
+
+    it('shows that it is loading, with no date, counter or card, until the read lands', async () => {
+      const request = holdTheNextRequest();
+      const root = renderScreen();
+      await settle();
+
+      expect(isLoading(root)).toBe(true);
+      expect(getTexts(root)).toEqual(['Por ingrediente', 'Por comida', 'COMPRAS']);
+
+      request.answer(SHOPPING_LIST_BY_INGREDIENT);
+      await settle();
+
+      expect(isLoading(root)).toBe(false);
+      expect(getTexts(root)).toContain('Verduras');
+    });
+
+    it('lists the read by category under the date, the switcher, the title and the counter', async () => {
+      const root = await renderLoadedScreen();
+
+      expect(getTexts(root)).toEqual([
+        ...HEADER,
+        '6 ítems · 1 en el carrito',
+        ...CARDS_BY_INGREDIENT,
+      ]);
+    });
+
+    it('takes the counter from the totals of the read, not from its rows', async () => {
+      fetchMock.mockReset();
+      answerOnceWith({
+        ...SHOPPING_LIST_BY_INGREDIENT,
+        totals: { needed: 40, inCart: 2, removed: 0, estimatedCents: 0 },
+      });
+
+      const root = await renderLoadedScreen();
+
+      expect(getTexts(root)).toContain('42 ítems · 2 en el carrito');
+    });
+
+    it('does not follow the meal plan or the inventory of the device', async () => {
+      const root = await renderLoadedScreen();
+      const textsBefore = getTexts(root);
+
+      act(() => {
+        useMealPlanStore.setState({ entries: [], recipes: [] });
+        useInventoryStore.setState({ items: [], ingredients: [] });
+      });
+      await settle();
+
+      expect(getTexts(root)).toEqual(textsBefore);
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    });
   });
 
-  it('shows the date as a button, before the grouping options, the add one and the cart', () => {
-    const root = renderScreen();
+  describe('a read-only list', () => {
+    it('has nothing to press on its cards: no tick, no row and no "Marcar todos"', async () => {
+      const root = await renderLoadedScreen();
+      const list = root.findByType(ScrollView);
 
-    expect(getPressables(root, 'button').map((button) => button.props.accessibilityLabel)).toEqual([
-      UNTIL_THE_12TH,
-      'Por categoría',
-      'Por súper',
-      'Agregar a la lista',
-      'Ver carrito, vacío',
-    ]);
+      expect(
+        list.findAll(
+          (node) =>
+            typeof node.props.onPress === 'function' ||
+            typeof node.props.onLongPress === 'function' ||
+            typeof node.props.onAccessibilityAction === 'function'
+        )
+      ).toEqual([]);
+      expect(root.findAll((node) => node.props.accessibilityRole === 'checkbox')).toEqual([]);
+      expect(getTexts(root)).not.toContain('Marcar todos');
+    });
+
+    it('offers only the date and the two groupings to press', async () => {
+      const root = await renderLoadedScreen();
+
+      expect(getButtonLabels(root)).toEqual([UNTIL_THE_12TH, 'Por ingrediente', 'Por comida']);
+    });
+
+    it('shows a line in the cart struck through and ticked, and no box on the others', async () => {
+      const root = await renderLoadedScreen();
+
+      expect(getStruckNames(root)).toEqual(['30 ml · Aceite de oliva']);
+      expect(root.findAllByType(Check)).toHaveLength(1);
+      expect(
+        root.findAll(
+          (node) => typeof node.type === 'string' && node.props.testID === 'shopping-checkbox'
+        )
+      ).toHaveLength(1);
+    });
+
+    it('reads a line in the cart as such to a screen reader', async () => {
+      const root = await renderLoadedScreen();
+      const labels = root
+        .findByType(ScrollView)
+        .findAll((node) => typeof node.type === 'string' && node.props.accessible === true)
+        .map((node) => node.props.accessibilityLabel);
+
+      expect(labels).toContain('30 ml · Aceite de oliva, en el carrito');
+      expect(labels).toContain('1,25 kg · Arroz, Para 3 comidas');
+    });
+
+    it('keeps the cart, the items added by hand and the removed rows off the screen', async () => {
+      const root = await renderLoadedScreen();
+
+      expect(root.findAll((node) => node.props.testID === 'shopping-cart-button')).toEqual([]);
+      expect(getTexts(root)).not.toContain('Agregados a mano');
+      expect(getTexts(root).some((text) => text.includes('Restaurar'))).toBe(false);
+    });
+
+    it('clears the tab bar, without letting iOS add the safe area again', async () => {
+      const root = await renderLoadedScreen();
+      const list = root.findByType(ScrollView);
+
+      expect(list.props.contentInsetAdjustmentBehavior).toBe('never');
+      // The tab bar and a gap: the last card scrolls clear of it.
+      expect(StyleSheet.flatten(list.props.contentContainerStyle).paddingBottom).toBe(
+        34 + CUSTOM_TAB_BAR_CONTENT_HEIGHT + 14
+      );
+    });
   });
 
-  it('puts the pressed row in the cart, counts it and leaves the inventory alone', () => {
-    const root = renderScreen();
+  describe('the grouping', () => {
+    it('starts per ingredient', async () => {
+      const root = await renderLoadedScreen();
+      const selected = getButtons(root)
+        .filter((button) => button.props.accessibilityState?.selected)
+        .map((button) => button.props.accessibilityLabel);
 
-    press(root, 'checkbox', '2 u · Tomate, Coto · $1.100');
+      expect(selected).toEqual(['Por ingrediente']);
+    });
 
-    expect(getTexts(root)).toContain('3 ítems · 1 en el carrito');
-    expect(getCheckedLabels(root)).toEqual(['2 u · Tomate, Coto · $1.100']);
-    expect(useInventoryStore.getState().items).toEqual([]);
-  });
+    it('asks for the lines per meal, and shows each one with its day and its slot', async () => {
+      const root = await renderLoadedScreen();
 
-  it('takes the row back out of the cart when it is pressed again', () => {
-    const root = renderScreen();
-    press(root, 'checkbox', '2 u · Tomate, Coto · $1.100');
+      await press(root, 'Por comida');
 
-    press(root, 'checkbox', '2 u · Tomate, Coto · $1.100');
+      expect(requestedUrls()).toEqual([
+        `${LIST_URL}?groupBy=ingredient`,
+        `${LIST_URL}?groupBy=meal`,
+      ]);
+      expect(getTexts(root)).toEqual([
+        ...HEADER,
+        '11 ítems · 2 en el carrito',
+        'Verduras',
+        '2 u · Tomate',
+        '8 Oct · Almuerzo',
+        '3 u · Tomate',
+        '10 Oct · Cena',
+        'Frutas',
+        '2 u · Banana',
+        '12 Oct · Desayuno',
+        'Carnes',
+        '600 g · Pollo',
+        '8 Oct · Almuerzo',
+        '500 g · Pollo',
+        '12 Oct · Almuerzo',
+        'Lácteos',
+        '500 ml · Leche',
+        '10 Oct · Cena',
+        '750 ml · Leche',
+        '12 Oct · Desayuno',
+        'Granos',
+        '400 g · Arroz',
+        '8 Oct · Almuerzo',
+        '400 g · Arroz',
+        '10 Oct · Cena',
+        '450 g · Arroz',
+        '12 Oct · Almuerzo',
+        'No perecederos',
+        '30 ml · Aceite de oliva',
+        '8 Oct · Almuerzo',
+      ]);
+    });
 
-    expect(getTexts(root)).toContain('3 ítems · 0 en el carrito');
-    expect(getCheckedLabels(root)).toEqual([]);
-  });
+    it('shows the share of a meal that is in the cart as such, and not the rest of its ingredient', async () => {
+      const root = await renderLoadedScreen();
 
-  it('applies the in-cart look of the pressed row at once, and of no other row', () => {
-    const root = renderScreen();
-    const before = getImmediateKeys();
-    jest.mocked(useAnimatedThemeStyle).mockClear();
+      await press(root, 'Por comida');
 
-    press(root, 'checkbox', '2 u · Tomate, Coto · $1.100');
-    const after = getImmediateKeys();
+      // The rice of the 8th is in the Cart; the rice of the other two meals is not.
+      expect(getStruckNames(root)).toEqual(['400 g · Arroz', '30 ml · Aceite de oliva']);
+    });
 
-    // Two group checkboxes and three rows of two lines and a checkbox each.
-    expect(before).toHaveLength(11);
-    expect(after).toHaveLength(11);
-    // Only the name, the meta and the checkbox of the pressed row change their key.
-    expect(after.filter((key, index) => key !== before[index])).toHaveLength(3);
-  });
+    it('goes back to one line per ingredient', async () => {
+      const root = await renderLoadedScreen();
+      await press(root, 'Por comida');
 
-  it('puts a whole group in the cart from its "Marcar todos", and takes it out again', () => {
-    const root = renderScreen();
+      await press(root, 'Por ingrediente');
 
-    press(root, 'checkbox', 'Marcar todos, Verduras');
+      expect(requestedUrls()[2]).toBe(`${LIST_URL}?groupBy=ingredient`);
+      expect(getTexts(root)).toEqual([
+        ...HEADER,
+        '6 ítems · 1 en el carrito',
+        ...CARDS_BY_INGREDIENT,
+      ]);
+    });
 
-    expect(getTexts(root)).toContain('3 ítems · 2 en el carrito');
-    expect(getCheckedLabels(root)).toEqual([
-      'Marcar todos, Verduras',
-      '100 g · Espinaca, Sin precio',
-      '2 u · Tomate, Coto · $1.100',
-    ]);
-    expect(useInventoryStore.getState().items).toEqual([]);
+    it('keeps the list of the other grouping on screen until the new one lands', async () => {
+      const root = await renderLoadedScreen();
+      const request = holdTheNextRequest();
 
-    press(root, 'checkbox', 'Marcar todos, Verduras');
+      await press(root, 'Por comida');
 
-    expect(getTexts(root)).toContain('3 ítems · 0 en el carrito');
-    expect(getCheckedLabels(root)).toEqual([]);
-  });
+      expect(isLoading(root)).toBe(false);
+      // Still the lines per ingredient: the rice of three meals does not pass for one meal.
+      expect(getTexts(root)).toEqual(expect.arrayContaining(['1,25 kg · Arroz', 'Para 3 comidas']));
+      expect(getTexts(root)).not.toContain('400 g · Arroz');
 
-  it('regroups by supermarket from the switcher', () => {
-    const root = renderScreen();
+      request.answer(SHOPPING_LIST_BY_MEAL);
+      await settle();
 
-    press(root, 'button', 'Por súper');
-
-    const titles = ['Coto', 'Día', 'Sin súper'];
-    expect(getTexts(root).filter((text) => titles.includes(text))).toEqual(titles);
-    expect(getTexts(root)).not.toContain('Verduras');
-  });
-
-  it('clears the tab bar and the cart button itself, without letting iOS add the safe area again', () => {
-    const root = renderScreen();
-    const list = root.findByType(ScrollView);
-
-    expect(list.props.contentInsetAdjustmentBehavior).toBe('never');
-    // Tab bar, a gap, the 56 pt button and a gap: the last checkbox scrolls clear of it.
-    expect(StyleSheet.flatten(list.props.contentContainerStyle).paddingBottom).toBe(
-      34 + CUSTOM_TAB_BAR_CONTENT_HEIGHT + 14 + 56 + 14
-    );
+      expect(getTexts(root)).toEqual(expect.arrayContaining(['400 g · Arroz', '450 g · Arroz']));
+      expect(getTexts(root)).not.toContain('1,25 kg · Arroz');
+    });
   });
 
   describe('the date pill', () => {
-    it('opens a calendar under itself that offers the planned days from today on', () => {
-      const root = renderScreen();
+    it('opens a calendar under itself that offers exactly the planned dates of the read', async () => {
+      const root = await renderLoadedScreen();
 
       expect(untilCalendar().anchor).toBeNull();
 
-      press(root, 'button', UNTIL_THE_12TH);
+      await press(root, UNTIL_THE_12TH);
 
-      const { anchor, isDateSelectable, monthBounds, planByDate, rangeStart, rangeEnd } =
-        untilCalendar();
+      const {
+        anchor,
+        isDateSelectable,
+        markedDates,
+        monthBounds,
+        planByDate,
+        rangeStart,
+        rangeEnd,
+      } = untilCalendar();
       expect(anchor).toEqual(mockAnchor);
-      // The stretch the list buys for: from the first planned day to the last one.
-      expect(rangeStart).toBe('2026-10-06');
-      expect(rangeEnd).toBe('2026-10-12');
-      expect(isDateSelectable?.('2026-10-06')).toBe(true);
-      expect(isDateSelectable?.('2026-10-12')).toBe(true);
-      expect(isDateSelectable?.('2026-10-08')).toBe(false);
+      expect(markedDates).toEqual(['2026-10-08', '2026-10-10', '2026-10-12']);
+      // No meal of the device is handed to the calendar: the days are the server's.
+      expect(planByDate).toBeUndefined();
+      for (const day of ['2026-10-08', '2026-10-10', '2026-10-12']) {
+        expect(isDateSelectable?.(day)).toBe(true);
+      }
+      for (const day of ['2026-10-07', '2026-10-09', '2026-10-11', '2026-10-13']) {
+        expect(isDateSelectable?.(day)).toBe(false);
+      }
       expect(monthBounds).toEqual({ months: ['2026-10'] });
-      expect(Object.keys(planByDate ?? {})).toEqual(['2026-10-06', '2026-10-12']);
+      // The stretch the list buys for: from the first planned day to the last one.
+      expect(rangeStart).toBe('2026-10-08');
+      expect(rangeEnd).toBe('2026-10-12');
     });
 
-    it('makes the pill, the cards and the counter reach the picked day, and closes the calendar', () => {
-      const root = renderScreen();
-      press(root, 'button', UNTIL_THE_12TH);
+    it('asks for the list until the picked day, shows that read and closes the calendar', async () => {
+      const root = await renderLoadedScreen();
+      await press(root, UNTIL_THE_12TH);
 
-      pickUntilDate('2026-10-06');
+      await pickUntilDate('2026-10-10');
 
+      expect(requestedUrls()[1]).toBe(`${LIST_URL}?untilDate=2026-10-10&groupBy=ingredient`);
       expect(getTexts(root)).toEqual([
-        'Hasta 6 Oct',
-        'Por categoría',
-        'Por súper',
+        'Hasta 10 Oct',
+        'Por ingrediente',
+        'Por comida',
         'COMPRAS',
-        '2 ítems · 0 en el carrito',
+        '5 ítems · 1 en el carrito',
         'Verduras',
-        'Marcar todos',
-        '2 u · Tomate',
-        'Coto · $1.100',
+        '5 u · Tomate',
+        'Para 2 comidas',
         'Carnes',
-        'Marcar todos',
-        '200 g · Pollo (Pechuga)',
-        'Día · $1.520',
-        MANUAL_TITLE,
-        MANUAL_HINT,
+        '600 g · Pollo',
+        'Lácteos',
+        '500 ml · Leche',
+        'Granos',
+        '800 g · Arroz',
+        'Para 2 comidas',
+        'No perecederos',
+        '30 ml · Aceite de oliva',
       ]);
       expect(untilCalendar().anchor).toBeNull();
-      // Picking the first day leaves a one-day stretch.
-      expect(untilCalendar().rangeStart).toBe('2026-10-06');
-      expect(untilCalendar().rangeEnd).toBe('2026-10-06');
+      expect(untilCalendar().rangeEnd).toBe('2026-10-10');
     });
 
-    it('reaches the last planned day again when it is picked back', () => {
-      const root = renderScreen();
-      press(root, 'button', UNTIL_THE_12TH);
-      pickUntilDate('2026-10-06');
+    it('still offers every planned date once the list is limited to one of them', async () => {
+      const root = await renderLoadedScreen();
+      await press(root, UNTIL_THE_12TH);
+      await pickUntilDate('2026-10-10');
 
-      press(root, 'button', 'Elegir hasta qué día comprar, ahora 6 Oct');
-      pickUntilDate('2026-10-12');
+      await press(root, 'Elegir hasta qué día comprar, ahora 10 Oct');
 
-      expect(getTexts(root)).toContain('Hasta 12 Oct');
-      expect(getTexts(root)).toContain('3 ítems · 0 en el carrito');
+      expect(untilCalendar().markedDates).toEqual(['2026-10-08', '2026-10-10', '2026-10-12']);
+      expect(untilCalendar().isDateSelectable?.('2026-10-12')).toBe(true);
+      expect(untilCalendar().rangeStart).toBe('2026-10-08');
     });
 
-    it('closes on a tap outside and leaves the list as it was', () => {
-      const root = renderScreen();
-      const textsBefore = getTexts(root);
-      press(root, 'button', UNTIL_THE_12TH);
+    it('keeps limiting the list to the picked day when the grouping changes', async () => {
+      const root = await renderLoadedScreen();
+      await press(root, UNTIL_THE_12TH);
+      await pickUntilDate('2026-10-10');
+
+      await press(root, 'Por comida');
+
+      expect(requestedUrls()[2]).toBe(`${LIST_URL}?untilDate=2026-10-10&groupBy=meal`);
+    });
+
+    it('asks for every upcoming meal again when the last planned day is picked back', async () => {
+      const root = await renderLoadedScreen();
+      await press(root, UNTIL_THE_12TH);
+      await pickUntilDate('2026-10-10');
+      await press(root, 'Elegir hasta qué día comprar, ahora 10 Oct');
+
+      await pickUntilDate('2026-10-12');
+
+      expect(requestedUrls()[2]).toBe(`${LIST_URL}?groupBy=ingredient`);
+      // Nothing is kept as chosen, so the list keeps reaching the last planned day as the plan grows.
+      expect(useShoppingListStore.getState().chosenUntilDate).toBeUndefined();
+      expect(getTexts(root)).toEqual([
+        ...HEADER,
+        '6 ítems · 1 en el carrito',
+        ...CARDS_BY_INGREDIENT,
+      ]);
+    });
+
+    it('closes on a tap outside without asking for anything', async () => {
+      const root = await renderLoadedScreen();
+      await press(root, UNTIL_THE_12TH);
 
       act(() => {
         untilCalendar().onClose();
       });
+      await settle();
 
       expect(untilCalendar().anchor).toBeNull();
-      expect(getTexts(root)).toEqual(textsBefore);
-      expect(useShoppingListStore.getState().chosenUntilDate).toBeUndefined();
+      expect(fetchMock).toHaveBeenCalledTimes(1);
     });
 
-    it('takes a row the picked day leaves out off the cart button and the cart sheet', () => {
-      const root = renderScreen();
-      press(root, 'checkbox', '100 g · Espinaca, Sin precio');
-      press(root, 'checkbox', '2 u · Tomate, Coto · $1.100');
-      press(root, 'button', UNTIL_THE_12TH);
+    it('goes back to the whole list when the server rejects the stored day', async () => {
+      // A day chosen while it was upcoming, which the Account's today has left behind.
+      useShoppingListStore.setState({ chosenUntilDate: '2026-10-01' });
+      fetchMock.mockReset();
+      fetchMock.mockResolvedValueOnce(jsonResponse(SHOPPING_LIST_VALIDATION_ERROR, false, 422));
+      answerOnceWith(SHOPPING_LIST_BY_INGREDIENT);
 
-      pickUntilDate('2026-10-06');
+      const root = await renderLoadedScreen();
 
-      expect(getTexts(root)).toContain('2 ítems · 1 en el carrito');
-
-      press(root, 'button', 'Ver carrito, 1 ítem');
-
-      expect(getCartSheetTexts(root)).not.toContain('100 g · Espinaca');
-      expect(getCartSheetTexts(root)).toContain('2 u · Tomate');
-
-      pressText(root, CONFIRM);
-
-      expect(stockOf('i3')).toBe(2);
-      expect(stockOf('i7')).toBeUndefined();
-    });
-
-    // Today is the 1st: a plan that ended in September has no day left to pick.
-    it('only shows the date, and opens nothing, when every planned meal is in the past', () => {
-      useMealPlanStore.setState({
-        entries: [
-          { id: 'mp0', date: '2026-09-28', type: 'lunch', recipeId: 'r1', isCooked: false },
-        ],
-      });
-
-      const root = renderScreen();
-
-      expect(getTexts(root)).toContain('Hasta 28 Sep');
-      expect(getTexts(root)).toContain('2 ítems · 0 en el carrito');
-      expect(
-        getPressables(root, 'button').map((button) => button.props.accessibilityLabel)
-      ).toEqual(['Por categoría', 'Por súper', 'Agregar a la lista', 'Ver carrito, vacío']);
-      expect(mockFloatingCalendars).toHaveLength(0);
-    });
-
-    it('is not shown while the plan is empty', () => {
-      useMealPlanStore.setState({ entries: [] });
-
-      const root = renderScreen();
-
-      expect(
-        getPressables(root, 'button').map((button) => button.props.accessibilityLabel)
-      ).toEqual(['Por categoría', 'Por súper', 'Agregar a la lista', 'Ver carrito, vacío']);
-      expect(mockFloatingCalendars).toHaveLength(0);
-    });
-  });
-
-  describe('the floating cart button', () => {
-    function getCartButtonLabel(root: ReactTestInstance) {
-      return getPressables(root, 'button')
-        .map((button) => button.props.accessibilityLabel as string | undefined)
-        .find((label) => label?.startsWith('Ver carrito'));
-    }
-
-    it('floats at the bottom right, above the tab bar, without blocking the list', () => {
-      const root = renderScreen();
-      const [holder] = root
-        .findAllByType(View)
-        .filter((view) => view.props.testID === 'shopping-cart-button');
-
-      expect(StyleSheet.flatten(holder.props.style)).toEqual({
-        bottom: 34 + CUSTOM_TAB_BAR_CONTENT_HEIGHT + 14,
-        position: 'absolute',
-        right: 14,
-      });
-      expect(holder.props.pointerEvents).toBe('box-none');
-    });
-
-    it('is there with an empty cart and with an empty list', () => {
-      useMealPlanStore.setState({ entries: [] });
-
-      const root = renderScreen();
-
-      expect(getCartButtonLabel(root)).toBe('Ver carrito, vacío');
-    });
-
-    it('counts the rows in the cart, planned and manual, in its label and in its badge', () => {
-      const root = renderScreen();
-      addManualItem(root, 'Velas');
-
-      press(root, 'checkbox', '2 u · Tomate, Coto · $1.100');
-      expect(getCartButtonLabel(root)).toBe('Ver carrito, 1 ítem');
-      expect(getTexts(root).at(-1)).toBe('1');
-
-      press(root, 'checkbox', 'Velas, Sin precio');
-      expect(getCartButtonLabel(root)).toBe('Ver carrito, 2 ítems');
-      expect(getTexts(root).at(-1)).toBe('2');
-
-      press(root, 'checkbox', '2 u · Tomate, Coto · $1.100');
-      press(root, 'checkbox', 'Velas, Sin precio');
-      expect(getCartButtonLabel(root)).toBe('Ver carrito, vacío');
-      // No badge again: the last text on screen is the meta line of the manual row.
-      expect(getTexts(root).at(-1)).toBe('Sin precio');
-    });
-  });
-
-  describe('the cart sheet', () => {
-    it('opens from the floating button with the rows that were marked', () => {
-      const root = renderScreen();
-      addManualItem(root, 'Velas');
-      press(root, 'checkbox', '2 u · Tomate, Coto · $1.100');
-      press(root, 'checkbox', 'Velas, Sin precio');
-      expect(isCartSheetOpen(root)).toBe(false);
-
-      press(root, 'button', 'Ver carrito, 2 ítems');
-
-      expect(getCartSheetTexts(root)).toEqual([
-        CART_TITLE,
-        '2 u · Tomate',
-        'Coto · $1.100',
-        'Velas',
-        'Sin precio',
-        CONFIRM,
-        'Cancelar',
+      expect(requestedUrls()).toEqual([
+        `${LIST_URL}?untilDate=2026-10-01&groupBy=ingredient`,
+        `${LIST_URL}?groupBy=ingredient`,
+      ]);
+      expect(getTexts(root)).toEqual([
+        ...HEADER,
+        '6 ítems · 1 en el carrito',
+        ...CARDS_BY_INGREDIENT,
       ]);
     });
-
-    it('opens on a hint, with nothing to confirm, while the cart is empty', () => {
-      const root = renderScreen();
-
-      press(root, 'button', 'Ver carrito, vacío');
-
-      expect(getCartSheetTexts(root)).toEqual([CART_TITLE, CART_EMPTY_HINT, CONFIRM, 'Cancelar']);
-    });
-
-    it('buys the cart on "Marcar como comprado": the sheet closes and the rows are gone', () => {
-      const root = renderScreen();
-      addManualItem(root, 'Velas');
-      addManualItem(root, 'Hielo');
-      press(root, 'checkbox', '2 u · Tomate, Coto · $1.100');
-      press(root, 'checkbox', 'Velas, Sin precio');
-      press(root, 'button', 'Ver carrito, 2 ítems');
-
-      pressText(root, CONFIRM);
-
-      expect(isCartSheetOpen(root)).toBe(false);
-      expect(stockOf('i3')).toBe(2);
-      expect(stockOf('i2')).toBeUndefined();
-      const texts = getTexts(root);
-      expect(texts).not.toContain('2 u · Tomate');
-      expect(texts).not.toContain('Velas');
-      expect(texts).toContain('3 ítems · 0 en el carrito');
-      expect(texts.slice(texts.indexOf(MANUAL_TITLE))).toEqual([
-        MANUAL_TITLE,
-        'Hielo',
-        'Sin precio',
-      ]);
-      expect(getCheckedLabels(root)).toEqual([]);
-      expect(useShoppingListStore.getState().manualItems.map((item) => item.name)).toEqual([
-        'Hielo',
-      ]);
-    });
-
-    it('buys once when "Marcar como comprado" is pressed again while the sheet fades out', () => {
-      mockKeepsChildrenWhileHidden = true;
-      const root = renderScreen();
-      press(root, 'checkbox', '200 g · Pollo (Pechuga), Día · $1.520');
-      press(root, 'button', 'Ver carrito, 1 ítem');
-      pressText(root, CONFIRM);
-
-      // A row marked behind the closing sheet must not be bought by the late press.
-      press(root, 'checkbox', '2 u · Tomate, Coto · $1.100');
-      pressText(root, CONFIRM);
-
-      expect(stockOf('i2')).toBe(200);
-      expect(stockOf('i3')).toBeUndefined();
-      expect(getTexts(root)).toContain('2 ítems · 1 en el carrito');
-    });
-
-    it('takes a single row out of the cart from the sheet, and leaves it on the list', () => {
-      const root = renderScreen();
-      press(root, 'checkbox', 'Marcar todos, Verduras');
-      press(root, 'button', 'Ver carrito, 2 ítems');
-
-      press(root, 'button', 'Sacar del carrito, 2 u · Tomate');
-
-      expect(getCartSheetTexts(root)).toEqual([
-        CART_TITLE,
-        '100 g · Espinaca',
-        'Sin precio',
-        CONFIRM,
-        'Cancelar',
-      ]);
-      expect(getCheckedLabels(root)).toEqual(['100 g · Espinaca, Sin precio']);
-      expect(getTexts(root)).toContain('3 ítems · 1 en el carrito');
-      expect(useInventoryStore.getState().items).toEqual([]);
-    });
-
-    it.each(['Cancelar', 'Cerrar'])('closes from "%s" without buying anything', (name) => {
-      const root = renderScreen();
-      press(root, 'checkbox', '2 u · Tomate, Coto · $1.100');
-      press(root, 'button', 'Ver carrito, 1 ítem');
-
-      if (name === 'Cerrar') press(root, 'button', name);
-      else pressText(root, name);
-
-      expect(isCartSheetOpen(root)).toBe(false);
-      expect(useInventoryStore.getState().items).toEqual([]);
-      expect(getTexts(root)).toContain('3 ítems · 1 en el carrito');
-      expect(getCheckedLabels(root)).toEqual(['2 u · Tomate, Coto · $1.100']);
-    });
   });
 
-  it('says there is nothing to buy, with no date, above the manual card when the plan is empty', () => {
-    useMealPlanStore.setState({ entries: [] });
-
-    const root = renderScreen();
-
-    expect(getTexts(root)).toEqual([
-      'Por categoría',
-      'Por súper',
-      'COMPRAS',
-      '0 ítems · 0 en el carrito',
-      EMPTY_LABEL,
-      MANUAL_TITLE,
-      MANUAL_HINT,
-    ]);
-  });
-
-  it('does not say the list is empty while a manual item is on it', () => {
-    useMealPlanStore.setState({ entries: [] });
-    useShoppingListStore.setState({
-      manualItems: [{ id: 'manual:1', source: 'manual', status: 'needed', name: 'Velas' }],
+  describe('a read with nothing to buy', () => {
+    beforeEach(() => {
+      fetchMock.mockReset();
+      answerOnceWith(EMPTY_SHOPPING_LIST);
     });
 
-    const root = renderScreen();
+    it('says there is nothing to buy, with no date to pick', async () => {
+      const root = await renderLoadedScreen();
 
-    expect(getTexts(root)).toEqual([
-      'Por categoría',
-      'Por súper',
-      'COMPRAS',
-      '1 ítem · 0 en el carrito',
-      MANUAL_TITLE,
-      'Velas',
-      'Sin precio',
-    ]);
-  });
-
-  it('does not say the list is empty while the plan has rows and nothing was added by hand', () => {
-    const root = renderScreen();
-
-    expect(getTexts(root)).not.toContain(EMPTY_LABEL);
-    expect(getTexts(root)).toContain(MANUAL_HINT);
-  });
-
-  it.each([
-    ['category', 'Carnes'],
-    ['supermarket', 'Sin súper'],
-  ] as const)('keeps the manual card after the %s cards', (groupingMode, lastGroupTitle) => {
-    useShoppingListStore.setState({
-      groupingMode,
-      manualItems: [{ id: 'manual:1', source: 'manual', status: 'needed', name: 'Velas' }],
-    });
-
-    const root = renderScreen();
-    const texts = getTexts(root);
-
-    expect(texts.indexOf(MANUAL_TITLE)).toBeGreaterThan(texts.indexOf(lastGroupTitle));
-    expect(texts.slice(texts.indexOf(MANUAL_TITLE))).toEqual([MANUAL_TITLE, 'Velas', 'Sin precio']);
-  });
-
-  describe('adding by hand', () => {
-    it('opens the add sheet from the plus button of the manual card', () => {
-      const root = renderScreen();
-
-      expect(isAddSheetOpen(root)).toBe(false);
-
-      press(root, 'button', 'Agregar a la lista');
-
-      expect(isAddSheetOpen(root)).toBe(true);
-      expect(getTexts(root)).toContain('¿Qué querés agregar?');
-    });
-
-    it('lists the confirmed name in the manual card, counts it and closes the sheet', () => {
-      const root = renderScreen();
-
-      addManualItem(root, ' Papel de cocina ');
-
-      const texts = getTexts(root);
-      expect(texts.slice(texts.indexOf(MANUAL_TITLE))).toEqual([
-        MANUAL_TITLE,
-        'Papel de cocina',
-        'Sin precio',
-      ]);
-      expect(texts).toContain('4 ítems · 0 en el carrito');
-      expect(isAddSheetOpen(root)).toBe(false);
-    });
-
-    it('closes the sheet from "Cancelar" without adding', () => {
-      const root = renderScreen();
-      press(root, 'button', 'Agregar a la lista');
-
-      act(() => {
-        getPressables(root, 'button')
-          .find((button) => getTexts(button).includes('Cancelar'))!
-          .props.onPress();
-      });
-
-      expect(isAddSheetOpen(root)).toBe(false);
-      expect(getTexts(root)).toContain(MANUAL_HINT);
-    });
-
-    it('toggles a manual row like any other', () => {
-      const root = renderScreen();
-      addManualItem(root, 'Velas');
-
-      press(root, 'checkbox', 'Velas, Sin precio');
-
-      expect(getTexts(root)).toContain('4 ítems · 1 en el carrito');
-      expect(getCheckedLabels(root)).toEqual(['Velas, Sin precio']);
-    });
-  });
-
-  describe('removing and restoring', () => {
-    const restoreLabels = (root: ReactTestInstance) =>
-      getTexts(root).filter((text) => text.includes('Restaurar'));
-
-    it('has no restore line while nothing was removed', () => {
-      const root = renderScreen();
-
-      expect(restoreLabels(root)).toEqual([]);
-    });
-
-    it('takes a long-pressed planned row off the list and offers to restore it', () => {
-      const root = renderScreen();
-
-      longPress(root, '2 u · Tomate, Coto · $1.100');
-
-      expect(getTexts(root)).not.toContain('2 u · Tomate');
-      expect(getTexts(root)).toContain('2 ítems · 0 en el carrito');
-      expect(restoreLabels(root)).toEqual(['1 quitado · Restaurar']);
-      // The line is the last thing on the list, under the manual card.
-      expect(getTexts(root).at(-1)).toBe('1 quitado · Restaurar');
-    });
-
-    it('counts a removed manual row too, in the plural', () => {
-      const root = renderScreen();
-      addManualItem(root, 'Velas');
-      longPress(root, '2 u · Tomate, Coto · $1.100');
-
-      longPress(root, 'Velas, Sin precio');
-
-      expect(getTexts(root)).toContain(MANUAL_HINT);
-      expect(restoreLabels(root)).toEqual(['2 quitados · Restaurar']);
-    });
-
-    it('brings the removed rows back from the restore line, which then goes away', () => {
-      const root = renderScreen();
-      addManualItem(root, 'Velas');
-      longPress(root, '2 u · Tomate, Coto · $1.100');
-      longPress(root, 'Velas, Sin precio');
-
-      press(root, 'button', '2 quitados · Restaurar');
-
-      expect(getTexts(root)).toEqual(expect.arrayContaining(['2 u · Tomate', 'Velas']));
-      expect(getTexts(root)).toContain('4 ítems · 0 en el carrito');
-      expect(restoreLabels(root)).toEqual([]);
-    });
-
-    it('says the list is empty once every row was removed, and still offers to restore', () => {
-      useMealPlanStore.setState({ entries: [PLAN[1]] });
-      const root = renderScreen();
-
-      longPress(root, '100 g · Espinaca, Sin precio');
-
-      const texts = getTexts(root);
-      expect(texts.slice(texts.indexOf('COMPRAS'))).toEqual([
+      expect(getTexts(root)).toEqual([
+        'Por ingrediente',
+        'Por comida',
         'COMPRAS',
         '0 ítems · 0 en el carrito',
         EMPTY_LABEL,
-        MANUAL_TITLE,
-        MANUAL_HINT,
-        '1 quitado · Restaurar',
       ]);
+      expect(mockFloatingCalendars).toEqual([]);
+      expect(isLoading(root)).toBe(false);
+    });
+
+    it('still shows the date, and its calendar, while meals are planned and nothing is missing', async () => {
+      fetchMock.mockReset();
+      answerOnceWith({
+        ...EMPTY_SHOPPING_LIST,
+        plannedDates: SHOPPING_LIST_BY_INGREDIENT.plannedDates,
+      });
+
+      const root = await renderLoadedScreen();
+
+      expect(getTexts(root)).toEqual([...HEADER, '0 ítems · 0 en el carrito', EMPTY_LABEL]);
+      expect(getButtonLabels(root)).toContain(UNTIL_THE_12TH);
+    });
+  });
+
+  describe('a read that fails', () => {
+    it('says so instead of the list, and offers to try again', async () => {
+      fetchMock.mockReset();
+      failTheNetworkOnce();
+
+      const root = await renderLoadedScreen();
+
+      expect(getTexts(root)).toEqual([
+        'Por ingrediente',
+        'Por comida',
+        'COMPRAS',
+        NETWORK_ERROR,
+        RETRY,
+      ]);
+      expect(isLoading(root)).toBe(false);
+    });
+
+    it('reads the list again from the retry, and the message goes away', async () => {
+      fetchMock.mockReset();
+      failTheNetworkOnce();
+      const root = await renderLoadedScreen();
+      serveThePlan();
+
+      await pressText(root, RETRY);
+
+      expect(getTexts(root)).toEqual([
+        ...HEADER,
+        '6 ítems · 1 en el carrito',
+        ...CARDS_BY_INGREDIENT,
+      ]);
+    });
+
+    it('shows that it is loading again while the retry is on its way', async () => {
+      fetchMock.mockReset();
+      failTheNetworkOnce();
+      const root = await renderLoadedScreen();
+      const request = holdTheNextRequest();
+
+      await pressText(root, RETRY);
+
+      expect(isLoading(root)).toBe(true);
+      expect(getTexts(root)).not.toContain(NETWORK_ERROR);
+
+      request.answer(SHOPPING_LIST_BY_INGREDIENT);
+      await settle();
+    });
+
+    it('keeps the last list under the message when a later read fails', async () => {
+      const root = await renderLoadedScreen();
+      fetchMock.mockReset();
+      failTheNetworkOnce();
+
+      await focusScreen();
+
+      expect(getTexts(root)).toEqual([
+        ...HEADER,
+        '6 ítems · 1 en el carrito',
+        NETWORK_ERROR,
+        RETRY,
+        ...CARDS_BY_INGREDIENT,
+      ]);
+    });
+
+    it('writes the message of the error the server answered with', async () => {
+      fetchMock.mockReset();
+      fetchMock.mockResolvedValueOnce(
+        jsonResponse({ error: { code: 'forbidden', message: 'Forbidden' } }, false, 403)
+      );
+
+      const root = await renderLoadedScreen();
+
+      expect(getTexts(root)).toContain('No tenés permiso para hacer esto.');
+    });
+  });
+
+  describe('coming back to the screen', () => {
+    it('reads the list again', async () => {
+      await renderLoadedScreen();
+
+      await focusScreen();
+
+      expect(requestedUrls()).toEqual([
+        `${LIST_URL}?groupBy=ingredient`,
+        `${LIST_URL}?groupBy=ingredient`,
+      ]);
+    });
+
+    it('replaces what it showed with the new read, whole', async () => {
+      const root = await renderLoadedScreen();
+      fetchMock.mockReset();
+      answerOnceWith(EMPTY_SHOPPING_LIST);
+
+      await focusScreen();
+
+      expect(getTexts(root)).toEqual([
+        'Por ingrediente',
+        'Por comida',
+        'COMPRAS',
+        '0 ítems · 0 en el carrito',
+        EMPTY_LABEL,
+      ]);
+    });
+
+    it('keeps the list on screen, with no loading indication, while the new read is on its way', async () => {
+      const root = await renderLoadedScreen();
+      const request = holdTheNextRequest();
+
+      await focusScreen();
+
+      expect(isLoading(root)).toBe(false);
+      expect(getTexts(root)).toEqual([
+        ...HEADER,
+        '6 ítems · 1 en el carrito',
+        ...CARDS_BY_INGREDIENT,
+      ]);
+
+      request.answer(SHOPPING_LIST_UNTIL_OCT_10);
+      await settle();
+
+      expect(getTexts(root)).toContain('800 g · Arroz');
+    });
+
+    it('reads with the grouping and the day that were chosen before', async () => {
+      const root = await renderLoadedScreen();
+      await press(root, 'Por comida');
+      await press(root, UNTIL_THE_12TH);
+      await pickUntilDate('2026-10-10');
+
+      await focusScreen();
+
+      expect(requestedUrls()[3]).toBe(`${LIST_URL}?untilDate=2026-10-10&groupBy=meal`);
+    });
+  });
+
+  describe('another user on the same device', () => {
+    it('never draws the list read for the user before, even before it asks for its own', async () => {
+      const root = await renderLoadedScreen();
+      expect(getTexts(root)).toContain('1,25 kg · Arroz');
+      mockIsFocused = false;
+
+      signInAs(USER_B);
+
+      // Nothing was asked for yet, so the store still holds the list of the other user.
+      expect(useShoppingListStore.getState().list).toEqual(SHOPPING_LIST_BY_INGREDIENT);
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      expect(getTexts(root)).toEqual(['Por ingrediente', 'Por comida', 'COMPRAS']);
+      expect(isLoading(root)).toBe(true);
+    });
+
+    it('drops that list from the store as soon as its own read starts', async () => {
+      const root = await renderLoadedScreen();
+      const request = holdTheNextRequest();
+
+      signInAs(USER_B);
+      await settle();
+
+      expect(useShoppingListStore.getState()).toMatchObject({ ownerId: 'user-b', list: null });
+      expect(getTexts(root)).toEqual(['Por ingrediente', 'Por comida', 'COMPRAS']);
+      expect(isLoading(root)).toBe(true);
+
+      request.answer(SHOPPING_LIST_UNTIL_OCT_10);
+      await settle();
+
+      expect(getTexts(root)).toContain('800 g · Arroz');
+      expect(getTexts(root)).not.toContain('1,25 kg · Arroz');
+    });
+
+    it('says its first read failed, without the list of the user before', async () => {
+      const root = await renderLoadedScreen();
+      fetchMock.mockReset();
+      failTheNetworkOnce();
+
+      signInAs(USER_B);
+      await settle();
+
+      expect(getTexts(root)).toEqual([
+        'Por ingrediente',
+        'Por comida',
+        'COMPRAS',
+        NETWORK_ERROR,
+        RETRY,
+      ]);
+    });
+
+    it('reads its own list from the retry', async () => {
+      const root = await renderLoadedScreen();
+      fetchMock.mockReset();
+      failTheNetworkOnce();
+      signInAs(USER_B);
+      await settle();
+      answerOnceWith(SHOPPING_LIST_UNTIL_OCT_10);
+
+      await pressText(root, RETRY);
+
+      expect(useShoppingListStore.getState().ownerId).toBe('user-b');
+      expect(getTexts(root)).toContain('800 g · Arroz');
+    });
+
+    it('ignores the answer to the read of the user before when it lands late', async () => {
+      const readOfUserA = holdTheNextRequest();
+      const root = renderScreen();
+      await settle();
+      const readOfUserB = holdTheNextRequest();
+
+      signInAs(USER_B);
+      await settle();
+      readOfUserA.answer(SHOPPING_LIST_BY_MEAL);
+      await settle();
+
+      expect(useShoppingListStore.getState().list).toBeNull();
+      expect(getTexts(root)).toEqual(['Por ingrediente', 'Por comida', 'COMPRAS']);
+      expect(isLoading(root)).toBe(true);
+
+      readOfUserB.answer(SHOPPING_LIST_BY_INGREDIENT);
+      await settle();
+
+      expect(getTexts(root)).toEqual([
+        ...HEADER,
+        '6 ítems · 1 en el carrito',
+        ...CARDS_BY_INGREDIENT,
+      ]);
+    });
+  });
+
+  describe('with nobody signed in', () => {
+    it('has no list, asks for nothing and does not look like it is loading', async () => {
+      mockUser = null;
+
+      const root = await renderLoadedScreen();
+
+      expect(fetchMock).not.toHaveBeenCalled();
+      expect(getTexts(root)).toEqual(['Por ingrediente', 'Por comida', 'COMPRAS']);
+      expect(isLoading(root)).toBe(false);
+    });
+
+    it('stops showing the list of the user who signed out, and drops it', async () => {
+      const root = await renderLoadedScreen();
+
+      signInAs(null);
+      await settle();
+
+      expect(getTexts(root)).toEqual(['Por ingrediente', 'Por comida', 'COMPRAS']);
+      expect(isLoading(root)).toBe(false);
+      expect(useShoppingListStore.getState()).toMatchObject({ ownerId: null, list: null });
+      expect(fetchMock).toHaveBeenCalledTimes(1);
     });
   });
 });

@@ -1,8 +1,18 @@
 import { formatQuantity } from '@/utils/formatQuantity';
-import { NO_PRICE_LABEL, SHORT_MONTHS } from '../constants';
-import type { BestOffer, ShoppingCounters, ShoppingListItem } from '../types';
+import { NO_PRICE_LABEL, SHOPPING_SLOT_LABELS, SHORT_MONTHS } from '../constants';
+import type {
+  BestOffer,
+  ShoppingCounters,
+  ShoppingGroupBy,
+  ShoppingLineAllocation,
+  ShoppingListItem,
+  ShoppingListLine,
+} from '../types';
 
 const SEPARATOR = ' · ';
+
+// The API counts quantities in thousandths of the unit.
+const MILLI_PER_UNIT = 1000;
 
 // es-AR pesos: thousands dot, no decimals.
 export function formatPrice(price: number) {
@@ -24,10 +34,40 @@ export function formatUntilButtonLabel(dateKey: string) {
 }
 
 export function formatItemNameLine(item: ShoppingListItem) {
-  if (item.source === 'manual') return item.name;
-  return `${formatQuantity(item.amountToBuy, item.unit)}${SEPARATOR}${item.name}`;
+  // An item added by hand is a name only.
+  if (!('quantityMilli' in item)) return item.name;
+
+  const quantity = formatQuantity(item.quantityMilli / MILLI_PER_UNIT, item.unit);
+  return `${quantity}${SEPARATOR}${item.name}`;
 }
 
+// The meal a share of a line is for: its day and its slot. A slot without a name here still
+// reads as its day.
+function formatMeal({ date, slot }: ShoppingLineAllocation) {
+  const slotLabel: string | undefined = SHOPPING_SLOT_LABELS[slot];
+
+  return slotLabel ? `${formatShortDate(date)}${SEPARATOR}${slotLabel}` : formatShortDate(date);
+}
+
+/**
+ * Second line of a planned row: the meals it is for. A line that adds up several meals says
+ * how many, and the line of one meal says which one while the list is read per meal. Per
+ * ingredient, a line for a single meal has no second line.
+ *
+ * The count is read from the line and not from the grouping, so a list read per ingredient
+ * never passes for one meal while the read per meal is still in flight.
+ */
+export function formatItemMealsLine(
+  { allocations }: ShoppingListLine,
+  groupBy: ShoppingGroupBy
+): string | undefined {
+  if (allocations.length > 1) return `Para ${allocations.length} comidas`;
+  if (groupBy === 'meal' && allocations.length === 1) return formatMeal(allocations[0]);
+
+  return undefined;
+}
+
+// Second line of a row of the cart sheet: where it is cheapest, and for how much.
 export function formatItemMetaLine(offer: BestOffer | undefined) {
   if (!offer) return NO_PRICE_LABEL;
   return `${offer.supermarket}${SEPARATOR}${formatPrice(offer.price)}`;

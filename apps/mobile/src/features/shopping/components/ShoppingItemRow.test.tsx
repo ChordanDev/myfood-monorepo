@@ -7,7 +7,7 @@ import * as Haptics from 'expo-haptics';
 import { Check } from 'lucide-react-native';
 import { useAnimatedThemeStyle } from '@/hooks/useAnimatedThemeStyle';
 import { withOpacity } from '@/utils/colors';
-import type { BestOffer, PlannedShoppingListItem, ShoppingListItem } from '../types';
+import type { ShoppingListItem, ShoppingListLine } from '../types';
 import { ShoppingItemRow } from './ShoppingItemRow';
 
 jest.mock('react-native-reanimated', () => {
@@ -38,31 +38,45 @@ jest.mock('@/hooks/useAnimatedThemeStyle', () => ({
   useAnimatedThemeStyle: jest.fn((colors: object) => colors),
 }));
 
-const CHEESE: PlannedShoppingListItem = {
+const CHEESE: ShoppingListLine = {
   id: 'planned:cheese',
   source: 'planned_meal',
   status: 'needed',
   name: 'Queso cremoso',
   ingredientId: 'cheese',
-  amountToBuy: 300,
+  quantityMilli: 300_000,
   unit: 'g',
   category: 'lacteos',
+  supermarketId: null,
+  allocations: [],
 };
 
-const CHEESE_OFFER: BestOffer = { supermarket: 'Día', unitPrice: 10.67, price: 3200 };
+// The second line of the row: the meals the cheese is for.
+const CHEESE_MEALS = 'Para 2 comidas';
 
-function renderRow(item: ShoppingListItem, bestOffer?: BestOffer) {
+function renderRow(item: ShoppingListItem, meta?: string) {
   const onToggle = jest.fn();
   const onRemove = jest.fn();
   let tree: ReturnType<typeof create>;
 
   act(() => {
     tree = create(
-      <ShoppingItemRow item={item} bestOffer={bestOffer} onToggle={onToggle} onRemove={onRemove} />
+      <ShoppingItemRow item={item} meta={meta} onToggle={onToggle} onRemove={onRemove} />
     );
   });
 
   return { tree: tree!, root: tree!.root, onToggle, onRemove };
+}
+
+// The row as the list shows it while nothing on it can be changed: without handlers.
+function renderReadOnlyRow(item: ShoppingListItem, meta?: string) {
+  let tree: ReturnType<typeof create>;
+
+  act(() => {
+    tree = create(<ShoppingItemRow item={item} meta={meta} />);
+  });
+
+  return tree!.root;
 }
 
 // Drives the row through the touch responder, as a finger would: down, hold, up.
@@ -132,13 +146,13 @@ describe('ShoppingItemRow', () => {
     jest.mocked(useAnimatedThemeStyle).mockClear();
   });
 
-  it('renders the quantity and name line above the supermarket and price line', () => {
-    const { root } = renderRow(CHEESE, CHEESE_OFFER);
+  it('renders the quantity and name line above the line of its meals', () => {
+    const { root } = renderRow(CHEESE, CHEESE_MEALS);
 
-    expect(getTexts(root)).toEqual(['300 g · Queso cremoso', 'Día · $3.200']);
+    expect(getTexts(root)).toEqual(['300 g · Queso cremoso', 'Para 2 comidas']);
   });
 
-  it('says there is no price for an item without an offer', () => {
+  it('is a single line for an item that is for no meal', () => {
     const { root } = renderRow({
       id: 'manual:1',
       source: 'manual',
@@ -146,11 +160,11 @@ describe('ShoppingItemRow', () => {
       name: 'Papel de cocina',
     });
 
-    expect(getTexts(root)).toEqual(['Papel de cocina', 'Sin precio']);
+    expect(getTexts(root)).toEqual(['Papel de cocina']);
   });
 
   it('shows a needed item in full ink next to an empty checkbox', () => {
-    const { root } = renderRow(CHEESE, CHEESE_OFFER);
+    const { root } = renderRow(CHEESE, CHEESE_MEALS);
     const [name, meta] = getLineStyles(root);
 
     expect(name).toEqual(expect.objectContaining({ color: mockTheme.textBlack }));
@@ -167,7 +181,7 @@ describe('ShoppingItemRow', () => {
   });
 
   it('strikes through and dims an item in the cart, and checks its checkbox', () => {
-    const { root } = renderRow({ ...CHEESE, status: 'in_cart' }, CHEESE_OFFER);
+    const { root } = renderRow({ ...CHEESE, status: 'in_cart' }, CHEESE_MEALS);
     const [name, meta] = getLineStyles(root);
     const dimmed = withOpacity(mockTheme.textBlack, 0.45);
 
@@ -189,7 +203,7 @@ describe('ShoppingItemRow', () => {
   it.each(['name', 'meta', 'checkbox'] as const)(
     'applies the in-cart look of the %s at once, without crossfading',
     (part) => {
-      const { tree, onToggle } = renderRow(CHEESE, CHEESE_OFFER);
+      const { tree, onToggle } = renderRow(CHEESE, CHEESE_MEALS);
       const needed = getImmediateKeys();
       jest.mocked(useAnimatedThemeStyle).mockClear();
 
@@ -197,7 +211,7 @@ describe('ShoppingItemRow', () => {
         tree.update(
           <ShoppingItemRow
             item={{ ...CHEESE, status: 'in_cart' }}
-            bestOffer={CHEESE_OFFER}
+            meta={CHEESE_MEALS}
             onToggle={onToggle}
             onRemove={jest.fn()}
           />
@@ -212,7 +226,7 @@ describe('ShoppingItemRow', () => {
   );
 
   it('reports the id of the pressed item, with a light haptic', () => {
-    const { root, onToggle } = renderRow(CHEESE, CHEESE_OFFER);
+    const { root, onToggle } = renderRow(CHEESE, CHEESE_MEALS);
 
     act(() => {
       getCheckboxRow(root).props.onPress();
@@ -224,24 +238,24 @@ describe('ShoppingItemRow', () => {
   });
 
   it('is one checkbox that reads both lines and is unchecked while the item is needed', () => {
-    const { root } = renderRow(CHEESE, CHEESE_OFFER);
+    const { root } = renderRow(CHEESE, CHEESE_MEALS);
 
     expect(getCheckboxRow(root).props).toEqual(
       expect.objectContaining({
-        accessibilityLabel: '300 g · Queso cremoso, Día · $3.200',
+        accessibilityLabel: '300 g · Queso cremoso, Para 2 comidas',
         accessibilityState: { checked: false },
       })
     );
   });
 
-  it('reads that there is no price when the item has no offer', () => {
+  it('reads only its first line when it has no second one', () => {
     const { root } = renderRow(CHEESE);
 
-    expect(getCheckboxRow(root).props.accessibilityLabel).toBe('300 g · Queso cremoso, Sin precio');
+    expect(getCheckboxRow(root).props.accessibilityLabel).toBe('300 g · Queso cremoso');
   });
 
   it('is a checked checkbox once the item is in the cart', () => {
-    const { root } = renderRow({ ...CHEESE, status: 'in_cart' }, CHEESE_OFFER);
+    const { root } = renderRow({ ...CHEESE, status: 'in_cart' }, CHEESE_MEALS);
 
     expect(getCheckboxRow(root).props.accessibilityState).toEqual({ checked: true });
   });
@@ -256,7 +270,7 @@ describe('ShoppingItemRow', () => {
     });
 
     it('toggles on a tap', () => {
-      const { root, onToggle, onRemove } = renderRow(CHEESE, CHEESE_OFFER);
+      const { root, onToggle, onRemove } = renderRow(CHEESE, CHEESE_MEALS);
 
       touchRow(root, 50);
 
@@ -265,7 +279,7 @@ describe('ShoppingItemRow', () => {
     });
 
     it('reports the id of a long-pressed item, with a medium haptic, and does not toggle it', () => {
-      const { root, onToggle, onRemove } = renderRow(CHEESE, CHEESE_OFFER);
+      const { root, onToggle, onRemove } = renderRow(CHEESE, CHEESE_MEALS);
 
       touchRow(root, 1000);
 
@@ -277,7 +291,7 @@ describe('ShoppingItemRow', () => {
     });
 
     it('offers the removal as an accessibility action, for those who cannot long-press', () => {
-      const { root, onToggle, onRemove } = renderRow(CHEESE, CHEESE_OFFER);
+      const { root, onToggle, onRemove } = renderRow(CHEESE, CHEESE_MEALS);
       const row = getCheckboxRow(root);
 
       expect(row.props.accessibilityActions).toEqual([
@@ -294,7 +308,7 @@ describe('ShoppingItemRow', () => {
     });
 
     it('ignores an accessibility action it does not offer', () => {
-      const { root, onToggle, onRemove } = renderRow(CHEESE, CHEESE_OFFER);
+      const { root, onToggle, onRemove } = renderRow(CHEESE, CHEESE_MEALS);
 
       act(() => {
         getCheckboxRow(root).props.onAccessibilityAction({ nativeEvent: { actionName: 'escape' } });
@@ -305,11 +319,96 @@ describe('ShoppingItemRow', () => {
     });
 
     it('hints that a long press removes the item', () => {
-      const { root } = renderRow(CHEESE, CHEESE_OFFER);
+      const { root } = renderRow(CHEESE, CHEESE_MEALS);
 
       expect(getCheckboxRow(root).props.accessibilityHint).toBe(
         'Mantené presionado para quitarlo de la lista.'
       );
+    });
+  });
+
+  describe('read-only, without handlers', () => {
+    // Every node a press, a long press or an accessibility action could reach.
+    function getPressTargets(root: ReactTestInstance) {
+      return root.findAll(
+        (node) =>
+          typeof node.props.onPress === 'function' ||
+          typeof node.props.onLongPress === 'function' ||
+          typeof node.props.onAccessibilityAction === 'function' ||
+          typeof node.props.onResponderGrant === 'function'
+      );
+    }
+
+    it('shows the same two lines', () => {
+      const root = renderReadOnlyRow(CHEESE, CHEESE_MEALS);
+
+      expect(getTexts(root)).toEqual(['300 g · Queso cremoso', 'Para 2 comidas']);
+    });
+
+    it.each([
+      ['needed', CHEESE],
+      ['in the cart', { ...CHEESE, status: 'in_cart' as const }],
+    ])('has nothing to press, hold or act on while it is %s', (_name, item) => {
+      const root = renderReadOnlyRow(item, CHEESE_MEALS);
+
+      expect(getPressTargets(root)).toEqual([]);
+      expect(root.findAll((node) => node.props.accessibilityRole === 'checkbox')).toEqual([]);
+      expect(root.findAll((node) => node.props.accessibilityHint !== undefined)).toEqual([]);
+    });
+
+    it('shows no checkbox on a needed item: an empty box would ask to be pressed', () => {
+      const root = renderReadOnlyRow(CHEESE, CHEESE_MEALS);
+      const [name] = getLineStyles(root);
+
+      expect(root.findAll((node) => node.props.testID === 'shopping-checkbox')).toEqual([]);
+      expect(name).toEqual(expect.objectContaining({ color: mockTheme.textBlack }));
+      expect(name.textDecorationLine).not.toBe('line-through');
+    });
+
+    it('strikes through, dims and ticks an item in the cart, as the pressable row does', () => {
+      const root = renderReadOnlyRow({ ...CHEESE, status: 'in_cart' }, CHEESE_MEALS);
+      const [name, meta] = getLineStyles(root);
+      const dimmed = withOpacity(mockTheme.textBlack, 0.45);
+
+      expect(name).toEqual(
+        expect.objectContaining({ color: dimmed, textDecorationLine: 'line-through' })
+      );
+      expect(meta).toEqual(expect.objectContaining({ color: dimmed }));
+      expect(getCheckboxStyle(root)).toEqual(
+        expect.objectContaining({
+          backgroundColor: withOpacity(mockTheme.primaryAccent, 0.7),
+          borderColor: mockTheme.primaryAccent,
+        })
+      );
+      expect(root.findAllByType(Check)).toHaveLength(1);
+    });
+
+    it('is one element that reads its lines, and that it is in the cart when it is', () => {
+      const getLabels = (root: ReactTestInstance) =>
+        root
+          .findAll((node) => node.props.accessible === true && typeof node.type === 'string')
+          .map((node) => node.props.accessibilityLabel);
+
+      expect(getLabels(renderReadOnlyRow(CHEESE, CHEESE_MEALS))).toEqual([
+        '300 g · Queso cremoso, Para 2 comidas',
+      ]);
+      expect(getLabels(renderReadOnlyRow(CHEESE))).toEqual(['300 g · Queso cremoso']);
+      expect(getLabels(renderReadOnlyRow({ ...CHEESE, status: 'in_cart' }, CHEESE_MEALS))).toEqual([
+        '300 g · Queso cremoso, Para 2 comidas, en el carrito',
+      ]);
+    });
+
+    it.each([
+      ['only the toggle', { onToggle: jest.fn() }],
+      ['only the removal', { onRemove: jest.fn() }],
+    ])('stays read-only with %s: a row is pressable with both or not at all', (_name, handlers) => {
+      let tree: ReturnType<typeof create>;
+
+      act(() => {
+        tree = create(<ShoppingItemRow item={CHEESE} {...handlers} />);
+      });
+
+      expect(getPressTargets(tree!.root)).toEqual([]);
     });
   });
 });

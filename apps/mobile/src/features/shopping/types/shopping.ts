@@ -1,90 +1,45 @@
 import type { CalendarProps } from '@/features/home';
-import type { InventoryItem } from '@/features/inventory';
-import type {
-  Ingredient,
-  IngredientCategory,
-  MasterRecipe,
-  MealPlanEntry,
-  UnitType,
-} from '@/types/domain';
+import type { ShoppingLineStatus, ShoppingListLine } from './shoppingApi';
 
-export type ShoppingItemSource = 'planned_meal' | 'manual';
-
-// `in_cart` is a row the user marked and has not confirmed yet. A confirmed row has no status:
-// it leaves the list.
-export type ShoppingItemStatus = 'needed' | 'in_cart' | 'removed';
-
-interface ShoppingListItemBase {
-  id: string; // Stable across derivations
-  name: string;
-  status: ShoppingItemStatus;
-}
-
-// Derived from the plan: one item per ingredient, carrying the amount still missing.
-export interface PlannedShoppingListItem extends ShoppingListItemBase {
-  source: 'planned_meal';
-  ingredientId: string;
-  amountToBuy: number;
-  unit: UnitType;
-  category: IngredientCategory;
-}
+// `in_cart` is a row marked and not bought yet.
+export type ShoppingItemStatus = ShoppingLineStatus;
 
 // Added by hand: a name only, with no ingredient, quantity, unit or category.
-export interface ManualShoppingListItem extends ShoppingListItemBase {
+export interface ManualShoppingListItem {
+  id: string;
   source: 'manual';
+  status: ShoppingItemStatus;
+  name: string;
 }
 
-export type ShoppingListItem = PlannedShoppingListItem | ManualShoppingListItem;
+// A row of the list: a planned line as the API serves it, or an item added by hand.
+export type ShoppingListItem = ShoppingListLine | ManualShoppingListItem;
 
-export type ShoppingListInput = {
-  entries: MealPlanEntry[];
-  recipes: Pick<MasterRecipe, 'id' | 'ingredients'>[];
-  ingredients: Ingredient[];
-  // Only the items linked to an ingredient count as stock, for their quantity.
-  inventory: Pick<InventoryItem, 'ingredientId' | 'quantity'>[];
-  // Ids of the planned items in the cart. A manual item carries that in its own status.
-  cartIds: string[];
-  removedIds: string[];
-  manualItems: ManualShoppingListItem[];
-  // Inclusive 'YYYY-MM-DD' key. Without it the whole plan counts.
-  untilDate?: string;
-};
-
-// What the stores hold: the list is derived from them up to the day the user chose, or up to
-// the last planned date.
-export type ShoppingListSources = Omit<ShoppingListInput, 'untilDate'> & {
-  // 'YYYY-MM-DD' key of the chosen day, when there is one. It counts while it can be chosen.
-  chosenUntilDate: string | undefined;
-};
+// Where the list is in its last read: `idle` until one is asked for, `ready` once one landed.
+export type ShoppingListLoadStatus = 'idle' | 'loading' | 'ready' | 'error';
 
 // What the calendar of the date pill needs to offer the days the list can reach.
 export type ShoppingUntilCalendar = Required<
-  Pick<CalendarProps, 'planByDate' | 'isDateSelectable' | 'monthBounds'>
+  Pick<CalendarProps, 'markedDates' | 'isDateSelectable' | 'monthBounds'>
 > & {
   // First day the list buys for. The calendar draws the stretch from it to the day the list
   // reaches; it is fixed, not something the user picks.
   rangeStart: string;
 };
 
-export type SupermarketOffer = {
-  ingredientId: string;
-  supermarket: string;
-  unitPrice: number;
-};
-
+// Only the cart sheet shows a price, and it is not on screen until the cart is.
 export type BestOffer = {
   supermarket: string;
   unitPrice: number;
-  // unitPrice * amountToBuy of the item it was resolved for.
+  // `unitPrice` times the quantity of the row it was resolved for.
   price: number;
 };
 
-export type ShoppingGroupingMode = 'category' | 'supermarket';
-
+// A card of the list: the planned lines of one ingredient category.
 export type ShoppingGroup = {
   key: string;
   title: string;
-  items: PlannedShoppingListItem[];
+  items: ShoppingListLine[];
 };
 
 // `total` and `inCart` count the listed rows; the removed ones are counted apart.

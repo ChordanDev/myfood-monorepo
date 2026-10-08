@@ -241,6 +241,48 @@ describe('Calendar with rules from outside', () => {
     });
   });
 
+  describe('marked days', () => {
+    // What a caller knows when it holds the planned days and not their meals.
+    const markedDates = ['2026-08-24', '2026-08-26', '2026-08-28'];
+
+    it('marks exactly the days it receives as planned, without a meal plan', () => {
+      const { getDayCell } = renderCalendar({ markedDates, isDateSelectable: fromTodayOn });
+
+      expect(getDayCell('2026-08-26').isPlanned).toBe(true);
+      expect(getDayCell('2026-08-28').isPlanned).toBe(true);
+      expect(getDayCell('2026-08-25').isPlanned).toBe(false);
+      expect(getDayCell('2026-08-27').isPlanned).toBe(false);
+    });
+
+    it('marks a received day that is past for this device: its caller decides what is planned', () => {
+      const { getDayCell } = renderCalendar({ markedDates, isDateSelectable: fromTodayOn });
+
+      expect(getDayCell('2026-08-24').isPlanned).toBe(true);
+      expect(getDayCell('2026-08-24').isPendingConfirmation).toBe(false);
+    });
+
+    it('takes the marks from the received days when it has a meal plan too', () => {
+      const { getDayCell } = renderCalendar({ planByDate, markedDates });
+
+      expect(getDayCell('2026-08-26').isPlanned).toBe(true);
+      // Planned in the meal plan, and not among the received days.
+      expect(getDayCell('2026-08-27').isPlanned).toBe(false);
+    });
+
+    it('marks no day when it receives none', () => {
+      const { getDayCell } = renderCalendar({ planByDate, markedDates: [] });
+
+      expect(getDayCell('2026-08-27').isPlanned).toBe(false);
+    });
+
+    it('keeps the selectable days apart from the marked ones', () => {
+      const { getDayCell } = renderCalendar({ markedDates, isDateSelectable: fromTodayOn });
+
+      expect(getDayCell('2026-08-27').isSelectable).toBe(true);
+      expect(getDayCell('2026-08-24').isSelectable).toBe(false);
+    });
+  });
+
   describe('month bounds', () => {
     it('walks only the months with a plan by default', () => {
       const { root } = renderCalendar({ planByDate });

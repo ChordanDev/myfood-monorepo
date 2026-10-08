@@ -62,11 +62,11 @@ Out of scope: manual items and removed/restored (S2, #40), Cart lease (S3, #41),
   - New payload, `untilDate`/`groupBy` parsing and validation, Account's today for pruning and range.
   - Tests bound to the old shape updated; `frontend_integration_guide.md` §7.1 and glossary updated.
   - Checks: controller + service + contract tests, full `mix test`, `mix format --check-formatted`, `mix compile --warnings-as-errors`.
-- [ ] **T4 — Mobile shopping API module** (route: delegated, additive)
+- [x] **T4 — Mobile shopping API module** (route: delegated, additive)
   - `getShoppingList` over `apiClient` (query params, `{ data }` unwrapped), response types, fixtures
     of both groupings and a date-limited read.
   - Checks: API module tests against `fetch`; `npm run typecheck`, `npm run lint`.
-- [ ] **T5 — Store as a cache and read-only Shopping screen** (route: delegated, same writer run as T4)
+- [x] **T5 — Store as a cache and read-only Shopping screen** (route: delegated, same writer run as T4)
   - The store holds the last read plus `untilDate` and grouping (D11-D15); the local derivation, the
     mock offers and the local mutations leave the screen; the recipe screen stops adding to the list.
   - Checks: store test proving a read replaces the cache; screen tested against fixtures with both
@@ -77,10 +77,10 @@ without the screen that reads it, while the API module can land alone.
 
 ## Acceptance criteria (issue #39)
 
-- [ ] `GET /api/shopping-list` responds `{ planned[], manual[], cart, totals }` in camelCase with each line carrying status, source, allocations and supermarket.
-- [ ] `untilDate=YYYY-MM-DD` limits planned lines to Scheduled meals on or before that date; `groupBy=ingredient|meal` aggregates or splits lines (rebuilder pure tests).
-- [ ] The mobile store no longer derives the list from the mock plan; a store test proves it is a cache replaced by reads.
-- [ ] Shopping screen tested against fixtures with both groupings and a date filter.
+- [x] `GET /api/shopping-list` responds `{ planned[], manual[], cart, totals }` in camelCase with each line carrying status, source, allocations and supermarket.
+- [x] `untilDate=YYYY-MM-DD` limits planned lines to Scheduled meals on or before that date; `groupBy=ingredient|meal` aggregates or splits lines (rebuilder pure tests).
+- [x] The mobile store no longer derives the list from the mock plan; a store test proves it is a cache replaced by reads.
+- [x] Shopping screen tested against fixtures with both groupings and a date filter.
 
 ## Delivery
 
@@ -110,8 +110,8 @@ None. Settled by the User on 2026-10-08: the mobile slice is **read-only** (D11)
 | T1 | delegated | `7be15e5` | RED observed (missing module, uncast field) then 21 passed; full suite 1246 passed, 20 skipped; format and `compile --warnings-as-errors` clean | medium, granted, approved (`review-591e8b34c07feca3`, with T2) |
 | T2 | delegated | `04431d5` | RED 8/31 then 31 passed; parent spot check 52 passed | medium, granted, approved; 3 advisory findings folded into T3 |
 | T3 | delegated | `e299f62` | RED observed (service 4/12, rebuilder 31/36, `validation_error` 32/37) then green; full suite 1267 passed, 20 skipped; format and `compile --warnings-as-errors` clean; mobile contract test 8 passed, typecheck clean; parent spot check 67 passed | high, granted, 4 lenses, approved (`review-6cdbb3482ec51f43`); advisory only |
-| T4 | delegated | — | — | — |
-| T5 | delegated | — | — | — |
+| T4 | delegated | `7b64a8e` | RED (module missing) then 22 passed; parent spot check 103 passed with the auth service suites | reviewed with T5 |
+| T5 | delegated | this commit | RED store 35 failed / screen 33 failed, then green; owner binding RED store 11 / screen 7, then green; `npm test` 89 suites, 1351 passed, 0 failed (parent re-run); typecheck clean; lint 0 errors (4 warnings in untouched files) | see below |
 
 Reviewed boundary: `e299f62`. Engram mirror: pending (save rejected, several active sessions for this project).
 
@@ -133,4 +133,21 @@ Advisory findings of the T3 review (lineage `review-6cdbb3482ec51f43`):
   check-then-insert has no unique index behind it (pre-existing). Not fixed here; flagged as a follow-up.
 - Untested: the lease boundary of `Cart.active_for/3`, and the no-archive / no-expiry side of a rejected read.
 
-Next step: mobile writer run (T4 + T5).
+Mobile notes (T4, T5):
+- `aa5a2df` moved the `validation_error` row above the planning channel block: the mobile `authService` test
+  counts the rows of that block and T3 had broken it (missed because only the contract test was run then).
+- The cached list is bound to the signed-in user (`useAuth().user.id`, not persisted): a read for another
+  user drops it first and the hook never renders a list cached for someone else. No store was reset on
+  sign-out before this slice.
+- A stored `chosenUntilDate` that is no longer among `plannedDates` is cleared and the list read once more.
+- The home calendar gained an additive optional `markedDates` prop for the date pill.
+- Kept only for the unmounted components (D11): the price formatters and `BestOffer`, `ManualShoppingListItem`,
+  the cart button and restore labels, the pressable branches of the row and the group card. On the recipe
+  screen the add button, the chat offer and the `listed` status are dormant behind optional inputs.
+- Deleted with the local derivation: `shoppingListItems`, `today`, `useShoppingListItems`, `ingredientListState`,
+  the offers mock, and their tests; `useShoppingList.test.tsx` (the hook is covered through the screen test).
+- Not verified: the screens were not run on a device or simulator.
+
+Follow-up outside this issue: duplicate Shopping items under concurrent reads (no unique index; task chip raised).
+
+Next step: native review of the mobile slice (`e299f62..HEAD`), then delivery (chain strategy to ask).

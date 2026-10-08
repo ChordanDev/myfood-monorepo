@@ -61,7 +61,7 @@ jest.mock('@/hooks/useAnimatedThemeStyle', () => ({
 
 // The list buys from the 6th; the pill shows it reaching the 12th.
 const CALENDAR: ShoppingUntilCalendar = {
-  planByDate: { '2026-10-06': [], '2026-10-12': [] },
+  markedDates: ['2026-10-06', '2026-10-12'],
   isDateSelectable: (dateKey) => dateKey === '2026-10-06' || dateKey === '2026-10-12',
   monthBounds: { months: ['2026-10'] },
   rangeStart: '2026-10-06',
@@ -167,7 +167,7 @@ describe('ShoppingDatePill', () => {
 
     expect(calendar()).toEqual(
       expect.objectContaining({
-        planByDate: CALENDAR.planByDate,
+        markedDates: CALENDAR.markedDates,
         isDateSelectable: CALENDAR.isDateSelectable,
         monthBounds: CALENDAR.monthBounds,
       })

@@ -50,9 +50,11 @@ const CHICKEN: ShoppingListItem = {
   status: 'in_cart',
   name: 'Pollo (Pechuga)',
   ingredientId: 'i2',
-  amountToBuy: 200,
+  quantityMilli: 200_000,
   unit: 'g',
   category: 'carnes',
+  supermarketId: null,
+  allocations: [],
 };
 
 const NAPKINS: ShoppingListItem = {

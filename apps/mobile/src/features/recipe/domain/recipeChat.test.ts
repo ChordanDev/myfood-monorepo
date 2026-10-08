@@ -124,6 +124,19 @@ describe('buildAssistantReply', () => {
     });
   });
 
+  it('makes no offer when an accepted one would have nowhere to go', () => {
+    const answer = buildAssistantReply({
+      question: '¿Puedo hacerla más liviana?',
+      recipeName: RECIPE_NAME,
+      rows: [RICE_IN_STOCK, CHICKEN_MISSING, TOMATO_MISSING],
+      canOffer: false,
+    });
+
+    expect(answer.offer).toBeUndefined();
+    expect(answer.text).toContain(RECIPE_NAME);
+    expect(answer.text).not.toContain('compras');
+  });
+
   it('does not offer an ingredient that is already on the shopping list', () => {
     const answer = reply([RICE_IN_STOCK, TOMATO_LISTED]);
 

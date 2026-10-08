@@ -86,25 +86,16 @@ function getLabels(root: ReactTestInstance, role: 'button' | 'checkbox'): string
 }
 
 describe('ShoppingManualCard', () => {
-  it('lists the manual items by name, without a price', () => {
+  it('lists the manual items by name, each on a single line', () => {
     const { root } = renderCard(ITEMS);
 
-    expect(getTexts(root)).toEqual([
-      'Agregados a mano',
-      'Papel de cocina',
-      'Sin precio',
-      'Velas',
-      'Sin precio',
-    ]);
+    expect(getTexts(root)).toEqual(['Agregados a mano', 'Papel de cocina', 'Velas']);
   });
 
   it('has one checkbox per item and no "Marcar todos"', () => {
     const { root } = renderCard(ITEMS);
 
-    expect(getLabels(root, 'checkbox')).toEqual([
-      'Papel de cocina, Sin precio',
-      'Velas, Sin precio',
-    ]);
+    expect(getLabels(root, 'checkbox')).toEqual(['Papel de cocina', 'Velas']);
     expect(
       getPressables(root, 'checkbox').map((row) => row.props.accessibilityState.checked)
     ).toEqual([false, true]);

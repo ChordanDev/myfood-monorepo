@@ -14,7 +14,8 @@ interface RecipeIngredientsCardProps {
   rows: RecipeIngredientRow[];
   /** Servings, duration and cost, each only when the recipe knows it; drawn under the rows. */
   facts: RecipeFact[];
-  onRequestIngredient: (row: RecipeIngredientRow) => void;
+  /** Without it no row offers to send its ingredient to the shopping list. */
+  onRequestIngredient?: (row: RecipeIngredientRow) => void;
 }
 
 export function RecipeIngredientsCard({

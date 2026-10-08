@@ -5,8 +5,11 @@ import type { RecipeIngredientRow, RecipeIngredientStatus } from '../domain/reci
 
 interface RecipeIngredientItemProps {
   row: RecipeIngredientRow;
-  /** Called when the user asks to send a missing ingredient to the shopping list. */
-  onRequest: (row: RecipeIngredientRow) => void;
+  /**
+   * Called when the user asks to send a missing ingredient to the shopping list. Without it
+   * the row has nothing to press.
+   */
+  onRequest?: (row: RecipeIngredientRow) => void;
 }
 
 const STATUS_LABEL: Record<RecipeIngredientStatus, string> = {
@@ -15,8 +18,9 @@ const STATUS_LABEL: Record<RecipeIngredientStatus, string> = {
   listed: 'En la lista',
 };
 
-// An ingredient outside the local catalog cannot be put on the shopping list, which is built
-// from that catalog: it only reads as missing, with nothing to press.
+// A missing ingredient that cannot be sent to the shopping list only reads as missing, with
+// nothing to press: one the local catalog does not know cannot be named there, and a row
+// without a request handler has nowhere to send it.
 const UNLISTABLE_MISSING_LABEL = 'Falta';
 
 // The row is 40pt tall and rows touch each other, so 2pt on each side reaches a 44pt target.
@@ -26,7 +30,7 @@ export function RecipeIngredientItem({ row, onRequest }: RecipeIngredientItemPro
   const { theme } = useRecipeTheme();
   const isMissing = row.status === 'missing';
   // A row has a unit only when the local catalog knows its ingredient.
-  const canAdd = isMissing && row.unit !== null;
+  const canAdd = onRequest !== undefined && isMissing && row.unit !== null;
   const statusLabel = isMissing && !canAdd ? UNLISTABLE_MISSING_LABEL : STATUS_LABEL[row.status];
 
   return (

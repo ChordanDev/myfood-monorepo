@@ -64,7 +64,7 @@ function PickerPill({ label, untilDate, calendar, onSelectDate }: PickerPillProp
       <FloatingCalendar
         anchor={anchor}
         onClose={close}
-        planByDate={calendar.planByDate}
+        markedDates={calendar.markedDates}
         isDateSelectable={calendar.isDateSelectable}
         monthBounds={calendar.monthBounds}
         // The stretch the list buys for. Its first day is fixed and every tap picks its last

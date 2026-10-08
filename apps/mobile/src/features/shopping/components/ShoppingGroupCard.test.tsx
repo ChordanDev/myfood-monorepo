@@ -6,12 +6,7 @@ import { act, create, ReactTestInstance } from 'react-test-renderer';
 import * as Haptics from 'expo-haptics';
 import { Check } from 'lucide-react-native';
 import { useAnimatedThemeStyle } from '@/hooks/useAnimatedThemeStyle';
-import type {
-  BestOffer,
-  PlannedShoppingListItem,
-  ShoppingGroup,
-  ShoppingItemStatus,
-} from '../types';
+import type { ShoppingGroup, ShoppingItemStatus, ShoppingListLine } from '../types';
 import { ShoppingGroupCard } from './ShoppingGroupCard';
 
 jest.mock('react-native-reanimated', () => {
@@ -55,16 +50,18 @@ function vegetable(
   ingredientId: string,
   name: string,
   status: ShoppingItemStatus
-): PlannedShoppingListItem {
+): ShoppingListLine {
   return {
     id: `planned:${ingredientId}`,
     source: 'planned_meal',
     status,
     name,
     ingredientId,
-    amountToBuy: 2,
+    quantityMilli: 2000,
     unit: 'unit',
     category: 'verduras',
+    supermarketId: null,
+    allocations: [],
   };
 }
 
@@ -76,8 +73,9 @@ function vegetables(statuses: [ShoppingItemStatus, ShoppingItemStatus]): Shoppin
   };
 }
 
-const BEST_OFFERS: Record<string, BestOffer> = {
-  'planned:onion': { supermarket: 'Carrefour', unitPrice: 450, price: 900 },
+// The second line of the onion row. The tomato has none.
+const META_LINES: Record<string, string> = {
+  'planned:onion': 'Para 2 comidas',
 };
 
 function renderCard(group: ShoppingGroup) {
@@ -90,7 +88,7 @@ function renderCard(group: ShoppingGroup) {
     tree = create(
       <ShoppingGroupCard
         group={group}
-        bestOffers={BEST_OFFERS}
+        metaLines={META_LINES}
         onToggleItem={onToggleItem}
         onRemoveItem={onRemoveItem}
         onToggleAll={onToggleAll}
@@ -115,6 +113,17 @@ function getCheckboxImmediateKeys() {
 
 function getTexts(root: ReactTestInstance): string[] {
   return root.findAllByType(Text).map((node) => node.props.children as string);
+}
+
+// The card as the list shows it while nothing on it can be changed: without handlers.
+function renderReadOnlyCard(group: ShoppingGroup) {
+  let tree: ReturnType<typeof create>;
+
+  act(() => {
+    tree = create(<ShoppingGroupCard group={group} metaLines={META_LINES} />);
+  });
+
+  return tree!.root;
 }
 
 function getCheckboxes(root: ReactTestInstance): ReactTestInstance[] {
@@ -149,14 +158,13 @@ describe('ShoppingGroupCard', () => {
       'Verduras',
       'Marcar todos',
       '2 u · Cebolla',
-      'Carrefour · $900',
+      'Para 2 comidas',
       '2 u · Tomate',
-      'Sin precio',
     ]);
     expect(getCheckboxes(root).map((checkbox) => checkbox.props.accessibilityLabel)).toEqual([
       HEADER_LABEL,
-      '2 u · Cebolla, Carrefour · $900',
-      '2 u · Tomate, Sin precio',
+      '2 u · Cebolla, Para 2 comidas',
+      '2 u · Tomate',
     ]);
   });
 
@@ -230,7 +238,7 @@ describe('ShoppingGroupCard', () => {
     const { root, onToggleAll, onToggleItem } = renderCard(vegetables(['needed', 'in_cart']));
 
     act(() => {
-      getCheckbox(root, '2 u · Tomate, Sin precio').props.onPress();
+      getCheckbox(root, '2 u · Tomate').props.onPress();
     });
 
     expect(onToggleItem).toHaveBeenCalledTimes(1);
@@ -244,12 +252,48 @@ describe('ShoppingGroupCard', () => {
     );
 
     act(() => {
-      getCheckbox(root, '2 u · Tomate, Sin precio').props.onLongPress();
+      getCheckbox(root, '2 u · Tomate').props.onLongPress();
     });
 
     expect(onRemoveItem).toHaveBeenCalledTimes(1);
     expect(onRemoveItem).toHaveBeenCalledWith('planned:tomato');
     expect(onToggleItem).not.toHaveBeenCalled();
     expect(onToggleAll).not.toHaveBeenCalled();
+  });
+
+  describe('read-only, without handlers', () => {
+    it('renders the group title and its rows, without "Marcar todos"', () => {
+      const root = renderReadOnlyCard(vegetables(['needed', 'in_cart']));
+
+      expect(getTexts(root)).toEqual([
+        'Verduras',
+        '2 u · Cebolla',
+        'Para 2 comidas',
+        '2 u · Tomate',
+      ]);
+    });
+
+    it('has nothing to press: no checkbox, no row and no header control', () => {
+      const root = renderReadOnlyCard(vegetables(['needed', 'in_cart']));
+
+      expect(
+        root.findAll(
+          (node) =>
+            typeof node.props.onPress === 'function' || typeof node.props.onLongPress === 'function'
+        )
+      ).toEqual([]);
+      expect(root.findAll((node) => node.props.accessibilityRole === 'checkbox')).toEqual([]);
+    });
+
+    it('ticks only the rows in the cart', () => {
+      const root = renderReadOnlyCard(vegetables(['needed', 'in_cart']));
+
+      const boxes = root.findAll(
+        (node) => typeof node.type === 'string' && node.props.testID === 'shopping-checkbox'
+      );
+
+      expect(boxes).toHaveLength(1);
+      expect(root.findAllByType(Check)).toHaveLength(1);
+    });
   });
 });

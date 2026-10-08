@@ -20,6 +20,9 @@ export type CalendarSizing = 'fill' | 'content';
 
 export type CalendarProps = {
   planByDate?: PlanByDate;
+  // The 'YYYY-MM-DD' days that carry the mark of a planned day, for a caller that knows which
+  // days are planned without holding their meals. Default: the days `planByDate` has meals on.
+  markedDates?: string[];
   selectedDate?: string | null;
   onSelectDate?: (dateString: string) => void;
   // Whether a 'YYYY-MM-DD' day can be picked. Default: the days with a plan to show.
