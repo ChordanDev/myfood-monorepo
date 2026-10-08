@@ -105,6 +105,8 @@ export type AuthErrorCode =
   | 'invalid_cooking_skill'
   | 'slot_cooking_times_not_found'
   | 'invalid_hunger_level'
+  | 'invalid_diet'
+  | 'invalid_hard_restriction'
   | 'generation_in_progress'
   | 'no_active_generation'
   | 'missing_session_id'

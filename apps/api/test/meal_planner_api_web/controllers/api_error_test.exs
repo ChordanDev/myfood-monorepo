@@ -82,6 +82,11 @@ defmodule MealPlannerApiWeb.ApiErrorTest do
       assert is_binary(message) and message != ""
     end
 
+    test "maps every User preferences code to 422", %{conn: conn} do
+      assert (conn |> ApiError.error(:invalid_diet)).status == 422
+      assert (conn |> ApiError.error(:invalid_hard_restriction)).status == 422
+    end
+
     test "keeps a response header set on the conn before rendering", %{conn: conn} do
       conn =
         conn
@@ -227,7 +232,7 @@ defmodule MealPlannerApiWeb.ApiErrorTest do
       end
     end
 
-    test "are listed by codes/0 next to the auth, recipe, profile and Slot cooking times codes" do
+    test "are listed by codes/0 next to the codes of the HTTP routes" do
       auth_codes =
         ~w(unauthenticated access_token_expired account_not_found trial_expired invalid_email
            email_not_found rate_limited code_invalid code_expired too_many_attempts
@@ -237,11 +242,15 @@ defmodule MealPlannerApiWeb.ApiErrorTest do
       profile_codes = ~w(validation_error invalid_cooking_skill)a
       slot_cooking_times_codes = ~w(slot_cooking_times_not_found invalid_hunger_level)a
 
+      # The codes of `PUT /api/me/preferences` (issue #18) that are its own.
+      preferences_codes = ~w(invalid_diet invalid_hard_restriction)a
+
       assert Enum.sort(ApiError.codes()) ==
                Enum.sort(
                  auth_codes ++
                    [:recipe_not_found] ++
-                   profile_codes ++ slot_cooking_times_codes ++ Map.keys(@channel_codes)
+                   profile_codes ++
+                   slot_cooking_times_codes ++ preferences_codes ++ Map.keys(@channel_codes)
                )
     end
   end
