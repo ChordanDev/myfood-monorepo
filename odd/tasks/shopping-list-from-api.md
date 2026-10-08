@@ -113,7 +113,7 @@ None. Settled by the User on 2026-10-08: the mobile slice is **read-only** (D11)
 | T4 | delegated | `7b64a8e` | RED (module missing) then 22 passed; parent spot check 103 passed with the auth service suites | reviewed with T5 |
 | T5 | delegated | `671f836` + fix below | RED store 35 failed / screen 33 failed, then green; owner binding RED store 11 / screen 7, then green; `npm test` 89 suites, 1351 passed, 0 failed (parent re-run); typecheck clean; lint 0 errors (4 warnings in untouched files) | native review unavailable (see below); independent read-only review: no blockers |
 
-Reviewed boundary: `e299f62`. Engram mirror: pending (save rejected, several active sessions for this project).
+Reviewed boundary: `e299f62`. Engram mirror: saved through the CLI as observation #3796 (the MCP save was rejected, several active sessions for this project).
 
 Accepted review follow-ups (advisory, lineage `review-591e8b34c07feca3`), done with T3:
 - `group_lines/2` with `:ingredient`: removed rows must not inflate a line that still reads `needed`.
