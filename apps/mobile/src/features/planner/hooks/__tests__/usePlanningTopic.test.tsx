@@ -27,6 +27,8 @@ function flushPromises(): Promise<void> {
 }
 
 let socket: FakeSocket;
+let storedToken: string | null;
+const tokenListeners = new Set<(accessToken: string | null) => void>();
 let tree: ReturnType<typeof create> | undefined;
 let planningTopic: PlanningTopicState;
 
@@ -55,21 +57,34 @@ async function renderPlanningTopic(accountId: string | null, strict = false) {
   });
 }
 
+/** Plays the token store when a session starts: stores the token, then tells the subscribers. */
+function announceToken(accessToken: string): void {
+  storedToken = accessToken;
+  [...tokenListeners].forEach((listener) => listener(accessToken));
+}
+
 function liveChannels() {
   return socket.channels.filter((channel) => !channel.hasLeft());
 }
 
 beforeEach(() => {
   mockAccountId = null;
+  storedToken = 'access-1';
+  tokenListeners.clear();
   mockSocketClient = createSocketClient({
     url: 'wss://api.example.test/socket',
     createSocket: (url, options) => {
       socket = createFakeSocket(url, options);
       return socket;
     },
-    getAccessToken: async () => 'access-1',
+    getAccessToken: async () => storedToken,
     refreshTokens: jest.fn(),
-    subscribeToAccessToken: () => () => {},
+    subscribeToAccessToken: (listener) => {
+      tokenListeners.add(listener);
+      return () => {
+        tokenListeners.delete(listener);
+      };
+    },
   });
 });
 
@@ -93,6 +108,21 @@ describe('usePlanningTopic', () => {
 
     act(() => socket.channels[0].replyOk());
 
+    expect(planningTopic).toEqual({ status: 'joined' });
+  });
+
+  it('joins once the session arrives after mount for the same Account', async () => {
+    storedToken = null;
+    await renderPlanningTopic('account-1');
+    expect(socket.connectAttempts).toEqual([]);
+    expect(planningTopic).toEqual({ status: 'joining' });
+
+    act(() => announceToken('access-2'));
+    expect(socket.connectAttempts).toEqual([{ token: 'access-2' }]);
+    socket.open();
+    act(() => socket.channels[0].replyOk());
+
+    expect(socket.channels).toHaveLength(1);
     expect(planningTopic).toEqual({ status: 'joined' });
   });
 
