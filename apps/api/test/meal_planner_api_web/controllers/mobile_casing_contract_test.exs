@@ -385,6 +385,30 @@ defmodule MealPlannerApiWeb.MobileCasingContractTest do
       assert served.query_params == @rewritten
     end
 
+    test "GET and PUT /api/me/slot-cooking-times go through the plug, halted or not", f do
+      path = "/api/me/slot-cooking-times"
+
+      slot = %{"cookingTimeMinutes" => 20, "hungerLevel" => "normal"}
+      times = %{"breakfast" => slot, "lunch" => slot, "dinner" => slot}
+
+      for method <- [:get, :put] do
+        halted = dispatch(build_conn(), @endpoint, method, path <> @query)
+
+        assert {method, halted.status} == {method, 401}
+        assert {method, halted.query_params} == {method, @rewritten}
+      end
+
+      saved = request(f, :put, path <> @query, times)
+
+      assert success(saved) == times
+      assert saved.query_params == @rewritten
+
+      read = request(f, :get, path <> @query)
+
+      assert success(read) == times
+      assert read.query_params == @rewritten
+    end
+
     test "GET /api/auth/me and /api/account/* never go through the plug", f do
       for path <- ["/api/auth/me", "/api/account/excluded-ingredients"] do
         halted = dispatch(build_conn(), @endpoint, :get, path <> @query)

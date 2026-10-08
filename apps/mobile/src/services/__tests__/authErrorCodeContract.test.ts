@@ -19,14 +19,16 @@ import { AUTH_ERROR_MESSAGES, errorFromEnvelope, KNOWN_AUTH_ERROR_CODES } from '
  *
  * The api source is treated as a read-only fixture. We walk every
  * `.ex` file under `apps/api/lib/` and collect atoms from `error(:atom)`
- * calls — these are the codes the api renders through
- * `MealPlannerApiWeb.ApiError.error/2`.
+ * and `error(:atom, message)` calls — these are the codes the api renders
+ * through `MealPlannerApiWeb.ApiError.error/2` and `error/3`.
  */
 describe('auth error code contract (api -> mobile allowlist)', () => {
   // Controllers and plugs in `apps/api` render the mobile error envelope
-  // with `conn |> ApiError.error(:atom)`. The atom is the `error.code`
-  // that goes out on the wire, so the atoms in those calls are exactly
-  // the codes the envelope can carry.
+  // with `conn |> ApiError.error(:atom)`, or with
+  // `conn |> ApiError.error(:atom, message)` when the answer carries its
+  // own message. The atom is the `error.code` that goes out on the wire,
+  // so the atoms in those calls are exactly the codes the envelope can
+  // carry.
   //
   // The scan does NOT see:
   //   * `ApiError.server_fault/1` (`unknown_error`) — it has no
@@ -67,7 +69,10 @@ describe('auth error code contract (api -> mobile allowlist)', () => {
     }
 
     const atoms = new Set<string>();
-    const re = /error\(:([a-z_]+)\)/g;
+    // `\b` keeps a longer function name out of the scan: a clause head
+    // such as `defp registration_error(:user, changeset)` is not a call
+    // to the envelope helper.
+    const re = /\berror\(:([a-z_]+)[,)]/g;
 
     function walk(dir: string) {
       for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
@@ -156,6 +161,26 @@ describe('auth error code contract (api -> mobile allowlist)', () => {
       expect(resolved).toBeNull();
     } finally {
       fs.rmSync(tmpRoot, { recursive: true, force: true });
+    }
+  });
+
+  it('extractApiErrorAtoms() reads both call shapes and skips longer function names', () => {
+    // Triangulation: the scan below is only as good as this regex, so
+    // prove it against a synthetic source tree.
+    const tmpLib = fs.mkdtempSync(path.join(os.tmpdir(), 'api-lib-'));
+    try {
+      fs.writeFileSync(
+        path.join(tmpLib, 'sample_controller.ex'),
+        [
+          'conn |> ApiError.error(:plain_code)',
+          'conn |> ApiError.error(:code_with_message, "lunch is required.")',
+          'defp registration_error(:user, changeset), do: changeset',
+          '{:error, :not_a_call}',
+        ].join('\n')
+      );
+      expect(extractApiErrorAtoms(tmpLib)).toEqual(['code_with_message', 'plain_code']);
+    } finally {
+      fs.rmSync(tmpLib, { recursive: true, force: true });
     }
   });
 

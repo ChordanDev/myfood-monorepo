@@ -11,11 +11,12 @@ defmodule MealPlannerApiWeb.ApiError do
   ## Call-site shape (contract scan)
 
   `apps/mobile` runs a contract test that scans every `.ex` file under
-  `apps/api/lib` for the literal `error(:<code>)` and requires each captured
-  code to be in its `KNOWN_AUTH_ERROR_CODES` allowlist. For that scan to see
-  a call, the conn MUST be piped in:
+  `apps/api/lib` for the literal `error(:<code>` followed by `)` or `,` and
+  requires each captured code to be in its `KNOWN_AUTH_ERROR_CODES`
+  allowlist. For that scan to see a call, the conn MUST be piped in:
 
       conn |> ApiError.error(:unauthenticated)
+      conn |> ApiError.error(:validation_error, "lunch is required.")
 
   `ApiError.error(conn, :unauthenticated)` renders the same response but is
   invisible to the scan, so it is not an accepted call shape in this
@@ -65,6 +66,9 @@ defmodule MealPlannerApiWeb.ApiError do
           | :refresh_token_replayed
           | :refresh_token_expired
           | :refresh_token_session_mismatch
+          | :slot_cooking_times_not_found
+          | :validation_error
+          | :invalid_hunger_level
           | :generation_in_progress
           | :no_active_generation
           | :missing_session_id
@@ -115,6 +119,11 @@ defmodule MealPlannerApiWeb.ApiError do
     refresh_token_replayed: {401, "The refresh token has already been used."},
     refresh_token_expired: {401, "The refresh token has expired."},
     refresh_token_session_mismatch: {401, "The refresh token does not match its session."},
+    # Slot cooking times (issue #19). A `validation_error` is sent with
+    # `error/3`, which names the field at fault in place of this text.
+    slot_cooking_times_not_found: {404, "No slot cooking times are saved for this user."},
+    validation_error: {422, "The request is not valid."},
+    invalid_hunger_level: {422, "The hunger level must be one of light, normal or strong."},
     # Planning channel (issue #11): every deliberate reason a join or a
     # command of `PlanningChannel` replies, named as the reason was.
     generation_in_progress: {409, "A menu generation is already in progress for this account."},
@@ -167,6 +176,19 @@ defmodule MealPlannerApiWeb.ApiError do
   def error(%Plug.Conn{} = conn, code) when is_map_key(@codes, code) do
     {status, _message} = Map.fetch!(@codes, code)
     send_envelope(conn, status, envelope(code))
+  end
+
+  @doc """
+  Like `error/2`, with `message` in place of the fixed text of `code`, for
+  an answer that has to say what was wrong with the request:
+
+      conn |> ApiError.error(:validation_error, "lunch.cookingTimeMinutes must be ...")
+  """
+  @spec error(Plug.Conn.t(), code(), String.t()) :: Plug.Conn.t()
+  def error(%Plug.Conn{} = conn, code, message)
+      when is_map_key(@codes, code) and is_binary(message) do
+    {status, _fixed_message} = Map.fetch!(@codes, code)
+    send_envelope(conn, status, build_envelope(code, message))
   end
 
   @doc """

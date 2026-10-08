@@ -198,6 +198,11 @@ defmodule MealPlannerApiWeb.Router do
     pipe_through([:api, :mobile_casing, :auth])
 
     get("/me", AccountsController, :me)
+
+    # Issue #19 — Slot cooking times belong to the User, not to the Account,
+    # so they share the capability exemption of `GET /me`.
+    get("/me/slot-cooking-times", SlotCookingTimesController, :show)
+    put("/me/slot-cooking-times", SlotCookingTimesController, :update)
   end
 
   # Product routes of the mobile app. `:mobile_casing` is opt-in and this is

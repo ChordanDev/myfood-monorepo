@@ -72,9 +72,41 @@ defmodule MealPlannerApiWeb.ApiErrorTest do
       assert %{"error" => %{"code" => "rate_limited"}} = json_response(conn, 429)
     end
 
+    test "maps the Slot cooking times codes to their HTTP status", %{conn: conn} do
+      assert (conn |> ApiError.error(:slot_cooking_times_not_found)).status == 404
+      assert (conn |> ApiError.error(:validation_error)).status == 422
+      assert (conn |> ApiError.error(:invalid_hunger_level)).status == 422
+    end
+
     test "raises for a code outside the mobile allowlist", %{conn: conn} do
       assert_raise FunctionClauseError, fn ->
         ApiError.error(conn, :not_a_mobile_code)
+      end
+    end
+  end
+
+  describe "error/3" do
+    test "renders the given message with the code and its status, and halts", %{conn: conn} do
+      conn = conn |> ApiError.error(:validation_error, "lunch is required.")
+
+      assert conn.halted
+
+      assert json_response(conn, 422) == %{
+               "error" => %{"code" => "validation_error", "message" => "lunch is required."}
+             }
+    end
+
+    test "leaves the fixed message of the code as it was", %{conn: conn} do
+      overridden = conn |> ApiError.error(:validation_error, "lunch is required.")
+      fixed = conn |> ApiError.error(:validation_error)
+
+      assert json_response(fixed, 422) == json_round_trip(ApiError.envelope(:validation_error))
+      refute json_response(fixed, 422) == json_response(overridden, 422)
+    end
+
+    test "raises for a code outside the mobile allowlist", %{conn: conn} do
+      assert_raise FunctionClauseError, fn ->
+        ApiError.error(conn, :not_a_mobile_code, "lunch is required.")
       end
     end
   end
@@ -177,14 +209,18 @@ defmodule MealPlannerApiWeb.ApiErrorTest do
       end
     end
 
-    test "are listed by codes/0 next to the auth codes" do
+    test "are listed by codes/0 next to the auth and Slot cooking times codes" do
       auth_codes =
         ~w(unauthenticated access_token_expired account_not_found trial_expired invalid_email
            email_not_found rate_limited code_invalid code_expired too_many_attempts
            code_send_failed email_already_exists refresh_token_invalid refresh_token_revoked
            refresh_token_replayed refresh_token_expired refresh_token_session_mismatch)a
 
-      assert Enum.sort(ApiError.codes()) == Enum.sort(auth_codes ++ Map.keys(@channel_codes))
+      slot_cooking_times_codes =
+        ~w(slot_cooking_times_not_found validation_error invalid_hunger_level)a
+
+      assert Enum.sort(ApiError.codes()) ==
+               Enum.sort(auth_codes ++ slot_cooking_times_codes ++ Map.keys(@channel_codes))
     end
   end
 
