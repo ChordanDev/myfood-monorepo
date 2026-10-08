@@ -94,6 +94,8 @@ export type AuthErrorCode =
   | 'onboarding_already_complete'
   | 'preferences_invalid'
   | 'slot_cooking_times_invalid'
+  | 'validation_error'
+  | 'invalid_cooking_skill'
   | 'generation_in_progress'
   | 'no_active_generation'
   | 'missing_session_id'

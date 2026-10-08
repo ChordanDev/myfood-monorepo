@@ -174,6 +174,45 @@ manejo de refresh) y NO asumir un tipo específico.
 | `POST` | `/api/shopping/checkout` | Confirmar compra |
 | `GET` | `/api/recipes` | Lista de recetas |
 | `GET` | `/api/inventory` | Inventario del usuario |
+| `PUT` | `/api/me/profile` | Editar el perfil de Onboarding del usuario actual |
+
+### Editar el perfil de Onboarding
+
+`PUT /api/me/profile` guarda el nombre, el tamaño del hogar y la experiencia cocinando del usuario actual.
+No requiere acceso vigente: una cuenta con el acceso vencido también puede usarla.
+
+```json
+{
+  "displayName": "Ana María",
+  "householdSize": 4,
+  "cookingSkill": "intermediate"
+}
+```
+
+Los tres campos son obligatorios:
+
+- `displayName`: string de 1 a 64 caracteres, contados después de quitar los espacios de los extremos.
+- `householdSize`: entero JSON de 1 a 20. El string `"4"` y el número `4.5` se rechazan.
+- `cookingSkill`: `beginner`, `intermediate` o `advanced`.
+
+Respuesta `200`, con el mismo objeto `user` que devuelve `GET /api/me`:
+
+```json
+{
+  "user": {
+    "id": "…",
+    "email": "ana@example.com",
+    "displayName": "Ana María",
+    "householdSize": 4,
+    "cookingSkill": "intermediate"
+  }
+}
+```
+
+Los campos se validan en el orden `displayName`, `householdSize`, `cookingSkill`, y el primero que falla
+decide la respuesta: `422 invalid_cooking_skill` cuando `cookingSkill` es un string fuera del catálogo, y
+`422 validation_error` en cualquier otro caso, con un `message` que nombra el campo. Una request rechazada
+no guarda nada.
 
 ### Ejemplo: Obtener Calendario
 
@@ -655,7 +694,8 @@ Lo devuelven:
 - las rutas de autenticación de la app móvil: `/api/auth/login/request-code`,
   `/api/auth/login/verify-code`, `/api/auth/signup/request-code`, `/api/auth/signup/verify-code` y
   `/api/auth/refresh`;
-- `GET /api/me` y su alias `GET /api/auth/me`.
+- `GET /api/me` y su alias `GET /api/auth/me`;
+- `PUT /api/me/profile`: `422 validation_error` y `422 invalid_cooking_skill`.
 
 **Plano (anterior, no migrado al sobre).** El status lo elige cada endpoint:
 
@@ -698,6 +738,8 @@ formato por defecto:
 | `account_mismatch` | El `:account_id` de la URL no coincide con la cuenta activa del token (multi-familia) | Hacer `switch-account` a la cuenta correcta primero, ver [Multi-Familia](#multi-familia-cuentas-múltiples) |
 | `not_found` | Recurso no existe | Verificar IDs |
 | `invalid_payload` | Datos inválidos | Validar input del usuario |
+| `validation_error` | Un campo de la request no es válido; el `message` nombra el campo | Corregir ese campo |
+| `invalid_cooking_skill` | `cookingSkill` no está en el catálogo | Enviar `beginner`, `intermediate` o `advanced` |
 | `generation_in_progress` | Ya hay una generación en curso | Esperar o cancelar |
 | `no_active_generation` | No hay generación activa | Generar primero |
 | `budget_exceeded` | Supera el presupuesto | Reducir constraints |

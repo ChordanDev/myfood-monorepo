@@ -32,6 +32,9 @@ describe('auth error code contract (api -> mobile allowlist)', () => {
   //   * `ApiError.server_fault/1` (`unknown_error`) — it has no
   //     `error(:atom)` literal by design, and `unknown_error` is in the
   //     allowlist anyway.
+  //   * `ApiError.validation_error/2` (`validation_error`) — it renders
+  //     the code with a message naming the offending field, without an
+  //     `error(:atom)` literal, so the allowlist lists it by hand.
   //   * The flat `{ "error": "<reason>" }` bodies the legacy and
   //     non-auth controllers still build with `json/2` — they are not
   //     part of the envelope contract.
@@ -175,6 +178,18 @@ describe('auth error code contract (api -> mobile allowlist)', () => {
       (code) => errorFromEnvelope({ error: { code, message: 'x' } }, 400).code !== code
     );
     expect(normalized).toEqual([]);
+  });
+
+  it('errorFromEnvelope() keeps validation_error, which the scan cannot see', () => {
+    // The allowlist entry is written by hand, so nothing above notices
+    // if it goes missing.
+    const message = 'The field householdSize is not valid.';
+
+    expect(errorFromEnvelope({ error: { code: 'validation_error', message } }, 422)).toMatchObject({
+      code: 'validation_error',
+      message,
+      status: 422,
+    });
   });
 
   it('errorFromEnvelope() normalizes a code outside the allowlist to unknown_error', () => {
