@@ -48,8 +48,8 @@ The route answers the raw decoded snapshot (`recipeSteps`, `recipeIngredients[].
 
 ## Tasks
 
-- [ ] **T1 API: snapshot projection and envelope on `GET /api/recipes/:id`.** Projection, `recipe_not_found` code (API and mobile allowlists), `forbidden` on failed access, frozen payload fixture, route tests (catalog and `ai_generated`), integration guide. Route: delegated (2+ non-trivial files).
-- [ ] **T2 Mobile: recipe type, API module and version cache.** `Recipe` type, `recipeApi`, cache store, cache test proving the same version is not refetched. Route: delegated.
+- [x] **T1 API: snapshot projection and envelope on `GET /api/recipes/:id`.** Projection, `recipe_not_found` code (API and mobile allowlists), `forbidden` on failed access, frozen payload fixture, route tests (catalog and `ai_generated`), integration guide. Route: delegated (2+ non-trivial files).
+- [x] **T2 Mobile: recipe type, API module and version cache.** `Recipe` type, `recipeApi`, cache store, cache test proving the same version is not refetched. Route: delegated.
 - [ ] **T3 Mobile: recipe screen renders the snapshot.** Converter from the flat type, quantity and cost formatting, hook and components on the new shape, screen test against the fixture (catalog and `ai_generated`). Route: delegated.
 
 ## Acceptance criteria (from the ticket)
@@ -72,12 +72,14 @@ Forecast: about 700 authored changed lines over three work-unit commits (T1 abou
 
 | Task | Commit | Evidence | Review |
 | ---- | ------ | -------- | ------ |
-| T1   |        |          |        |
-| T2   |        |          |        |
+| T1   | `04da8ea` | RED: 11 failures before implementation (flat error bodies, missing `durationMinutes`, `FunctionClauseError` for `:recipe_not_found`); no RED for the two successor tests. `mix format --check-formatted` ok, `mix compile --warnings-as-errors` ok, `mix test` 1215 passed / 20 skipped / 0 failures, mobile `typecheck` ok, `lint` 0 errors, `jest --ci` 1471 passed. Parent re-ran the two recipe test files: 27 passed. | high (`hot_path` auth types); consent granted; four lenses approved and acknowledged (`review-e19d0945a73eec46`), 8 non-blocking advisories |
+| T2   | (this commit) | RED: suites failed on missing modules, then 8 of 11 failed against no-cache stubs; no real RED for "fetches when the known version is not cached". `typecheck` ok, `lint` 0 errors, `jest --ci` 94 suites / 1482 passed. Parent re-ran the two new suites: 11 passed. | pending assessment |
 | T3   |        |          |        |
 
-Next step: T1.
+Next step: T3.
 
 ## Notes and follow-ups
 
 - The API CI job does not run when only the mobile fixture changes; the key-set assertion catches drift on the next API change.
+- The recipe cache is not cleared on sign-out. No persisted store is today (`AuthContext.signOut` only clears the session), and wiring it means editing the auth context. Cached Account-scoped snapshots stay on the device, reachable only by recipe id. `useRecipeCacheStore.clear()` exists for the ticket that adds a sign-out reset (candidate: X6, #16).
+- T1 review advisories (non-blocking, receipt stands): no route test for `estimatedCostCents` 0 without a daily cost; no route test for `forbidden` on a non-member (only the expired trial is covered); a `nil` from `RecipeVersions.freeze/1` is reported as `recipe_not_found`; the catch-all clause comment in `RecipeController.show/2`; `recipe_not_found` lives under auth-named mobile types (`AuthErrorCode`), as every code does since #11.
