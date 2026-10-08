@@ -62,6 +62,7 @@ defmodule MealPlannerApi.Services.EmailCodeAuth do
   @max_per_ip_per_window 20
   @max_failures_per_window 10
   @code_length 6
+  @max_code_attempts 5
   @continuation_ttl_seconds 300
 
   # Lock keys are 64-bit signed integers fed to `pg_advisory_xact_lock`.
@@ -247,7 +248,8 @@ defmodule MealPlannerApi.Services.EmailCodeAuth do
 
   ## Error outcomes (Phase 2, unchanged)
 
-    * `{:error, :invalid_code}` — wrong code, or expired code
+    * `{:error, :invalid_code}` — wrong code, expired code, or a code
+      locked by failed attempts on the login route
     * `{:error, :code_already_used}` — replay attempt (consumed row)
     * `{:error, :unauthorized_principal}` — supplied bearer resolved to a
       user that does not own the row
@@ -310,6 +312,38 @@ defmodule MealPlannerApi.Services.EmailCodeAuth do
   def reserve_request_slots(email, client_ip) when is_binary(email) do
     reserve_slots(email, normalize_client_ip(client_ip))
   end
+
+  @doc """
+  Reserves one slot in the rolling 1-hour request window for `client_ip`
+  alone, in the same per-IP counter `reserve_request_slots/2` draws
+  from. No per-email event is recorded. Returns
+  `{:error, :rate_limited, retry_after}` when the counter is exhausted,
+  and `:ok` without recording anything when `client_ip` is not a usable
+  address.
+
+  Must run inside a `Repo.transaction/2`, like `reserve_request_slots/2`.
+  Used by `MealPlannerApi.Services.EmailCodeLogin` to count requests for
+  emails that have no User.
+  """
+  @spec reserve_ip_request_slot(String.t() | nil) :: :ok | rate_limited()
+  def reserve_ip_request_slot(client_ip) do
+    case normalize_client_ip(client_ip) do
+      nil ->
+        :ok
+
+      ip ->
+        SQL.query!(Repo, "SELECT pg_advisory_xact_lock($1)", [ip_lock_key(ip)])
+        reserve_ip_slot(ip)
+    end
+  end
+
+  @doc """
+  Failed attempts after which a verification code is locked for good.
+  `MealPlannerApi.Services.EmailCodeLogin` counts the attempts and
+  enforces the limit; `verify_code/3` only refuses codes that reached it.
+  """
+  @spec max_code_attempts() :: pos_integer()
+  def max_code_attempts, do: @max_code_attempts
 
   # ---------------------------------------------------------------------------
   # Rate limiting
@@ -559,10 +593,13 @@ defmodule MealPlannerApi.Services.EmailCodeAuth do
     end
   end
 
+  # A row at the attempt limit was locked by the login flow and is
+  # invisible here, so its code reads as an invalid one.
   defp find_pending_row(email, code_hash) do
     case from(r in EmailVerificationCode,
            where: r.email == ^email,
-           where: r.code_hash == ^code_hash
+           where: r.code_hash == ^code_hash,
+           where: r.attempts < @max_code_attempts
          )
          |> Repo.one() do
       nil ->

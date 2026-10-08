@@ -39,7 +39,7 @@ defmodule MealPlannerApi.Services.EmailCodeLogin do
 
   @ttl_seconds 600
   @resend_cooldown_seconds 60
-  @max_attempts 5
+  @max_attempts EmailCodeAuth.max_code_attempts()
 
   # First key of the two-key advisory lock form, which lives in a separate
   # key space from the single-key locks `EmailCodeAuth` takes.
@@ -58,14 +58,17 @@ defmodule MealPlannerApi.Services.EmailCodeLogin do
   Errors:
 
     * `{:error, :invalid_email}` — not a string, or not shaped like an email.
-    * `{:error, :email_not_found}` — no User has this email. Nothing is
-      written and nothing is sent.
+    * `{:error, :email_not_found}` — no User has this email. No code is
+      stored and nothing is sent, but the request still spends one of the
+      caller's hourly per-IP slots, so emails cannot be probed without limit.
     * `{:error, :rate_limited, retry_after}` — a code was issued for this
       email less than #{@resend_cooldown_seconds} seconds ago, or the hourly
-      per-email or per-IP request limit is exhausted. `retry_after` is in
-      whole seconds, at least 1.
-    * `{:error, :code_send_failed}` — the mailer refused the message. The
-      whole request is rolled back, so the caller may retry at once.
+      per-email or per-IP request limit is exhausted. An exhausted IP gets
+      this answer for unknown emails too. `retry_after` is in whole seconds,
+      at least 1.
+    * `{:error, :code_send_failed}` — the mailer refused the message or
+      never answered. The whole request is rolled back, so the caller may
+      retry at once.
   """
   @spec request_code(term(), String.t() | nil) ::
           {:ok, code_sent()}
@@ -89,7 +92,7 @@ defmodule MealPlannerApi.Services.EmailCodeLogin do
         lock_email(email)
         now = DateTime.utc_now()
 
-        with {:ok, user} <- fetch_user(email),
+        with {:ok, user} <- fetch_known_user(email, client_ip),
              :ok <- check_resend_cooldown(email, now),
              :ok <- EmailCodeAuth.reserve_request_slots(email, client_ip) do
           code = EmailCodeAuth.mint_code()
@@ -114,10 +117,19 @@ defmodule MealPlannerApi.Services.EmailCodeLogin do
     }
   end
 
-  defp fetch_user(email) do
+  # A request for an unknown email is still counted against the caller's
+  # IP, in the bucket known emails draw from, so the answer cannot be used
+  # to probe emails without limit. The event is kept because the
+  # transaction commits on this error.
+  defp fetch_known_user(email, client_ip) do
     case Repo.one(from(u in User, where: u.email == ^email, limit: 1)) do
-      %User{} = user -> {:ok, user}
-      nil -> {:error, :email_not_found}
+      %User{} = user ->
+        {:ok, user}
+
+      nil ->
+        with :ok <- EmailCodeAuth.reserve_ip_request_slot(client_ip) do
+          {:error, :email_not_found}
+        end
     end
   end
 
@@ -269,10 +281,10 @@ defmodule MealPlannerApi.Services.EmailCodeLogin do
   # Shared helpers
   # ---------------------------------------------------------------------------
 
-  # An adapter can answer `{:error, _}` or raise (HTTP adapters do both);
-  # either way the code never reached the user. The failure detail is not
-  # logged: provider errors echo the request, which carries the plaintext
-  # code.
+  # An adapter can answer `{:error, _}`, raise, or exit (HTTP adapters do
+  # all three; a client timeout is an exit); either way the code never
+  # reached the user. The failure detail is not logged: provider errors
+  # echo the request, which carries the plaintext code.
   defp deliver(user, email, code) do
     case Mailer.deliver_now(EmailCodeAuth.code_email(user, email, code)) do
       {:ok, _email} ->
@@ -285,6 +297,10 @@ defmodule MealPlannerApi.Services.EmailCodeLogin do
   rescue
     exception ->
       Logger.error("login code delivery raised #{inspect(exception.__struct__)}")
+      :error
+  catch
+    :exit, _reason ->
+      Logger.error("login code delivery exited")
       :error
   end
 

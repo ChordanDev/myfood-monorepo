@@ -425,6 +425,59 @@ defmodule MealPlannerApiWeb.EmailCodeAuthControllerTest do
     end
   end
 
+  # A code locked by wrong attempts on the mobile login route
+  # (`POST /api/auth/login/verify-code`) must stay locked here: both
+  # routes read the same `email_verification_codes` rows.
+  describe "POST /api/auth/email-code/verify and the login attempt lockout" do
+    @login_verify_path "/api/auth/login/verify-code"
+
+    test "a code locked on the login route returns 401 invalid_code and is not consumed", %{
+      conn: conn
+    } do
+      user = insert_user!("verify-locked@example.com", "Locked")
+      insert_verification_code!(user, "123456")
+      fail_login_verify!(conn, user.email, 5)
+
+      conn =
+        post(conn, "/api/auth/email-code/verify", %{"email" => user.email, "code" => "123456"})
+
+      assert json_response(conn, 401) == %{"error" => "invalid_code"}
+
+      [row] =
+        Repo.all(from(r in EmailVerificationCode, where: r.user_id == ^user.id))
+
+      assert is_nil(row.consumed_at)
+    end
+
+    test "a code below the attempt limit still verifies", %{conn: conn} do
+      user = insert_user!("verify-not-locked@example.com", "Not Locked")
+      insert_verification_code!(user, "123456")
+      fail_login_verify!(conn, user.email, 4)
+
+      conn =
+        post(conn, "/api/auth/email-code/verify", %{"email" => user.email, "code" => "123456"})
+
+      assert %{"access_token" => token} = json_response(conn, 200)
+      assert is_binary(token)
+    end
+  end
+
+  # Submits `times` wrong codes for `email` on the mobile login route.
+  defp fail_login_verify!(conn, email, times) do
+    for _ <- 1..times do
+      conn =
+        post(conn, @login_verify_path, %{
+          "email" => email,
+          "code" => "000000",
+          "deviceId" => "3f0c5f4e-6f0e-4a55-9d0b-1c7f1f6f2a10"
+        })
+
+      assert conn.status in [422, 429]
+    end
+
+    :ok
+  end
+
   # ---- Phase 2 helpers --------------------------------------------------------
 
   defp insert_user!(email, name) do
