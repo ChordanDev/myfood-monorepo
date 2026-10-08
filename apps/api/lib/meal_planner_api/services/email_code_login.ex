@@ -23,6 +23,12 @@ defmodule MealPlannerApi.Services.EmailCodeLogin do
 
   The plaintext code is never returned or logged; the email is the only
   delivery channel.
+
+  Sign-up (`MealPlannerApi.Services.EmailCodeSignup`) issues and redeems
+  its codes through `cast_email/1`, `issue_code/4` and `redeem_code/4`
+  below, so both flows share one cooldown, one attempt limit and one
+  per-email lock. Each call names its flow and only ever touches that
+  flow's codes.
   """
 
   import Ecto.Query
@@ -31,6 +37,7 @@ defmodule MealPlannerApi.Services.EmailCodeLogin do
 
   alias Ecto.Adapters.SQL
   alias MealPlannerApi.Mailer
+  alias MealPlannerApi.Mailer.EmailCodeEmail
   alias MealPlannerApi.Persistence.Accounts.AccountMembership
   alias MealPlannerApi.Persistence.Accounts.User
   alias MealPlannerApi.Persistence.Auth.EmailVerificationCode
@@ -51,6 +58,8 @@ defmodule MealPlannerApi.Services.EmailCodeLogin do
           expires_in_seconds: pos_integer(),
           resend_available_in_seconds: pos_integer()
         }
+
+  @type flow :: :login | :signup
 
   @doc """
   Issues a login code for `email` and mails it.
@@ -74,32 +83,60 @@ defmodule MealPlannerApi.Services.EmailCodeLogin do
           {:ok, code_sent()}
           | {:error, :invalid_email | :email_not_found | :code_send_failed}
           | {:error, :rate_limited, pos_integer()}
-  def request_code(email, client_ip) when is_binary(email) do
+  def request_code(email, client_ip) do
+    with {:ok, normalized_email} <- cast_email(email) do
+      issue_code(normalized_email, client_ip, :login, &fetch_known_user/2)
+    end
+  end
+
+  @doc false
+  # The canonical form of a requested email, or `:invalid_email` when it
+  # is not a string or not shaped like an email.
+  @spec cast_email(term()) :: {:ok, String.t()} | {:error, :invalid_email}
+  def cast_email(email) when is_binary(email) do
     normalized_email = EmailCodeAuth.normalize_email(email)
 
     if Regex.match?(@email_format, normalized_email) do
-      issue_code(normalized_email, client_ip)
+      {:ok, normalized_email}
     else
       {:error, :invalid_email}
     end
   end
 
-  def request_code(_email, _client_ip), do: {:error, :invalid_email}
+  def cast_email(_email), do: {:error, :invalid_email}
 
-  defp issue_code(email, client_ip) do
+  @doc false
+  # Issues and mails a code for `email` (already cast) on behalf of `flow`.
+  # `admit` decides whether this email may have a code at all: it answers
+  # `{:ok, user}` with the User the code belongs to, `{:ok, nil}` for a
+  # code that belongs to nobody yet, or the error to give up with. It runs
+  # inside the transaction, under the email lock.
+  @spec issue_code(
+          String.t(),
+          String.t() | nil,
+          flow(),
+          (String.t(), String.t() | nil ->
+             {:ok, User.t() | nil}
+             | {:error, atom()}
+             | {:error, :rate_limited, pos_integer()})
+        ) ::
+          {:ok, code_sent()}
+          | {:error, atom()}
+          | {:error, :rate_limited, pos_integer()}
+  def issue_code(email, client_ip, flow, admit) do
     Repo.transaction(
       fn ->
         lock_email(email)
         now = DateTime.utc_now()
 
-        with {:ok, user} <- fetch_known_user(email, client_ip),
+        with {:ok, user} <- admit.(email, client_ip),
              :ok <- check_resend_cooldown(email, now),
              :ok <- EmailCodeAuth.reserve_request_slots(email, client_ip) do
           code = EmailCodeAuth.mint_code()
-          consume_pending_codes(email, now)
+          consume_pending_codes(email, flow, now)
           insert_code!(user, email, code, now)
 
-          case deliver(user, email, code) do
+          case deliver(code_email(user, email, code), flow) do
             :ok -> {:ok, code_sent()}
             :error -> Repo.rollback(:code_send_failed)
           end
@@ -133,6 +170,8 @@ defmodule MealPlannerApi.Services.EmailCodeLogin do
     end
   end
 
+  # The cooldown is per email whatever the flow: every code issued for
+  # the address counts.
   defp check_resend_cooldown(email, now) do
     last_issued_at =
       Repo.one(
@@ -148,14 +187,28 @@ defmodule MealPlannerApi.Services.EmailCodeLogin do
     end
   end
 
-  defp consume_pending_codes(email, now) do
-    from(c in EmailVerificationCode, where: c.email == ^email, where: is_nil(c.consumed_at))
+  defp consume_pending_codes(email, flow, now) do
+    email
+    |> pending_codes(flow)
     |> Repo.update_all(set: [consumed_at: now])
+  end
+
+  # The unconsumed codes `flow` issued for `email`. A login code names its
+  # User and a sign-up code names none, which is what keeps one flow from
+  # verifying or consuming the other's codes.
+  defp pending_codes(email, flow) do
+    query =
+      from(c in EmailVerificationCode, where: c.email == ^email, where: is_nil(c.consumed_at))
+
+    case flow do
+      :login -> where(query, [c], not is_nil(c.user_id))
+      :signup -> where(query, [c], is_nil(c.user_id))
+    end
   end
 
   defp insert_code!(user, email, code, now) do
     Repo.insert!(%EmailVerificationCode{
-      user_id: user.id,
+      user_id: user && user.id,
       email: email,
       code_hash: EmailCodeAuth.hash_code(code),
       expires_at: DateTime.add(now, @ttl_seconds, :second)
@@ -187,7 +240,26 @@ defmodule MealPlannerApi.Services.EmailCodeLogin do
   @spec verify_code(term(), term()) ::
           {:ok, %{user: User.t(), membership: AccountMembership.t()}}
           | {:error, :code_invalid | :code_expired | :too_many_attempts | :account_not_found}
-  def verify_code(email, code) when is_binary(email) and is_binary(code) do
+  def verify_code(email, code) do
+    redeem_code(email, code, :login, fn row, _now -> resolve_session(row.user_id) end)
+  end
+
+  @doc false
+  # Checks `code` against the latest pending code `flow` issued for
+  # `email` and, on a match, consumes it and returns what `on_match`
+  # answers. `on_match` receives the consumed row and the time of the
+  # check, and runs inside the transaction, under the email lock; it may
+  # call `Repo.rollback/1` to give the code back.
+  @spec redeem_code(
+          term(),
+          term(),
+          flow(),
+          (EmailVerificationCode.t(), DateTime.t() -> {:ok, result} | {:error, atom()})
+        ) ::
+          {:ok, result} | {:error, atom()}
+        when result: term()
+  def redeem_code(email, code, flow, on_match)
+      when is_binary(email) and is_binary(code) and flow in [:login, :signup] do
     normalized_email = EmailCodeAuth.normalize_email(email)
 
     Repo.transaction(
@@ -195,10 +267,10 @@ defmodule MealPlannerApi.Services.EmailCodeLogin do
         lock_email(normalized_email)
         now = DateTime.utc_now()
 
-        with {:ok, row} <- latest_pending_code(normalized_email),
+        with {:ok, row} <- latest_pending_code(normalized_email, flow),
              :ok <- check_code(row, code, now) do
           consume_code(row, now)
-          resolve_session(row.user_id)
+          on_match.(row, now)
         end
       end,
       timeout: :timer.seconds(5)
@@ -206,16 +278,10 @@ defmodule MealPlannerApi.Services.EmailCodeLogin do
     |> unwrap_transaction()
   end
 
-  def verify_code(_email, _code), do: {:error, :code_invalid}
+  def redeem_code(_email, _code, _flow, _on_match), do: {:error, :code_invalid}
 
-  defp latest_pending_code(email) do
-    query =
-      from(c in EmailVerificationCode,
-        where: c.email == ^email,
-        where: is_nil(c.consumed_at),
-        order_by: [desc: c.inserted_at],
-        limit: 1
-      )
+  defp latest_pending_code(email, flow) do
+    query = from(c in pending_codes(email, flow), order_by: [desc: c.inserted_at], limit: 1)
 
     case Repo.one(query) do
       %EmailVerificationCode{} = row -> {:ok, row}
@@ -285,28 +351,33 @@ defmodule MealPlannerApi.Services.EmailCodeLogin do
   # all three; a client timeout is an exit); either way the code never
   # reached the user. The failure detail is not logged: provider errors
   # echo the request, which carries the plaintext code.
-  defp deliver(user, email, code) do
-    case Mailer.deliver_now(EmailCodeAuth.code_email(user, email, code)) do
+  defp deliver(mail, flow) do
+    case Mailer.deliver_now(mail) do
       {:ok, _email} ->
         :ok
 
       {:error, _reason} ->
-        Logger.error("login code delivery failed")
+        Logger.error("#{flow} code delivery failed")
         :error
     end
   rescue
     exception ->
-      Logger.error("login code delivery raised #{inspect(exception.__struct__)}")
+      Logger.error("#{flow} code delivery raised #{inspect(exception.__struct__)}")
       :error
   catch
     :exit, _reason ->
-      Logger.error("login code delivery exited")
+      Logger.error("#{flow} code delivery exited")
       :error
   end
 
-  # Serializes every login operation on one email for the rest of the
-  # transaction, so two concurrent requests cannot both pass the cooldown
-  # and two concurrent verifications cannot both spend the same attempt.
+  # A code that belongs to nobody yet is addressed by the email alone.
+  defp code_email(%User{} = user, email, code), do: EmailCodeAuth.code_email(user, email, code)
+  defp code_email(nil, email, code), do: EmailCodeEmail.build(email, code)
+
+  # Serializes every login and sign-up operation on one email for the rest
+  # of the transaction, so two concurrent requests cannot both pass the
+  # cooldown and two concurrent verifications cannot both spend the same
+  # attempt.
   defp lock_email(email) do
     SQL.query!(Repo, "SELECT pg_advisory_xact_lock($1, $2)", [
       @lock_namespace,

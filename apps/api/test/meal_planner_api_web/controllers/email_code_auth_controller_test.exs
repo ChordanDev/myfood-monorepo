@@ -462,6 +462,29 @@ defmodule MealPlannerApiWeb.EmailCodeAuthControllerTest do
     end
   end
 
+  # A sign-up code (`POST /api/auth/signup/request-code`) is a row of the
+  # same table that names no User. This route only serves codes that do.
+  describe "POST /api/auth/email-code/verify and sign-up codes" do
+    test "a sign-up code returns 401 invalid_code and is not consumed", %{conn: conn} do
+      %EmailVerificationCode{}
+      |> Ecto.Changeset.change(%{
+        email: "verify-signup@example.com",
+        code_hash: MealPlannerApi.Services.EmailCodeAuth.hash_code("123456"),
+        expires_at: DateTime.add(DateTime.utc_now(), 600, :second)
+      })
+      |> Repo.insert!()
+
+      conn =
+        post(conn, "/api/auth/email-code/verify", %{
+          "email" => "verify-signup@example.com",
+          "code" => "123456"
+        })
+
+      assert json_response(conn, 401) == %{"error" => "invalid_code"}
+      assert [%EmailVerificationCode{consumed_at: nil}] = Repo.all(EmailVerificationCode)
+    end
+  end
+
   # Submits `times` wrong codes for `email` on the mobile login route.
   defp fail_login_verify!(conn, email, times) do
     for _ <- 1..times do

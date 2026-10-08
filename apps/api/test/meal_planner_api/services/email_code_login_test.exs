@@ -6,6 +6,7 @@ defmodule MealPlannerApi.Services.EmailCodeLoginTest do
   """
   use ExUnit.Case, async: false
 
+  import Ecto.Query
   import MealPlannerApi.FactoryHelpers
 
   alias Ecto.Adapters.SQL.Sandbox
@@ -109,15 +110,50 @@ defmodule MealPlannerApi.Services.EmailCodeLoginTest do
     end
   end
 
+  # Sign-up codes (`MealPlannerApi.Services.EmailCodeSignup`) share the
+  # table and name no User; login must behave as if they were not there.
+  describe "sign-up codes" do
+    test "verify_code/2 refuses a sign-up code and leaves it pending", %{user: user} do
+      insert_code!(nil, "123456", seconds_ago(30))
+
+      assert {:error, :code_invalid} = EmailCodeLogin.verify_code(user.email, "123456")
+      assert {:error, :code_invalid} = EmailCodeLogin.verify_code(user.email, "000000")
+
+      assert [%EmailVerificationCode{user_id: nil, consumed_at: nil, attempts: 0}] =
+               Repo.all(EmailVerificationCode)
+    end
+
+    test "verify_code/2 still accepts the login code when a newer sign-up code exists", %{
+      user: user
+    } do
+      insert_code!(user, "123456", seconds_ago(120))
+      insert_code!(nil, "654321", seconds_ago(30))
+
+      assert {:ok, %{user: verified}} = EmailCodeLogin.verify_code(user.email, "123456")
+      assert verified.id == user.id
+    end
+
+    test "request_code/2 does not consume a pending sign-up code", %{user: user} do
+      insert_code!(nil, "123456", seconds_ago(120))
+
+      assert {:ok, _sent} = EmailCodeLogin.request_code(user.email, nil)
+
+      assert [%EmailVerificationCode{consumed_at: nil}] =
+               Repo.all(from(c in EmailVerificationCode, where: is_nil(c.user_id)))
+    end
+  end
+
   defp insert_code!(user, code, inserted_at) do
     Repo.insert!(%EmailVerificationCode{
-      user_id: user.id,
-      email: user.email,
+      user_id: user && user.id,
+      email: "login-service@example.com",
       code_hash: EmailCodeAuth.hash_code(code),
       expires_at: DateTime.add(DateTime.utc_now(), 600, :second),
       inserted_at: inserted_at
     })
   end
+
+  defp seconds_ago(seconds), do: DateTime.add(DateTime.utc_now(), -seconds, :second)
 
   defp with_mail_adapter(adapter, fun) do
     original = Application.fetch_env!(:meal_planner_api, MealPlannerApi.Mailer)

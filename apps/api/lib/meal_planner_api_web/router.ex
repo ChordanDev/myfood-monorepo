@@ -80,11 +80,13 @@ defmodule MealPlannerApiWeb.Router do
       post("/verify", EmailCodeAuthController, :verify)
     end
 
-    # Mobile login with an email code (issue #7). Unlike the
-    # `/auth/email-code/*` routes above, these reveal whether the email
-    # has a User and answer with the mobile error envelope.
+    # Mobile login (issue #7) and sign-up (issue #8) with an email code.
+    # Unlike the `/auth/email-code/*` routes above, these reveal whether
+    # the email has a User and answer with the mobile error envelope.
     post("/auth/login/request-code", MobileAuthController, :request_login_code)
     post("/auth/login/verify-code", MobileAuthController, :verify_login_code)
+    post("/auth/signup/request-code", MobileAuthController, :request_signup_code)
+    post("/auth/signup/verify-code", MobileAuthController, :verify_signup_code)
 
     post("/billing/revenuecat/webhook", RevenuecatController, :webhook)
 

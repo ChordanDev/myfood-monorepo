@@ -1,9 +1,12 @@
 defmodule MealPlannerApiWeb.MobileAuthControllerTest do
   @moduledoc """
-  HTTP contract of the mobile login routes (issue #7):
+  HTTP contract of the mobile login routes (issue #7) and sign-up routes
+  (issue #8):
 
     * `POST /api/auth/login/request-code`
     * `POST /api/auth/login/verify-code`
+    * `POST /api/auth/signup/request-code`
+    * `POST /api/auth/signup/verify-code`
 
   Bodies and error codes mirror `apps/mobile/src/features/auth/types/auth.ts`
   and `apps/mobile/src/api/errors.ts`. Expiry and cooldown are simulated by
@@ -16,6 +19,7 @@ defmodule MealPlannerApiWeb.MobileAuthControllerTest do
 
   alias MealPlannerApi.Persistence.Accounts.Account
   alias MealPlannerApi.Persistence.Accounts.AccountMembership
+  alias MealPlannerApi.Persistence.Accounts.User
   alias MealPlannerApi.Persistence.Auth.EmailAuthEvent
   alias MealPlannerApi.Persistence.Auth.EmailVerificationCode
   alias MealPlannerApi.Repo
@@ -23,6 +27,8 @@ defmodule MealPlannerApiWeb.MobileAuthControllerTest do
 
   @request_path "/api/auth/login/request-code"
   @verify_path "/api/auth/login/verify-code"
+  @signup_request_path "/api/auth/signup/request-code"
+  @signup_verify_path "/api/auth/signup/verify-code"
   @device_id "3f0c5f4e-6f0e-4a55-9d0b-1c7f1f6f2a10"
 
   defmodule FailingMailAdapter do
@@ -541,12 +547,413 @@ defmodule MealPlannerApiWeb.MobileAuthControllerTest do
     end
   end
 
+  describe "POST /api/auth/signup/request-code" do
+    test "sends a code to a new email and stores it without a User", %{conn: conn} do
+      conn = post(conn, @signup_request_path, %{"email" => "  New-Person@Example.com "})
+
+      assert json_response(conn, 200) == %{
+               "status" => "code_sent",
+               "expiresInSeconds" => 600,
+               "resendAvailableInSeconds" => 60
+             }
+
+      assert [%EmailVerificationCode{user_id: nil, consumed_at: nil} = row] =
+               Repo.all(EmailVerificationCode)
+
+      assert row.email == "new-person@example.com"
+      assert row.code_hash == EmailCodeAuth.hash_code(mailed_code())
+      assert [email] = Bamboo.SentEmail.all()
+      assert [{_name, "new-person@example.com"}] = email.to
+      assert_nothing_registered()
+    end
+
+    test "a registered email gets email_already_exists and no code is stored or sent", %{
+      conn: conn
+    } do
+      insert_owner!("signup-taken@example.com")
+
+      conn = post(conn, @signup_request_path, %{"email" => " Signup-Taken@Example.com"})
+
+      assert_error(conn, 409, "email_already_exists")
+      assert Repo.aggregate(EmailVerificationCode, :count) == 0
+      assert Bamboo.SentEmail.all() == []
+    end
+
+    test "a registered email counts against the caller's IP and not against the email", %{
+      conn: conn
+    } do
+      insert_owner!("signup-taken-ip@example.com")
+
+      conn =
+        conn
+        |> put_req_header("x-forwarded-for", "203.0.113.30")
+        |> post(@signup_request_path, %{"email" => "signup-taken-ip@example.com"})
+
+      assert_error(conn, 409, "email_already_exists")
+
+      assert [%EmailAuthEvent{kind: "request", client_ip: "203.0.113.30"} = event] =
+               Repo.all(EmailAuthEvent)
+
+      assert event.email != "signup-taken-ip@example.com"
+    end
+
+    test "registered emails from one IP are rate limited once its hourly limit is spent", %{
+      conn: conn
+    } do
+      insert_owner!("signup-probed@example.com")
+
+      for n <- 1..20 do
+        insert_request_event!("other-#{n}@example.com", "203.0.113.30", seconds_ago(600))
+      end
+
+      conn =
+        conn
+        |> put_req_header("x-forwarded-for", "203.0.113.30")
+        |> post(@signup_request_path, %{"email" => "signup-probed@example.com"})
+
+      assert_error(conn, 429, "rate_limited")
+      assert retry_after(conn) in 2_990..3_000
+    end
+
+    test "a malformed or missing email gets invalid_email", %{conn: conn} do
+      for body <- [%{"email" => "not-an-email"}, %{"email" => ""}, %{"email" => 42}, %{}] do
+        assert_error(post(conn, @signup_request_path, body), 422, "invalid_email")
+      end
+
+      assert Bamboo.SentEmail.all() == []
+    end
+
+    test "a second request inside the cooldown is rate limited with retry-after", %{conn: conn} do
+      body = %{"email" => "signup-cooldown@example.com"}
+
+      assert %{"status" => "code_sent"} =
+               conn |> post(@signup_request_path, body) |> json_response(200)
+
+      conn = post(conn, @signup_request_path, body)
+
+      assert_error(conn, 429, "rate_limited")
+      assert retry_after(conn) in 1..60
+      assert [_only_the_first] = Bamboo.SentEmail.all()
+    end
+
+    test "the cooldown is shared with login: a sign-up code delays the first login code", %{
+      conn: conn
+    } do
+      insert_signup_code!("signup-then-login@example.com", "111111", inserted_at: seconds_ago(20))
+      insert_owner!("signup-then-login@example.com")
+
+      conn = post(conn, @request_path, %{"email" => "signup-then-login@example.com"})
+
+      assert_error(conn, 429, "rate_limited")
+      assert retry_after(conn) in 39..40
+    end
+
+    test "the hourly per-email request limit applies", %{conn: conn} do
+      for _ <- 1..5 do
+        insert_request_event!("signup-hourly@example.com", nil, seconds_ago(600))
+      end
+
+      conn = post(conn, @signup_request_path, %{"email" => "signup-hourly@example.com"})
+
+      assert_error(conn, 429, "rate_limited")
+      assert retry_after(conn) in 2_990..3_000
+      assert Bamboo.SentEmail.all() == []
+    end
+
+    test "the hourly per-IP request limit applies", %{conn: conn} do
+      for n <- 1..20 do
+        insert_request_event!("other-#{n}@example.com", "203.0.113.31", seconds_ago(600))
+      end
+
+      conn =
+        conn
+        |> put_req_header("x-forwarded-for", "203.0.113.31")
+        |> post(@signup_request_path, %{"email" => "signup-hourly-ip@example.com"})
+
+      assert_error(conn, 429, "rate_limited")
+      assert retry_after(conn) in 2_990..3_000
+      assert Bamboo.SentEmail.all() == []
+    end
+
+    @tag :capture_log
+    test "a delivery failure gets code_send_failed and stores nothing", %{conn: conn} do
+      body = %{"email" => "signup-mail-down@example.com"}
+
+      with_mailer(FailingMailAdapter, fn ->
+        assert_error(post(conn, @signup_request_path, body), 502, "code_send_failed")
+      end)
+
+      assert Repo.aggregate(EmailVerificationCode, :count) == 0
+      assert Repo.aggregate(EmailAuthEvent, :count) == 0
+
+      assert %{"status" => "code_sent"} =
+               conn |> post(@signup_request_path, body) |> json_response(200)
+    end
+
+    @tag :capture_log
+    test "a delivery that exits gets code_send_failed and keeps the previous code pending", %{
+      conn: conn
+    } do
+      insert_signup_code!("signup-mail-timeout@example.com", "123456",
+        inserted_at: seconds_ago(61)
+      )
+
+      with_mailer(ExitingMailAdapter, fn ->
+        assert_error(
+          post(conn, @signup_request_path, %{"email" => "signup-mail-timeout@example.com"}),
+          502,
+          "code_send_failed"
+        )
+      end)
+
+      assert [%EmailVerificationCode{consumed_at: nil}] = Repo.all(EmailVerificationCode)
+    end
+  end
+
+  describe "POST /api/auth/signup/verify-code" do
+    test "the mailed code creates the User and opens a session", %{conn: conn} do
+      post(conn, @signup_request_path, %{"email" => "signup-verify@example.com"})
+
+      conn =
+        post(conn, @signup_verify_path, verify_body(" Signup-Verify@Example.com", mailed_code()))
+
+      body = json_response(conn, 200)
+      assert Map.keys(body) == ["accessToken", "me", "refreshToken", "tokenType"]
+      assert body["tokenType"] == "Bearer"
+      assert is_binary(body["accessToken"]) and body["accessToken"] != ""
+      assert is_binary(body["refreshToken"]) and body["refreshToken"] != ""
+
+      assert [%User{email: "signup-verify@example.com"} = user] = Repo.all(User)
+      assert body["me"]["user"]["id"] == user.id
+      assert body["me"]["user"]["email"] == "signup-verify@example.com"
+    end
+
+    test "a fresh sign-up is on a seven day Trial, can use the app and has not onboarded", %{
+      conn: conn
+    } do
+      body = signup!(conn, "signup-me@example.com")
+
+      me =
+        conn
+        |> put_req_header("authorization", "Bearer " <> body["accessToken"])
+        |> get("/api/me")
+        |> json_response(200)
+
+      assert body["me"] == me
+      assert me["user"]["displayName"] == "signup-me"
+      assert me["account"]["type"] == "individual"
+      assert me["account"]["subscriptionStatus"] == "none"
+      assert me["account"]["access"] == %{"canUseApp" => true, "reason" => nil}
+      assert me["membership"] == %{"role" => "owner"}
+      assert me["onboarding"] == %{"isComplete" => false}
+
+      assert {:ok, trial_ends_at, 0} = DateTime.from_iso8601(me["account"]["trialEndsAt"])
+      assert_in_delta DateTime.diff(trial_ends_at, DateTime.utc_now(), :second), 7 * 86_400, 5
+    end
+
+    test "creates the User, an individual Account, the owner Membership and the Trial", %{
+      conn: conn
+    } do
+      signup!(conn, "signup-records@example.com")
+
+      assert [user] = Repo.all(User)
+      assert [account] = Repo.all(Account)
+      assert [membership] = Repo.all(AccountMembership)
+
+      assert %User{email: "signup-records@example.com", name: "signup-records", role: :owner} =
+               user
+
+      assert user.account_id == account.id
+      assert is_nil(user.password_hash)
+      assert is_nil(user.onboarding_completed_at)
+
+      assert %Account{name: "signup-records", plan: :individual, default_budget_cents: 0} =
+               account
+
+      assert is_binary(account.subscription_plan_id)
+      assert_in_delta DateTime.diff(DateTime.utc_now(), account.trial_started_at, :second), 0, 5
+
+      assert DateTime.diff(account.trial_ends_at, account.trial_started_at, :second) ==
+               7 * 86_400
+
+      assert %AccountMembership{role: :owner, status: :active} = membership
+      assert membership.user_id == user.id
+      assert membership.account_id == account.id
+      assert_in_delta DateTime.diff(DateTime.utc_now(), membership.joined_at, :second), 0, 5
+    end
+
+    test "a sign-up that is never verified leaves no User, Account or Membership", %{conn: conn} do
+      post(conn, @signup_request_path, %{"email" => "signup-abandoned@example.com"})
+
+      assert_error(
+        post(conn, @signup_verify_path, verify_body("signup-abandoned@example.com", "000000")),
+        422,
+        "code_invalid"
+      )
+
+      assert_nothing_registered()
+    end
+
+    test "a wrong code gets code_invalid and the right one still works", %{conn: conn} do
+      insert_signup_code!("signup-wrong@example.com", "123456")
+
+      assert_error(
+        post(conn, @signup_verify_path, verify_body("signup-wrong@example.com", "654321")),
+        422,
+        "code_invalid"
+      )
+
+      assert %{"accessToken" => _} =
+               conn
+               |> post(@signup_verify_path, verify_body("signup-wrong@example.com", "123456"))
+               |> json_response(200)
+    end
+
+    test "an email with no pending code gets code_invalid", %{conn: conn} do
+      conn = post(conn, @signup_verify_path, verify_body("signup-no-code@example.com", "123456"))
+
+      assert_error(conn, 422, "code_invalid")
+      assert_nothing_registered()
+    end
+
+    test "an expired code gets code_expired and creates nothing", %{conn: conn} do
+      insert_signup_code!("signup-expired@example.com", "123456",
+        inserted_at: seconds_ago(601),
+        expires_at: seconds_ago(1)
+      )
+
+      conn = post(conn, @signup_verify_path, verify_body("signup-expired@example.com", "123456"))
+
+      assert_error(conn, 401, "code_expired")
+      assert_nothing_registered()
+    end
+
+    test "the fifth wrong attempt locks the code, and the right code is refused afterwards", %{
+      conn: conn
+    } do
+      email = "signup-lockout@example.com"
+      insert_signup_code!(email, "123456", inserted_at: seconds_ago(61))
+      wrong = verify_body(email, "000000")
+
+      for _ <- 1..4 do
+        assert_error(post(conn, @signup_verify_path, wrong), 422, "code_invalid")
+      end
+
+      assert_error(post(conn, @signup_verify_path, wrong), 429, "too_many_attempts")
+
+      assert_error(
+        post(conn, @signup_verify_path, verify_body(email, "123456")),
+        429,
+        "too_many_attempts"
+      )
+
+      assert_nothing_registered()
+
+      # A new code is the only way out of the lockout.
+      post(conn, @signup_request_path, %{"email" => email})
+
+      assert %{"accessToken" => _} =
+               conn
+               |> post(@signup_verify_path, verify_body(email, mailed_code()))
+               |> json_response(200)
+    end
+
+    test "a code cannot be used twice", %{conn: conn} do
+      insert_signup_code!("signup-reuse@example.com", "123456")
+      body = verify_body("signup-reuse@example.com", "123456")
+
+      assert %{"accessToken" => _} = conn |> post(@signup_verify_path, body) |> json_response(200)
+
+      assert_error(post(conn, @signup_verify_path, body), 422, "code_invalid")
+      assert Repo.aggregate(User, :count) == 1
+    end
+
+    test "a new code invalidates the previous one", %{conn: conn} do
+      email = "signup-supersede@example.com"
+      insert_signup_code!(email, "111111", inserted_at: seconds_ago(61))
+      post(conn, @signup_request_path, %{"email" => email})
+      new_code = mailed_code()
+
+      # Skip the one-in-a-million run where the fresh code repeats the old one.
+      if new_code != "111111" do
+        assert_error(
+          post(conn, @signup_verify_path, verify_body(email, "111111")),
+          422,
+          "code_invalid"
+        )
+      end
+
+      assert %{"accessToken" => _} =
+               conn
+               |> post(@signup_verify_path, verify_body(email, new_code))
+               |> json_response(200)
+    end
+
+    test "a missing or blank deviceId is refused without spending the code", %{conn: conn} do
+      insert_signup_code!("signup-device@example.com", "123456")
+      body = verify_body("signup-device@example.com", "123456")
+
+      for bad <- [
+            Map.delete(body, "deviceId"),
+            %{body | "deviceId" => "  "},
+            %{body | "deviceId" => 7}
+          ] do
+        assert_error(post(conn, @signup_verify_path, bad), 422, "code_invalid")
+      end
+
+      assert_nothing_registered()
+      assert %{"accessToken" => _} = conn |> post(@signup_verify_path, body) |> json_response(200)
+    end
+
+    test "a missing code or email gets code_invalid", %{conn: conn} do
+      insert_signup_code!("signup-missing@example.com", "123456")
+      body = verify_body("signup-missing@example.com", "123456")
+
+      for bad <- [
+            Map.delete(body, "code"),
+            %{body | "code" => 123_456},
+            Map.delete(body, "email")
+          ] do
+        assert_error(post(conn, @signup_verify_path, bad), 422, "code_invalid")
+      end
+
+      assert_nothing_registered()
+    end
+
+    test "an email that got a User after the code was sent gets email_already_exists", %{
+      conn: conn
+    } do
+      insert_signup_code!("signup-raced@example.com", "123456")
+      insert_owner!("signup-raced@example.com")
+
+      conn = post(conn, @signup_verify_path, verify_body("signup-raced@example.com", "123456"))
+
+      assert_error(conn, 409, "email_already_exists")
+      assert Repo.aggregate(User, :count) == 1
+      assert Repo.aggregate(Account, :count) == 1
+      assert Repo.aggregate(AccountMembership, :count) == 1
+    end
+  end
+
   # ---- helpers ---------------------------------------------------------------
+
+  # No sign-up has created anything yet.
+  defp assert_nothing_registered do
+    assert Repo.aggregate(User, :count) == 0
+    assert Repo.aggregate(Account, :count) == 0
+    assert Repo.aggregate(AccountMembership, :count) == 0
+  end
 
   # Verifies a known pending code for `user` and returns the 200 body.
   defp verify!(conn, user) do
     insert_code!(user, "123456")
     conn |> post(@verify_path, verify_body(user.email, "123456")) |> json_response(200)
+  end
+
+  # Signs `email` up with a known pending code and returns the 200 body.
+  defp signup!(conn, email) do
+    insert_signup_code!(email, "123456")
+    conn |> post(@signup_verify_path, verify_body(email, "123456")) |> json_response(200)
   end
 
   # The User's Membership in the Account called `account_name`.
@@ -608,6 +1015,21 @@ defmodule MealPlannerApiWeb.MobileAuthControllerTest do
         %{
           user_id: user.id,
           email: user.email,
+          code_hash: EmailCodeAuth.hash_code(code),
+          expires_at: DateTime.add(DateTime.utc_now(), 600, :second)
+        },
+        Map.new(overrides)
+      )
+
+    %EmailVerificationCode{} |> Ecto.Changeset.change(attrs) |> Repo.insert!()
+  end
+
+  # A pending sign-up code: a row that names no User yet.
+  defp insert_signup_code!(email, code, overrides \\ []) do
+    attrs =
+      Map.merge(
+        %{
+          email: email,
           code_hash: EmailCodeAuth.hash_code(code),
           expires_at: DateTime.add(DateTime.utc_now(), 600, :second)
         },

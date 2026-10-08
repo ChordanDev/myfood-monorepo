@@ -18,6 +18,7 @@ defmodule MealPlannerApi.Services.RevenuecatServiceTest do
 
   alias Ecto.Adapters.SQL.Sandbox
   alias MealPlannerApi.AccountAccess
+  alias MealPlannerApi.Accounts
   alias MealPlannerApi.Integrations.RevenuecatWebhook
   alias MealPlannerApi.Persistence.Accounts, as: AccountsPersistence
   alias MealPlannerApi.Persistence.Accounts.Account, as: PersistenceAccount
@@ -290,6 +291,31 @@ defmodule MealPlannerApi.Services.RevenuecatServiceTest do
       assert after_renewal.trial_started_at == after_first.trial_started_at
       assert after_renewal.trial_ends_at == after_first.trial_ends_at
       assert AccountAccess.eligible?(after_renewal, DateTime.utc_now())
+    end
+
+    test "a first purchase does not reset the Trial that sign-up started" do
+      signed_up_at = DateTime.add(DateTime.utc_now(), -3 * 86_400, :second)
+
+      {:ok, %{account: %{id: account_id}}} =
+        Accounts.register_with_verified_email("trial-by-signup@example.com", signed_up_at)
+
+      {:ok, _customer} =
+        AccountsPersistence.upsert_revenuecat_customer(%{
+          account_id: account_id,
+          rc_app_user_id: "rc_app_user_signed_up"
+        })
+
+      before_purchase = reload(account_id)
+
+      assert DateTime.diff(before_purchase.trial_ends_at, signed_up_at, :second) == 7 * 86_400
+
+      purchase = %{"id" => "evt_signed_up", "app_user_id" => "rc_app_user_signed_up"}
+      assert {:ok, %{status: "processed"}} = ingest(body(purchase))
+
+      after_purchase = reload(account_id)
+      assert after_purchase.latest_provider_event_at != nil
+      assert after_purchase.trial_started_at == before_purchase.trial_started_at
+      assert after_purchase.trial_ends_at == before_purchase.trial_ends_at
     end
 
     test "cancellation does not revoke access before expiration", %{account: account} do

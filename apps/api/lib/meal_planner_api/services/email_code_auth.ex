@@ -340,7 +340,8 @@ defmodule MealPlannerApi.Services.EmailCodeAuth do
   @doc """
   Failed attempts after which a verification code is locked for good.
   `MealPlannerApi.Services.EmailCodeLogin` counts the attempts and
-  enforces the limit; `verify_code/3` only refuses codes that reached it.
+  enforces the limit, for sign-up codes too; `verify_code/3` only refuses
+  codes that reached it.
   """
   @spec max_code_attempts() :: pos_integer()
   def max_code_attempts, do: @max_code_attempts
@@ -594,11 +595,15 @@ defmodule MealPlannerApi.Services.EmailCodeAuth do
   end
 
   # A row at the attempt limit was locked by the login flow and is
-  # invisible here, so its code reads as an invalid one.
+  # invisible here, so its code reads as an invalid one. So does a row
+  # without a User: that is a sign-up code
+  # (`MealPlannerApi.Services.EmailCodeSignup`), which only sign-up may
+  # verify or consume.
   defp find_pending_row(email, code_hash) do
     case from(r in EmailVerificationCode,
            where: r.email == ^email,
            where: r.code_hash == ^code_hash,
+           where: not is_nil(r.user_id),
            where: r.attempts < @max_code_attempts
          )
          |> Repo.one() do
@@ -643,7 +648,7 @@ defmodule MealPlannerApi.Services.EmailCodeAuth do
   # consumed_at IS NULL, expires_at > now)`. Race protection: if a
   # concurrent verifier beat us to the row, 0 rows are updated and we
   # surface `:code_already_used`.
-  defp atomic_consume(%EmailVerificationCode{user_id: user_id} = row) do
+  defp atomic_consume(%EmailVerificationCode{user_id: user_id} = row) when is_binary(user_id) do
     now = DateTime.utc_now()
 
     query =

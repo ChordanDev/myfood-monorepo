@@ -15,13 +15,16 @@ defmodule MealPlannerApi.Persistence.Auth.EmailVerificationCode do
   @foreign_key_type :binary_id
 
   schema "email_verification_codes" do
+    # Empty on a sign-up code, which is issued before its User exists
+    # (`MealPlannerApi.Services.EmailCodeSignup`). Login and the legacy
+    # flow only read rows that have one.
     belongs_to(:user, MealPlannerApi.Persistence.Accounts.User)
     field(:email, :string)
     field(:code_hash, :string)
     field(:expires_at, :utc_datetime_usec)
     field(:consumed_at, :utc_datetime_usec)
     # Failed verifications against this code, counted by the mobile login
-    # flow (`MealPlannerApi.Services.EmailCodeLogin`).
+    # and sign-up flows (`MealPlannerApi.Services.EmailCodeLogin`).
     field(:attempts, :integer, default: 0)
 
     timestamps(type: :utc_datetime_usec)
