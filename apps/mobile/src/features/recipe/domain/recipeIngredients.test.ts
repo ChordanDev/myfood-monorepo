@@ -1,13 +1,7 @@
 import type { InventoryItem } from '@/features/inventory';
-import type { Ingredient, RecipeIngredient } from '@/types/domain';
-import {
-  countMissing,
-  formatMissingSummary,
-  formatQuantity,
-  formatUnit,
-  resolveRecipeIngredients,
-  toSentenceCase,
-} from './recipeIngredients';
+import type { Ingredient } from '@/types/domain';
+import type { RecipeIngredientLine } from '../types/recipe';
+import { countMissing, formatMissingSummary, resolveRecipeIngredients } from './recipeIngredients';
 
 const CATALOG: Ingredient[] = [
   { id: 'i1', name: 'Arroz Blanco', category: 'almacen', basePrice: 2, unit: 'g' },
@@ -16,11 +10,15 @@ const CATALOG: Ingredient[] = [
   { id: 'i5', name: 'Aceite de Oliva', category: 'almacen', basePrice: 15, unit: 'ml' },
 ];
 
-const LINES: RecipeIngredient[] = [
-  { ingredientId: 'i1', amount: 100 },
-  { ingredientId: 'i2', amount: 200 },
-  { ingredientId: 'i3', amount: 2 },
-  { ingredientId: 'i5', amount: 10 },
+function line(overrides: Partial<RecipeIngredientLine> & { ingredientId: string }) {
+  return { name: 'Arroz', category: null, quantityMilli: 100000, unit: 'g', ...overrides } as const;
+}
+
+const LINES: RecipeIngredientLine[] = [
+  line({ ingredientId: 'i1', name: 'Arroz' }),
+  line({ ingredientId: 'i2', name: 'Pechuga de pollo', quantityMilli: 200000 }),
+  line({ ingredientId: 'i3', name: 'Tomate', quantityMilli: 2000, unit: 'unit' }),
+  line({ ingredientId: 'i5', name: 'Aceite de oliva', quantityMilli: 10000, unit: 'ml' }),
 ];
 
 type StockItem = Pick<InventoryItem, 'ingredientId' | 'quantity' | 'isLeftover'>;
@@ -34,59 +32,14 @@ function resolve(inventory: StockItem[], listedIngredientIds?: string[]) {
   });
 }
 
-describe('formatUnit', () => {
-  it('abbreviates each unit', () => {
-    expect(formatUnit('g')).toBe('g');
-    expect(formatUnit('ml')).toBe('ml');
-    expect(formatUnit('unit')).toBe('u');
-  });
-});
-
-describe('formatQuantity', () => {
-  it('joins the amount and the abbreviated unit', () => {
-    expect(formatQuantity(100, 'g')).toBe('100 g');
-    expect(formatQuantity(2, 'unit')).toBe('2 u');
-    expect(formatQuantity(10, 'ml')).toBe('10 ml');
-  });
-
-  it('keeps decimals without trailing zeros', () => {
-    expect(formatQuantity(1.5, 'unit')).toBe('1.5 u');
-    expect(formatQuantity(2.5, 'g')).toBe('2.5 g');
-    expect(formatQuantity(3.0, 'ml')).toBe('3 ml');
-  });
-
-  it('rounds floating point noise away', () => {
-    expect(formatQuantity(0.1 + 0.2, 'g')).toBe('0.3 g');
-  });
-});
-
-describe('toSentenceCase', () => {
-  it('uppercases only the first letter', () => {
-    expect(toSentenceCase('Arroz Blanco')).toBe('Arroz blanco');
-    expect(toSentenceCase('aceite de OLIVA')).toBe('Aceite de oliva');
-  });
-
-  it('lowercases the text inside parentheses', () => {
-    expect(toSentenceCase('Pollo (Pechuga)')).toBe('Pollo (pechuga)');
-  });
-
-  it('trims surrounding whitespace', () => {
-    expect(toSentenceCase('  Tomate  ')).toBe('Tomate');
-  });
-
-  it('returns an empty string for blank input', () => {
-    expect(toSentenceCase('   ')).toBe('');
-  });
-});
-
 describe('resolveRecipeIngredients', () => {
-  it('describes each line with the catalog name and quantity, in recipe order', () => {
+  it('describes each line with its own name and quantity, in recipe order', () => {
     const rows = resolve([]);
 
     expect(rows.map((row) => row.ingredientId)).toEqual(['i1', 'i2', 'i3', 'i5']);
     expect(rows.map((row) => row.name)).toEqual([
-      'Arroz blanco',
-      'Pollo (pechuga)',
+      'Arroz',
+      'Pechuga de pollo',
       'Tomate',
       'Aceite de oliva',
     ]);
@@ -94,12 +47,26 @@ describe('resolveRecipeIngredients', () => {
     expect(rows.map((row) => row.unit)).toEqual(['g', 'g', 'unit', 'ml']);
   });
 
+  it('prints a large or fractional quantity as the rest of the app does', () => {
+    const rows = resolveRecipeIngredients({
+      lines: [
+        line({ ingredientId: 'i1', quantityMilli: 1500000 }),
+        line({ ingredientId: 'i3', quantityMilli: 500, unit: 'unit' }),
+      ],
+      catalog: CATALOG,
+      inventory: [],
+    });
+
+    expect(rows.map((row) => row.quantityLabel)).toEqual(['1,5 kg', '0,5 u']);
+    expect(rows.map((row) => row.requiredAmount)).toEqual([1500, 0.5]);
+  });
+
   it('marks an ingredient in stock when the inventory covers the recipe amount', () => {
     const [rice] = resolve([{ ingredientId: 'i1', quantity: 500 }]);
 
     expect(rice).toEqual({
       ingredientId: 'i1',
-      name: 'Arroz blanco',
+      name: 'Arroz',
       quantityLabel: '100 g',
       requiredAmount: 100,
       availableAmount: 500,
@@ -177,28 +144,39 @@ describe('resolveRecipeIngredients', () => {
     expect(rice.status).toBe('in_stock');
   });
 
-  it('falls back to a neutral row for an id that is not in the catalog', () => {
+  it('shows a line outside the catalog with its name and quantity, never as stock', () => {
     const [unknown] = resolveRecipeIngredients({
-      lines: [{ ingredientId: 'ghost', amount: 3 }],
+      lines: [line({ ingredientId: 'ghost', name: 'Papa', quantityMilli: 500000 })],
       catalog: CATALOG,
-      inventory: [{ ingredientId: 'ghost', quantity: 50 }],
+      inventory: [{ ingredientId: 'ghost', quantity: 900 }],
     });
 
     expect(unknown).toEqual({
       ingredientId: 'ghost',
-      name: 'Ingrediente desconocido',
-      quantityLabel: '3',
-      requiredAmount: 3,
-      availableAmount: 50,
+      name: 'Papa',
+      quantityLabel: '500 g',
+      requiredAmount: 500,
+      availableAmount: 900,
       missingAmount: 0,
       unit: null,
       status: 'missing',
     });
   });
 
+  it('does not compare a line with a catalog ingredient that is counted in another unit', () => {
+    const [rice] = resolveRecipeIngredients({
+      lines: [line({ ingredientId: 'i1', quantityMilli: 2000, unit: 'unit' })],
+      catalog: CATALOG,
+      inventory: [{ ingredientId: 'i1', quantity: 500 }],
+      listedIngredientIds: ['i1'],
+    });
+
+    expect(rice).toMatchObject({ quantityLabel: '2 u', unit: null, status: 'missing' });
+  });
+
   it('never marks an unknown ingredient as listed, even when its id is given as listed', () => {
     const [unknown] = resolveRecipeIngredients({
-      lines: [{ ingredientId: 'ghost', amount: 3 }],
+      lines: [line({ ingredientId: 'ghost' })],
       catalog: CATALOG,
       inventory: [],
       listedIngredientIds: ['ghost'],
@@ -227,7 +205,10 @@ describe('countMissing', () => {
 
   it('counts nothing when everything is in stock', () => {
     const rows = resolve(
-      LINES.map(({ ingredientId, amount }) => ({ ingredientId, quantity: amount }))
+      LINES.map(({ ingredientId, quantityMilli }) => ({
+        ingredientId,
+        quantity: quantityMilli / 1000,
+      }))
     );
 
     expect(countMissing(rows)).toBe(0);

@@ -6,7 +6,8 @@
 // these checks run earlier, one step at a time, and return the message the
 // screen shows above its primary button.
 
-import type { CookingSkill, MealSlot } from '@/features/auth/types/auth';
+import { MEAL_SLOT_LABEL } from '@/constants/mealSlots';
+import type { CookingSkill, CookingTimeSlot } from '@/features/auth/types/auth';
 import {
   isValidDietCode,
   isValidHardRestrictionCode,
@@ -17,7 +18,6 @@ import {
   COOKING_SKILLS,
   HUNGER_LEVELS,
   MEAL_SLOTS,
-  SLOT_LABELS,
   SLOT_PRESET_BUCKETS,
 } from '@/features/preferences/constants/preferenceOptions';
 import type { SlotFormState } from '@/features/onboarding/utils/onboardingSlot';
@@ -39,7 +39,7 @@ export interface OnboardingDraft {
   hardRestrictions: readonly HardRestrictionCode[];
   /** Raw comma-separated text; it is parsed only when the payload is built. */
   softPreferences: string;
-  slots: Record<MealSlot, SlotFormState>;
+  slots: Record<CookingTimeSlot, SlotFormState>;
 }
 
 /** 1-based position of the step, as shown in "Paso N de 3". */
@@ -106,7 +106,7 @@ function validateSlot(form: SlotFormState): string | null {
 function validateMealTimes(draft: OnboardingDraft): string | null {
   for (const slot of MEAL_SLOTS) {
     const problem = validateSlot(draft.slots[slot]);
-    if (problem !== null) return `${SLOT_LABELS[slot]}: ${problem}`;
+    if (problem !== null) return `${MEAL_SLOT_LABEL[slot]}: ${problem}`;
   }
   return null;
 }

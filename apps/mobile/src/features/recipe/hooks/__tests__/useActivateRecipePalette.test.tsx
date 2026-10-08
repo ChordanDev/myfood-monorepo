@@ -32,12 +32,14 @@ const HOME_PALETTE = buildPalette('#aaaaaa');
 const RECIPE_PALETTE = buildPalette('#bbbbbb');
 const OTHER_RECIPE_PALETTE = buildPalette('#cccccc');
 
-function Harness({ palette }: { palette: RecipeThemeConfig | undefined }) {
+type Palette = RecipeThemeConfig | null | undefined;
+
+function Harness({ palette }: { palette: Palette }) {
   useActivateRecipePalette(palette);
   return null;
 }
 
-function mount(palette: RecipeThemeConfig | undefined) {
+function mount(palette: Palette) {
   let tree: ReactTestRenderer;
 
   act(() => {
@@ -60,10 +62,22 @@ describe('useActivateRecipePalette', () => {
     expect(mockSetRecipeTheme).toHaveBeenCalledWith(RECIPE_PALETTE);
   });
 
-  it('leaves the active palette alone when the recipe has none', () => {
+  it('leaves the active palette alone while there is no recipe', () => {
     mount(undefined);
 
     expect(mockSetRecipeTheme).not.toHaveBeenCalled();
+  });
+
+  it('draws a recipe without a palette in the default one, and restores the previous on leaving', () => {
+    const tree = mount(null);
+
+    expect(mockSetRecipeTheme.mock.calls).toEqual([[null]]);
+
+    act(() => {
+      tree.unmount();
+    });
+
+    expect(mockSetRecipeTheme).toHaveBeenLastCalledWith(HOME_PALETTE);
   });
 
   it('does not activate the same palette again on a re-render', () => {
@@ -88,7 +102,7 @@ describe('useActivateRecipePalette', () => {
     expect(mockSetRecipeTheme).toHaveBeenLastCalledWith(OTHER_RECIPE_PALETTE);
   });
 
-  it('hands the previous palette back when the recipe stops having one', () => {
+  it('hands the previous palette back when there is no recipe any more', () => {
     const tree = mount(RECIPE_PALETTE);
     mockSetRecipeTheme.mockClear();
 

@@ -1,0 +1,63 @@
+{
+  "data": {
+    "id": "5b0c9d6e-2f4a-4c1b-9e3d-7a8f1c2b3d4e",
+    "recipeVersionId": "0e7a4c52-9b1d-4f36-8a2c-6d5e4f3a2b1c",
+    "successorRecipeId": null,
+    "source": "traditional",
+    "name": "Tortilla de papas",
+    "description": "Tortilla clásica de papas y cebolla, dorada de ambos lados.",
+    "servings": 4,
+    "durationMinutes": 40,
+    "ingredients": [
+      {
+        "ingredientId": "1c3e5a7b-9d2f-4b6c-8e1a-3f5d7b9c2e4a",
+        "name": "Papa",
+        "category": "verduras",
+        "quantityMilli": 500000,
+        "unit": "g"
+      },
+      {
+        "ingredientId": "2d4f6b8c-1e3a-4c7d-9f2b-4a6e8c1d3f5b",
+        "name": "Aceite de girasol",
+        "category": "no_perecederos",
+        "quantityMilli": 60000,
+        "unit": "ml"
+      },
+      {
+        "ingredientId": "3e5a7c9d-2f4b-4d8e-8a3c-5b7f9d2e4a6c",
+        "name": "Huevo",
+        "category": "otros",
+        "quantityMilli": 4000,
+        "unit": "unit"
+      },
+      {
+        "ingredientId": "4f6b8d1e-3a5c-4e9f-9b4d-6c8a1e3f5b7d",
+        "name": "Cebolla",
+        "category": "verduras",
+        "quantityMilli": 1000,
+        "unit": "unit"
+      }
+    ],
+    "steps": [
+      {
+        "order": 1,
+        "text": "Pelar las papas y la cebolla y cortarlas en láminas finas.",
+        "durationMinutes": 15
+      },
+      {
+        "order": 2,
+        "text": "Freír las papas y la cebolla en el aceite a fuego bajo hasta que estén tiernas.",
+        "durationMinutes": 15
+      },
+      {
+        "order": 3,
+        "text": "Batir los huevos, mezclar con las papas y cuajar la tortilla de ambos lados.",
+        "durationMinutes": null
+      }
+    ],
+    "estimatedCostCents": 385000,
+    "tags": [],
+    "imageUrl": null,
+    "theme": null
+  }
+}

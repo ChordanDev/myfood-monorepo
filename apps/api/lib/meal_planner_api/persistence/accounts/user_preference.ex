@@ -1,6 +1,7 @@
 defmodule MealPlannerApi.Persistence.Accounts.UserPreference do
   @moduledoc """
-  User-level planning preferences: protein target and dietary exclusions.
+  User-level planning preferences: protein target, dietary exclusions and
+  Soft preferences.
 
   Stored separately from User so the core User schema stays lean.
   Created or updated on first access or when the user saves preferences.
@@ -14,6 +15,8 @@ defmodule MealPlannerApi.Persistence.Accounts.UserPreference do
   schema "user_preferences" do
     field(:protein_g_per_meal, :integer)
     field(:default_exclusions, {:array, :string}, default: [])
+    # The User's Soft preferences, in the order they were saved.
+    field(:soft_preferences, {:array, :string}, default: [])
 
     belongs_to(:user, MealPlannerApi.Persistence.Accounts.User)
 
@@ -28,6 +31,20 @@ defmodule MealPlannerApi.Persistence.Accounts.UserPreference do
       greater_than_or_equal_to: 0,
       less_than_or_equal_to: 200
     )
+    |> Ecto.Changeset.unique_constraint(:user_id)
+    |> Ecto.Changeset.foreign_key_constraint(:user_id)
+  end
+
+  @doc """
+  Changeset of the Soft preferences the mobile app saves (issue #18).
+
+  Only `soft_preferences` is cast: the protein target and the default
+  exclusions keep the value they have.
+  """
+  def soft_preferences_changeset(preference, attrs) do
+    preference
+    |> Ecto.Changeset.cast(attrs, [:soft_preferences])
+    |> Ecto.Changeset.validate_required([:user_id])
     |> Ecto.Changeset.unique_constraint(:user_id)
     |> Ecto.Changeset.foreign_key_constraint(:user_id)
   end

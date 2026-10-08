@@ -18,6 +18,12 @@ defmodule MealPlannerApi.Persistence.Accounts.User do
 
   @type t :: %__MODULE__{}
 
+  @cooking_skills ~w(beginner intermediate advanced)
+
+  # `name` is `varchar(255)`. The limit is counted in codepoints, which is
+  # how the column counts its characters.
+  @max_name_codepoints 255
+
   schema "users" do
     field(:email, :string)
     field(:name, :string)
@@ -26,6 +32,9 @@ defmodule MealPlannerApi.Persistence.Accounts.User do
     field(:avatar_url, :string)
     # Set when the user finishes onboarding; nil means not completed.
     field(:onboarding_completed_at, :utc_datetime_usec)
+    # Onboarding profile; nil until the user saves one.
+    field(:household_size, :integer)
+    field(:cooking_skill, :string)
 
     belongs_to(:account, MealPlannerApi.Persistence.Accounts.Account)
     has_many(:memberships, MealPlannerApi.Persistence.Accounts.AccountMembership)
@@ -48,5 +57,44 @@ defmodule MealPlannerApi.Persistence.Accounts.User do
     |> validate_required([:email, :name, :role])
     |> unique_constraint(:email)
     |> foreign_key_constraint(:account_id)
+  end
+
+  @doc """
+  The Cooking skill catalog, as stored and as sent on the wire.
+  """
+  @spec cooking_skills() :: [String.t()]
+  def cooking_skills, do: @cooking_skills
+
+  @doc """
+  Casts and validates the Onboarding profile: `name`, `household_size` and
+  `cooking_skill`, all three required. The Household size is 1 to 20 and
+  the Cooking skill is one of `cooking_skills/0`. No other field is cast,
+  so a profile write never touches `onboarding_completed_at`.
+
+  The name is trimmed and holds 1 to 64 characters, counted in graphemes.
+  A grapheme can take several codepoints, so the name is also held to the
+  255 codepoints the column stores, and it carries no NUL character, which
+  Postgres does not store. Every one of these is an error on `name`.
+  """
+  @spec profile_changeset(t(), map()) :: Ecto.Changeset.t()
+  def profile_changeset(user, attrs) do
+    user
+    |> cast(attrs, [:name, :household_size, :cooking_skill])
+    |> update_change(:name, &trim/1)
+    |> validate_required([:name, :household_size, :cooking_skill])
+    |> validate_length(:name, max: 64)
+    |> validate_length(:name, max: @max_name_codepoints, count: :codepoints)
+    |> validate_change(:name, &reject_nul/2)
+    |> validate_number(:household_size, greater_than_or_equal_to: 1, less_than_or_equal_to: 20)
+    |> validate_inclusion(:cooking_skill, @cooking_skills)
+  end
+
+  # A blank name over a stored one is cast to a nil change.
+  defp trim(nil), do: nil
+  defp trim(name), do: String.trim(name)
+
+  # Postgres rejects a NUL character in a text value.
+  defp reject_nul(field, value) do
+    if String.contains?(value, <<0>>), do: [{field, "must not contain a NUL character"}], else: []
   end
 end

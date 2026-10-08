@@ -11,6 +11,7 @@ defmodule MealPlannerApi.Services.AccountService do
   """
 
   alias MealPlannerApi.Data.AccountRepo
+  alias MealPlannerApi.Persistence.Accounts.UserSlotCookingTime
   alias MealPlannerApi.Persistence.Identity
 
   @spec context(map()) :: {:ok, map()} | {:error, term()}
@@ -65,6 +66,35 @@ defmodule MealPlannerApi.Services.AccountService do
 
       {:error, reason} ->
         {:error, reason}
+    end
+  end
+
+  @doc """
+  The Slot cooking times of a User, keyed by slot. A User who has not saved
+  the three slots has none: an incomplete set is not served.
+  """
+  @spec slot_cooking_times(Ecto.UUID.t()) ::
+          {:ok, map()} | {:error, :slot_cooking_times_not_found}
+  def slot_cooking_times(user_id) do
+    slot_cooking_times = AccountRepo.list_slot_cooking_times(user_id)
+
+    if length(slot_cooking_times) == length(UserSlotCookingTime.slots()) do
+      {:ok, serialize_slot_cooking_times(slot_cooking_times)}
+    else
+      {:error, :slot_cooking_times_not_found}
+    end
+  end
+
+  @doc """
+  Replaces the Slot cooking times of a User and returns the stored set.
+  `times` maps each slot to its `cooking_time_minutes` and `hunger_level`.
+  """
+  @spec replace_slot_cooking_times(Ecto.UUID.t(), map()) ::
+          {:ok, map()} | {:error, Ecto.Changeset.t()}
+  def replace_slot_cooking_times(user_id, times) do
+    case AccountRepo.replace_slot_cooking_times(user_id, times) do
+      {:ok, slot_cooking_times} -> {:ok, serialize_slot_cooking_times(slot_cooking_times)}
+      {:error, reason} -> {:error, reason}
     end
   end
 
@@ -160,9 +190,24 @@ defmodule MealPlannerApi.Services.AccountService do
     %{
       id: p.id,
       user_id: p.user_id,
-      diet_type: Atom.to_string(p.diet_type),
-      macro_goal: Atom.to_string(p.macro_goal)
+      diet_type: enum_string(p.diet_type),
+      macro_goal: enum_string(p.macro_goal)
     }
+  end
+
+  # A dietary profile saved through `PUT /api/me/preferences` can hold no
+  # Diet and no macro goal; `Atom.to_string/1` would render those as "nil".
+  defp enum_string(nil), do: nil
+  defp enum_string(value), do: Atom.to_string(value)
+
+  defp serialize_slot_cooking_times(slot_cooking_times) do
+    Map.new(slot_cooking_times, fn t ->
+      {t.slot,
+       %{
+         cooking_time_minutes: t.cooking_time_minutes,
+         hunger_level: Atom.to_string(t.hunger_level)
+       }}
+    end)
   end
 
   defp serialize_exclusion(exclusion) do

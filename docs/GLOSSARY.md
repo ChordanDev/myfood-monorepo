@@ -38,21 +38,21 @@ This file and `docs/adr/` are the only durable docs in the repository. Specs, ma
 
 **Household size** — How many people the User usually cooks for. `(code: mobile OnboardingProfile.householdSize)` `(alias: people cooked for)`
 
-**User preferences** — A User's own food signals, stored apart from the User and editable after onboarding: diet, hard restrictions, soft preferences and a protein target. `(code: Persistence.Accounts.UserPreference, mobile UserPreferencesPayload)` `(alias: account preferences)`
+**User preferences** — A User's own food signals, stored apart from the User and editable after onboarding: diet, hard restrictions and soft preferences. `(code: Services.UserPreferencesService, mobile UserPreferencesPayload)` `(alias: account preferences)`
 
 **Diet** — The User's dietary pattern: `omnivore`, `vegetarian`, `vegan`, `pescatarian` (API also knows `celiac`); `null` means none chosen. `(code: Persistence.Accounts.UserDietaryProfile, mobile DietCode)`
 
-**Hard restriction** — A non-negotiable food rule such as an allergy or medical restriction; it excludes recipe candidates outright. `(code: mobile HardRestrictionCode, Persistence.Accounts.UserExcludedIngredient kind=allergy)` `(alias: restriction, allergy list)`
+**Hard restriction** — A non-negotiable food rule such as an allergy or medical restriction; it excludes recipe candidates outright. Stored as a code from a fixed list, distinct from an Excluded ingredient. `(code: Persistence.Accounts.UserHardRestriction, mobile HardRestrictionCode)` `(alias: restriction, allergy list)`
 
-**Soft preference** — A negotiable like, dislike or goal that influences ranking but never blocks a plan. `(code: mobile softPreferences, UserExcludedIngredient kind=dislike)` `(alias: preference, dislike)`
+**Soft preference** — A negotiable like, dislike or goal that influences ranking but never blocks a plan. `(code: Persistence.Accounts.UserPreference.soft_preferences, mobile softPreferences)` `(alias: preference, dislike)`
 
 **Excluded ingredient** — One concrete ingredient a User will not eat, tagged as `allergy` (hard) or `dislike` (soft). `(code: Persistence.Accounts.UserExcludedIngredient)`
 
 **Meal slot** — A named eating occasion within a day: `breakfast`, `lunch`, `snack`, `dinner`. The mobile onboarding currently captures only breakfast, lunch and dinner. `(code: Persistence.Planning.ScheduledMeal.slot, mobile MealSlot)` `(alias: meal type, momento)`
 
-**Slot cooking time** — For each Meal slot, how many minutes the User is willing to cook (0 means they do not cook that slot) and their Hunger level. `(code: mobile SlotCookingTime)`
+**Slot cooking time** — For each Meal slot, how many minutes the User is willing to cook (0 means they do not cook that slot) and their Hunger level. `(code: Persistence.Accounts.UserSlotCookingTime, mobile SlotCookingTime)`
 
-**Hunger level** — How big a meal the User wants in a slot: `light`, `normal` or `strong`. `(code: mobile HungerLevel)`
+**Hunger level** — How big a meal the User wants in a slot: `light`, `normal` or `strong`. `(code: Persistence.Accounts.UserSlotCookingTime.hunger_level, mobile HungerLevel)`
 
 **Budget** — The weekly spending limit for an Account, resolved from its plan and tier. `(code: Budgets.Budget, Services.BudgetService)` `(alias: spending level, presupuesto total)`
 

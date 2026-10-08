@@ -137,10 +137,17 @@ defmodule MealPlannerApiWeb.MobileCasingContractTest do
     test "GET /api/recipes/:id responds with camelCase keys", f do
       body = f |> request(:get, "/api/recipes/#{f.recipe.id}") |> success()
 
-      assert %{"id" => id, "version" => 1, "recipeVersionId" => version_id} = body["data"]
+      assert %{
+               "id" => id,
+               "recipeVersionId" => version_id,
+               "successorRecipeId" => nil,
+               "durationMinutes" => _,
+               "estimatedCostCents" => _,
+               "imageUrl" => nil
+             } = body["data"]
+
       assert id == f.recipe.id
       assert is_binary(version_id)
-      assert Map.has_key?(body["data"], "successorRecipeId")
     end
   end
 
@@ -324,6 +331,16 @@ defmodule MealPlannerApiWeb.MobileCasingContractTest do
       assert is_binary(trial_ends_at)
       assert body == f |> request(:get, "/api/auth/me") |> json_response(200)
     end
+
+    test "PUT /api/me/profile reads camelCase params and responds with camelCase keys", f do
+      profile = %{"displayName" => "Ana", "householdSize" => 3, "cookingSkill" => "advanced"}
+
+      body = f |> request(:put, "/api/me/profile", profile) |> success()
+
+      assert %{"id" => _, "email" => _} = body["user"]
+      assert Map.take(body["user"], Map.keys(profile)) == profile
+      assert f |> request(:get, "/api/me") |> success() |> Map.fetch!("user") == body["user"]
+    end
   end
 
   describe "routes outside the pipeline" do
@@ -383,6 +400,30 @@ defmodule MealPlannerApiWeb.MobileCasingContractTest do
 
       assert served.status == 200
       assert served.query_params == @rewritten
+    end
+
+    test "GET and PUT /api/me/slot-cooking-times go through the plug, halted or not", f do
+      path = "/api/me/slot-cooking-times"
+
+      slot = %{"cookingTimeMinutes" => 20, "hungerLevel" => "normal"}
+      times = %{"breakfast" => slot, "lunch" => slot, "dinner" => slot}
+
+      for method <- [:get, :put] do
+        halted = dispatch(build_conn(), @endpoint, method, path <> @query)
+
+        assert {method, halted.status} == {method, 401}
+        assert {method, halted.query_params} == {method, @rewritten}
+      end
+
+      saved = request(f, :put, path <> @query, times)
+
+      assert success(saved) == times
+      assert saved.query_params == @rewritten
+
+      read = request(f, :get, path <> @query)
+
+      assert success(read) == times
+      assert read.query_params == @rewritten
     end
 
     test "GET /api/auth/me and /api/account/* never go through the plug", f do

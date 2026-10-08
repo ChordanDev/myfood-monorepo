@@ -9,12 +9,23 @@ import { readShoppingListItems, useShoppingListStore } from '@/features/shopping
 import { useMealPlanStore } from '@/store';
 import type { MasterRecipe, MealPlanEntry, RecipeThemeConfig } from '@/types/domain';
 import { RecipeBottomFade } from '../../components/RecipeBottomFade';
+import { fixtureRecipe } from '../../fixtures/recipeDetail';
+import recipeDetail from '../../fixtures/recipeDetail.json';
 import { RECIPE_CHAT_REPLY_DELAY_MS } from '../../hooks/useRecipeChat';
+import { useRecipeCacheStore } from '../../store';
 import { RecipeScreen } from '../RecipeScreen';
 
 const mockBack = jest.fn();
 const mockScrollToEnd = jest.fn();
-let mockRouteParams: { id: string; entryId?: string };
+const fetchMock = jest.fn();
+let mockRouteParams: { id: string; entryId?: string; recipeVersionId?: string };
+
+// The session of a signed-in user: every recipe request carries its access token.
+jest.mock('expo-secure-store', () => ({
+  getItemAsync: jest.fn(() => Promise.resolve('access-1')),
+  setItemAsync: jest.fn(() => Promise.resolve()),
+  deleteItemAsync: jest.fn(() => Promise.resolve()),
+}));
 
 jest.mock('@react-native-async-storage/async-storage', () =>
   jest.requireActual('@react-native-async-storage/async-storage/jest/async-storage-mock')
@@ -130,7 +141,7 @@ function entry(overrides: Partial<MealPlanEntry> = {}): MealPlanEntry {
   return {
     id: 'e-today',
     date: TODAY,
-    type: 'almuerzo',
+    type: 'lunch',
     recipeId: 'r1',
     isCooked: false,
     ...overrides,
@@ -163,6 +174,13 @@ function renderScreen() {
   return mountedTree!;
 }
 
+function unmountScreen() {
+  act(() => {
+    mountedTree?.unmount();
+  });
+  mountedTree = null;
+}
+
 function getComposer(tree: ReactTestRenderer) {
   return tree.root.findByProps({ testIDPrefix: 'recipe-composer' });
 }
@@ -188,6 +206,13 @@ function waitForReply() {
 
 function renderedTexts(tree: ReactTestRenderer): string[] {
   return tree.root.findAllByType(Text).map((node) => String(node.props.children));
+}
+
+const FACT_LABELS = ['Rinde', 'Tiempo', 'Costo estimado'];
+
+// The labels of the servings, duration and cost rows the screen draws; none when it knows none.
+function shownFactLabels(tree: ReactTestRenderer) {
+  return renderedTexts(tree).filter((text) => FACT_LABELS.includes(text));
 }
 
 function findButton(tree: ReactTestRenderer, testID: string) {
@@ -236,10 +261,16 @@ function hasAddAction(tree: ReactTestRenderer, ingredientId: string) {
 }
 
 describe('RecipeScreen', () => {
+  const originalApiUrl = process.env.EXPO_PUBLIC_API_URL;
+
   beforeEach(() => {
     jest.useFakeTimers();
     mockBack.mockClear();
     mockScrollToEnd.mockClear();
+    fetchMock.mockReset();
+    global.fetch = fetchMock;
+    process.env.EXPO_PUBLIC_API_URL = 'https://api.example.test';
+    useRecipeCacheStore.getState().clear();
     mockRouteParams = { id: 'r1', entryId: 'e-today' };
     useMealPlanStore.setState({ entries: [entry()], recipes: [RECIPE], favoriteRecipeIds: [] });
     useInventoryStore.setState({
@@ -261,11 +292,12 @@ describe('RecipeScreen', () => {
 
   // A screen left mounted would re-render, outside `act`, when the next test resets the stores.
   afterEach(() => {
-    act(() => {
-      mountedTree?.unmount();
-    });
-    mountedTree = null;
+    unmountScreen();
     jest.useRealTimers();
+  });
+
+  afterAll(() => {
+    process.env.EXPO_PUBLIC_API_URL = originalApiUrl;
   });
 
   it('shows the recipe name, its ingredients with their stock state and its steps', () => {
@@ -287,6 +319,15 @@ describe('RecipeScreen', () => {
         'Saltear el pollo.',
       ])
     );
+  });
+
+  it('draws a recipe of the local plan at once, as it always did, without asking the server', () => {
+    const tree = renderScreen();
+
+    expect(tree.root.findAllByProps({ testID: 'recipe-loading' })).toHaveLength(0);
+    // The flat recipe states no servings or duration, and its cost has no known currency.
+    expect(shownFactLabels(tree)).toEqual([]);
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   describe('ingredients and the shopping list', () => {
@@ -613,16 +654,237 @@ describe('RecipeScreen', () => {
     expect(contentTopPadding - mask.props.fadeSize).toBe(8);
   });
 
-  it('explains that the recipe was not found and still lets the user go back', () => {
-    mockRouteParams = { id: 'missing' };
-    const tree = renderScreen();
+  describe('a recipe from the API', () => {
+    const API_RECIPE = fixtureRecipe();
+    const RECIPE_URL = `https://api.example.test/api/recipes/${API_RECIPE.id}`;
 
-    expect(renderedTexts(tree)).toEqual(['No encontramos esta receta']);
+    function jsonResponse(payload: unknown, status = 200) {
+      return Promise.resolve({
+        ok: status < 400,
+        status,
+        text: () => Promise.resolve(JSON.stringify(payload)),
+      } as Response);
+    }
 
-    press(tree, 'recipe-header-back');
+    function errorResponse(code: string, status: number) {
+      return jsonResponse({ error: { code, message: 'Request failed' } }, status);
+    }
 
-    expect(mockBack).toHaveBeenCalledTimes(1);
+    // Lets the requests under way finish and the screen draw their answers.
+    async function settle() {
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      });
+    }
+
+    function isShown(tree: ReactTestRenderer, testID: string) {
+      return tree.root.findAllByProps({ testID }).length > 0;
+    }
+
+    function ingredientRow(tree: ReactTestRenderer, ingredientId: string) {
+      const [row] = tree.root.findAllByProps({ testID: `recipe-ingredient-row-${ingredientId}` });
+
+      return row.findAllByType(Text).map((node) => String(node.props.children));
+    }
+
+    beforeEach(() => {
+      // The requests resolve on their own; nothing here waits for the chat.
+      jest.useRealTimers();
+      mockRouteParams = { id: API_RECIPE.id };
+    });
+
+    it('waits on a loading state, then draws the frozen payload with formatted quantities and facts', async () => {
+      fetchMock.mockReturnValueOnce(jsonResponse(recipeDetail));
+      const tree = renderScreen();
+
+      expect(isShown(tree, 'recipe-loading')).toBe(true);
+      expect(renderedTexts(tree)).toEqual([]);
+
+      await settle();
+      const texts = renderedTexts(tree);
+      const stepTexts = API_RECIPE.steps.map((step) => step.text);
+
+      expect(isShown(tree, 'recipe-loading')).toBe(false);
+      expect(fetchMock).toHaveBeenCalledWith(
+        RECIPE_URL,
+        expect.objectContaining({ method: 'GET' })
+      );
+      expect(texts).toContain('Tortilla de papas');
+      expect(API_RECIPE.ingredients.map((line) => ingredientRow(tree, line.ingredientId))).toEqual([
+        ['500 g', 'Papa', 'Falta'],
+        ['60 ml', 'Aceite de girasol', 'Falta'],
+        ['4 u', 'Huevo', 'Falta'],
+        ['1 u', 'Cebolla', 'Falta'],
+      ]);
+      expect(stepTexts).toHaveLength(3);
+      expect(texts.filter((text) => stepTexts.includes(text))).toEqual(stepTexts);
+      expect(texts).toContain('3 pasos');
+      expect(shownFactLabels(tree)).toEqual(FACT_LABELS);
+      expect(texts).toEqual(expect.arrayContaining(['4 porciones', '40 min', '$3.850']));
+    });
+
+    it('draws no servings, duration or cost for a recipe that knows none of them', async () => {
+      fetchMock.mockReturnValueOnce(
+        jsonResponse({
+          data: {
+            ...recipeDetail.data,
+            servings: null,
+            durationMinutes: null,
+            estimatedCostCents: 0,
+          },
+        })
+      );
+      const tree = renderScreen();
+      await settle();
+
+      expect(renderedTexts(tree)).toContain('Tortilla de papas');
+      expect(shownFactLabels(tree)).toEqual([]);
+    });
+
+    it('draws an ai_generated recipe exactly as it draws a catalog one', async () => {
+      async function renderedTree(payload: unknown) {
+        fetchMock.mockReturnValueOnce(jsonResponse(payload));
+        const tree = renderScreen();
+        await settle();
+        // The whole render output. An element handed down as a prop points back at its owner.
+        const serialized = JSON.stringify(tree.toJSON(), (key, value) =>
+          key === '_owner' ? undefined : value
+        );
+
+        unmountScreen();
+        useRecipeCacheStore.getState().clear();
+        return serialized;
+      }
+
+      const catalog = await renderedTree(recipeDetail);
+      const generated = await renderedTree({
+        data: { ...recipeDetail.data, source: 'ai_generated' },
+      });
+
+      expect(recipeDetail.data.source).toBe('traditional');
+      expect(catalog).toContain('Tortilla de papas');
+      expect(generated).toBe(catalog);
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+    });
+
+    it('asks for a recipe once, however many times it is opened', async () => {
+      fetchMock.mockReturnValue(jsonResponse(recipeDetail));
+      renderScreen();
+      await settle();
+      unmountScreen();
+
+      const reopened = renderScreen();
+
+      // The cached version is there for the first paint, with no loading state in between.
+      expect(renderedTexts(reopened)).toContain('Tortilla de papas');
+      await settle();
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    });
+
+    it('does not ask for a version the cache has when the route names it', async () => {
+      useRecipeCacheStore.setState({
+        recipesByVersionId: { [API_RECIPE.recipeVersionId]: API_RECIPE },
+        versionIdByRecipeId: {},
+      });
+      mockRouteParams = { id: API_RECIPE.id, recipeVersionId: API_RECIPE.recipeVersionId };
+
+      const tree = renderScreen();
+      await settle();
+
+      expect(renderedTexts(tree)).toContain('Tortilla de papas');
+      expect(fetchMock).not.toHaveBeenCalled();
+    });
+
+    it('explains that the recipe was not found and still lets the user go back', async () => {
+      fetchMock.mockReturnValueOnce(errorResponse('recipe_not_found', 404));
+      mockRouteParams = { id: 'missing' };
+      const tree = renderScreen();
+      await settle();
+
+      expect(renderedTexts(tree)).toEqual(['No encontramos esta receta']);
+
+      press(tree, 'recipe-header-back');
+
+      expect(mockBack).toHaveBeenCalledTimes(1);
+    });
+
+    it('reads a route without a recipe id as not found, without asking the server', () => {
+      mockRouteParams = { id: '' };
+
+      expect(renderedTexts(renderScreen())).toEqual(['No encontramos esta receta']);
+      expect(fetchMock).not.toHaveBeenCalled();
+    });
+
+    it('explains any other failure and loads the recipe when the user tries again', async () => {
+      fetchMock
+        .mockReturnValueOnce(errorResponse('internal_error', 500))
+        .mockReturnValueOnce(jsonResponse(recipeDetail));
+      const tree = renderScreen();
+      await settle();
+
+      expect(renderedTexts(tree)).toEqual(['No pudimos cargar esta receta', 'Reintentar']);
+
+      press(tree, 'recipe-load-retry');
+
+      expect(isShown(tree, 'recipe-loading')).toBe(true);
+      await settle();
+      expect(renderedTexts(tree)).toContain('Tortilla de papas');
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+    });
+
+    it('explains that the account has no access and offers no retry, which could not succeed', async () => {
+      fetchMock.mockReturnValueOnce(errorResponse('forbidden', 403));
+      const tree = renderScreen();
+      await settle();
+
+      expect(isShown(tree, 'recipe-forbidden')).toBe(true);
+      expect(renderedTexts(tree)).toEqual(['Tu cuenta no tiene acceso a esta receta por ahora']);
+      expect(isShown(tree, 'recipe-load-retry')).toBe(false);
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+
+      press(tree, 'recipe-header-back');
+
+      expect(mockBack).toHaveBeenCalledTimes(1);
+    });
+
+    it('reads a partial answer as a failure and keeps it out of the cache', async () => {
+      fetchMock.mockReturnValueOnce(
+        jsonResponse({ data: { ...recipeDetail.data, steps: undefined } })
+      );
+      const tree = renderScreen();
+      await settle();
+
+      expect(isShown(tree, 'recipe-load-error')).toBe(true);
+      expect(useRecipeCacheStore.getState().recipesByVersionId).toEqual({});
+      expect(useRecipeCacheStore.getState().versionIdByRecipeId).toEqual({});
+    });
+
+    it('drops an answer that arrives after the screen moved on to another recipe', async () => {
+      const answers: ((response: Response) => void)[] = [];
+      fetchMock.mockImplementation(() => new Promise<Response>((resolve) => answers.push(resolve)));
+      const tree = renderScreen();
+      await settle();
+
+      mockRouteParams = { id: 'another-recipe' };
+      act(() => {
+        tree.update(<RecipeScreen />);
+      });
+      await settle();
+      answers[0](await jsonResponse(recipeDetail));
+      await settle();
+
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+      expect(isShown(tree, 'recipe-loading')).toBe(true);
+      expect(renderedTexts(tree)).toEqual([]);
+
+      // The answer of the recipe the screen is on is the one it draws.
+      answers[1](await errorResponse('recipe_not_found', 404));
+      await settle();
+
+      expect(renderedTexts(tree)).toEqual(['No encontramos esta receta']);
+    });
   });
+
   describe('assistant chat', () => {
     const QUESTION = '¿Puedo hacerla más liviana?';
 
