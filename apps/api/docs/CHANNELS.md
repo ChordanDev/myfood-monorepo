@@ -160,32 +160,33 @@ A failed join or command replies the error envelope, never a free-text reason:
 { "rangeFrom": "2026-04-01", "rangeTo": "2026-04-07" }
 ```
 
-Ok reply, followed by the `session_started` event with the same `sessionId`:
+Ok reply; the `session_started` event carries the same `sessionId`:
 ```json
 { "sessionId": "550e8400-e29b-41d4-a716-446655440002", "status": "active" }
 ```
+
+#### Ordering
+
+- An event the channel emits while it handles a command reaches the commanding client after the reply to that command. For example, `cancel_planning` replies first and `session_cancelled` follows on the same socket.
+- An event emitted by another server process (generation, the planning session, the session sweeper, the AI chat channel) has no ordering guarantee relative to a reply. `session_started` is one of them: a client must not assume on which side of the `start_planning` reply it arrives.
+- Clients correlate replies and events by `requestId` / `sessionId`, never by arrival order.
 
 #### Incoming Events
 
 | Event | Payload | Description |
 |-------|---------|-------------|
-| `start_planning` | `{"week_start": "YYYY-MM-DD", "constraints": {...}}` | Start a new weekly plan |
+| `start_planning` | `{"range_from": "YYYY-MM-DD", "range_to": "YYYY-MM-DD"}` | Start a planning session for the date range |
 | `choose_slot` | `{"slot_id": "uuid", "recipe_id": "uuid"}` | Assign recipe to a slot |
 | `remove_slot` | `{"slot_id": "uuid"}` | Remove recipe from a slot |
 | `generate_plan` | `{"strategy": "balanced|quick|varied"}` | Trigger AI plan generation |
 | `accept_plan` | `{"plan_id": "uuid"}` | Accept generated plan |
-| `cancel_planning` | `{}` | Cancel current planning session |
+| `cancel_planning` | `{"session_id": "uuid"}` | Cancel the planning session with that id |
 
 **Example Payload (start_planning):**
 ```json
 {
-  "week_start": "2026-06-09",
-  "constraints": {
-    "meals_per_day": 3,
-    "max_prep_time": 60,
-    "dietary_restrictions": ["vegetarian"],
-    "favorite_recipe_ids": ["123", "456"]
-  }
+  "range_from": "2026-06-09",
+  "range_to": "2026-06-15"
 }
 ```
 

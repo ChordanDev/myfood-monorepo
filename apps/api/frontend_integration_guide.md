@@ -728,6 +728,8 @@ Join authorization rule:
 
 ## 8.3 Outgoing events from backend
 
+Event and reply payloads have camelCase keys at any depth; event names and values are not rewritten. Inbound snake_case keys are still accepted on commands, next to camelCase.
+
 ### `generation_started`
 
 Emitted when generation begins.
@@ -736,7 +738,7 @@ Payload examples:
 
 ```json
 {
-  "request_id": "req_123"
+  "requestId": "req_123"
 }
 ```
 
@@ -744,7 +746,7 @@ or for constraints swap:
 
 ```json
 {
-  "request_id": "req_123",
+  "requestId": "req_123",
   "reason": "constraint_update"
 }
 ```
@@ -757,20 +759,20 @@ Payload:
 
 ```json
 {
-  "request_id": "req_123",
-  "run_id": "...",
-  "proposal_id": "...",
-  "date_from": "2026-03-30",
-  "date_to": "2026-04-05",
+  "requestId": "req_123",
+  "runId": "...",
+  "proposalId": "...",
+  "dateFrom": "2026-03-30",
+  "dateTo": "2026-04-05",
   "proposal": {
     "summary": "...",
-    "scheduled_meals": [],
-    "weekly_plan": {},
-    "shopping_hints": []
+    "scheduledMeals": [],
+    "weeklyPlan": {},
+    "shoppingHints": []
   },
-  "applied_constraints": {
-    "kcal_target": 2200,
-    "weekly_budget_cents": 50000,
+  "appliedConstraints": {
+    "kcalTarget": 2200,
+    "weeklyBudgetCents": 50000,
     "currency": "ARS",
     "days": ["monday", "tuesday"]
   }
@@ -779,7 +781,7 @@ Payload:
 
 Note:
 
-- `applied_constraints` is present on `swap_constraints` flow.
+- `appliedConstraints` is present on `swap_constraints` flow.
 
 ### `generation_error`
 
@@ -789,8 +791,20 @@ Payload:
 
 ```json
 {
-  "request_id": "req_123",
+  "requestId": "req_123",
   "reason": "invalid_date_range"
+}
+```
+
+The event keeps its `reason` field. The error reply to the command that failed is the error envelope instead, next to `requestId`:
+
+```json
+{
+  "requestId": "req_123",
+  "error": {
+    "code": "invalid_date_range",
+    "message": "<human text>"
+  }
 }
 ```
 
@@ -802,9 +816,9 @@ Payload:
 
 ```json
 {
-  "proposal_id": "...",
-  "generation_run_id": "...",
-  "scheduled_meals_count": 14,
+  "proposalId": "...",
+  "generationRunId": "...",
+  "scheduledMealsCount": 14,
   "status": "confirmed"
 }
 ```
@@ -817,8 +831,8 @@ Payload:
 
 ```json
 {
-  "proposal_id": "...",
-  "generation_run_id": "...",
+  "proposalId": "...",
+  "generationRunId": "...",
   "status": "rejected"
 }
 ```

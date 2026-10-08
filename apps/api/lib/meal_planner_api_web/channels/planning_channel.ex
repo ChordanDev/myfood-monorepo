@@ -163,7 +163,8 @@ defmodule MealPlannerApiWeb.PlanningChannel do
 
       {:error, reason} ->
         # The `generation_error` event is not a command reply: it keeps its
-        # `reason` field (issue #11 leaves event payloads as they are).
+        # `reason` field instead of the error envelope. Its keys are still
+        # camelized on the way out by `handle_out/3` (`requestId`).
         event = %{request_id: request_id, reason: serialize_reason(reason)}
         broadcast!(socket, "generation_error", event)
         {:reply, {:error, error_payload(reason, request_id)}, socket}
