@@ -99,6 +99,19 @@ defmodule MealPlannerApiWeb.SlotCookingTimesControllerTest do
       end
     end
 
+    test "refuses a body that no parser read", %{token: token} do
+      conn =
+        build_conn()
+        |> authorize(token)
+        |> put_req_header("content-type", "text/plain")
+        |> put(@path, "hello")
+
+      assert %{"error" => %{"code" => "validation_error", "message" => message}} =
+               json_response(conn, 422)
+
+      assert message == "The request body must be an object."
+    end
+
     test "treats _json as any other key that is not a slot", %{token: token} do
       assert validation_error(token, Map.put(@times, "_json", [])) ==
                "_json is not an accepted slot."

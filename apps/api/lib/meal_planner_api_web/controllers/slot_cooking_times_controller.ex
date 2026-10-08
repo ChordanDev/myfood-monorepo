@@ -64,6 +64,11 @@ defmodule MealPlannerApiWeb.SlotCookingTimesController do
   defp validate(%{"_json" => _not_an_object} = body) when map_size(body) == 1,
     do: invalid("The request body must be an object.")
 
+  # A body no parser read, such as `text/plain`, stays a
+  # `%Plug.Conn.Unfetched{}` struct.
+  defp validate(body) when is_struct(body),
+    do: invalid("The request body must be an object.")
+
   defp validate(body) do
     case body |> Map.keys() |> Enum.reject(&(&1 in @slot_names)) |> Enum.sort() do
       [] -> validate_slots(body)
