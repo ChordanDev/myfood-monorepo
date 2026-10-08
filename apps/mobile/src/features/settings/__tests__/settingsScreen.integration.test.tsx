@@ -583,6 +583,69 @@ describe('SettingsScreen', () => {
       expect(rowLabel(root, 'settings-row-diet')).toBe('Dieta, Vegetariano');
       expect(queryHost(root, 'settings-load-retry')).toBeNull();
     });
+
+    const noneSaved = () => new ApiError('slot_cooking_times_not_found', 'none saved', 404);
+
+    it('starts from the default slot times when the user never saved any', async () => {
+      const { root } = await renderScreen({
+        context: { fetchSlotCookingTimes: jest.fn(() => Promise.reject(noneSaved())) },
+      });
+
+      expect(rowLabel(root, 'settings-row-slot-breakfast')).toBe('Desayuno, No cocino · Normal');
+      expect(rowLabel(root, 'settings-row-slot-lunch')).toBe('Almuerzo, No cocino · Normal');
+      expect(rowLabel(root, 'settings-row-slot-dinner')).toBe('Cena, No cocino · Normal');
+      expect(rowLabel(root, 'settings-row-diet')).toBe('Dieta, Vegetariano');
+      expect(queryHost(root, 'settings-load-retry')).toBeNull();
+      expect(warnSpy).not.toHaveBeenCalled();
+    });
+
+    it('saves the three slots after starting from the defaults', async () => {
+      const { root, context } = await renderScreen({
+        context: { fetchSlotCookingTimes: jest.fn(() => Promise.reject(noneSaved())) },
+      });
+
+      await press(root, 'settings-row-slot-lunch');
+      await press(root, 'settings-chip-minutes-30');
+      await press(root, 'settings-chip-hunger-strong');
+      await press(root, 'settings-sheet-save');
+
+      expect(context.saveSlotCookingTimes).toHaveBeenCalledTimes(1);
+      expect(context.saveSlotCookingTimes).toHaveBeenCalledWith({
+        breakfast: { cookingTimeMinutes: 0, hungerLevel: 'normal' },
+        lunch: { cookingTimeMinutes: 30, hungerLevel: 'strong' },
+        dinner: { cookingTimeMinutes: 0, hungerLevel: 'normal' },
+      });
+      expect(isSheetOpen(root)).toBe(false);
+      expect(rowLabel(root, 'settings-row-slot-lunch')).toBe('Almuerzo, 30 min · Abundante');
+      expect(rowLabel(root, 'settings-row-slot-breakfast')).toBe('Desayuno, No cocino · Normal');
+    });
+
+    it.each([
+      ['a 404 with another code', new ApiError('not_found', 'not found', 404)],
+      ['a network error', new ApiError('network_error', 'offline')],
+      ['an error that is not an api error', new Error('slot_cooking_times_not_found')],
+    ])('keeps the error state when the slot times fail with %s', async (_name, error) => {
+      const { root } = await renderScreen({
+        context: { fetchSlotCookingTimes: jest.fn(() => Promise.reject(error)) },
+      });
+
+      expect(rowLabel(root, 'settings-row-slot-lunch')).toBe('Almuerzo, No disponible');
+      expect(rowLabel(root, 'settings-row-diet')).toBe('Dieta, No disponible');
+      expect(queryHost(root, 'settings-load-retry')).not.toBeNull();
+    });
+
+    it('keeps the error state when the preferences fail and no slot times are saved', async () => {
+      const { root } = await renderScreen({
+        context: {
+          fetchUserPreferences: jest.fn(() => Promise.reject(new Error('load failed'))),
+          fetchSlotCookingTimes: jest.fn(() => Promise.reject(noneSaved())),
+        },
+      });
+
+      expect(rowLabel(root, 'settings-row-diet')).toBe('Dieta, No disponible');
+      expect(rowLabel(root, 'settings-row-slot-lunch')).toBe('Almuerzo, No disponible');
+      expect(queryHost(root, 'settings-load-retry')).not.toBeNull();
+    });
   });
 
   describe('access gate', () => {

@@ -6,13 +6,7 @@ import { useAuth, useAuthResponsiveScale } from '../hooks';
 import { useKeyboardAnimation } from '@/hooks/useKeyboardAnimation';
 import { AUTH_FOOD_IMAGES } from '@/constants/authAssets';
 import { GRADIENTS } from '@/constants/theme';
-import {
-  AuthButton,
-  AuthCredentialsForm,
-  CarouselImages,
-  RegisterEntryModal,
-  SocialLogin,
-} from '../components';
+import { AuthButton, AuthCredentialsForm, CarouselImages, RegisterEntryModal } from '../components';
 import { NoisyBackground, SafeAreaContent, TitlePrimary, TopFadeMask } from '@/components';
 import { useRouter } from 'expo-router';
 import { getAuthErrorMessage } from '@/services/authService';
@@ -137,15 +131,14 @@ export function AuthLandingScreen() {
           </TopFadeMask>
         </View>
 
-        <View style={{ flex: 3, justifyContent: 'space-between' }}>
-          {/* Accesos alternativos al registro y login social. */}
+        <View style={{ flex: 3 }}>
+          {/* Acceso al registro. La vista conserva su proporción de altura para que el bloque superior no se mueva. */}
           <AuthButton
             title="Crear una cuenta"
             variant="secondary"
             metrics={metrics}
             onPress={openRegisterModal}
           />
-          <SocialLogin metrics={metrics} />
         </View>
       </SafeAreaContent>
 

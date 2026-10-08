@@ -2,8 +2,9 @@ defmodule MealPlannerApi.Persistence.Auth.AccountSelectionContinuation do
   @moduledoc """
   Phase 3 — Outcomes and Continuations (issue #31 task 3.4).
 
-  Single-use, five-minute opaque token returned by the email-code verify
-  multi-membership outcome. The plaintext is 32 random bytes base64url-
+  Single-use, five-minute opaque token that `POST /api/auth/switch-account`
+  accepts as a credential and exchanges for a token scoped to one
+  Membership of the bound set. The plaintext is 32 random bytes base64url-
   encoded (no padding) and is never persisted — only its SHA-256 hex
   digest (column `token_hash`) is stored. The row is bound to a single
   `user_id` and to a membership set on

@@ -17,6 +17,10 @@
 >   `onboarding`).
 > - El formato de error (sección 5.4): las rutas de #1 responden
 >   `{ "error": { "code": "<código>", "message": "<texto>" } }`.
+>
+> Las rutas de password y de login social que describe este PRD (`POST /auth/password`, `/auth/login`,
+> `/auth/register`, `/auth/social`, `/auth/google`, `/auth/facebook` y `/auth/apple`) fueron eliminadas por
+> el [issue #14](https://github.com/ChordanDev/myfood-monorepo/issues/14): el backend ya no las expone.
 
 ---
 
