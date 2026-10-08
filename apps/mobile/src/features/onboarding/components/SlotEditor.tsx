@@ -1,6 +1,7 @@
 import { useRef } from 'react';
 import { Pressable, Text, type TextInput, View } from 'react-native';
-import type { HungerLevel, MealSlot } from '@/features/auth/types/auth';
+import { MEAL_SLOT_LABEL } from '@/constants/mealSlots';
+import type { CookingTimeSlot, HungerLevel } from '@/features/auth/types/auth';
 import type { RecipeThemeConfig } from '@/types/domain';
 import { withOpacity } from '@/utils/colors';
 import { OnboardingChoiceChip } from '@/features/onboarding/components/OnboardingChoiceChip';
@@ -12,13 +13,12 @@ import { OnboardingTextInput } from '@/features/onboarding/components/Onboarding
 import {
   HUNGER_LEVEL_LABELS,
   HUNGER_LEVELS,
-  SLOT_LABELS,
   SLOT_PRESET_BUCKETS,
 } from '@/features/preferences/constants/preferenceOptions';
 import type { SlotFormState, SlotMode } from '@/features/onboarding/utils/onboardingSlot';
 
 interface SlotEditorProps {
-  slot: MealSlot;
+  slot: CookingTimeSlot;
   form: SlotFormState;
   onModeChange: (mode: SlotMode) => void;
   onPresetChange: (value: number) => void;
@@ -49,7 +49,7 @@ export function SlotEditor({
   theme,
 }: SlotEditorProps) {
   const minutesInputRef = useRef<TextInput>(null);
-  const slotLabel = SLOT_LABELS[slot];
+  const slotLabel = MEAL_SLOT_LABEL[slot];
   const outlineColor = withOpacity(theme.colorDark, 0.3);
 
   return (
