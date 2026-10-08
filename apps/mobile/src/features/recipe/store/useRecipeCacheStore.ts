@@ -28,6 +28,10 @@ const EMPTY_CACHE: PersistedRecipeCacheState = { recipesByVersionId: {}, version
 // Requests under way, by recipe id. Kept out of the store so they are never persisted.
 const inFlightLoads = new Map<string, Promise<Recipe>>();
 
+// Bumped by `clear()`: a load that started before it still answers its caller, but must not
+// write a recipe back into a cache that was emptied since.
+let cacheGeneration = 0;
+
 export const useRecipeCacheStore = create<RecipeCacheState>()(
   persist(
     (set, get) => ({
@@ -52,9 +56,12 @@ export const useRecipeCacheStore = create<RecipeCacheState>()(
         const inFlight = inFlightLoads.get(recipeId);
         if (inFlight) return inFlight;
 
+        const generation = cacheGeneration;
         // A failed load stores nothing and leaves no entry behind, so the next call retries.
         const load = getRecipe(recipeId)
           .then((recipe) => {
+            if (generation !== cacheGeneration) return recipe;
+
             set((state) => ({
               recipesByVersionId: {
                 ...state.recipesByVersionId,
@@ -68,13 +75,16 @@ export const useRecipeCacheStore = create<RecipeCacheState>()(
             return recipe;
           })
           .finally(() => {
-            inFlightLoads.delete(recipeId);
+            // After a `clear()` the entry may belong to a newer load of the same recipe.
+            if (inFlightLoads.get(recipeId) === load) inFlightLoads.delete(recipeId);
           });
 
         inFlightLoads.set(recipeId, load);
         return load;
       },
       clear: () => {
+        cacheGeneration += 1;
+        inFlightLoads.clear();
         set(EMPTY_CACHE);
       },
     }),

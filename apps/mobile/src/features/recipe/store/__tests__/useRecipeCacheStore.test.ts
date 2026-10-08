@@ -1,7 +1,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { ApiError } from '@/api/errors';
 import { getRecipe } from '../../api/recipeApi';
-import recipeDetail from '../../fixtures/recipeDetail.json';
+import { fixtureRecipe } from '../../fixtures/recipeDetail';
 import type { Recipe } from '../../types/recipe';
 import { useRecipeCacheStore } from '../useRecipeCacheStore';
 
@@ -13,8 +13,7 @@ jest.mock('../../api/recipeApi', () => ({ getRecipe: jest.fn() }));
 
 const STORAGE_KEY = 'recipe-cache-storage';
 
-// The frozen payload is checked against `Recipe` field by field in the recipeApi test.
-const RECIPE = recipeDetail.data as Recipe;
+const RECIPE = fixtureRecipe();
 
 const EMPTY_CACHE = { recipesByVersionId: {}, versionIdByRecipeId: {} };
 
@@ -24,9 +23,19 @@ function cache() {
   return useRecipeCacheStore.getState();
 }
 
+// A request the test answers when it chooses to.
+function pendingRequest() {
+  let resolve: (recipe: Recipe) => void = () => {};
+  const request = new Promise<Recipe>((resolveRequest) => {
+    resolve = resolveRequest;
+  });
+
+  return { request, resolve };
+}
+
 beforeEach(() => {
   getRecipeMock.mockReset();
-  useRecipeCacheStore.setState(EMPTY_CACHE);
+  cache().clear();
 });
 
 describe('loadRecipe', () => {
@@ -84,15 +93,11 @@ describe('loadRecipe', () => {
   });
 
   it('shares one request between concurrent loads of the same recipe', async () => {
-    let resolveRequest: (recipe: Recipe) => void = () => {};
-    getRecipeMock.mockReturnValue(
-      new Promise<Recipe>((resolve) => {
-        resolveRequest = resolve;
-      })
-    );
+    const { request, resolve } = pendingRequest();
+    getRecipeMock.mockReturnValue(request);
 
     const loads = [cache().loadRecipe(RECIPE.id), cache().loadRecipe(RECIPE.id)];
-    resolveRequest(RECIPE);
+    resolve(RECIPE);
 
     await expect(Promise.all(loads)).resolves.toEqual([RECIPE, RECIPE]);
     expect(getRecipeMock).toHaveBeenCalledTimes(1);
@@ -121,6 +126,45 @@ describe('clear', () => {
     expect(cache().getCachedRecipe(RECIPE.id)).toBeUndefined();
     await cache().loadRecipe(RECIPE.id);
     expect(getRecipeMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('does not let a load that started before it write the recipe back', async () => {
+    const { request, resolve } = pendingRequest();
+    getRecipeMock.mockReturnValue(request);
+    const load = cache().loadRecipe(RECIPE.id);
+
+    cache().clear();
+    resolve(RECIPE);
+
+    // The caller that asked still gets its recipe; the cache stays empty.
+    await expect(load).resolves.toEqual(RECIPE);
+    expect(cache().getCachedRecipe(RECIPE.id)).toBeUndefined();
+    expect(cache().recipesByVersionId).toEqual({});
+    expect(cache().versionIdByRecipeId).toEqual({});
+  });
+
+  it('forgets the loads in flight, so the next load asks again and is the one cached', async () => {
+    const stale = pendingRequest();
+    getRecipeMock.mockReturnValueOnce(stale.request).mockResolvedValueOnce(RECIPE);
+    const staleLoad = cache().loadRecipe(RECIPE.id);
+
+    cache().clear();
+    await cache().loadRecipe(RECIPE.id);
+    stale.resolve({ ...RECIPE, name: 'Stale answer' });
+    await staleLoad;
+
+    expect(getRecipeMock).toHaveBeenCalledTimes(2);
+    expect(cache().getCachedRecipe(RECIPE.id)).toEqual(RECIPE);
+
+    // The stale load finishing must not drop the entry of a newer load either.
+    const next = pendingRequest();
+    getRecipeMock.mockReturnValue(next.request);
+    cache().clear();
+    const loads = [cache().loadRecipe(RECIPE.id), cache().loadRecipe(RECIPE.id)];
+    next.resolve(RECIPE);
+    await Promise.all(loads);
+
+    expect(getRecipeMock).toHaveBeenCalledTimes(3);
   });
 });
 

@@ -50,7 +50,7 @@ The route answers the raw decoded snapshot (`recipeSteps`, `recipeIngredients[].
 
 - [x] **T1 API: snapshot projection and envelope on `GET /api/recipes/:id`.** Projection, `recipe_not_found` code (API and mobile allowlists), `forbidden` on failed access, frozen payload fixture, route tests (catalog and `ai_generated`), integration guide. Route: delegated (2+ non-trivial files).
 - [x] **T2 Mobile: recipe type, API module and version cache.** `Recipe` type, `recipeApi`, cache store, cache test proving the same version is not refetched. Route: delegated.
-- [ ] **T3 Mobile: recipe screen renders the snapshot.** Converter from the flat type, quantity and cost formatting, hook and components on the new shape, screen test against the fixture (catalog and `ai_generated`). Route: delegated.
+- [x] **T3 Mobile: recipe screen renders the snapshot.** Converter from the flat type, quantity and cost formatting, hook and components on the new shape, screen test against the fixture (catalog and `ai_generated`). Route: delegated.
 
 ## Acceptance criteria (from the ticket)
 
@@ -66,20 +66,52 @@ The route answers the raw decoded snapshot (`recipeSteps`, `recipeIngredients[].
 
 ## Delivery
 
-Forecast: about 700 authored changed lines over three work-unit commits (T1 about 250, T2 about 200, T3 about 250), above the 400-line budget. Strategy `ask-on-risk`: the chain strategy (`stacked-to-main` or `feature-branch-chain`) is asked once, at delivery; the three commits are the slice boundaries either way. Push and pull requests are the user's decision.
+Forecast: about 700 authored changed lines over three work-unit commits (T1 about 250, T2 about 200, T3 about 250), above the 400-line budget. Strategy `ask-on-risk`; chain strategy `stacked-to-main`, chosen by the user at delivery (see the delivery record). The real count was about 2,400: the test matrices dominate and nothing was compressed to fit. Push and pull requests are the user's decision.
 
 ## Progress
 
 | Task | Commit | Evidence | Review |
 | ---- | ------ | -------- | ------ |
 | T1   | `04da8ea` | RED: 11 failures before implementation (flat error bodies, missing `durationMinutes`, `FunctionClauseError` for `:recipe_not_found`); no RED for the two successor tests. `mix format --check-formatted` ok, `mix compile --warnings-as-errors` ok, `mix test` 1215 passed / 20 skipped / 0 failures, mobile `typecheck` ok, `lint` 0 errors, `jest --ci` 1471 passed. Parent re-ran the two recipe test files: 27 passed. | high (`hot_path` auth types); consent granted; four lenses approved and acknowledged (`review-e19d0945a73eec46`), 8 non-blocking advisories |
-| T2   | (this commit) | RED: suites failed on missing modules, then 8 of 11 failed against no-cache stubs; no real RED for "fetches when the known version is not cached". `typecheck` ok, `lint` 0 errors, `jest --ci` 94 suites / 1482 passed. Parent re-ran the two new suites: 11 passed. | pending assessment |
-| T3   |        |          |        |
+| T2   | `b983e77` | RED: suites failed on missing modules, then 8 of 11 failed against no-cache stubs; no real RED for "fetches when the known version is not cached". `typecheck` ok, `lint` 0 errors, `jest --ci` 94 suites / 1482 passed. Parent re-ran the two new suites: 11 passed. | medium (`slice_budget_reached`); consent granted; reliability lens approved and acknowledged (`review-a6e74ce6273773fd`), 7 non-blocking advisories |
+| T1b  | `546cb99` | Follow-up of two T1 review warnings, tests only: `estimatedCostCents` 0 without a daily cost; an inactive member answers `account_not_found` (401) from the auth pipeline, so `forbidden` is reachable only through an ineligible Account. Route test file: 10 passed. | reviewed with T3 |
+| T3   | `0cd25b0` | RED: 6 failures for the T2 follow-ups, 17 of 21 for the row resolver, 1 for the palette, 11 for servings/duration/mock cost; screen tests were written after the hook and mutation-checked instead. `typecheck` ok, `lint` 0 errors, `jest --ci` 96 suites / 1520 passed. Parent re-ran the recipe feature suites: 14 suites, 203 passed. | medium (`slice_budget_reached`); consent granted; reliability lens approved and acknowledged (`review-8e97bc3f6a6913cf`), 2 non-blocking advisories |
 
-Next step: T3.
+T1 to T3 done; the four acceptance criteria are covered by tests. Next step: delivery, on the user's instruction.
 
 ## Notes and follow-ups
 
 - The API CI job does not run when only the mobile fixture changes; the key-set assertion catches drift on the next API change.
 - The recipe cache is not cleared on sign-out. No persisted store is today (`AuthContext.signOut` only clears the session), and wiring it means editing the auth context. Cached Account-scoped snapshots stay on the device, reachable only by recipe id. `useRecipeCacheStore.clear()` exists for the ticket that adds a sign-out reset (candidate: X6, #16).
 - T1 review advisories (non-blocking, receipt stands): no route test for `estimatedCostCents` 0 without a daily cost; no route test for `forbidden` on a non-member (only the expired trial is covered); a `nil` from `RecipeVersions.freeze/1` is reported as `recipe_not_found`; the catch-all clause comment in `RecipeController.show/2`; `recipe_not_found` lives under auth-named mobile types (`AuthErrorCode`), as every code does since #11.
+
+### Decisions added during T3
+
+11. **Recipe facts.** Servings ("Rinde"), duration ("Tiempo", plain minutes) and cost ("Costo estimado", pesos without decimals) are drawn as rows at the foot of the ingredients card, each only when known. The screen showed none of them before.
+12. **Local recipes show no cost.** The flat `estimatedCost` has no stated currency unit (the mocks hold `15.5` and `10.0`), so the converter answers `estimatedCostCents: 0`. A mock recipe looks exactly as it did before this ticket.
+13. **Ingredient rows of an API recipe.** Stock and Shopping list state come from the local mock inventory, which does not know server ingredient ids, so every row of an API recipe reads "Falta" and cannot be pressed until Inventory comes from the API. A catalog ingredient counted in another unit than the line is treated the same way.
+14. **Themeless recipes** (`theme: null`, every API recipe until R2) draw in the default palette.
+15. **T2 review follow-ups applied in T3:** `getRecipe` rejects a 2xx body without `id`, `recipeVersionId`, `ingredients[]` and `steps[]`, so a partial payload is never cached; a load in flight when `clear()` runs does not repopulate the cache.
+
+### Open review advisories (non-blocking, all three receipts stand)
+
+- `useRecipeCacheStore`: the guard that keeps a load started before `clear()` from repopulating the cache is tested through its effect, not through the identity check itself.
+- `recipeApi`: the response guard checks `id`, `recipeVersionId`, `ingredients[]` and `steps[]` only; it is not a schema validator, so a payload with a wrong field type inside a line would still be cached.
+- Earlier ones are listed under "Notes and follow-ups".
+
+## Delivery record
+
+- Work branch `claude/issue-32-e3aa6a`, on `f4b849d`: `04da8ea` (T1, API), `b983e77` (T2, mobile type, API module, cache), `546cb99` (T1b, API tests), `0cd25b0` (T3, recipe screen), `450c579` (this document). The native reviews recorded above ran on these commits; a fourth one, over the whole branch (`review-70b71303242f0a1d`, four lenses), was approved and acknowledged on `450c579`.
+- 2026-10-08: chain strategy `stacked-to-main`, chosen by the user ("as #11"). The commits were cherry-picked onto `main` at `f4b849d` so that T1b sits with T1. Commit identities changed: T1 `04da8ea` is now `24db770`, T1b `546cb99` is `cf99c05`, T2 `b983e77` is `1119985`, T3 `0cd25b0` is `1c767b9`. The tree is the reviewed one plus one sentence of the integration guide.
+- Slices, stacked to main, each pull request based on the previous branch: S1 `feat/recipe-detail-api` (T1, T1b, `c674096`), S2 `feat/recipe-detail-cache` (T2), S3 `feat/recipe-detail-screen` (T3, this document).
+- `c674096` `docs(api)`: follow-up of a whole-branch review warning. The guide said `forbidden` also covers a User without an active Membership; the auth pipeline answers `account_not_found` (401) first, as the T1b route test shows.
+- Review budget: S1 683, S2 434, S3 about 1,400 changed lines, against 400. One slicing pass, one work unit per slice; tests are most of each diff (S3: about 700 lines of tests). Recommended as `size:exception`.
+- Whole-branch review advisories still open, none blocking: the recipe cache is not scoped to the Account, is never evicted and never refreshes a cached snapshot (`category` and `successorRecipeId` can go stale); the response guard of `recipeApi` is shallow; the `nil` branches of `RecipeService.get_recipe/2` have no test of their own.
+- Pull requests opened: #80 (S1), #82 (S2), #84 (S3). CI green on the three before the follow-ups below.
+- Review follow-ups applied after they were opened, from the advisory reviews of the three pull requests (all approved, none blocking), on the user's instruction. Each one is committed on the branch of its slice and merged forward:
+  - #80, `8b65b7f` `test(api)`: a route test pins the step order of a corrected recipe. The steps of a first version are ordered by the SQL freeze function, so the projection's own sort was covered by no test; with the sort removed the new test fails (`[{2, ...}, {1, ...}]`). The integration guide now says `successorRecipeId` is read when the request is served, so a cached body does not learn of a later correction.
+  - #82, `0abab49` `fix(mobile)`: `getCachedRecipe` took the caller's `recipeVersionId` as it came, so a route hint naming the cached version of another recipe showed that recipe under the requested id. The hint now counts only when the cached snapshot's `id` is the requested one. Before: the new store test received the other recipe. After: recipe feature suites 12 passed on that branch.
+  - #84, this commit, `fix(mobile)`: a `403 forbidden` was shown with "Reintentar". It is now its own status with its own message ("Tu cuenta no tiene acceso a esta receta por ahora") and no retry. Before: the new screen case failed on the missing `recipe-forbidden` presentation. After: mobile suite 96 suites, 1522 passed (one earlier run lost a suite to a jest worker `SIGSEGV` and passed on the next two runs with no change); `typecheck` and `lint` ok.
+- Candidates of those reviews left as they are, none confirmed: the cache survives sign-out and has no eviction (X6, #16), the shallow response guard, a `clear()` racing the persist hydration.
+- The follow-ups were reviewed with the whole stack (`review-b46671508ec5023c`, four lenses, approved and acknowledged on `01b41d8`); its advisories repeat the open ones above.
+- 2026-10-08: `main` moved to `c823153` (#67, #78, #79 and #69 merged) and #80 conflicted with it. `main` was merged into S1 (`fb48e8d`) and the merge carried forward to S2 (`e3c312d`) and S3 (`3eac6c2`). Three conflicts, all in S1 and all the same collision: the recipe detail code (this ticket) and the Onboarding profile codes (#17) were added at the same place in `ApiError`, in its test and in the list of envelope routes of the integration guide. Both sides are kept; `recipe_not_found` stays above the planning channel comment. Checks after the merge (parent run): S1 `mix format --check-formatted` and `mix compile --warnings-as-errors` ok, `mix test` 1327 passed, 20 skipped, 0 failures, mobile 94 suites, 1479 passed; S2 mobile 1491 passed; S3 mobile 98 suites, 1530 passed, `typecheck` and `lint` ok.

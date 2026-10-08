@@ -15,8 +15,8 @@ const STATUS_LABEL: Record<RecipeIngredientStatus, string> = {
   listed: 'En la lista',
 };
 
-// An ingredient outside the catalog has no name to put on the shopping list: it only reads as
-// missing, with nothing to press.
+// An ingredient outside the local catalog cannot be put on the shopping list, which is built
+// from that catalog: it only reads as missing, with nothing to press.
 const UNLISTABLE_MISSING_LABEL = 'Falta';
 
 // The row is 40pt tall and rows touch each other, so 2pt on each side reaches a 44pt target.
@@ -25,7 +25,7 @@ const ADD_HIT_SLOP = { top: 2, bottom: 2, left: 12, right: 12 };
 export function RecipeIngredientItem({ row, onRequest }: RecipeIngredientItemProps) {
   const { theme } = useRecipeTheme();
   const isMissing = row.status === 'missing';
-  // The unit comes from the catalog, so a row without one stands for an unknown ingredient.
+  // A row has a unit only when the local catalog knows its ingredient.
   const canAdd = isMissing && row.unit !== null;
   const statusLabel = isMissing && !canAdd ? UNLISTABLE_MISSING_LABEL : STATUS_LABEL[row.status];
 
