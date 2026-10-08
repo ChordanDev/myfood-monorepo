@@ -90,6 +90,12 @@ At most one open Shopping item (`status` in `pending`, `in_cart`) per `(account_
   - `R3-batch-path-unproved`: "stores each planned line once when called twice with the same lines" now refutes the `shopping planned items batch insert failed` log, so a batch that always falls back to the one-by-one retry fails the test.
   - `R3-prune-failure-untested`: "archives past-dated pending items on every call" now asserts the same row is archived in place with its quantity and `inserted_at` kept and `updated_at` advanced.
   - RED by mutation (reverted with `git checkout -- lib`): with the batch statement replaced by a raise and `updated_at` dropped from the prune update, both tests failed (`16/18 passed`). GREEN on the real code: `mix test` gave `1332 passed, 20 skipped`; format and compile checks exit 0.
+- [x] T7 (inline, one file): the migration bounds its lock wait, after the Jorge finding `sec-perf-migration-table-lock-blocks-reads`, accepted by the user.
+  - The finding holds. With `SHARE ROW EXCLUSIVE` held by another session on the test database, a `SELECT` on `shopping_items` answered and an `UPDATE` matching zero rows was cancelled by `lock_timeout`: that is the archive statement every Shopping list read runs, so the read waits for the migration. The same `UPDATE` is blocked under plain `SHARE`, the mode `CREATE INDEX` takes, so the explicit lock only extends the wait over the dedupe.
+  - Change: `SET LOCAL lock_timeout = '3s'` before the lock in `up` and before the drop in `down`; the comment now says a Shopping list read waits as well.
+  - Check on the test database, with another session holding `ROW EXCLUSIVE` for 7 seconds: `up` raised `Postgrex.Error 55P03 (lock_not_available)` after 3089 ms and left no index; after the release `up` returned `:ok` with the index in place.
+  - `mix format --check-formatted` and `mix compile --warnings-as-errors`: exit 0. `mix test`: `1332 passed, 20 skipped`.
+  - Not applied, by decision: skipping the archive statement when nothing is past. A zero-row `UPDATE` takes the table lock too, so avoiding it needs an extra `SELECT` on every read.
 
 ## Checks
 
@@ -102,6 +108,9 @@ Test-first applies to T2 and T3: each new test is observed failing before its im
 RDD is on (global). One whole-branch review at the end, base `2e544f4`.
 
 - First review, at `66deff2`: granted, lens `review-reliability`, approved and acknowledged (lineage `review-3bd4efcaa8836950`). Two advisory findings, both applied in T6. The T6 commits change the candidate, so the branch asks for a review again.
+- Second review, at `bc8c548`: granted, lens `review-reliability`, approved and acknowledged (lineage `review-425abdbbb419980e`). Three advisory findings, not applied and listed in the pull request: the rebuild upsert keeps the last of two lines with the same planned key, the rebuild call site is proved at repository level only, the migration dedupe has no repeatable test.
+- Pull request: https://github.com/ChordanDev/myfood-monorepo/pull/109, one pull request with the size exception accepted by the user.
+- Jorge advisory review of the pull request at `bc8c548`: one confirmed finding, applied in T7.
 
 ## Out of scope, noted
 
@@ -117,8 +126,8 @@ RDD is on (global). One whole-branch review at the end, base `2e544f4`.
 
 ## Progress
 
-T1 to T6 are done on `claude/strange-kepler-5720ad`: `d58ff7a` (index, constraint, cart order, fixtures), `74598e7` (derivation, prune, logged rescue, rebuild upsert) and the follow-up commit that clears the reservation token in the rebuild upsert, plus the commits that record this document. All three checks pass on the per-worktree test database. Nothing is pushed.
+T1 to T7 are done on `claude/strange-kepler-5720ad`: `d58ff7a` (index, constraint, cart order, fixtures), `74598e7` (derivation, prune, logged rescue, rebuild upsert) and the follow-up commit that clears the reservation token in the rebuild upsert, plus the commits that record this document. All three checks pass on the per-worktree test database. Nothing is pushed.
 
 Authored changed lines are 937 against the 400 heuristic (882 added, 55 deleted): 327 in `lib` and the migration, 610 in tests.
 
-Next step: the review of the branch with T6 on top, then the pull request, which is the user's decision.
+Next step: the review of the branch with T7 on top; merging the pull request is the user's decision.
