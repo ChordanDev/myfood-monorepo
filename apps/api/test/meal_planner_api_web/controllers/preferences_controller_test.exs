@@ -497,6 +497,31 @@ defmodule MealPlannerApiWeb.PreferencesControllerTest do
       assert_validation_error(context, body, "softPreferences")
     end
 
+    # The column holds 255 code points an entry, and one character can be
+    # several: here 80 characters of four code points each.
+    test "a Soft preference of 80 characters the column cannot hold is a validation_error",
+         context do
+      stacked = String.duplicate("é̂̃", 80)
+      assert String.length(stacked) == 80
+
+      body = %{valid_body() | "softPreferences" => ["fine", stacked]}
+
+      assert_validation_error(context, body, "softPreferences")
+    end
+
+    test "a Soft preference of 80 characters with several code points each is accepted", %{
+      conn: conn,
+      token: token
+    } do
+      # 80 characters, 240 code points.
+      stacked = String.duplicate("é̂", 80)
+      body = %{valid_body() | "softPreferences" => [stacked]}
+
+      response = conn |> put_preferences(token, body) |> json_response(200)
+
+      assert response["softPreferences"] == [stacked]
+    end
+
     test "the first offending field decides the answer: diet, then hardRestrictions", context do
       twenty_one = Enum.map(1..21, &"preference #{&1}")
 

@@ -60,6 +60,7 @@ The mobile app already calls `GET`/`PUT /api/me/preferences` (`apps/mobile/src/f
 - `Services.AccountService` renders a null `diet_type` / `macro_goal` as `null`, not `"nil"`.
 - `Services.PriceService` needs no guard: the only code that reads `protein_g_per_meal` from the row is `build_slot_list/1`, which has no caller in `apps/api/lib` and always answers `{:error, :no_slots}` (its catalog query preloads an association `Recipe` does not define). A one-line guard was written, could not be tested and was dropped.
 - A NUL character in a Soft preference is refused with `validation_error`: Postgres cannot store it and the write would otherwise raise.
+- The 80-character limit counts graphemes, while the `varchar(255)[]` column counts code points. An entry over 255 code points is refused with `validation_error` too, so 80 characters of four code points each no longer end as a 500 (advisory finding on #85 and #86, fixed on top of #86).
 - A save takes a row lock on the User first, so two concurrent saves of one User cannot leave the union of both Hard restriction sets. The SQL sandbox cannot run two transactions side by side, so the lock has no test.
 - `user_hard_restrictions.code` has a check constraint for the seven codes. The table is created by this same branch, so no deployed database can hold an off-catalog row when the constraint is added.
 - The migration that makes `diet_type` and `macro_goal` nullable is fix-forward in practice: its rollback fails once a profile holds a null, which the first mobile Diet save on a new row produces.
@@ -130,4 +131,3 @@ Each slice was built and tested on its own head (`a1d50e9`, `db74183`, `6abe118`
 - `Data.AccountRepo` and neighbours declare the user id as `pos_integer()` in older specs and `Ecto.UUID.t()` in the new ones; the ids are UUIDs.
 - Test naming in `preferences_controller_test.exs`: `over_count` / `over_length` hold accepted responses, and `rejected_message/3` is an assertion named like a getter.
 - `@wire_fields` in `PreferencesController` restates the camelCase spelling by hand and must cover every validated field.
-- The 80-character limit counts graphemes, so the stored byte size of an entry is bounded only by the request body limit.
