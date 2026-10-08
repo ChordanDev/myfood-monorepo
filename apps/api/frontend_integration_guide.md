@@ -2,6 +2,11 @@
 
 This document is the integration reference for the current backend contracts in `meal_planner_api`.
 
+> **Auth is superseded by spec #1.** The authentication contract the mobile app uses is defined in
+> [ChordanDev/myfood-monorepo#1](https://github.com/ChordanDev/myfood-monorepo/issues/1), not in this guide.
+> Section 2 and the login step of section 9 describe the legacy password and social routes and are kept
+> for reference only. Section 10 states which error body shape each group of endpoints returns today.
+
 ## 1. Base URL and Transport
 
 - Base HTTP URL (example local): `http://localhost:4000/api`
@@ -10,6 +15,21 @@ This document is the integration reference for the current backend contracts in 
 - WebSocket endpoint: `/socket/websocket`
 
 ## 2. Authentication
+
+> **Superseded by [spec #1](https://github.com/ChordanDev/myfood-monorepo/issues/1).** This section is
+> legacy content, kept for reference only. What changed:
+>
+> - The mobile app signs in and signs up with an email code: `POST /api/auth/login/request-code`,
+>   `POST /api/auth/login/verify-code`, `POST /api/auth/signup/request-code` and
+>   `POST /api/auth/signup/verify-code`. Sessions are renewed with `POST /api/auth/refresh`, ended with
+>   `POST /api/auth/logout`, and the signed-in user is read with `GET /api/me`. Request and response
+>   bodies for these routes are specified in #1.
+> - Errors on those routes use the envelope `{ "error": { "code": "<code>", "message": "<text>" } }`.
+> - The `401` body shown in 2.4 is no longer emitted. A protected route answers a missing or invalid
+>   token with the same envelope (`unauthenticated`, or `access_token_expired` for an expired token).
+> - `/api/auth/password` and `/api/auth/social` (and their aliases) still exist, and the errors their
+>   controller builds still use the flat `{ "error": "<reason>" }` body listed in 2.2 and 2.3. Their
+>   refresh tokens cannot be used with `POST /api/auth/refresh`.
 
 Auth policy note:
 
@@ -903,7 +923,27 @@ For unsupported event name, channel reply error is:
 
 ## 10. Error Handling Conventions
 
-- Protected REST without valid auth: `401` with `{ "error": "unauthorized", "reason": "..." }`
-- Validation/domain errors in most controllers: `422` with `{ "error": "<reason>" }`
+Two error body shapes are in use. Which one a request gets depends on the code path that rejects it.
+
+- **Envelope (spec [#1](https://github.com/ChordanDev/myfood-monorepo/issues/1)):**
+  `{ "error": { "code": "<code>", "message": "<human text>" } }`, with the HTTP status derived from the code.
+  It is returned by:
+  - the auth pipeline in front of every protected REST route: `401 unauthenticated` (missing or invalid
+    token, or a token of the wrong type), `401 access_token_expired`, and `401 account_not_found` (the
+    session has no active Membership);
+  - the capability guard in front of the capability-gated routes, when access enforcement is enabled:
+    `403 trial_expired`;
+  - the mobile auth routes `/api/auth/login/request-code`, `/api/auth/login/verify-code`,
+    `/api/auth/signup/request-code`, `/api/auth/signup/verify-code` and `/api/auth/refresh`;
+  - `GET /api/me` and its alias `GET /api/auth/me`.
+- **Flat (legacy, not migrated to the envelope):** `{ "error": "<reason>" }`, with the status chosen by each
+  endpoint (`422` in most controllers). It is still returned by:
+  - the validation and domain errors that the non-auth controllers build themselves: account context,
+    dietary profile, planning, planning chat, calendar, cooking, recipes, shopping, inventory, memberships,
+    invites, account leave and billing;
+  - the legacy auth routes, for the errors their own controller or plug builds: `/api/auth/password`,
+    `/api/auth/social` and their aliases, `/api/auth/email-code/request`, `/api/auth/email-code/verify` and
+    `/api/auth/switch-account`;
+  - the account scope check on `/api/accounts/:account_id/*`: `403` with `{ "error": "account_mismatch" }`.
 - Planning weekly has explicit `400` for known request-shape/limits errors (including `exceeds_max_planning_days`).
 - Channel generation errors are emitted and replied with `reason` as string.

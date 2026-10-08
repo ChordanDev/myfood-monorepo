@@ -6,6 +6,14 @@
 **Test Suite:** 498 tests, 0 failures
 **Last Updated:** 2026-07-11 (Phase A — Tenancy Refactor / multi-familia, PR 3c)
 
+> **La autenticación de esta guía fue reemplazada por la spec #1.** El contrato de autenticación que usa
+> la app móvil está definido en
+> [ChordanDev/myfood-monorepo#1](https://github.com/ChordanDev/myfood-monorepo/issues/1), no en este
+> documento. La sección [Autenticación](#autenticación), el ejemplo "Login + Guardar Token" y la pregunta
+> sobre tokens expirados del FAQ describen el contrato anterior y se conservan solo como referencia. La
+> sección [Manejo de Errores](#manejo-de-errores) indica qué formato de error devuelve hoy cada grupo de
+> endpoints.
+
 ---
 
 ## Tabla de Contenidos
@@ -52,6 +60,21 @@ headers: {
 ---
 
 ## Autenticación
+
+> **Reemplazada por la [spec #1](https://github.com/ChordanDev/myfood-monorepo/issues/1).** Esta sección
+> es contenido anterior y se conserva solo como referencia. Qué cambió:
+>
+> - La app móvil inicia sesión y se registra con un código enviado por email:
+>   `POST /api/auth/login/request-code`, `POST /api/auth/login/verify-code`,
+>   `POST /api/auth/signup/request-code` y `POST /api/auth/signup/verify-code`. La sesión se renueva con
+>   `POST /api/auth/refresh`, se cierra con `POST /api/auth/logout` y el usuario actual se lee con
+>   `GET /api/me`. Los cuerpos de request y response de estas rutas están especificados en #1.
+> - Los errores de esas rutas usan el sobre `{ "error": { "code": "<código>", "message": "<texto>" } }`.
+> - Una ruta protegida responde a un token ausente o inválido con ese mismo sobre: `401 unauthenticated`,
+>   o `401 access_token_expired` cuando el token expiró.
+> - `/api/auth/login` (alias de `/api/auth/password`) sigue existiendo, y los errores que arma su
+>   controlador siguen usando el formato plano `{ "error": "<motivo>" }`. Sus refresh tokens no sirven
+>   para `POST /api/auth/refresh`.
 
 ### Flujo JWT
 
@@ -605,7 +628,36 @@ account_mismatch` de las rutas REST con `:account_id` en la URL.
 
 ## Manejo de Errores
 
-### Formato de Error (consistente en toda la API)
+### Formato de Error
+
+El formato no es único en toda la API: conviven dos formatos, y cuál recibe una request depende de qué
+parte del backend la rechaza.
+
+**Sobre (spec [#1](https://github.com/ChordanDev/myfood-monorepo/issues/1)).** El status HTTP se deriva
+del código:
+
+```json
+{
+  "error": {
+    "code": "unauthenticated",
+    "message": "Authentication is required for this request."
+  }
+}
+```
+
+Lo devuelven:
+
+- el pipeline de autenticación delante de todas las rutas REST protegidas: `401 unauthenticated` (token
+  ausente, inválido o de un tipo incorrecto), `401 access_token_expired` y `401 account_not_found` (la
+  sesión no tiene una membership activa);
+- el control de acceso delante de las rutas que requieren acceso vigente, cuando la verificación de
+  acceso está habilitada: `403 trial_expired`;
+- las rutas de autenticación de la app móvil: `/api/auth/login/request-code`,
+  `/api/auth/login/verify-code`, `/api/auth/signup/request-code`, `/api/auth/signup/verify-code` y
+  `/api/auth/refresh`;
+- `GET /api/me` y su alias `GET /api/auth/me`.
+
+**Plano (anterior, no migrado al sobre).** El status lo elige cada endpoint:
 
 ```json
 {
@@ -613,7 +665,18 @@ account_mismatch` de las rutas REST con `:account_id` en la URL.
 }
 ```
 
-O para errores de validación:
+Lo siguen devolviendo:
+
+- los errores de validación y de dominio que arman los controladores que no son de autenticación:
+  contexto de cuenta, perfil dietario, planning, chat de planning, calendario, cooking, recetas, shopping,
+  inventario, memberships, invitaciones, abandono de cuenta y billing;
+- las rutas de autenticación anteriores, para los errores que arma su propio controlador o plug:
+  `/api/auth/password`, `/api/auth/social` y sus alias, `/api/auth/email-code/request`,
+  `/api/auth/email-code/verify` y `/api/auth/switch-account`;
+- la verificación de cuenta en `/api/accounts/:account_id/*`: `403` con `{ "error": "account_mismatch" }`.
+
+Para errores que ningún controlador maneja (por ejemplo, una ruta inexistente), Phoenix responde con su
+formato por defecto:
 
 ```json
 {
@@ -627,7 +690,8 @@ O para errores de validación:
 
 | Código | Significado | Acción Recomendada |
 |--------|-------------|-------------------|
-| `unauthenticated` | Token inválido o expirado | Refrescar token o re-login |
+| `unauthenticated` | Token ausente o inválido | Refrescar token o re-login |
+| `access_token_expired` | El access token expiró | Refrescar token y reintentar |
 | `forbidden` | No tiene permisos | Verificar account_id |
 | `account_mismatch` | El `:account_id` de la URL no coincide con la cuenta activa del token (multi-familia) | Hacer `switch-account` a la cuenta correcta primero, ver [Multi-Familia](#multi-familia-cuentas-múltiples) |
 | `not_found` | Recurso no existe | Verificar IDs |

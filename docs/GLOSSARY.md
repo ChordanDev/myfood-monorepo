@@ -20,7 +20,7 @@ This file and `docs/adr/` are the only durable docs in the repository. Specs, ma
 
 **Explicit account creation** — Sign-up is a deliberate flow: the User enters only an email, confirms the code, and only then are the User, their Account and a session created. `(alias: silent registration)`
 
-**Device session** — One authenticated device, holding a short-lived access token and a revocable refresh token; logging out one device does not end the others. `(code: Auth.Guardian, mobile authTokenStore)`
+**Device session** — One authenticated device, holding a short-lived access token and a revocable refresh token; logging out one device does not end the others. `(code: Services.DeviceSessions, Persistence.Auth.DeviceSession, mobile authTokenStore)`
 
 **Trial** — The time-limited free access every new Account starts with before it needs an active entitlement. Code grants 7 days; older docs said 10. `(code: AccountAccess)` `(alias: Trial Period, free plan)`
 

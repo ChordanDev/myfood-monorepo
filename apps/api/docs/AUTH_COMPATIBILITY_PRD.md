@@ -5,6 +5,19 @@
 **Estado:** Draft
 **Prioridad:** 🔴 Alta
 
+> **Reemplazado por la [spec #1](https://github.com/ChordanDev/myfood-monorepo/issues/1).** Este PRD
+> describe un contrato de autenticación anterior y se conserva solo como referencia histórica. El
+> contrato vigente para la app móvil es el de #1; en particular, cambiaron:
+>
+> - `POST /auth/refresh` (sección 4.2): recibe `{ "refreshToken" }` y responde
+>   `{ "accessToken", "refreshToken", "tokenType" }`.
+> - `POST /auth/logout` (sección 4.3): recibe `{ "refreshToken" }`, no requiere access token y responde
+>   `204` sin cuerpo.
+> - `GET /auth/me` (sección 5.3): responde el payload `CurrentMe` (`user`, `account`, `membership`,
+>   `onboarding`).
+> - El formato de error (sección 5.4): las rutas de #1 responden
+>   `{ "error": { "code": "<código>", "message": "<texto>" } }`.
+
 ---
 
 ## 1. Problem Statement
