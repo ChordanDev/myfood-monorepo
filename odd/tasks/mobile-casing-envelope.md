@@ -110,3 +110,13 @@ T1 to T4 done; all six acceptance criteria are covered by tests. Next step: deli
 - T4: the 100 ms `assert_reply` in the confirm end-to-end channel test failed once in about 85 looped runs of the writer (timeout unchanged by this feature).
 - Follow-up (not in this ticket): `apps/api/docs/CHANNELS.md` documents planning events and payloads that do not exist; only the casing and error subsection was added and the keys of the listed outgoing events re-spelled. The moduledoc of `planning_channel.ex` still says the server broadcasts to `channel_pid`.
 - Follow-up from the T4 review (advisory, not blocking): a real command pushed with a non-map payload still crashes the channel as it did before this feature (only the unknown-event path is tested); the drift guard does not check which topic a broadcast targets; `handle_out/3` has no test of an unencodable payload; the confirm end-to-end test uses the default 100 ms reply timeout and now runs once per casing; `:invalid_format` maps to `invalid_date` for every command, proved only for `swap_constraints`; the mobile pass-through test extracts the codes from `api_error.ex` with a regex tied to a comment and to indentation.
+
+## Delivery record
+
+- 2026-10-08: the stack was rebased onto `main` at `9b057b8` (after #58, #60 and #61 merged) before the first push. Commit identities changed: T1 `08c2fde` is now `56cffc7`, T2 `47db472` is `4220efb`, T2b `da70520` is `e99bf3b`, T3 `eaa2b6f` is `8f8ef75`, T4 `31c6dd8` is `b4a7fe5`, T3b `f6593df` is `9e140f6`. The native reviews recorded above ran on the pre-rebase commits.
+- The rebase had one conflict, in T3: ticket #10 made `apps/mobile/src/api/errors.ts` the single source of the mobile allowlist and messages and un-skipped the contract test. Resolution: the duplicated list in `authService.ts` and the mirror in `authErrorCodeContract.test.ts` are gone (main wins); the 29 channel codes live only in `errors.ts` and in the `AuthErrorCode` union. The earlier notes about a second mobile copy and a skipped contract test no longer apply.
+- Checks after the rebase (parent run): tip `mix test` 1203 passed, 20 skipped, 0 failures; `mix format --check-formatted` and `mix compile --warnings-as-errors` ok; mobile `npm test` 92 suites, 1471 passed; typecheck and lint ok. T3 head on its own: `mix test` 1187 passed, 20 skipped; mobile 1441 passed; typecheck ok.
+- Slices, stacked to main, each pull request based on the previous branch: S1 `feat/mobile-casing-transform` (T1), S2 `feat/mobile-casing-http` (T2, T2b), S3 `feat/mobile-channel-envelope` (T3), S4 `feat/mobile-channel-casing` (T4, T3b, this document).
+- Every slice is above the 400-line review budget after one slicing pass; tests are most of each diff. Recommended as `size:exception`.
+
+
