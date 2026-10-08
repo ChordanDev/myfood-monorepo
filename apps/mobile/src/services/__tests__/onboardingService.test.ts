@@ -280,7 +280,7 @@ describe('authService onboarding/preferences/slot-cooking-times endpoints', () =
     );
 
     await expect(authService.updateProfile('access-1', profilePayload)).rejects.toMatchObject({
-      code: 'unknown_error',
+      code: 'not_found',
       status: 404,
     });
   });

@@ -86,5 +86,108 @@ defmodule MealPlannerApiWeb.ApiErrorTest do
       assert conn.halted
       assert %{"error" => %{"code" => "unknown_error", "message" => _}} = json_response(conn, 500)
     end
+
+    test "renders the unknown_error envelope as its body", %{conn: conn} do
+      conn = conn |> ApiError.server_fault()
+
+      assert json_response(conn, 500) == json_round_trip(ApiError.unknown_error_envelope())
+    end
   end
+
+  describe "envelope/1" do
+    test "returns the bare envelope map for an allowlisted code" do
+      assert ApiError.envelope(:unauthenticated) == %{
+               error: %{
+                 code: :unauthenticated,
+                 message: "Authentication is required for this request."
+               }
+             }
+    end
+
+    test "is the body error/2 renders, for every code", %{conn: conn} do
+      for code <- ApiError.codes() do
+        rendered = ApiError.error(conn, code)
+
+        assert Jason.decode!(rendered.resp_body) == json_round_trip(ApiError.envelope(code))
+      end
+    end
+
+    test "raises for a code outside the allowlist" do
+      assert_raise FunctionClauseError, fn -> ApiError.envelope(:not_a_mobile_code) end
+    end
+
+    test "raises for unknown_error, which is not a domain code" do
+      assert_raise FunctionClauseError, fn -> ApiError.envelope(:unknown_error) end
+    end
+  end
+
+  describe "unknown_error_envelope/0" do
+    test "returns the envelope used for unexpected failures" do
+      assert ApiError.unknown_error_envelope() == %{
+               error: %{code: :unknown_error, message: "An unexpected error occurred."}
+             }
+    end
+  end
+
+  describe "planning channel codes" do
+    # Every deliberate error reason the planning channel replies, with the
+    # HTTP status the same code would get on an HTTP route.
+    @channel_codes %{
+      generation_in_progress: 409,
+      no_active_generation: 409,
+      missing_session_id: 422,
+      account_expired: 403,
+      invalid_proposal_id: 422,
+      not_found: 404,
+      subscription_required: 403,
+      invalid_range: 422,
+      overlapping_range: 409,
+      forbidden_intent: 422,
+      unknown_intent: 422,
+      invalid_payload: 422,
+      session_mismatch: 409,
+      no_active_session: 409,
+      forbidden: 403,
+      already_confirmed: 409,
+      foreign_lock: 403,
+      not_a_member: 403,
+      missing_lock: 409,
+      lost_lock: 409,
+      terminal_lock: 409,
+      transaction_failed: 409,
+      already_active: 409,
+      invalid_identity: 401,
+      invalid_date: 422,
+      invalid_date_range: 422,
+      optimization_failed: 422,
+      optimizer_unavailable: 503,
+      optimizer_timeout: 504
+    }
+
+    test "have an envelope with a message each" do
+      for {code, _status} <- @channel_codes do
+        assert %{error: %{code: ^code, message: message}} = ApiError.envelope(code)
+        assert is_binary(message) and message != ""
+      end
+    end
+
+    test "map to their HTTP status", %{conn: conn} do
+      for {code, status} <- @channel_codes do
+        assert {code, ApiError.error(conn, code).status} == {code, status}
+      end
+    end
+
+    test "are listed by codes/0 next to the auth codes" do
+      auth_codes =
+        ~w(unauthenticated access_token_expired account_not_found trial_expired invalid_email
+           email_not_found rate_limited code_invalid code_expired too_many_attempts
+           code_send_failed email_already_exists refresh_token_invalid refresh_token_revoked
+           refresh_token_replayed refresh_token_expired refresh_token_session_mismatch)a
+
+      assert Enum.sort(ApiError.codes()) == Enum.sort(auth_codes ++ Map.keys(@channel_codes))
+    end
+  end
+
+  # An envelope as a client reads it: string keys and a string code.
+  defp json_round_trip(envelope), do: envelope |> Jason.encode!() |> Jason.decode!()
 end

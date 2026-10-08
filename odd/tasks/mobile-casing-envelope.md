@@ -55,7 +55,7 @@ Router: a new `:mobile_casing` pipeline placed right after `:api` so the hook is
 
 - [x] **T1 Casing module.** `Casing.camelize_keys/1` and `snake_keys/1` with the rules above, unit tested (nested lists, structs, atom values, mixed atom and string keys, non-identifier keys, opaque keys, idempotence). Route: delegated (preparation reading plus two files).
 - [x] **T2 HTTP opt-in pipeline.** `MobileCasing` plug, `:mobile_casing` pipeline, product scope and `/me` wired, product controller tests updated to camelCase requests and responses. Also closes the three advisory findings of the T1 review in `Casing` (deterministic winner on key collisions, tests for the opaque rule reach and for special atom keys). Route: delegated (plug, router, about ten test files).
-- [ ] **T3 Channel error envelope.** `ApiError.envelope/1`, channel codes added to the API allowlist and to the mobile allowlist in lockstep, command and join error replies converted, channel tests updated. Route: delegated (API and mobile files).
+- [x] **T3 Channel error envelope.** `ApiError.envelope/1`, channel codes added to the API allowlist and to the mobile allowlist in lockstep, command and join error replies converted, channel tests updated. Route: delegated (API and mobile files).
 - [ ] **T4 Channel casing.** Inbound normalization, camelCase ok replies, `intercept` plus `handle_out/3` for every outbound event, tests asserting pushes. `apps/api/docs/CHANNELS.md` planning section updated for the envelope and casing. Route: delegated.
 
 ## Acceptance criteria (from the ticket)
@@ -82,7 +82,7 @@ Router: a new `:mobile_casing` pipeline placed right after `:api` so the hook is
 
 ## Progress
 
-T1 and T2 done. Next step: T3. Local test runs need `MYFOOD_TEST_DB_USERNAME=<local role>` and an empty `MYFOOD_TEST_DB_PASSWORD` next to `MYFOOD_TEST_DATABASE`. Baseline suite on `507e107`: 1081 passed, 20 skipped, 0 failures.
+T1, T2 and T3 done. Next step: T4. Local test runs need `MYFOOD_TEST_DB_USERNAME=<local role>` and an empty `MYFOOD_TEST_DB_PASSWORD` next to `MYFOOD_TEST_DATABASE`. Baseline suite on `507e107`: 1081 passed, 20 skipped, 0 failures.
 
 | Task | Commit | Checks | Review |
 |------|--------|--------|--------|
@@ -95,3 +95,8 @@ T1 and T2 done. Next step: T3. Local test runs need `MYFOOD_TEST_DB_USERNAME=<lo
 - T2: `POST /planning/confirm` now stores the client `meals` in `proposal_json` after normalization (snake_case keys).
 - T2: the opaque key list is repeated in `test/support/casing_assertions.ex`; keep it in step with `Casing`.
 - Follow-up (not in this ticket): `apps/api/frontend_integration_guide.md` and `apps/api/docs/FRONTEND_INTEGRATION.md` still show snake_case response keys for the product routes; the shopping channel still pushes snake_case; flat HTTP error bodies on the product controllers.
+- T3: 29 channel codes were added to `ApiError` and to the mobile allowlist (55 codes on mobile): the 17 literal reasons plus 12 traced from the services (`not_a_member`, `missing_lock`, `lost_lock`, `terminal_lock`, `transaction_failed`, `already_active`, `invalid_identity`, `invalid_date`, `invalid_date_range`, `optimization_failed`, `optimizer_unavailable`, `optimizer_timeout`).
+- T3: a changeset keeps replying `invalid_payload` (client validation failure); every other non-atom, non-string reason replies `unknown_error` and is logged.
+- T3: allowlisting `not_found` on mobile changes one mobile behaviour: a `not_found` envelope is no longer collapsed to `unknown_error` (`onboardingService.test.ts` expectation updated by the parent).
+- T3: the skipped mobile contract scanner matches the literal `error(:code)` only, so it does not see codes the channel resolves at runtime through `ApiError.envelope/1`. Ticket #10 owns un-skipping it.
+- Follow-up (pre-existing, not in this ticket): `:invalid_format` from `Date.from_iso8601/1` in `planning_chat_service.ex` now replies `unknown_error`; cold-start `generate_menu` fails in the test environment with `{:invalid_child_spec, _}` from `DynamicSupervisor.start_child` (previously masked as `invalid_payload`); `send_message` crashes the channel on a non-UUID `session_id` or when the intent atomizer returns a bare `:error`.
