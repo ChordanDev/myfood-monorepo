@@ -84,10 +84,36 @@ without the screen that reads it, while the API module can land alone.
 
 ## Delivery
 
-Strategy: `ask-on-risk`. Forecast: well over 400 authored lines (API ~700, mobile ~1500 with
-test rewrites). Work-unit commits stay linear on this branch so either chain strategy can be
-cut from them; the chain strategy is asked when the PRs are prepared. Push and PRs are the
-User's decision.
+Strategy: `ask-on-risk`; chain strategy `stacked-to-main`, chosen by the User on 2026-10-08 (as
+issue #11 was delivered). Each pull request targets the branch of the previous one.
+
+The work was first committed linearly on `claude/issue-39-b92a2a` (`7be15e5`..`3a55ea3`, the commit
+ids quoted in the Progress table and the notes below) and then re-cut on `main` at `d3a9eb5`:
+
+| # | Branch | Commits | Slice | Changed lines |
+|---|--------|---------|-------|---------------|
+| 1 | `feat/account-today` | `e7a3079` | T1 | 395 |
+| 2 | `feat/shopping-rebuilder-groupings` | `57afe4b` | T2 | 466 |
+| 3 | `feat/shopping-list-contract` | `14bd0ed`, `99b9e0d` | T3 | 1468 |
+| 4 | `feat/mobile-shopping-api` | `7653fc8` | T4 | 524 |
+| 5 | `feat/mobile-shopping-cache` | `25533e0`, `024bfe1`, `4ac4514` and this document | T5 | about 7500, two thirds deleted tests |
+
+Slices 3 and 5 exceed the 400-line budget and cannot be cut further without separating a contract
+from the tests it rewrites (`size:exception`).
+
+What the re-cut changed:
+- The migration is `20261008140000_add_timezone_to_accounts.exs`: `main` already had version `20261008130000`.
+- `main` already ships the `validation_error` code (Onboarding profile, #17). The stack adds no error
+  code: the shopping read replies `main`'s (message "The request is not valid."), and the original
+  `aa5a2df` was dropped. `main` also has `ApiError.validation_error/2`, which names the failing field;
+  using it for `untilDate` / `groupBy` is a possible follow-up.
+- The recipe screen change (D11) was re-applied on the recipe-detail stack: everything it added is
+  kept, and `RecipeScreen.test.tsx` goes from 55 tests on `main` to 46.
+
+Checks on the stack: API at slice 3 `mix test` 1408 passed, 20 skipped (run with one of `main`'s two
+migrations of version `20261008130000` renamed in the working tree only; `main` cannot migrate until
+that duplicate is fixed there, and its API job fails for it); mobile at slice 5 `npm test` 1411 passed,
+typecheck clean, lint 0 errors.
 
 ## Open questions
 
@@ -163,4 +189,4 @@ instead: no blockers. Its findings:
 - Test gaps: guard ordering on the two auto-retry paths; hydration failure; the pill is asserted
   through a mocked `FloatingCalendar`.
 
-Next step: delivery. Push, PRs and the chain strategy are the User's decision.
+Next step: review and merge of the stacked pull requests, in order.
