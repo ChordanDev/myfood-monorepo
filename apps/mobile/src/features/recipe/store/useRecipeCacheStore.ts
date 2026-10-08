@@ -34,9 +34,16 @@ export const useRecipeCacheStore = create<RecipeCacheState>()(
       ...EMPTY_CACHE,
       getCachedRecipe: (recipeId, known) => {
         const { recipesByVersionId, versionIdByRecipeId } = get();
-        const versionId = versionIdByRecipeId[recipeId] ?? known?.recipeVersionId;
+        const indexedVersionId = versionIdByRecipeId[recipeId];
+        if (indexedVersionId !== undefined) return recipesByVersionId[indexedVersionId];
 
-        return versionId === undefined ? undefined : recipesByVersionId[versionId];
+        // A known version is a hint from the caller: it only counts when it is this recipe's.
+        const hinted =
+          known?.recipeVersionId === undefined
+            ? undefined
+            : recipesByVersionId[known.recipeVersionId];
+
+        return hinted?.id === recipeId ? hinted : undefined;
       },
       loadRecipe: (recipeId, known) => {
         const cached = get().getCachedRecipe(recipeId, known);

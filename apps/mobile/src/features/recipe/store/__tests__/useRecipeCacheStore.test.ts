@@ -58,6 +58,23 @@ describe('loadRecipe', () => {
     expect(cache().getCachedRecipe(RECIPE.id, known)).toEqual(RECIPE);
   });
 
+  it('ignores a known version that belongs to another recipe', async () => {
+    useRecipeCacheStore.setState({
+      recipesByVersionId: { [RECIPE.recipeVersionId]: RECIPE },
+      versionIdByRecipeId: {},
+    });
+    const known = { recipeVersionId: RECIPE.recipeVersionId };
+    const other: Recipe = { ...RECIPE, id: 'another-recipe', recipeVersionId: 'another-version' };
+    getRecipeMock.mockResolvedValue(other);
+
+    expect(cache().getCachedRecipe(other.id, known)).toBeUndefined();
+
+    const loaded = await cache().loadRecipe(other.id, known);
+
+    expect(getRecipeMock).toHaveBeenCalledWith(other.id);
+    expect(loaded).toEqual(other);
+  });
+
   it('fetches when the known version is not cached', async () => {
     getRecipeMock.mockResolvedValue(RECIPE);
 
