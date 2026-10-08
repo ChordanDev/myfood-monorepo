@@ -15,7 +15,8 @@ defmodule MealPlannerApi.Persistence.Accounts do
     RevenuecatWebhookEvent,
     User,
     UserDietaryProfile,
-    UserExcludedIngredient
+    UserExcludedIngredient,
+    UserSlotCookingTime
   }
 
   def create_account(attrs) do
@@ -47,6 +48,47 @@ defmodule MealPlannerApi.Persistence.Accounts do
       nil -> %UserDietaryProfile{} |> UserDietaryProfile.changeset(attrs) |> Repo.insert()
       profile -> profile |> UserDietaryProfile.changeset(attrs) |> Repo.update()
     end
+  end
+
+  @doc "The Slot cooking times a User has saved: no rows, or one per slot."
+  def list_user_slot_cooking_times(user_id) do
+    from(t in UserSlotCookingTime, where: t.user_id == ^user_id) |> Repo.all()
+  end
+
+  @doc """
+  Replaces the Slot cooking times of a User with `times`, a map from each
+  slot to its `cooking_time_minutes` and `hunger_level`.
+
+  Every slot is written or none is: a slot that is missing or not valid
+  rolls the whole set back and returns its changeset. Keys other than the
+  three slots are ignored, so a saved set is always exactly three rows.
+
+  It runs in a transaction and joins the one already open, if any; a
+  refused set then rolls that outer transaction back too.
+  """
+  def replace_user_slot_cooking_times(user_id, times) when is_map(times) do
+    Repo.transaction(fn ->
+      Enum.map(UserSlotCookingTime.slots(), fn slot ->
+        attrs = times |> Map.get(slot, %{}) |> Map.merge(%{user_id: user_id, slot: slot})
+
+        case upsert_user_slot_cooking_time(attrs) do
+          {:ok, slot_cooking_time} -> slot_cooking_time
+          {:error, changeset} -> Repo.rollback(changeset)
+        end
+      end)
+    end)
+  end
+
+  # `returning: true` reads the row back, so a replaced row keeps the id and
+  # `inserted_at` it already had instead of the ones generated for the insert.
+  defp upsert_user_slot_cooking_time(attrs) do
+    %UserSlotCookingTime{}
+    |> UserSlotCookingTime.changeset(attrs)
+    |> Repo.insert(
+      on_conflict: {:replace, [:cooking_time_minutes, :hunger_level, :updated_at]},
+      conflict_target: [:user_id, :slot],
+      returning: true
+    )
   end
 
   def add_user_excluded_ingredient(user_id, ingredient_id, reason) do
