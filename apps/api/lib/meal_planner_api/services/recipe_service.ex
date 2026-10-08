@@ -24,21 +24,20 @@ defmodule MealPlannerApi.Services.RecipeService do
     end
   end
 
-  @spec get_recipe(map(), pos_integer()) :: {:ok, map()} | {:error, :not_found | term()}
+  @doc """
+  Returns the detail of a recipe the user's Account can see, as the projection
+  of its frozen version (`RecipeDetail.project/2`).
+  """
+  @spec get_recipe(map(), String.t()) ::
+          {:ok, map()} | {:error, :not_found | :subscription_required}
   def get_recipe(user, recipe_id) do
     with {:ok, ids} <- MealPlannerApi.Services.RecipeAccess.authorize(user),
          {:ok, _} <- Ecto.UUID.cast(recipe_id),
          recipe when not is_nil(recipe) <-
-           RecipeRepo.get_visible_recipe(ids.account_id, recipe_id) do
-      version = MealPlannerApi.Services.RecipeVersions.freeze(recipe.id)
-      detail = MealPlannerApi.Services.RecipeVersions.decode(version.snapshot)
-
-      {:ok,
-       Map.merge(detail, %{
-         version: version.number,
-         recipe_version_id: version.id,
-         successor_recipe_id: recipe.superseded_by_id
-       })}
+           RecipeRepo.get_visible_recipe(ids.account_id, recipe_id),
+         version when not is_nil(version) <-
+           MealPlannerApi.Services.RecipeVersions.freeze(recipe.id) do
+      {:ok, MealPlannerApi.Services.RecipeDetail.project(recipe, version)}
     else
       {:error, reason} -> {:error, reason}
       _ -> {:error, :not_found}

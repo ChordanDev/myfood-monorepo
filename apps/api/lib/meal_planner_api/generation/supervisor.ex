@@ -1,9 +1,18 @@
 defmodule MealPlannerApi.Generation.Supervisor do
   @moduledoc """
-  DynamicSupervisor para instancias de GenerationServer.
+  Supervisor of the generation servers and of the registry that finds them.
 
-  Un servidor por `account_id`. Se registra en `MealPlannerApi.Generation.Generations`
-  (Registry) para que `start_generation/4` pueda encontrar procesos existentes.
+  It is a plain `Supervisor` with two children:
+
+    * `MealPlannerApi.Generation.Generations`, the `Registry` where each
+      `MealPlannerApi.Generation.Server` registers under
+      `{:generation, account_id}`, so `Server.start_generation/4` finds the
+      server of an account that already has one.
+    * `MealPlannerApi.Generation.ServerSupervisor`, the `DynamicSupervisor`
+      the generation servers are started under, one per account.
+
+  A generation server is started on `ServerSupervisor`, never on this module:
+  this module is not a `DynamicSupervisor` and refuses the child spec.
   """
 
   use Supervisor
@@ -17,7 +26,8 @@ defmodule MealPlannerApi.Generation.Supervisor do
   def init(_opts) do
     children = [
       {Registry, keys: :unique, name: MealPlannerApi.Generation.Generations},
-      {DynamicSupervisor, strategy: :one_for_one, max_seconds: 5}
+      {DynamicSupervisor,
+       strategy: :one_for_one, max_seconds: 5, name: MealPlannerApi.Generation.ServerSupervisor}
     ]
 
     Supervisor.init(children, strategy: :one_for_one)

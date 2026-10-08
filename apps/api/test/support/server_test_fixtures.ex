@@ -18,6 +18,11 @@ defmodule MealPlannerApi.Generation.ServerTestFixtures do
       consumes (`slot_key`, `recipe_id`, `name`, `price_cents`).
   """
 
+  # The whole module, not `only: [assert_receive: 1]`: on Elixir 1.17 the
+  # macro expands to a call to `flunk/1` in the caller, which must be
+  # imported too.
+  import ExUnit.Assertions
+
   alias MealPlannerApi.Data.{PlanningRepo, RecipeRepo, ShoppingRepo}
   alias MealPlannerApi.Persistence.Accounts.Account, as: PersistenceAccount
   alias MealPlannerApi.Persistence.Accounts.AccountMembership
@@ -30,6 +35,10 @@ defmodule MealPlannerApi.Generation.ServerTestFixtures do
   alias MealPlannerApi.Persistence.Shopping.CheckoutSession
   alias MealPlannerApi.Persistence.Shopping.ShoppingItem
   alias MealPlannerApi.Repo
+
+  # How long `stop_generation_server/1` waits for the generation a server is
+  # running. Half of the default timeout of an ExUnit test.
+  @pipeline_timeout_ms 30_000
 
   @doc "Insert an Account backed by the `:individual` subscription plan."
   @spec insert_account(String.t()) :: PersistenceAccount.t()
@@ -185,4 +194,39 @@ defmodule MealPlannerApi.Generation.ServerTestFixtures do
   @doc "Fetch a ShoppingItem struct for direct assertions."
   @spec get_item(binary()) :: ShoppingItem.t() | nil
   def get_item(id), do: Repo.get(ShoppingItem, id)
+
+  @doc """
+  Stop the generation server that a cold `Server.start_generation/4` started
+  for the account, once the generation it is running has finished.
+
+  Such a server lives under the application supervision tree, so nothing
+  stops it when the test ends, and it runs the generation pipeline in its
+  own process on the sandbox connection of the test. Call this at the end of
+  the test body, while the test process still owns the connection.
+
+  The wait is `:sys.get_state/2`: the server takes its messages in the order
+  they arrived, so it answers after every message that was already in its
+  mailbox, the `:run_optimization` it sent itself included, and the pipeline
+  has left the database by then. The timeout is explicit and generous,
+  because `Server.get_status/1` only offers the 5 second default of
+  `GenServer.call/2`; a pipeline slower than that fails the test here, with
+  the exit of the call.
+
+  What it does not cover: a message the server handles before the wait may
+  queue another generation behind it (a chat modification does), and that
+  one would be cut by the stop.
+  """
+  @spec stop_generation_server(Ecto.UUID.t()) :: :ok
+  def stop_generation_server(account_id) do
+    [{pid, _value}] =
+      Registry.lookup(MealPlannerApi.Generation.Generations, {:generation, account_id})
+
+    ref = Process.monitor(pid)
+    %{account_id: ^account_id} = :sys.get_state(pid, @pipeline_timeout_ms)
+
+    :ok = DynamicSupervisor.terminate_child(MealPlannerApi.Generation.ServerSupervisor, pid)
+    assert_receive {:DOWN, ^ref, :process, ^pid, _reason}
+
+    :ok
+  end
 end

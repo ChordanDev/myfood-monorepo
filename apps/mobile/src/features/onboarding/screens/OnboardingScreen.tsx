@@ -6,7 +6,7 @@ import { useAuth } from '@/features/auth';
 import { useRecipeTheme } from '@/context/RecipeThemeContext';
 import { NoisyBackground, SafeAreaContent } from '@/components';
 import { getAuthErrorMessage } from '@/services/authService';
-import type { CookingSkill, HungerLevel, MealSlot } from '@/features/auth/types/auth';
+import type { CookingSkill, CookingTimeSlot, HungerLevel } from '@/features/auth/types/auth';
 import type { DietCode, HardRestrictionCode } from '@/features/preferences/constants/catalog';
 import {
   HouseholdStep,
@@ -77,7 +77,7 @@ export function OnboardingScreen({ previewMode = false }: OnboardingScreenProps)
   const [diet, setDiet] = useState<DietCode | null>(null);
   const [hardRestrictions, setHardRestrictions] = useState<HardRestrictionCode[]>([]);
   const [softPreferences, setSoftPreferences] = useState('');
-  const [slots, setSlots] = useState<Record<MealSlot, SlotFormState>>(() => ({
+  const [slots, setSlots] = useState<Record<CookingTimeSlot, SlotFormState>>(() => ({
     breakfast: buildSlotForm(defaultSlot()),
     lunch: buildSlotForm(defaultSlot()),
     dinner: buildSlotForm(defaultSlot()),
@@ -131,7 +131,7 @@ export function OnboardingScreen({ previewMode = false }: OnboardingScreenProps)
     };
   }
 
-  const handleSlotModeChange = useCallback((slot: MealSlot, mode: SlotMode) => {
+  const handleSlotModeChange = useCallback((slot: CookingTimeSlot, mode: SlotMode) => {
     setSlots((prev) => ({
       ...prev,
       [slot]: {
@@ -143,14 +143,14 @@ export function OnboardingScreen({ previewMode = false }: OnboardingScreenProps)
     }));
   }, []);
 
-  const handleSlotPresetChange = useCallback((slot: MealSlot, preset: number) => {
+  const handleSlotPresetChange = useCallback((slot: CookingTimeSlot, preset: number) => {
     setSlots((prev) => ({
       ...prev,
       [slot]: { ...prev[slot], mode: 'preset', preset },
     }));
   }, []);
 
-  const handleSlotCustomChange = useCallback((slot: MealSlot, text: string) => {
+  const handleSlotCustomChange = useCallback((slot: CookingTimeSlot, text: string) => {
     const sanitized = text.replace(/[^0-9]/g, '');
     setSlots((prev) => ({
       ...prev,
@@ -158,7 +158,7 @@ export function OnboardingScreen({ previewMode = false }: OnboardingScreenProps)
     }));
   }, []);
 
-  const handleSlotHungerChange = useCallback((slot: MealSlot, hunger: HungerLevel) => {
+  const handleSlotHungerChange = useCallback((slot: CookingTimeSlot, hunger: HungerLevel) => {
     setSlots((prev) => ({
       ...prev,
       [slot]: { ...prev[slot], hunger },

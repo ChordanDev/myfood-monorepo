@@ -13,7 +13,8 @@ defmodule MealPlannerApi.Data.AccountRepo do
     AccountMembership,
     User,
     UserDietaryProfile,
-    UserExcludedIngredient
+    UserExcludedIngredient,
+    UserSlotCookingTime
   }
 
   # -------------------------------------------------------------------------
@@ -106,6 +107,18 @@ defmodule MealPlannerApi.Data.AccountRepo do
   @spec find_users_by_ids([pos_integer()]) :: [User.t()]
   def find_users_by_ids(ids) when is_list(ids), do: Repo.all(from(u in User, where: u.id in ^ids))
 
+  @doc """
+  Locks the row of a User until the surrounding transaction ends, so two
+  writes that replace what one User stores run one after the other.
+
+  `FOR NO KEY UPDATE` does not block an insert that references the User.
+  """
+  @spec lock_user(Ecto.UUID.t()) :: User.t() | nil
+  def lock_user(user_id) do
+    from(u in User, where: u.id == ^user_id, lock: "FOR NO KEY UPDATE")
+    |> Repo.one()
+  end
+
   # -------------------------------------------------------------------------
   # Dietary profile
   # -------------------------------------------------------------------------
@@ -121,11 +134,41 @@ defmodule MealPlannerApi.Data.AccountRepo do
     end
   end
 
+  @doc """
+  Sets the Diet of a User and nothing else of the dietary profile, creating
+  the row when it is missing. `nil` stores "no Diet".
+  """
+  @spec put_diet(Ecto.UUID.t(), String.t() | nil) ::
+          {:ok, UserDietaryProfile.t()} | {:error, Ecto.Changeset.t()}
+  def put_diet(user_id, diet_type) do
+    profile =
+      Repo.get_by(UserDietaryProfile, user_id: user_id) || %UserDietaryProfile{user_id: user_id}
+
+    profile
+    |> UserDietaryProfile.diet_changeset(%{diet_type: diet_type})
+    |> Repo.insert_or_update()
+  end
+
   @spec get_dietary_profile!(pos_integer()) :: UserDietaryProfile.t()
   def get_dietary_profile!(user_id), do: Repo.get_by!(UserDietaryProfile, user_id: user_id)
 
   @spec get_dietary_profile(pos_integer()) :: UserDietaryProfile.t() | nil
   def get_dietary_profile(user_id), do: Repo.get_by(UserDietaryProfile, user_id: user_id)
+
+  # -------------------------------------------------------------------------
+  # Slot cooking times
+  # -------------------------------------------------------------------------
+
+  @spec list_slot_cooking_times(Ecto.UUID.t()) :: [UserSlotCookingTime.t()]
+  defdelegate list_slot_cooking_times(user_id),
+    to: MealPlannerApi.Persistence.Accounts,
+    as: :list_user_slot_cooking_times
+
+  @spec replace_slot_cooking_times(Ecto.UUID.t(), map()) ::
+          {:ok, [UserSlotCookingTime.t()]} | {:error, Ecto.Changeset.t()}
+  defdelegate replace_slot_cooking_times(user_id, times),
+    to: MealPlannerApi.Persistence.Accounts,
+    as: :replace_user_slot_cooking_times
 
   # -------------------------------------------------------------------------
   # Excluded ingredients

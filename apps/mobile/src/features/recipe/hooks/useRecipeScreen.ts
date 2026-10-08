@@ -10,15 +10,19 @@ import {
   type ShoppingListItem,
 } from '@/features/shopping';
 import { useMealPlanStore } from '@/store';
-import type { Ingredient, RecipeIngredient } from '@/types/domain';
+import type { Ingredient } from '@/types/domain';
 import type { RecipeChatOffer } from '../domain/recipeChat';
 import { canMarkAsCooked, isRecipeChatEnabled, resolveRecipeEntry } from '../domain/recipeEntry';
 import { resolveRecipeIngredients, type RecipeIngredientRow } from '../domain/recipeIngredients';
+import type { RecipeIngredientLine } from '../types/recipe';
+import { useRecipe } from './useRecipe';
 
 type RecipeRouteParams = {
   id: string;
   /** The planned meal the screen was opened for; the same recipe is planned on several days. */
   entryId?: string;
+  /** The version the meal names, when the caller knows it: a cached one is not asked for again. */
+  recipeVersionId?: string;
 };
 
 /** A route param repeated in the URL arrives as an array; the first value is the one meant. */
@@ -31,7 +35,7 @@ function firstParam(value: string | string[] | undefined): string | undefined {
  * catalog has no name to look for among the items added by hand, so it is never listed.
  */
 function getListedIngredientIds(
-  lines: RecipeIngredient[],
+  lines: RecipeIngredientLine[],
   catalog: Ingredient[],
   shoppingItems: ShoppingListItem[]
 ): string[] {
@@ -64,7 +68,7 @@ export function useRecipeScreen() {
   const entryId = firstParam(params.entryId);
   const router = useRouter();
 
-  const recipe = useMealPlanStore((state) => state.getRecipeById(recipeId));
+  const { recipe, status, retry } = useRecipe(recipeId, firstParam(params.recipeVersionId));
   const entries = useMealPlanStore((state) => state.entries);
   const favoriteRecipeIds = useMealPlanStore((state) => state.favoriteRecipeIds);
   const toggleFavoriteRecipe = useMealPlanStore((state) => state.toggleFavoriteRecipe);
@@ -135,12 +139,14 @@ export function useRecipeScreen() {
 
   return {
     recipe,
+    status,
     rows,
     isFavorite: favoriteRecipeIds.includes(recipeId),
     canMarkAsCooked: canMarkAsCooked(entry),
     isChatEnabled: isRecipeChatEnabled(entry, todayKey),
     isCookedConfirmVisible,
     handleBack,
+    handleRetry: retry,
     handleToggleFavorite,
     handleRequestMarkAsCooked,
     handleConfirmCooked,

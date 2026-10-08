@@ -24,4 +24,19 @@ defmodule MealPlannerApi.Persistence.Accounts.UserDietaryProfile do
     |> unique_constraint(:user_id)
     |> foreign_key_constraint(:user_id)
   end
+
+  @doc """
+  Changeset of the Diet the mobile app saves (issue #18).
+
+  Only `diet_type` is cast, and it may be `nil`: the User saved "no Diet".
+  `macro_goal` is neither required nor written, so a new row has none and an
+  existing row keeps the one it has.
+  """
+  def diet_changeset(profile, attrs) do
+    profile
+    |> cast(attrs, [:diet_type])
+    |> validate_required([:user_id])
+    |> unique_constraint(:user_id)
+    |> foreign_key_constraint(:user_id)
+  end
 end

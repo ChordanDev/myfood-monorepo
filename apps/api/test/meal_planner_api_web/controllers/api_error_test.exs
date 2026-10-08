@@ -62,6 +62,31 @@ defmodule MealPlannerApiWeb.ApiErrorTest do
       assert is_binary(message) and message != ""
     end
 
+    test "maps the recipe detail code to its HTTP status", %{conn: conn} do
+      conn = conn |> ApiError.error(:recipe_not_found)
+
+      assert %{"error" => %{"code" => "recipe_not_found", "message" => message}} =
+               json_response(conn, 404)
+
+      assert is_binary(message) and message != ""
+    end
+
+    test "maps the Onboarding profile codes to 422", %{conn: conn} do
+      assert (conn |> ApiError.error(:validation_error)).status == 422
+
+      conn = conn |> ApiError.error(:invalid_cooking_skill)
+
+      assert %{"error" => %{"code" => "invalid_cooking_skill", "message" => message}} =
+               json_response(conn, 422)
+
+      assert is_binary(message) and message != ""
+    end
+
+    test "maps every User preferences code to 422", %{conn: conn} do
+      assert (conn |> ApiError.error(:invalid_diet)).status == 422
+      assert (conn |> ApiError.error(:invalid_hard_restriction)).status == 422
+    end
+
     test "keeps a response header set on the conn before rendering", %{conn: conn} do
       conn =
         conn
@@ -70,6 +95,11 @@ defmodule MealPlannerApiWeb.ApiErrorTest do
 
       assert get_resp_header(conn, "retry-after") == ["42"]
       assert %{"error" => %{"code" => "rate_limited"}} = json_response(conn, 429)
+    end
+
+    test "maps the Slot cooking times codes to their HTTP status", %{conn: conn} do
+      assert (conn |> ApiError.error(:slot_cooking_times_not_found)).status == 404
+      assert (conn |> ApiError.error(:invalid_hunger_level)).status == 422
     end
 
     test "raises for a code outside the mobile allowlist", %{conn: conn} do
@@ -91,6 +121,31 @@ defmodule MealPlannerApiWeb.ApiErrorTest do
       conn = conn |> ApiError.server_fault()
 
       assert json_response(conn, 500) == json_round_trip(ApiError.unknown_error_envelope())
+    end
+  end
+
+  describe "validation_error/2" do
+    test "renders validation_error with 422 and halts", %{conn: conn} do
+      conn = conn |> ApiError.validation_error("householdSize")
+
+      assert conn.halted
+      assert [content_type] = get_resp_header(conn, "content-type")
+      assert content_type =~ "application/json"
+      assert %{"error" => %{"code" => "validation_error"}} = json_response(conn, 422)
+    end
+
+    test "names the field in the message and adds nothing else to the envelope", %{conn: conn} do
+      generic = ApiError.envelope(:validation_error).error.message
+
+      for field <- ~w(displayName householdSize) do
+        assert %{"error" => error} =
+                 conn |> ApiError.validation_error(field) |> json_response(422)
+
+        assert %{"code" => "validation_error", "message" => message} = error
+        assert map_size(error) == 2
+        assert message =~ field
+        refute message == generic
+      end
     end
   end
 
@@ -177,14 +232,26 @@ defmodule MealPlannerApiWeb.ApiErrorTest do
       end
     end
 
-    test "are listed by codes/0 next to the auth codes" do
+    test "are listed by codes/0 next to the codes of the HTTP routes" do
       auth_codes =
         ~w(unauthenticated access_token_expired account_not_found trial_expired invalid_email
            email_not_found rate_limited code_invalid code_expired too_many_attempts
            code_send_failed email_already_exists refresh_token_invalid refresh_token_revoked
            refresh_token_replayed refresh_token_expired refresh_token_session_mismatch)a
 
-      assert Enum.sort(ApiError.codes()) == Enum.sort(auth_codes ++ Map.keys(@channel_codes))
+      profile_codes = ~w(validation_error invalid_cooking_skill)a
+      slot_cooking_times_codes = ~w(slot_cooking_times_not_found invalid_hunger_level)a
+
+      # The codes of `PUT /api/me/preferences` (issue #18) that are its own.
+      preferences_codes = ~w(invalid_diet invalid_hard_restriction)a
+
+      assert Enum.sort(ApiError.codes()) ==
+               Enum.sort(
+                 auth_codes ++
+                   [:recipe_not_found] ++
+                   profile_codes ++
+                   slot_cooking_times_codes ++ preferences_codes ++ Map.keys(@channel_codes)
+               )
     end
   end
 
