@@ -69,6 +69,28 @@ defmodule MealPlannerApiWeb.Plugs.MobileCasingTest do
       assert conn.params == %{"scheduled_meal_id" => 2}
     end
 
+    test "keeps the body over the query string when they spell one param differently" do
+      conn =
+        :post
+        |> json_conn("/api/cooking/start?scheduled_meal_id=1", %{"scheduledMealId" => 2})
+        |> MobileCasing.call(MobileCasing.init([]))
+
+      assert conn.query_params == %{"scheduled_meal_id" => "1"}
+      assert conn.body_params == %{"scheduled_meal_id" => 2}
+      assert conn.params == %{"scheduled_meal_id" => 2}
+    end
+
+    test "keeps a path param over the body and the query string" do
+      conn =
+        :post
+        |> json_conn("/api/cooking/sessions/7/step?sessionId=9", %{"sessionId" => "8"})
+        |> Map.update!(:params, &Map.put(&1, "session_id", "7"))
+        |> Map.put(:path_params, %{"session_id" => "7"})
+        |> MobileCasing.call(MobileCasing.init([]))
+
+      assert conn.params == %{"session_id" => "7"}
+    end
+
     test "fetches the query string and leaves an unfetched body alone" do
       conn = conn(:get, "/api/calendar?startDate=2026-10-05")
 
