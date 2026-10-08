@@ -1,7 +1,7 @@
 defmodule MealPlannerApiWeb.Plugs.SwitchAccountAuth do
   @moduledoc """
   Phase 4 — Conditional authentication for `POST /api/auth/switch-account`
-  (`email-code-auth-account-selection`, task 4.2).
+  (task 4.2).
 
   ## Two modes
 
@@ -13,9 +13,8 @@ defmodule MealPlannerApiWeb.Plugs.SwitchAccountAuth do
       pre-Phase-4 `:auth` pipeline: Guardian-validated Bearer,
       `:current_user` (and `:current_membership`) populated.
 
-    * **continuation_token present** — the opaque random token from
-      `MealPlannerApi.Services.EmailCodeAuth.verify_code/3` is the
-      credential. The plug:
+    * **continuation_token present** — the opaque random continuation
+      token is the credential. The plug:
 
         1. Hashes the plaintext (SHA-256 lower-case hex, mirroring
            `EmailCodeAuth.hash_continuation/1`).
@@ -102,8 +101,8 @@ defmodule MealPlannerApiWeb.Plugs.SwitchAccountAuth do
   end
 
   # `nil` (bearerless) and `:invalid_bearer` (plug-detected malformed
-  # token) are explicitly short-circuited — the former is the multi-
-  # membership verify flow, the latter never reaches the controller.
+  # token) are explicitly short-circuited — the former is the bearerless
+  # exchange, the latter never reaches the controller.
   defp assert_bearer_matches(
          conn,
          %AccountSelectionContinuation{user_id: continuation_user_id}

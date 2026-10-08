@@ -19,8 +19,8 @@ defmodule MealPlannerApi.Services.DeviceSessions do
   one sees what the one before it left; a unique index over the rows
   that are not revoked holds the same rule in the database.
 
-  The legacy routes mint their pairs with
-  `MealPlannerApiWeb.Controllers.AccountScopeHelpers.mint_token_pair/2`
+  `POST /api/auth/switch-account` and `POST /api/invites/:token/accept`
+  mint their pairs in `MealPlannerApiWeb.Controllers.AccountScopeHelpers`
   and store nothing, so their refresh tokens are unknown here.
   """
 
@@ -119,8 +119,8 @@ defmodule MealPlannerApi.Services.DeviceSessions do
 
     * `{:error, :refresh_token_invalid}` — not a string, or a token with
       no Device session: malformed, signed by someone else, minted by a
-      legacy route, or swept. A stored token that does not verify as a
-      refresh token gets this answer too.
+      route that opens no Device session, or swept. A stored token that
+      does not verify as a refresh token gets this answer too.
     * `{:error, :refresh_token_replayed}` — the token was already
       rotated. Every active session of that User on that device is
       revoked, the one that replaced this token included.

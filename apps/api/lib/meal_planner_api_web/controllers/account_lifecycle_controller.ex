@@ -2,10 +2,9 @@ defmodule MealPlannerApiWeb.AccountLifecycleController do
   @moduledoc """
   Multi-familia switch-account + self-leave flows (Phase A — Tenancy
   Refactor, PR 3a tasks 3.5 / 3.6 + Phase 4 task 4.2 conditional
-  authentication). See `specs/multi-familia-switch-account.md`,
+  authentication). See `specs/multi-familia-switch-account.md` and
   `specs/invite-and-accept.md` §"Owner removes a member" (leave shares
-  the owner-protection rule), and `specs/email-code-authentication/spec.md`
-  §"Selection Continuation Security".
+  the owner-protection rule).
   """
 
   use MealPlannerApiWeb, :controller

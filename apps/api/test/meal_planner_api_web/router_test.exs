@@ -15,6 +15,9 @@ defmodule MealPlannerApiWeb.RouterTest do
   alias MealPlannerApi.Persistence.Accounts.AccountMembership
   alias MealPlannerApi.Persistence.Accounts.User, as: PersistenceUser
   alias MealPlannerApi.Repo
+  alias MealPlannerApiWeb.AccountLifecycleController
+  alias MealPlannerApiWeb.AuthController
+  alias MealPlannerApiWeb.MobileAuthController
 
   test "all 6 Phase A tenancy routes resolve", %{conn: conn} do
     owner =
@@ -108,11 +111,12 @@ defmodule MealPlannerApiWeb.RouterTest do
     refute Enum.any?(remaining, &(&1.user_id == member_user.id))
   end
 
-  # Legacy authentication sweep (issue #14): the password and social routes
-  # are gone. Each body is one the removed action answered without a 404, so
-  # a route that is still mounted fails the test: the password action
-  # registered the User (200) and the social action refused a payload
-  # without `id_token` (400).
+  # Legacy authentication sweep (issue #14): the password, social and
+  # `/api/auth/email-code/*` routes are gone. Each body is one the removed
+  # action answered without a 404, so a route that is still mounted fails
+  # the test: the password action registered the User (200), the social
+  # action refused a payload without `id_token` (400), the code request
+  # answered 202 and the code verification refused an unknown code (401).
   describe "removed legacy auth routes" do
     password_body = %{
       "mode" => "register",
@@ -123,6 +127,8 @@ defmodule MealPlannerApiWeb.RouterTest do
 
     social_body = %{"provider" => "google"}
 
+    email_code_body = %{"email" => "router_legacy_auth_gone@example.com", "code" => "123456"}
+
     for {path, body} <- [
           {"/api/auth/password", password_body},
           {"/api/auth/login", password_body},
@@ -130,7 +136,9 @@ defmodule MealPlannerApiWeb.RouterTest do
           {"/api/auth/social", social_body},
           {"/api/auth/google", social_body},
           {"/api/auth/facebook", social_body},
-          {"/api/auth/apple", social_body}
+          {"/api/auth/apple", social_body},
+          {"/api/auth/email-code/request", email_code_body},
+          {"/api/auth/email-code/verify", email_code_body}
         ] do
       test "POST #{path} is no longer routed (404)", %{conn: conn} do
         conn = post(conn, unquote(path), unquote(Macro.escape(body)))
@@ -140,12 +148,17 @@ defmodule MealPlannerApiWeb.RouterTest do
       end
     end
 
-    test "the email-code login routes under /api/auth/login are still routed" do
-      for {path, action} <- [
-            {"/api/auth/login/request-code", :request_login_code},
-            {"/api/auth/login/verify-code", :verify_login_code}
+    test "the routes that stay under /api/auth are still routed" do
+      for {path, controller, action} <- [
+            {"/api/auth/login/request-code", MobileAuthController, :request_login_code},
+            {"/api/auth/login/verify-code", MobileAuthController, :verify_login_code},
+            {"/api/auth/signup/request-code", MobileAuthController, :request_signup_code},
+            {"/api/auth/signup/verify-code", MobileAuthController, :verify_signup_code},
+            {"/api/auth/refresh", AuthController, :refresh},
+            {"/api/auth/logout", AuthController, :logout},
+            {"/api/auth/switch-account", AccountLifecycleController, :switch_account}
           ] do
-        assert %{plug: MealPlannerApiWeb.MobileAuthController, plug_opts: ^action} =
+        assert %{plug: ^controller, plug_opts: ^action} =
                  Phoenix.Router.route_info(MealPlannerApiWeb.Router, "POST", path, "")
       end
     end

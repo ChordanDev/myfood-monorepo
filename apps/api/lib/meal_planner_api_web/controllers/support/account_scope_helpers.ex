@@ -58,8 +58,7 @@ defmodule MealPlannerApiWeb.Controllers.AccountScopeHelpers do
   `user`, `account`, `membership`, `subscription`, `websocket`).
 
   Delegates the actual minting to `mint_token_pair/2` (post-review fix
-  pass item 4 — the single canonical implementation, also used by
-  `AuthController`).
+  pass item 4 — the single canonical implementation).
   """
   @spec render_membership_auth_response(
           Conn.t(),
