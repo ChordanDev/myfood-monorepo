@@ -38,7 +38,7 @@ The mobile app already calls `PUT /api/me/profile` (`apps/mobile/src/features/pr
   - `displayName` missing, not a string, blank after trim or over 64 characters: 422 `validation_error`.
   - `householdSize` missing, not a JSON integer (a numeric string and a float are rejected) or outside 1 to 20: 422 `validation_error`.
   - `cookingSkill` missing or not a string: 422 `validation_error`. A string outside the catalog: 422 `invalid_cooking_skill`.
-- `validation_error` message names the first offending field in its wire spelling (spec #2). `ApiError` messages are static per code, so the code gets a row in `@codes` with a generic message plus a dedicated renderer that takes the field name, in the style of `server_fault/1`. That renderer is invisible to the mobile contract scan, so the mobile allowlist lists `validation_error` by hand, as it already does for the planning channel codes. `invalid_cooking_skill` uses the piped `conn |> ApiError.error(:invalid_cooking_skill)` shape and is scan-visible.
+- `validation_error` message names the first offending field in its wire spelling (spec #2). `ApiError` messages are static per code, so the code gets a row in `@codes` with a generic message plus a dedicated renderer that takes the field name, in the style of `server_fault/1`. That renderer is invisible to the mobile contract scan. Since T4 the controller also emits the code through the piped shape for a rejection that names no field, so the scan sees it too. `invalid_cooking_skill` uses the piped `conn |> ApiError.error(:invalid_cooking_skill)` shape and is scan-visible.
 - Mobile caps the name at 60 and the API at 64 (ticket). The API is the looser bound on purpose; the mobile test stays at 60.
 
 ### Mobile (T2, T3)
@@ -51,6 +51,8 @@ The mobile app already calls `PUT /api/me/profile` (`apps/mobile/src/features/pr
 - [x] **T1** Store Household size and Cooking skill on the User and serve them from `CurrentMe`. Route: delegated direct (migration, schema, serializer, tests: 2+ non-trivial files). Commit `3e54966`.
 - [x] **T2** `PUT /api/me/profile` with its error codes, mobile allowlist and docs. Route: delegated direct (controller, router, `ApiError`, tests, mobile allowlist, docs). Commit `dc483d9`.
 - [x] **T3** Correct stale mobile comments and prove the round trip against the real route. Route: inline for the comment edit (mechanical, four files), delegated for the verification run. Commit `b849f14`. The round trip is proven through the app modules over real HTTP; a device or simulator run is still pending (see Progress).
+
+- [x] **T4** Reject display names the `users` table cannot store and make the rejection path of the controller total. Route: delegated direct (changeset, controller, tests, docs). Commit `4ed9e29`. Asked by the user after the advisory reviews of #78 and #79.
 
 ## Acceptance criteria (from the ticket)
 
@@ -108,6 +110,13 @@ Test-first: each behaviour change starts from a failing test observed before the
   - Reliability, warning, and resilience, suggestion: a `displayName` with an escaped NUL character passes the changeset and fails at Postgres with a 500 instead of the 422 envelope; no test covers it.
   - Readability, suggestion: the `user_not_found` to `account_not_found` mapping in `ProfileController` has no comment at the call site.
   - Readability, suggestion: the bounds 64 and 1 to 20 are inline literals, and the reason the API allows 64 against the mobile cap of 60 lives only in this document.
+- 2026-10-08: delivered as stacked pull requests #78 (`feat/onboarding-profile-storage` to `main`) and #79 (`claude/issue-17-d258e7` to `feat/onboarding-profile-storage`); CI passed on both (API, Mobile, changed paths). Advisory reviews by Jorge of #78 at `f8e088c` and #79 at `08fbf0a`: approved, no confirmed findings. Jorge did not run the tests; the CI and the local runs cover that.
+- 2026-10-08: T4 in `4ed9e29` (8 files, 140 insertions, 11 deletions), accepted by the user from those reviews and from the native review findings.
+  - Rule on `name` after trimming, every case an error on `name`: required, at most 64 graphemes, at most 255 codepoints (how Postgres counts `varchar(255)`), no NUL character.
+  - RED observed first, 5 failures: the router answered a raised `Postgrex.Error` 22001 for 64 joined emoji and 22021 for a NUL character, and the three changeset cases were valid. After: the two files plus `api_error_test.exs` 67 passed; full `mix test` 1257 passed, 20 skipped, re-run twice by the parent (seeds 320649 and 899616). `mix compile --warnings-as-errors` and `mix format --check-formatted` clean; `mix credo --strict` on the touched files reports only the two findings already in `user_test.exs`. Mobile contract and `authService` tests 82 passed, `npm run lint` 0 errors, `npx tsc --noEmit` clean.
+  - One earlier full run by the writer reported 1 failure of 1257 that was not identified (its output was cut). Six later full runs passed; treated as a flake, not confirmed.
+  - `ProfileController` answers `validation_error` with the static message when the changeset is invalid on none of the three fields, instead of raising. No public path reaches that branch today (`profile_changeset/2` declares no constraint), so it is covered by reading only.
+  - Not taken from the reviews: `stale_error_field` on the update (no path deletes a User; the same read-then-update exists in two other functions), the 15-digit migration versions and the migrate-before-boot order (both pre-existing), and the redundant second assertion of the `user_json/1` test.
 - Limits of the round trip proof: the token was minted with `FactoryHelpers` because the dev server keeps the email code in an in-memory mailbox with no route to read it; the wire was Node's fetch (`EXPO_PUBLIC_USE_RN_FETCH=1`), not the device's `expo/fetch`; the Settings screen was not rendered against the real route. A simulator run covers those three.
 
 ## Notes and follow-ups
@@ -115,6 +124,6 @@ Test-first: each behaviour change starts from a failing test observed before the
 - The mobile app keeps a stored snapshot to backfill null profile fields (`withPreservedProfileFields`). Once the API returns real values the backfill only matters for a User who never saved a profile.
 - Mobile behaviour changes by way of the allowlist only: a 422 from this route used to collapse to `unknown_error`; Settings now shows the two new messages. The app shows its own text per code, so the field named in the API message is not shown to the User.
 - `mix lint` fails on the base: `credo --strict` reports about 283 findings repo-wide and the alias stops before sobelow. Not part of this ticket.
-- A `displayName` with a NUL byte passes validation and would fail at Postgres with a 500. Every string column of the API shares this; not handled here.
+- A `displayName` with a NUL character or over the 255 codepoints of `users.name` used to pass validation and fail at Postgres with a 500; T4 rejects both. `User.changeset/2` (the sign-up path) still has no length or NUL rule on `name`; not traced here.
 - The mobile codes `onboarding_invalid`, `preferences_invalid` and `slot_cooking_times_invalid` do not match the spec #2 names; left for the O6 sweep (#22).
 - The jest-expo environment replaces the global `fetch` with a stubbed `expo/fetch` that does no network I/O; `EXPO_PUBLIC_USE_RN_FETCH=1` keeps Node's fetch for a real HTTP run.
