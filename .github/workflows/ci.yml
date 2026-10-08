@@ -35,8 +35,12 @@ jobs:
             api:
               - 'apps/api/**'
               - '.github/workflows/ci.yml'
+            # `apps/api/lib/**` is here because the mobile contract test
+            # (`authErrorCodeContract.test.ts`) scans the api source for the
+            # error codes it emits, so an api-only change can break it.
             mobile:
               - 'apps/mobile/**'
+              - 'apps/api/lib/**'
               - '.github/workflows/ci.yml'
 
   api:
