@@ -73,7 +73,7 @@ defmodule MealPlannerApi.Services.ShoppingService do
     account_id = identity.account_id
     {:ok, _} = Cart.expire_account(account_id, now)
 
-    # Auto-archive past items (always runs on every call)
+    # Auto-archive past items (runs on every read that passes validation)
     prune_past_items(account_id, today)
 
     upcoming_meals = upcoming_uncooked_meals(account_id, today)

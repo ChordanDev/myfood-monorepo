@@ -241,8 +241,9 @@ defmodule MealPlannerApi.ShoppingServiceTest do
     |> Repo.insert!()
   end
 
-  # Issue #39: the read takes the instant as its third argument, so these
-  # tests fix "now" instead of depending on the wall clock.
+  # Issue #39: the read takes the instant as its third argument. These tests
+  # leave it at its default and build their dates from the current UTC day;
+  # the "Account's today" block below is the one that fixes "now".
   describe "get_shopping_list/3" do
     test "archives past-dated pending items on every call" do
       {account_id, user} = identity!("archive")

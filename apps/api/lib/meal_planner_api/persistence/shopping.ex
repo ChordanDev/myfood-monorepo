@@ -102,6 +102,8 @@ defmodule MealPlannerApi.Persistence.Shopping do
         where:
           i.account_id == ^account_id and i.status in [:pending, :in_cart] and
             i.planned_date >= ^from_date,
+        # A stable order for any caller. The Shopping list read re-sorts by
+        # the slot's place in the day, which SQL cannot express on a string.
         order_by: [asc: i.planned_date, asc: i.id],
         preload: [ingredient: ingredient, scheduled_meal: meal]
       )
