@@ -68,6 +68,58 @@ defmodule MealPlannerApi.Persistence.Accounts.AccountTest do
     end
   end
 
+  describe "changeset/2 with timezone" do
+    @base_attrs %{name: "Schema-Test Timezone", plan: :individual, default_budget_cents: 0}
+
+    test "accepts a zone the time zone database knows" do
+      changeset =
+        Account.changeset(
+          %Account{},
+          Map.put(@base_attrs, :timezone, "America/Argentina/Buenos_Aires")
+        )
+
+      assert changeset.valid?, "expected valid, got errors: #{inspect(changeset.errors)}"
+
+      assert Ecto.Changeset.get_change(changeset, :timezone) ==
+               "America/Argentina/Buenos_Aires"
+    end
+
+    test "rejects a zone the time zone database does not know" do
+      changeset =
+        Account.changeset(%Account{}, Map.put(@base_attrs, :timezone, "Mars/Olympus_Mons"))
+
+      refute changeset.valid?
+      assert %{timezone: ["is not a known time zone"]} = errors_on(changeset)
+    end
+
+    test "is not required" do
+      assert Account.changeset(%Account{}, @base_attrs).valid?
+      assert Account.changeset(%Account{}, Map.put(@base_attrs, :timezone, nil)).valid?
+    end
+
+    test "a blank value clears the stored zone" do
+      changeset =
+        Account.changeset(
+          %Account{timezone: "Europe/Madrid"},
+          Map.put(@base_attrs, :timezone, "")
+        )
+
+      assert changeset.valid?
+      assert Ecto.Changeset.get_field(changeset, :timezone) == nil
+    end
+
+    test "the zone is stored and read back" do
+      plan = Repo.get_by!(MealPlannerApi.Subscriptions.Plan, name: "individual")
+
+      attrs =
+        Map.merge(@base_attrs, %{subscription_plan_id: plan.id, timezone: "Pacific/Auckland"})
+
+      account = %Account{} |> Account.changeset(attrs) |> Repo.insert!()
+
+      assert Repo.get!(Account, account.id).timezone == "Pacific/Auckland"
+    end
+  end
+
   describe "has_many :memberships" do
     test "preloads :memberships without error after insertion" do
       account = insert_account_with_plan!("Schema-Test Memberships", "family_4")

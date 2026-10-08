@@ -32,6 +32,11 @@ defmodule MealPlannerApi.Persistence.Accounts.Account do
     # signed webhook arrives.
     field(:latest_provider_event_at, :utc_datetime_usec)
 
+    # IANA zone name (issue #39, decision X2). Decides which calendar day
+    # is "today" for the Account; nil reads as UTC. Read it through
+    # `MealPlannerApi.AccountClock.today/2`.
+    field(:timezone, :string)
+
     belongs_to(:subscription_plan, MealPlannerApi.Subscriptions.Plan,
       foreign_key: :subscription_plan_id
     )
@@ -68,7 +73,8 @@ defmodule MealPlannerApi.Persistence.Accounts.Account do
 
   @doc """
   Casts and validates an account changeset. Required fields: name, plan,
-  default_budget_cents.
+  default_budget_cents. `timezone` is optional; when present it must be a
+  zone the configured time zone database knows.
   """
   def changeset(account, attrs) do
     account
@@ -80,11 +86,21 @@ defmodule MealPlannerApi.Persistence.Accounts.Account do
       :subscription_plan_id,
       :trial_started_at,
       :trial_ends_at,
-      :latest_provider_event_at
+      :latest_provider_event_at,
+      :timezone
     ])
     |> validate_required([:name, :plan, :default_budget_cents])
     |> validate_number(:default_budget_cents, greater_than_or_equal_to: 0)
+    |> validate_change(:timezone, &validate_known_timezone/2)
     |> foreign_key_constraint(:preferred_supermarket_id)
     |> foreign_key_constraint(:subscription_plan_id)
+  end
+
+  # `validate_change/3` skips nil, so clearing the zone stays valid.
+  defp validate_known_timezone(:timezone, timezone) do
+    case DateTime.now(timezone) do
+      {:ok, _now} -> []
+      {:error, _reason} -> [timezone: "is not a known time zone"]
+    end
   end
 end
