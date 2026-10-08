@@ -134,9 +134,9 @@ export interface AuthUser {
   id: string;
   email: string;
   displayName: string | null;
-  /** Null until the user sets it, or while the backend does not send it. */
+  /** Null until the user sets it. */
   householdSize: number | null;
-  /** Null until the user sets it, or while the backend does not send it. */
+  /** Null until the user sets it. */
   cookingSkill: CookingSkill | null;
 }
 
