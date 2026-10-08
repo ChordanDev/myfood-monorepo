@@ -10,6 +10,8 @@ import {
   RecipeCookedConfirmSheet,
   RecipeHeader,
   RecipeIngredientsCard,
+  RecipeLoadError,
+  RecipeLoading,
   RecipeNotFound,
   RecipePreparationCard,
   RecipeTopGradient,
@@ -25,6 +27,7 @@ import {
   RECIPE_SECTION_GAP,
 } from '../constants';
 import { RECIPE_CHAT_DISABLED_PLACEHOLDER, RECIPE_CHAT_PLACEHOLDER } from '../domain/recipeChat';
+import { buildRecipeFacts } from '../domain/recipeFormat';
 import { useActivateRecipePalette } from '../hooks/useActivateRecipePalette';
 import { useRecipeChat } from '../hooks/useRecipeChat';
 import { useRecipeScreen } from '../hooks/useRecipeScreen';
@@ -35,12 +38,14 @@ export function RecipeScreen() {
   const { theme } = useRecipeTheme();
   const {
     recipe,
+    status,
     rows,
     isFavorite,
     canMarkAsCooked,
     isChatEnabled,
     isCookedConfirmVisible,
     handleBack,
+    handleRetry,
     handleToggleFavorite,
     handleRequestMarkAsCooked,
     handleConfirmCooked,
@@ -71,6 +76,10 @@ export function RecipeScreen() {
   const bottomOverlayHeight =
     insets.bottom + RECIPE_COMPOSER_BOTTOM_GAP + composerHeight + RECIPE_BOTTOM_FADE_REACH;
 
+  if (status === 'loading') return <RecipeLoading top={headerTop} onBack={handleBack} />;
+  if (status === 'failed') {
+    return <RecipeLoadError top={headerTop} onBack={handleBack} onRetry={handleRetry} />;
+  }
   if (!recipe) return <RecipeNotFound top={headerTop} onBack={handleBack} />;
 
   return (
@@ -98,7 +107,11 @@ export function RecipeScreen() {
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
           onContentSizeChange={handleContentSizeChange}>
-          <RecipeIngredientsCard rows={rows} onRequestIngredient={handleRequestIngredient} />
+          <RecipeIngredientsCard
+            rows={rows}
+            facts={buildRecipeFacts(recipe)}
+            onRequestIngredient={handleRequestIngredient}
+          />
           <RecipePreparationCard steps={recipe.steps} />
           <RecipeChatSection
             messages={chat.messages}

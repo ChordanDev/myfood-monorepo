@@ -6,6 +6,8 @@ export * from './RecipeHeader';
 export * from './RecipeHeaderButton';
 export * from './RecipeIngredientItem';
 export * from './RecipeIngredientsCard';
+export * from './RecipeLoadError';
+export * from './RecipeLoading';
 export * from './RecipeNotFound';
 export * from './RecipePreparationCard';
 export * from './RecipeQuickActions';

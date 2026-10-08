@@ -1,12 +1,7 @@
 import { ACCESS_TOKEN_KEY } from '@/api/authTokenStore';
 import { ApiError } from '@/api/errors';
+import { fixtureRecipe } from '../../fixtures/recipeDetail';
 import recipeDetail from '../../fixtures/recipeDetail.json';
-import {
-  RECIPE_INGREDIENT_CATEGORIES,
-  RECIPE_SOURCES,
-  RECIPE_UNITS,
-  type Recipe,
-} from '../../types/recipe';
 import { getRecipe } from '../recipeApi';
 
 const mockSecureStore = new Map<string, string>();
@@ -29,28 +24,6 @@ function mockJsonResponse(payload: unknown, ok = true, status = ok ? 200 : 422) 
     status,
     text: () => Promise.resolve(JSON.stringify(payload)),
   } as Response);
-}
-
-function oneOf<T extends string>(allowed: readonly T[], value: string): T {
-  const match = allowed.find((candidate) => candidate === value);
-  if (match === undefined) throw new Error(`Unexpected fixture value: ${value}`);
-  return match;
-}
-
-// A JSON import types its strings as `string`, so the union fields are narrowed here. Every
-// other field of the frozen payload is checked against `Recipe` by the compiler.
-function fixtureRecipe(): Recipe {
-  const { data } = recipeDetail;
-
-  return {
-    ...data,
-    source: oneOf(RECIPE_SOURCES, data.source),
-    ingredients: data.ingredients.map((line) => ({
-      ...line,
-      category: oneOf(RECIPE_INGREDIENT_CATEGORIES, line.category),
-      unit: oneOf(RECIPE_UNITS, line.unit),
-    })),
-  };
 }
 
 describe('getRecipe', () => {
@@ -117,6 +90,18 @@ describe('getRecipe', () => {
 
   it('rejects a 2xx answer that carries no recipe', async () => {
     fetchMock.mockReturnValueOnce(mockJsonResponse({ data: null }));
+
+    await expect(getRecipe(recipe.id)).rejects.toMatchObject({ code: 'unknown_error' });
+  });
+
+  it.each([
+    ['no version id', { ...recipe, recipeVersionId: undefined }],
+    ['no id', { ...recipe, id: undefined }],
+    ['an empty id', { ...recipe, id: '' }],
+    ['no ingredient list', { ...recipe, ingredients: undefined }],
+    ['steps that are not a list', { ...recipe, steps: {} }],
+  ])('rejects a 2xx answer whose recipe has %s', async (_case, partial) => {
+    fetchMock.mockReturnValueOnce(mockJsonResponse({ data: partial }));
 
     await expect(getRecipe(recipe.id)).rejects.toMatchObject({ code: 'unknown_error' });
   });

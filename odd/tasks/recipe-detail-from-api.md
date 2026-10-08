@@ -50,7 +50,7 @@ The route answers the raw decoded snapshot (`recipeSteps`, `recipeIngredients[].
 
 - [x] **T1 API: snapshot projection and envelope on `GET /api/recipes/:id`.** Projection, `recipe_not_found` code (API and mobile allowlists), `forbidden` on failed access, frozen payload fixture, route tests (catalog and `ai_generated`), integration guide. Route: delegated (2+ non-trivial files).
 - [x] **T2 Mobile: recipe type, API module and version cache.** `Recipe` type, `recipeApi`, cache store, cache test proving the same version is not refetched. Route: delegated.
-- [ ] **T3 Mobile: recipe screen renders the snapshot.** Converter from the flat type, quantity and cost formatting, hook and components on the new shape, screen test against the fixture (catalog and `ai_generated`). Route: delegated.
+- [x] **T3 Mobile: recipe screen renders the snapshot.** Converter from the flat type, quantity and cost formatting, hook and components on the new shape, screen test against the fixture (catalog and `ai_generated`). Route: delegated.
 
 ## Acceptance criteria (from the ticket)
 
@@ -73,13 +73,22 @@ Forecast: about 700 authored changed lines over three work-unit commits (T1 abou
 | Task | Commit | Evidence | Review |
 | ---- | ------ | -------- | ------ |
 | T1   | `04da8ea` | RED: 11 failures before implementation (flat error bodies, missing `durationMinutes`, `FunctionClauseError` for `:recipe_not_found`); no RED for the two successor tests. `mix format --check-formatted` ok, `mix compile --warnings-as-errors` ok, `mix test` 1215 passed / 20 skipped / 0 failures, mobile `typecheck` ok, `lint` 0 errors, `jest --ci` 1471 passed. Parent re-ran the two recipe test files: 27 passed. | high (`hot_path` auth types); consent granted; four lenses approved and acknowledged (`review-e19d0945a73eec46`), 8 non-blocking advisories |
-| T2   | (this commit) | RED: suites failed on missing modules, then 8 of 11 failed against no-cache stubs; no real RED for "fetches when the known version is not cached". `typecheck` ok, `lint` 0 errors, `jest --ci` 94 suites / 1482 passed. Parent re-ran the two new suites: 11 passed. | pending assessment |
-| T3   |        |          |        |
+| T2   | `b983e77` | RED: suites failed on missing modules, then 8 of 11 failed against no-cache stubs; no real RED for "fetches when the known version is not cached". `typecheck` ok, `lint` 0 errors, `jest --ci` 94 suites / 1482 passed. Parent re-ran the two new suites: 11 passed. | medium (`slice_budget_reached`); consent granted; reliability lens approved and acknowledged (`review-a6e74ce6273773fd`), 7 non-blocking advisories |
+| T1b  | `546cb99` | Follow-up of two T1 review warnings, tests only: `estimatedCostCents` 0 without a daily cost; an inactive member answers `account_not_found` (401) from the auth pipeline, so `forbidden` is reachable only through an ineligible Account. Route test file: 10 passed. | passive follow-up of a reviewed slice, assessed with T3 |
+| T3   | (this commit) | RED: 6 failures for the T2 follow-ups, 17 of 21 for the row resolver, 1 for the palette, 11 for servings/duration/mock cost; screen tests were written after the hook and mutation-checked instead. `typecheck` ok, `lint` 0 errors, `jest --ci` 96 suites / 1520 passed. Parent re-ran the recipe feature suites: 14 suites, 203 passed. | pending assessment |
 
-Next step: T3.
+T1 to T3 done; the four acceptance criteria are covered by tests. Next step: delivery, on the user's instruction.
 
 ## Notes and follow-ups
 
 - The API CI job does not run when only the mobile fixture changes; the key-set assertion catches drift on the next API change.
 - The recipe cache is not cleared on sign-out. No persisted store is today (`AuthContext.signOut` only clears the session), and wiring it means editing the auth context. Cached Account-scoped snapshots stay on the device, reachable only by recipe id. `useRecipeCacheStore.clear()` exists for the ticket that adds a sign-out reset (candidate: X6, #16).
 - T1 review advisories (non-blocking, receipt stands): no route test for `estimatedCostCents` 0 without a daily cost; no route test for `forbidden` on a non-member (only the expired trial is covered); a `nil` from `RecipeVersions.freeze/1` is reported as `recipe_not_found`; the catch-all clause comment in `RecipeController.show/2`; `recipe_not_found` lives under auth-named mobile types (`AuthErrorCode`), as every code does since #11.
+
+### Decisions added during T3
+
+11. **Recipe facts.** Servings ("Rinde"), duration ("Tiempo", plain minutes) and cost ("Costo estimado", pesos without decimals) are drawn as rows at the foot of the ingredients card, each only when known. The screen showed none of them before.
+12. **Local recipes show no cost.** The flat `estimatedCost` has no stated currency unit (the mocks hold `15.5` and `10.0`), so the converter answers `estimatedCostCents: 0`. A mock recipe looks exactly as it did before this ticket.
+13. **Ingredient rows of an API recipe.** Stock and Shopping list state come from the local mock inventory, which does not know server ingredient ids, so every row of an API recipe reads "Falta" and cannot be pressed until Inventory comes from the API. A catalog ingredient counted in another unit than the line is treated the same way.
+14. **Themeless recipes** (`theme: null`, every API recipe until R2) draw in the default palette.
+15. **T2 review follow-ups applied in T3:** `getRecipe` rejects a 2xx body without `id`, `recipeVersionId`, `ingredients[]` and `steps[]`, so a partial payload is never cached; a load in flight when `clear()` runs does not repopulate the cache.
