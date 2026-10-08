@@ -76,9 +76,10 @@ defmodule MealPlannerApi.Services.RecipeLifecycleTest do
     assert successor.number == 2
     assert {:ok, original} = RecipeService.get_recipe(f.actor, f.recipe.id)
     assert original.name == "Original soup"
-    assert original.version == 1
+    assert original.successor_recipe_id == successor.recipe_id
     assert {:ok, current} = RecipeService.get_recipe(f.actor, successor.recipe_id)
     assert current.name == "Corrected soup"
+    assert current.recipe_version_id == successor.id
     assert {:ok, session} = CookingService.start_session(f.actor, meal.id)
     assert session.recipe.name == "Original soup"
     assert hd(session.recipe.steps).instructions == "Simmer gently"
@@ -117,7 +118,7 @@ defmodule MealPlannerApi.Services.RecipeLifecycleTest do
       |> get("/api/recipes/#{id}")
     end
 
-    assert json_response(request.(f.recipe.id), 200)["data"]["version"] == 1
+    assert json_response(request.(f.recipe.id), 200)["data"]["id"] == f.recipe.id
 
     other =
       user_with_memberships(%{email: "other-#{Ecto.UUID.generate()}@example.com"}, [
@@ -131,9 +132,9 @@ defmodule MealPlannerApi.Services.RecipeLifecycleTest do
         source: :user_created
       })
 
-    assert json_response(request.(foreign.id), 404)["error"] == "not_found"
+    assert json_response(request.(foreign.id), 404)["error"]["code"] == "recipe_not_found"
     expire(f.account)
-    assert json_response(request.(f.recipe.id), 403)["error"] == "subscription_required"
+    assert json_response(request.(f.recipe.id), 403)["error"]["code"] == "forbidden"
   end
 
   test "questions and answers leave no durable transcript or recoverable history", f do

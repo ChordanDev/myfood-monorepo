@@ -1,34 +1,7 @@
 import type { InventoryItem } from '@/features/inventory';
-import type { Ingredient, RecipeIngredient, UnitType } from '@/types/domain';
-
-export type UnitAbbreviation = 'g' | 'ml' | 'u';
-
-const UNIT_ABBREVIATION: Record<UnitType, UnitAbbreviation> = {
-  g: 'g',
-  ml: 'ml',
-  unit: 'u',
-};
-
-/** Decimals kept when printing an amount; enough for halves and quarters. */
-const AMOUNT_DECIMALS = 2;
-
-export function formatUnit(unit: UnitType): UnitAbbreviation {
-  return UNIT_ABBREVIATION[unit];
-}
-
-/** Prints an amount without trailing zeros or floating point noise. */
-function formatAmount(amount: number): string {
-  return String(Number(amount.toFixed(AMOUNT_DECIMALS)));
-}
-
-export function formatQuantity(amount: number, unit: UnitType): string {
-  return `${formatAmount(amount)} ${formatUnit(unit)}`;
-}
-
-export function toSentenceCase(name: string): string {
-  const lowered = name.trim().toLowerCase();
-  return lowered.charAt(0).toUpperCase() + lowered.slice(1);
-}
+import type { Ingredient, UnitType } from '@/types/domain';
+import type { RecipeIngredientLine } from '../types/recipe';
+import { MILLI_PER_UNIT, formatQuantityMilli } from './recipeFormat';
 
 /** `listed` is a missing ingredient the shopping list already has; `missing` is one it lacks. */
 export type RecipeIngredientStatus = 'in_stock' | 'missing' | 'listed';
@@ -40,18 +13,19 @@ export type RecipeIngredientRow = {
   requiredAmount: number;
   availableAmount: number;
   missingAmount: number;
-  /** `null` when the ingredient is not in the catalog. */
+  /**
+   * The unit the local catalog counts the ingredient in; `null` when the catalog does not have
+   * it, or counts it in another unit than the recipe does.
+   */
   unit: UnitType | null;
   status: RecipeIngredientStatus;
 };
-
-export const UNKNOWN_INGREDIENT_NAME = 'Ingrediente desconocido';
 
 /** What the recipe reads from an inventory item: its catalog link and how much there is. */
 type InventoryStockItem = Pick<InventoryItem, 'ingredientId' | 'quantity'>;
 
 type ResolveRecipeIngredientsArgs = {
-  lines: RecipeIngredient[];
+  lines: RecipeIngredientLine[];
   catalog: Ingredient[];
   inventory: InventoryStockItem[];
   /** Ingredients the shopping list already has a row for. */
@@ -73,11 +47,12 @@ function sumInventoryByIngredient(inventory: InventoryStockItem[]): Map<string, 
 }
 
 /**
- * Turns the recipe lines into display rows with their stock status, in recipe order.
+ * Turns the recipe lines into display rows with their stock status, in recipe order. The name
+ * and the quantity are the line's own; only the stock is read from the local inventory.
  *
  * An ingredient is in stock when the inventory covers the whole recipe amount. An id that is
- * missing from the catalog cannot be trusted to be the same product, so it is never in stock
- * and never listed either.
+ * missing from the catalog cannot be trusted to be the same product, and one the catalog counts
+ * in another unit cannot be compared: neither is ever in stock, nor listed.
  */
 export function resolveRecipeIngredients({
   lines,
@@ -89,21 +64,22 @@ export function resolveRecipeIngredients({
   const stockByIngredient = sumInventoryByIngredient(inventory);
   const listedIds = new Set(listedIngredientIds);
 
-  return lines.map(({ ingredientId, amount }) => {
-    const ingredient = catalogById.get(ingredientId);
+  return lines.map(({ ingredientId, name, quantityMilli, unit }) => {
+    const requiredAmount = quantityMilli / MILLI_PER_UNIT;
+    const isInCatalog = catalogById.get(ingredientId)?.unit === unit;
     const availableAmount = stockByIngredient.get(ingredientId) ?? 0;
-    const isCovered = ingredient !== undefined && availableAmount >= amount;
-    const isListed = ingredient !== undefined && listedIds.has(ingredientId);
+    const isCovered = isInCatalog && availableAmount >= requiredAmount;
+    const isListed = isInCatalog && listedIds.has(ingredientId);
     const shortStatus: RecipeIngredientStatus = isListed ? 'listed' : 'missing';
 
     return {
       ingredientId,
-      name: ingredient ? toSentenceCase(ingredient.name) : UNKNOWN_INGREDIENT_NAME,
-      quantityLabel: ingredient ? formatQuantity(amount, ingredient.unit) : formatAmount(amount),
-      requiredAmount: amount,
+      name,
+      quantityLabel: formatQuantityMilli(quantityMilli, unit),
+      requiredAmount,
       availableAmount,
-      missingAmount: Math.max(0, amount - availableAmount),
-      unit: ingredient?.unit ?? null,
+      missingAmount: Math.max(0, requiredAmount - availableAmount),
+      unit: isInCatalog ? unit : null,
       status: isCovered ? 'in_stock' : shortStatus,
     };
   });

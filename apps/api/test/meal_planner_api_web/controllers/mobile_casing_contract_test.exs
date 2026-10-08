@@ -137,10 +137,17 @@ defmodule MealPlannerApiWeb.MobileCasingContractTest do
     test "GET /api/recipes/:id responds with camelCase keys", f do
       body = f |> request(:get, "/api/recipes/#{f.recipe.id}") |> success()
 
-      assert %{"id" => id, "version" => 1, "recipeVersionId" => version_id} = body["data"]
+      assert %{
+               "id" => id,
+               "recipeVersionId" => version_id,
+               "successorRecipeId" => nil,
+               "durationMinutes" => _,
+               "estimatedCostCents" => _,
+               "imageUrl" => nil
+             } = body["data"]
+
       assert id == f.recipe.id
       assert is_binary(version_id)
-      assert Map.has_key?(body["data"], "successorRecipeId")
     end
   end
 

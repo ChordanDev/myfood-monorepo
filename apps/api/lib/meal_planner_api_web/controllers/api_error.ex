@@ -80,6 +80,7 @@ defmodule MealPlannerApiWeb.ApiError do
           | :refresh_token_replayed
           | :refresh_token_expired
           | :refresh_token_session_mismatch
+          | :recipe_not_found
           | :validation_error
           | :invalid_cooking_skill
           | :slot_cooking_times_not_found
@@ -134,6 +135,9 @@ defmodule MealPlannerApiWeb.ApiError do
     refresh_token_replayed: {401, "The refresh token has already been used."},
     refresh_token_expired: {401, "The refresh token has expired."},
     refresh_token_session_mismatch: {401, "The refresh token does not match its session."},
+    # Recipe detail (issue #32): a missing recipe, a malformed id and a recipe
+    # of another Account share the code, so existence is not revealed.
+    recipe_not_found: {404, "The recipe was not found."},
     # Onboarding profile (issue #17). `validation_error/2` replaces the
     # message of `validation_error` with one naming the field.
     validation_error: {422, "The request is not valid."},
