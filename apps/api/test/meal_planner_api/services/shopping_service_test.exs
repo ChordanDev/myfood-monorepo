@@ -285,7 +285,7 @@ defmodule MealPlannerApi.ShoppingServiceTest do
           is_cooked: false
         })
 
-      {:ok, _item} =
+      {:ok, past_item} =
         Shopping.create_shopping_item(%{
           account_id: account_id,
           scheduled_meal_id: meal.id,
@@ -314,6 +314,12 @@ defmodule MealPlannerApi.ShoppingServiceTest do
       items = Shopping.list_items_for_account(account_id, include_archived: true)
       archived_items = Enum.filter(items, &(&1.status == :archived))
       assert length(archived_items) >= 1
+
+      # The same row is archived in place, and the write is stamped.
+      assert %{status: :archived} = archived = Enum.find(items, &(&1.id == past_item.id))
+      assert archived.quantity_milli == 200
+      assert archived.inserted_at == past_item.inserted_at
+      assert DateTime.compare(archived.updated_at, past_item.updated_at) == :gt
     end
 
     test "excludes archived items by default" do

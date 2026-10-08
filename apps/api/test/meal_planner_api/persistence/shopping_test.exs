@@ -280,8 +280,15 @@ defmodule MealPlannerApi.Persistence.ShoppingTest do
       %{account_id: account_id} = attrs = planned_key_attrs()
       lines = [planned_line(attrs), planned_line(%{attrs | unit: :ml})]
 
-      assert :ok = Shopping.insert_planned_items(account_id, lines)
-      assert :ok = Shopping.insert_planned_items(account_id, lines)
+      # Both calls go through the single statement: the one-by-one retry would
+      # store the same rows, so only the absence of its log tells them apart.
+      log =
+        capture_log(fn ->
+          assert :ok = Shopping.insert_planned_items(account_id, lines)
+          assert :ok = Shopping.insert_planned_items(account_id, lines)
+        end)
+
+      refute log =~ "shopping planned items batch insert failed"
 
       items = Shopping.list_items_for_account(account_id)
       assert Enum.sort(Enum.map(items, & &1.unit)) == [:g, :ml]
