@@ -49,16 +49,16 @@ The mobile app already calls `PUT /api/me/profile` (`apps/mobile/src/features/pr
 ## Tasks
 
 - [x] **T1** Store Household size and Cooking skill on the User and serve them from `CurrentMe`. Route: delegated direct (migration, schema, serializer, tests: 2+ non-trivial files). Commit `3e54966`.
-- [ ] **T2** `PUT /api/me/profile` with its error codes, mobile allowlist and docs. Route: delegated direct (controller, router, `ApiError`, tests, mobile allowlist, docs).
-- [ ] **T3** Correct stale mobile comments and prove the round trip against the real route. Route: delegated direct for the verification run; the comment edit is mechanical.
+- [x] **T2** `PUT /api/me/profile` with its error codes, mobile allowlist and docs. Route: delegated direct (controller, router, `ApiError`, tests, mobile allowlist, docs). Commit `dc483d9`.
+- [x] **T3** Correct stale mobile comments and prove the round trip against the real route. Route: inline for the comment edit (mechanical, four files), delegated for the verification run. Commit `b849f14`. The round trip is proven through the app modules over real HTTP; a device or simulator run is still pending (see Progress).
 
 ## Acceptance criteria (from the ticket)
 
-- [ ] `PUT /api/me/profile` with the three fields returns `{ user: { id, email, displayName, householdSize, cookingSkill } }` and persists them on the User.
-- [ ] `GET /api/me` returns `displayName`, `householdSize` and `cookingSkill` instead of nulls after a profile write.
-- [ ] Blank or over-64-character name, household size outside 1 to 20: 422 `validation_error`; unknown skill: `invalid_cooking_skill`.
-- [ ] The route works for a User whose Account Access state is `expired`.
-- [ ] The Settings screen round-trips the edit against the real route and the existing profile payload builder test stays green.
+- [x] `PUT /api/me/profile` with the three fields returns `{ user: { id, email, displayName, householdSize, cookingSkill } }` and persists them on the User.
+- [x] `GET /api/me` returns `displayName`, `householdSize` and `cookingSkill` instead of nulls after a profile write.
+- [x] Blank or over-64-character name, household size outside 1 to 20: 422 `validation_error`; unknown skill: `invalid_cooking_skill`.
+- [x] The route works for a User whose Account Access state is `expired`.
+- [ ] The Settings screen round-trips the edit against the real route and the existing profile payload builder test stays green. Partly observed: the payload builder test is untouched and green, and the chain the screen saves through round-trips against a real server. The screen itself has not been run on a device or simulator against the real route.
 
 ## Checks
 
@@ -82,6 +82,7 @@ Test-first: each behaviour change starts from a failing test observed before the
 
 - Forecast: about 430 authored changed lines (T1 about 110, T2 about 300, T3 about 20), most of them tests. That is at the delivery budget, so the two API commits are kept as separable slices (T1 storage and serializer, T2 route).
 - Strategy `ask-on-risk`: the chain strategy is asked once, before any pull request is prepared. Push, pull request and merge stay with the user.
+- Actual size at `b849f14`, feature document excluded: 21 files, 923 insertions, 33 deletions. The forecast was low by about half, almost all of it in tests (about 640 lines) and docs (about 85). Work units, in order: `3e54966` storage and serializer (255 lines), `dc483d9` route, error codes, mobile allowlist and docs (678 lines), `b849f14` mobile comments (23 lines). The route commit is over the budget on its own; it is one behaviour with its tests and docs and was not split further.
 
 ## Progress
 
@@ -89,7 +90,22 @@ Test-first: each behaviour change starts from a failing test observed before the
 - 2026-10-08: T1 done in `3e54966` (5 files, 239 insertions, 16 deletions; about 170 of them tests). RED observed first: 17 failures (`User.profile_changeset/2` and `User.cooking_skills/0` undefined, `KeyError :household_size`). After: focused files 44 passed (re-run by the parent), full `mix test` 1223 passed, 20 skipped; `mix compile --warnings-as-errors` and `mix format --check-formatted` clean. `mix lint` exits 30: `credo --strict` reports 283 findings repo-wide, none in the lines this commit wrote (not confirmed on a base checkout); `mix sobelow --config` alone exits 0. Review assessment for `f4b849d..3e54966`: medium, `under_budget`, stays pending in the slice.
 - T1 decisions: the serializer is `CurrentMe.user_json/1`; `cooking_skill` is a plain string with `validate_inclusion`, so an unknown skill is an `:inclusion` error and a missing one a `:required` error; the name is trimmed before validation and counted in graphemes.
 - Carried to T2: `profile_changeset/2` follows Ecto casting, so it accepts `"4"` for the household size and treats an omitted name as unchanged. The route must check presence and JSON types before the changeset.
+- 2026-10-08: T2 done in `dc483d9` (13 files, 671 insertions, 7 deletions; about 420 of them tests and 85 docs). RED observed first: API 27 failures of 60 (router 404, `ProfileController.update/2`, `Accounts.update_user_profile/2` and `ApiError.validation_error/2` undefined, `codes()` mismatch); mobile contract test 2 failures on `invalid_cooking_skill`, then 3 with the `validation_error` pin. After: full `mix test` 1249 passed, 20 skipped; `mix compile --warnings-as-errors` and `mix format --check-formatted` clean; `mix credo --strict` on the 8 touched files found no issues; `mix sobelow --config` exits 0. Mobile: `npm run lint` 0 errors (4 warnings in untouched files), `npx tsc --noEmit` clean, `npx jest --ci` 92 suites and 1472 tests passed. Parent re-run: profile controller and accounts tests 22 passed, mobile contract and payload builder tests 14 passed.
+- T2 decisions:
+  - A separate `ProfileController`, after the `DietaryProfileController` precedent; the write lives in `Persistence.Accounts.update_user_profile/2`, which reloads the User by id.
+  - The controller turns a value of the wrong JSON type into `nil` and always passes the three keys, so one changeset pass reports missing, mistyped and out-of-range fields and the controller picks the first in wire order. Bounds stay in `User.profile_changeset/2` only.
+  - A Cooking skill that is a string outside the catalog, the empty string included, answers `invalid_cooking_skill`; anything else answers `validation_error`.
+  - A reloaded User that no longer exists answers `account_not_found`, like `GET /api/me`.
+  - `id`, `email` and `onboardingCompletedAt` in the body are ignored (tested).
+  - The two new rows sit before the `# Planning channel (issue #11)` comment in `@codes`: the mobile `authService.test.ts` counts every row after that comment.
+- 2026-10-08: T3. Comment corrections in `b849f14` (four mobile files, comments only; `npm run lint` and `npx tsc --noEmit` clean). Round trip run against `b849f14`: the API served from `mix phx.server` (dev, port 4117) on a throwaway database, a fresh User with a minted access token, and a temporary jest file calling the app's own `buildProfilePayload`, `updateProfile` and `getMe` through its client, transport and error mapping, with only `expo-secure-store` mocked. Observed, 7 of 7 passed: a first edit (`Lucca Roundtrip`, 4, `intermediate`) came back from the `PUT` and from `GET /api/me`; a second edit (`Segunda Edición`, 1, `advanced`) did too and was the stored row; `cookingSkill: "expert"` reached the app as `invalid_cooking_skill` and `householdSize: 0` as `validation_error`, both 422, neither `unknown_error`, and neither stored anything. The Account of that User read `trial_expired` on `GET /api/me` and the edit still succeeded. Temporary file, server and database removed; tree clean afterwards.
+- Limits of that proof: the token was minted with `FactoryHelpers` because the dev server keeps the email code in an in-memory mailbox with no route to read it; the wire was Node's fetch (`EXPO_PUBLIC_USE_RN_FETCH=1`), not the device's `expo/fetch`; the Settings screen was not rendered against the real route. A simulator run covers those three.
 
 ## Notes and follow-ups
 
 - The mobile app keeps a stored snapshot to backfill null profile fields (`withPreservedProfileFields`). Once the API returns real values the backfill only matters for a User who never saved a profile.
+- Mobile behaviour changes by way of the allowlist only: a 422 from this route used to collapse to `unknown_error`; Settings now shows the two new messages. The app shows its own text per code, so the field named in the API message is not shown to the User.
+- `mix lint` fails on the base: `credo --strict` reports about 283 findings repo-wide and the alias stops before sobelow. Not part of this ticket.
+- A `displayName` with a NUL byte passes validation and would fail at Postgres with a 500. Every string column of the API shares this; not handled here.
+- The mobile codes `onboarding_invalid`, `preferences_invalid` and `slot_cooking_times_invalid` do not match the spec #2 names; left for the O6 sweep (#22).
+- The jest-expo environment replaces the global `fetch` with a stubbed `expo/fetch` that does no network I/O; `EXPO_PUBLIC_USE_RN_FETCH=1` keeps Node's fetch for a real HTTP run.
