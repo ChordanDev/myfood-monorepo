@@ -19,6 +19,7 @@ defmodule MealPlannerApi.Generation.ServerTestFixtures do
   """
 
   alias MealPlannerApi.Data.{PlanningRepo, RecipeRepo, ShoppingRepo}
+  alias MealPlannerApi.Generation.Server
   alias MealPlannerApi.Persistence.Accounts.Account, as: PersistenceAccount
   alias MealPlannerApi.Persistence.Accounts.AccountMembership
   alias MealPlannerApi.Persistence.Accounts.User, as: PersistenceUser
@@ -185,4 +186,26 @@ defmodule MealPlannerApi.Generation.ServerTestFixtures do
   @doc "Fetch a ShoppingItem struct for direct assertions."
   @spec get_item(binary()) :: ShoppingItem.t() | nil
   def get_item(id), do: Repo.get(ShoppingItem, id)
+
+  @doc """
+  Stop the generation server that a cold `Server.start_generation/4` started
+  for the account, once the generation it is running has finished.
+
+  Such a server lives under the application supervision tree, so nothing
+  stops it when the test ends, and it runs the generation pipeline in its
+  own process on the sandbox connection of the test. `Server.get_status/1`
+  is a call: the server answers it after the `:run_optimization` message it
+  sent itself, that is, once the pipeline has left the database. Call this
+  at the end of the test body, while the test process still owns the
+  connection.
+  """
+  @spec stop_generation_server(Ecto.UUID.t()) :: :ok
+  def stop_generation_server(account_id) do
+    %{account_id: ^account_id} = Server.get_status(account_id)
+
+    [{pid, _value}] =
+      Registry.lookup(MealPlannerApi.Generation.Generations, {:generation, account_id})
+
+    :ok = DynamicSupervisor.terminate_child(MealPlannerApi.Generation.ServerSupervisor, pid)
+  end
 end

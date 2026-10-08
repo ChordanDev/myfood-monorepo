@@ -217,9 +217,12 @@ defmodule MealPlannerApi.Generation.Server do
   # Pipeline
   # -------------------------------------------------------------------------
 
+  # The servers live under the `DynamicSupervisor` that
+  # `MealPlannerApi.Generation.Supervisor` starts, not under that module,
+  # which is a plain `Supervisor` and answers `:invalid_child_spec`.
   defp start_and_call(account_id, user_id, constraints, channel_pid) do
     case DynamicSupervisor.start_child(
-           MealPlannerApi.Generation.Supervisor,
+           MealPlannerApi.Generation.ServerSupervisor,
            {__MODULE__, [account_id: account_id, user_id: user_id]}
          ) do
       {:ok, pid} ->

@@ -13,6 +13,7 @@ defmodule MealPlannerApiWeb.PlanningChannelTest do
   alias MealPlannerApi.Repo
   alias MealPlannerApiWeb.{AIChannel, Endpoint, PlanningChannel, UserSocket}
 
+  import MealPlannerApi.Generation.ServerTestFixtures, only: [stop_generation_server: 1]
   import MealPlannerApiWeb.CasingAssertions, only: [assert_camel_case_keys: 1]
   import MealPlannerApiWeb.ChannelHelpers, only: [issue_identity_and_token: 2]
 
@@ -24,6 +25,19 @@ defmodule MealPlannerApiWeb.PlanningChannelTest do
     _ = intent_atoms()
 
     {:ok, user, account, token} = issue_identity_and_token("u_plan_test", "acct_plan_test")
+
+    # Every test of this file gets the same account id, and a generation
+    # server registers under it. A test that makes `generate_menu` start one
+    # stops it itself (`stop_generation_server/1`); this covers a test that
+    # fails before it gets there, so the server it left does not answer the
+    # commands of the next test.
+    on_exit(fn ->
+      for {pid, _value} <-
+            Registry.lookup(MealPlannerApi.Generation.Generations, {:generation, account.id}) do
+        DynamicSupervisor.terminate_child(MealPlannerApi.Generation.ServerSupervisor, pid)
+      end
+    end)
+
     %{user: user, account: account, token: token}
   end
 
@@ -261,11 +275,58 @@ defmodule MealPlannerApiWeb.PlanningChannelTest do
           "constraints" => %{}
         })
 
-      # Server should respond (either success or error with request_id)
-      assert_receive %{ref: ^ref, status: _status, payload: %{"requestId" => "test_req_1"}}
+      # No generation server is running, so the command starts one and
+      # replies ok with the request id.
+      assert_reply(ref, :ok, %{"requestId" => "test_req_1"})
+
+      stop_generation_server(account.id)
     end
 
-    test "error when Server.start_generation fails with invalid constraints", %{
+    test "cold start: starts a generation server for the account and replies ok", %{
+      account: account,
+      user: user,
+      token: token
+    } do
+      {:ok, socket} = connect(UserSocket, %{"token" => token})
+
+      {:ok, _reply, socket} =
+        subscribe_and_join(socket, PlanningChannel, "planning:#{account.id}")
+
+      # No generation server is running for the account.
+      assert Registry.lookup(MealPlannerApi.Generation.Generations, {:generation, account.id}) ==
+               []
+
+      {run_id, log} =
+        with_log(fn ->
+          ref =
+            push(socket, "generate_menu", %{
+              "request_id" => "gen_cold_start",
+              "constraints" => %{"participant_ids" => [user.id]}
+            })
+
+          assert_reply(ref, :ok, reply)
+          assert %{"requestId" => "gen_cold_start", "runId" => run_id} = reply
+          assert Map.keys(reply) == ["requestId", "runId"]
+          assert is_binary(run_id)
+
+          run_id
+        end)
+
+      refute log =~ "unknown_error"
+
+      assert_push("generation_started", %{"requestId" => "gen_cold_start", "runId" => ^run_id})
+
+      # The server registered for the account is the one that took the run.
+      assert [{server_pid, _value}] =
+               Registry.lookup(MealPlannerApi.Generation.Generations, {:generation, account.id})
+
+      assert %{current_run_id: ^run_id} = Server.get_status(account.id)
+
+      stop_generation_server(account.id)
+      refute Process.alive?(server_pid)
+    end
+
+    test "error when Server.start_generation fails with a fault", %{
       account: account,
       token: token
     } do
@@ -274,20 +335,27 @@ defmodule MealPlannerApiWeb.PlanningChannelTest do
       {:ok, _reply, socket} =
         subscribe_and_join(socket, PlanningChannel, "planning:#{account.id}")
 
-      # Pass invalid date format to trigger error
+      # A generation server that answers a fault: a reason no service chose
+      # and the allowlist does not hold.
+      start_generation_server_stub(account.id, {:error, {:storage_fault, "disk on fire"}})
+
       ref =
         push(socket, "generate_menu", %{
-          "request_id" => "test_req_invalid",
-          "constraints" => %{
-            "date_from" => "invalid-date"
-          }
+          "request_id" => "test_req_fault",
+          "constraints" => %{}
         })
 
-      # Should receive error reply. No generation server can be started in
-      # this setup (`DynamicSupervisor` answers `:invalid_child_spec`), which
-      # is a fault and not a reason of the allowlist.
+      # Should receive error reply, with the fallback code and the request id.
       payload = assert_error_reply(ref, :unknown_error)
-      assert payload["requestId"] == "test_req_invalid"
+      assert payload["requestId"] == "test_req_fault"
+      refute inspect(payload) =~ "storage_fault"
+
+      # The `generation_error` event falls back on its own for a reason that
+      # is neither an atom nor a string.
+      assert_push("generation_error", %{
+        "requestId" => "test_req_fault",
+        "reason" => "invalid_payload"
+      })
     end
   end
 
@@ -443,14 +511,14 @@ defmodule MealPlannerApiWeb.PlanningChannelTest do
         subscribe_and_join(socket, PlanningChannel, "planning:#{account.id}")
 
       # Start generation first to have GenerationServer running
-      _ref_gen =
+      ref_gen =
         push(socket, "generate_menu", %{
           "request_id" => "chat_req_init",
           "constraints" => %{}
         })
 
-      # Wait for generation to start
-      :timer.sleep(100)
+      # The ok reply means the server is started and registered
+      assert_reply(ref_gen, :ok, %{"requestId" => "chat_req_init"})
 
       # Now send chat message - should find GenerationServer
       _ref_chat =
@@ -459,9 +527,13 @@ defmodule MealPlannerApiWeb.PlanningChannelTest do
           "message" => "Remove tomatoes from the menu"
         })
 
-      # chat returns noreply (cast to GenServer)
-      # In real scenario, GenerationServer would respond via broadcast
-      :timer.sleep(50)
+      # chat returns noreply (cast to GenServer): the GenerationServer
+      # responds via broadcast. The message is not a modification the server
+      # understands, and that is what it announces, once the generation it
+      # is running has finished.
+      assert_push("generation_error", %{"reason" => "invalid_modification"}, 1_000)
+
+      stop_generation_server(account.id)
     end
   end
 
@@ -1779,6 +1851,11 @@ defmodule MealPlannerApiWeb.PlanningChannelTest do
 
       assert_push("generation_started", started)
       assert started == %{"requestId" => "gen_camel", "runId" => run_id}
+
+      # The server answers a call once the generation it is running has
+      # finished, so the pipeline does not outlive the sandbox connection of
+      # the test.
+      assert %{current_run_id: ^run_id} = Server.get_status(account.id)
     end
 
     test "swap_constraints reads basePayload and constraints, and replies in camelCase", %{
@@ -2270,13 +2347,15 @@ defmodule MealPlannerApiWeb.PlanningChannelTest do
         subscribe_and_join(socket, PlanningChannel, "planning:#{account.id}")
 
       # Push without explicit request_id - server should auto-generate
-      _ref =
+      ref =
         push(socket, "generate_menu", %{
           "constraints" => %{}
         })
 
-      # Wait for response
-      :timer.sleep(50)
+      # The reply carries the generated id
+      assert_reply(ref, :ok, %{"requestId" => "req_" <> _})
+
+      stop_generation_server(account.id)
     end
 
     test "an atom reason from a guard is replied as its allowlisted code", %{

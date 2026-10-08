@@ -120,6 +120,36 @@ defmodule MealPlannerApi.Generation.ServerTest do
     end
   end
 
+  describe "start_generation/4 cold start" do
+    test "starts a generation server for an account that has none and returns its run" do
+      account = insert_account("generation cold start account")
+      actor = insert_user_with_membership(account, "generation-cold-start@example.com")
+
+      assert Registry.lookup(MealPlannerApi.Generation.Generations, {:generation, account.id}) ==
+               []
+
+      assert {:ok, run_id} = Server.start_generation(account.id, actor.id, %{}, self())
+
+      assert [{server_pid, _value}] =
+               Registry.lookup(MealPlannerApi.Generation.Generations, {:generation, account.id})
+
+      # The server registered for the account is the one that took the run.
+      assert %{current_run_id: ^run_id} = Server.get_status(account.id)
+
+      run =
+        MealPlannerApi.Repo.get!(
+          MealPlannerApi.Persistence.Planning.PlanningGenerationRun,
+          run_id
+        )
+
+      assert run.account_id == account.id
+      assert run.user_id == actor.id
+
+      stop_generation_server(account.id)
+      refute Process.alive?(server_pid)
+    end
+  end
+
   test "confirmation after a correction keeps the proposal version and rebuilds its frozen quantities" do
     account = insert_account("Versioned confirmation")
     user = insert_user_with_membership(account, "versioned-confirmation@example.com")
