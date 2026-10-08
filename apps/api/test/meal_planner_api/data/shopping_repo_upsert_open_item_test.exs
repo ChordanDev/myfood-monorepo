@@ -63,12 +63,14 @@ defmodule MealPlannerApi.Data.ShoppingRepo.UpsertOpenShoppingItemTest do
   for open_status <- [:pending, :in_cart] do
     test "replaces the #{open_status} Shopping item that has the same planned key", ctx do
       {:ok, derived} =
-        Shopping.create_shopping_item(%{
-          ctx.attrs
-          | quantity_milli: 100,
-            checkout_session_id: nil,
-            status: unquote(open_status)
+        ctx.attrs
+        |> Map.merge(%{
+          quantity_milli: 100,
+          checkout_session_id: nil,
+          status: unquote(open_status),
+          reservation_token: Ecto.UUID.generate()
         })
+        |> Shopping.create_shopping_item()
 
       assert {:ok, item} = ShoppingRepo.upsert_open_shopping_item(ctx.attrs)
       assert item.id == derived.id
@@ -76,6 +78,7 @@ defmodule MealPlannerApi.Data.ShoppingRepo.UpsertOpenShoppingItemTest do
       assert [stored] = Shopping.list_items_for_account(ctx.account.id)
       assert stored.id == derived.id
       assert stored.status == :pending
+      assert stored.reservation_token == nil
       assert stored.quantity_milli == 250
       assert stored.checkout_session_id == ctx.checkout.id
       assert DateTime.compare(stored.updated_at, derived.updated_at) != :lt

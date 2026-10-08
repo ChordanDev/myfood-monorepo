@@ -165,8 +165,9 @@ defmodule MealPlannerApi.Data.ShoppingRepo do
   that has the same planned key: Account, Scheduled meal, planned date,
   Ingredient and unit.
 
-  The given `quantity_milli`, `checkout_session_id` and `status` win over the
-  stored row, which keeps its id and `inserted_at`. Closed ShoppingItems with
+  The given `quantity_milli`, `checkout_session_id`, `status` and
+  `reservation_token` win over the stored row, which keeps its id and
+  `inserted_at`, so a reserved item comes back without its reservation. Closed ShoppingItems with
   the same planned key are left alone.
 
   The plan confirm rebuild writes through this: a Shopping list read can
@@ -179,7 +180,9 @@ defmodule MealPlannerApi.Data.ShoppingRepo do
     %ShoppingItem{}
     |> ShoppingItem.changeset(attrs)
     |> Repo.insert(
-      on_conflict: {:replace, [:quantity_milli, :checkout_session_id, :status, :updated_at]},
+      on_conflict:
+        {:replace,
+         [:quantity_milli, :checkout_session_id, :status, :reservation_token, :updated_at]},
       conflict_target: @open_planned_key,
       returning: true
     )
