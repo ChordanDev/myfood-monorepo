@@ -94,7 +94,7 @@ defmodule MealPlannerApiWeb.CalendarControllerTest do
         })
 
       body = json_response(conn, 200)
-      recipe_names = Enum.map(body["data"]["meals"], & &1["recipe_name"])
+      recipe_names = Enum.map(body["data"]["meals"], & &1["recipeName"])
 
       assert "Only In Account A" in recipe_names
       refute "Only In Account B" in recipe_names
@@ -128,7 +128,7 @@ defmodule MealPlannerApiWeb.CalendarControllerTest do
         })
 
       body = json_response(conn, 200)
-      recipe_names = Enum.map(body["data"]["meals"], & &1["recipe_name"])
+      recipe_names = Enum.map(body["data"]["meals"], & &1["recipeName"])
 
       assert "Only In Account A" in recipe_names
       refute "Only In Account B" in recipe_names
@@ -138,7 +138,7 @@ defmodule MealPlannerApiWeb.CalendarControllerTest do
   # ─── Gap 1: show_slot endpoint ──────────────────────────────────────────────
 
   describe "GET /api/calendar/slot — filled slot" do
-    test "returns meal with can_create: false", %{conn: conn} do
+    test "returns meal with canCreate: false", %{conn: conn} do
       token =
         issue_token(conn, %{
           "user_id" => "u_slot_filled",
@@ -182,10 +182,10 @@ defmodule MealPlannerApiWeb.CalendarControllerTest do
 
       assert %{
                "data" => %{
-                 "meal_id" => meal_id,
-                 "can_create" => false,
+                 "mealId" => meal_id,
+                 "canCreate" => false,
                  "slot" => "lunch",
-                 "recipe_id" => recipe_id
+                 "recipeId" => recipe_id
                }
              } = json_response(conn, 200)
 
@@ -195,7 +195,7 @@ defmodule MealPlannerApiWeb.CalendarControllerTest do
   end
 
   describe "GET /api/calendar/slot — empty slot" do
-    test "returns can_create: true when no meal exists", %{conn: conn} do
+    test "returns canCreate: true when no meal exists", %{conn: conn} do
       token =
         issue_token(conn, %{
           "user_id" => "u_slot_empty",
@@ -220,15 +220,15 @@ defmodule MealPlannerApiWeb.CalendarControllerTest do
 
       assert %{
                "data" => %{
-                 "meal_id" => nil,
-                 "can_create" => true,
+                 "mealId" => nil,
+                 "canCreate" => true,
                  "slot" => "dinner",
-                 "recipe_id" => nil,
-                 "recipe_name" => nil,
+                 "recipeId" => nil,
+                 "recipeName" => nil,
                  "macros" => nil,
-                 "prep_time_minutes" => nil,
-                 "is_cooked" => false,
-                 "is_favorite" => false
+                 "prepTimeMinutes" => nil,
+                 "isCooked" => false,
+                 "isFavorite" => false
                }
              } = json_response(conn, 200)
     end
@@ -330,10 +330,10 @@ defmodule MealPlannerApiWeb.CalendarControllerTest do
     end
   end
 
-  # ─── Gap 3: can_create in index response ─────────────────────────────────────
+  # ─── Gap 3: canCreate in index response ─────────────────────────────────────
 
-  describe "GET /api/calendar — can_create in selected_meal" do
-    test "selected_meal has can_create: false when slot is filled", %{conn: conn} do
+  describe "GET /api/calendar — canCreate in selectedMeal" do
+    test "selectedMeal has canCreate: false when slot is filled", %{conn: conn} do
       token =
         issue_token(conn, %{
           "user_id" => "u_idx_filled",
@@ -380,9 +380,9 @@ defmodule MealPlannerApiWeb.CalendarControllerTest do
 
       assert %{
                "data" => %{
-                 "selected_meal" => %{
-                   "can_create" => false,
-                   "meal_id" => meal_id
+                 "selectedMeal" => %{
+                   "canCreate" => false,
+                   "mealId" => meal_id
                  }
                }
              } = json_response(conn, 200)
@@ -390,7 +390,7 @@ defmodule MealPlannerApiWeb.CalendarControllerTest do
       assert is_binary(meal_id)
     end
 
-    test "selected_meal has can_create: true when slot is empty", %{conn: conn} do
+    test "selectedMeal has canCreate: true when slot is empty", %{conn: conn} do
       token =
         issue_token(conn, %{
           "user_id" => "u_idx_empty",
@@ -418,14 +418,14 @@ defmodule MealPlannerApiWeb.CalendarControllerTest do
 
       assert %{
                "data" => %{
-                 "selected_meal" => nil
+                 "selectedMeal" => nil
                }
              } = json_response(conn, 200)
     end
   end
 
-  describe "GET /api/calendar — can_create in meals list" do
-    test "meals list items have can_create: false", %{conn: conn} do
+  describe "GET /api/calendar — canCreate in meals list" do
+    test "meals list items have canCreate: false", %{conn: conn} do
       token =
         issue_token(conn, %{
           "user_id" => "u_meals_list",
@@ -473,11 +473,11 @@ defmodule MealPlannerApiWeb.CalendarControllerTest do
       assert is_list(meals)
 
       for meal <- meals do
-        assert Map.has_key?(meal, "can_create"),
-               "meal missing can_create field: #{inspect(meal)}"
+        assert Map.has_key?(meal, "canCreate"),
+               "meal missing canCreate field: #{inspect(meal)}"
 
-        assert meal["can_create"] == false,
-               "meal can_create should be false: #{inspect(meal)}"
+        assert meal["canCreate"] == false,
+               "meal canCreate should be false: #{inspect(meal)}"
       end
     end
   end

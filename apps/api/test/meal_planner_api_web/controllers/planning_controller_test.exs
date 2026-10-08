@@ -56,7 +56,7 @@ defmodule MealPlannerApiWeb.PlanningControllerTest do
         body["data"]["days"]
         |> Enum.flat_map(& &1["meals"])
         |> Enum.filter(&(&1["slot"] == "breakfast"))
-        |> Enum.map(& &1["recipe_id"])
+        |> Enum.map(& &1["recipeId"])
 
       assert recipe_a.id in breakfast_recipe_ids
     end
@@ -108,7 +108,7 @@ defmodule MealPlannerApiWeb.PlanningControllerTest do
         })
 
       body = json_response(conn, 200)
-      assert body["data"]["scheduled_meals_count"] == 1
+      assert body["data"]["scheduledMealsCount"] == 1
 
       assert Planning.list_scheduled_meals(membership_a.account_id, today, range_end)
              |> length() == 1
@@ -140,8 +140,8 @@ defmodule MealPlannerApiWeb.PlanningControllerTest do
     body = json_response(conn, 200)
 
     assert length(body["data"]["days"]) == 7
-    assert body["data"]["max_planning_days"] == 7
-    assert body["data"]["subscription_tier"] == "premium"
+    assert body["data"]["maxPlanningDays"] == 7
+    assert body["data"]["subscriptionTier"] == "premium"
   end
 
   test "premium tier receives 7 planning days", %{conn: conn} do
@@ -160,8 +160,8 @@ defmodule MealPlannerApiWeb.PlanningControllerTest do
     body = json_response(conn, 200)
 
     assert length(body["data"]["days"]) == 7
-    assert body["data"]["max_planning_days"] == 7
-    assert body["data"]["subscription_tier"] == "premium"
+    assert body["data"]["maxPlanningDays"] == 7
+    assert body["data"]["subscriptionTier"] == "premium"
   end
 
   test "weekly endpoint rejects days exceeding account max", %{conn: conn} do
@@ -233,7 +233,7 @@ defmodule MealPlannerApiWeb.PlanningControllerTest do
       })
 
     body = json_response(conn, 200)
-    assert body["data"]["scheduled_meals_count"] == 2
+    assert body["data"]["scheduledMealsCount"] == 2
 
     persisted = Planning.list_scheduled_meals(account.id, today, tomorrow)
     assert length(persisted) == 2

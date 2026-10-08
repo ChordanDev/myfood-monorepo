@@ -29,6 +29,9 @@ defmodule MealPlannerApiWeb.ConnCase do
       import Plug.Conn
       import Phoenix.ConnTest
       import MealPlannerApiWeb.ConnCase
+
+      # `assert_camel_case_keys/1` for the camelCase mobile contract.
+      import MealPlannerApiWeb.CasingAssertions
     end
   end
 

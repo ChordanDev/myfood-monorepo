@@ -232,7 +232,7 @@ defmodule MealPlannerApiWeb.CrossAccountIsolationTest do
       })
 
     body = json_response(resp, 200)
-    recipe_ids = Enum.map(body["data"]["meals"], & &1["recipe_id"])
+    recipe_ids = Enum.map(body["data"]["meals"], & &1["recipeId"])
 
     # Post-PR-3c review — WARNING fix: `own.breakfast_recipe_id` is
     # written via `Calendar.upsert_scheduled_meal/2` and
@@ -255,7 +255,7 @@ defmodule MealPlannerApiWeb.CrossAccountIsolationTest do
       body["data"]["days"]
       |> Enum.flat_map(& &1["meals"])
       |> Enum.filter(&(&1["slot"] == "breakfast"))
-      |> Enum.map(& &1["recipe_id"])
+      |> Enum.map(& &1["recipeId"])
 
     assert own.breakfast_recipe_id in breakfast_recipe_ids
     refute other.breakfast_recipe_id in breakfast_recipe_ids
@@ -263,7 +263,7 @@ defmodule MealPlannerApiWeb.CrossAccountIsolationTest do
 
   defp assert_cooking_scoped(conn, own, other) do
     own_resp = get(conn, "/api/cooking/sessions/#{own.cooking_session_id}")
-    assert %{"data" => %{"session_id" => session_id}} = json_response(own_resp, 200)
+    assert %{"data" => %{"sessionId" => session_id}} = json_response(own_resp, 200)
     assert session_id == own.cooking_session_id
 
     other_resp = get(conn, "/api/cooking/sessions/#{other.cooking_session_id}")
@@ -277,7 +277,7 @@ defmodule MealPlannerApiWeb.CrossAccountIsolationTest do
     all_ids =
       (body["data"]["sections"]["ok"] ++
          body["data"]["sections"]["warning"] ++ body["data"]["sections"]["expired"])
-      |> Enum.map(& &1["ingredient_id"])
+      |> Enum.map(& &1["ingredientId"])
 
     assert own.ingredient_id in all_ids
     refute other.ingredient_id in all_ids
@@ -291,7 +291,7 @@ defmodule MealPlannerApiWeb.CrossAccountIsolationTest do
       })
 
     body = json_response(resp, 200)
-    all_ids = Enum.map(body["data"]["items"], & &1["ingredient_id"])
+    all_ids = Enum.map(body["data"]["items"], & &1["ingredientId"])
 
     assert own.ingredient_id in all_ids
     refute other.ingredient_id in all_ids

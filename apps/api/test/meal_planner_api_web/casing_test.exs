@@ -137,6 +137,14 @@ defmodule MealPlannerApiWeb.CasingTest do
                %{"2026-10-08" => 1, "no-perecederos" => 2, "slot" => 3}
     end
 
+    test "turns the nil, true and false atom keys into their string form" do
+      assert Casing.camelize_keys(%{nil => 1, true => 2, false => 3}) ==
+               %{"nil" => 1, "true" => 2, "false" => 3}
+
+      assert Casing.snake_keys(%{nil => 1, true => 2, false => 3}) ==
+               %{"nil" => 1, "true" => 2, "false" => 3}
+    end
+
     test "treats digits inside a word as part of that word" do
       assert Casing.camelize_keys(%{sha256_hash: 1, address_line1: 2, oauth2_token: 3}) ==
                %{"sha256Hash" => 1, "addressLine1" => 2, "oauth2Token" => 3}
@@ -368,6 +376,99 @@ defmodule MealPlannerApiWeb.CasingTest do
     test "applies to an opaque key found inside a list" do
       assert Casing.camelize_keys(%{sessions: [%{timers: %{"egg_timer" => %{step_id: 3}}}]}) ==
                %{"sessions" => [%{"timers" => %{"egg_timer" => %{"stepId" => 3}}}]}
+    end
+
+    # Intended limitation: the rule is triggered by the key name alone, at any
+    # depth and whatever the map under it holds. A single record stored under
+    # an opaque name is read as a map keyed by data, so its direct keys are
+    # kept and only the levels below them are rewritten.
+    test "is triggered by the key name at any depth, even for a single record" do
+      input = %{
+        data: %{
+          sessions: [
+            %{timers: %{remaining_seconds: 90, started_at: "now", step: %{recipe_step_id: 3}}}
+          ]
+        }
+      }
+
+      assert Casing.camelize_keys(input) == %{
+               "data" => %{
+                 "sessions" => [
+                   %{
+                     "timers" => %{
+                       "remaining_seconds" => 90,
+                       "started_at" => "now",
+                       "step" => %{"recipeStepId" => 3}
+                     }
+                   }
+                 ]
+               }
+             }
+
+      assert Casing.snake_keys(%{"data" => %{"byCategory" => %{"itemsCount" => 2}}}) ==
+               %{"data" => %{"by_category" => %{"itemsCount" => 2}}}
+    end
+  end
+
+  describe "key collisions" do
+    # Enough colliding pairs to make each map a large map, whose iteration
+    # order follows the key hashes instead of the key order.
+    @pairs 1..40
+
+    test "camelize_keys/1 keeps the value of the key already in camelCase" do
+      assert Casing.camelize_keys(%{"recipe_id" => 1, "recipeId" => 2}) == %{"recipeId" => 2}
+      assert Casing.camelize_keys(%{:recipe_id => 1, "recipeId" => 2}) == %{"recipeId" => 2}
+      assert Casing.camelize_keys(%{:recipeId => 2, "recipe_id" => 1}) == %{"recipeId" => 2}
+
+      input =
+        for n <- @pairs,
+            entry <- [{"field#{n}_id", :rewritten}, {"field#{n}Id", :kept}],
+            into: %{},
+            do: entry
+
+      assert Casing.camelize_keys(input) == Map.new(@pairs, &{"field#{&1}Id", :kept})
+    end
+
+    test "snake_keys/1 keeps the value of the key already in snake_case" do
+      assert Casing.snake_keys(%{"recipeId" => 1, "recipe_id" => 2}) == %{"recipe_id" => 2}
+      assert Casing.snake_keys(%{:recipeId => 1, "recipe_id" => 2}) == %{"recipe_id" => 2}
+      assert Casing.snake_keys(%{:recipe_id => 2, "recipeId" => 1}) == %{"recipe_id" => 2}
+
+      input =
+        for n <- @pairs,
+            entry <- [{"field#{n}Id", :rewritten}, {"field#{n}_id", :kept}],
+            into: %{},
+            do: entry
+
+      assert Casing.snake_keys(input) == Map.new(@pairs, &{"field#{&1}_id", :kept})
+    end
+
+    test "a string key wins over the atom key with the same name" do
+      assert Casing.camelize_keys(%{:slot => 1, "slot" => 2}) == %{"slot" => 2}
+      assert Casing.camelize_keys(%{:recipe_id => 1, "recipe_id" => 2}) == %{"recipeId" => 2}
+      assert Casing.snake_keys(%{:recipeId => 1, "recipeId" => 2}) == %{"recipe_id" => 2}
+
+      input =
+        for n <- @pairs,
+            entry <- [{:"field#{n}", :atom}, {"field#{n}", :string}],
+            into: %{},
+            do: entry
+
+      assert Casing.snake_keys(input) == Map.new(@pairs, &{"field#{&1}", :string})
+    end
+
+    test "a string data key wins over its atom twin under an opaque key" do
+      assert Casing.camelize_keys(%{"timers" => %{:egg_timer => 1, "egg_timer" => 2}}) ==
+               %{"timers" => %{"egg_timer" => 2}}
+
+      timers =
+        for n <- @pairs,
+            entry <- [{:"timer_#{n}", :atom}, {"timer_#{n}", :string}],
+            into: %{},
+            do: entry
+
+      assert Casing.snake_keys(%{"timers" => timers}) ==
+               %{"timers" => Map.new(@pairs, &{"timer_#{&1}", :string})}
     end
   end
 

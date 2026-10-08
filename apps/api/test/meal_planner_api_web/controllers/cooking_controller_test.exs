@@ -56,7 +56,7 @@ defmodule MealPlannerApiWeb.CookingControllerTest do
         |> post("/api/cooking/start", %{"scheduled_meal_id" => meal.id})
 
       body = json_response(conn, 200)
-      assert body["data"]["scheduled_meal_id"] == meal.id
+      assert body["data"]["scheduledMealId"] == meal.id
     end
   end
 
@@ -126,7 +126,7 @@ defmodule MealPlannerApiWeb.CookingControllerTest do
       |> post("/api/cooking/start", %{"scheduled_meal_id" => meal.id})
 
     start_body = json_response(start_conn, 200)
-    session_id = start_body["data"]["session_id"]
+    session_id = start_body["data"]["sessionId"]
 
     assert is_binary(session_id)
     assert start_body["data"]["slot"] == "dinner"
@@ -151,7 +151,7 @@ defmodule MealPlannerApiWeb.CookingControllerTest do
 
     finish_body = json_response(finish_conn, 200)
     assert finish_body["data"]["status"] == "completed"
-    assert finish_body["data"]["inventory_mutations"] == 1
+    assert finish_body["data"]["inventoryMutations"] == 1
   end
 
   defp issue_token(_conn, params) do

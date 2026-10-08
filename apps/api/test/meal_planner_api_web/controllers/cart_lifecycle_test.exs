@@ -35,7 +35,7 @@ defmodule MealPlannerApiWeb.CartLifecycleTest do
 
     assert_push "cart_reserved", %{owner_user_id: owner_id}
     assert owner_id == f.owner.id
-    id = cart["session_id"]
+    id = cart["sessionId"]
 
     assert %{"data" => _} =
              request(f, :post, "/api/cart/#{id}/activity", %{}) |> json_response(200)
@@ -63,7 +63,7 @@ defmodule MealPlannerApiWeb.CartLifecycleTest do
     current = reserve!(f)
     assert_push "cart_reserved", _
 
-    assert %{"data" => %{"actual_total_cents" => 500}} =
+    assert %{"data" => %{"actualTotalCents" => 500}} =
              request(f, :post, "/api/checkout/confirm", payload(current)) |> json_response(200)
 
     assert_push "purchase_confirmed", _
@@ -137,7 +137,7 @@ defmodule MealPlannerApiWeb.CartLifecycleTest do
 
     assert Enum.all?(
              hd(view["data"]["items"])["lines"],
-             &(&1["reserved_by_user_id"] == f.owner.id)
+             &(&1["reservedByUserId"] == f.owner.id)
            )
 
     assert %{"error" => "cart_not_found"} =

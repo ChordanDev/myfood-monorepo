@@ -140,7 +140,7 @@ defmodule MealPlannerApiWeb.ShoppingControllerTest do
         })
 
       body = json_response(conn, 200)
-      ingredient_ids = Enum.map(body["data"]["items"], & &1["ingredient_id"])
+      ingredient_ids = Enum.map(body["data"]["items"], & &1["ingredientId"])
 
       assert ingredient.id in ingredient_ids
     end
@@ -289,7 +289,7 @@ defmodule MealPlannerApiWeb.ShoppingControllerTest do
         })
 
       assert %{"data" => %{"items" => items}} = json_response(conn, 200)
-      refute ingredient_a.id in Enum.map(items, & &1["ingredient_id"])
+      refute ingredient_a.id in Enum.map(items, & &1["ingredientId"])
     end
   end
 
@@ -433,10 +433,10 @@ defmodule MealPlannerApiWeb.ShoppingControllerTest do
     assert length(grouped_items) == 1
 
     grouped = hd(grouped_items)
-    assert grouped["ingredient_id"] == ingredient.id
-    assert grouped["total_quantity_milli"] == 900
+    assert grouped["ingredientId"] == ingredient.id
+    assert grouped["totalQuantityMilli"] == 900
     assert grouped["category"] == "carnes"
-    assert length(grouped["price_options"]) == 2
+    assert length(grouped["priceOptions"]) == 2
 
     mark_conn =
       build_conn()
@@ -450,7 +450,7 @@ defmodule MealPlannerApiWeb.ShoppingControllerTest do
 
     mark_body = json_response(mark_conn, 200)
     assert mark_body["data"]["status"] == "in_cart"
-    assert mark_body["data"]["updated_rows"] == 2
+    assert mark_body["data"]["updatedRows"] == 2
 
     assign_conn =
       build_conn()
@@ -463,15 +463,15 @@ defmodule MealPlannerApiWeb.ShoppingControllerTest do
       })
 
     assign_body = json_response(assign_conn, 200)
-    assert assign_body["data"]["assigned_supermarket_id"] == supermarket_a.id
-    assert assign_body["data"]["updated_rows"] == 2
+    assert assign_body["data"]["assignedSupermarketId"] == supermarket_a.id
+    assert assign_body["data"]["updatedRows"] == 2
 
     checkout_conn =
       build_conn()
       |> put_req_header("authorization", "Bearer " <> token)
       |> post("/api/checkout/confirm", %{
         "checkout_type" => "physical",
-        "session_id" => mark_body["data"]["session_id"],
+        "session_id" => mark_body["data"]["sessionId"],
         "items" => Enum.map(mark_body["data"]["reservations"], &Map.put(&1, "total_cents", 5000)),
         "start_date" => Date.to_iso8601(start_date),
         "end_date" => Date.to_iso8601(end_date)
@@ -479,9 +479,9 @@ defmodule MealPlannerApiWeb.ShoppingControllerTest do
 
     checkout_body = json_response(checkout_conn, 200)
     assert checkout_body["data"]["status"] == "completed"
-    assert checkout_body["data"]["checkout_type"] == "physical"
+    assert checkout_body["data"]["checkoutType"] == "physical"
     # Two shopping items moved to inventory
-    assert checkout_body["data"]["moved_to_inventory_count"] == 2
+    assert checkout_body["data"]["movedToInventoryCount"] == 2
 
     inventory = Inventory.list_inventory(account_id)
     assert length(inventory) == 2
@@ -717,7 +717,7 @@ defmodule MealPlannerApiWeb.ShoppingControllerTest do
       |> put_req_header("authorization", "Bearer " <> token)
       |> post("/api/checkout/confirm", %{
         "checkout_type" => "online",
-        "session_id" => cart["session_id"],
+        "session_id" => cart["sessionId"],
         "items" => Enum.map(cart["reservations"], &Map.put(&1, "total_cents", 2000)),
         "start_date" => Date.to_iso8601(start_date),
         "end_date" => Date.to_iso8601(end_date)
@@ -727,7 +727,7 @@ defmodule MealPlannerApiWeb.ShoppingControllerTest do
 
     # Purchase confirmation is the only stock boundary, regardless of purchase mode.
     assert checkout_body["data"]["status"] == "completed"
-    assert checkout_body["data"]["moved_to_inventory_count"] == 1
+    assert checkout_body["data"]["movedToInventoryCount"] == 1
 
     inventory = Inventory.list_inventory(account_id)
     assert length(inventory) == 1
