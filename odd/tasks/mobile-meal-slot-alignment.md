@@ -156,8 +156,7 @@ next task's commit.
   0 errors (same 4 warnings), prettier clean.
   `rg -n "type MealSlot\b|SLOT_LABELS" src` matches only the definition in
   `src/types/domain.ts`.
-- T5 — `fix(mobile): keep favorites when discarding the stored meal plan`
-  (SHA in the writer's report: a commit cannot record its own).
+- T5 — `ccb71dc` `fix(mobile): keep favorites when discarding the stored meal plan`.
   `migrateMealPlanState` in `src/store/useMealPlanStore.ts`: below version 2
   it replaces the stored entries with `MOCK_MEAL_PLAN` and keeps the rest;
   otherwise it returns the stored state unchanged.
