@@ -82,15 +82,38 @@ defmodule MealPlannerApi.Persistence.Shopping do
     |> Repo.all()
   end
 
-  def list_in_cart_items_with_context(account_id, from_date, to_date) do
-    from(i in ShoppingItem,
-      where:
-        i.account_id == ^account_id and i.status == :in_cart and i.planned_date >= ^from_date and
-          i.planned_date <= ^to_date,
-      order_by: [asc: i.planned_date],
-      preload: [:assigned_supermarket, :ingredient, :checkout_session]
-    )
-    |> Repo.all()
+  @doc """
+  The Shopping items of an Account that are still on the list (`:pending`
+  or `:in_cart`) and planned from `from_date` on, with their Ingredient
+  and Scheduled meal loaded.
+
+  `until_date` is the last planned day to include; `nil` leaves the range
+  open.
+  """
+  @spec list_open_items_with_context(Ecto.UUID.t(), Date.t(), Date.t() | nil) :: [
+          ShoppingItem.t()
+        ]
+  def list_open_items_with_context(account_id, from_date, until_date \\ nil) do
+    # Joined, so an item is only listed together with both of them.
+    query =
+      from(i in ShoppingItem,
+        join: ingredient in assoc(i, :ingredient),
+        join: meal in assoc(i, :scheduled_meal),
+        where:
+          i.account_id == ^account_id and i.status in [:pending, :in_cart] and
+            i.planned_date >= ^from_date,
+        order_by: [asc: i.planned_date, asc: i.id],
+        preload: [ingredient: ingredient, scheduled_meal: meal]
+      )
+
+    query =
+      if until_date do
+        from(i in query, where: i.planned_date <= ^until_date)
+      else
+        query
+      end
+
+    Repo.all(query)
   end
 
   @spec list_items_for_account(pos_integer(), keyword()) :: [ShoppingItem.t()]

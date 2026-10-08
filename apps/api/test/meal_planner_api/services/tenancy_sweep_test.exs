@@ -274,16 +274,11 @@ defmodule MealPlannerApi.Services.TenancySweepTest do
           status: :pending
         })
 
-      params = %{
-        "from_date" => Date.to_iso8601(today),
-        "to_date" => Date.to_iso8601(Date.add(today, 6))
-      }
+      {:ok, list_a} = ShoppingService.get_shopping_list(scoped_user_a)
+      {:ok, list_b} = ShoppingService.get_shopping_list(scoped_user_b)
 
-      {:ok, list_a} = ShoppingService.get_shopping_list(scoped_user_a, params)
-      {:ok, list_b} = ShoppingService.get_shopping_list(scoped_user_b, params)
-
-      ids_a = Enum.map(list_a.items, & &1.ingredient_id)
-      ids_b = Enum.map(list_b.items, & &1.ingredient_id)
+      ids_a = Enum.map(list_a.planned, & &1.ingredient_id)
+      ids_b = Enum.map(list_b.planned, & &1.ingredient_id)
 
       assert ingredient.id in ids_a
       refute ingredient.id in ids_b

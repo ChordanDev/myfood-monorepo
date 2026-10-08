@@ -135,10 +135,13 @@ defmodule MealPlannerApiWeb.CartLifecycleTest do
     other = %{f | token: token(f.member, f.account)}
     view = request(other, :get, "/api/shopping-list", %{}) |> json_response(200)
 
-    assert Enum.all?(
-             hd(view["data"]["items"])["lines"],
-             &(&1["reservedByUserId"] == f.owner.id)
-           )
+    # The member sees the owner's reservation on the lines, but the Cart
+    # itself is only reported to the member who holds it.
+    assert [%{"status" => "in_cart", "allocations" => [_, _]}] = view["data"]["planned"]
+    assert view["data"]["cart"] == nil
+
+    own_view = request(f, :get, "/api/shopping-list", %{}) |> json_response(200)
+    assert own_view["data"]["cart"]["sessionId"] == cart.session_id
 
     assert %{"error" => "cart_not_found"} =
              request(other, :post, "/api/checkout/confirm", payload(cart)) |> json_response(422)

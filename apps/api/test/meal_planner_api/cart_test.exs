@@ -17,8 +17,12 @@ defmodule MealPlannerApi.CartTest do
     assert cart.owner_user_id == f.owner.id
     assert DateTime.diff(cart.lease_expires_at, DateTime.utc_now()) in 3599..3600
     assert {:ok, view} = ShoppingService.get_shopping_list(f.other)
-    assert length(hd(view.items).lines) == 2
-    assert Enum.all?(hd(view.items).lines, &(&1.reserved_by_user_id == f.owner.id))
+    # The peer sees the reservation on the line; the Cart is reported only to
+    # the member who holds it.
+    assert [%{status: "in_cart", allocations: [_, _]}] = view.planned
+    assert view.cart == nil
+    assert {:ok, own_view} = ShoppingService.get_shopping_list(f.actor)
+    assert own_view.cart.session_id == cart.session_id
     assert {:error, :already_reserved} = Cart.reserve(f.other, [hd(f.items).id])
     assert {:error, :cart_not_found} = Cart.purchase(f.other, cart.session_id, payload(cart))
     assert {:error, :cart_not_found} = Cart.cancel(f.other, cart.session_id)
@@ -140,7 +144,7 @@ defmodule MealPlannerApi.CartTest do
       refute_receive %Phoenix.Socket.Broadcast{event: "purchase_confirmed"}
       refute_receive %Phoenix.Socket.Broadcast{event: "inventory_changed"}
       assert {:ok, view} = ShoppingService.get_shopping_list(f.other)
-      assert hd(view.items).total_quantity_milli == 900
+      assert hd(view.planned).quantity_milli == 900
     end
   end
 

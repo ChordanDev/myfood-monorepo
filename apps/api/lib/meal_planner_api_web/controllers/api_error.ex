@@ -137,7 +137,9 @@ defmodule MealPlannerApiWeb.ApiError do
     # of another Account share the code, so existence is not revealed.
     recipe_not_found: {404, "The recipe was not found."},
     # Onboarding profile (issue #17). `validation_error/2` replaces the
-    # message of `validation_error` with one naming the field.
+    # message of `validation_error` with one naming the field. The shopping
+    # list read (issue #39) replies the same code, with this static message,
+    # for a request param that is malformed or out of range.
     validation_error: {422, "The request is not valid."},
     invalid_cooking_skill: {422, "The cooking skill is not valid."},
     # Planning channel (issue #11): every deliberate reason a join or a

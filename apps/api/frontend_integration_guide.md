@@ -574,42 +574,98 @@ Request body can use:
 
 - Method: `GET`
 - Path: `/api/shopping-list`
-- Query params:
-  - `start_date` (ISO date, optional)
-  - `end_date` (ISO date, optional)
-  - `categories` (comma-separated categories, optional)
-  - `optimize_prices` (`true`/`false`, optional)
+- Query params (both optional):
+  - `untilDate` (`YYYY-MM-DD`): keeps the planned lines of Scheduled meals on or before that date, the date
+    itself included. Without it the list covers every upcoming uncooked Scheduled meal, with no upper bound.
+  - `groupBy` (`ingredient` or `meal`, default `ingredient`): one line per ingredient and unit, adding up the
+    meals that need it, or one line per meal.
 
-Success response:
+This route is in the mobile casing scope: keys are camelCase in the response, and the params are read in
+camelCase or snake_case (`until_date`, `group_by`).
+
+"Today" is the Account's today, computed by the server: the current date in the Account's stored timezone,
+or the UTC date while none is stored. The client never sends its local date. The list starts at that date,
+and pending items planned before it are archived by the read. `from_date`, `to_date`, `start_date`,
+`end_date` and `include_archived` are not read.
+
+Success response (`groupBy=ingredient`):
 
 ```json
 {
   "data": {
-    "date_from": "2026-03-30",
-    "date_to": "2026-04-05",
-    "recovery_mode": false,
-    "pending_deliveries_count": 0,
-    "optimize_prices": false,
-    "grouped_by_category": [],
-    "items": [
+    "planned": [
       {
-        "ingredient_id": "...",
-        "ingredient_name": "Tomate",
+        "id": "<ingredient_uuid>:g",
+        "ingredientId": "<ingredient_uuid>",
+        "name": "Tomate",
         "category": "verduras",
+        "quantityMilli": 800,
         "unit": "g",
-        "total_quantity_milli": 1200,
-        "rows_count": 3,
-        "in_cart_rows": 1,
-        "assigned_supermarket_id": null,
-        "planned_dates": ["2026-03-30"],
-        "estimated_total_cents": 3400
+        "status": "needed",
+        "source": "planned_meal",
+        "supermarketId": null,
+        "allocations": [
+          {
+            "itemId": "<shopping_item_uuid>",
+            "scheduledMealId": "<scheduled_meal_uuid>",
+            "date": "2026-10-08",
+            "slot": "lunch",
+            "quantityMilli": 400
+          },
+          {
+            "itemId": "<shopping_item_uuid>",
+            "scheduledMealId": "<scheduled_meal_uuid>",
+            "date": "2026-10-10",
+            "slot": "dinner",
+            "quantityMilli": 400
+          }
+        ]
       }
     ],
+    "manual": [],
+    "cart": null,
     "totals": {
-      "grouped_rows": 8,
-      "pending_count": 6,
-      "in_cart_count": 2
-    }
+      "needed": 1,
+      "inCart": 0,
+      "removed": 0,
+      "estimatedCents": 0
+    },
+    "plannedDates": ["2026-10-08", "2026-10-10"]
+  }
+}
+```
+
+Fields:
+
+- `planned`: the lines to buy for the plan, ordered by the date of their first allocation, then by its slot
+  in the order of the day.
+  - `id`: `<ingredientId>:<unit>` with `groupBy=ingredient`; the Shopping item id with `groupBy=meal`.
+  - `status`: `needed` or `in_cart`. An ingredient line reads `in_cart` only when every allocation is in a
+    Cart, whoever holds it; otherwise it reads `needed`.
+  - `source`: always `planned_meal`.
+  - `supermarketId`: the supermarket every allocation is assigned to, or `null` when there is none or they
+    differ.
+  - `allocations`: the share of the line each Scheduled meal needs. `itemId` is the Shopping item to send to
+    `/api/shopping-items/mark-cart`. With `groupBy=meal` a line has exactly one allocation.
+- `manual`: always `[]` for now.
+- `cart`: the caller's own active Cart, `{ "sessionId": "...", "leaseExpiresAt": "<ISO 8601 datetime>" }`, or
+  `null`. Reading the list does not renew the lease.
+- `totals`: `needed`, `inCart` and `removed` count the lines of `planned` by status (`removed` is `0` for
+  now); `estimatedCents` adds the estimated price of the needed items.
+- `plannedDates`: every date from today on with an uncooked Scheduled meal, sorted. `untilDate` does not
+  change it.
+
+Validation errors use the error envelope of section 10, with status `422` and code `validation_error`. The
+envelope does not say which param was rejected. It is returned when:
+
+- `untilDate` is not a `YYYY-MM-DD` date, or it is before the Account's today;
+- `groupBy` is neither `ingredient` nor `meal`.
+
+```json
+{
+  "error": {
+    "code": "validation_error",
+    "message": "The request is not valid."
   }
 }
 ```
@@ -990,7 +1046,9 @@ Two error body shapes are in use. Which one a request gets depends on the code p
     `/api/auth/signup/request-code`, `/api/auth/signup/verify-code` and `/api/auth/refresh`;
   - `GET /api/me` and its alias `GET /api/auth/me`;
   - `PUT /api/me/profile`: `422 validation_error` and `422 invalid_cooking_skill`;
-  - `GET /api/recipes/:id`: `404 recipe_not_found` and `403 forbidden` (section 11).
+  - `GET /api/recipes/:id`: `404 recipe_not_found` and `403 forbidden` (section 11);
+  - `GET /api/shopping-list`, for a rejected `untilDate` or `groupBy` (7.1): `422 validation_error`. Its
+    other errors still use the flat shape below.
 - **Flat (legacy, not migrated to the envelope):** `{ "error": "<reason>" }`, with the status chosen by each
   endpoint (`422` in most controllers). It is still returned by:
   - the validation and domain errors that the non-auth controllers build themselves: account context,

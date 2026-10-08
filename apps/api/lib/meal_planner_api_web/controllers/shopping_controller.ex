@@ -2,6 +2,7 @@ defmodule MealPlannerApiWeb.ShoppingController do
   use MealPlannerApiWeb, :controller
 
   alias MealPlannerApi.Services.ShoppingService
+  alias MealPlannerApiWeb.ApiError
   alias MealPlannerApiWeb.Controllers.AccountScopeHelpers
 
   # Phase A — Tenancy Refactor (PR 3c task 3.17): tenancy scope is always
@@ -14,6 +15,9 @@ defmodule MealPlannerApiWeb.ShoppingController do
 
     case ShoppingService.get_shopping_list(user, params) do
       {:ok, payload} -> json(conn, %{data: payload})
+      # A rejected param of the shopping list read (issue #39) is answered
+      # with the mobile error envelope, whichever param it was.
+      {:error, {:validation_error, _param}} -> conn |> ApiError.error(:validation_error)
       {:error, reason} -> render_error(conn, reason)
     end
   end

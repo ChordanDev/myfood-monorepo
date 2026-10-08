@@ -50,12 +50,12 @@ Out of scope: manual items and removed/restored (S2, #40), Cart lease (S3, #41),
 
 ## Tasks
 
-- [ ] **T1 — Account timezone foundation** (route: delegated, writer trigger: migration + schema + config + module + tests)
+- [x] **T1 — Account timezone foundation** (route: delegated, writer trigger: migration + schema + config + module + tests)
   - `accounts.timezone` nullable column; schema field validated as a known IANA zone when present.
   - tz database dependency configured as the Elixir time zone database.
   - One function answering "today for this Account" (UTC while none is stored), with an injectable instant.
   - Checks: focused unit tests (zone ahead of / behind UTC around midnight, nil, unknown zone), `mix format --check-formatted`, `mix compile --warnings-as-errors`.
-- [ ] **T2 — Rebuilder: date limit and groupings** (route: delegated, same writer run as T1, disjoint files)
+- [x] **T2 — Rebuilder: date limit and groupings** (route: delegated, same writer run as T1, disjoint files)
   - Pure `limit_to_date/2` and `group_lines/2` (`:ingredient` aggregates with allocations, `:meal` splits).
   - Checks: `shopping_rebuilder_test.exs` pure tests, RED observed before GREEN.
 - [ ] **T3 — `GET /api/shopping-list` contract** (route: delegated, writer trigger: service + controller + several test files + docs)
@@ -92,10 +92,19 @@ User's decision.
 
 | Task | Route | Commit | Checks | Review |
 |------|-------|--------|--------|--------|
-| T1 | delegated | — | — | — |
-| T2 | delegated | — | — | — |
+| T1 | delegated | `7be15e5` | RED observed (missing module, uncast field) then 21 passed; full suite 1246 passed, 20 skipped; format and `compile --warnings-as-errors` clean | medium, granted, approved (`review-591e8b34c07feca3`, with T2) |
+| T2 | delegated | `04431d5` | RED 8/31 then 31 passed; parent spot check 52 passed | medium, granted, approved; 3 advisory findings folded into T3 |
 | T3 | delegated | — | — | — |
 | T4 | delegated | — | — | — |
 | T5 | delegated | — | — | — |
 
-Next step: T1 + T2 writer run.
+Reviewed boundary: `04431d5`. Engram mirror: pending (save rejected, several active sessions for this project).
+
+Accepted review follow-ups (advisory, lineage `review-591e8b34c07feca3`), done with T3:
+- `group_lines/2` with `:ingredient`: removed rows must not inflate a line that still reads `needed`.
+- A test for a slot outside the schema enum sorting last.
+- Document that rows without an Ingredient (manual, S2) are not a supported input yet.
+
+Test database for this worktree: `MYFOOD_TEST_DATABASE=meal_planner_api_test_issue39`.
+
+Next step: T3 writer run.

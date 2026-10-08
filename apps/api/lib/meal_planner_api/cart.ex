@@ -172,6 +172,24 @@ defmodule MealPlannerApi.Cart do
     end
   end
 
+  @doc """
+  The active Cart a User holds in an Account, or `nil`.
+
+  A Cart is active while its session is a draft reserved by that User and
+  its lease has not run out at `now`. This is a plain read: it takes no
+  lock and does not renew the lease.
+  """
+  @spec active_for(Ecto.UUID.t(), Ecto.UUID.t(), DateTime.t()) :: Ecto.Schema.t() | nil
+  def active_for(account_id, user_id, now \\ DateTime.utc_now()) do
+    Repo.one(
+      from(c in CheckoutSession,
+        where:
+          c.account_id == ^account_id and c.reserved_by_user_id == ^user_id and
+            c.status == :draft and c.lease_expires_at > ^now
+      )
+    )
+  end
+
   def expire_account(account_id, now \\ DateTime.utc_now()) do
     result =
       Repo.transaction(fn ->

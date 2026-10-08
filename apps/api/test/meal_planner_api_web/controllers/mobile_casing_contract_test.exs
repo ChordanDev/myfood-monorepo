@@ -218,24 +218,48 @@ defmodule MealPlannerApiWeb.MobileCasingContractTest do
   describe "shopping and cart" do
     test "GET /api/shopping-list reads camelCase query params and responds with camelCase keys",
          f do
+      today = Date.to_iso8601(Date.utc_today())
       listed = f |> request(:get, "/api/shopping-list") |> success()
 
-      assert [%{"ingredientId" => ingredient_id, "lines" => [_ | _]}] = listed["data"]["items"]
+      assert %{
+               "planned" => [line],
+               "manual" => [],
+               "cart" => nil,
+               "totals" => %{"needed" => 1, "inCart" => 0, "removed" => 0, "estimatedCents" => 0},
+               "plannedDates" => [^today]
+             } = listed["data"]
+
+      assert %{
+               "id" => _,
+               "ingredientId" => ingredient_id,
+               "name" => _,
+               "category" => "otros",
+               "quantityMilli" => 1500,
+               "unit" => "g",
+               "status" => "needed",
+               "source" => "planned_meal",
+               "supermarketId" => nil,
+               "allocations" => [allocation, _]
+             } = line
+
       assert ingredient_id == f.ingredient.id
 
-      # Without the rewrite the range falls back to the default one, which
-      # holds the two items above.
-      later = Date.add(Date.utc_today(), 30)
+      assert %{
+               "itemId" => item_id,
+               "scheduledMealId" => scheduled_meal_id,
+               "date" => ^today,
+               "slot" => "dinner",
+               "quantityMilli" => _
+             } = allocation
 
-      empty =
-        f
-        |> request(:get, "/api/shopping-list", %{
-          "fromDate" => Date.to_iso8601(later),
-          "toDate" => Date.to_iso8601(Date.add(later, 1))
-        })
-        |> success()
+      assert item_id in Enum.map(f.items, & &1.id)
+      assert scheduled_meal_id == f.meal.id
 
-      assert empty["data"]["items"] == []
+      # Without the rewrite `groupBy` is not read and the two items above
+      # stay on one ingredient line.
+      by_meal = f |> request(:get, "/api/shopping-list", %{"groupBy" => "meal"}) |> success()
+
+      assert [%{"allocations" => [_]}, %{"allocations" => [_]}] = by_meal["data"]["planned"]
     end
 
     test "a cart is reserved and bought with camelCase params and keys", f do

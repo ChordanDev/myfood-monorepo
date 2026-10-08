@@ -353,13 +353,39 @@ defmodule MealPlannerApi.Services.ShoppingRebuilderTest do
       assert [%{status: :needed}] = ShoppingRebuilder.group_lines(rows, :ingredient)
     end
 
-    test "in cart and removed together read as needed" do
+    test "a removed row does not add to the quantity of a line that is still needed" do
       rows = [
-        row("i1", "flour", %{status: :in_cart}),
-        row("i2", "flour", %{status: :removed})
+        row("i1", "flour", %{status: :needed, quantity_milli: 100_000}),
+        row("i2", "flour", %{status: :removed, quantity_milli: 250_000})
       ]
 
-      assert [%{status: :needed}] = ShoppingRebuilder.group_lines(rows, :ingredient)
+      assert [line] = ShoppingRebuilder.group_lines(rows, :ingredient)
+
+      assert %{status: :needed, quantity_milli: 100_000} = line
+      assert Enum.map(line.allocations, & &1.item_id) == ["i1", "i2"]
+      assert Enum.map(line.allocations, & &1.quantity_milli) == [100_000, 250_000]
+    end
+
+    test "a removed row is left out of the status the other rows share" do
+      rows = [
+        row("i1", "flour", %{status: :in_cart, quantity_milli: 100_000}),
+        row("i2", "flour", %{status: :removed, quantity_milli: 250_000}),
+        row("i3", "flour", %{status: :in_cart, quantity_milli: 50_000})
+      ]
+
+      assert [%{status: :in_cart, quantity_milli: 150_000}] =
+               ShoppingRebuilder.group_lines(rows, :ingredient)
+    end
+
+    test "needed and in cart next to a removed row still read as needed" do
+      rows = [
+        row("i1", "flour", %{status: :in_cart, quantity_milli: 100_000}),
+        row("i2", "flour", %{status: :removed, quantity_milli: 250_000}),
+        row("i3", "flour", %{status: :needed, quantity_milli: 50_000})
+      ]
+
+      assert [%{status: :needed, quantity_milli: 150_000}] =
+               ShoppingRebuilder.group_lines(rows, :ingredient)
     end
 
     test "every row in the cart reads as in cart" do
@@ -371,13 +397,32 @@ defmodule MealPlannerApi.Services.ShoppingRebuilderTest do
       assert [%{status: :in_cart}] = ShoppingRebuilder.group_lines(rows, :ingredient)
     end
 
-    test "every row removed reads as removed" do
+    test "every row removed reads as removed, with the summed quantity" do
       rows = [
-        row("i1", "flour", %{status: :removed}),
-        row("i2", "flour", %{status: :removed})
+        row("i1", "flour", %{status: :removed, quantity_milli: 100_000}),
+        row("i2", "flour", %{status: :removed, quantity_milli: 250_000})
       ]
 
-      assert [%{status: :removed}] = ShoppingRebuilder.group_lines(rows, :ingredient)
+      assert [%{status: :removed, quantity_milli: 350_000}] =
+               ShoppingRebuilder.group_lines(rows, :ingredient)
+    end
+
+    test "a slot outside the schema enum sorts last within its date" do
+      rows = [
+        row("i1", "flour", %{date: ~D[2026-10-01], slot: :brunch}),
+        row("i2", "flour", %{date: ~D[2026-10-01], slot: :dinner}),
+        row("i3", "flour", %{date: ~D[2026-10-02], slot: :breakfast}),
+        row("i4", "flour", %{date: ~D[2026-10-01], slot: :breakfast})
+      ]
+
+      assert [line] = ShoppingRebuilder.group_lines(rows, :ingredient)
+
+      assert Enum.map(line.allocations, &{&1.date, &1.slot}) == [
+               {~D[2026-10-01], :breakfast},
+               {~D[2026-10-01], :dinner},
+               {~D[2026-10-01], :brunch},
+               {~D[2026-10-02], :breakfast}
+             ]
     end
 
     test "a shared supermarket is kept" do
@@ -491,6 +536,28 @@ defmodule MealPlannerApi.Services.ShoppingRebuilderTest do
 
     test "returns an empty list for no rows" do
       assert ShoppingRebuilder.group_lines([], :meal) == []
+    end
+  end
+
+  # -------------------------------------------------------------------------
+  # Scenario: Slots are ranked in the order of the day
+  # Spec: issue #39 — the read orders its rows with the same rank the
+  # allocations of a line use
+  # -------------------------------------------------------------------------
+
+  describe "slot_rank/1" do
+    test "ranks the slots of the schema in the order of the day" do
+      slots = [:dinner, :snack, :breakfast, :lunch]
+
+      assert Enum.sort_by(slots, &ShoppingRebuilder.slot_rank/1) ==
+               [:breakfast, :lunch, :snack, :dinner]
+    end
+
+    test "ranks a slot outside the schema enum, nil included, after the known ones" do
+      dinner = ShoppingRebuilder.slot_rank(:dinner)
+
+      assert ShoppingRebuilder.slot_rank(:brunch) > dinner
+      assert ShoppingRebuilder.slot_rank(nil) > dinner
     end
   end
 end
