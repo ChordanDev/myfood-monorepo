@@ -169,6 +169,9 @@ defmodule MealPlannerApiWeb.Router do
   # Issue #18 — `GET` and `PUT /me/preferences` sit here for the same
   # exemption: a User of an Account whose Trial expired can still read and
   # save their preferences.
+  #
+  # Issue #34 — `GET` and `POST /me/favorites` and `DELETE
+  # /me/favorites/:recipe_id`: favorites belong to the User, so they share it.
   scope "/api", MealPlannerApiWeb do
     pipe_through([:api, :mobile_casing, :auth])
 
@@ -178,6 +181,9 @@ defmodule MealPlannerApiWeb.Router do
     put("/me/slot-cooking-times", SlotCookingTimesController, :update)
     get("/me/preferences", PreferencesController, :show)
     put("/me/preferences", PreferencesController, :update)
+    get("/me/favorites", FavoritesController, :index)
+    post("/me/favorites", FavoritesController, :create)
+    delete("/me/favorites/:recipe_id", FavoritesController, :delete)
   end
 
   # Product routes of the mobile app. `:mobile_casing` is opt-in and this is
