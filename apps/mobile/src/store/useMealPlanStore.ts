@@ -1,44 +1,39 @@
 import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
-import { MealPlanEntry, MasterRecipe } from '../types/domain';
-import { MOCK_MEAL_PLAN, MOCK_MASTER_RECIPES } from '../mocks/domainMocks';
+import { MealPlanEntry, MasterRecipe, RecipeSummary } from '../types/domain';
 import { safeAsyncStorage } from '@/utils/safeAsyncStorage';
-
-interface EatTodayParams {
-  sourceDate: string;
-  sourceType: MealPlanEntry['type'];
-  targetDate: string;
-  targetType: MealPlanEntry['type'];
-}
 
 interface MealPlanState {
   entries: MealPlanEntry[];
   recipes: MasterRecipe[];
+  recipeSummaries: Record<string, RecipeSummary>;
   setPlan: (entries: MealPlanEntry[]) => void;
+  setRecipeSummaries: (recipeSummaries: Record<string, RecipeSummary>) => void;
   markAsCooked: (entryId: string) => void;
   markAsSkipped: (entryId: string) => void;
-  eatToday: (params: EatTodayParams) => void;
   getEntryByDateAndType: (date: string, type: string) => MealPlanEntry | undefined;
   getRecipeById: (id: string) => MasterRecipe | undefined;
 }
 
-// Runs when the stored version is another one. A plan stored before version 2 has entries
-// that no longer match the fixtures, so only its entries are replaced by the fixture plan:
-// the rest of what the User stored is kept.
+// Runs when the stored version is another one. A plan stored before version 3 was seeded from
+// the fixtures, so it is dropped: the calendar read fills the cache again. The rest of what the
+// User stored is kept.
 function migrateMealPlanState(persistedState: unknown, version: number): MealPlanState {
   const stored = (
     typeof persistedState === 'object' && persistedState !== null ? persistedState : {}
   ) as MealPlanState;
 
-  return version < 2 ? { ...stored, entries: MOCK_MEAL_PLAN } : stored;
+  return version < 3 ? { ...stored, entries: [], recipeSummaries: {} } : stored;
 }
 
 export const useMealPlanStore = create<MealPlanState>()(
   persist(
     (set, get) => ({
-      entries: MOCK_MEAL_PLAN,
-      recipes: MOCK_MASTER_RECIPES,
+      entries: [],
+      recipes: [],
+      recipeSummaries: {},
       setPlan: (entries) => set({ entries }),
+      setRecipeSummaries: (recipeSummaries) => set({ recipeSummaries }),
       // Only the local mark: the stock is consumed by the server's Cooking session, whose
       // summary the user sees, so the plan does not subtract anything from the inventory.
       markAsCooked: (entryId) => {
@@ -57,39 +52,6 @@ export const useMealPlanStore = create<MealPlanState>()(
           entries: state.entries.map((e) => (e.id === entryId ? { ...e, isSkipped: true } : e)),
         }));
       },
-      eatToday: ({ sourceDate, sourceType, targetDate, targetType }) => {
-        set((state) => {
-          const sourceEntry = state.entries.find(
-            (entry) => entry.date === sourceDate && entry.type === sourceType
-          );
-
-          if (!sourceEntry || sourceEntry.isCooked) {
-            return state;
-          }
-
-          const targetEntry = state.entries.find(
-            (entry) => entry.date === targetDate && entry.type === targetType
-          );
-
-          if (targetEntry?.isCooked) {
-            return state;
-          }
-
-          return {
-            entries: state.entries.map((entry) => {
-              if (entry.id === sourceEntry.id) {
-                return { ...entry, date: targetDate, type: targetType };
-              }
-
-              if (targetEntry && entry.id === targetEntry.id) {
-                return { ...entry, date: sourceDate, type: sourceType };
-              }
-
-              return entry;
-            }),
-          };
-        });
-      },
       getEntryByDateAndType: (date, type) => {
         return get().entries.find((e) => e.date === date && e.type === type);
       },
@@ -99,9 +61,9 @@ export const useMealPlanStore = create<MealPlanState>()(
     }),
     {
       name: 'meal-plan-storage',
-      // Bumped whenever the stored entries stop matching the fixtures; `migrate` then swaps
-      // them for the fixture plan. Version 2: meal slots became the API codes.
-      version: 2,
+      // Bumped whenever the stored plan stops matching what the calendar read serves; `migrate`
+      // then empties it. Version 3: the plan is a cache of `GET /api/calendar`, not fixtures.
+      version: 3,
       migrate: migrateMealPlanState,
       storage: createJSONStorage(() => safeAsyncStorage),
     }
