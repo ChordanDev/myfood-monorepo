@@ -1,6 +1,7 @@
 defmodule MealPlannerApiWeb.CalendarController do
   use MealPlannerApiWeb, :controller
 
+  alias MealPlannerApi.AccountClock
   alias MealPlannerApi.Persistence.Calendar
 
   # Phase A — Tenancy Refactor (PR 3c task 3.14): tenancy scope is always
@@ -17,7 +18,10 @@ defmodule MealPlannerApiWeb.CalendarController do
          {:ok, end_date} <- parse_date(Map.get(params, "end_date")),
          :ok <- validate_date_range(start_date, end_date),
          {:ok, selected_date} <-
-           parse_optional_date(Map.get(params, "selected_date"), Date.utc_today()),
+           parse_optional_date(
+             Map.get(params, "selected_date"),
+             AccountClock.today(membership.account_id)
+           ),
          {:ok, selected_slot} <- parse_optional_slot(Map.get(params, "selected_slot"), :lunch) do
       data =
         Calendar.monthly_overview(membership.account_id, user.id, start_date, end_date, %{
@@ -188,6 +192,7 @@ defmodule MealPlannerApiWeb.CalendarController do
       date: Date.to_iso8601(meal.date),
       slot: Atom.to_string(meal.slot),
       is_cooked: meal.is_cooked,
+      is_skipped: meal.is_skipped,
       recipe_id: meal.recipe_id,
       recipe_version_id: meal.recipe_version_id,
       selected_quantity: meal.selected_quantity,
@@ -217,6 +222,7 @@ defmodule MealPlannerApiWeb.CalendarController do
       recipe_id: nil,
       recipe_name: nil,
       is_cooked: false,
+      is_skipped: false,
       is_favorite: false,
       can_create: true,
       macros: nil,

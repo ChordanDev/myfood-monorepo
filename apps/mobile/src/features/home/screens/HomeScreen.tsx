@@ -19,6 +19,7 @@ import { useHomeState } from '../hooks/useHomeState';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useHomeRecipeTheme } from '../hooks/useHomeRecipeTheme';
 import { formatDateKey } from '../utils/calendarDate';
+import { CookingResultSheet, useMarkAsCooked } from '@/features/cooking';
 import { useMealPlanStore } from '@/store';
 import { useGradientCrossfade } from '@/hooks/useGradientCrossfade';
 import { favoriteSummaryFromRecipe } from '@/features/favorites/domain/favoriteFormat';
@@ -33,8 +34,8 @@ export function HomeScreen() {
   const insets = useSafeAreaInsets();
   const tabBarHeight = insets.bottom + 60;
   const eatToday = useMealPlanStore((state) => state.eatToday);
-  const markAsCooked = useMealPlanStore((state) => state.markAsCooked);
   const getRecipeById = useMealPlanStore((state) => state.getRecipeById);
+  const cooking = useMarkAsCooked();
   const markAsSkipped = useMealPlanStore((state) => state.markAsSkipped);
   // Destinations are captured when the sheet opens so the options cannot change while it is shown.
   const [eatTodaySheet, setEatTodaySheet] = useState<{
@@ -97,7 +98,7 @@ export function HomeScreen() {
 
   const handleConfirmCooked = () => {
     if (selectedMeal) {
-      markAsCooked(selectedMeal.id);
+      void cooking.markAsCooked(selectedMeal.id);
     }
   };
 
@@ -254,6 +255,11 @@ export function HomeScreen() {
           </View>
         </View>
       </SafeAreaContent>
+      <CookingResultSheet
+        summary={cooking.summary}
+        errorMessage={cooking.errorMessage}
+        onClose={cooking.dismiss}
+      />
       <EatTodaySheet
         visible={eatTodaySheet.visible}
         destinations={eatTodaySheet.destinations}

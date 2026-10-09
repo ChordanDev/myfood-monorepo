@@ -212,6 +212,15 @@ defmodule MealPlannerApiWeb.MobileCasingContractTest do
 
       assert current_step_id == step.id
       assert state["data"]["snapshot"]["timers"] == timers
+
+      finished =
+        f |> request(:post, "/api/cooking/sessions/#{session_id}/finish") |> success()
+
+      assert %{
+               "scheduledMeal" => %{"id" => ^scheduled_meal_id, "isCooked" => true},
+               "inventoryMutations" => [],
+               "shortages" => []
+             } = finished["data"]
     end
   end
 
@@ -309,13 +318,25 @@ defmodule MealPlannerApiWeb.MobileCasingContractTest do
           fat_g_per_100: Decimal.new("0.3")
         })
 
-      f
-      |> request(:post, "/api/inventory/items/add-extra", %{
-        "ingredientId" => ingredient.id,
-        "quantityMilli" => 250,
-        "unit" => "g"
-      })
-      |> success()
+      added =
+        f
+        |> request(:post, "/api/inventory/items/add-extra", %{
+          "ingredientId" => ingredient.id,
+          "quantityMilli" => 250,
+          "unit" => "g"
+        })
+        |> success()
+
+      assert %{
+               "item" => added_item,
+               "mutationEvent" => %{
+                 "inventoryItemId" => added_item_id,
+                 "triggerType" => "manual",
+                 "quantityAfterMilli" => 250
+               }
+             } = added["data"]
+
+      assert added_item["id"] == added_item_id
 
       body = f |> request(:get, "/api/inventory") |> success()
 
@@ -330,13 +351,19 @@ defmodule MealPlannerApiWeb.MobileCasingContractTest do
 
       assert %{
                "ingredientId" => ingredient_id,
+               "name" => "Casing contract rice",
                "quantityMilli" => 250,
                "sourceKind" => "extra",
-               "freshnessStatus" => "ok"
+               "expiresAt" => expires_at,
+               "freshness" => "ok",
+               "isLeftover" => false,
+               "notes" => nil
              } = item
 
       assert ingredient_id == ingredient.id
+      assert expires_at =~ ~r/^\d{4}-\d{2}-\d{2}$/
       assert body["data"]["extras"] == [item]
+      assert added_item == item
     end
   end
 
@@ -348,6 +375,7 @@ defmodule MealPlannerApiWeb.MobileCasingContractTest do
                "user" => %{"displayName" => _, "householdSize" => nil, "cookingSkill" => nil},
                "account" => %{
                  "trialEndsAt" => trial_ends_at,
+                 "timezone" => nil,
                  "subscriptionStatus" => "none",
                  "access" => %{"canUseApp" => true, "reason" => nil}
                },

@@ -43,6 +43,7 @@ const mockService = {
   getSlotCookingTimes: jest.fn(),
   updateSlotCookingTimes: jest.fn(),
   updateProfile: jest.fn(),
+  updateAccountTimezone: jest.fn(),
   refreshTokens: jest.fn(),
   persistSession: jest.fn(),
   default: {},

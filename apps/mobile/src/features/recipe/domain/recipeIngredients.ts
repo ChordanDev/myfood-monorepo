@@ -1,4 +1,3 @@
-import type { InventoryItem } from '@/features/inventory';
 import type { Ingredient, UnitType } from '@/types/domain';
 import type { RecipeIngredientLine } from '../types/recipe';
 import { MILLI_PER_UNIT, formatQuantityMilli } from './recipeFormat';
@@ -21,8 +20,11 @@ export type RecipeIngredientRow = {
   status: RecipeIngredientStatus;
 };
 
-/** What the recipe reads from an inventory item: its catalog link and how much there is. */
-type InventoryStockItem = Pick<InventoryItem, 'ingredientId' | 'quantity'>;
+/**
+ * What the recipe reads from an inventory item: its catalog link and how much there is, in
+ * thousandths of the unit.
+ */
+type InventoryStockItem = { ingredientId?: string; quantityMilli: number };
 
 type ResolveRecipeIngredientsArgs = {
   lines: RecipeIngredientLine[];
@@ -33,15 +35,16 @@ type ResolveRecipeIngredientsArgs = {
 };
 
 /**
- * Total stock per ingredient: the same ingredient may sit in several inventory items. An item
- * without a catalog link cannot be matched to a recipe line, so it never counts as stock.
+ * Total stock per ingredient, in thousandths: the same ingredient may sit in several inventory
+ * items. An item without a catalog link cannot be matched to a recipe line, so it never counts
+ * as stock.
  */
 function sumInventoryByIngredient(inventory: InventoryStockItem[]): Map<string, number> {
   const totals = new Map<string, number>();
-  inventory.forEach(({ ingredientId, quantity }) => {
+  inventory.forEach(({ ingredientId, quantityMilli }) => {
     if (ingredientId === undefined) return;
 
-    totals.set(ingredientId, (totals.get(ingredientId) ?? 0) + quantity);
+    totals.set(ingredientId, (totals.get(ingredientId) ?? 0) + quantityMilli);
   });
   return totals;
 }
@@ -67,7 +70,7 @@ export function resolveRecipeIngredients({
   return lines.map(({ ingredientId, name, quantityMilli, unit }) => {
     const requiredAmount = quantityMilli / MILLI_PER_UNIT;
     const isInCatalog = catalogById.get(ingredientId)?.unit === unit;
-    const availableAmount = stockByIngredient.get(ingredientId) ?? 0;
+    const availableAmount = (stockByIngredient.get(ingredientId) ?? 0) / MILLI_PER_UNIT;
     const isCovered = isInCatalog && availableAmount >= requiredAmount;
     const isListed = isInCatalog && listedIds.has(ingredientId);
     const shortStatus: RecipeIngredientStatus = isListed ? 'listed' : 'missing';

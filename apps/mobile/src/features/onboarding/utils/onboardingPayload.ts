@@ -88,5 +88,6 @@ export function buildOnboardingPayload(state: OnboardingFormState): OnboardingCo
     profile,
     preferences,
     slotCookingTimes: slots,
+    timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
   };
 }

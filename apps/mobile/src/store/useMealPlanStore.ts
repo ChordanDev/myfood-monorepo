@@ -2,7 +2,6 @@ import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
 import { MealPlanEntry, MasterRecipe } from '../types/domain';
 import { MOCK_MEAL_PLAN, MOCK_MASTER_RECIPES } from '../mocks/domainMocks';
-import { useInventoryStore } from '@/features/inventory/store';
 import { safeAsyncStorage } from '@/utils/safeAsyncStorage';
 
 interface EatTodayParams {
@@ -40,18 +39,11 @@ export const useMealPlanStore = create<MealPlanState>()(
       entries: MOCK_MEAL_PLAN,
       recipes: MOCK_MASTER_RECIPES,
       setPlan: (entries) => set({ entries }),
+      // Only the local mark: the stock is consumed by the server's Cooking session, whose
+      // summary the user sees, so the plan does not subtract anything from the inventory.
       markAsCooked: (entryId) => {
         const entry = get().entries.find((e) => e.id === entryId);
         if (!entry || entry.isCooked || entry.isSkipped) return;
-
-        const recipe = get().recipes.find((r) => r.id === entry.recipeId);
-        if (recipe) {
-          // Consumo automático de ingredientes
-          const inventoryStore = useInventoryStore.getState();
-          recipe.ingredients.forEach((ing) => {
-            inventoryStore.consumeIngredient(ing.ingredientId, ing.amount);
-          });
-        }
 
         set((state) => ({
           entries: state.entries.map((e) => (e.id === entryId ? { ...e, isCooked: true } : e)),

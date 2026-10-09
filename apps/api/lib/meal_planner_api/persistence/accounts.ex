@@ -57,6 +57,20 @@ defmodule MealPlannerApi.Persistence.Accounts do
     end
   end
 
+  @doc """
+  Stores `timezone`, an IANA id, on the Account with `account_id`. The rules
+  are the ones of `Account.changeset/2`; nothing is stored when it rejects
+  the zone.
+  """
+  @spec update_account_timezone(Ecto.UUID.t(), String.t()) ::
+          {:ok, Account.t()} | {:error, :account_not_found | Ecto.Changeset.t()}
+  def update_account_timezone(account_id, timezone) do
+    case Repo.get(Account, account_id) do
+      %Account{} = account -> account |> Account.changeset(%{timezone: timezone}) |> Repo.update()
+      nil -> {:error, :account_not_found}
+    end
+  end
+
   def upsert_user_dietary_profile(user_id, attrs) do
     attrs = Map.put(attrs, :user_id, user_id)
 
@@ -79,8 +93,21 @@ defmodule MealPlannerApi.Persistence.Accounts do
   rolls the whole set back and returns its changeset. Keys other than the
   three slots are ignored, so a saved set is always exactly three rows.
 
-  It runs in a transaction and joins the one already open, if any; a
-  refused set then rolls that outer transaction back too.
+  `times` is keyed by slot atom, and each slot map is atom-keyed too, as
+  `%{lunch: %{cooking_time_minutes: 45, hunger_level: :normal}}` (the Hunger
+  level may be an atom or a string). A string-keyed `times` finds no slot, so
+  the changeset of the first slot is returned, with an error for each missing
+  field; a string-keyed slot map raises inside `cast`, which refuses to mix
+  its keys with the atoms added here. The controller never passes either.
+
+  It runs in a transaction and joins the one already open, if any. A refused
+  set rolls that outer transaction back too: this function returns
+  `{:error, changeset}`, but the outer transaction is already marked as
+  rolling back. Its next query raises `DBConnection.ConnectionError`, which
+  propagates out of `Repo.transaction/1` unless the caller rescues it. When
+  the outer function returns normally, `Repo.transaction/1` returns
+  `{:error, :rollback}`; when it calls `Repo.rollback/1` itself, it returns
+  that value instead.
   """
   def replace_user_slot_cooking_times(user_id, times) when is_map(times) do
     Repo.transaction(fn ->

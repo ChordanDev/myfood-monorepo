@@ -1,11 +1,13 @@
 import React from 'react';
 import { Keyboard, Modal, ScrollView, StyleSheet, Text } from 'react-native';
 import { act, create, type ReactTestRenderer } from 'react-test-renderer';
+import { ApiError } from '@/api/errors';
 import { formatDateKey } from '@/features/home/utils/calendarDate';
 import { CHAT_COMPOSER_MIN_HEIGHT } from '@/features/assistant-chat';
-import { ApiError } from '@/api/errors';
 import { addFavorite, listFavorites, removeFavorite } from '@/features/favorites/api/favoritesApi';
 import { useFavoritesStore } from '@/features/favorites/store';
+import { finishCookingSession, startCookingSession } from '@/features/cooking/api';
+import { COOKING_FINISH_WITH_SHORTAGE, COOKING_START } from '@/features/cooking/fixtures';
 import { useInventoryStore, type InventoryItem } from '@/features/inventory';
 import { useShoppingListStore } from '@/features/shopping/store';
 import { useMealPlanStore } from '@/store';
@@ -18,6 +20,11 @@ import { useRecipeCacheStore } from '../../store';
 import { RecipeScreen } from '../RecipeScreen';
 
 const mockBack = jest.fn();
+
+jest.mock('@/features/cooking/api', () => ({
+  startCookingSession: jest.fn(),
+  finishCookingSession: jest.fn(),
+}));
 const mockScrollToEnd = jest.fn();
 const fetchMock = jest.fn();
 let mockRouteParams: { id: string; entryId?: string; recipeVersionId?: string };
@@ -153,10 +160,15 @@ function inventoryItem(overrides: Partial<InventoryItem> = {}): InventoryItem {
     id: 'inv-i1',
     ingredientId: 'i1',
     name: 'Arroz Blanco',
-    category: 'almacen',
-    quantity: 500,
+    category: 'no_perecederos',
+    quantityMilli: 500_000,
     unit: 'g',
-    confidence: 'exact',
+    sourceKind: 'planned',
+    acquiredAt: null,
+    expiresAt: '2026-12-01',
+    freshness: 'ok',
+    isLeftover: false,
+    notes: null,
     ...overrides,
   };
 }
@@ -225,6 +237,12 @@ function press(tree: ReactTestRenderer, testID: string) {
   });
 }
 
+async function pressAndSettle(tree: ReactTestRenderer, testID: string) {
+  await act(async () => {
+    findButton(tree, testID).props.onPress();
+  });
+}
+
 // The Shopping list is the server's: the recipe neither reads it nor asks the server for it.
 const shopping = () => useShoppingListStore.getState();
 
@@ -245,6 +263,8 @@ describe('RecipeScreen', () => {
   beforeEach(() => {
     jest.useFakeTimers();
     mockBack.mockClear();
+    jest.mocked(startCookingSession).mockReset().mockResolvedValue(COOKING_START);
+    jest.mocked(finishCookingSession).mockReset().mockResolvedValue(COOKING_FINISH_WITH_SHORTAGE);
     mockScrollToEnd.mockClear();
     fetchMock.mockReset();
     global.fetch = fetchMock;
@@ -339,7 +359,7 @@ describe('RecipeScreen', () => {
             id: 'inv-i2',
             ingredientId: 'i2',
             name: 'Pollo (Pechuga)',
-            quantity: 50,
+            quantityMilli: 50_000,
           }),
         ],
       });
@@ -353,7 +373,12 @@ describe('RecipeScreen', () => {
       useInventoryStore.setState({
         items: [
           inventoryItem(),
-          inventoryItem({ id: 'inv-free', ingredientId: undefined, name: 'Pollo', quantity: 900 }),
+          inventoryItem({
+            id: 'inv-free',
+            ingredientId: undefined,
+            name: 'Pollo',
+            quantityMilli: 900_000,
+          }),
         ],
       });
       const tree = renderScreen();
@@ -396,30 +421,66 @@ describe('RecipeScreen', () => {
       expect(mockBack).not.toHaveBeenCalled();
     });
 
-    it('marks the planned meal as cooked and goes back once the user answers "Sí"', () => {
+    it('cooks through the server, shows what was consumed and goes back when it is closed', async () => {
       const tree = renderScreen();
 
       press(tree, 'recipe-header-cooked');
-      press(tree, 'recipe-cooked-confirm-yes');
+      await pressAndSettle(tree, 'recipe-cooked-confirm-yes');
 
+      expect(startCookingSession).toHaveBeenCalledWith('e-today');
+      expect(finishCookingSession).toHaveBeenCalledWith(COOKING_START.sessionId);
       expect(useMealPlanStore.getState().entries[0].isCooked).toBe(true);
-      expect(mockBack).toHaveBeenCalledTimes(1);
       expect(isConfirmSheetOpen(tree)).toBe(false);
+      expect(renderedTexts(tree)).toEqual(
+        expect.arrayContaining(['Esto se descontó de tu inventario', 'Arroz', '200 g', 'Sal'])
+      );
+      expect(mockBack).not.toHaveBeenCalled();
+
+      press(tree, 'cooking-result-close');
+
+      expect(mockBack).toHaveBeenCalledTimes(1);
     });
 
-    it('marks the meal and goes back a single time when "Sí" is tapped twice', () => {
+    it('does not subtract anything from the local inventory', async () => {
+      const tree = renderScreen();
+      const before = useInventoryStore.getState().items;
+
+      press(tree, 'recipe-header-cooked');
+      await pressAndSettle(tree, 'recipe-cooked-confirm-yes');
+
+      expect(useInventoryStore.getState().items).toEqual(before);
+    });
+
+    it('starts a single session when "Sí" is tapped twice', async () => {
       const tree = renderScreen();
 
       press(tree, 'recipe-header-cooked');
       // Both taps land before the screen re-renders, so they reach the same handler.
       const { onPress } = findButton(tree, 'recipe-cooked-confirm-yes').props;
-      act(() => {
+      await act(async () => {
         onPress();
         onPress();
       });
 
+      expect(startCookingSession).toHaveBeenCalledTimes(1);
       expect(useMealPlanStore.getState().entries[0].isCooked).toBe(true);
-      expect(mockBack).toHaveBeenCalledTimes(1);
+    });
+
+    it('stays on the recipe, uncooked, and says why when the server refuses', async () => {
+      jest
+        .mocked(startCookingSession)
+        .mockRejectedValue(new ApiError('cooking_chat_unavailable', 'no', 422));
+      const tree = renderScreen();
+
+      press(tree, 'recipe-header-cooked');
+      await pressAndSettle(tree, 'recipe-cooked-confirm-yes');
+
+      expect(renderedTexts(tree)).toContain('Solo podés marcar como cocinada una comida de hoy.');
+      expect(useMealPlanStore.getState().entries[0].isCooked).toBe(false);
+
+      press(tree, 'cooking-result-close');
+
+      expect(mockBack).not.toHaveBeenCalled();
     });
 
     it('leaves the meal uncooked and the screen in place when the user answers "No"', () => {
@@ -434,16 +495,15 @@ describe('RecipeScreen', () => {
       expect(findButton(tree, 'recipe-header-cooked').props.disabled).toBe(false);
     });
 
-    it('asks again after a "No", and the next "Sí" still marks the meal', () => {
+    it('asks again after a "No", and the next "Sí" still marks the meal', async () => {
       const tree = renderScreen();
 
       press(tree, 'recipe-header-cooked');
       press(tree, 'recipe-cooked-confirm-no');
       press(tree, 'recipe-header-cooked');
-      press(tree, 'recipe-cooked-confirm-yes');
+      await pressAndSettle(tree, 'recipe-cooked-confirm-yes');
 
       expect(useMealPlanStore.getState().entries[0].isCooked).toBe(true);
-      expect(mockBack).toHaveBeenCalledTimes(1);
     });
 
     it('closes without marking the meal from the backdrop and from the Android back button', () => {
@@ -452,7 +512,7 @@ describe('RecipeScreen', () => {
       press(tree, 'recipe-header-cooked');
       act(() => {
         tree.root
-          .findByProps({ accessibilityLabel: 'Cerrar', accessibilityRole: 'button' })
+          .findAllByProps({ accessibilityLabel: 'Cerrar', accessibilityRole: 'button' })[0]
           .props.onPress();
       });
 
@@ -460,7 +520,7 @@ describe('RecipeScreen', () => {
 
       press(tree, 'recipe-header-cooked');
       act(() => {
-        tree.root.findByType(Modal).props.onRequestClose();
+        tree.root.findAllByType(Modal)[0].props.onRequestClose();
       });
 
       expect(isConfirmSheetOpen(tree)).toBe(false);

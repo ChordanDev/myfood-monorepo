@@ -4,6 +4,7 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { formatDateKey } from '@/features/home/utils/calendarDate';
 import { favoriteSummaryFromRecipe } from '@/features/favorites/domain/favoriteFormat';
 import { selectIsFavorite, useFavoritesStore } from '@/features/favorites/store';
+import { useMarkAsCooked } from '@/features/cooking';
 import { useInventoryStore } from '@/features/inventory';
 import { useMealPlanStore } from '@/store';
 import { canMarkAsCooked, isRecipeChatEnabled, resolveRecipeEntry } from '../domain/recipeEntry';
@@ -40,7 +41,7 @@ export function useRecipeScreen() {
   const entries = useMealPlanStore((state) => state.entries);
   const isFavorite = useFavoritesStore(selectIsFavorite(recipeId));
   const toggleFavorite = useFavoritesStore((state) => state.toggle);
-  const markAsCooked = useMealPlanStore((state) => state.markAsCooked);
+  const cooking = useMarkAsCooked();
   const inventory = useInventoryStore((state) => state.items);
   const catalog = useInventoryStore((state) => state.ingredients);
   const [isCookedConfirmVisible, setIsCookedConfirmVisible] = useState(false);
@@ -76,7 +77,8 @@ export function useRecipeScreen() {
     void toggleFavorite(favoriteSummaryFromRecipe(recipe));
   }, [recipe, toggleFavorite]);
 
-  // Marking a meal as cooked consumes its ingredients, so the check only asks; the sheet decides.
+  // Marking a meal as cooked consumes its ingredients on the server, so the check only asks; the
+  // sheet decides.
   const handleRequestMarkAsCooked = useCallback(() => {
     if (!canMarkAsCooked(entry)) return;
 
@@ -91,16 +93,22 @@ export function useRecipeScreen() {
     setIsCookedConfirmVisible(false);
   }, []);
 
-  const handleConfirmCooked = useCallback(() => {
+  const handleConfirmCooked = useCallback(async () => {
     if (!isAwaitingCookedAnswerRef.current) return;
 
     isAwaitingCookedAnswerRef.current = false;
     setIsCookedConfirmVisible(false);
     if (!entry || !canMarkAsCooked(entry)) return;
 
-    markAsCooked(entry.id);
-    router.back();
-  }, [entry, markAsCooked, router]);
+    // The summary is shown over the recipe; the screen closes when the user dismisses it.
+    await cooking.markAsCooked(entry.id);
+  }, [cooking, entry]);
+
+  const { dismiss: dismissCookingResult, summary: cookingSummary } = cooking;
+  const handleCloseCookingResult = useCallback(() => {
+    dismissCookingResult();
+    if (cookingSummary) router.back();
+  }, [cookingSummary, dismissCookingResult, router]);
 
   return {
     recipe,
@@ -110,11 +118,14 @@ export function useRecipeScreen() {
     canMarkAsCooked: canMarkAsCooked(entry),
     isChatEnabled: isRecipeChatEnabled(entry, todayKey),
     isCookedConfirmVisible,
+    cookingSummary,
+    cookingErrorMessage: cooking.errorMessage,
     handleBack,
     handleRetry: retry,
     handleToggleFavorite,
     handleRequestMarkAsCooked,
     handleConfirmCooked,
     handleCancelCooked,
+    handleCloseCookingResult,
   };
 }

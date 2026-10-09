@@ -145,6 +145,7 @@ function makeMe(
       type: 'individual',
       trialEndsAt: TRIAL_ENDS_AT,
       subscriptionStatus: 'none',
+      timezone: null,
       access: { canUseApp: true, reason: null },
       ...overrides.account,
     },

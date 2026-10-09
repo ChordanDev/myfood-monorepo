@@ -53,6 +53,15 @@ jest.mock('../../components', () => ({
   PendingDayCard: 'PendingDayCard',
 }));
 jest.mock('../../components/FoodCard', () => ({ FoodCard: 'FoodCard' }));
+jest.mock('@/features/cooking', () => ({
+  CookingResultSheet: 'CookingResultSheet',
+  useMarkAsCooked: () => ({
+    markAsCooked: jest.fn(),
+    summary: null,
+    errorMessage: null,
+    dismiss: jest.fn(),
+  }),
+}));
 
 function mount() {
   let tree: ReturnType<typeof create>;

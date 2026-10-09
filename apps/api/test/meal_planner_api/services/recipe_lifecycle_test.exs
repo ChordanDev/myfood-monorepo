@@ -145,7 +145,7 @@ defmodule MealPlannerApi.Services.RecipeLifecycleTest do
     assert {:ok, %{chat_messages: []}} = CookingService.session_state(f.actor, session.session_id)
     assert {:ok, _} = CookingService.finish_session(f.actor, session.session_id)
 
-    assert {:error, :session_closed} =
+    assert {:error, :cooking_session_not_active} =
              CookingService.answer_question(f.actor, session.session_id, "Continue?")
 
     assert Repo.aggregate(MealPlannerApi.Persistence.Planning.CookingChatMessage, :count) == 0
@@ -233,7 +233,7 @@ defmodule MealPlannerApi.Services.RecipeLifecycleTest do
     assert_receive {:cooking_ai, worker, "How hot?", _opts}
     assert {:ok, _} = CookingService.finish_session(f.actor, session.session_id)
     send(worker, :answer)
-    assert {:error, :session_closed} = Task.await(task)
+    assert {:error, :cooking_session_not_active} = Task.await(task)
     assert Repo.aggregate(MealPlannerApi.Persistence.Planning.CookingChatMessage, :count) == 0
   end
 
@@ -341,12 +341,12 @@ defmodule MealPlannerApi.Services.RecipeLifecycleTest do
 
     {:ok, session} = CookingService.start_session(f.actor, meal.id)
 
-    assert {:ok, %{inventory_mutations: 1}} =
+    assert {:ok, %{inventory_mutations: [%{quantity_delta_milli: -400}], shortages: []}} =
              CookingService.finish_session(f.actor, session.session_id)
 
     assert Repo.reload!(lot).quantity_milli == 600
 
-    assert {:ok, %{inventory_mutations: 0}} =
+    assert {:error, :cooking_already_finished} =
              CookingService.finish_session(f.actor, session.session_id)
 
     assert Repo.reload!(lot).quantity_milli == 600
