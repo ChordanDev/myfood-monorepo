@@ -64,10 +64,6 @@ export const apiClient = {
       options
     );
   },
-
-  delete<T>(path: string, options?: ApiClientRequestOptions): Promise<T> {
-    return request<T>(path, { method: 'DELETE', headers: options?.headers }, options);
-  },
 };
 
 export type { ApiClientRequestOptions, RequestOptions };
