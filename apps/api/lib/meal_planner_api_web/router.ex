@@ -171,6 +171,9 @@ defmodule MealPlannerApiWeb.Router do
   # exemption: a User of an Account whose Trial expired can still read and
   # save their preferences.
   #
+  # Issue #34 — `GET` and `POST /me/favorites` and `DELETE
+  # /me/favorites/:recipe_id`: favorites belong to the User, so they share it.
+  #
   # Issue #20 — `POST /onboarding/complete` shares the exemption too: a User
   # whose Account Access state is `expired` can still finish Onboarding, which
   # saves their profile, preferences and Slot cooking times together.
@@ -187,6 +190,9 @@ defmodule MealPlannerApiWeb.Router do
     put("/me/slot-cooking-times", SlotCookingTimesController, :update)
     get("/me/preferences", PreferencesController, :show)
     put("/me/preferences", PreferencesController, :update)
+    get("/me/favorites", FavoritesController, :index)
+    post("/me/favorites", FavoritesController, :create)
+    delete("/me/favorites/:recipe_id", FavoritesController, :delete)
     post("/onboarding/complete", OnboardingController, :complete)
   end
 
