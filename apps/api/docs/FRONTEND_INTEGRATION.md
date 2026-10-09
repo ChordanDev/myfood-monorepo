@@ -873,6 +873,8 @@ formato por defecto:
 | `invalid_payload` | Datos inválidos | Validar input del usuario |
 | `validation_error` | Un campo de la request no es válido; el `message` nombra el campo | Corregir ese campo |
 | `invalid_cooking_skill` | `cookingSkill` no está en el catálogo | Enviar `beginner`, `intermediate` o `advanced` |
+| `slot_cooking_times_not_found` | El usuario todavía no guardó los tiempos de cocina por slot | Usar los valores por defecto y guardarlos con `PUT /api/me/slot-cooking-times` |
+| `invalid_hunger_level` | `hungerLevel` no está en el catálogo | Enviar `light`, `normal` o `strong` |
 | `generation_in_progress` | Ya hay una generación en curso | Esperar o cancelar |
 | `no_active_generation` | No hay generación activa | Generar primero |
 | `budget_exceeded` | Supera el presupuesto | Reducir constraints |

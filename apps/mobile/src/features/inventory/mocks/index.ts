@@ -1,1 +1,1 @@
-export { MOCK_INVENTORY } from './inventoryMocks';
+export * from './inventoryApiFixtures';

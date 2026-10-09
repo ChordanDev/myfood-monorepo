@@ -151,6 +151,82 @@ defmodule MealPlannerApi.Persistence.CalendarTest do
     assert Enum.any?(meals, &(&1.date == ~D[2026-07-06] and &1.slot == :snack))
   end
 
+  describe "isSkipped and the Account's today" do
+    # 23:30 UTC on the 8th is already the 9th in Auckland.
+    @instant ~U[2026-10-08 23:30:00Z]
+
+    test "a past uncooked meal is skipped; cooked, today and future meals are not" do
+      account_id = account_id("calendar-skipped@example.com")
+      past = schedule(account_id, ~D[2026-10-06], :lunch)
+      cooked = schedule(account_id, ~D[2026-10-06], :dinner)
+      {:ok, _} = Calendar.set_is_cooked(account_id, cooked.id, true)
+      today = schedule(account_id, ~D[2026-10-08], :lunch)
+      future = schedule(account_id, ~D[2026-10-09], :lunch)
+
+      overview = overview(account_id)
+      skipped = Map.new(overview.meals, &{&1.id, &1.is_skipped})
+
+      assert skipped[past.id] == true
+      assert skipped[cooked.id] == false
+      assert skipped[today.id] == false
+      assert skipped[future.id] == false
+      assert overview.today == ~D[2026-10-08]
+
+      # A meal is never both cooked and skipped.
+      assert Enum.all?(overview.meals, &(not (&1.is_cooked and &1.is_skipped)))
+    end
+
+    test "today and skipped follow the Account's timezone, not UTC" do
+      account_id = account_id("calendar-skipped-tz@example.com")
+
+      Repo.get!(MealPlannerApi.Persistence.Accounts.Account, account_id)
+      |> MealPlannerApi.Persistence.Accounts.Account.changeset(%{timezone: "Pacific/Auckland"})
+      |> Repo.update!()
+
+      meal = schedule(account_id, ~D[2026-10-08], :lunch)
+
+      overview = overview(account_id)
+
+      assert overview.today == ~D[2026-10-09]
+      assert [%{id: id, is_skipped: true}] = overview.meals
+      assert id == meal.id
+      assert %{day_state: :past} = Enum.find(overview.days, &(&1.date == ~D[2026-10-08]))
+      assert overview.selected_date == ~D[2026-10-09]
+
+      assert %{is_skipped: true} =
+               Calendar.get_slot_meal(
+                 account_id,
+                 Ecto.UUID.generate(),
+                 ~D[2026-10-08],
+                 :lunch,
+                 @instant
+               )
+    end
+
+    test "an empty slot has no meal to skip" do
+      account_id = account_id("calendar-skipped-empty@example.com")
+
+      assert Calendar.get_slot_meal(
+               account_id,
+               Ecto.UUID.generate(),
+               ~D[2026-10-08],
+               :lunch,
+               @instant
+             ) ==
+               nil
+    end
+
+    defp overview(account_id) do
+      Calendar.monthly_overview(
+        account_id,
+        Ecto.UUID.generate(),
+        ~D[2026-10-05],
+        ~D[2026-10-12],
+        %{now: @instant}
+      )
+    end
+  end
+
   defp account_id(email), do: memberships(email, 1) |> hd() |> Map.fetch!(:account_id)
 
   defp memberships(email, count) do

@@ -100,11 +100,12 @@ defmodule MealPlannerApiWeb.Router do
 
   # Phase 3 — `revenuecat-access-enforcement` (PR 3) design-exempt
   # auth/context pipeline: authenticated (`current_membership` populated),
-  # capability-exempt. The four routes below (`/me`, `/auth/me`,
-  # `/account/context`, `/auth/switch-account`) MUST remain reachable
-  # for an expired Account so the React Native client can read auth
-  # context, switch memberships, and start billing recovery without
-  # being gated by the same webhook that hasn't yet arrived
+  # capability-exempt. The routes in this scope and in the two below it
+  # (`/auth/me`, `/account/context`, `/account/dietary-profile`,
+  # `/account/excluded-ingredients`, `/auth/switch-account` and the `/me`
+  # routes) MUST remain reachable for an expired Account so the React Native
+  # client can read auth context, switch memberships, and start billing
+  # recovery without being gated by the same webhook that hasn't yet arrived
   # (`design.md` §"Interfaces / Contracts"). `:enforce_account_scope` is
   # not applied because none of these routes carry `:account_id` in the
   # URL (it is a no-op without that path param — see
@@ -172,6 +173,10 @@ defmodule MealPlannerApiWeb.Router do
   #
   # Issue #34 — `GET` and `POST /me/favorites` and `DELETE
   # /me/favorites/:recipe_id`: favorites belong to the User, so they share it.
+  #
+  # Issue #20 — `POST /onboarding/complete` shares the exemption too: a User
+  # whose Account Access state is `expired` can still finish Onboarding, which
+  # saves their profile, preferences and Slot cooking times together.
   scope "/api", MealPlannerApiWeb do
     pipe_through([:api, :mobile_casing, :auth])
 
@@ -184,6 +189,7 @@ defmodule MealPlannerApiWeb.Router do
     get("/me/favorites", FavoritesController, :index)
     post("/me/favorites", FavoritesController, :create)
     delete("/me/favorites/:recipe_id", FavoritesController, :delete)
+    post("/onboarding/complete", OnboardingController, :complete)
   end
 
   # Product routes of the mobile app. `:mobile_casing` is opt-in and this is

@@ -1,4 +1,3 @@
-import type { InventoryItem } from '@/features/inventory';
 import type { Ingredient } from '@/types/domain';
 import type { RecipeIngredientLine } from '../types/recipe';
 import { countMissing, formatMissingSummary, resolveRecipeIngredients } from './recipeIngredients';
@@ -21,7 +20,8 @@ const LINES: RecipeIngredientLine[] = [
   line({ ingredientId: 'i5', name: 'Aceite de oliva', quantityMilli: 10000, unit: 'ml' }),
 ];
 
-type StockItem = Pick<InventoryItem, 'ingredientId' | 'quantity' | 'isLeftover'>;
+// The inventory counts in thousandths of the unit: 500_000 is 500 g.
+type StockItem = { ingredientId?: string; quantityMilli: number; isLeftover?: boolean };
 
 function resolve(inventory: StockItem[], listedIngredientIds?: string[]) {
   return resolveRecipeIngredients({
@@ -62,7 +62,7 @@ describe('resolveRecipeIngredients', () => {
   });
 
   it('marks an ingredient in stock when the inventory covers the recipe amount', () => {
-    const [rice] = resolve([{ ingredientId: 'i1', quantity: 500 }]);
+    const [rice] = resolve([{ ingredientId: 'i1', quantityMilli: 500_000 }]);
 
     expect(rice).toEqual({
       ingredientId: 'i1',
@@ -77,14 +77,14 @@ describe('resolveRecipeIngredients', () => {
   });
 
   it('treats an inventory amount equal to the recipe amount as in stock', () => {
-    const [rice] = resolve([{ ingredientId: 'i1', quantity: 100 }]);
+    const [rice] = resolve([{ ingredientId: 'i1', quantityMilli: 100_000 }]);
 
     expect(rice.status).toBe('in_stock');
     expect(rice.missingAmount).toBe(0);
   });
 
   it('marks an ingredient missing when the inventory falls short', () => {
-    const [rice] = resolve([{ ingredientId: 'i1', quantity: 99 }]);
+    const [rice] = resolve([{ ingredientId: 'i1', quantityMilli: 99_000 }]);
 
     expect(rice.status).toBe('missing');
     expect(rice.availableAmount).toBe(99);
@@ -101,16 +101,27 @@ describe('resolveRecipeIngredients', () => {
 
   it('sums every inventory item of the same ingredient', () => {
     const [rice] = resolve([
-      { ingredientId: 'i1', quantity: 60 },
-      { ingredientId: 'i1', quantity: 40, isLeftover: true },
+      { ingredientId: 'i1', quantityMilli: 60_000 },
+      { ingredientId: 'i1', quantityMilli: 40_000, isLeftover: true },
     ]);
 
     expect(rice.availableAmount).toBe(100);
     expect(rice.status).toBe('in_stock');
   });
 
+  it('reads a fraction of a unit from its thousandths', () => {
+    const tomato = resolve([{ ingredientId: 'i3', quantityMilli: 1_500 }])[2];
+
+    expect(tomato.availableAmount).toBe(1.5);
+    expect(tomato.missingAmount).toBe(0.5);
+    expect(tomato.status).toBe('missing');
+  });
+
   it('ignores an inventory item that is not linked to the ingredient catalog', () => {
-    const [rice] = resolve([{ ingredientId: 'i1', quantity: 60 }, { quantity: 500 }]);
+    const [rice] = resolve([
+      { ingredientId: 'i1', quantityMilli: 60_000 },
+      { quantityMilli: 500_000 },
+    ]);
 
     expect(rice.availableAmount).toBe(60);
     expect(rice.missingAmount).toBe(40);
@@ -118,7 +129,7 @@ describe('resolveRecipeIngredients', () => {
   });
 
   it('counts no stock when no inventory item is linked to the ingredient catalog', () => {
-    const rows = resolve([{ quantity: 500 }, { quantity: 3, isLeftover: true }]);
+    const rows = resolve([{ quantityMilli: 500_000 }, { quantityMilli: 3_000, isLeftover: true }]);
 
     expect(rows.map((row) => row.availableAmount)).toEqual([0, 0, 0, 0]);
     expect(rows.map((row) => row.status)).toEqual(['missing', 'missing', 'missing', 'missing']);
@@ -133,13 +144,13 @@ describe('resolveRecipeIngredients', () => {
   });
 
   it('marks every short ingredient the shopping list covers as listed', () => {
-    const rows = resolve([{ ingredientId: 'i1', quantity: 99 }], ['i1', 'i3', 'i5']);
+    const rows = resolve([{ ingredientId: 'i1', quantityMilli: 99_000 }], ['i1', 'i3', 'i5']);
 
     expect(rows.map((row) => row.status)).toEqual(['listed', 'missing', 'listed', 'listed']);
   });
 
   it('keeps an ingredient in stock even when the shopping list has it', () => {
-    const [rice] = resolve([{ ingredientId: 'i1', quantity: 500 }], ['i1']);
+    const [rice] = resolve([{ ingredientId: 'i1', quantityMilli: 500_000 }], ['i1']);
 
     expect(rice.status).toBe('in_stock');
   });
@@ -148,7 +159,7 @@ describe('resolveRecipeIngredients', () => {
     const [unknown] = resolveRecipeIngredients({
       lines: [line({ ingredientId: 'ghost', name: 'Papa', quantityMilli: 500000 })],
       catalog: CATALOG,
-      inventory: [{ ingredientId: 'ghost', quantity: 900 }],
+      inventory: [{ ingredientId: 'ghost', quantityMilli: 900_000 }],
     });
 
     expect(unknown).toEqual({
@@ -167,7 +178,7 @@ describe('resolveRecipeIngredients', () => {
     const [rice] = resolveRecipeIngredients({
       lines: [line({ ingredientId: 'i1', quantityMilli: 2000, unit: 'unit' })],
       catalog: CATALOG,
-      inventory: [{ ingredientId: 'i1', quantity: 500 }],
+      inventory: [{ ingredientId: 'i1', quantityMilli: 500_000 }],
       listedIngredientIds: ['i1'],
     });
 
@@ -194,8 +205,8 @@ describe('countMissing', () => {
   it('counts every row that is not in stock, listed ones included', () => {
     const rows = resolve(
       [
-        { ingredientId: 'i1', quantity: 500 },
-        { ingredientId: 'i5', quantity: 250 },
+        { ingredientId: 'i1', quantityMilli: 500_000 },
+        { ingredientId: 'i5', quantityMilli: 250_000 },
       ],
       ['i3']
     );
@@ -205,10 +216,7 @@ describe('countMissing', () => {
 
   it('counts nothing when everything is in stock', () => {
     const rows = resolve(
-      LINES.map(({ ingredientId, quantityMilli }) => ({
-        ingredientId,
-        quantity: quantityMilli / 1000,
-      }))
+      LINES.map(({ ingredientId, quantityMilli }) => ({ ingredientId, quantityMilli }))
     );
 
     expect(countMissing(rows)).toBe(0);

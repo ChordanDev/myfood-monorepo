@@ -11,10 +11,12 @@ defmodule MealPlannerApi.Services.CookingService do
   Stateless service — all DB via PlanningRepo and InventoryRepo.
   """
 
+  alias MealPlannerApi.AccountClock
   alias MealPlannerApi.AI
   alias MealPlannerApi.Data.{InventoryRepo, PlanningRepo}
   alias MealPlannerApi.Services.{RecipeAccess, RecipeVersions}
   alias MealPlannerApi.Persistence.Planning
+  alias MealPlannerApi.Persistence.Shopping
   alias MealPlannerApi.Repo
 
   @type step_status :: :started | :paused | :completed | :error
@@ -23,12 +25,22 @@ defmodule MealPlannerApi.Services.CookingService do
   # Session lifecycle
   # -------------------------------------------------------------------------
 
-  @spec start_session(map(), binary()) :: {:ok, map()} | {:error, term()}
-  def start_session(current_user, scheduled_meal_id) when is_binary(scheduled_meal_id) do
+  @doc """
+  Starts a Cooking session for a Scheduled meal of the Account.
+
+  A meal is eligible only on the Account's today (`AccountClock`), judged at
+  `now`, so moving a meal to today makes it eligible. Any other day is
+  `{:error, :cooking_chat_unavailable}`.
+  """
+  @spec start_session(map(), binary(), DateTime.t()) :: {:ok, map()} | {:error, term()}
+  def start_session(current_user, scheduled_meal_id, now \\ DateTime.utc_now())
+      when is_binary(scheduled_meal_id) do
     with {:ok, ids} <- RecipeAccess.authorize(current_user),
+         {:ok, meal_id} <- cast_id(scheduled_meal_id, :scheduled_meal_not_found),
          meal when not is_nil(meal) <-
-           PlanningRepo.get_scheduled_meal_for_account(ids.account_id, scheduled_meal_id),
+           PlanningRepo.get_scheduled_meal_for_account(ids.account_id, meal_id),
          :ok <- planned_meal(meal, ids.account_id),
+         :ok <- meal_is_today(meal, ids.account_id, now),
          {:ok, session} <- create_session(ids, meal) do
       snapshot = PlanningRepo.latest_context_snapshot(session.id)
       # Preload scheduled_meal on session for serialization
@@ -36,6 +48,7 @@ defmodule MealPlannerApi.Services.CookingService do
       {:ok, serialize_session_payload(session, snapshot)}
     else
       nil -> {:error, :scheduled_meal_not_found}
+      {:error, %Ecto.Changeset{}} -> {:error, :validation_error}
       {:error, _} = error -> error
     end
   end
@@ -43,6 +56,7 @@ defmodule MealPlannerApi.Services.CookingService do
   @spec session_state(map(), binary()) :: {:ok, map()} | {:error, term()}
   def session_state(current_user, session_id) when is_binary(session_id) do
     with {:ok, ids} <- RecipeAccess.authorize(current_user),
+         {:ok, session_id} <- cast_id(session_id, :session_not_found),
          session when not is_nil(session) <-
            PlanningRepo.get_cooking_session_for_account(ids.account_id, session_id),
          :ok <- planned_meal(session.scheduled_meal, ids.account_id) do
@@ -54,20 +68,22 @@ defmodule MealPlannerApi.Services.CookingService do
     end
   end
 
-  @spec finish_session(map(), binary()) :: {:ok, map()} | {:error, term()}
-  def finish_session(current_user, session_id) when is_binary(session_id) do
+  @doc """
+  Finishes a Cooking session atomically: the meal is marked cooked, the
+  recipe's Ingredients are consumed from Inventory oldest lot first (clamped at
+  zero), and the meal's open Shopping items are removed.
+
+  Returns the meal, one mutation per lot touched and one shortage per
+  Ingredient the stock could not cover. A session that already finished, or a
+  meal that is already cooked, is `{:error, :cooking_already_finished}` and
+  changes nothing. Lot usability uses the Account's today at `now`.
+  """
+  @spec finish_session(map(), binary(), DateTime.t()) :: {:ok, map()} | {:error, term()}
+  def finish_session(current_user, session_id, now \\ DateTime.utc_now())
+      when is_binary(session_id) do
     with {:ok, ids} <- RecipeAccess.authorize(current_user),
-         {:ok, result} <- persist_finish(ids, session_id) do
-      {:ok,
-       %{
-         session_id: result.session.id,
-         scheduled_meal_id: result.session.scheduled_meal_id,
-         status: "completed",
-         inventory_mutations: result.inventory_mutations
-       }}
-    else
-      nil -> {:error, :session_not_found}
-      {:error, _} = error -> error
+         {:ok, session_id} <- cast_id(session_id, :session_not_found) do
+      persist_finish(ids, session_id, AccountClock.today(ids.account_id, now))
     end
   end
 
@@ -81,6 +97,7 @@ defmodule MealPlannerApi.Services.CookingService do
       when is_binary(session_id) and is_binary(recipe_step_id) and
              status in [:started, :paused, :completed, :error] do
     with {:ok, ids} <- RecipeAccess.authorize(current_user),
+         {:ok, session_id} <- cast_id(session_id, :session_not_found),
          session when not is_nil(session) <-
            PlanningRepo.get_cooking_session_for_account(ids.account_id, session_id),
          :ok <- active_session(session),
@@ -109,6 +126,7 @@ defmodule MealPlannerApi.Services.CookingService do
     else
       nil -> {:error, :session_not_found}
       false -> {:error, :recipe_step_not_found}
+      {:error, %Ecto.Changeset{}} -> {:error, :validation_error}
       {:error, _} = error -> error
     end
   end
@@ -121,6 +139,7 @@ defmodule MealPlannerApi.Services.CookingService do
   def answer_question(current_user, session_id, message, content_type \\ "text")
       when is_binary(session_id) and is_binary(message) and is_binary(content_type) do
     with {:ok, ids} <- RecipeAccess.authorize(current_user),
+         {:ok, session_id} <- cast_id(session_id, :session_not_found),
          session when not is_nil(session) <-
            PlanningRepo.get_cooking_session_for_account(ids.account_id, session_id),
          :ok <- active_session(session),
@@ -148,7 +167,7 @@ defmodule MealPlannerApi.Services.CookingService do
   defp active_session(%{status: :active} = session),
     do: planned_meal(session.scheduled_meal, session.account_id)
 
-  defp active_session(_), do: {:error, :session_closed}
+  defp active_session(_), do: {:error, :cooking_session_not_active}
 
   defp planned_meal(
          %{account_id: account_id, recipe_version_id: version_id, recipe_snapshot: snapshot},
@@ -157,6 +176,20 @@ defmodule MealPlannerApi.Services.CookingService do
        when is_binary(version_id) and is_map(snapshot), do: :ok
 
   defp planned_meal(_, _), do: {:error, :scheduled_meal_not_found}
+
+  defp meal_is_today(%{date: date}, account_id, now) do
+    if Date.compare(date, AccountClock.today(account_id, now)) == :eq,
+      do: :ok,
+      else: {:error, :cooking_chat_unavailable}
+  end
+
+  # A malformed id cannot name a record, so it reads as the record's absence.
+  defp cast_id(id, not_found) do
+    case Ecto.UUID.cast(id) do
+      {:ok, uuid} -> {:ok, uuid}
+      :error -> {:error, not_found}
+    end
+  end
 
   # -------------------------------------------------------------------------
   # Private helpers
@@ -217,67 +250,133 @@ defmodule MealPlannerApi.Services.CookingService do
     end
   end
 
-  defp persist_finish(ids, session_id) do
+  defp persist_finish(ids, session_id, today) do
     Repo.transaction(fn ->
       session =
         PlanningRepo.lock_cooking_session_for_account(ids.account_id, session_id) ||
           Repo.rollback(:session_not_found)
 
-      if session.status == :completed do
-        %{session: session, inventory_mutations: 0}
+      case session.status do
+        :completed -> Repo.rollback(:cooking_already_finished)
+        status when status in [:active, :paused] -> :ok
+        _ -> Repo.rollback(:cooking_session_not_active)
+      end
+
+      meal =
+        PlanningRepo.lock_cooking_meal_for_account(ids.account_id, session.scheduled_meal_id) ||
+          Repo.rollback(:scheduled_meal_not_found)
+
+      case planned_meal(meal, ids.account_id) do
+        :ok -> :ok
+        {:error, reason} -> Repo.rollback(reason)
+      end
+
+      # The meal can have been marked cooked outside a session (calendar).
+      if meal.is_cooked, do: Repo.rollback(:cooking_already_finished)
+
+      {mutations, shortages} = deduct_ingredients(ids, session, meal, today)
+      Shopping.delete_open_items_for_meal(ids.account_id, meal.id)
+
+      with {:ok, cooked} <- PlanningRepo.update_scheduled_meal(meal, %{is_cooked: true}),
+           {:ok, _completed} <-
+             PlanningRepo.update_cooking_session(session, %{
+               status: :completed,
+               completed_at: DateTime.utc_now()
+             }) do
+        %{
+          scheduled_meal: serialize_finished_meal(cooked, meal),
+          inventory_mutations: mutations,
+          shortages: shortages
+        }
       else
-        meal =
-          PlanningRepo.lock_cooking_meal_for_account(ids.account_id, session.scheduled_meal_id) ||
-            Repo.rollback(:scheduled_meal_not_found)
-
-        case planned_meal(meal, ids.account_id) do
-          :ok -> :ok
-          {:error, reason} -> Repo.rollback(reason)
-        end
-
-        count = if meal.is_cooked, do: 0, else: deduct_ingredients(ids, session, meal)
-
-        with {:ok, _meal} <- PlanningRepo.update_scheduled_meal(meal, %{is_cooked: true}),
-             {:ok, completed} <-
-               PlanningRepo.update_cooking_session(session, %{
-                 status: :completed,
-                 completed_at: DateTime.utc_now()
-               }) do
-          %{session: completed, inventory_mutations: count}
-        else
-          {:error, reason} -> Repo.rollback(reason)
-        end
+        {:error, reason} -> Repo.rollback(reason)
       end
     end)
   end
 
-  defp deduct_ingredients(ids, session, meal) do
+  # A cooked meal is never skipped, so the flag is fixed to false.
+  defp serialize_finished_meal(cooked, locked) do
+    recipe = RecipeVersions.recipe_for_meal(locked)
+
+    %{
+      id: cooked.id,
+      date: Date.to_iso8601(cooked.date),
+      slot: Atom.to_string(cooked.slot),
+      is_cooked: cooked.is_cooked,
+      is_skipped: false,
+      recipe_id: cooked.recipe_id,
+      recipe_version_id: cooked.recipe_version_id,
+      selected_quantity: cooked.selected_quantity,
+      recipe_name: recipe && recipe.name
+    }
+  end
+
+  defp deduct_ingredients(ids, session, meal, today) do
     recipe = RecipeVersions.recipe_for_meal(meal)
     ingredients = (recipe && recipe.recipe_ingredients) || []
 
     # All cooking transactions acquire ingredient locks in the same order.
     # Nested inventory transactions share this transaction, including their audit writes.
-    ingredients
-    |> Enum.sort_by(&{&1.ingredient_id, &1.unit})
-    |> Enum.each(fn ingredient ->
-      case InventoryRepo.apply_delta(%{
-             account_id: ids.account_id,
-             ingredient_id: ingredient.ingredient_id,
-             unit: ingredient.unit,
-             source_kind: :planned,
-             delta: -ingredient.quantity_milli,
-             source_user_id: ids.user_id,
-             source_cooking_session_id: session.id,
-             trigger_type: :cooking,
-             operation: :subtract,
-             metadata: %{scheduled_meal_id: session.scheduled_meal_id}
-           }) do
-        {:ok, _result} -> :ok
-        {:error, _reason} -> Repo.rollback(:inventory_mutation_failed)
-      end
-    end)
+    {mutations, shortages} =
+      ingredients
+      |> Enum.sort_by(&{&1.ingredient_id, &1.unit})
+      |> Enum.reduce({[], []}, fn ingredient, {mutations, shortages} ->
+        requested = ingredient.quantity_milli
 
-    length(ingredients)
+        case InventoryRepo.apply_delta(%{
+               account_id: ids.account_id,
+               ingredient_id: ingredient.ingredient_id,
+               unit: ingredient.unit,
+               source_kind: :planned,
+               delta: -requested,
+               today: today,
+               source_user_id: ids.user_id,
+               source_cooking_session_id: session.id,
+               trigger_type: :cooking,
+               operation: :subtract,
+               metadata: %{scheduled_meal_id: session.scheduled_meal_id}
+             }) do
+          {:ok, result} ->
+            applied = -result.delta
+            lot_mutations = Enum.map(result.item_states, &serialize_mutation(&1, ingredient))
+
+            {[lot_mutations | mutations],
+             maybe_shortage(shortages, ingredient, requested, applied)}
+
+          {:error, _reason} ->
+            Repo.rollback(:inventory_mutation_failed)
+        end
+      end)
+
+    {mutations |> Enum.reverse() |> List.flatten(), Enum.reverse(shortages)}
+  end
+
+  defp serialize_mutation(state, ingredient) do
+    %{
+      inventory_item_id: state.item.id,
+      ingredient_id: ingredient.ingredient_id,
+      ingredient_name: ingredient.ingredient && ingredient.ingredient.name,
+      unit: Atom.to_string(ingredient.unit),
+      quantity_before_milli: state.before_qty,
+      quantity_delta_milli: state.delta,
+      quantity_after_milli: state.after_qty
+    }
+  end
+
+  defp maybe_shortage(shortages, _ingredient, requested, applied) when applied >= requested,
+    do: shortages
+
+  defp maybe_shortage(shortages, ingredient, requested, applied) do
+    [
+      %{
+        ingredient_id: ingredient.ingredient_id,
+        ingredient_name: ingredient.ingredient && ingredient.ingredient.name,
+        unit: Atom.to_string(ingredient.unit),
+        requested_milli: requested,
+        missing_milli: requested - applied
+      }
+      | shortages
+    ]
   end
 
   defp belongs_to_recipe?(session, recipe_step_id) do

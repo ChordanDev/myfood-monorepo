@@ -106,13 +106,13 @@ This file and `docs/adr/` are the only durable docs in the repository. Specs, ma
 
 **Scheduled meal** — An accepted meal on a date and slot, carrying its Recipe snapshot and whether it was cooked. The set of Scheduled meals is the Account's live plan. `(code: Persistence.Planning.ScheduledMeal, mobile MealPlanEntry)` `(alias: Confirmed Meal Plan, Active Meal Plan, Plan de Comidas Local)`
 
-**Skipped meal** — A Scheduled meal whose date passed without being cooked; never cooked and skipped at once. `(code: mobile MealPlanEntry.isSkipped)`
+**Skipped meal** — A Scheduled meal whose date passed without being cooked; never cooked and skipped at once. Derived by the API from the Account's today. `(code: mobile MealPlanEntry.isSkipped, Persistence.Calendar)`
 
 **Rescue plan** — A single recipe suggested on demand from ingredients the User wants to use up before they spoil. `(code: Services.InventoryService.rescue_plan)`
 
 ## Cooking
 
-**Cooking session** — The runtime of cooking one Scheduled meal: `active`, `paused` or `completed`, with its step events and chat. `(code: Persistence.Planning.CookingSession, Services.CookingService)`
+**Cooking session** — The runtime of cooking one Scheduled meal: `active`, `paused` or `completed`, with its step events and chat. It can start only for a meal scheduled on the Account's today; finishing it consumes the recipe's Ingredients from Inventory oldest lot first and reports any shortfall as a shortage. `(code: Persistence.Planning.CookingSession, Services.CookingService)`
 
 **Cooking step event** — A recorded progression through a recipe step during a Cooking session. `(code: Persistence.Planning.CookingStepEvent)`
 

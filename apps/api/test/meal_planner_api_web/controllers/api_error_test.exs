@@ -87,6 +87,15 @@ defmodule MealPlannerApiWeb.ApiErrorTest do
       assert (conn |> ApiError.error(:invalid_hard_restriction)).status == 422
     end
 
+    test "maps the inventory code to its HTTP status", %{conn: conn} do
+      conn = conn |> ApiError.error(:inventory_item_not_found)
+
+      assert %{"error" => %{"code" => "inventory_item_not_found", "message" => message}} =
+               json_response(conn, 404)
+
+      assert is_binary(message) and message != ""
+    end
+
     test "keeps a response header set on the conn before rendering", %{conn: conn} do
       conn =
         conn
@@ -95,6 +104,18 @@ defmodule MealPlannerApiWeb.ApiErrorTest do
 
       assert get_resp_header(conn, "retry-after") == ["42"]
       assert %{"error" => %{"code" => "rate_limited"}} = json_response(conn, 429)
+    end
+
+    test "maps the Cooking session codes to their HTTP status", %{conn: conn} do
+      for {code, status} <- [
+            scheduled_meal_not_found: 404,
+            cooking_session_not_active: 409,
+            cooking_already_finished: 409,
+            cooking_chat_unavailable: 409,
+            inventory_mutation_failed: 422
+          ] do
+        assert {code, ApiError.error(conn, code).status} == {code, status}
+      end
     end
 
     test "maps the Slot cooking times codes to their HTTP status", %{conn: conn} do
@@ -245,12 +266,19 @@ defmodule MealPlannerApiWeb.ApiErrorTest do
       # The codes of `PUT /api/me/preferences` (issue #18) that are its own.
       preferences_codes = ~w(invalid_diet invalid_hard_restriction)a
 
+      # The codes of the Cooking session routes (issue #35).
+      cooking_codes =
+        ~w(scheduled_meal_not_found cooking_session_not_active cooking_already_finished
+           cooking_chat_unavailable inventory_mutation_failed)a
+
       assert Enum.sort(ApiError.codes()) ==
                Enum.sort(
                  auth_codes ++
                    [:recipe_not_found] ++
                    profile_codes ++
-                   slot_cooking_times_codes ++ preferences_codes ++ Map.keys(@channel_codes)
+                   slot_cooking_times_codes ++
+                   preferences_codes ++
+                   cooking_codes ++ [:inventory_item_not_found] ++ Map.keys(@channel_codes)
                )
     end
   end

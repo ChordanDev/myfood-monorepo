@@ -41,6 +41,7 @@ const validPayload: OnboardingCompletionRequest = {
     lunch: { cookingTimeMinutes: 30, hungerLevel: 'normal' },
     dinner: { cookingTimeMinutes: 45, hungerLevel: 'strong' },
   },
+  timezone: 'America/Argentina/Buenos_Aires',
 };
 
 const completionResponse: OnboardingCompletionResponse = {
