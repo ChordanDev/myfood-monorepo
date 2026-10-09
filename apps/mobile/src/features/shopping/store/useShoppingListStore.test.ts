@@ -5,10 +5,17 @@ import { useInventoryStore } from '@/features/inventory/store';
 import { useMealPlanStore } from '@/store';
 import {
   EMPTY_SHOPPING_LIST,
+  MANUAL_DISH_SOAP,
   SHOPPING_LIST_BY_INGREDIENT,
   SHOPPING_LIST_BY_MEAL,
   SHOPPING_LIST_UNTIL_OCT_10,
   SHOPPING_LIST_VALIDATION_ERROR,
+  SHOPPING_LIST_WITH_MANUAL_AND_REMOVED,
+  TOMATO_ITEM_IDS,
+  toDeleteItemResponse,
+  toManualItemResponse,
+  toSetStatusResponse,
+  toShoppingErrorResponse,
   toShoppingListResponse,
 } from '../fixtures';
 import type { ShoppingListRead } from '../types';
@@ -962,6 +969,222 @@ describe('persistence', () => {
         version: 4,
         state: { groupBy: 'ingredient' },
       });
+    });
+  });
+});
+
+describe('changing the list', () => {
+  // The method and the path of every request, in the order they went out.
+  const requests = () =>
+    fetchMock.mock.calls.map(
+      ([url, init]) => `${init.method} ${(url as string).replace('https://api.example.test', '')}`
+    );
+
+  function answerChange(payload: unknown, status = 200) {
+    fetchMock.mockResolvedValueOnce(jsonResponse(payload, true, status));
+  }
+
+  function refuseChange(code: string, status: number) {
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse(toShoppingErrorResponse(code, 'Refused.'), false, status)
+    );
+  }
+
+  beforeEach(() => {
+    useShoppingListStore.setState({ list: SHOPPING_LIST_BY_INGREDIENT, status: 'ready' });
+  });
+
+  it('holds no change and no error before any is asked for', () => {
+    expect(shopping()).toMatchObject({ pendingChanges: 0, changeError: null });
+  });
+
+  describe('adding an item by hand', () => {
+    it('posts it, then replaces the cached list with a fresh read from the server', async () => {
+      answerChange(toManualItemResponse(MANUAL_DISH_SOAP), 201);
+      answerWith(SHOPPING_LIST_WITH_MANUAL_AND_REMOVED);
+
+      const added = await shopping().addManualItem({ name: 'Detergente' });
+
+      expect(added).toBe(true);
+      expect(requests()).toEqual([
+        'POST /api/shopping-items/manual',
+        'GET /api/shopping-list?groupBy=ingredient',
+      ]);
+      expect(shopping().list).toEqual(SHOPPING_LIST_WITH_MANUAL_AND_REMOVED);
+      expect(shopping()).toMatchObject({ status: 'ready', changeError: null, pendingChanges: 0 });
+    });
+
+    it('reads the list with the preferences of the user', async () => {
+      useShoppingListStore.setState({ groupBy: 'meal' });
+      answerChange(toManualItemResponse(MANUAL_DISH_SOAP), 201);
+      answerWith(SHOPPING_LIST_BY_MEAL);
+
+      await shopping().addManualItem({ name: 'Detergente' });
+
+      expect(requestedUrls()[1]).toBe(`${LIST_URL}?groupBy=meal`);
+    });
+
+    it('counts the change as pending until it lands', async () => {
+      const held = holdTheNextRequest();
+
+      const adding = shopping().addManualItem({ name: 'Detergente' });
+      await nextTick();
+      expect(shopping().pendingChanges).toBe(1);
+
+      held.fail();
+      await adding;
+      expect(shopping().pendingChanges).toBe(0);
+    });
+  });
+
+  describe('deleting an item added by hand', () => {
+    it('deletes it, then reads the list again', async () => {
+      answerChange(toDeleteItemResponse(MANUAL_DISH_SOAP.id));
+      answerWith(SHOPPING_LIST_BY_INGREDIENT);
+
+      const deleted = await shopping().deleteItem(MANUAL_DISH_SOAP.id);
+
+      expect(deleted).toBe(true);
+      expect(requests()).toEqual([
+        `DELETE /api/shopping-items/${MANUAL_DISH_SOAP.id}`,
+        'GET /api/shopping-list?groupBy=ingredient',
+      ]);
+      expect(shopping().list).toEqual(SHOPPING_LIST_BY_INGREDIENT);
+    });
+  });
+
+  describe('removing and restoring planned items', () => {
+    it('removes them, then shows the list the server answers, removed line included', async () => {
+      answerChange(toSetStatusResponse('removed', TOMATO_ITEM_IDS));
+      answerWith(SHOPPING_LIST_WITH_MANUAL_AND_REMOVED);
+
+      const removed = await shopping().setItemsStatus(TOMATO_ITEM_IDS, 'removed');
+
+      expect(removed).toBe(true);
+      expect(requests()).toEqual([
+        'POST /api/shopping-items/set-status',
+        'GET /api/shopping-list?groupBy=ingredient',
+      ]);
+      expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({
+        itemIds: TOMATO_ITEM_IDS,
+        status: 'removed',
+      });
+      expect(shopping().list?.totals.removed).toBe(1);
+    });
+
+    it('restores them with `needed`', async () => {
+      useShoppingListStore.setState({ list: SHOPPING_LIST_WITH_MANUAL_AND_REMOVED });
+      answerChange(toSetStatusResponse('needed', TOMATO_ITEM_IDS));
+      answerWith(SHOPPING_LIST_BY_INGREDIENT);
+
+      await shopping().setItemsStatus(TOMATO_ITEM_IDS, 'needed');
+
+      expect(JSON.parse(fetchMock.mock.calls[0][1].body).status).toBe('needed');
+      expect(shopping().list?.totals.removed).toBe(0);
+    });
+  });
+
+  describe('a change the server refuses', () => {
+    it('keeps the list, remembers why and answers false', async () => {
+      refuseChange('shopping_item_in_cart', 409);
+
+      const removed = await shopping().setItemsStatus(TOMATO_ITEM_IDS, 'removed');
+
+      expect(removed).toBe(false);
+      expect(shopping().list).toEqual(SHOPPING_LIST_BY_INGREDIENT);
+      expect(shopping().changeError).toMatchObject({ code: 'shopping_item_in_cart' });
+      expect(shopping().pendingChanges).toBe(0);
+    });
+
+    it('does not read the list again for a failure that says nothing about it', async () => {
+      refuseChange('shopping_item_in_cart', 409);
+
+      await shopping().setItemsStatus(TOMATO_ITEM_IDS, 'removed');
+
+      expect(requests()).toEqual(['POST /api/shopping-items/set-status']);
+    });
+
+    it.each([
+      ['shopping_item_not_found', 404],
+      ['shopping_item_not_manual', 422],
+      ['shopping_item_not_planned', 422],
+    ])('reads the list again on %s: it was stale', async (code, status) => {
+      refuseChange(code, status);
+      answerWith(SHOPPING_LIST_WITH_MANUAL_AND_REMOVED);
+
+      await shopping().deleteItem('gone');
+
+      expect(requests()).toEqual([
+        'DELETE /api/shopping-items/gone',
+        'GET /api/shopping-list?groupBy=ingredient',
+      ]);
+      expect(shopping().list).toEqual(SHOPPING_LIST_WITH_MANUAL_AND_REMOVED);
+      expect(shopping().changeError).toMatchObject({ code });
+    });
+
+    it('keeps the cached list when the network fails, without asking twice', async () => {
+      fetchMock.mockRejectedValueOnce(new TypeError('Network request failed'));
+
+      const added = await shopping().addManualItem({ name: 'Detergente' });
+
+      expect(added).toBe(false);
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      expect(shopping().changeError).toMatchObject({ code: 'network_error' });
+      expect(shopping().list).toEqual(SHOPPING_LIST_BY_INGREDIENT);
+    });
+
+    it('forgets the error when the next change starts, or when it is dismissed', async () => {
+      refuseChange('shopping_item_in_cart', 409);
+      await shopping().setItemsStatus(TOMATO_ITEM_IDS, 'removed');
+      expect(shopping().changeError).not.toBeNull();
+
+      shopping().clearChangeError();
+      expect(shopping().changeError).toBeNull();
+
+      refuseChange('shopping_item_in_cart', 409);
+      await shopping().setItemsStatus(TOMATO_ITEM_IDS, 'removed');
+      answerChange(toSetStatusResponse('removed', TOMATO_ITEM_IDS));
+      answerWith(SHOPPING_LIST_WITH_MANUAL_AND_REMOVED);
+      await shopping().setItemsStatus(TOMATO_ITEM_IDS, 'removed');
+      expect(shopping().changeError).toBeNull();
+    });
+  });
+
+  describe('against the reads', () => {
+    it('is not overwritten by the slower answer of a read asked for before it', async () => {
+      const oldRead = holdTheNextRequest();
+      const reading = shopping().refresh(USER_A);
+      await nextTick();
+
+      answerChange(toSetStatusResponse('removed', TOMATO_ITEM_IDS));
+      answerWith(SHOPPING_LIST_WITH_MANUAL_AND_REMOVED);
+      await shopping().setItemsStatus(TOMATO_ITEM_IDS, 'removed');
+
+      oldRead.answer(SHOPPING_LIST_BY_INGREDIENT);
+      await reading;
+
+      expect(shopping().list).toEqual(SHOPPING_LIST_WITH_MANUAL_AND_REMOVED);
+    });
+
+    it('leaves the cache alone when another user signed in while it was on its way', async () => {
+      const held = holdTheNextRequest();
+      const adding = shopping().addManualItem({ name: 'Detergente' });
+      await nextTick();
+
+      useShoppingListStore.setState({ ownerId: USER_B, list: EMPTY_SHOPPING_LIST });
+      held.fail();
+      await adding;
+
+      expect(requests()).toEqual(['POST /api/shopping-items/manual']);
+      expect(shopping()).toMatchObject({ ownerId: USER_B, list: EMPTY_SHOPPING_LIST });
+      expect(shopping().changeError).toBeNull();
+    });
+
+    it('asks for nothing without a user of the cache', async () => {
+      useShoppingListStore.setState({ ownerId: null });
+
+      await expect(shopping().addManualItem({ name: 'Detergente' })).resolves.toBe(false);
+      expect(fetchMock).not.toHaveBeenCalled();
     });
   });
 });

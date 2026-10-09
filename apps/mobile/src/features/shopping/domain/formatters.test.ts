@@ -1,9 +1,4 @@
-import type {
-  ManualShoppingListItem,
-  ShoppingLineAllocation,
-  ShoppingListLine,
-  ShoppingMealSlot,
-} from '../types';
+import type { ShoppingLineAllocation, ShoppingListLine, ShoppingMealSlot } from '../types';
 import {
   formatCartButtonLabel,
   formatCountersLabel,
@@ -75,11 +70,17 @@ describe('row lines', () => {
     allocations: [],
   };
 
-  const paper: ManualShoppingListItem = {
+  const paper: ShoppingListLine = {
     id: 'manual-1',
     source: 'manual',
     status: 'needed',
     name: 'Papel de cocina',
+    ingredientId: null,
+    quantityMilli: 1_000,
+    unit: 'unit',
+    category: 'otros',
+    supermarketId: null,
+    allocations: [],
   };
 
   it('writes the quantity before the name of a planned item', () => {
@@ -96,8 +97,8 @@ describe('row lines', () => {
     expect(formatItemNameLine({ ...milk, quantityMilli, unit })).toBe(line);
   });
 
-  it('writes just the name of a manual item', () => {
-    expect(formatItemNameLine(paper)).toBe('Papel de cocina');
+  it('writes the quantity before the name of a manual item too', () => {
+    expect(formatItemNameLine(paper)).toBe('1 u · Papel de cocina');
   });
 
   it('writes the supermarket and the price of the best offer', () => {

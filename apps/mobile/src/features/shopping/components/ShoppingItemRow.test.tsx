@@ -152,15 +152,21 @@ describe('ShoppingItemRow', () => {
     expect(getTexts(root)).toEqual(['300 g · Queso cremoso', 'Para 2 comidas']);
   });
 
-  it('is a single line for an item that is for no meal', () => {
+  it('is a single line for an item that is for no meal, such as one added by hand', () => {
     const { root } = renderRow({
       id: 'manual:1',
       source: 'manual',
       status: 'needed',
       name: 'Papel de cocina',
+      ingredientId: null,
+      category: 'otros',
+      quantityMilli: 1_000,
+      unit: 'unit',
+      supermarketId: null,
+      allocations: [],
     });
 
-    expect(getTexts(root)).toEqual(['Papel de cocina']);
+    expect(getTexts(root)).toEqual(['1 u · Papel de cocina']);
   });
 
   it('shows a needed item in full ink next to an empty checkbox', () => {

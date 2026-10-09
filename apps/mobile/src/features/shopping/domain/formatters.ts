@@ -34,9 +34,6 @@ export function formatUntilButtonLabel(dateKey: string) {
 }
 
 export function formatItemNameLine(item: ShoppingListItem) {
-  // An item added by hand is a name only.
-  if (!('quantityMilli' in item)) return item.name;
-
   const quantity = formatQuantity(item.quantityMilli / MILLI_PER_UNIT, item.unit);
   return `${quantity}${SEPARATOR}${item.name}`;
 }
