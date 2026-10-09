@@ -4,20 +4,36 @@ import Animated from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRecipeTheme } from '@/context/RecipeThemeContext';
 import { useKeyboardAnimation } from '@/hooks/useKeyboardAnimation';
+import type { UnitType } from '@/types/domain';
 import { withOpacity } from '@/utils/colors';
+import { parseQuantityMilli } from '../domain';
+import type { NewManualShoppingItem } from '../types';
+
+const DEFAULT_QUANTITY = '1';
+const DEFAULT_UNIT: UnitType = 'unit';
+
+const UNIT_OPTIONS: { unit: UnitType; label: string; accessibilityLabel: string }[] = [
+  { unit: 'unit', label: 'u', accessibilityLabel: 'Unidades' },
+  { unit: 'g', label: 'g', accessibilityLabel: 'Gramos' },
+  { unit: 'ml', label: 'ml', accessibilityLabel: 'Mililitros' },
+];
 
 export interface ShoppingAddItemSheetProps {
   visible: boolean;
-  // Called with the trimmed, non-empty name; the sheet asks to close right after.
-  onAdd: (name: string) => void;
+  // Called with the trimmed, non-empty name and a quantity above zero; the sheet asks to close
+  // right after. The item has no Ingredient: the sheet only asks for what a shopper writes
+  // down.
+  onAdd: (item: Required<Pick<NewManualShoppingItem, 'name' | 'quantityMilli' | 'unit'>>) => void;
   onClose: () => void;
 }
 
-// Bottom sheet that asks for the name of a manual item. Mirrors the Home "eat today" sheet.
+// Bottom sheet that asks for the name, quantity and unit of a manual item. Mirrors the Home "eat today" sheet.
 export function ShoppingAddItemSheet({ visible, onAdd, onClose }: ShoppingAddItemSheetProps) {
   const insets = useSafeAreaInsets();
   const { theme } = useRecipeTheme();
   const [name, setName] = useState('');
+  const [quantity, setQuantity] = useState(DEFAULT_QUANTITY);
+  const [unit, setUnit] = useState<UnitType>(DEFAULT_UNIT);
   const [wasVisible, setWasVisible] = useState(visible);
   // A ref, not state: two submits can land before the first one has re-rendered anything.
   const hasAddedRef = useRef(false);
@@ -32,7 +48,11 @@ export function ShoppingAddItemSheet({ visible, onAdd, onClose }: ShoppingAddIte
   // Every opening starts empty. The text is kept on close so it does not vanish mid fade-out.
   if (visible !== wasVisible) {
     setWasVisible(visible);
-    if (visible) setName('');
+    if (visible) {
+      setName('');
+      setQuantity(DEFAULT_QUANTITY);
+      setUnit(DEFAULT_UNIT);
+    }
   }
 
   // Each opening accepts one add.
@@ -41,7 +61,8 @@ export function ShoppingAddItemSheet({ visible, onAdd, onClose }: ShoppingAddIte
   }, [visible]);
 
   const trimmedName = name.trim();
-  const canAdd = trimmedName.length > 0;
+  const quantityMilli = parseQuantityMilli(quantity);
+  const canAdd = trimmedName.length > 0 && quantityMilli !== undefined;
 
   // Shared by the button and the return key, which stays enabled on Android with no text.
   // The name is kept after closing and iOS keeps the panel mounted while it fades out, so a
@@ -51,8 +72,14 @@ export function ShoppingAddItemSheet({ visible, onAdd, onClose }: ShoppingAddIte
     if (!visible || !canAdd || hasAddedRef.current) return;
 
     hasAddedRef.current = true;
-    onAdd(trimmedName);
+    onAdd({ name: trimmedName, quantityMilli, unit });
     onClose();
+  };
+
+  const inputColors = {
+    backgroundColor: withOpacity(theme.icon, 0.15),
+    borderColor: withOpacity(theme.icon, 0.3),
+    color: theme.textLight,
   };
 
   return (
@@ -97,15 +124,55 @@ export function ShoppingAddItemSheet({ visible, onAdd, onClose }: ShoppingAddIte
             placeholderTextColor={withOpacity(theme.textLight, 0.6)}
             selectionColor={theme.primaryAccent}
             cursorColor={theme.primaryAccent}
-            style={[
-              styles.input,
-              {
-                backgroundColor: withOpacity(theme.icon, 0.15),
-                borderColor: withOpacity(theme.icon, 0.3),
-                color: theme.textLight,
-              },
-            ]}
+            style={[styles.input, inputColors]}
           />
+
+          <View style={styles.quantityRow}>
+            <TextInput
+              value={quantity}
+              onChangeText={setQuantity}
+              onSubmitEditing={handleAdd}
+              keyboardType="decimal-pad"
+              returnKeyType="done"
+              accessibilityLabel="Cantidad"
+              selectionColor={theme.primaryAccent}
+              cursorColor={theme.primaryAccent}
+              style={[styles.input, styles.quantityInput, inputColors]}
+            />
+            <View accessibilityRole="radiogroup" style={styles.units}>
+              {UNIT_OPTIONS.map((option) => {
+                const isSelected = option.unit === unit;
+
+                return (
+                  <Pressable
+                    key={option.unit}
+                    accessibilityRole="radio"
+                    accessibilityLabel={option.accessibilityLabel}
+                    accessibilityState={{ selected: isSelected }}
+                    onPress={() => setUnit(option.unit)}
+                    style={[
+                      styles.unitChip,
+                      {
+                        backgroundColor: isSelected
+                          ? theme.primaryAccent
+                          : withOpacity(theme.icon, 0.15),
+                        borderColor: isSelected
+                          ? theme.primaryAccentIntense
+                          : withOpacity(theme.icon, 0.3),
+                      },
+                    ]}>
+                    <Text
+                      style={[
+                        styles.unitLabel,
+                        { color: isSelected ? theme.textBlack : theme.textLight },
+                      ]}>
+                      {option.label}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+          </View>
 
           <View style={styles.actions}>
             <Pressable
@@ -178,6 +245,16 @@ const styles = StyleSheet.create({
     paddingTop: 24,
     width: '100%',
   },
+  quantityInput: {
+    flex: 1,
+    marginTop: 0,
+  },
+  quantityRow: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 12,
+    marginTop: 12,
+  },
   textButton: {
     alignItems: 'center',
     justifyContent: 'center',
@@ -187,6 +264,24 @@ const styles = StyleSheet.create({
     fontFamily: 'Inter_600SemiBold',
     fontSize: 15,
     lineHeight: 20,
+  },
+  unitChip: {
+    alignItems: 'center',
+    borderRadius: 16,
+    borderWidth: 1,
+    justifyContent: 'center',
+    minHeight: 48,
+    minWidth: 48,
+    paddingHorizontal: 12,
+  },
+  unitLabel: {
+    fontFamily: 'Inter_600SemiBold',
+    fontSize: 15,
+    lineHeight: 20,
+  },
+  units: {
+    flexDirection: 'row',
+    gap: 8,
   },
   title: {
     fontFamily: 'MontserratAlternates_700Bold',

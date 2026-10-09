@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { ActivityIndicator, ScrollView, StyleSheet, View } from 'react-native';
 import Animated from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -6,7 +7,14 @@ import { useRecipeTheme } from '@/context/RecipeThemeContext';
 import { CUSTOM_TAB_BAR_CONTENT_HEIGHT } from '@/features/planner/constants';
 import { useAnimatedThemeStyle } from '@/hooks/useAnimatedThemeStyle';
 import { withOpacity } from '@/utils/colors';
-import { ShoppingDatePill, ShoppingGroupCard, ShoppingLoadError } from '../components';
+import {
+  ShoppingAddItemSheet,
+  ShoppingDatePill,
+  ShoppingGroupCard,
+  ShoppingLoadError,
+  ShoppingManualCard,
+  ShoppingRestoreLine,
+} from '../components';
 import { formatCountersLabel } from '../domain';
 import { useShoppingList } from '../hooks/useShoppingList';
 import type { ShoppingGroupBy } from '../types';
@@ -19,8 +27,9 @@ const GROUPING_OPTIONS: { value: ShoppingGroupBy; label: string }[] = [
 const HORIZONTAL_PADDING = 14;
 const LIST_GAP = 14;
 
-// The list as the server has it, to read: marking a row, removing it, adding one by hand and
-// buying the cart are not on this screen until the server takes them.
+// The list as the server has it. The User can add an item by hand, remove one (a planned item
+// is only taken off the list, a manual one is deleted) and bring the removed ones back.
+// Marking a row and buying the cart are not on this screen until the server takes them.
 export function ShoppingScreen() {
   const insets = useSafeAreaInsets();
   const { theme } = useRecipeTheme();
@@ -39,7 +48,16 @@ export function ShoppingScreen() {
     isEmpty,
     errorMessage,
     retry,
+    manualItems,
+    removedCount,
+    addManualItem,
+    removeItem,
+    restoreItems,
+    isChanging,
+    changeErrorMessage,
+    dismissChangeError,
   } = useShoppingList();
+  const [isAddSheetVisible, setIsAddSheetVisible] = useState(false);
   // The tab bar floats over the screen, so the content clears it by hand.
   const tabBarHeight = insets.bottom + CUSTOM_TAB_BAR_CONTENT_HEIGHT;
   // The list ends one gap above the tab bar, so the last card scrolls clear of it.
@@ -84,6 +102,13 @@ export function ShoppingScreen() {
                 size="small"
               />
             ) : null}
+            {isChanging ? (
+              <ActivityIndicator
+                accessibilityLabel="Guardando los cambios"
+                color={theme.textDark}
+                size="small"
+              />
+            ) : null}
           </View>
           {counters ? (
             <Animated.Text style={[styles.counter, mutedStyle]}>
@@ -101,6 +126,14 @@ export function ShoppingScreen() {
           showsVerticalScrollIndicator={false}>
           {/* Above the cards: a list that could not be read again is still the last one read. */}
           {errorMessage ? <ShoppingLoadError message={errorMessage} onRetry={retry} /> : null}
+          {/* A change the server did not take: the list below is the last one read. */}
+          {changeErrorMessage ? (
+            <ShoppingLoadError
+              message={changeErrorMessage}
+              onRetry={dismissChangeError}
+              actionLabel="Entendido"
+            />
+          ) : null}
           {isLoading ? (
             <ActivityIndicator
               accessibilityLabel="Cargando la lista de compras"
@@ -113,12 +146,34 @@ export function ShoppingScreen() {
               No hay nada para comprar
             </Animated.Text>
           ) : null}
-          {/* Without handlers a card is read-only: the rows show the list and take no press. */}
+          {/* Rows are held to remove them; there is no checkbox until the Cart is on this screen. */}
           {groups.map((group) => (
-            <ShoppingGroupCard key={group.key} group={group} metaLines={metaLines} />
+            <ShoppingGroupCard
+              key={group.key}
+              group={group}
+              metaLines={metaLines}
+              onRemoveItem={removeItem}
+            />
           ))}
+          {/* Once a list was read: before that, an empty card would say nothing was added. */}
+          {counters ? (
+            <ShoppingManualCard
+              items={manualItems}
+              onRemoveItem={removeItem}
+              onAdd={() => setIsAddSheetVisible(true)}
+            />
+          ) : null}
+          {removedCount > 0 ? (
+            <ShoppingRestoreLine removedCount={removedCount} onRestore={restoreItems} />
+          ) : null}
         </ScrollView>
       </SafeAreaContent>
+
+      <ShoppingAddItemSheet
+        visible={isAddSheetVisible}
+        onAdd={addManualItem}
+        onClose={() => setIsAddSheetVisible(false)}
+      />
     </Animated.View>
   );
 }
