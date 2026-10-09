@@ -107,6 +107,7 @@ export type AuthErrorCode =
   | 'invalid_hunger_level'
   | 'invalid_diet'
   | 'invalid_hard_restriction'
+  | 'inventory_item_not_found'
   | 'generation_in_progress'
   | 'no_active_generation'
   | 'missing_session_id'

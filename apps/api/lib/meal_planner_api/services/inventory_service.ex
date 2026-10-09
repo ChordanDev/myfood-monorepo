@@ -22,6 +22,9 @@ defmodule MealPlannerApi.Services.InventoryService do
   alias MealPlannerApi.Persistence.Catalog.Ingredient
 
   @warning_days 2
+  # The longest note a lot keeps, counted once trimmed. `InventoryItem` holds
+  # the same bound.
+  @max_notes_length 1_000
 
   @doc "Returns usable inventory for one account without changing inventory state."
   @spec list_for_account(Ecto.UUID.t(), Date.t()) :: [map()]
@@ -37,44 +40,71 @@ defmodule MealPlannerApi.Services.InventoryService do
   @spec inventory_view(map()) :: {:ok, map()} | {:error, term()}
   def inventory_view(user) do
     with {:ok, identity} <- Identity.ensure_persistent_identity(user) do
-      items = InventoryPersistence.list_inventory_with_ingredient(identity.account_id)
       now = DateTime.utc_now()
 
+      # A disposed or fully consumed lot is kept at quantity zero for the ledger;
+      # it is not stock.
       decorated =
-        Enum.map(items, fn item ->
-          status = freshness_status(item, now)
-
-          %{
-            id: item.id,
-            ingredient_id: item.ingredient_id,
-            ingredient_name: item.ingredient.name,
-            category: Atom.to_string(item.ingredient.category),
-            quantity_milli: item.quantity_milli,
-            unit: Atom.to_string(item.unit),
-            source_kind: Atom.to_string(item.source_kind),
-            acquired_at: iso_datetime(item.acquired_at),
-            expired_at: iso_datetime(item.expired_at),
-            inferred_expired_at: iso_datetime(LotFreshness.inferred_expiry(item, now)),
-            freshness_status: status
-          }
-        end)
+        identity.account_id
+        |> InventoryPersistence.list_inventory_with_ingredient()
+        |> Enum.filter(&(&1.quantity_milli > 0))
+        |> Enum.map(&view_item(&1, now))
 
       {:ok,
        %{
          sections: %{
-           ok: Enum.filter(decorated, &(&1.freshness_status == "ok")),
-           warning: Enum.filter(decorated, &(&1.freshness_status == "warning")),
-           expired: Enum.filter(decorated, &(&1.freshness_status == "expired"))
+           ok: Enum.filter(decorated, &(&1.freshness == "ok")),
+           warning: Enum.filter(decorated, &(&1.freshness == "warning")),
+           expired: Enum.filter(decorated, &(&1.freshness == "expired"))
          },
          by_category: group_by_category(decorated),
          extras: Enum.filter(decorated, &(&1.source_kind == "extra")),
          totals: %{
            items_count: length(decorated),
-           warning_count: Enum.count(decorated, &(&1.freshness_status == "warning")),
-           expired_count: Enum.count(decorated, &(&1.freshness_status == "expired"))
+           warning_count: Enum.count(decorated, &(&1.freshness == "warning")),
+           expired_count: Enum.count(decorated, &(&1.freshness == "expired"))
          }
        }}
     end
+  end
+
+  defp view_item(item, now) do
+    %{
+      id: item.id,
+      ingredient_id: item.ingredient_id,
+      name: item.ingredient.name,
+      category: Atom.to_string(item.ingredient.category),
+      quantity_milli: item.quantity_milli,
+      unit: Atom.to_string(item.unit),
+      source_kind: Atom.to_string(item.source_kind),
+      acquired_at: iso_datetime(item.acquired_at),
+      # Always a date, whether the expiry is explicit or inferred.
+      expires_at: item |> LotFreshness.effective_expiry(now) |> Date.to_iso8601(),
+      freshness: freshness_status(item, now),
+      is_leftover: item.is_leftover,
+      notes: item.notes
+    }
+  end
+
+  # The ledger row, named as its schema names it.
+  defp view_mutation_event(event) do
+    %{
+      id: event.id,
+      inventory_item_id: event.inventory_item_id,
+      trigger_type: Atom.to_string(event.trigger_type),
+      operation: Atom.to_string(event.operation),
+      quantity_before_milli: event.quantity_before_milli,
+      quantity_delta_milli: event.quantity_delta_milli,
+      quantity_after_milli: event.quantity_after_milli,
+      inserted_at: iso_datetime(event.inserted_at)
+    }
+  end
+
+  defp view_written_item(result) do
+    %{
+      item: view_item(result.item, DateTime.utc_now()),
+      mutation_event: view_mutation_event(result.mutation_event)
+    }
   end
 
   @spec freshness_status(map(), DateTime.t()) :: String.t()
@@ -84,15 +114,20 @@ defmodule MealPlannerApi.Services.InventoryService do
   # Manual operations
   # -------------------------------------------------------------------------
 
+  @doc """
+  Adds stock from outside the app as an `extra` lot and returns the resulting
+  item with its mutation event.
+
+  An add carrying an expiry, notes or a set leftover flag creates a lot of its
+  own; an add with none of them accumulates in the anonymous lot.
+  """
   @spec add_extra_item(map(), map()) :: {:ok, map()} | {:error, term()}
   def add_extra_item(user, payload) do
     with {:ok, identity} <- Identity.ensure_persistent_identity(user),
          {:ok, ingredient_id} <- resolve_ingredient_id(payload),
-         {:ok, quantity_milli} <-
-           parse_positive_int(
-             Map.get(payload, "quantity_milli") || Map.get(payload, :quantity_milli)
-           ),
-         {:ok, unit} <- parse_unit(Map.get(payload, "unit") || Map.get(payload, :unit)),
+         {:ok, quantity_milli} <- parse_positive_int(param(payload, :quantity_milli)),
+         {:ok, unit} <- parse_unit(param(payload, :unit)),
+         {:ok, lot_metadata} <- lot_metadata_from_payload(payload),
          mutation_opts =
            Map.merge(
              %{
@@ -106,28 +141,19 @@ defmodule MealPlannerApi.Services.InventoryService do
                operation: :add,
                metadata: %{reason: "manual_extra"}
              },
-             lot_metadata_from_payload(payload)
+             lot_metadata
            ),
          {:ok, result} <- InventoryPersistence.apply_delta_and_log(mutation_opts) do
-      {:ok,
-       %{
-         status: "ok",
-         operation: "add_extra",
-         quantity_milli: quantity_milli,
-         unit: Atom.to_string(unit),
-         event_id: result.mutation_event && result.mutation_event.id
-       }}
+      {:ok, view_written_item(result)}
     end
   end
 
-  @spec adjust_item_quantity(map(), pos_integer() | String.t(), map()) ::
-          {:ok, map()} | {:error, term()}
+  @doc "Sets the quantity of one lot and returns the resulting item with its mutation event."
+  @spec adjust_item_quantity(map(), String.t(), map()) :: {:ok, map()} | {:error, term()}
   def adjust_item_quantity(user, item_id, payload) do
     with {:ok, identity} <- Identity.ensure_persistent_identity(user),
-         {:ok, new_qty} <-
-           parse_non_negative_int(
-             Map.get(payload, "quantity_milli") || Map.get(payload, :quantity_milli)
-           ),
+         {:ok, new_qty} <- parse_non_negative_int(param(payload, :quantity_milli)),
+         {:ok, item_id} <- cast_item_id(item_id),
          {:ok, result} <-
            InventoryPersistence.apply_delta_and_log(%{
              account_id: identity.account_id,
@@ -138,20 +164,10 @@ defmodule MealPlannerApi.Services.InventoryService do
              operation: :set,
              metadata: %{reason: "manual_adjust", inventory_item_id: item_id}
            }) do
-      item = result.item
-
-      {:ok,
-       %{
-         item_id: item.id,
-         ingredient_name: (item.ingredient && item.ingredient.name) || "",
-         quantity_before_milli: result.before_qty,
-         quantity_after_milli: result.after_qty,
-         delta_applied_milli: result.delta
-       }}
+      {:ok, view_written_item(result)}
     else
-      {:error, :item_not_found} -> {:error, :item_not_found}
-      nil -> {:error, :item_not_found}
-      {:error, reason} -> {:error, reason}
+      {:error, :item_not_found} -> {:error, :inventory_item_not_found}
+      {:error, _} = error -> error
     end
   end
 
@@ -228,9 +244,14 @@ defmodule MealPlannerApi.Services.InventoryService do
   # Inventory mutations: dispose, voice, rescue
   # -------------------------------------------------------------------------
 
-  @spec dispose_item(map(), pos_integer() | String.t(), map()) :: {:ok, map()} | {:error, term()}
+  @doc """
+  Disposes of one lot. The row is kept at quantity zero, so its mutation
+  events survive, and it leaves the inventory view.
+  """
+  @spec dispose_item(map(), String.t(), map()) :: {:ok, map()} | {:error, term()}
   def dispose_item(user, item_id, payload) do
     with {:ok, identity} <- Identity.ensure_persistent_identity(user),
+         {:ok, item_id} <- cast_item_id(item_id),
          {:ok, result} <-
            InventoryPersistence.apply_delta_and_log(%{
              account_id: identity.account_id,
@@ -244,17 +265,9 @@ defmodule MealPlannerApi.Services.InventoryService do
                inventory_item_id: item_id
              }
            }) do
-      item = result.item
-
-      {:ok,
-       %{
-         item_id: item.id,
-         ingredient_name: (item.ingredient && item.ingredient.name) || "",
-         disposed_quantity_milli: result.before_qty
-       }}
+      {:ok, %{disposed: true, mutation_event: view_mutation_event(result.mutation_event)}}
     else
       {:error, :item_not_found} -> {:error, :inventory_item_not_found}
-      nil -> {:error, :inventory_item_not_found}
       {:error, _} = error -> error
     end
   end
@@ -462,51 +475,46 @@ defmodule MealPlannerApi.Services.InventoryService do
   defp iso_datetime(%Date{} = d), do: Date.to_iso8601(d)
   defp iso_datetime(other), do: other
 
-  defp resolve_ingredient_id(%{"ingredient_id" => id}) when is_integer(id), do: {:ok, id}
+  defp param(payload, key), do: Map.get(payload, key) || Map.get(payload, Atom.to_string(key))
 
-  defp resolve_ingredient_id(%{"ingredient_id" => id}) when is_binary(id) do
-    case Ecto.UUID.cast(id) do
-      {:ok, uuid} ->
-        {:ok, uuid}
+  # A lot id that is not a UUID cannot name a lot, so it is not found rather
+  # than a query error.
+  defp cast_item_id(item_id) do
+    case Ecto.UUID.cast(item_id) do
+      {:ok, uuid} -> {:ok, uuid}
+      :error -> {:error, :inventory_item_not_found}
+    end
+  end
 
-      :error ->
-        case Integer.parse(id) do
-          {int, _} -> {:ok, int}
+  # By id when the payload names one, else by exact name.
+  defp resolve_ingredient_id(payload) do
+    case {param(payload, :ingredient_id), param(payload, :ingredient_name)} do
+      {nil, name} when is_binary(name) ->
+        case MealPlannerApi.Repo.get_by(Ingredient, name: name) do
+          nil -> {:error, :ingredient_not_found}
+          ingredient -> {:ok, ingredient.id}
+        end
+
+      {nil, _missing_or_invalid} ->
+        {:error, :missing_ingredient}
+
+      {id, _name} ->
+        with {:ok, uuid} <- Ecto.UUID.cast(id),
+             %Ingredient{} <- MealPlannerApi.Repo.get(Ingredient, uuid) do
+          {:ok, uuid}
+        else
           :error -> {:error, :invalid_ingredient_id}
+          nil -> {:error, :ingredient_not_found}
         end
     end
   end
-
-  defp resolve_ingredient_id(%{ingredient_id: id}) when is_integer(id), do: {:ok, id}
-
-  defp resolve_ingredient_id(%{ingredient_id: id}) when is_binary(id) do
-    case Ecto.UUID.cast(id) do
-      {:ok, uuid} ->
-        {:ok, uuid}
-
-      :error ->
-        case Integer.parse(id) do
-          {int, _} -> {:ok, int}
-          :error -> {:error, :invalid_ingredient_id}
-        end
-    end
-  end
-
-  defp resolve_ingredient_id(%{"ingredient_name" => name}) do
-    case MealPlannerApi.Repo.get_by(Ingredient, name: name) do
-      nil -> {:error, :ingredient_not_found}
-      ing -> {:ok, ing.id}
-    end
-  end
-
-  defp resolve_ingredient_id(_), do: {:error, :missing_ingredient}
 
   defp parse_positive_int(nil), do: {:error, :missing_quantity}
   defp parse_positive_int(n) when is_integer(n) and n > 0, do: {:ok, n}
 
   defp parse_positive_int(s) when is_binary(s) do
     case Integer.parse(s) do
-      {n, _} when n > 0 -> {:ok, n}
+      {n, ""} when n > 0 -> {:ok, n}
       _ -> {:error, :invalid_quantity}
     end
   end
@@ -518,24 +526,70 @@ defmodule MealPlannerApi.Services.InventoryService do
 
   defp parse_non_negative_int(s) when is_binary(s) do
     case Integer.parse(s) do
-      {n, _} when n >= 0 -> {:ok, n}
+      {n, ""} when n >= 0 -> {:ok, n}
       _ -> {:error, :invalid_quantity}
     end
   end
 
   defp parse_non_negative_int(_), do: {:error, :invalid_quantity}
 
+  # The lot fields an add may carry. `expires_at` is the name on the wire; the
+  # column is `expired_at`.
   defp lot_metadata_from_payload(payload) do
-    [:acquired_at, :expired_at, :acquired_price_cents]
-    |> Enum.reduce(%{}, fn key, attrs ->
-      case Map.get(payload, key) || Map.get(payload, Atom.to_string(key)) do
-        nil -> attrs
-        value -> Map.put(attrs, key, value)
-      end
-    end)
+    with {:ok, expired_at} <- parse_expires_at(param(payload, :expires_at)),
+         {:ok, notes} <- parse_notes(param(payload, :notes)),
+         {:ok, is_leftover} <- parse_is_leftover(param(payload, :is_leftover)) do
+      metadata =
+        %{
+          acquired_at: param(payload, :acquired_at),
+          acquired_price_cents: param(payload, :acquired_price_cents),
+          expired_at: expired_at,
+          notes: notes
+        }
+        |> Map.reject(fn {_key, value} -> is_nil(value) end)
+        |> Map.put(:is_leftover, is_leftover)
+
+      {:ok, metadata}
+    end
   end
 
-  defp parse_unit(nil), do: {:ok, :g}
+  # An ISO date expires at the start of that day in UTC; freshness only reads
+  # the date.
+  defp parse_expires_at(nil), do: {:ok, nil}
+  defp parse_expires_at(%DateTime{} = datetime), do: {:ok, datetime}
+  defp parse_expires_at(%Date{} = date), do: {:ok, DateTime.new!(date, ~T[00:00:00], "Etc/UTC")}
+
+  defp parse_expires_at(value) when is_binary(value) do
+    with {:error, _} <- Date.from_iso8601(value),
+         {:error, _} <- DateTime.from_iso8601(value) do
+      {:error, :invalid_expires_at}
+    else
+      {:ok, %Date{} = date} -> parse_expires_at(date)
+      {:ok, %DateTime{} = datetime, _offset} -> {:ok, datetime}
+    end
+  end
+
+  defp parse_expires_at(_), do: {:error, :invalid_expires_at}
+
+  defp parse_notes(nil), do: {:ok, nil}
+
+  defp parse_notes(notes) when is_binary(notes) do
+    trimmed = String.trim(notes)
+
+    cond do
+      trimmed == "" -> {:ok, nil}
+      String.length(trimmed) > @max_notes_length -> {:error, :invalid_notes}
+      true -> {:ok, trimmed}
+    end
+  end
+
+  defp parse_notes(_), do: {:error, :invalid_notes}
+
+  defp parse_is_leftover(nil), do: {:ok, false}
+  defp parse_is_leftover(flag) when is_boolean(flag), do: {:ok, flag}
+  defp parse_is_leftover(_), do: {:error, :invalid_is_leftover}
+
+  defp parse_unit(nil), do: {:error, :missing_unit}
   defp parse_unit(:g), do: {:ok, :g}
   defp parse_unit("g"), do: {:ok, :g}
   defp parse_unit(:grams), do: {:ok, :g}
@@ -546,5 +600,5 @@ defmodule MealPlannerApi.Services.InventoryService do
   defp parse_unit("unit"), do: {:ok, :unit}
   defp parse_unit(:units), do: {:ok, :unit}
   defp parse_unit("units"), do: {:ok, :unit}
-  defp parse_unit(_), do: {:ok, :g}
+  defp parse_unit(_), do: {:error, :invalid_unit}
 end
