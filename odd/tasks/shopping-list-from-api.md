@@ -192,7 +192,7 @@ instead: no blockers. Its findings:
   through a mocked `FloatingCalendar`.
 
 Jorge advisory reviews (2026-10-08): #98, #99, #100 and #101 approved with no confirmed finding. #102 asked
-for changes, both confirmed against the code and fixed in the commit after this one's parent:
+for changes, both confirmed against the code and fixed in the commit that adds this note:
 - The chosen day leaked to the next user of the device (kept on an owner change and persisted device-wide),
   silently cutting their list. It is now stored with its owner (D12). Clearing it on every owner change, as
   suggested, would also wipe it on each cold start, where the cache owner starts as nobody.
