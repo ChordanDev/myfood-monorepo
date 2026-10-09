@@ -169,10 +169,14 @@ defmodule MealPlannerApiWeb.Router do
   # Issue #18 — `GET` and `PUT /me/preferences` sit here for the same
   # exemption: a User of an Account whose Trial expired can still read and
   # save their preferences.
+  #
+  # Issue #62 — `PUT /account/timezone` sits here for the same exemption: the
+  # app syncs the device timezone even when the Account's Trial expired.
   scope "/api", MealPlannerApiWeb do
     pipe_through([:api, :mobile_casing, :auth])
 
     get("/me", AccountsController, :me)
+    put("/account/timezone", AccountTimezoneController, :update)
     put("/me/profile", ProfileController, :update)
     get("/me/slot-cooking-times", SlotCookingTimesController, :show)
     put("/me/slot-cooking-times", SlotCookingTimesController, :update)
