@@ -53,9 +53,11 @@ function withEverySlot(slotTimes: SlotCookingTimes): SlotCookingTimes {
   };
 }
 
-// A user who never saved their slot times has no server row a save could
-// overwrite, so they start from the defaults. Only that code means "none
-// saved": any other failure is rethrown and fails the load.
+// A user who never saved their slot times has no server row when the screen
+// loads, so they start from the defaults. That can change before they save:
+// another device may save in between, and the save replaces the whole set
+// (see #104). Only that code means "none saved": any other failure is
+// rethrown and fails the load.
 function defaultsWhenNoneSaved(error: unknown): SlotCookingTimes {
   if (isApiError(error) && error.code === 'slot_cooking_times_not_found') {
     return defaultSlotCookingTimes();
