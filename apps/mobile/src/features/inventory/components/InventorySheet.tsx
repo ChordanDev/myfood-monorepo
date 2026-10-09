@@ -45,7 +45,12 @@ export function useInventorySheetWrite(visible: boolean, onClose: () => void) {
     }
   }
 
-  const run = async (write: SheetWrite, send: () => Promise<unknown>) => {
+  // `closeWhen` lets a multi-step sheet stay open on a success that is not its last step.
+  const run = async <T,>(
+    write: SheetWrite,
+    send: () => Promise<T>,
+    closeWhen: (result: T) => boolean = () => true
+  ) => {
     // The panel stays mounted while it fades out, so a late press could write again.
     if (!visible || isWritingRef.current) return;
 
@@ -54,8 +59,8 @@ export function useInventorySheetWrite(visible: boolean, onClose: () => void) {
     setErrorMessage(null);
 
     try {
-      await send();
-      onClose();
+      const result = await send();
+      if (closeWhen(result)) onClose();
     } catch (error) {
       setErrorMessage(getAuthErrorMessage(error));
     } finally {
