@@ -31,6 +31,7 @@ import { RECIPE_CHAT_DISABLED_PLACEHOLDER, RECIPE_CHAT_PLACEHOLDER } from '../do
 import { buildRecipeFacts } from '../domain/recipeFormat';
 import { useActivateRecipePalette } from '../hooks/useActivateRecipePalette';
 import { useRecipeChat } from '../hooks/useRecipeChat';
+import { CookingResultSheet } from '@/features/cooking';
 import { useRecipeScreen } from '../hooks/useRecipeScreen';
 import { useScrollToEndOnAppend } from '../hooks/useScrollToEndOnAppend';
 
@@ -45,12 +46,15 @@ export function RecipeScreen() {
     canMarkAsCooked,
     isChatEnabled,
     isCookedConfirmVisible,
+    cookingSummary,
+    cookingErrorMessage,
     handleBack,
     handleRetry,
     handleToggleFavorite,
     handleRequestMarkAsCooked,
     handleConfirmCooked,
     handleCancelCooked,
+    handleCloseCookingResult,
   } = useRecipeScreen();
   // Without a way to take an offer, the assistant makes none.
   const chat = useRecipeChat({
@@ -148,6 +152,12 @@ export function RecipeScreen() {
         visible={isCookedConfirmVisible}
         onConfirm={handleConfirmCooked}
         onCancel={handleCancelCooked}
+      />
+
+      <CookingResultSheet
+        summary={cookingSummary}
+        errorMessage={cookingErrorMessage}
+        onClose={handleCloseCookingResult}
       />
     </View>
   );

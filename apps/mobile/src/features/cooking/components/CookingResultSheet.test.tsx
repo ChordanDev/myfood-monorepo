@@ -1,0 +1,95 @@
+import React from 'react';
+import { Modal, Text } from 'react-native';
+import { act, create, type ReactTestRenderer } from 'react-test-renderer';
+import type { CookingSummary } from '../domain';
+import { CookingResultSheet } from './CookingResultSheet';
+
+jest.mock('react-native-safe-area-context', () => ({
+  useSafeAreaInsets: () => ({ top: 0, right: 0, bottom: 0, left: 0 }),
+}));
+
+jest.mock('@/context/RecipeThemeContext', () => ({
+  useRecipeTheme: () => ({
+    theme: {
+      colorDark: '#111111',
+      primaryAccent: '#ff6600',
+      primaryAccentIntense: '#ff3300',
+      textBlack: '#000001',
+      textLight: '#eeeeee',
+    },
+  }),
+}));
+
+const SUMMARY: CookingSummary = {
+  recipeName: 'Arroz con aceite',
+  consumed: [
+    { ingredientId: 'i1', name: 'Arroz', quantity: '200 g', lots: 2 },
+    { ingredientId: 'i2', name: 'Aceite', quantity: '15 ml', lots: 1 },
+  ],
+  shortages: [{ ingredientId: 'i3', name: 'Sal', missing: '5 g' }],
+};
+
+function render(props: Partial<React.ComponentProps<typeof CookingResultSheet>>) {
+  const onClose = jest.fn();
+  let tree: ReactTestRenderer;
+  act(() => {
+    tree = create(
+      <CookingResultSheet summary={null} errorMessage={null} onClose={onClose} {...props} />
+    );
+  });
+  const texts = () =>
+    tree.root.findAllByType(Text).map((node) => [node.props.children].flat().join(''));
+  return { tree: tree!, onClose, texts };
+}
+
+describe('CookingResultSheet', () => {
+  it('renders nothing without a summary or an error', () => {
+    const { texts, tree } = render({});
+
+    expect(texts()).toEqual([]);
+    expect(tree.root.findByType(Modal).props.visible).toBe(false);
+  });
+
+  it('lists what was consumed per ingredient and what the stock could not cover', () => {
+    const { texts } = render({ summary: SUMMARY });
+
+    expect(texts()).toEqual(
+      expect.arrayContaining([
+        'Arroz con aceite',
+        'Arroz',
+        '200 g',
+        'Aceite',
+        '15 ml',
+        'Te faltó',
+        'Sal',
+        '5 g',
+      ])
+    );
+  });
+
+  it('does not show the shortfall block when everything was covered', () => {
+    const { texts } = render({ summary: { ...SUMMARY, shortages: [] } });
+
+    expect(texts()).not.toContain('Te faltó');
+  });
+
+  it('shows the error message instead of a summary', () => {
+    const { texts } = render({
+      errorMessage: 'Solo podés marcar como cocinada una comida de hoy.',
+    });
+
+    expect(texts()).toContain('Solo podés marcar como cocinada una comida de hoy.');
+  });
+
+  it('closes from the button', () => {
+    const { tree, onClose } = render({ summary: SUMMARY });
+
+    act(() => {
+      tree.root
+        .findByProps({ testID: 'cooking-result-close', accessibilityRole: 'button' })
+        .props.onPress();
+    });
+
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+});

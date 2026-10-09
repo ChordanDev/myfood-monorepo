@@ -1,0 +1,148 @@
+import { act, create } from 'react-test-renderer';
+import { ApiError } from '@/api/errors';
+import { useMealPlanStore } from '@/store';
+import type { MealPlanEntry } from '@/types/domain';
+import { finishCookingSession, startCookingSession } from '../api';
+import {
+  COOKING_FINISH_WITH_SHORTAGE,
+  COOKING_SCHEDULED_MEAL_ID,
+  COOKING_SESSION_ID,
+  COOKING_START,
+} from '../fixtures';
+import { useMarkAsCooked } from './useMarkAsCooked';
+
+jest.mock('@react-native-async-storage/async-storage', () =>
+  jest.requireActual('@react-native-async-storage/async-storage/jest/async-storage-mock')
+);
+jest.mock('../api', () => ({
+  startCookingSession: jest.fn(),
+  finishCookingSession: jest.fn(),
+}));
+
+const startMock = jest.mocked(startCookingSession);
+const finishMock = jest.mocked(finishCookingSession);
+
+const ENTRY: MealPlanEntry = {
+  id: COOKING_SCHEDULED_MEAL_ID,
+  date: '2026-10-08',
+  type: 'lunch',
+  recipeId: 'r1',
+  isCooked: false,
+};
+
+let hook: ReturnType<typeof useMarkAsCooked>;
+let tree: ReturnType<typeof create> | null = null;
+
+function Harness() {
+  // eslint-disable-next-line react-hooks/globals -- Test harness captures the hook result.
+  hook = useMarkAsCooked();
+  return null;
+}
+
+describe('useMarkAsCooked', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    useMealPlanStore.setState({ entries: [ENTRY] });
+    act(() => {
+      tree = create(<Harness />);
+    });
+  });
+
+  afterEach(() => {
+    act(() => tree?.unmount());
+    tree = null;
+  });
+
+  it('starts the session, finishes it and shows the summary', async () => {
+    startMock.mockResolvedValue(COOKING_START);
+    finishMock.mockResolvedValue(COOKING_FINISH_WITH_SHORTAGE);
+
+    let result: boolean | undefined;
+    await act(async () => {
+      result = await hook.markAsCooked(ENTRY.id);
+    });
+
+    expect(startMock).toHaveBeenCalledWith(ENTRY.id);
+    expect(finishMock).toHaveBeenCalledWith(COOKING_SESSION_ID);
+    expect(result).toBe(true);
+    expect(hook.summary?.recipeName).toBe('Arroz con aceite');
+    expect(hook.summary?.shortages).toHaveLength(1);
+    expect(hook.errorMessage).toBeNull();
+    expect(hook.isPending).toBe(false);
+  });
+
+  it('marks the local entry cooked only after the finish succeeded', async () => {
+    startMock.mockResolvedValue(COOKING_START);
+    finishMock.mockResolvedValue(COOKING_FINISH_WITH_SHORTAGE);
+
+    await act(async () => {
+      await hook.markAsCooked(ENTRY.id);
+    });
+
+    expect(useMealPlanStore.getState().entries[0].isCooked).toBe(true);
+  });
+
+  it('does not finish nor mark the entry when the start is refused, and says why', async () => {
+    startMock.mockRejectedValue(new ApiError('cooking_chat_unavailable', 'no', 422));
+
+    let result: boolean | undefined;
+    await act(async () => {
+      result = await hook.markAsCooked(ENTRY.id);
+    });
+
+    expect(result).toBe(false);
+    expect(finishMock).not.toHaveBeenCalled();
+    expect(useMealPlanStore.getState().entries[0].isCooked).toBe(false);
+    expect(hook.errorMessage).toBe('Solo podés marcar como cocinada una comida de hoy.');
+    expect(hook.summary).toBeNull();
+  });
+
+  it('leaves the entry uncooked when the finish fails', async () => {
+    startMock.mockResolvedValue(COOKING_START);
+    finishMock.mockRejectedValue(new ApiError('inventory_mutation_failed', 'x', 500));
+
+    await act(async () => {
+      await hook.markAsCooked(ENTRY.id);
+    });
+
+    expect(useMealPlanStore.getState().entries[0].isCooked).toBe(false);
+    expect(hook.errorMessage).toContain('No pudimos descontar los ingredientes');
+  });
+
+  it('ignores a second tap while the first is in flight', async () => {
+    let release: (value: typeof COOKING_START) => void = () => {};
+    startMock.mockReturnValue(new Promise((resolve) => (release = resolve)));
+    finishMock.mockResolvedValue(COOKING_FINISH_WITH_SHORTAGE);
+
+    let first: Promise<boolean> = Promise.resolve(false);
+    act(() => {
+      first = hook.markAsCooked(ENTRY.id);
+    });
+    expect(hook.isPending).toBe(true);
+
+    let second: boolean | undefined;
+    await act(async () => {
+      second = await hook.markAsCooked(ENTRY.id);
+    });
+    await act(async () => {
+      release(COOKING_START);
+      await first;
+    });
+
+    expect(second).toBe(false);
+    expect(startMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('clears the summary and the error on dismiss', async () => {
+    startMock.mockResolvedValue(COOKING_START);
+    finishMock.mockResolvedValue(COOKING_FINISH_WITH_SHORTAGE);
+    await act(async () => {
+      await hook.markAsCooked(ENTRY.id);
+    });
+
+    act(() => hook.dismiss());
+
+    expect(hook.summary).toBeNull();
+    expect(hook.errorMessage).toBeNull();
+  });
+});
