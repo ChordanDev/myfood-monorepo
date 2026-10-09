@@ -25,6 +25,7 @@ import {
   withUpdatedProfile,
 } from '../utils/currentMe';
 import { reconcileAfterCompletion } from '../utils/postCompletion';
+import { resetAccountData } from '../utils/accountDataReset';
 
 export const AuthContext = createContext<AuthContextValue | null>(null);
 
@@ -146,6 +147,12 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
   const applySession = useCallback((session: AuthSession | null) => {
     const nextMe = session?.me ?? null;
+    // Stores that cache the signed-in account's data (the meal plan) are dropped when the session
+    // ends or another account signs in, so the next account never sees or writes the previous one.
+    const previousAccountId = meRef.current?.account.id ?? null;
+    if (!nextMe || (previousAccountId !== null && previousAccountId !== nextMe.account.id)) {
+      resetAccountData();
+    }
     // Skip setMe entirely when the snapshot is content-equal to the
     // current value. We use a ref (not a functional setState updater)
     // so we never schedule a re-render at all when the snapshot is

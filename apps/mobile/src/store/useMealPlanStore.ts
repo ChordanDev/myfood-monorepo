@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
 import { MealPlanEntry, MasterRecipe, RecipeSummary } from '../types/domain';
 import { safeAsyncStorage } from '@/utils/safeAsyncStorage';
+import { registerAccountDataReset } from '@/features/auth/utils/accountDataReset';
 
 interface MealPlanState {
   entries: MealPlanEntry[];
@@ -11,6 +12,8 @@ interface MealPlanState {
   setRecipeSummaries: (recipeSummaries: Record<string, RecipeSummary>) => void;
   markAsCooked: (entryId: string) => void;
   markAsSkipped: (entryId: string) => void;
+  /** Drops everything cached for the signed-in account (plan and summaries). */
+  resetAccountData: () => void;
   getEntryByDateAndType: (date: string, type: string) => MealPlanEntry | undefined;
   getRecipeById: (id: string) => MasterRecipe | undefined;
 }
@@ -52,6 +55,7 @@ export const useMealPlanStore = create<MealPlanState>()(
           entries: state.entries.map((e) => (e.id === entryId ? { ...e, isSkipped: true } : e)),
         }));
       },
+      resetAccountData: () => set({ entries: [], recipeSummaries: {} }),
       getEntryByDateAndType: (date, type) => {
         return get().entries.find((e) => e.date === date && e.type === type);
       },
@@ -69,3 +73,5 @@ export const useMealPlanStore = create<MealPlanState>()(
     }
   )
 );
+
+registerAccountDataReset(() => useMealPlanStore.getState().resetAccountData());
