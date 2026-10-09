@@ -64,5 +64,12 @@ defmodule MealPlannerApi.Persistence.Shopping.ShoppingItem do
     |> foreign_key_constraint(:scheduled_meal_id)
     |> foreign_key_constraint(:ingredient_id)
     |> foreign_key_constraint(:assigned_supermarket_id)
+    # At most one open Shopping item (`:pending` or `:in_cart`) per Account,
+    # Scheduled meal, planned date, Ingredient and unit. Closed items are not
+    # constrained, so the error only shows up when a second open one is stored.
+    |> unique_constraint(:ingredient_id,
+      name: :shopping_items_open_planned_key_index,
+      message: "already has an open shopping item for this scheduled meal, date and unit"
+    )
   end
 end

@@ -177,10 +177,21 @@ defmodule MealPlannerApi.ShoppingServiceTest do
           status: :pending
         })
 
+      # A second Scheduled meal: only one open Shopping item is allowed per
+      # Scheduled meal, planned date, Ingredient and unit.
+      {:ok, second_meal} =
+        Planning.schedule_meal(%{
+          account_id: account_id,
+          date: Date.utc_today(),
+          slot: :lunch,
+          recipe_id: recipe.id,
+          is_cooked: false
+        })
+
       {:ok, item2} =
         Shopping.create_shopping_item(%{
           account_id: account_id,
-          scheduled_meal_id: meal.id,
+          scheduled_meal_id: second_meal.id,
           checkout_session_id: session.id,
           planned_date: Date.utc_today(),
           ingredient_id: ingredient.id,
@@ -251,11 +262,15 @@ defmodule MealPlannerApi.ShoppingServiceTest do
       past_date = Date.add(Date.utc_today(), -5)
 
       meal = schedule_meal!(account_id, user.id, past_date, :breakfast, ingredient, 200)
-      item = pending_item!(account_id, meal, ingredient, 200)
+      past_item = pending_item!(account_id, meal, ingredient, 200)
 
       assert {:ok, _response} = ShoppingService.get_shopping_list(user)
 
-      assert Repo.get!(Shopping.ShoppingItem, item.id).status == :archived
+      # The same row is archived in place, and the write is stamped.
+      assert %{status: :archived} = archived = Repo.get!(Shopping.ShoppingItem, past_item.id)
+      assert archived.quantity_milli == 200
+      assert archived.inserted_at == past_item.inserted_at
+      assert DateTime.compare(archived.updated_at, past_item.updated_at) == :gt
     end
 
     test "does not list a past item it has just archived" do
