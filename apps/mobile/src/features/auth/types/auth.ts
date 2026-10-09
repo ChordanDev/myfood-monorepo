@@ -137,6 +137,7 @@ export type AuthErrorCode =
   | 'optimizer_unavailable'
   | 'optimizer_timeout'
   | 'recipe_not_found'
+  | 'prepared_leftover_not_found'
   | 'configuration_error'
   | 'network_error'
   | 'timeout'

@@ -224,6 +224,11 @@ defmodule MealPlannerApiWeb.Router do
     post("/inventory/voice/preview", InventoryController, :voice_preview)
     post("/inventory/voice/apply", InventoryController, :voice_apply)
     post("/planning/rescue", InventoryController, :rescue_plan)
+
+    get("/leftovers/prepared", PreparedLeftoverController, :index)
+    post("/leftovers/prepared", PreparedLeftoverController, :create)
+    post("/leftovers/prepared/:id/consume", PreparedLeftoverController, :consume)
+    post("/leftovers/prepared/:id/discard", PreparedLeftoverController, :discard)
   end
 
   # Phase A — Tenancy Refactor (PR 3a): membership / invite / lifecycle

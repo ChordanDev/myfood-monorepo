@@ -124,7 +124,7 @@ This file and `docs/adr/` are the only durable docs in the repository. Specs, ma
 
 **Ingredient leftover** — A remaining raw ingredient after cooking, kept in Inventory as a normal item flagged as leftover. `(code: mobile InventoryItem.isLeftover)` `(alias: Sobras de Ingrediente)`
 
-**Prepared leftover** — A remaining cooked portion stored apart from Inventory with its source meal and a consume-by date. Docs only; not yet modeled in code. `(alias: Sobras de Comida, PreparedLeftover)`
+**Prepared leftover** — A remaining cooked portion stored apart from Inventory with its source meal and a consume-by date. `(code: Persistence.Leftovers.PreparedLeftover)` `(alias: Sobras de Comida, PreparedLeftover)`
 
 **Voice adjustment** — An inventory change parsed from a spoken sentence; applied only when the parser is confident, otherwise previewed for confirmation. `(code: Voice.VoiceParserPort, InventoryMutationEvent trigger=voice)`
 

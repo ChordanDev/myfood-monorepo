@@ -201,8 +201,15 @@ defmodule MealPlannerApiWeb.CrossAccountIsolationTest do
         status: :pending
       })
 
+    {:ok, prepared_leftover} =
+      MealPlannerApi.Persistence.Leftovers.create(account_id, %{
+        title: "Cross-Account Leftover #{label}",
+        portions: 2
+      })
+
     %{
       label: label,
+      prepared_leftover_id: prepared_leftover.id,
       today: today,
       ingredient_id: ingredient.id,
       breakfast_recipe_id: breakfast_recipe.id,
@@ -222,6 +229,7 @@ defmodule MealPlannerApiWeb.CrossAccountIsolationTest do
     assert_cooking_scoped(conn, own, other)
     assert_inventory_scoped(conn, own, other)
     assert_shopping_scoped(conn, own, other)
+    assert_prepared_leftovers_scoped(conn, own, other)
   end
 
   defp assert_calendar_scoped(conn, own, other) do
@@ -281,6 +289,23 @@ defmodule MealPlannerApiWeb.CrossAccountIsolationTest do
 
     assert own.ingredient_id in all_ids
     refute other.ingredient_id in all_ids
+  end
+
+  defp assert_prepared_leftovers_scoped(conn, own, other) do
+    ids =
+      conn
+      |> get("/api/leftovers/prepared")
+      |> json_response(200)
+      |> Map.fetch!("data")
+      |> Enum.map(& &1["id"])
+
+    assert own.prepared_leftover_id in ids
+    refute other.prepared_leftover_id in ids
+
+    for action <- ["consume", "discard"] do
+      resp = post(conn, "/api/leftovers/prepared/#{other.prepared_leftover_id}/#{action}")
+      assert json_response(resp, 404)["error"]["code"] == "prepared_leftover_not_found"
+    end
   end
 
   defp assert_shopping_scoped(conn, own, other) do

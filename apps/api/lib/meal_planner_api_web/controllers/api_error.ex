@@ -121,6 +121,7 @@ defmodule MealPlannerApiWeb.ApiError do
           | :cooking_already_finished
           | :cooking_chat_unavailable
           | :inventory_mutation_failed
+          | :prepared_leftover_not_found
 
   @type envelope :: %{error: %{code: code() | :unknown_error, message: String.t()}}
 
@@ -197,7 +198,10 @@ defmodule MealPlannerApiWeb.ApiError do
     cooking_session_not_active: {409, "The cooking session is not active."},
     cooking_already_finished: {409, "This meal has already been cooked."},
     cooking_chat_unavailable: {409, "Cooking is only available for a meal scheduled for today."},
-    inventory_mutation_failed: {422, "The inventory could not be updated. Nothing was saved."}
+    inventory_mutation_failed: {422, "The inventory could not be updated. Nothing was saved."},
+    # Prepared leftovers (issue #45). A missing, closed, malformed-id and
+    # other-Account leftover share the code, so existence is not revealed.
+    prepared_leftover_not_found: {404, "The prepared leftover was not found."}
   }
 
   @unknown_error_message "An unexpected error occurred."
