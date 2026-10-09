@@ -1,5 +1,6 @@
 import { useCallback, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { formatDateKey, selectRangeDate, type CalendarRange } from '@/features/home';
+import { useLoadLivePlan } from '@/features/home/hooks/useLoadLivePlan';
 import { useMealPlanStore } from '@/store';
 import {
   getFirstPlannableDate,
@@ -15,6 +16,8 @@ import {
  * yet.
  */
 export function usePlanningRange() {
+  // The plan on screen is a cache of the calendar read: refresh it when the Planner opens.
+  useLoadLivePlan();
   const entries = useMealPlanStore((state) => state.entries);
   const todayKey = formatDateKey(new Date());
   // What the user picked, if anything. The range in use is resolved from it on every render,

@@ -188,8 +188,13 @@ defmodule MealPlannerApi.Persistence.Calendar do
              :ok <- validate_meal_date(date, from_date, to_date),
              :ok <- validate_unique_slot(seen, date, slot) do
           normalized_meal =
-            meal
-            |> Map.take([:recipe_id, :is_cooked, :ai_generation_id, :selected_quantity])
+            [:recipe_id, :is_cooked, :ai_generation_id, :selected_quantity]
+            |> Enum.reduce(%{}, fn key, acc ->
+              case meal_value(meal, key) do
+                nil -> acc
+                value -> Map.put(acc, key, value)
+              end
+            end)
             |> Map.put(:date, date)
             |> Map.put(:slot, slot)
 

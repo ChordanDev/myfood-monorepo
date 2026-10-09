@@ -3,7 +3,13 @@ import type { MasterRecipe, MealPlanEntry } from '@/types/domain';
 import { MOCK_MASTER_RECIPES } from '@/mocks/domainMocks';
 import { useInventoryStore } from '@/features/inventory/store';
 import { buildInventoryItem } from '@/features/inventory/mocks';
+import { loadLivePlan } from '@/features/home/hooks/useLoadLivePlan';
 import { useMealPlanStore } from './useMealPlanStore';
+
+const mockGetCalendar = jest.fn();
+jest.mock('@/features/home/api/calendarApi', () => ({
+  getCalendar: (...args: unknown[]) => mockGetCalendar(...args),
+}));
 
 jest.mock('@react-native-async-storage/async-storage', () =>
   jest.requireActual('@react-native-async-storage/async-storage/jest/async-storage-mock')
@@ -140,9 +146,8 @@ describe('meal confirmation', () => {
   });
 });
 
-describe('a plan stored on the device', () => {
+describe('the plan cache', () => {
   const STORAGE_KEY = 'meal-plan-storage';
-  const fixtures = useMealPlanStore.getInitialState().entries;
   const storedEntry: MealPlanEntry = {
     id: 'stored-1',
     date: '2026-08-25',
@@ -151,19 +156,71 @@ describe('a plan stored on the device', () => {
     isCooked: false,
   };
 
-  beforeEach(() => {
-    useMealPlanStore.setState({ entries: fixtures });
-  });
-
   afterEach(async () => {
     jest.restoreAllMocks();
     await AsyncStorage.clear();
   });
 
-  it('comes back when it was stored with the current version', async () => {
+  it('starts empty: no fixture plan or recipes are seeded', () => {
+    const initial = useMealPlanStore.getInitialState();
+
+    expect(initial.entries).toEqual([]);
+    expect(initial.recipes).toEqual([]);
+    expect(initial.recipeSummaries).toEqual({});
+  });
+
+  it('is filled by the calendar read', async () => {
+    mockGetCalendar.mockResolvedValue({
+      startDate: '2026-09-07',
+      endDate: '2027-01-06',
+      today: '2026-10-08',
+      meals: [
+        {
+          mealId: 'meal-1',
+          date: '2026-10-09',
+          slot: 'dinner',
+          recipeId: 'recipe-9',
+          recipeName: 'Lentil stew',
+          isFavorite: false,
+          isCooked: false,
+          selectedQuantity: null,
+          prepTimeMinutes: 25,
+          macros: { calories: 480 },
+        },
+      ],
+    });
+    useMealPlanStore.setState({ entries: [], recipes: [], recipeSummaries: {} });
+
+    await loadLivePlan(new Date(2026, 9, 8));
+
+    expect(mockGetCalendar).toHaveBeenCalledWith({
+      startDate: '2026-09-07',
+      endDate: '2027-01-06',
+    });
+    expect(useMealPlanStore.getState().entries).toEqual([
+      expect.objectContaining({
+        id: 'meal-1',
+        date: '2026-10-09',
+        type: 'dinner',
+        recipeId: 'recipe-9',
+      }),
+    ]);
+    expect(useMealPlanStore.getState().recipeSummaries['recipe-9']?.name).toBe('Lentil stew');
+  });
+
+  it('keeps the cached plan when the calendar read fails', async () => {
+    mockGetCalendar.mockRejectedValue(new Error('offline'));
+    useMealPlanStore.setState({ entries: [storedEntry] });
+
+    await expect(loadLivePlan()).rejects.toThrow('offline');
+
+    expect(useMealPlanStore.getState().entries).toEqual([storedEntry]);
+  });
+
+  it('comes back from the device when it was stored with the current version', async () => {
     await AsyncStorage.setItem(
       STORAGE_KEY,
-      JSON.stringify({ version: 2, state: { entries: [storedEntry] } })
+      JSON.stringify({ version: 3, state: { entries: [storedEntry] } })
     );
 
     await useMealPlanStore.persist.rehydrate();
@@ -171,23 +228,19 @@ describe('a plan stored on the device', () => {
     expect(useMealPlanStore.getState().entries).toEqual([storedEntry]);
   });
 
-  it('loads the fixture plan and keeps the rest of the stored state when it was stored before the API meal slot codes', async () => {
+  it('starts the plan empty and keeps the rest of the stored state when it was stored before version 3', async () => {
     const consoleError = jest.spyOn(console, 'error').mockImplementation(() => {});
-    useMealPlanStore.setState({ entries: [] });
     await AsyncStorage.setItem(
       STORAGE_KEY,
       JSON.stringify({
-        version: 1,
-        state: {
-          entries: [{ ...storedEntry, type: 'legacy-slot' }],
-          customKey: 'kept',
-        },
+        version: 2,
+        state: { entries: [storedEntry], customKey: 'kept' },
       })
     );
 
     await useMealPlanStore.persist.rehydrate();
 
-    expect(useMealPlanStore.getState().entries).toEqual(fixtures);
+    expect(useMealPlanStore.getState().entries).toEqual([]);
     expect(useMealPlanStore.getState()).toMatchObject({ customKey: 'kept' });
     expect(consoleError).not.toHaveBeenCalled();
   });
