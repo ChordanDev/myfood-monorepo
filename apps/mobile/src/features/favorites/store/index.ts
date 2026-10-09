@@ -1,1 +1,1 @@
-export { selectIsFavorite, useFavoritesStore } from './useFavoritesStore';
+export { selectIsFavorite, useFavoritesStore, whenFavoritesHydrated } from './useFavoritesStore';

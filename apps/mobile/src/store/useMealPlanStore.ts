@@ -14,19 +14,17 @@ interface EatTodayParams {
 interface MealPlanState {
   entries: MealPlanEntry[];
   recipes: MasterRecipe[];
-  favoriteRecipeIds: string[];
   setPlan: (entries: MealPlanEntry[]) => void;
   markAsCooked: (entryId: string) => void;
   markAsSkipped: (entryId: string) => void;
   eatToday: (params: EatTodayParams) => void;
-  toggleFavoriteRecipe: (recipeId: string) => void;
   getEntryByDateAndType: (date: string, type: string) => MealPlanEntry | undefined;
   getRecipeById: (id: string) => MasterRecipe | undefined;
 }
 
 // Runs when the stored version is another one. A plan stored before version 2 has entries
 // that no longer match the fixtures, so only its entries are replaced by the fixture plan:
-// the rest of what the User stored, such as the favorite recipes, is kept.
+// the rest of what the User stored is kept.
 function migrateMealPlanState(persistedState: unknown, version: number): MealPlanState {
   const stored = (
     typeof persistedState === 'object' && persistedState !== null ? persistedState : {}
@@ -40,7 +38,6 @@ export const useMealPlanStore = create<MealPlanState>()(
     (set, get) => ({
       entries: MOCK_MEAL_PLAN,
       recipes: MOCK_MASTER_RECIPES,
-      favoriteRecipeIds: [],
       setPlan: (entries) => set({ entries }),
       // Only the local mark: the stock is consumed by the server's Cooking session, whose
       // summary the user sees, so the plan does not subtract anything from the inventory.
@@ -92,13 +89,6 @@ export const useMealPlanStore = create<MealPlanState>()(
             }),
           };
         });
-      },
-      toggleFavoriteRecipe: (recipeId) => {
-        set((state) => ({
-          favoriteRecipeIds: state.favoriteRecipeIds.includes(recipeId)
-            ? state.favoriteRecipeIds.filter((id) => id !== recipeId)
-            : [...state.favoriteRecipeIds, recipeId],
-        }));
       },
       getEntryByDateAndType: (date, type) => {
         return get().entries.find((e) => e.date === date && e.type === type);
