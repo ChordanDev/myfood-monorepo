@@ -262,3 +262,20 @@ describe('toggle', () => {
     expect(store().favorites).toEqual([]);
   });
 });
+
+describe('toggle queued behind a request when clear() runs', () => {
+  it('never sends the queued request after clear()', async () => {
+    const first = deferred<FavoriteSummary>();
+    addMock.mockReturnValue(first.promise);
+    removeMock.mockResolvedValue(undefined);
+
+    const added = store().toggle(TORTILLA);
+    const removed = store().toggle(TORTILLA);
+    store().clear();
+    first.resolve(TORTILLA);
+    await added;
+    await removed;
+
+    expect(removeMock).not.toHaveBeenCalled();
+  });
+});

@@ -33,16 +33,27 @@ function mount() {
 
 beforeEach(() => {
   mockUser = null;
-  useFavoritesStore.setState({ favorites: fixtureFavorites() });
+  useFavoritesStore.setState({ favorites: fixtureFavorites(), ownerUserId: 'user-1' });
 });
 
 describe('useClearFavoritesOnSignOut', () => {
-  it('keeps the favorites while nobody has signed in yet (cold start)', () => {
+  it('keeps the favorites when the same user signs in after a cold start', () => {
     const view = mount();
     mockUser = { id: 'user-1' };
     view.rerender();
 
     expect(useFavoritesStore.getState().favorites).toHaveLength(2);
+    expect(useFavoritesStore.getState().ownerUserId).toBe('user-1');
+    view.unmount();
+  });
+
+  it('empties the cached favorites of another user who signs in after a cold start', () => {
+    const view = mount();
+    mockUser = { id: 'user-2' };
+    view.rerender();
+
+    expect(useFavoritesStore.getState().favorites).toEqual([]);
+    expect(useFavoritesStore.getState().ownerUserId).toBe('user-2');
     view.unmount();
   });
 
