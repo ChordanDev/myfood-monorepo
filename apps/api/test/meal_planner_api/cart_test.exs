@@ -23,7 +23,7 @@ defmodule MealPlannerApi.CartTest do
     assert view.cart == nil
     assert {:ok, own_view} = ShoppingService.get_shopping_list(f.actor)
     assert own_view.cart.session_id == cart.session_id
-    assert {:error, :already_reserved} = Cart.reserve(f.other, [hd(f.items).id])
+    assert {:error, :cart_locked} = Cart.reserve(f.other, [hd(f.items).id])
     assert {:error, :cart_not_found} = Cart.purchase(f.other, cart.session_id, payload(cart))
     assert {:error, :cart_not_found} = Cart.cancel(f.other, cart.session_id)
     assert {:error, :cart_not_found} = Cart.renew(f.other, cart.session_id)

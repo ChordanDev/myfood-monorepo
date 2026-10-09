@@ -281,10 +281,16 @@ defmodule MealPlannerApiWeb.MobileCasingContractTest do
         })
         |> success()
 
-      assert %{"sessionId" => session_id, "reservations" => [_, _] = reservations} = cart["data"]
+      assert %{
+               "sessionId" => session_id,
+               "leaseExpiresAt" => _,
+               "items" => [_, _] = reserved
+             } = cart["data"]
+
+      refute Map.has_key?(cart["data"], "reservations")
 
       items =
-        Enum.map(reservations, fn %{"itemId" => item_id, "reservationToken" => token} ->
+        Enum.map(reserved, fn %{"itemId" => item_id, "reservationToken" => token} ->
           %{
             "itemId" => item_id,
             "reservationToken" => token,

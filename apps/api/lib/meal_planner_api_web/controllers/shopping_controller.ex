@@ -35,20 +35,17 @@ defmodule MealPlannerApiWeb.ShoppingController do
 
       is_list(item_ids) and length(item_ids) > 0 ->
         # Mark specific items by item_ids
-        case ShoppingService.mark_in_cart(user, item_ids) do
-          {:ok, response} -> json(conn, %{data: response})
-          {:error, reason} -> render_error(conn, reason)
-        end
+        cart_response(conn, ShoppingService.mark_in_cart(user, item_ids))
 
       is_binary(ingredient_id) ->
         # Mark all items for this ingredient in date range as in_cart
         from_date = parse_date_param(payload["start_date"])
         end_date = parse_date_param(payload["end_date"])
 
-        case ShoppingService.mark_ingredient_in_cart(user, ingredient_id, from_date, end_date) do
-          {:ok, response} -> json(conn, %{data: response})
-          {:error, reason} -> render_error(conn, reason)
-        end
+        cart_response(
+          conn,
+          ShoppingService.mark_ingredient_in_cart(user, ingredient_id, from_date, end_date)
+        )
 
       true ->
         render_error(conn, :invalid_payload)
@@ -91,10 +88,28 @@ defmodule MealPlannerApiWeb.ShoppingController do
   end
 
   def renew_cart(conn, %{"session_id" => id}),
-    do: respond(conn, MealPlannerApi.Cart.renew(scoped_user(conn), id))
+    do: cart_response(conn, MealPlannerApi.Cart.renew(scoped_user(conn), id))
 
   def cancel_cart(conn, %{"session_id" => id}),
-    do: respond(conn, MealPlannerApi.Cart.cancel(scoped_user(conn), id))
+    do: cart_response(conn, MealPlannerApi.Cart.cancel(scoped_user(conn), id))
+
+  # The Cart lease routes answer errors in the mobile envelope (issue #41).
+  # A reason outside the Cart codes keeps the legacy body.
+  defp cart_response(conn, {:ok, %{reservations: items} = cart}) do
+    json(conn, %{
+      data: %{session_id: cart.session_id, lease_expires_at: cart.lease_expires_at, items: items}
+    })
+  end
+
+  defp cart_response(conn, {:ok, data}), do: json(conn, %{data: data})
+  defp cart_response(conn, {:error, :cart_locked}), do: conn |> ApiError.error(:cart_locked)
+  defp cart_response(conn, {:error, :stale_cart}), do: conn |> ApiError.error(:stale_cart)
+  defp cart_response(conn, {:error, :cart_not_found}), do: conn |> ApiError.error(:cart_not_found)
+
+  defp cart_response(conn, {:error, :subscription_required}),
+    do: conn |> ApiError.error(:subscription_required)
+
+  defp cart_response(conn, {:error, reason}), do: render_error(conn, reason)
 
   defp respond(conn, {:ok, data}), do: json(conn, %{data: data})
   defp respond(conn, {:error, reason}), do: render_error(conn, reason)

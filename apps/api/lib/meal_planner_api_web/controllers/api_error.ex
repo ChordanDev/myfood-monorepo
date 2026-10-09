@@ -121,6 +121,9 @@ defmodule MealPlannerApiWeb.ApiError do
           | :cooking_already_finished
           | :cooking_chat_unavailable
           | :inventory_mutation_failed
+          | :cart_locked
+          | :stale_cart
+          | :cart_not_found
 
   @type envelope :: %{error: %{code: code() | :unknown_error, message: String.t()}}
 
@@ -197,7 +200,13 @@ defmodule MealPlannerApiWeb.ApiError do
     cooking_session_not_active: {409, "The cooking session is not active."},
     cooking_already_finished: {409, "This meal has already been cooked."},
     cooking_chat_unavailable: {409, "Cooking is only available for a meal scheduled for today."},
-    inventory_mutation_failed: {422, "The inventory could not be updated. Nothing was saved."}
+    inventory_mutation_failed: {422, "The inventory could not be updated. Nothing was saved."},
+    # Cart lease (issue #41). `cart_locked`: the items are held in another
+    # Membership's live Cart. `stale_cart`: the lease ran out. A Cart of
+    # another Membership or an unknown one share `cart_not_found`.
+    cart_locked: {409, "These items are held in another member's cart."},
+    stale_cart: {409, "This cart has expired."},
+    cart_not_found: {404, "The cart was not found."}
   }
 
   @unknown_error_message "An unexpected error occurred."
