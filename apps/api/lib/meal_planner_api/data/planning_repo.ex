@@ -57,7 +57,7 @@ defmodule MealPlannerApi.Data.PlanningRepo do
   def update_proposal(proposal, attrs),
     do: proposal |> PlanningProposal.changeset(attrs) |> Repo.update()
 
-  @spec get_proposal_with_run!(pos_integer()) :: {PlanningProposal.t(), PlanningGenerationRun.t()}
+  @spec get_proposal_with_run!(Ecto.UUID.t()) :: {PlanningProposal.t(), PlanningGenerationRun.t()}
   def get_proposal_with_run!(proposal_id) do
     query =
       from(p in PlanningProposal,
@@ -78,7 +78,7 @@ defmodule MealPlannerApi.Data.PlanningRepo do
     {proposal, run}
   end
 
-  @spec fetch_owned_proposal(pos_integer(), pos_integer(), pos_integer()) ::
+  @spec fetch_owned_proposal(Ecto.UUID.t(), Ecto.UUID.t(), Ecto.UUID.t()) ::
           {:ok, PlanningProposal.t(), PlanningGenerationRun.t()} | {:error, :proposal_not_found}
   def fetch_owned_proposal(proposal_id, account_id, user_id) do
     query =
@@ -117,7 +117,7 @@ defmodule MealPlannerApi.Data.PlanningRepo do
   def update_scheduled_meal(meal, attrs),
     do: meal |> ScheduledMeal.changeset(attrs) |> Repo.update()
 
-  @spec list_scheduled_meals(pos_integer(), Date.t(), Date.t()) :: [ScheduledMeal.t()]
+  @spec list_scheduled_meals(Ecto.UUID.t(), Date.t(), Date.t()) :: [ScheduledMeal.t()]
   def list_scheduled_meals(account_id, from_date, to_date) do
     from(m in ScheduledMeal,
       where: m.account_id == ^account_id and m.date >= ^from_date and m.date <= ^to_date,
@@ -126,7 +126,7 @@ defmodule MealPlannerApi.Data.PlanningRepo do
     |> Repo.all()
   end
 
-  @spec delete_scheduled_meals_for_range(Ecto.Multi.t(), pos_integer(), {Date.t(), Date.t()}) ::
+  @spec delete_scheduled_meals_for_range(Ecto.Multi.t(), Ecto.UUID.t(), {Date.t(), Date.t()}) ::
           Ecto.Multi.t()
   def delete_scheduled_meals_for_range(multi, account_id, {from_date, to_date}) do
     query =
@@ -137,7 +137,7 @@ defmodule MealPlannerApi.Data.PlanningRepo do
     Ecto.Multi.delete_all(multi, :scheduled_meals_range, query)
   end
 
-  @spec insert_scheduled_meals(Ecto.Multi.t(), pos_integer(), [map()]) :: Ecto.Multi.t()
+  @spec insert_scheduled_meals(Ecto.Multi.t(), Ecto.UUID.t(), [map()]) :: Ecto.Multi.t()
   def insert_scheduled_meals(multi, account_id, meals) when is_list(meals) do
     timestamp = DateTime.utc_now()
 
@@ -156,7 +156,7 @@ defmodule MealPlannerApi.Data.PlanningRepo do
     )
   end
 
-  @spec list_uncooked_scheduled_meals(pos_integer(), Date.t(), Date.t()) :: [ScheduledMeal.t()]
+  @spec list_uncooked_scheduled_meals(Ecto.UUID.t(), Date.t(), Date.t()) :: [ScheduledMeal.t()]
   def list_uncooked_scheduled_meals(account_id, from_date, to_date) do
     from(m in ScheduledMeal,
       where:
@@ -166,7 +166,7 @@ defmodule MealPlannerApi.Data.PlanningRepo do
     |> Repo.all()
   end
 
-  @spec list_uncooked_scheduled_meals_with_recipe_ingredients(pos_integer(), Date.t(), Date.t()) ::
+  @spec list_uncooked_scheduled_meals_with_recipe_ingredients(Ecto.UUID.t(), Date.t(), Date.t()) ::
           [
             ScheduledMeal.t()
           ]
@@ -184,10 +184,10 @@ defmodule MealPlannerApi.Data.PlanningRepo do
     |> Repo.all()
   end
 
-  @spec get_scheduled_meal!(pos_integer()) :: ScheduledMeal.t()
+  @spec get_scheduled_meal!(Ecto.UUID.t()) :: ScheduledMeal.t()
   def get_scheduled_meal!(id), do: Repo.get!(ScheduledMeal, id)
 
-  @spec get_scheduled_meal_for_account(pos_integer(), pos_integer()) :: ScheduledMeal.t() | nil
+  @spec get_scheduled_meal_for_account(Ecto.UUID.t(), Ecto.UUID.t()) :: ScheduledMeal.t() | nil
   def get_scheduled_meal_for_account(account_id, meal_id) do
     from(m in ScheduledMeal,
       where: m.id == ^meal_id and m.account_id == ^account_id,
@@ -201,7 +201,7 @@ defmodule MealPlannerApi.Data.PlanningRepo do
     |> Repo.one()
   end
 
-  @spec delete_scheduled_meal(pos_integer()) :: :ok
+  @spec delete_scheduled_meal(Ecto.UUID.t()) :: :ok
   def delete_scheduled_meal(id) do
     Repo.delete!(Repo.get!(ScheduledMeal, id))
     :ok
@@ -262,8 +262,8 @@ defmodule MealPlannerApi.Data.PlanningRepo do
     |> Repo.all()
   end
 
-  @spec recipes_for_ids([pos_integer()], pos_integer()) :: [
-          %{id: pos_integer(), name: String.t(), slot: atom(), source: String.t()}
+  @spec recipes_for_ids([Ecto.UUID.t()], Ecto.UUID.t()) :: [
+          %{id: Ecto.UUID.t(), name: String.t(), slot: atom(), source: String.t()}
         ]
   def recipes_for_ids(recipe_ids, account_id) when is_list(recipe_ids) do
     from(r in Recipe,
@@ -546,10 +546,10 @@ defmodule MealPlannerApi.Data.PlanningRepo do
   def update_cooking_session(session, attrs),
     do: session |> CookingSession.changeset(attrs) |> Repo.update()
 
-  @spec get_cooking_session!(pos_integer()) :: CookingSession.t()
+  @spec get_cooking_session!(Ecto.UUID.t()) :: CookingSession.t()
   def get_cooking_session!(id), do: Repo.get!(CookingSession, id)
 
-  @spec get_cooking_session_for_account(pos_integer(), pos_integer()) :: CookingSession.t() | nil
+  @spec get_cooking_session_for_account(Ecto.UUID.t(), Ecto.UUID.t()) :: CookingSession.t() | nil
   def get_cooking_session_for_account(account_id, session_id) do
     from(s in CookingSession,
       where: s.id == ^session_id and s.account_id == ^account_id,
@@ -577,7 +577,7 @@ defmodule MealPlannerApi.Data.PlanningRepo do
   def add_context_snapshot(attrs),
     do: %ContextSnapshot{} |> ContextSnapshot.changeset(attrs) |> Repo.insert()
 
-  @spec latest_context_snapshot(pos_integer()) :: ContextSnapshot.t() | nil
+  @spec latest_context_snapshot(Ecto.UUID.t()) :: ContextSnapshot.t() | nil
   def latest_context_snapshot(session_id) do
     from(cs in ContextSnapshot,
       where: cs.cooking_session_id == ^session_id,
@@ -591,9 +591,9 @@ defmodule MealPlannerApi.Data.PlanningRepo do
   # Favorites (lightweight read)
   # -------------------------------------------------------------------------
 
-  @spec list_recent_favorites(pos_integer(), pos_integer(), pos_integer()) :: [
+  @spec list_recent_favorites(Ecto.UUID.t(), Ecto.UUID.t(), pos_integer()) :: [
           %{
-            recipe_id: pos_integer(),
+            recipe_id: Ecto.UUID.t(),
             recipe_name: String.t(),
             suitable_for_slots: [atom()],
             prep_time_minutes: integer(),
@@ -653,7 +653,7 @@ defmodule MealPlannerApi.Data.PlanningRepo do
     end
   end
 
-  @spec is_slot_favorite?(pos_integer(), pos_integer(), Date.t(), String.t()) :: boolean()
+  @spec is_slot_favorite?(Ecto.UUID.t(), Ecto.UUID.t(), Date.t(), String.t()) :: boolean()
   def is_slot_favorite?(account_id, user_id, date, slot) do
     Repo.exists?(
       from(sf in SlotFavorite,
@@ -666,7 +666,7 @@ defmodule MealPlannerApi.Data.PlanningRepo do
     )
   end
 
-  @spec list_slot_favorites(pos_integer(), pos_integer()) :: [SlotFavorite.t()]
+  @spec list_slot_favorites(Ecto.UUID.t(), Ecto.UUID.t()) :: [SlotFavorite.t()]
   def list_slot_favorites(account_id, user_id) do
     from(sf in SlotFavorite,
       where: sf.account_id == ^account_id and sf.user_id == ^user_id,
@@ -684,7 +684,7 @@ defmodule MealPlannerApi.Data.PlanningRepo do
   Returns the latest historical cost per recipe_id from recipe_daily_costs.
   Returns 0 for recipes with no cost data.
   """
-  @spec latest_recipe_costs([pos_integer()]) :: %{pos_integer() => non_neg_integer()}
+  @spec latest_recipe_costs([Ecto.UUID.t()]) :: %{Ecto.UUID.t() => non_neg_integer()}
   def latest_recipe_costs(recipe_ids) when is_list(recipe_ids) do
     recipe_ids
     |> Enum.into(%{}, &{&1, 0})

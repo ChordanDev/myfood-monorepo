@@ -8,17 +8,17 @@ defmodule MealPlannerApi.Data.UserPreferenceRepo do
   alias MealPlannerApi.Repo
   alias MealPlannerApi.Persistence.Accounts.UserPreference
 
-  @spec get(pos_integer()) :: UserPreference.t() | nil
+  @spec get(Ecto.UUID.t()) :: UserPreference.t() | nil
   def get(user_id) do
     Repo.get_by(UserPreference, user_id: user_id)
   end
 
-  @spec get!(pos_integer()) :: UserPreference.t()
+  @spec get!(Ecto.UUID.t()) :: UserPreference.t()
   def get!(user_id) do
     Repo.get_by!(UserPreference, user_id: user_id)
   end
 
-  @spec upsert(pos_integer(), map()) :: {:ok, UserPreference.t()} | {:error, Ecto.Changeset.t()}
+  @spec upsert(Ecto.UUID.t(), map()) :: {:ok, UserPreference.t()} | {:error, Ecto.Changeset.t()}
   def upsert(user_id, attrs) when is_map(attrs) do
     case Repo.get_by(UserPreference, user_id: user_id) do
       nil ->
@@ -48,7 +48,7 @@ defmodule MealPlannerApi.Data.UserPreferenceRepo do
     |> Repo.insert_or_update()
   end
 
-  @spec delete(pos_integer()) :: {:ok, UserPreference.t()} | {:error, term()}
+  @spec delete(Ecto.UUID.t()) :: {:ok, UserPreference.t()} | {:error, term()}
   def delete(user_id) do
     case Repo.get_by(UserPreference, user_id: user_id) do
       nil -> {:error, :not_found}

@@ -72,7 +72,7 @@ defmodule MealPlannerApi.Generation.PlanningSessionSupervisor do
   """
   @spec start_session(
           Ecto.UUID.t(),
-          pos_integer(),
+          Ecto.UUID.t(),
           Ecto.UUID.t(),
           {Date.t(), Date.t()},
           keyword()

@@ -36,12 +36,12 @@ defmodule MealPlannerApi.Generation.Server do
   # -------------------------------------------------------------------------
 
   @type state :: %{
-          account_id: pos_integer(),
-          user_id: pos_integer(),
+          account_id: Ecto.UUID.t(),
+          user_id: Ecto.UUID.t(),
           channel_pid: pid() | nil,
           phase: :idle | :generating | :completed | :error,
-          current_run_id: pos_integer() | nil,
-          current_proposal_id: pos_integer() | nil,
+          current_run_id: Ecto.UUID.t() | nil,
+          current_proposal_id: Ecto.UUID.t() | nil,
           proposal_json: map() | nil,
           constraints: map() | nil
         }
@@ -87,15 +87,15 @@ defmodule MealPlannerApi.Generation.Server do
   # Client API
   # -------------------------------------------------------------------------
 
-  @spec start_link(account_id: pos_integer(), user_id: pos_integer()) :: GenServer.on_start()
+  @spec start_link(account_id: Ecto.UUID.t(), user_id: Ecto.UUID.t()) :: GenServer.on_start()
   def start_link(opts) do
     account_id = Keyword.fetch!(opts, :account_id)
     name = via(account_id)
     GenServer.start_link(__MODULE__, opts, name: name)
   end
 
-  @spec start_generation(pos_integer(), pos_integer(), map(), pid()) ::
-          {:ok, run_id :: pos_integer()} | {:error, reason()}
+  @spec start_generation(Ecto.UUID.t(), Ecto.UUID.t(), map(), pid()) ::
+          {:ok, run_id :: Ecto.UUID.t()} | {:error, reason()}
   def start_generation(account_id, user_id, constraints, channel_pid) do
     with {:ok, validated_constraints, _context} <-
            PlanningRequestValidator.validate_request(constraints, account_id, user_id),
@@ -115,23 +115,23 @@ defmodule MealPlannerApi.Generation.Server do
     end
   end
 
-  @spec chat(pid(), proposal_id :: pos_integer(), message :: String.t()) :: :ok
+  @spec chat(pid(), proposal_id :: Ecto.UUID.t(), message :: String.t()) :: :ok
   def chat(pid, proposal_id, message) when is_pid(pid) do
     GenServer.cast(pid, {:chat, proposal_id, message})
   end
 
-  @spec confirm(pid(), proposal_id :: pos_integer(), session_id :: Ecto.UUID.t()) ::
+  @spec confirm(pid(), proposal_id :: Ecto.UUID.t(), session_id :: Ecto.UUID.t()) ::
           {:ok, map()} | {:error, reason()}
   def confirm(pid, proposal_id, session_id) when is_pid(pid) do
     GenServer.call(pid, {:confirm, proposal_id, session_id})
   end
 
-  @spec reject(pid(), proposal_id :: pos_integer()) :: :ok
+  @spec reject(pid(), proposal_id :: Ecto.UUID.t()) :: :ok
   def reject(pid, proposal_id) when is_pid(pid) do
     GenServer.cast(pid, {:reject, proposal_id})
   end
 
-  @spec get_status(pos_integer()) :: state() | nil
+  @spec get_status(Ecto.UUID.t()) :: state() | nil
   def get_status(account_id) do
     case Registry.lookup(MealPlannerApi.Generation.Generations, {:generation, account_id}) do
       [{pid, _}] -> GenServer.call(pid, :get_status)

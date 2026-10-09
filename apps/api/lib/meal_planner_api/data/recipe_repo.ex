@@ -50,7 +50,7 @@ defmodule MealPlannerApi.Data.RecipeRepo do
     )
   end
 
-  @spec get_ingredient!(pos_integer()) :: Ingredient.t()
+  @spec get_ingredient!(Ecto.UUID.t()) :: Ingredient.t()
   def get_ingredient!(id), do: Repo.get!(Ingredient, id)
 
   @spec find_ingredients_by_names([String.t()]) :: [Ingredient.t()]
@@ -73,7 +73,7 @@ defmodule MealPlannerApi.Data.RecipeRepo do
   # Recipes
   # -------------------------------------------------------------------------
 
-  @spec get_recipe!(pos_integer()) :: Recipe.t()
+  @spec get_recipe!(Ecto.UUID.t()) :: Recipe.t()
   def get_recipe!(id), do: Repo.get!(Recipe, id)
 
   def get_visible_recipe(account_id, id) do
@@ -106,7 +106,7 @@ defmodule MealPlannerApi.Data.RecipeRepo do
   @spec create_recipe(map()) :: {:ok, Recipe.t()} | {:error, Ecto.Changeset.t()}
   def create_recipe(attrs), do: %Recipe{} |> Recipe.changeset(attrs) |> Repo.insert()
 
-  @spec list_recipes(account_id :: pos_integer()) :: [Recipe.t()]
+  @spec list_recipes(account_id :: Ecto.UUID.t()) :: [Recipe.t()]
   def list_recipes(nil), do: Repo.all(Recipe)
 
   def list_recipes(account_id) do
@@ -114,7 +114,7 @@ defmodule MealPlannerApi.Data.RecipeRepo do
     |> Repo.all()
   end
 
-  @spec search_recipes_by_title(account_id :: pos_integer(), String.t()) :: [Recipe.t()]
+  @spec search_recipes_by_title(account_id :: Ecto.UUID.t(), String.t()) :: [Recipe.t()]
   def search_recipes_by_title(account_id, query) do
     pattern = "%#{query}%"
 
@@ -125,14 +125,14 @@ defmodule MealPlannerApi.Data.RecipeRepo do
     |> Repo.all()
   end
 
-  @spec get_recipe_with_details!(pos_integer()) :: Recipe.t()
+  @spec get_recipe_with_details!(Ecto.UUID.t()) :: Recipe.t()
   def get_recipe_with_details!(id) do
     Recipe
     |> Repo.get!(id)
     |> Repo.preload([:recipe_steps, :recipe_ingredients, :daily_costs])
   end
 
-  @spec get_recipe_with_ingredients!(pos_integer()) :: Recipe.t()
+  @spec get_recipe_with_ingredients!(Ecto.UUID.t()) :: Recipe.t()
   def get_recipe_with_ingredients!(id) do
     Recipe
     |> Repo.get!(id)
@@ -151,7 +151,7 @@ defmodule MealPlannerApi.Data.RecipeRepo do
           {:ok, RecipeStep.t()} | {:error, Ecto.Changeset.t()}
   def update_recipe_step(step, attrs), do: step |> RecipeStep.changeset(attrs) |> Repo.update()
 
-  @spec delete_recipe_step(pos_integer()) :: :ok
+  @spec delete_recipe_step(Ecto.UUID.t()) :: :ok
   def delete_recipe_step(id) do
     Repo.delete!(Repo.get!(RecipeStep, id))
     :ok
@@ -187,13 +187,13 @@ defmodule MealPlannerApi.Data.RecipeRepo do
     |> Enum.group_by(& &1.recipe_id, &Map.delete(&1, :recipe_id))
   end
 
-  @spec delete_recipe_ingredient(pos_integer()) :: :ok
+  @spec delete_recipe_ingredient(Ecto.UUID.t()) :: :ok
   def delete_recipe_ingredient(id) do
     Repo.delete!(Repo.get!(RecipeIngredient, id))
     :ok
   end
 
-  @spec get_recipe_ingredient_with_ingredient!(pos_integer()) :: RecipeIngredient.t()
+  @spec get_recipe_ingredient_with_ingredient!(Ecto.UUID.t()) :: RecipeIngredient.t()
   def get_recipe_ingredient_with_ingredient!(id) do
     Repo.get!(RecipeIngredient, id) |> Repo.preload(:ingredient)
   end
@@ -253,7 +253,7 @@ defmodule MealPlannerApi.Data.RecipeRepo do
     |> Repo.one()
   end
 
-  @spec list_by_ids([pos_integer()]) :: [Recipe.t()]
+  @spec list_by_ids([Ecto.UUID.t()]) :: [Recipe.t()]
   def list_by_ids(ids) when is_list(ids) do
     from(r in Recipe, where: r.id in ^ids)
     |> Repo.all()
@@ -263,7 +263,7 @@ defmodule MealPlannerApi.Data.RecipeRepo do
   Returns recipes with their prices preloaded.
   Used by GenerationServer to enrich optimizer responses with recipe names and prices.
   """
-  @spec list_by_ids_with_prices([pos_integer()]) :: [Recipe.t()]
+  @spec list_by_ids_with_prices([Ecto.UUID.t()]) :: [Recipe.t()]
   def list_by_ids_with_prices(recipe_ids) when is_list(recipe_ids) do
     from(r in Recipe,
       where: r.id in ^recipe_ids,

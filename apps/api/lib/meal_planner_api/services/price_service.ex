@@ -18,7 +18,7 @@ defmodule MealPlannerApi.Services.PriceService do
 
   Skips recipes with no price. Used to build `recipe_prices` input for OR-Tools.
   """
-  @spec fetch_recipe_prices([pos_integer()]) :: %{pos_integer() => non_neg_integer()}
+  @spec fetch_recipe_prices([Ecto.UUID.t()]) :: %{Ecto.UUID.t() => non_neg_integer()}
   def fetch_recipe_prices(recipe_ids) when is_list(recipe_ids) do
     recipe_ids
     |> PriceRepo.get_recipe_prices()
@@ -33,7 +33,7 @@ defmodule MealPlannerApi.Services.PriceService do
 
   Python OR-Tools expects prices in the same unit as budget_cents / 100.
   """
-  @spec fetch_recipe_prices_float([pos_integer()]) :: %{pos_integer() => float()}
+  @spec fetch_recipe_prices_float([Ecto.UUID.t()]) :: %{Ecto.UUID.t() => float()}
   def fetch_recipe_prices_float(recipe_ids) when is_list(recipe_ids) do
     recipe_ids
     |> PriceRepo.get_recipe_prices()
@@ -131,7 +131,7 @@ defmodule MealPlannerApi.Services.PriceService do
 
   Excludes recipes that don't match the slot type (e.g. breakfast-only vs dinner).
   """
-  @spec available_recipe_ids_for_slot([map()], String.t()) :: [pos_integer()]
+  @spec available_recipe_ids_for_slot([map()], String.t()) :: [Ecto.UUID.t()]
   def available_recipe_ids_for_slot(recipes, slot_type) do
     recipes
     |> Enum.filter(&suitable_for_slot?(&1, slot_type))

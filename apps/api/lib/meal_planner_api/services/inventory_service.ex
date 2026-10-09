@@ -212,7 +212,7 @@ defmodule MealPlannerApi.Services.InventoryService do
     end
   end
 
-  @spec get_inventory_item(map(), pos_integer() | String.t()) ::
+  @spec get_inventory_item(map(), Ecto.UUID.t()) ::
           {:ok, map()} | {:error, :not_found}
   def get_inventory_item(user, item_id) do
     with {:ok, identity} <- Identity.ensure_persistent_identity(user),
