@@ -48,7 +48,8 @@ defmodule MealPlannerApi.Data.ShoppingRepo.DeletePendingForWindowTest do
   describe "delete_pending_for_window/3 — status preservation" do
     test "deletes :pending and :in_cart, preserves :checked_out and :archived", ctx do
       pending = insert_item(ctx, :pending, ~D[2026-09-25])
-      in_cart = insert_item(ctx, :in_cart, ~D[2026-09-25])
+      # A different unit: one open Shopping item per planned key.
+      in_cart = insert_item(ctx, :in_cart, ~D[2026-09-25], :ml)
       checked_out = insert_item(ctx, :checked_out, ~D[2026-09-25])
       archived = insert_item(ctx, :archived, ~D[2026-09-25])
 
@@ -122,14 +123,14 @@ defmodule MealPlannerApi.Data.ShoppingRepo.DeletePendingForWindowTest do
   # Helpers
   # -------------------------------------------------------------------------
 
-  defp insert_item(ctx, status, date) do
+  defp insert_item(ctx, status, date, unit \\ :g) do
     Repo.insert!(%ShoppingItem{
       account_id: ctx.account.id,
       scheduled_meal_id: ctx.meal.id,
       planned_date: date,
       ingredient_id: ctx.ingredient.id,
       quantity_milli: 100_000,
-      unit: :g,
+      unit: unit,
       checkout_session_id: ctx.checkout.id,
       status: status
     })

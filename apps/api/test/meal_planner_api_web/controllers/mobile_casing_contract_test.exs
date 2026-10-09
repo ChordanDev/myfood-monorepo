@@ -218,7 +218,9 @@ defmodule MealPlannerApiWeb.MobileCasingContractTest do
   describe "shopping and cart" do
     test "GET /api/shopping-list reads camelCase query params and responds with camelCase keys",
          f do
+      # The fixture schedules today's dinner and tomorrow's, one item each.
       today = Date.to_iso8601(Date.utc_today())
+      tomorrow = Date.to_iso8601(Date.add(Date.utc_today(), 1))
       listed = f |> request(:get, "/api/shopping-list") |> success()
 
       assert %{
@@ -226,7 +228,7 @@ defmodule MealPlannerApiWeb.MobileCasingContractTest do
                "manual" => [],
                "cart" => nil,
                "totals" => %{"needed" => 1, "inCart" => 0, "removed" => 0, "estimatedCents" => 0},
-               "plannedDates" => [^today]
+               "plannedDates" => [^today, ^tomorrow]
              } = listed["data"]
 
       assert %{

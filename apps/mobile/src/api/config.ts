@@ -16,3 +16,11 @@ export function getApiBaseUrl(): string {
 export function buildApiUrl(path: string): string {
   return `${getApiBaseUrl()}${path}`;
 }
+
+/**
+ * The Phoenix socket endpoint of the same backend: `http` becomes `ws` and
+ * `https` becomes `wss`. The Phoenix client appends the transport segment.
+ */
+export function getSocketUrl(): string {
+  return `${getApiBaseUrl().replace(/^http/i, 'ws')}/socket`;
+}

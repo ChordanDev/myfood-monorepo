@@ -37,21 +37,29 @@ defmodule MealPlannerApi.CartFixtures do
             user_id: owner.id
           )
 
-        {:ok, meal} =
-          Planning.schedule_meal(%{
-            account_id: account.id,
-            recipe_id: recipe.id,
-            date: Date.utc_today(),
-            slot: :dinner
-          })
+        # Two Scheduled meals, today's dinner and tomorrow's: the two Shopping
+        # items share the Ingredient and the unit, so the Shopping list groups
+        # them, but only one open item is allowed per Scheduled meal.
+        [meal, next_meal] =
+          for days_ahead <- [0, 1] do
+            {:ok, meal} =
+              Planning.schedule_meal(%{
+                account_id: account.id,
+                recipe_id: recipe.id,
+                date: Date.add(Date.utc_today(), days_ahead),
+                slot: :dinner
+              })
+
+            meal
+          end
 
         items =
-          for quantity <- [1000, 500] do
+          for {quantity, planned_meal} <- [{1000, meal}, {500, next_meal}] do
             {:ok, item} =
               Shopping.create_shopping_item(%{
                 account_id: account.id,
-                scheduled_meal_id: meal.id,
-                planned_date: meal.date,
+                scheduled_meal_id: planned_meal.id,
+                planned_date: planned_meal.date,
                 ingredient_id: ingredient.id,
                 unit: :g,
                 quantity_milli: quantity,
