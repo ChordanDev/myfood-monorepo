@@ -4,8 +4,9 @@ defmodule MealPlannerApi.Persistence.Inventory do
 
   Quantity changes are serialized and audited in the same transaction. Ingredient-level
   additions without lot metadata accumulate in the oldest anonymous lot; metadata-bearing
-  additions remain distinct lots. Ingredient-level subtraction consumes usable lots in a
-  stable FEFO order.
+  additions remain distinct lots. Lot metadata is the acquisition date, the expiry, the
+  price, the notes and a set leftover flag. Ingredient-level subtraction consumes usable
+  lots in a stable FEFO order.
   """
 
   import Ecto.Query, warn: false
@@ -18,7 +19,7 @@ defmodule MealPlannerApi.Persistence.Inventory do
     InventoryMutationEvent
   }
 
-  @lot_fields [:acquired_at, :expired_at, :acquired_price_cents]
+  @lot_fields [:acquired_at, :expired_at, :acquired_price_cents, :notes]
 
   def list_inventory(account_id) do
     from(i in InventoryItem,
@@ -227,6 +228,8 @@ defmodule MealPlannerApi.Persistence.Inventory do
         acquired_at: mutation.lot_metadata.acquired_at,
         expired_at: mutation.lot_metadata.expired_at,
         acquired_price_cents: mutation.lot_metadata.acquired_price_cents,
+        notes: mutation.lot_metadata.notes,
+        is_leftover: mutation.lot_metadata.is_leftover,
         last_mutation_at: DateTime.utc_now()
       }
 
@@ -286,7 +289,8 @@ defmodule MealPlannerApi.Persistence.Inventory do
       else
         from(i in base,
           where:
-            is_nil(i.acquired_at) and is_nil(i.expired_at) and is_nil(i.acquired_price_cents),
+            is_nil(i.acquired_at) and is_nil(i.expired_at) and is_nil(i.acquired_price_cents) and
+              is_nil(i.notes) and i.is_leftover == false,
           order_by: [asc: i.inserted_at, asc: i.id]
         )
       end
@@ -398,7 +402,10 @@ defmodule MealPlannerApi.Persistence.Inventory do
       raw_voice_text: value(opts, :raw_voice_text),
       source_checkout_session_id: value(opts, :source_checkout_session_id),
       source_cooking_session_id: value(opts, :source_cooking_session_id),
-      lot_metadata: Map.new(@lot_fields, &{&1, value(opts, &1)})
+      lot_metadata:
+        @lot_fields
+        |> Map.new(&{&1, value(opts, &1)})
+        |> Map.put(:is_leftover, value(opts, :is_leftover) == true)
     }
   end
 
@@ -445,8 +452,9 @@ defmodule MealPlannerApi.Persistence.Inventory do
   defp preload_item(nil, _repo), do: nil
   defp preload_item(item, repo), do: repo.preload(item, [:ingredient])
 
+  # `is_leftover: false` is the column default, so only a set flag is metadata.
   defp metadata_bearing?(metadata),
-    do: Enum.any?(@lot_fields, &(not is_nil(Map.get(metadata, &1))))
+    do: metadata.is_leftover or Enum.any?(@lot_fields, &(not is_nil(Map.get(metadata, &1))))
 
   defp has_quantity?(attrs),
     do: Map.has_key?(attrs, :quantity_milli) or Map.has_key?(attrs, "quantity_milli")

@@ -87,6 +87,7 @@ defmodule MealPlannerApiWeb.ApiError do
           | :invalid_hunger_level
           | :invalid_diet
           | :invalid_hard_restriction
+          | :inventory_item_not_found
           | :generation_in_progress
           | :no_active_generation
           | :missing_session_id
@@ -159,6 +160,10 @@ defmodule MealPlannerApiWeb.ApiError do
     # goes through `validation_error/2` instead.
     invalid_diet: {422, "The diet is not valid."},
     invalid_hard_restriction: {422, "A hard restriction is not valid."},
+    # Inventory (issue #42). An item id that is unknown, of another Account or
+    # not a UUID shares the code, so existence is not revealed. Invalid input
+    # replies `validation_error` with its static message.
+    inventory_item_not_found: {404, "The inventory item was not found."},
     # Planning channel (issue #11): every deliberate reason a join or a
     # command of `PlanningChannel` replies, named as the reason was.
     generation_in_progress: {409, "A menu generation is already in progress for this account."},
