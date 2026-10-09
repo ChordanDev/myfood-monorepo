@@ -894,7 +894,9 @@ defmodule MealPlannerApi.Generation.Server do
         status: :pending
       }
 
-      case ShoppingRepo.create_shopping_item(attrs) do
+      # An upsert, not an insert: a Shopping list read may have stored an open
+      # item with this planned key after the wipe above, and the rebuild wins.
+      case ShoppingRepo.upsert_open_shopping_item(attrs) do
         {:ok, _} -> {:cont, :ok}
         {:error, _} = err -> {:halt, err}
       end

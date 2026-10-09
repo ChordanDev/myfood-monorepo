@@ -7,6 +7,7 @@ defmodule MealPlannerApi.Services.ShoppingService do
   """
 
   import Ecto.Query, warn: false
+  require Logger
   alias MealPlannerApi.Data.ShoppingRepo
   alias MealPlannerApi.Data.RecipeRepo
   alias MealPlannerApi.Persistence.Identity
@@ -82,27 +83,28 @@ defmodule MealPlannerApi.Services.ShoppingService do
   defp parse_bool_param(_), do: false
 
   # Prune/archive past-dated items (planned_date before today)
-  # Always runs on every get_shopping_list call
+  # Always runs on every get_shopping_list call, as one statement. Nothing
+  # in it depends on a single row, so a failure is a database failure and is
+  # left to fail the read.
   defp prune_past_items(account_id, _from_date) do
     today = Date.utc_today()
 
-    past_items =
-      Ecto.Query.from(i in MealPlannerApi.Persistence.Shopping.ShoppingItem,
-        where: i.account_id == ^account_id,
-        where: not is_nil(i.planned_date),
-        where: i.planned_date < ^today,
-        where: i.status == :pending
-      )
-      |> Repo.all()
-
-    Enum.each(past_items, fn item ->
-      Repo.update!(Ecto.Changeset.change(item, %{status: :archived}))
-    end)
-  rescue
-    _ -> :ok
+    from(i in MealPlannerApi.Persistence.Shopping.ShoppingItem,
+      where: i.account_id == ^account_id,
+      where: i.planned_date < ^today,
+      where: i.status == :pending
+    )
+    |> Repo.update_all(set: [status: :archived, updated_at: DateTime.utc_now()])
   end
 
-  # Ensure shopping items exist for all scheduled meals in the date range
+  # Ensure shopping items exist for all scheduled meals in the date range.
+  #
+  # Runs on every Shopping list read, from any number of requests at once:
+  # the Shortage lines that have no Shopping item yet are stored in one
+  # statement that skips the planned keys another request stored first.
+  #
+  # A failure here must not fail the read: it is logged and the read answers
+  # with the Shopping items already stored.
   defp ensure_shopping_items_from_schedule(account_id, from_date, to_date) do
     scheduled_meals =
       from(m in MealPlannerApi.Persistence.Planning.ScheduledMeal,
@@ -126,25 +128,29 @@ defmodule MealPlannerApi.Services.ShoppingService do
         )
       end)
 
-    MealPlannerApi.Services.ShoppingRebuilder.compute_net_shortages(scheduled_meals, pool)
-    |> Enum.each(fn line ->
-      existing =
-        from(i in MealPlannerApi.Persistence.Shopping.ShoppingItem,
-          where: i.account_id == ^account_id,
-          where: i.ingredient_id == ^line.ingredient_id and i.unit == ^line.unit,
-          where: i.scheduled_meal_id == ^line.scheduled_meal_id,
-          where: i.planned_date == ^line.planned_date
-        )
-        |> Repo.exists?()
+    lines = MealPlannerApi.Services.ShoppingRebuilder.compute_net_shortages(scheduled_meals, pool)
 
-      if not existing do
-        Shopping.create_shopping_item(
-          Map.merge(line, %{account_id: account_id, status: :pending})
+    # A Shopping item in any status answers for its planned key: what was
+    # bought or archived is not derived again.
+    existing = Shopping.planned_item_keys(account_id, Enum.map(scheduled_meals, & &1.id))
+
+    missing =
+      Enum.reject(lines, fn line ->
+        MapSet.member?(
+          existing,
+          {line.scheduled_meal_id, line.planned_date, line.ingredient_id, line.unit}
         )
-      end
-    end)
+      end)
+
+    Shopping.insert_planned_items(account_id, missing)
   rescue
-    _ -> :ok
+    exception ->
+      Logger.error(
+        "shopping item derivation failed account_id=#{account_id} " <>
+          "exception=#{inspect(exception.__struct__)} message=#{Exception.message(exception)}"
+      )
+
+      :ok
   end
 
   @spec build_shopping_list_from_schedule(map(), map()) :: {:ok, map()} | {:error, term()}

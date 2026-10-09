@@ -159,12 +159,108 @@ defmodule MealPlannerApiWeb.PlanningChannelTest do
   end
 
   # ==========================================================================
+  # Issue #24 — a socket outlives the access token it connected with, so the
+  # join checks the token again. `unauthenticated` is the cue of the client to
+  # refresh the token and reconnect.
+  # ==========================================================================
+
+  describe "join/3 authentication (issue #24)" do
+    test "a socket whose access token expired since connect is refused as unauthenticated",
+         %{account: account, token: token} do
+      {:ok, socket} = connect(UserSocket, %{"token" => token})
+
+      socket
+      |> with_token_expiry(System.system_time(:second) - 1)
+      |> subscribe_and_join(PlanningChannel, "planning:#{account.id}")
+      |> assert_join_error(:unauthenticated)
+    end
+
+    test "a token that expires at the current second is already expired",
+         %{account: account, token: token} do
+      {:ok, socket} = connect(UserSocket, %{"token" => token})
+
+      socket
+      |> with_token_expiry(System.system_time(:second))
+      |> subscribe_and_join(PlanningChannel, "planning:#{account.id}")
+      |> assert_join_error(:unauthenticated)
+    end
+
+    test "a socket without identity is refused as unauthenticated", %{account: account} do
+      UserSocket
+      |> socket()
+      |> subscribe_and_join(PlanningChannel, "planning:#{account.id}")
+      |> assert_join_error(:unauthenticated)
+    end
+
+    test "a socket without claims is refused as unauthenticated",
+         %{account: account, token: token} do
+      {:ok, socket} = connect(UserSocket, %{"token" => token})
+
+      %{socket | assigns: Map.delete(socket.assigns, :claims)}
+      |> subscribe_and_join(PlanningChannel, "planning:#{account.id}")
+      |> assert_join_error(:unauthenticated)
+    end
+
+    test "a socket without a current user is refused as unauthenticated",
+         %{account: account, token: token} do
+      {:ok, socket} = connect(UserSocket, %{"token" => token})
+
+      %{socket | assigns: Map.delete(socket.assigns, :current_user)}
+      |> subscribe_and_join(PlanningChannel, "planning:#{account.id}")
+      |> assert_join_error(:unauthenticated)
+    end
+
+    test "a token that has not expired yet joins", %{account: account, token: token} do
+      {:ok, socket} = connect(UserSocket, %{"token" => token})
+
+      assert {:ok, _reply, _socket} =
+               socket
+               |> with_token_expiry(System.system_time(:second) + 60)
+               |> subscribe_and_join(PlanningChannel, "planning:#{account.id}")
+    end
+
+    test "a token without an expiry claim is not treated as expired",
+         %{account: account, token: token} do
+      {:ok, socket} = connect(UserSocket, %{"token" => token})
+
+      assert {:ok, _reply, _socket} =
+               socket
+               |> update_in([Access.key!(:assigns), :claims], &Map.delete(&1, "exp"))
+               |> subscribe_and_join(PlanningChannel, "planning:#{account.id}")
+    end
+
+    test "a token whose expiry claim is not an integer is not treated as expired",
+         %{account: account, token: token} do
+      {:ok, socket} = connect(UserSocket, %{"token" => token})
+
+      assert {:ok, _reply, _socket} =
+               socket
+               |> with_token_expiry("yesterday")
+               |> subscribe_and_join(PlanningChannel, "planning:#{account.id}")
+    end
+
+    # Ordering: the token is checked before the Membership, so an expired
+    # token replies `unauthenticated` even on a topic the Membership could
+    # not join.
+    test "an expired token on another Account's topic is refused as unauthenticated",
+         %{token: token} do
+      {:ok, socket} = connect(UserSocket, %{"token" => token})
+
+      socket
+      |> with_token_expiry(System.system_time(:second) - 1)
+      |> subscribe_and_join(PlanningChannel, "planning:other_account_id")
+      |> assert_join_error(:unauthenticated)
+    end
+  end
+
+  # ==========================================================================
   # Phase 4 — `revenuecat-access-enforcement` realtime enforcement (task 4.1).
-  # Same Account eligibility rule as the HTTP `:enforce_capability` plug.
+  # Same Account eligibility rule as the HTTP `:enforce_capability` plug, and
+  # the same `trial_expired` code (issue #24).
   # ==========================================================================
 
   describe "join/3 subscription enforcement (phase 4 task 4.1)" do
-    test "expired Account join returns subscription_required when enforcement is enabled (task 4.1)",
+    test "expired Account join returns trial_expired when enforcement is enabled (task 4.1)",
          %{account: account, token: token} do
       _ = persist_trial_window!(account, :expired)
 
@@ -176,7 +272,33 @@ defmodule MealPlannerApiWeb.PlanningChannelTest do
 
         socket
         |> subscribe_and_join(PlanningChannel, "planning:#{account.id}")
-        |> assert_join_error(:subscription_required)
+        |> assert_join_error(:trial_expired)
+      after
+        Application.put_env(
+          :meal_planner_api,
+          :revenuecat_access_enforcement,
+          previous
+        )
+      end
+    end
+
+    # Ordering: the token is checked before the capability, so an expired
+    # token replies `unauthenticated` and the client refreshes it before it
+    # learns anything about the trial.
+    test "an expired token is refused as unauthenticated before the capability check",
+         %{account: account, token: token} do
+      _ = persist_trial_window!(account, :expired)
+
+      previous = Application.get_env(:meal_planner_api, :revenuecat_access_enforcement)
+      Application.put_env(:meal_planner_api, :revenuecat_access_enforcement, true)
+
+      try do
+        {:ok, socket} = connect(UserSocket, %{"token" => token})
+
+        socket
+        |> with_token_expiry(System.system_time(:second) - 1)
+        |> subscribe_and_join(PlanningChannel, "planning:#{account.id}")
+        |> assert_join_error(:unauthenticated)
       after
         Application.put_env(
           :meal_planner_api,
@@ -232,7 +354,7 @@ defmodule MealPlannerApiWeb.PlanningChannelTest do
 
     # Task 4.2 — ordering triangulation: topic-vs-membership mismatch fires
     # BEFORE the subscription check, so the response is `forbidden` (not
-    # `subscription_required`) even when enforcement is on. Prevents
+    # `trial_expired`) even when enforcement is on. Prevents
     # leaking another Account's subscription state.
     test "topic-vs-membership mismatch fires before subscription check (task 4.2)",
          %{token: token} do
@@ -2594,6 +2716,12 @@ defmodule MealPlannerApiWeb.PlanningChannelTest do
     assert {:error, payload} = result
 
     assert_error_envelope(payload, code)
+  end
+
+  # A connected socket whose access token carries `exp` as its expiry claim:
+  # the state of a socket that stayed open while its token aged.
+  defp with_token_expiry(socket, exp) do
+    Phoenix.Socket.assign(socket, :claims, Map.put(socket.assigns.claims, "exp", exp))
   end
 
   defp assert_error_envelope(payload, code) do
