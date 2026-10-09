@@ -229,7 +229,7 @@ defmodule MealPlannerApiWeb.SlotCookingTimesControllerTest do
       assert %{"error" => %{"code" => "unknown_error"}} = json_response(conn, 500)
       assert log =~ "[error]"
       assert log =~ "Slot cooking times write failed for user #{user.id}"
-      assert log =~ "user_id"
+      assert log =~ ~s(user_id: {"does not exist")
     end
   end
 
