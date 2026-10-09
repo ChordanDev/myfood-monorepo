@@ -7,6 +7,11 @@ defmodule MealPlannerApi.Persistence.Catalog.Recipe do
 
   @valid_slots MapSet.new(["breakfast", "lunch", "snack", "dinner"])
 
+  # The app's theme tokens, camelCase as the API serves them. All colors are
+  # required; the background gradient is optional and has exactly two stops.
+  @theme_required_keys ~w(colorBlack colorDark colorMedium colorLight primaryAccent appBg icon textBlack textDark textMedium textLight primaryAccentIntense alert)
+  @theme_optional_keys ~w(appBgGradient)
+
   schema "recipes" do
     field(:superseded_by_id, :binary_id)
     field(:name, :string)
@@ -15,6 +20,11 @@ defmodule MealPlannerApi.Persistence.Catalog.Recipe do
     field(:cook_time_minutes, :integer)
     field(:servings, :integer)
     field(:source, Ecto.Enum, values: [:traditional, :ai_generated, :user_created])
+
+    # Nullable palette, camelCase string keys (see `@theme_required_keys`).
+    field(:theme, :map)
+    # A derived recipe without a theme of its own takes its base recipe's.
+    field(:base_recipe_id, :binary_id)
 
     field(:calories_per_serving, :integer)
     field(:protein_g_per_serving, :decimal)
@@ -50,7 +60,9 @@ defmodule MealPlannerApi.Persistence.Catalog.Recipe do
       :calories_per_serving,
       :protein_g_per_serving,
       :carbs_g_per_serving,
-      :fat_g_per_serving
+      :fat_g_per_serving,
+      :theme,
+      :base_recipe_id
       # NOTE: suitable_for_slots is handled manually to support both atoms and strings
     ])
     |> cast_suitable_for_slots(attrs)
@@ -62,9 +74,43 @@ defmodule MealPlannerApi.Persistence.Catalog.Recipe do
     |> validate_number(:protein_g_per_serving, greater_than_or_equal_to: 0)
     |> validate_number(:carbs_g_per_serving, greater_than_or_equal_to: 0)
     |> validate_number(:fat_g_per_serving, greater_than_or_equal_to: 0)
+    |> validate_theme()
     |> foreign_key_constraint(:account_id)
     |> foreign_key_constraint(:created_by_user_id)
+    |> foreign_key_constraint(:base_recipe_id)
   end
+
+  defp validate_theme(changeset) do
+    case get_change(changeset, :theme) do
+      nil ->
+        changeset
+
+      theme ->
+        theme = Map.new(theme, fn {key, value} -> {to_string(key), value} end)
+
+        case theme_error(theme) do
+          nil -> put_change(changeset, :theme, theme)
+          message -> add_error(changeset, :theme, message)
+        end
+    end
+  end
+
+  defp theme_error(theme) do
+    missing = @theme_required_keys -- Map.keys(theme)
+    unknown = Map.keys(theme) -- (@theme_required_keys ++ @theme_optional_keys)
+
+    cond do
+      missing != [] -> "is missing: #{Enum.join(missing, ", ")}"
+      unknown != [] -> "has unknown keys: #{Enum.join(unknown, ", ")}"
+      not Enum.all?(@theme_required_keys, &is_binary(theme[&1])) -> "colors must be strings"
+      not valid_gradient?(theme["appBgGradient"]) -> "appBgGradient must be two strings"
+      true -> nil
+    end
+  end
+
+  defp valid_gradient?(nil), do: true
+  defp valid_gradient?([from, to]) when is_binary(from) and is_binary(to), do: true
+  defp valid_gradient?(_), do: false
 
   # Accept atom [:breakfast] or string ["breakfast"], normalize to strings, validate
   defp cast_suitable_for_slots(changeset, attrs) do

@@ -101,6 +101,8 @@ defmodule MealPlannerApiWeb.ApiError do
           | :subscription_required
           | :invalid_range
           | :overlapping_range
+          | :planning_invalid_range
+          | :planning_range_locked
           | :forbidden_intent
           | :unknown_intent
           | :invalid_payload
@@ -126,8 +128,14 @@ defmodule MealPlannerApiWeb.ApiError do
           | :cooking_already_finished
           | :cooking_chat_unavailable
           | :inventory_mutation_failed
+          | :voice_parse_failed
+          | :voice_confirmation_required
 
-  @type envelope :: %{error: %{code: code() | :unknown_error, message: String.t()}}
+  @type envelope :: %{
+          error:
+            %{code: code() | :unknown_error, message: String.t()}
+            | %{code: code(), message: String.t(), details: map()}
+        }
 
   @codes %{
     unauthenticated: {401, "Authentication is required for this request."},
@@ -183,6 +191,9 @@ defmodule MealPlannerApiWeb.ApiError do
     # Removing or restoring planned Shopping items (issue #40).
     shopping_item_not_planned: {422, "Only a planned Shopping item can be removed or restored."},
     shopping_item_in_cart: {409, "A Shopping item in a Cart cannot be removed."},
+    # Voice adjustment of Inventory (issue #44).
+    voice_parse_failed: {422, "The spoken adjustment could not be understood."},
+    voice_confirmation_required: {422, "This adjustment needs the User's confirmation first."},
     # Planning channel (issue #11): every deliberate reason a join or a
     # command of `PlanningChannel` replies, named as the reason was.
     generation_in_progress: {409, "A menu generation is already in progress for this account."},
@@ -194,6 +205,12 @@ defmodule MealPlannerApiWeb.ApiError do
     subscription_required: {403, "An active subscription is required for this action."},
     invalid_range: {422, "The date range is not valid."},
     overlapping_range: {409, "The date range overlaps an active planning session."},
+    # `start_planning` (issue #25). The Planner screen reads these two instead
+    # of `invalid_range` / `overlapping_range`. The locked range may carry the
+    # display name of the member who holds it, see `envelope/2`.
+    planning_invalid_range:
+      {422, "The planning range must be 1 to 7 days and start today or later."},
+    planning_range_locked: {409, "Another planning session holds part of this date range."},
     forbidden_intent: {422, "The intent contains a field that is not allowed."},
     unknown_intent: {422, "The intent kind is not recognized."},
     invalid_payload: {422, "The request payload is not valid."},
@@ -274,6 +291,24 @@ defmodule MealPlannerApiWeb.ApiError do
   def envelope(code) when is_map_key(@codes, code) do
     {_status, message} = Map.fetch!(@codes, code)
     build_envelope(code, message)
+  end
+
+  @doc """
+  Returns the envelope for `code` with a `details` map next to the message:
+
+      %{error: %{code: :planning_range_locked, message: "...", details: %{owner_name: "Ana"}}}
+
+  An empty `details` renders the envelope of `envelope/1`, so a client never
+  reads an empty `details`. The keys of `details` are spelled in snake_case
+  here, like the rest of a channel payload, and the channel camelizes them.
+  """
+  @spec envelope(code(), map()) :: envelope()
+  def envelope(code, details) when is_map(details) and map_size(details) == 0,
+    do: envelope(code)
+
+  def envelope(code, details) when is_map(details) do
+    %{error: error} = envelope(code)
+    %{error: Map.put(error, :details, details)}
   end
 
   @doc """

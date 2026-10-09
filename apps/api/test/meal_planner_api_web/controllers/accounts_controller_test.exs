@@ -74,6 +74,7 @@ defmodule MealPlannerApiWeb.AccountsControllerTest do
                  "id" => membership.account_id,
                  "type" => "individual",
                  "trialEndsAt" => DateTime.to_iso8601(trial_ends_at),
+                 "timezone" => nil,
                  "subscriptionStatus" => "none",
                  "access" => %{"canUseApp" => true, "reason" => nil}
                },
@@ -95,6 +96,7 @@ defmodule MealPlannerApiWeb.AccountsControllerTest do
                "id" => membership.account_id,
                "type" => "individual",
                "trialEndsAt" => DateTime.to_iso8601(trial_ends_at),
+               "timezone" => nil,
                "subscriptionStatus" => "none",
                "access" => %{"canUseApp" => false, "reason" => "trial_expired"}
              }

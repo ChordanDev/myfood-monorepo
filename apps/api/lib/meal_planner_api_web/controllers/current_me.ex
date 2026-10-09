@@ -3,7 +3,7 @@ defmodule MealPlannerApiWeb.CurrentMe do
   Single serializer for the mobile `CurrentMe` payload (issue #1):
 
       user:       { id, email, displayName, householdSize, cookingSkill }
-      account:    { id, type, trialEndsAt, subscriptionStatus, access: { canUseApp, reason } }
+      account:    { id, type, trialEndsAt, timezone, subscriptionStatus, access: { canUseApp, reason } }
       membership: { role }
       onboarding: { isComplete }
 
@@ -35,6 +35,7 @@ defmodule MealPlannerApiWeb.CurrentMe do
             id: Ecto.UUID.t(),
             type: String.t(),
             trialEndsAt: String.t() | nil,
+            timezone: String.t() | nil,
             subscriptionStatus: String.t(),
             access: %{canUseApp: boolean(), reason: String.t() | nil}
           },
@@ -101,6 +102,7 @@ defmodule MealPlannerApiWeb.CurrentMe do
       id: account.id,
       type: account_type(account.plan),
       trialEndsAt: iso8601(account.trial_ends_at),
+      timezone: account.timezone,
       subscriptionStatus: subscription_status,
       access: %{canUseApp: can_use_app, reason: reason}
     }
