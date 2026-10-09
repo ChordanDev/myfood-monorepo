@@ -19,6 +19,8 @@ defmodule MealPlannerApiWeb.SlotCookingTimesController do
   """
   use MealPlannerApiWeb, :controller
 
+  require Logger
+
   alias MealPlannerApi.Services.AccountService
   alias MealPlannerApiWeb.ApiError
   alias MealPlannerApiWeb.SlotCookingTimesParams
@@ -55,7 +57,11 @@ defmodule MealPlannerApiWeb.SlotCookingTimesController do
         conn |> ApiError.error(:invalid_hunger_level)
 
       # The body was valid, so this is not something the client can fix.
-      {:error, %Ecto.Changeset{}} ->
+      {:error, %Ecto.Changeset{} = changeset} ->
+        Logger.error(
+          "Slot cooking times write failed for user #{user.id}: #{inspect(changeset.errors)}"
+        )
+
         conn |> ApiError.server_fault()
     end
   end

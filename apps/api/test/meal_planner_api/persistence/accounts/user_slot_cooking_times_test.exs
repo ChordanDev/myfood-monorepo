@@ -129,6 +129,51 @@ defmodule MealPlannerApi.Persistence.Accounts.UserSlotCookingTimesTest do
     end
   end
 
+  describe "Accounts.replace_user_slot_cooking_times/2 inside an outer transaction" do
+    @tag :capture_log
+    test "a refused set rolls the outer transaction back too", %{user: user, other: other} do
+      assert {:error, :rollback} =
+               Repo.transaction(fn ->
+                 {:ok, _} = Accounts.replace_user_slot_cooking_times(other.id, @times)
+
+                 assert {:error, %Ecto.Changeset{}} =
+                          Accounts.replace_user_slot_cooking_times(
+                            user.id,
+                            Map.delete(@times, :dinner)
+                          )
+
+                 # The outer transaction is already doomed: its next query raises.
+                 assert_raise DBConnection.ConnectionError, ~r/transaction rolling back/, fn ->
+                   Accounts.list_user_slot_cooking_times(other.id)
+                 end
+
+                 :not_reached_by_the_caller
+               end)
+
+      assert Accounts.list_user_slot_cooking_times(other.id) == []
+      assert Accounts.list_user_slot_cooking_times(user.id) == []
+    end
+  end
+
+  describe "Accounts.replace_user_slot_cooking_times/2 key types" do
+    test "a string-keyed set finds no slot and returns a changeset", %{user: user} do
+      times = Map.new(@times, fn {slot, time} -> {Atom.to_string(slot), time} end)
+
+      assert {:error, %Ecto.Changeset{} = changeset} =
+               Accounts.replace_user_slot_cooking_times(user.id, times)
+
+      assert %{cooking_time_minutes: [_], hunger_level: [_]} = errors_on(changeset)
+    end
+
+    test "a string-keyed slot map raises instead of returning a changeset", %{user: user} do
+      times = Map.put(@times, :lunch, %{"cooking_time_minutes" => 45, "hunger_level" => "normal"})
+
+      assert_raise Ecto.CastError, ~r/mixed keys/, fn ->
+        Accounts.replace_user_slot_cooking_times(user.id, times)
+      end
+    end
+  end
+
   describe "AccountRepo" do
     test "reads and replaces through the persistence functions", %{user: user} do
       assert AccountRepo.list_slot_cooking_times(user.id) == []

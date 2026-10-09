@@ -7,7 +7,7 @@ import { MEAL_SLOT_LABEL } from '@/constants/mealSlots';
 import { useRecipeTheme } from '@/context/RecipeThemeContext';
 import { useAuth } from '@/features/auth';
 import { CUSTOM_TAB_BAR_CONTENT_HEIGHT } from '@/features/planner/constants';
-import { MEAL_SLOTS } from '@/features/preferences/constants/preferenceOptions';
+import { COOKING_TIME_SLOTS } from '@/features/preferences/constants/preferenceOptions';
 import { useGradientCrossfade } from '@/hooks/useGradientCrossfade';
 import { getTitleMetrics } from '@/utils/responsive';
 import {
@@ -183,7 +183,7 @@ export function SettingsScreen() {
           </SettingsGroup>
 
           <SettingsGroup title="Tiempos por comida" testID="settings-group-slot-times">
-            {MEAL_SLOTS.map((slot) => (
+            {COOKING_TIME_SLOTS.map((slot) => (
               <SettingsRow
                 key={slot}
                 testID={`settings-row-slot-${slot}`}

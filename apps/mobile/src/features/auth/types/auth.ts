@@ -11,12 +11,6 @@ export type HungerLevel = 'light' | 'normal' | 'strong';
 // The meal slots the User cooks: the ones that carry a Slot cooking time.
 export type CookingTimeSlot = Exclude<MealSlot, 'snack'>;
 
-export const SUPPORTED_MEAL_SLOTS: readonly CookingTimeSlot[] = [
-  'breakfast',
-  'lunch',
-  'dinner',
-] as const;
-
 export interface OnboardingProfile {
   displayName: string;
   householdSize: number;
@@ -109,6 +103,7 @@ export type AuthErrorCode =
   | 'invalid_hunger_level'
   | 'invalid_diet'
   | 'invalid_hard_restriction'
+  | 'inventory_item_not_found'
   | 'generation_in_progress'
   | 'no_active_generation'
   | 'missing_session_id'
