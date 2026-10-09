@@ -510,6 +510,59 @@ defmodule MealPlannerApiWeb.CalendarControllerTest do
       assert Enum.any?(meals, &(&1.date == ~D[2026-07-03] and &1.slot == :dinner))
     end
 
+    test "keeps recipe, cooked flag and quantity of the replacement meals", %{conn: conn} do
+      user =
+        user_with_memberships(
+          %{email: "calendar-controller-keep-attrs@example.com"},
+          [{%{name: "Calendar keep attrs account", plan: :family_4}, :owner}]
+        )
+
+      [membership] = user.memberships
+      token = issue_access_v2_token(user, membership)
+
+      {:ok, recipe} =
+        Catalog.create_recipe(%{
+          name: "Kept Recipe",
+          account_id: membership.account_id,
+          created_by_user_id: user.id,
+          source: :user_created,
+          servings: 2,
+          calories_per_serving: 300,
+          prep_time_minutes: 10,
+          suitable_for_slots: [:lunch]
+        })
+
+      conn =
+        conn
+        |> put_req_header("authorization", "Bearer " <> token)
+        |> put("/api/calendar/meals/range", %{
+          "from" => "2026-07-01",
+          "to" => "2026-07-07",
+          "meals" => [
+            %{
+              "date" => "2026-07-02",
+              "slot" => "lunch",
+              "recipeId" => recipe.id,
+              "isCooked" => true,
+              "selectedQuantity" => 2
+            }
+          ]
+        })
+
+      assert %{"data" => %{"replaced" => 1}} = json_response(conn, 200)
+
+      [meal] =
+        MealPlannerApi.Data.PlanningRepo.list_scheduled_meals(
+          membership.account_id,
+          ~D[2026-07-01],
+          ~D[2026-07-07]
+        )
+
+      assert meal.recipe_id == recipe.id
+      assert meal.is_cooked == true
+      assert meal.selected_quantity == 2
+    end
+
     test "returns 422 when `from` is missing", %{conn: conn} do
       user =
         user_with_memberships(
@@ -643,4 +696,69 @@ defmodule MealPlannerApiWeb.CalendarControllerTest do
   end
 
   # ─── Helper functions ────────────────────────────────────────────────────────
+  describe "isSkipped" do
+    test "GET /api/calendar and /api/calendar/slot derive isSkipped, never with isCooked" do
+      %{token: token, user: %{id: user_id}, account: %{id: account_id}} =
+        insert_identity_with_token!(plan: :family_4)
+
+      {:ok, recipe} =
+        Catalog.create_recipe(%{
+          name: "Skipped test",
+          account_id: account_id,
+          created_by_user_id: user_id,
+          source: :user_created,
+          servings: 2,
+          suitable_for_slots: [:lunch, :dinner]
+        })
+
+      today = Date.utc_today()
+      yesterday = Date.add(today, -1)
+
+      {:ok, skipped} =
+        Calendar.upsert_scheduled_meal(account_id, %{
+          date: yesterday,
+          slot: :lunch,
+          recipe_id: recipe.id
+        })
+
+      {:ok, cooked} =
+        Calendar.upsert_scheduled_meal(account_id, %{
+          date: yesterday,
+          slot: :dinner,
+          recipe_id: recipe.id
+        })
+
+      {:ok, _} = Calendar.set_is_cooked(account_id, cooked.id, true)
+
+      {:ok, current} =
+        Calendar.upsert_scheduled_meal(account_id, %{
+          date: today,
+          slot: :lunch,
+          recipe_id: recipe.id
+        })
+
+      body =
+        build_conn()
+        |> put_req_header("authorization", "Bearer " <> token)
+        |> get("/api/calendar", %{
+          "start_date" => Date.to_iso8601(yesterday),
+          "end_date" => Date.to_iso8601(today)
+        })
+        |> json_response(200)
+
+      flags = Map.new(body["data"]["meals"], &{&1["mealId"], {&1["isCooked"], &1["isSkipped"]}})
+      assert flags[skipped.id] == {false, true}
+      assert flags[cooked.id] == {true, false}
+      assert flags[current.id] == {false, false}
+
+      slot =
+        build_conn()
+        |> put_req_header("authorization", "Bearer " <> token)
+        |> get("/api/calendar/slot", %{"date" => Date.to_iso8601(yesterday), "slot" => "lunch"})
+        |> json_response(200)
+
+      assert %{"mealId" => id, "isSkipped" => true, "isCooked" => false} = slot["data"]
+      assert id == skipped.id
+    end
+  end
 end

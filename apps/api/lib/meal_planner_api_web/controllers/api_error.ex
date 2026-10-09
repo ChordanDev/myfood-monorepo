@@ -87,6 +87,7 @@ defmodule MealPlannerApiWeb.ApiError do
           | :invalid_hunger_level
           | :invalid_diet
           | :invalid_hard_restriction
+          | :inventory_item_not_found
           | :generation_in_progress
           | :no_active_generation
           | :missing_session_id
@@ -118,6 +119,13 @@ defmodule MealPlannerApiWeb.ApiError do
           | :optimization_failed
           | :optimizer_unavailable
           | :optimizer_timeout
+          | :scheduled_meal_not_found
+          | :cooking_session_not_active
+          | :cooking_already_finished
+          | :cooking_chat_unavailable
+          | :inventory_mutation_failed
+          | :voice_parse_failed
+          | :voice_confirmation_required
 
   @type envelope :: %{
           error:
@@ -160,6 +168,20 @@ defmodule MealPlannerApiWeb.ApiError do
     # goes through `validation_error/2` instead.
     invalid_diet: {422, "The diet is not valid."},
     invalid_hard_restriction: {422, "A hard restriction is not valid."},
+    # Inventory (issue #42). An item id that is unknown, of another Account or
+    # not a UUID shares the code, so existence is not revealed. Invalid input
+    # replies `validation_error` with its static message.
+    inventory_item_not_found: {404, "The inventory item was not found."},
+    # Cooking sessions (issue #35). An unknown session or recipe step shares
+    # `not_found`.
+    scheduled_meal_not_found: {404, "The scheduled meal was not found."},
+    cooking_session_not_active: {409, "The cooking session is not active."},
+    cooking_already_finished: {409, "This meal has already been cooked."},
+    cooking_chat_unavailable: {409, "Cooking is only available for a meal scheduled for today."},
+    inventory_mutation_failed: {422, "The inventory could not be updated. Nothing was saved."},
+    # Voice adjustment of Inventory (issue #44).
+    voice_parse_failed: {422, "The spoken adjustment could not be understood."},
+    voice_confirmation_required: {422, "This adjustment needs the User's confirmation first."},
     # Planning channel (issue #11): every deliberate reason a join or a
     # command of `PlanningChannel` replies, named as the reason was.
     generation_in_progress: {409, "A menu generation is already in progress for this account."},

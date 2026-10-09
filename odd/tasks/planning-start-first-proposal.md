@@ -56,6 +56,7 @@ Exploration done.
 - T6: `PlannerScreen.planning.test.tsx` drives start -> progress -> cards with the committed fixtures against the fake socket, plus `planning_invalid_range`, `planning_range_locked` with `ownerName`, `generation_error` then retry, `generation_error` before `generation_started`, malformed payloads.
 - Observed (mobile): `npm run typecheck` clean, `npm run lint` 0 errors (4 pre-existing warnings), `npm test` 1639 passed and 1 failed: `authService.test.ts` "reads the channel codes from the api allowlist" expects 29 codes and the allowlist has 31 since T1 (fails identically without this work; the file is outside the writer's edit surface, needs `29 -> 31` and `channelCodes[28]` -> last). Observed (API): `mix format --check-formatted` clean, `mix compile --warnings-as-errors` clean, `mix test` 1476 passed, 20 skipped.
 
+- Merge with main (#120): the topic subscription `on` was unified with main's (bound before the join, survives rejoins, returns an unsubscribe) and `push` kept; `usePlanningTopic` now hands out the subscription together with `resumed`/`sessionOver`.
 
 ## Jorge review fixes
 

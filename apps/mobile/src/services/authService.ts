@@ -32,6 +32,7 @@ export {
   verifyCode,
 } from '@/features/auth/api/authApi';
 export { completeOnboarding } from '@/features/onboarding/api/onboardingApi';
+export { updateAccountTimezone } from '@/features/account/api/accountApi';
 export {
   getSlotCookingTimes,
   getUserPreferences,

@@ -267,7 +267,7 @@ defmodule MealPlannerApiWeb.CrossAccountIsolationTest do
     assert session_id == own.cooking_session_id
 
     other_resp = get(conn, "/api/cooking/sessions/#{other.cooking_session_id}")
-    assert json_response(other_resp, 404)["error"] == "session_not_found"
+    assert json_response(other_resp, 404)["error"]["code"] == "not_found"
   end
 
   defp assert_inventory_scoped(conn, own, other) do

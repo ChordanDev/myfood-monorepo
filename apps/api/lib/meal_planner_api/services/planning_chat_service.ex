@@ -20,7 +20,7 @@ defmodule MealPlannerApi.Services.PlanningChatService do
   def quick_favorites(current_user, limit \\ 10) do
     with {:ok, ids} <- Identity.ensure_persistent_identity(current_user) do
       recipes =
-        RecipeRepo.list_favorites(ids.account_id)
+        RecipeRepo.list_favorites(ids)
         |> Enum.take(limit)
         |> Enum.map(fn recipe ->
           %{

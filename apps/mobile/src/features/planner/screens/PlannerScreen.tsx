@@ -45,6 +45,10 @@ const INITIAL_MESSAGES: PlannerMessage[] = [
   { id: 'confirmation', author: 'user', text: 'Si, me parece perfecto' },
 ];
 
+// Shown on `session_expired` and `session_lost_lock` alike: the user only needs to know that the
+// conversation cannot continue and a new one is needed.
+const SESSION_OVER_MESSAGE = 'Esta sesión de planificación terminó. Empezá una nueva para seguir.';
+
 const MOCK_ASSISTANT_RESPONSE_DELAY_MS = 10000;
 const PLANNER_TURN_ANCHOR_TOP_INSET = 16;
 // The trailing space makes the content exactly as tall as the anchor needs, so pixel rounding
@@ -267,6 +271,10 @@ export const PlannerScreen = () => {
 
       {planningTopic.status === 'refused' ? (
         <PlanningJoinNotice message={getAuthErrorMessage(planningTopic.error)} />
+      ) : null}
+
+      {planningTopic.status === 'joined' && planningTopic.sessionOver ? (
+        <PlanningJoinNotice message={SESSION_OVER_MESSAGE} />
       ) : null}
 
       <ScrollView

@@ -17,7 +17,7 @@ import {
 import {
   COOKING_SKILLS,
   HUNGER_LEVELS,
-  MEAL_SLOTS,
+  COOKING_TIME_SLOTS,
   SLOT_PRESET_BUCKETS,
 } from '@/features/preferences/constants/preferenceOptions';
 import type { SlotFormState } from '@/features/onboarding/utils/onboardingSlot';
@@ -104,7 +104,7 @@ function validateSlot(form: SlotFormState): string | null {
 }
 
 function validateMealTimes(draft: OnboardingDraft): string | null {
-  for (const slot of MEAL_SLOTS) {
+  for (const slot of COOKING_TIME_SLOTS) {
     const problem = validateSlot(draft.slots[slot]);
     if (problem !== null) return `${MEAL_SLOT_LABEL[slot]}: ${problem}`;
   }

@@ -92,6 +92,7 @@ const ME: CurrentMe = {
     type: 'individual',
     trialEndsAt: '2099-12-31T00:00:00Z',
     subscriptionStatus: 'none',
+    timezone: null,
     access: { canUseApp: true, reason: null },
   },
   membership: { role: 'owner' },
@@ -463,6 +464,7 @@ describe('OnboardingScreen — three steps', () => {
         lunch: { cookingTimeMinutes: 25, hungerLevel: 'strong' },
         dinner: { cookingTimeMinutes: 45, hungerLevel: 'normal' },
       },
+      timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
     });
     expect(completeOnboarding).toHaveBeenCalledTimes(1);
     expect(completeOnboarding).toHaveBeenCalledWith(expected);

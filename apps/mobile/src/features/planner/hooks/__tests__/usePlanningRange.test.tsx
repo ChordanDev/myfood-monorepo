@@ -9,6 +9,8 @@ jest.mock('@react-native-async-storage/async-storage', () =>
 );
 
 // The pure modules behind the Home barrel: the barrel itself loads its screens.
+jest.mock('@/features/home/hooks/useLoadLivePlan', () => ({ useLoadLivePlan: jest.fn() }));
+
 jest.mock('@/features/home', () => ({
   ...jest.requireActual('@/features/home/constants/calendar'),
   ...jest.requireActual('@/features/home/utils/calendarDate'),

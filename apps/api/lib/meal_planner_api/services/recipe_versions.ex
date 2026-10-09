@@ -10,7 +10,7 @@ defmodule MealPlannerApi.Services.RecipeVersions do
   alias MealPlannerApi.Repo
   alias MealPlannerApi.Persistence.Catalog.{Recipe, RecipeVersion, RecipeIngredient, RecipeStep}
 
-  @recipe_fields ~w(name description prep_time_minutes cook_time_minutes servings source calories_per_serving protein_g_per_serving carbs_g_per_serving fat_g_per_serving suitable_for_slots)a
+  @recipe_fields ~w(name description prep_time_minutes cook_time_minutes servings source calories_per_serving protein_g_per_serving carbs_g_per_serving fat_g_per_serving suitable_for_slots theme)a
 
   def freeze(recipe_id) do
     case Ecto.UUID.dump(recipe_id) do
@@ -76,6 +76,7 @@ defmodule MealPlannerApi.Services.RecipeVersions do
       recipe_attrs =
         Map.take(snapshot, Enum.map(@recipe_fields, &to_string/1))
         |> Map.put("account_id", recipe.account_id)
+        |> Map.put("base_recipe_id", recipe.base_recipe_id)
         |> Map.put("created_by_user_id", recipe.created_by_user_id)
 
       successor = insert!(Recipe.changeset(%Recipe{}, recipe_attrs))

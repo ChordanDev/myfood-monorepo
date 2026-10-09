@@ -1,5 +1,5 @@
 import type { CurrentMe } from '@/features/auth/types/auth';
-import { withPreservedProfileFields } from '../currentMe';
+import { normalizeCurrentMe, withAccountTimezone, withPreservedProfileFields } from '../currentMe';
 
 function makeMe(user: Partial<CurrentMe['user']> = {}): CurrentMe {
   return {
@@ -16,6 +16,7 @@ function makeMe(user: Partial<CurrentMe['user']> = {}): CurrentMe {
       type: 'individual',
       trialEndsAt: '2099-12-31T00:00:00Z',
       subscriptionStatus: 'none',
+      timezone: null,
       access: { canUseApp: true, reason: null },
     },
     membership: { role: 'owner' },
@@ -72,5 +73,20 @@ describe('withPreservedProfileFields', () => {
     // displayName is already served by /api/me, so null there means null.
     expect(result.user.displayName).toBeNull();
     expect(result.user.householdSize).toBe(2);
+  });
+});
+
+describe('account timezone', () => {
+  it('defaults a stored session without timezone to null', () => {
+    const stored = makeMe();
+    delete (stored.account as { timezone?: string | null }).timezone;
+
+    expect(normalizeCurrentMe(stored).account.timezone).toBeNull();
+  });
+
+  it('keeps a reported timezone', () => {
+    const me = withAccountTimezone(makeMe(), 'Europe/Madrid');
+
+    expect(normalizeCurrentMe(me).account.timezone).toBe('Europe/Madrid');
   });
 });

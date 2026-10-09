@@ -1,7 +1,9 @@
 defmodule MealPlannerApiWeb.CalendarController do
   use MealPlannerApiWeb, :controller
 
+  alias MealPlannerApi.AccountClock
   alias MealPlannerApi.Persistence.Calendar
+  alias MealPlannerApiWeb.MealSummary
 
   # Phase A — Tenancy Refactor (PR 3c task 3.14): tenancy scope is always
   # resolved from `conn.assigns.current_membership.account_id` (the
@@ -17,7 +19,10 @@ defmodule MealPlannerApiWeb.CalendarController do
          {:ok, end_date} <- parse_date(Map.get(params, "end_date")),
          :ok <- validate_date_range(start_date, end_date),
          {:ok, selected_date} <-
-           parse_optional_date(Map.get(params, "selected_date"), Date.utc_today()),
+           parse_optional_date(
+             Map.get(params, "selected_date"),
+             AccountClock.today(membership.account_id)
+           ),
          {:ok, selected_slot} <- parse_optional_slot(Map.get(params, "selected_slot"), :lunch) do
       data =
         Calendar.monthly_overview(membership.account_id, user.id, start_date, end_date, %{
@@ -183,20 +188,25 @@ defmodule MealPlannerApiWeb.CalendarController do
   end
 
   defp serialize_meal(meal) do
-    %{
+    summary =
+      MealSummary.serialize(%{
+        recipe_id: meal.recipe_id,
+        recipe_name: meal.recipe_name,
+        is_favorite: meal.is_favorite,
+        slot: meal.slot,
+        calories: meal.calories_per_serving,
+        prep_time_minutes: meal.prep_time_minutes
+      })
+
+    Map.merge(summary, %{
       meal_id: meal.id,
       date: Date.to_iso8601(meal.date),
-      slot: Atom.to_string(meal.slot),
       is_cooked: meal.is_cooked,
-      recipe_id: meal.recipe_id,
+      is_skipped: meal.is_skipped,
       recipe_version_id: meal.recipe_version_id,
       selected_quantity: meal.selected_quantity,
-      recipe_name: meal.recipe_name,
-      is_favorite: meal.is_favorite,
-      can_create: false,
-      macros: %{calories: meal.calories_per_serving},
-      prep_time_minutes: meal.prep_time_minutes
-    }
+      can_create: false
+    })
   end
 
   defp serialize_selected_meal(nil), do: nil
@@ -217,6 +227,7 @@ defmodule MealPlannerApiWeb.CalendarController do
       recipe_id: nil,
       recipe_name: nil,
       is_cooked: false,
+      is_skipped: false,
       is_favorite: false,
       can_create: true,
       macros: nil,

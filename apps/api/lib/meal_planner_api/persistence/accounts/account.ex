@@ -96,6 +96,17 @@ defmodule MealPlannerApi.Persistence.Accounts.Account do
     |> foreign_key_constraint(:subscription_plan_id)
   end
 
+  @doc """
+  Casts and validates the Account timezone alone: it is required and must
+  be a zone the configured time zone database knows.
+  """
+  def timezone_changeset(account, attrs) do
+    account
+    |> cast(attrs, [:timezone])
+    |> validate_required([:timezone])
+    |> validate_change(:timezone, &validate_known_timezone/2)
+  end
+
   # `validate_change/3` skips nil, so clearing the zone stays valid.
   defp validate_known_timezone(:timezone, timezone) do
     case DateTime.now(timezone) do

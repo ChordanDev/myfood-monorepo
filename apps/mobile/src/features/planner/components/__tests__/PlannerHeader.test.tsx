@@ -39,6 +39,8 @@ const mockAnchor = { x: 14, y: 60, width: 190, height: 42 };
 // The calendar itself is the Home feature's: the header is tested for what it hands it, with
 // the pure modules of that feature as they are. The anchor opens with a fixed frame, since a
 // Jest view measures nothing.
+jest.mock('@/features/home/hooks/useLoadLivePlan', () => ({ useLoadLivePlan: jest.fn() }));
+
 jest.mock('@/features/home', () => {
   const { useState } = require('react');
 
