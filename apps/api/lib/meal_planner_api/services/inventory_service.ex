@@ -328,7 +328,8 @@ defmodule MealPlannerApi.Services.InventoryService do
     end
   end
 
-  @spec rescue_plan(map(), map(), BudgetService.t()) :: {:ok, map()} | {:error, term()}
+  @spec rescue_plan(map(), map(), MealPlannerApi.Budgets.Budget.t()) ::
+          {:ok, map()} | {:error, term()}
   def rescue_plan(user, payload, _budget) do
     with {:ok, identity} <- Identity.ensure_persistent_identity(user),
          ingredient_ids <- normalize_rescue_ingredient_ids(payload),

@@ -5,6 +5,8 @@ defmodule MealPlannerApi.Subscriptions.Plan do
   @primary_key {:id, :binary_id, autogenerate: true}
   @foreign_key_type :binary_id
 
+  @type t :: %__MODULE__{}
+
   schema "subscription_plans" do
     field(:name, :string)
     field(:max_users, :integer)

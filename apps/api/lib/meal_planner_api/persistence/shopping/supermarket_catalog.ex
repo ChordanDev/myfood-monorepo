@@ -5,6 +5,8 @@ defmodule MealPlannerApi.Persistence.Shopping.SupermarketCatalog do
   @primary_key {:id, :binary_id, autogenerate: true}
   @foreign_key_type :binary_id
 
+  @type t :: %__MODULE__{}
+
   schema "supermarket_catalogs" do
     field(:price_cents_ars, :integer)
     field(:unit, :string)

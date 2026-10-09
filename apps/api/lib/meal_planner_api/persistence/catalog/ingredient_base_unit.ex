@@ -12,6 +12,8 @@ defmodule MealPlannerApi.Persistence.Catalog.IngredientBaseUnit do
   @primary_key {:id, :binary_id, autogenerate: true}
   @foreign_key_type :binary_id
 
+  @type t :: %__MODULE__{}
+
   schema "ingredient_base_units" do
     field(:base_unit, :string)
 

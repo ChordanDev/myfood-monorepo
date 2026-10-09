@@ -5,6 +5,8 @@ defmodule MealPlannerApi.Persistence.Accounts.UserDietaryProfile do
   @primary_key {:id, :binary_id, autogenerate: true}
   @foreign_key_type :binary_id
 
+  @type t :: %__MODULE__{}
+
   schema "user_dietary_profiles" do
     field(:diet_type, Ecto.Enum, values: [:omnivore, :vegetarian, :vegan, :pescatarian, :celiac])
 

@@ -5,6 +5,8 @@ defmodule MealPlannerApi.Persistence.Planning.CookingStepEvent do
   @primary_key {:id, :binary_id, autogenerate: true}
   @foreign_key_type :binary_id
 
+  @type t :: %__MODULE__{}
+
   schema "cooking_step_events" do
     field(:event_type, Ecto.Enum, values: [:started, :paused, :completed, :error])
     field(:event_at, :utc_datetime_usec)

@@ -5,6 +5,8 @@ defmodule MealPlannerApi.Persistence.Catalog.RecipeDailyCost do
   @primary_key {:id, :binary_id, autogenerate: true}
   @foreign_key_type :binary_id
 
+  @type t :: %__MODULE__{}
+
   schema "recipe_daily_costs" do
     field(:total_cents_ars, :integer)
     field(:date, :date)

@@ -19,6 +19,8 @@ defmodule MealPlannerApi.Persistence.Auth.AccountSelectionContinuationMembership
   @primary_key false
   @foreign_key_type :binary_id
 
+  @type t :: %__MODULE__{}
+
   schema "account_selection_continuation_memberships" do
     belongs_to(
       :continuation,

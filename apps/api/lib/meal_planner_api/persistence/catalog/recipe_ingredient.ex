@@ -5,6 +5,8 @@ defmodule MealPlannerApi.Persistence.Catalog.RecipeIngredient do
   @primary_key {:id, :binary_id, autogenerate: true}
   @foreign_key_type :binary_id
 
+  @type t :: %__MODULE__{}
+
   schema "recipe_ingredients" do
     field(:quantity_milli, :integer)
     field(:unit, Ecto.Enum, values: [:g, :ml, :unit])

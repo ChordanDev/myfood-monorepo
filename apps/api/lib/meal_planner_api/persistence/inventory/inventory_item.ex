@@ -5,6 +5,8 @@ defmodule MealPlannerApi.Persistence.Inventory.InventoryItem do
   @primary_key {:id, :binary_id, autogenerate: true}
   @foreign_key_type :binary_id
 
+  @type t :: %__MODULE__{}
+
   schema "inventory_items" do
     field(:quantity_milli, :integer)
     field(:unit, Ecto.Enum, values: [:g, :ml, :unit])

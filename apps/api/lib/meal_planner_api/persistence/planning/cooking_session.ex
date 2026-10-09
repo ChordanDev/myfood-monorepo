@@ -5,6 +5,8 @@ defmodule MealPlannerApi.Persistence.Planning.CookingSession do
   @primary_key {:id, :binary_id, autogenerate: true}
   @foreign_key_type :binary_id
 
+  @type t :: %__MODULE__{}
+
   schema "cooking_sessions" do
     field(:status, Ecto.Enum, values: [:active, :paused, :completed], default: :active)
     field(:context_snapshot, :map)

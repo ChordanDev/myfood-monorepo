@@ -16,6 +16,8 @@ defmodule MealPlannerApi.Persistence.Catalog.UnitConversion do
   @primary_key {:id, :binary_id, autogenerate: true}
   @foreign_key_type :binary_id
 
+  @type t :: %__MODULE__{}
+
   schema "unit_conversions" do
     field(:from_unit, :string)
     field(:factor_to_base, :float)

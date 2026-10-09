@@ -14,6 +14,8 @@ defmodule MealPlannerApi.Persistence.Auth.EmailAuthEvent do
   @primary_key {:id, :binary_id, autogenerate: true}
   @foreign_key_type :binary_id
 
+  @type t :: %__MODULE__{}
+
   schema "email_auth_events" do
     field(:kind, :string)
     field(:email, :string)

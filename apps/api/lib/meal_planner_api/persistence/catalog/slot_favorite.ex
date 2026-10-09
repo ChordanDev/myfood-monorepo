@@ -8,6 +8,8 @@ defmodule MealPlannerApi.Persistence.Catalog.SlotFavorite do
   use Ecto.Schema
 
   @primary_key {:id, :binary_id, autogenerate: true}
+  @type t :: %__MODULE__{}
+
   schema "slot_favorites" do
     field(:date, :date)
     field(:slot, :string)

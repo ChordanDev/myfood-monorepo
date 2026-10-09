@@ -5,6 +5,8 @@ defmodule MealPlannerApi.Persistence.Accounts.UserExcludedIngredient do
   @primary_key {:id, :binary_id, autogenerate: true}
   @foreign_key_type :binary_id
 
+  @type t :: %__MODULE__{}
+
   schema "user_excluded_ingredients" do
     field(:reason, Ecto.Enum, values: [:allergy, :dislike])
 
