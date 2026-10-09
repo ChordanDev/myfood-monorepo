@@ -1,4 +1,6 @@
-import { ActivityIndicator, ScrollView, StyleSheet, View } from 'react-native';
+import { useCallback } from 'react';
+import { ActivityIndicator, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { X } from 'lucide-react-native';
 import Animated from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { NoisyBackground, SafeAreaContent, SegmentedSwitcher } from '@/components';
@@ -8,6 +10,7 @@ import { useAnimatedThemeStyle } from '@/hooks/useAnimatedThemeStyle';
 import { withOpacity } from '@/utils/colors';
 import { ShoppingDatePill, ShoppingGroupCard, ShoppingLoadError } from '../components';
 import { formatCountersLabel } from '../domain';
+import { useCartLease } from '../hooks/useCartLease';
 import { useShoppingList } from '../hooks/useShoppingList';
 import type { ShoppingGroupBy } from '../types';
 
@@ -19,8 +22,10 @@ const GROUPING_OPTIONS: { value: ShoppingGroupBy; label: string }[] = [
 const HORIZONTAL_PADDING = 14;
 const LIST_GAP = 14;
 
-// The list as the server has it, to read: marking a row, removing it, adding one by hand and
-// buying the cart are not on this screen until the server takes them.
+// The list as the server has it. A row can be ticked into the Cart, which holds a lease the
+// screen keeps alive while it is open; the Cart can be abandoned. Un-ticking a row, removing
+// it, adding one by hand and buying the cart are not on this screen until the server takes
+// them.
 export function ShoppingScreen() {
   const insets = useSafeAreaInsets();
   const { theme } = useRecipeTheme();
@@ -39,7 +44,31 @@ export function ShoppingScreen() {
     isEmpty,
     errorMessage,
     retry,
+    cart: listCart,
+    lines,
   } = useShoppingList();
+  const {
+    cart,
+    markItems,
+    cancel,
+    errorMessage: cartErrorMessage,
+  } = useCartLease({
+    listCart,
+    refreshList: retry,
+  });
+
+  // A row stands for one line: ticking it ticks the items behind it. A line already in the
+  // Cart has nothing to tick.
+  const tickLine = useCallback(
+    (lineId: string) => {
+      const line = lines.find((candidate) => candidate.id === lineId);
+
+      if (line && line.status === 'needed') {
+        markItems(line.allocations.map((allocation) => allocation.itemId));
+      }
+    },
+    [lines, markItems]
+  );
   // The tab bar floats over the screen, so the content clears it by hand.
   const tabBarHeight = insets.bottom + CUSTOM_TAB_BAR_CONTENT_HEIGHT;
   // The list ends one gap above the tab bar, so the last card scrolls clear of it.
@@ -90,6 +119,15 @@ export function ShoppingScreen() {
               {formatCountersLabel(counters)}
             </Animated.Text>
           ) : null}
+          {cart ? (
+            <Pressable
+              onPress={cancel}
+              accessibilityRole="button"
+              accessibilityLabel="Cancelar carrito"
+              hitSlop={10}>
+              <X color={theme.textDark} size={18} />
+            </Pressable>
+          ) : null}
         </View>
 
         <ScrollView
@@ -101,6 +139,11 @@ export function ShoppingScreen() {
           showsVerticalScrollIndicator={false}>
           {/* Above the cards: a list that could not be read again is still the last one read. */}
           {errorMessage ? <ShoppingLoadError message={errorMessage} onRetry={retry} /> : null}
+          {cartErrorMessage ? (
+            <Animated.Text accessibilityRole="alert" style={[styles.emptyLabel, mutedStyle]}>
+              {cartErrorMessage}
+            </Animated.Text>
+          ) : null}
           {isLoading ? (
             <ActivityIndicator
               accessibilityLabel="Cargando la lista de compras"
@@ -113,9 +156,15 @@ export function ShoppingScreen() {
               No hay nada para comprar
             </Animated.Text>
           ) : null}
-          {/* Without handlers a card is read-only: the rows show the list and take no press. */}
+          {/* Only the tick is offered: a card without the other handlers has no removal and no
+              "Marcar todos". */}
           {groups.map((group) => (
-            <ShoppingGroupCard key={group.key} group={group} metaLines={metaLines} />
+            <ShoppingGroupCard
+              key={group.key}
+              group={group}
+              metaLines={metaLines}
+              onToggleItem={tickLine}
+            />
           ))}
         </ScrollView>
       </SafeAreaContent>

@@ -75,3 +75,22 @@ export interface ShoppingListQuery {
   // The server groups by ingredient when it is not sent.
   groupBy?: ShoppingGroupBy;
 }
+
+// What a Shopping item reserved by a Cart is paid with: checkout needs the token.
+export interface CartReservation {
+  itemId: string;
+  reservationToken: string;
+  quantityMilli: number;
+}
+
+// What `POST /api/shopping-items/mark-cart` answers: the Cart lease and the items it holds.
+export interface MarkedCart extends ShoppingCart {
+  items: CartReservation[];
+}
+
+// What `DELETE /api/cart/:sessionId` answers.
+export interface CancelledCart {
+  sessionId: string;
+  updatedRows: number;
+  status: 'abandoned';
+}
