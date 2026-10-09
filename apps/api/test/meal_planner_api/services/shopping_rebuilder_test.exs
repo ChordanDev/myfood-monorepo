@@ -154,4 +154,343 @@ defmodule MealPlannerApi.Services.ShoppingRebuilderTest do
       assert row.quantity_milli == 5_000
     end
   end
+
+  # -------------------------------------------------------------------------
+  # Scenario: The date limit keeps meals on or before the chosen day
+  # Spec: issue #39 — `untilDate` limits planned lines, boundary inclusive
+  # -------------------------------------------------------------------------
+
+  describe "limit_to_date/2" do
+    test "keeps meals on or before the date, boundary day included" do
+      meals = [
+        meal("m1", ~D[2026-09-30], [ri("flour", :g, 100_000)]),
+        meal("m2", ~D[2026-10-02], [ri("flour", :g, 100_000)]),
+        meal("m3", ~D[2026-10-03], [ri("flour", :g, 100_000)])
+      ]
+
+      result = ShoppingRebuilder.limit_to_date(meals, ~D[2026-10-02])
+
+      assert Enum.map(result, & &1.id) == ["m1", "m2"]
+    end
+
+    test "preserves the input order of the meals it keeps" do
+      meals = [
+        meal("m3", ~D[2026-10-02], []),
+        meal("m1", ~D[2026-09-30], []),
+        meal("m4", ~D[2026-11-01], []),
+        meal("m2", ~D[2026-10-01], [])
+      ]
+
+      result = ShoppingRebuilder.limit_to_date(meals, ~D[2026-10-02])
+
+      assert Enum.map(result, & &1.id) == ["m3", "m1", "m2"]
+    end
+
+    test "returns the meals unchanged when the date is nil" do
+      meals = [
+        meal("m1", ~D[2026-09-30], [ri("flour", :g, 100_000)]),
+        meal("m2", ~D[2027-01-15], [ri("flour", :g, 100_000)])
+      ]
+
+      assert ShoppingRebuilder.limit_to_date(meals, nil) == meals
+    end
+
+    test "returns an empty list when every meal is after the date" do
+      meals = [meal("m1", ~D[2026-10-03], [])]
+
+      assert ShoppingRebuilder.limit_to_date(meals, ~D[2026-10-02]) == []
+    end
+
+    test "limited meals feed compute_net_shortages/2" do
+      meals = [
+        meal("m1", ~D[2026-10-01], [ri("flour", :g, 100_000)]),
+        meal("m2", ~D[2026-10-05], [ri("flour", :g, 100_000)])
+      ]
+
+      result =
+        meals
+        |> ShoppingRebuilder.limit_to_date(~D[2026-10-01])
+        |> ShoppingRebuilder.compute_net_shortages(%{})
+
+      assert [%{scheduled_meal_id: "m1", quantity_milli: 100_000}] = result
+    end
+  end
+
+  # Helper: one persisted Shopping item for one Scheduled meal -------------
+
+  defp row(item_id, ingredient_id, overrides \\ %{}) do
+    Map.merge(
+      %{
+        item_id: item_id,
+        ingredient_id: ingredient_id,
+        name: String.capitalize(ingredient_id),
+        category: "pantry",
+        unit: :g,
+        quantity_milli: 100_000,
+        status: :needed,
+        source: :planned_meal,
+        supermarket_id: nil,
+        scheduled_meal_id: "meal-#{item_id}",
+        date: ~D[2026-10-01],
+        slot: :lunch
+      },
+      overrides
+    )
+  end
+
+  # -------------------------------------------------------------------------
+  # Scenario: Grouping by ingredient aggregates the meals that need it
+  # Spec: issue #39 — `groupBy=ingredient`, decisions D4 and D5
+  # -------------------------------------------------------------------------
+
+  describe "group_lines/2 — :ingredient" do
+    test "three meals of the same ingredient become one line with three allocations" do
+      rows = [
+        row("i1", "flour", %{date: ~D[2026-10-01], quantity_milli: 100_000}),
+        row("i2", "flour", %{date: ~D[2026-10-02], quantity_milli: 250_000}),
+        row("i3", "flour", %{date: ~D[2026-10-03], quantity_milli: 50_000})
+      ]
+
+      assert [line] = ShoppingRebuilder.group_lines(rows, :ingredient)
+
+      assert line == %{
+               id: "flour:g",
+               ingredient_id: "flour",
+               name: "Flour",
+               category: "pantry",
+               quantity_milli: 400_000,
+               unit: :g,
+               status: :needed,
+               source: :planned_meal,
+               supermarket_id: nil,
+               allocations: [
+                 %{
+                   item_id: "i1",
+                   scheduled_meal_id: "meal-i1",
+                   date: ~D[2026-10-01],
+                   slot: :lunch,
+                   quantity_milli: 100_000
+                 },
+                 %{
+                   item_id: "i2",
+                   scheduled_meal_id: "meal-i2",
+                   date: ~D[2026-10-02],
+                   slot: :lunch,
+                   quantity_milli: 250_000
+                 },
+                 %{
+                   item_id: "i3",
+                   scheduled_meal_id: "meal-i3",
+                   date: ~D[2026-10-03],
+                   slot: :lunch,
+                   quantity_milli: 50_000
+                 }
+               ]
+             }
+    end
+
+    test "the same ingredient with different units stays on separate lines" do
+      rows = [
+        row("i1", "milk", %{unit: :ml, quantity_milli: 500_000}),
+        row("i2", "milk", %{unit: :g, quantity_milli: 100_000}),
+        row("i3", "milk", %{unit: :ml, quantity_milli: 250_000})
+      ]
+
+      assert [ml, g] = ShoppingRebuilder.group_lines(rows, :ingredient)
+
+      assert %{id: "milk:ml", unit: :ml, quantity_milli: 750_000} = ml
+      assert %{id: "milk:g", unit: :g, quantity_milli: 100_000} = g
+      assert Enum.map(ml.allocations, & &1.item_id) == ["i1", "i3"]
+      assert Enum.map(g.allocations, & &1.item_id) == ["i2"]
+    end
+
+    test "lines follow the first appearance of each ingredient in the input" do
+      rows = [
+        row("i1", "salt"),
+        row("i2", "flour"),
+        row("i3", "salt"),
+        row("i4", "butter")
+      ]
+
+      lines = ShoppingRebuilder.group_lines(rows, :ingredient)
+
+      assert Enum.map(lines, & &1.id) == ["salt:g", "flour:g", "butter:g"]
+    end
+
+    test "allocations are sorted by date, across a month boundary" do
+      rows = [
+        row("i1", "flour", %{date: ~D[2026-10-02]}),
+        row("i2", "flour", %{date: ~D[2026-09-30]}),
+        row("i3", "flour", %{date: ~D[2026-10-01]})
+      ]
+
+      assert [line] = ShoppingRebuilder.group_lines(rows, :ingredient)
+
+      assert Enum.map(line.allocations, & &1.date) ==
+               [~D[2026-09-30], ~D[2026-10-01], ~D[2026-10-02]]
+    end
+
+    test "allocations on the same date follow the order of the day's slots" do
+      rows = [
+        row("i1", "flour", %{slot: :dinner}),
+        row("i2", "flour", %{slot: :snack}),
+        row("i3", "flour", %{slot: :breakfast}),
+        row("i4", "flour", %{slot: :lunch})
+      ]
+
+      assert [line] = ShoppingRebuilder.group_lines(rows, :ingredient)
+
+      assert Enum.map(line.allocations, & &1.slot) == [:breakfast, :lunch, :snack, :dinner]
+    end
+
+    test "mixed statuses read as needed" do
+      rows = [
+        row("i1", "flour", %{status: :in_cart}),
+        row("i2", "flour", %{status: :needed}),
+        row("i3", "flour", %{status: :in_cart})
+      ]
+
+      assert [%{status: :needed}] = ShoppingRebuilder.group_lines(rows, :ingredient)
+    end
+
+    test "in cart and removed together read as needed" do
+      rows = [
+        row("i1", "flour", %{status: :in_cart}),
+        row("i2", "flour", %{status: :removed})
+      ]
+
+      assert [%{status: :needed}] = ShoppingRebuilder.group_lines(rows, :ingredient)
+    end
+
+    test "every row in the cart reads as in cart" do
+      rows = [
+        row("i1", "flour", %{status: :in_cart}),
+        row("i2", "flour", %{status: :in_cart})
+      ]
+
+      assert [%{status: :in_cart}] = ShoppingRebuilder.group_lines(rows, :ingredient)
+    end
+
+    test "every row removed reads as removed" do
+      rows = [
+        row("i1", "flour", %{status: :removed}),
+        row("i2", "flour", %{status: :removed})
+      ]
+
+      assert [%{status: :removed}] = ShoppingRebuilder.group_lines(rows, :ingredient)
+    end
+
+    test "a shared supermarket is kept" do
+      rows = [
+        row("i1", "flour", %{supermarket_id: "s1"}),
+        row("i2", "flour", %{supermarket_id: "s1"})
+      ]
+
+      assert [%{supermarket_id: "s1"}] = ShoppingRebuilder.group_lines(rows, :ingredient)
+    end
+
+    test "differing supermarkets read as nil" do
+      rows = [
+        row("i1", "flour", %{supermarket_id: "s1"}),
+        row("i2", "flour", %{supermarket_id: "s2"})
+      ]
+
+      assert [%{supermarket_id: nil}] = ShoppingRebuilder.group_lines(rows, :ingredient)
+    end
+
+    test "a supermarket set on only some rows reads as nil" do
+      rows = [
+        row("i1", "flour", %{supermarket_id: "s1"}),
+        row("i2", "flour", %{supermarket_id: nil})
+      ]
+
+      assert [%{supermarket_id: nil}] = ShoppingRebuilder.group_lines(rows, :ingredient)
+    end
+
+    test "name, category and source come from the first row" do
+      rows = [
+        row("i1", "flour", %{name: "Flour 000", category: "bakery", source: :planned_meal}),
+        row("i2", "flour", %{name: "Plain flour", category: "pantry", source: :manual})
+      ]
+
+      assert [%{name: "Flour 000", category: "bakery", source: :planned_meal}] =
+               ShoppingRebuilder.group_lines(rows, :ingredient)
+    end
+
+    test "returns an empty list for no rows" do
+      assert ShoppingRebuilder.group_lines([], :ingredient) == []
+    end
+  end
+
+  # -------------------------------------------------------------------------
+  # Scenario: Grouping by meal keeps one line per Shopping item
+  # Spec: issue #39 — `groupBy=meal`, decision D4
+  # -------------------------------------------------------------------------
+
+  describe "group_lines/2 — :meal" do
+    test "produces one line per row, in input order, with a single allocation" do
+      rows = [
+        row("i2", "flour", %{date: ~D[2026-10-02], quantity_milli: 250_000, status: :in_cart}),
+        row("i1", "flour", %{date: ~D[2026-10-01], quantity_milli: 100_000}),
+        row("i3", "salt", %{date: ~D[2026-10-01], quantity_milli: 5_000, supermarket_id: "s1"})
+      ]
+
+      lines = ShoppingRebuilder.group_lines(rows, :meal)
+
+      assert Enum.map(lines, & &1.id) == ["i2", "i1", "i3"]
+      assert Enum.map(lines, & &1.quantity_milli) == [250_000, 100_000, 5_000]
+      assert Enum.map(lines, & &1.status) == [:in_cart, :needed, :needed]
+      assert Enum.map(lines, & &1.supermarket_id) == [nil, nil, "s1"]
+
+      assert Enum.map(lines, & &1.allocations) == [
+               [
+                 %{
+                   item_id: "i2",
+                   scheduled_meal_id: "meal-i2",
+                   date: ~D[2026-10-02],
+                   slot: :lunch,
+                   quantity_milli: 250_000
+                 }
+               ],
+               [
+                 %{
+                   item_id: "i1",
+                   scheduled_meal_id: "meal-i1",
+                   date: ~D[2026-10-01],
+                   slot: :lunch,
+                   quantity_milli: 100_000
+                 }
+               ],
+               [
+                 %{
+                   item_id: "i3",
+                   scheduled_meal_id: "meal-i3",
+                   date: ~D[2026-10-01],
+                   slot: :lunch,
+                   quantity_milli: 5_000
+                 }
+               ]
+             ]
+    end
+
+    test "a line carries the same keys as an ingredient line" do
+      [meal_line] = ShoppingRebuilder.group_lines([row("i1", "flour")], :meal)
+      [ingredient_line] = ShoppingRebuilder.group_lines([row("i1", "flour")], :ingredient)
+
+      assert Map.keys(meal_line) == Map.keys(ingredient_line)
+      assert %{ingredient_id: "flour", name: "Flour", category: "pantry", unit: :g} = meal_line
+      assert meal_line.source == :planned_meal
+    end
+
+    test "the line id is the item id as a string" do
+      item_id = Ecto.UUID.generate()
+
+      assert [%{id: ^item_id}] = ShoppingRebuilder.group_lines([row(item_id, "flour")], :meal)
+      assert [%{id: "42"}] = ShoppingRebuilder.group_lines([row(42, "flour")], :meal)
+    end
+
+    test "returns an empty list for no rows" do
+      assert ShoppingRebuilder.group_lines([], :meal) == []
+    end
+  end
 end

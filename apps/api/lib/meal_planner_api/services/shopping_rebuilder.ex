@@ -15,7 +15,21 @@ defmodule MealPlannerApi.Services.ShoppingRebuilder do
       ShoppingRebuilder.compute_net_shortages(meals, pool)
       # => [%{scheduled_meal_id: "m1", planned_date: ~D[2026-09-25],
       #       ingredient_id: "flour", unit: :g, quantity_milli: 100_000}]
+
+  ## Reading the list
+
+  `limit_to_date/2` and `group_lines/2` shape the list for a read
+  (issue #39): the first keeps the meals up to a chosen day, the second
+  turns persisted Shopping items into the lines of the list, one per
+  ingredient or one per meal. Both are pure as well.
   """
+
+  alias MealPlannerApi.Persistence.Planning.ScheduledMeal
+
+  # Slots in the order of the day, as the Scheduled meal schema declares
+  # them. A slot outside this list sorts after the known ones.
+  @slot_rank ScheduledMeal |> Ecto.Enum.values(:slot) |> Enum.with_index() |> Map.new()
+  @unknown_slot_rank map_size(@slot_rank)
 
   @doc """
   Computes net shopping shortages for a list of confirmed meals.
@@ -55,6 +69,119 @@ defmodule MealPlannerApi.Services.ShoppingRebuilder do
       end)
 
     Enum.reverse(rows)
+  end
+
+  @doc """
+  Keeps the meals scheduled on or before `until_date`.
+
+  The boundary day is included and the order of the meals is preserved.
+  `nil` means no limit and returns the meals unchanged.
+
+  ## Parameters
+
+    * `meals` — the same meals `compute_net_shortages/2` accepts; only
+      `date` is read.
+    * `until_date` — the last day to keep, or `nil`.
+  """
+  @spec limit_to_date([map()], Date.t() | nil) :: [map()]
+  def limit_to_date(meals, nil) when is_list(meals), do: meals
+
+  def limit_to_date(meals, %Date{} = until_date) when is_list(meals) do
+    Enum.filter(meals, &(Date.compare(&1.date, until_date) != :gt))
+  end
+
+  @doc """
+  Groups persisted Shopping items into the lines of the Shopping list.
+
+  ## Parameters
+
+    * `rows` — one map per Shopping item of one Scheduled meal:
+      `%{item_id, ingredient_id, name, category, unit, quantity_milli,
+      status, source, supermarket_id, scheduled_meal_id, date, slot}`.
+      `status` is `:needed | :in_cart | :removed` and `source` is
+      `:planned_meal | :manual`.
+    * `group_by` — `:ingredient` or `:meal`.
+
+  ## Returns
+
+  A list of `%{id, ingredient_id, name, category, quantity_milli, unit,
+  status, source, supermarket_id, allocations}` maps. Each allocation is
+  `%{item_id, scheduled_meal_id, date, slot, quantity_milli}`: the
+  Shopping item behind the line and the Scheduled meal it is for.
+
+  With `:meal` every row is its own line, in input order. `id` is the
+  row's `item_id` as a string and the line has exactly one allocation.
+
+  With `:ingredient` the rows sharing `{ingredient_id, unit}` become one
+  line, and lines follow the first appearance of each pair in the input:
+
+    * `id` is `"<ingredient_id>:<unit>"`.
+    * `quantity_milli` is the sum of the rows. No rounding, no unit
+      conversion: the same ingredient in two units stays on two lines.
+    * `allocations` are sorted by date, then by slot in the order of the
+      day (breakfast, lunch, snack, dinner).
+    * `status` is the status every row shares, otherwise `:needed`, so a
+      line never reads as in the Cart while part of it is not.
+    * `supermarket_id` is the value every row shares, otherwise `nil`.
+    * `name`, `category` and `source` come from the first row.
+  """
+  @spec group_lines([map()], :ingredient | :meal) :: [map()]
+  def group_lines(rows, :meal) when is_list(rows) do
+    Enum.map(rows, fn row ->
+      row
+      |> Map.take([
+        :ingredient_id,
+        :name,
+        :category,
+        :quantity_milli,
+        :unit,
+        :status,
+        :source,
+        :supermarket_id
+      ])
+      |> Map.merge(%{id: to_string(row.item_id), allocations: [allocation(row)]})
+    end)
+  end
+
+  def group_lines(rows, :ingredient) when is_list(rows) do
+    groups = Enum.group_by(rows, &ingredient_key/1)
+
+    rows
+    |> Enum.map(&ingredient_key/1)
+    |> Enum.uniq()
+    |> Enum.map(&ingredient_line(Map.fetch!(groups, &1)))
+  end
+
+  defp ingredient_key(row), do: {row.ingredient_id, row.unit}
+
+  defp ingredient_line([first | _] = rows) do
+    %{
+      id: "#{first.ingredient_id}:#{first.unit}",
+      ingredient_id: first.ingredient_id,
+      name: first.name,
+      category: first.category,
+      quantity_milli: rows |> Enum.map(& &1.quantity_milli) |> Enum.sum(),
+      unit: first.unit,
+      status: shared_value(rows, :status, :needed),
+      source: first.source,
+      supermarket_id: shared_value(rows, :supermarket_id, nil),
+      allocations:
+        rows
+        |> Enum.sort_by(&{Date.to_erl(&1.date), Map.get(@slot_rank, &1.slot, @unknown_slot_rank)})
+        |> Enum.map(&allocation/1)
+    }
+  end
+
+  defp allocation(row) do
+    Map.take(row, [:item_id, :scheduled_meal_id, :date, :slot, :quantity_milli])
+  end
+
+  # The value every row has for `field`, or `fallback` when they differ.
+  defp shared_value(rows, field, fallback) do
+    case rows |> Enum.map(&Map.fetch!(&1, field)) |> Enum.uniq() do
+      [value] -> value
+      _ -> fallback
+    end
   end
 
   defp get_recipe_ingredients(meal) do
