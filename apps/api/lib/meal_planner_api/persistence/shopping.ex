@@ -69,6 +69,52 @@ defmodule MealPlannerApi.Persistence.Shopping do
   def update_shopping_item(item, attrs),
     do: item |> ShoppingItem.changeset(attrs) |> Repo.update()
 
+  @doc """
+  Stores an item added by hand (`ShoppingItem.manual_changeset/2`).
+
+  Manual items have no planned key, so they are never merged with another
+  item and never conflict with one.
+  """
+  @spec create_manual_item(map()) :: {:ok, ShoppingItem.t()} | {:error, Ecto.Changeset.t()}
+  def create_manual_item(attrs),
+    do: %ShoppingItem{} |> ShoppingItem.manual_changeset(attrs) |> Repo.insert()
+
+  @doc """
+  The Account's Shopping item with this id, with its Ingredient loaded, or
+  `nil` when the id is unknown, of another Account or not a UUID.
+  """
+  @spec get_item_for_account(Ecto.UUID.t(), term()) :: ShoppingItem.t() | nil
+  def get_item_for_account(account_id, item_id) do
+    case Ecto.UUID.cast(item_id) do
+      {:ok, uuid} ->
+        from(i in ShoppingItem,
+          where: i.account_id == ^account_id and i.id == ^uuid,
+          preload: [:ingredient]
+        )
+        |> Repo.one()
+
+      :error ->
+        nil
+    end
+  end
+
+  @doc """
+  The manual Shopping items of an Account that are still on the list
+  (`:pending` or `:in_cart`), oldest first, with their Ingredient loaded.
+  They are for no date, so no date limit applies to them.
+  """
+  @spec list_open_manual_items(Ecto.UUID.t()) :: [ShoppingItem.t()]
+  def list_open_manual_items(account_id) do
+    from(i in ShoppingItem,
+      where:
+        i.account_id == ^account_id and i.source == :manual and
+          i.status in [:pending, :in_cart],
+      order_by: [asc: i.inserted_at, asc: i.id],
+      preload: [:ingredient]
+    )
+    |> Repo.all()
+  end
+
   @typedoc "Scheduled meal, planned date, Ingredient and unit of a Shopping item."
   @type planned_key :: {Ecto.UUID.t(), Date.t(), Ecto.UUID.t(), atom()}
 
@@ -216,9 +262,10 @@ defmodule MealPlannerApi.Persistence.Shopping do
   end
 
   @doc """
-  The Shopping items of an Account that are still on the list (`:pending`
-  or `:in_cart`) and planned from `from_date` on, with their Ingredient
-  and Scheduled meal loaded.
+  The planned Shopping items of an Account that are still on the list
+  (`:pending`, `:in_cart` or `:removed`) and planned from `from_date` on,
+  with their Ingredient and Scheduled meal loaded. Manual items are for no
+  meal, so the join leaves them out.
 
   `until_date` is the last planned day to include; `nil` leaves the range
   open.
@@ -233,7 +280,7 @@ defmodule MealPlannerApi.Persistence.Shopping do
         join: ingredient in assoc(i, :ingredient),
         join: meal in assoc(i, :scheduled_meal),
         where:
-          i.account_id == ^account_id and i.status in [:pending, :in_cart] and
+          i.account_id == ^account_id and i.status in [:pending, :in_cart, :removed] and
             i.planned_date >= ^from_date,
         # A stable order for any caller. The Shopping list read re-sorts by
         # the slot's place in the day, which SQL cannot express on a string.

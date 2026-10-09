@@ -920,18 +920,23 @@ Fields:
 - `planned`: the lines to buy for the plan, ordered by the date of their first allocation, then by its slot
   in the order of the day.
   - `id`: `<ingredientId>:<unit>` with `groupBy=ingredient`; the Shopping item id with `groupBy=meal`.
-  - `status`: `needed` or `in_cart`. An ingredient line reads `in_cart` only when every allocation is in a
-    Cart, whoever holds it; otherwise it reads `needed`.
+  - `status`: `needed`, `in_cart` or `removed`. An ingredient line reads `in_cart` only when every
+    allocation is in a Cart, whoever holds it; otherwise it reads `needed`. A line reads `removed` only when
+    every allocation was removed; its quantity then adds up all of them, so it can be restored.
   - `source`: always `planned_meal`.
   - `supermarketId`: the supermarket every allocation is assigned to, or `null` when there is none or they
     differ.
   - `allocations`: the share of the line each Scheduled meal needs. `itemId` is the Shopping item to send to
     `/api/shopping-items/mark-cart`. With `groupBy=meal` a line has exactly one allocation.
-- `manual`: always `[]` for now.
+- `manual`: the Shopping items the User added by hand (7.6) that are still on the list, oldest first. Each
+  one has the keys of a `planned` line, with `source` `manual`, `allocations` `[]`, `ingredientId` `null`
+  when no ingredient was given and `category` `otros` in that case. They are never merged with each other or
+  with a planned line, `untilDate` does not limit them and `groupBy` does not change them. `id` is the
+  Shopping item id: send it to `/api/shopping-items/mark-cart` or `DELETE /api/shopping-items/:itemId`.
 - `cart`: the caller's own active Cart, `{ "sessionId": "...", "leaseExpiresAt": "<ISO 8601 datetime>" }`, or
   `null`. Reading the list does not renew the lease.
-- `totals`: `needed`, `inCart` and `removed` count the lines of `planned` by status (`removed` is `0` for
-  now); `estimatedCents` adds the estimated price of the needed items.
+- `totals`: `needed`, `inCart` and `removed` count the lines of `planned` by status;
+  `estimatedCents` adds the estimated price of the needed items. Manual items are not counted.
 - `plannedDates`: every date from today on with an uncooked Scheduled meal, sorted. `untilDate` does not
   change it.
 
@@ -1054,6 +1059,65 @@ Shopping errors are returned as `422` with:
   "error": "<reason>"
 }
 ```
+
+### 7.6 Add a manual item
+
+- Method: `POST`
+- Path: `/api/shopping-items/manual`
+
+Request body:
+
+```json
+{
+  "name": "Dish soap",
+  "ingredientId": "<ingredient_uuid>",
+  "quantityMilli": 1000,
+  "unit": "unit"
+}
+```
+
+- `name`: required, a string of 1 to 200 characters once trimmed.
+- `ingredientId`: optional, an ingredient of the catalogue.
+- `quantityMilli`: optional, an integer above zero, in thousandths of the unit. `1000` when omitted.
+- `unit`: optional, one of `g`, `ml`, `unit`. `unit` when omitted, so the default is 1 unit.
+
+Success response (`201`): the line of the new item, as it appears in `manual` (7.1).
+
+```json
+{
+  "data": {
+    "id": "<shopping_item_uuid>",
+    "ingredientId": null,
+    "name": "Dish soap",
+    "category": "otros",
+    "quantityMilli": 1000,
+    "unit": "unit",
+    "status": "needed",
+    "source": "manual",
+    "supermarketId": null,
+    "allocations": []
+  }
+}
+```
+
+A manual item belongs to the Account and is for no Scheduled meal or date, so a re-plan (a confirmed plan or a
+calendar range replace) never touches it. Errors use the error envelope of section 10: `422 validation_error`
+for a field that is missing or malformed, or an `ingredientId` that is not in the catalogue.
+
+### 7.7 Delete a manual item
+
+- Method: `DELETE`
+- Path: `/api/shopping-items/:itemId`
+
+Success response (`200`): `{ "data": { "id": "<shopping_item_uuid>" } }`.
+
+Only an item added by hand (7.6) that is still on the list (`needed` or `in_cart`) can be deleted. Errors use
+the error envelope of section 10:
+
+| Status | Code                       | When                                                                                         |
+| ------ | -------------------------- | -------------------------------------------------------------------------------------------- |
+| `422`  | `shopping_item_not_manual` | The item is a planned one. Planned items are removed, not deleted                           |
+| `404`  | `shopping_item_not_found`  | `:itemId` is unknown, of another Account, not a UUID, or of an item already bought or closed |
 
 ## 8. WebSocket Integration (`planning_channel`)
 
@@ -1333,7 +1397,9 @@ Two error body shapes are in use. Which one a request gets depends on the code p
   - `GET /api/shopping-list`, for a rejected `untilDate` or `groupBy` (7.1): `422 validation_error`. Its
     other errors still use the flat shape below;
   - the inventory routes of section 6, for every error: `422 validation_error`,
-    `404 inventory_item_not_found` (see 6.5).
+    `404 inventory_item_not_found` (see 6.5);
+  - `POST /api/shopping-items/manual` and `DELETE /api/shopping-items/:itemId` (7.6 and 7.7):
+    `422 validation_error`, `422 shopping_item_not_manual`, `404 shopping_item_not_found`.
 - **Flat (legacy, not migrated to the envelope):** `{ "error": "<reason>" }`, with the status chosen by each
   endpoint (`422` in most controllers). It is still returned by:
   - the validation and domain errors that the non-auth controllers build themselves: account context,

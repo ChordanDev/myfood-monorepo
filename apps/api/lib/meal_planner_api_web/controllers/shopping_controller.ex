@@ -22,6 +22,37 @@ defmodule MealPlannerApiWeb.ShoppingController do
     end
   end
 
+  # Manual Shopping items (issue #40). Every error leaves through the
+  # `ApiError` envelope.
+  def create_manual(conn, params) do
+    user = scoped_user(conn)
+
+    case ShoppingService.create_manual_item(user, params) do
+      {:ok, line} -> conn |> put_status(:created) |> json(%{data: line})
+      {:error, reason} -> render_item_error(conn, reason)
+    end
+  end
+
+  def delete_item(conn, %{"item_id" => item_id}) do
+    user = scoped_user(conn)
+
+    case ShoppingService.delete_manual_item(user, item_id) do
+      {:ok, deleted} -> json(conn, %{data: deleted})
+      {:error, reason} -> render_item_error(conn, reason)
+    end
+  end
+
+  defp render_item_error(conn, :validation_error), do: conn |> ApiError.error(:validation_error)
+
+  defp render_item_error(conn, :shopping_item_not_manual),
+    do: conn |> ApiError.error(:shopping_item_not_manual)
+
+  defp render_item_error(conn, :shopping_item_not_found),
+    do: conn |> ApiError.error(:shopping_item_not_found)
+
+  defp render_item_error(conn, :invalid_identity), do: conn |> ApiError.error(:invalid_identity)
+  defp render_item_error(conn, _reason), do: conn |> ApiError.server_fault()
+
   def mark_cart(conn, payload) do
     user = scoped_user(conn)
 

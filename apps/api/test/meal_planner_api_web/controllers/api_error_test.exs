@@ -96,6 +96,11 @@ defmodule MealPlannerApiWeb.ApiErrorTest do
       assert is_binary(message) and message != ""
     end
 
+    test "maps the manual Shopping item codes to their HTTP status", %{conn: conn} do
+      assert (conn |> ApiError.error(:shopping_item_not_manual)).status == 422
+      assert (conn |> ApiError.error(:shopping_item_not_found)).status == 404
+    end
+
     test "maps the voice adjustment codes to 422", %{conn: conn} do
       for code <- [:voice_parse_failed, :voice_confirmation_required] do
         conn = conn |> ApiError.error(code)
@@ -296,7 +301,13 @@ defmodule MealPlannerApiWeb.ApiErrorTest do
                    slot_cooking_times_codes ++
                    preferences_codes ++
                    cooking_codes ++
-                   voice_codes ++ [:inventory_item_not_found] ++ Map.keys(@channel_codes)
+                   voice_codes ++
+                   [
+                     :inventory_item_not_found,
+                     :shopping_item_not_manual,
+                     :shopping_item_not_found
+                   ] ++
+                   Map.keys(@channel_codes)
                )
     end
   end

@@ -88,6 +88,8 @@ defmodule MealPlannerApiWeb.ApiError do
           | :invalid_diet
           | :invalid_hard_restriction
           | :inventory_item_not_found
+          | :shopping_item_not_manual
+          | :shopping_item_not_found
           | :generation_in_progress
           | :no_active_generation
           | :missing_session_id
@@ -179,6 +181,11 @@ defmodule MealPlannerApiWeb.ApiError do
     cooking_already_finished: {409, "This meal has already been cooked."},
     cooking_chat_unavailable: {409, "Cooking is only available for a meal scheduled for today."},
     inventory_mutation_failed: {422, "The inventory could not be updated. Nothing was saved."},
+    # Manual Shopping items (issue #40). An id that is unknown, of another
+    # Account, not a UUID or of an item no longer on the list shares
+    # `shopping_item_not_found`, so existence is not revealed.
+    shopping_item_not_manual: {422, "Only a Shopping item added by hand can be deleted."},
+    shopping_item_not_found: {404, "The Shopping item was not found."},
     # Voice adjustment of Inventory (issue #44).
     voice_parse_failed: {422, "The spoken adjustment could not be understood."},
     voice_confirmation_required: {422, "This adjustment needs the User's confirmation first."},
