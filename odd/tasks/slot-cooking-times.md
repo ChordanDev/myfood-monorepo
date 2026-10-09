@@ -38,7 +38,7 @@ New `ApiError` codes: `slot_cooking_times_not_found` (404), `validation_error` (
 
 - Missing slot, slot that is not an object, any key other than the three slots (including `snack`), `cookingTimeMinutes` missing, not an integer or outside 0 to 240, `hungerLevel` missing or not a string → `validation_error` with a message naming the first offending field in camelCase (for example `breakfast.cookingTimeMinutes`).
 - `hungerLevel` string outside the catalog → `invalid_hunger_level`.
-- The field-naming message needs a message override on the envelope renderer; the mobile contract scan must keep seeing the code.
+- The controller answers through `ApiError.validation_error/2`. The message names the field: `The field <field> is not valid.` (for example `The field breakfast.cookingTimeMinutes is not valid.`). A body that is not an object, or that no parser read, has no field to name and gets the static message of the code, `The request is not valid.`
 
 ### Mobile
 
@@ -98,10 +98,12 @@ Review (receipt-driven development on):
   - The `PUT` changeset branch answers 500 through `server_fault`, drops the changeset without logging it and has no test. It is reachable: a User deleted between authentication and the write fails the `user_id` foreign key.
   - No test asserts that a refused replace rolls back an outer transaction that is already open; #20 depends on that case.
   - `replace_user_slot_cooking_times/2` only works with atom-keyed slot maps and its `@doc` does not say so.
-  - `validation_error` and `ApiError.error/3` are general purpose but sit under a Slot cooking times heading in `api_error.ex` and its test.
+  - `validation_error` is general purpose but sits under a Slot cooking times heading in `api_error.ex` and its test.
 - `apps/api/docs/FRONTEND_INTEGRATION.md` still carries a legacy endpoints table and slots section that list `snack` and omit `/api/me`; not touched here.
 
 ## Delivery record
+
+Pull requests merged to `main`: #75 (storage), #97 (the migration took its own version, renamed to `20261008130100`), #76 (routes and error codes) and #77 (mobile fallback and docs).
 
 Chain strategy chosen by the user: stacked pull requests, each one based on its parent branch, as in #11. No tracker pull request.
 
