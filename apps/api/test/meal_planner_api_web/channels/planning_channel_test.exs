@@ -1590,7 +1590,7 @@ defmodule MealPlannerApiWeb.PlanningChannelTest do
       assert active_count == 0
     end
 
-    test "overlapping active range returns :overlapping_range, only the pre-existing row stays",
+    test "overlapping active range returns :planning_range_locked, only the pre-existing row stays",
          %{account: account, user: owner_user, token: owner_token} do
       _ = persist_trial_window!(account, :eligible)
       owner_membership_id = owner_membership_id(account.id, owner_user.id)
@@ -1615,7 +1615,7 @@ defmodule MealPlannerApiWeb.PlanningChannelTest do
           "range_to" => "2026-04-15"
         })
 
-      assert_error_reply(ref, :overlapping_range)
+      assert_error_reply(ref, :planning_range_locked)
 
       refute_receive %Phoenix.Socket.Broadcast{
                        topic: "planning:" <> _,
@@ -1634,7 +1634,7 @@ defmodule MealPlannerApiWeb.PlanningChannelTest do
       assert hd(active_sessions).id == existing.id
     end
 
-    test "invalid range_from format returns :invalid_range", %{
+    test "invalid range_from format returns :planning_invalid_range", %{
       account: account,
       token: token
     } do
@@ -1651,7 +1651,7 @@ defmodule MealPlannerApiWeb.PlanningChannelTest do
           "range_to" => "2026-04-07"
         })
 
-      assert_error_reply(ref, :invalid_range)
+      assert_error_reply(ref, :planning_invalid_range)
     end
   end
 
@@ -1897,7 +1897,7 @@ defmodule MealPlannerApiWeb.PlanningChannelTest do
   # ==========================================================================
 
   describe "e2e 2-socket on same planning:<account_id> (task 5.2)" do
-    test "A starts, B overlap → :overlapping_range, B non-overlap → :ok, A cancels → both see session_cancelled",
+    test "A starts, B overlap → :planning_range_locked, B non-overlap → :ok, A cancels → both see session_cancelled",
          %{account: account, user: owner_user, token: owner_token} do
       _ = persist_trial_window!(account, :eligible)
       owner_membership_id = owner_membership_id(account.id, owner_user.id)
@@ -1935,7 +1935,11 @@ defmodule MealPlannerApiWeb.PlanningChannelTest do
           "range_to" => "2026-06-12"
         })
 
-      assert_error_reply(ref_b_overlap, :overlapping_range)
+      # B is not the owner of the lock, so the error names who holds it.
+      assert_receive %Phoenix.Socket.Reply{ref: ^ref_b_overlap, status: :error, payload: locked}
+      assert %{"error" => %{"code" => :planning_range_locked, "details" => details}} = locked
+      assert %{"ownerName" => owner_name} = details
+      assert is_binary(owner_name) and owner_name != ""
       refute_receive %Phoenix.Socket.Broadcast{event: "session_started"}, 200
 
       # ── B starts a NON-OVERLAPPING range → ok ──
@@ -2905,15 +2909,18 @@ defmodule MealPlannerApiWeb.PlanningChannelTest do
       {:ok, _reply, socket} =
         subscribe_and_join(socket, PlanningChannel, "planning:#{account.id}")
 
-      # A range that ends before it starts is refused by the session
-      # changeset, which is neither an atom nor a string reason.
-      ref =
-        push(socket, "start_planning", %{
-          "range_from" => "2026-04-07",
-          "range_to" => "2026-04-01"
-        })
+      # A generation server that answers a changeset: neither an atom nor a
+      # string reason.
+      start_generation_server_stub(
+        account.id,
+        {:error, %Ecto.Changeset{valid?: false, errors: [name: {"is invalid", []}]}}
+      )
 
-      assert_error_reply(ref, :invalid_payload)
+      ref =
+        push(socket, "generate_menu", %{"request_id" => "req_changeset", "constraints" => %{}})
+
+      payload = assert_error_reply(ref, :invalid_payload)
+      refute inspect(payload) =~ "is invalid"
     end
   end
 

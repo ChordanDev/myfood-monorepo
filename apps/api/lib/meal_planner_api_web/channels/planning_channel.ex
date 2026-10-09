@@ -72,6 +72,7 @@ defmodule MealPlannerApiWeb.PlanningChannel do
   alias MealPlannerApi.AccountAccess
   alias MealPlannerApi.Persistence.Planning
   alias MealPlannerApi.Generation.{PlanningSessionServer, PlanningSessionSupervisor, Server}
+  alias MealPlannerApi.Planning.LockOwner
   alias MealPlannerApi.Services.PlanningChatService
   alias MealPlannerApiWeb.ApiError
   alias MealPlannerApiWeb.Casing
@@ -393,8 +394,7 @@ defmodule MealPlannerApiWeb.PlanningChannel do
     user = socket.assigns.current_user
     account_id = membership.account_id
 
-    with {:ok, date_from} <- parse_iso_date(Map.get(payload, "range_from")),
-         {:ok, date_to} <- parse_iso_date(Map.get(payload, "range_to")),
+    with {:ok, {date_from, date_to}} <- parse_range(payload),
          :ok <- check_account_eligible(account_id),
          {:ok, %{session_id: started_id, pid: pid}} <-
            PlanningSessionSupervisor.start_session(
@@ -422,8 +422,12 @@ defmodule MealPlannerApiWeb.PlanningChannel do
       {:error, :subscription_required} ->
         {:reply, {:error, error_payload(:subscription_required)}, socket}
 
-      {:error, :invalid_range} ->
-        {:reply, {:error, error_payload(:invalid_range)}, socket}
+      {:error, :planning_invalid_range} ->
+        {:reply, {:error, error_payload(:planning_invalid_range)}, socket}
+
+      {:error, :overlapping_range} ->
+        details = range_lock_details(account_id, payload, membership.id)
+        {:reply, {:error, error_payload(:planning_range_locked, %{}, details)}, socket}
 
       {:error, reason} ->
         {:reply, {:error, error_payload(reason)}, socket}
@@ -551,16 +555,23 @@ defmodule MealPlannerApiWeb.PlanningChannel do
   defp error_payload(reason, request_id),
     do: build_error_payload(reason, %{request_id: request_id})
 
-  defp build_error_payload(reason, correlation) do
-    reason |> error_envelope() |> Map.merge(correlation) |> Casing.camelize_keys()
+  # `details` ride inside `error`, next to `code` and `message`, when the
+  # reason is worth more than its message (`planning_range_locked` names the
+  # member who holds the range).
+  defp error_payload(reason, correlation, details) do
+    build_error_payload(reason, correlation, details)
+  end
+
+  defp build_error_payload(reason, correlation, details \\ %{}) do
+    reason |> error_envelope(details) |> Map.merge(correlation) |> Casing.camelize_keys()
   end
 
   # A reason outside the allowlist replies `unknown_error` and is logged, so
   # nothing free-form reaches the client.
-  defp error_envelope(reason) do
+  defp error_envelope(reason, details) do
     case error_code(reason) do
       {:ok, code} ->
-        ApiError.envelope(code)
+        ApiError.envelope(code, details)
 
       :error ->
         Logger.warning(
@@ -619,16 +630,39 @@ defmodule MealPlannerApiWeb.PlanningChannel do
     end
   end
 
-  # Parses an ISO8601 date string for `start_planning` payloads.
-  # Returns `{:ok, Date.t()}` or `{:error, :invalid_range}` on parse fail.
-  defp parse_iso_date(string) when is_binary(string) do
-    case Date.from_iso8601(string) do
-      {:ok, date} -> {:ok, date}
-      _ -> {:error, :invalid_range}
+  # The range of a `start_planning` payload: both ends are ISO 8601 dates and
+  # the range does not end before it starts. Anything else is
+  # `:planning_invalid_range`.
+  defp parse_range(payload) do
+    with {:ok, date_from} <- parse_iso_date(Map.get(payload, "range_from")),
+         {:ok, date_to} <- parse_iso_date(Map.get(payload, "range_to")),
+         true <- Date.compare(date_from, date_to) != :gt do
+      {:ok, {date_from, date_to}}
+    else
+      _invalid -> {:error, :planning_invalid_range}
     end
   end
 
-  defp parse_iso_date(_), do: {:error, :invalid_range}
+  defp parse_iso_date(string) when is_binary(string) do
+    case Date.from_iso8601(string) do
+      {:ok, date} -> {:ok, date}
+      _ -> {:error, :planning_invalid_range}
+    end
+  end
+
+  defp parse_iso_date(_), do: {:error, :planning_invalid_range}
+
+  # The details of `planning_range_locked`: the display name of the member
+  # who holds the range, only when it is not the caller. The range comes from
+  # the payload that already passed `parse_range/1`.
+  defp range_lock_details(account_id, payload, caller_membership_id) do
+    {:ok, range} = parse_range(payload)
+
+    case LockOwner.owner_name(account_id, range, caller_membership_id) do
+      {:ok, name} -> %{owner_name: name}
+      :none -> %{}
+    end
+  end
 
   # Phase 4 PR4 task 4.4 — Validates `session_id` is a UUID string and
   # returns it. Anything else falls back to `{:error, :invalid_session_id}`
