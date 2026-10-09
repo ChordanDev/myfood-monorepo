@@ -11,12 +11,20 @@ defmodule MealPlannerApiWeb.SlotCookingTimesControllerTest do
   import MealPlannerApiWeb.ChannelHelpers,
     only: [persist_trial_window!: 2, with_enforcement_enabled!: 1]
 
+  alias MealPlannerApi.Repo
+
   @path "/api/me/slot-cooking-times"
 
   @times %{
     "breakfast" => %{"cookingTimeMinutes" => 10, "hungerLevel" => "light"},
     "lunch" => %{"cookingTimeMinutes" => 45, "hungerLevel" => "normal"},
     "dinner" => %{"cookingTimeMinutes" => 30, "hungerLevel" => "strong"}
+  }
+
+  @snake_times %{
+    "breakfast" => %{"cooking_time_minutes" => 10, "hunger_level" => "light"},
+    "lunch" => %{"cooking_time_minutes" => 45, "hunger_level" => "normal"},
+    "dinner" => %{"cooking_time_minutes" => 30, "hunger_level" => "strong"}
   }
 
   setup do
@@ -195,6 +203,33 @@ defmodule MealPlannerApiWeb.SlotCookingTimesControllerTest do
       assert token |> put_times(refused) |> json_response(422)
       assert token |> put_times(Map.put(@times, "snack", @times["lunch"])) |> json_response(422)
       assert token |> get_times() |> json_response(200) == @times
+    end
+  end
+
+  describe "a User deleted between authentication and the write" do
+    # Authentication loads the User, so a deleted one is answered 401 before
+    # the action runs. The action is called directly with the User it was
+    # handed, as when the delete lands in between.
+    @tag :capture_log
+    test "answers 500 and logs the changeset errors", %{user: user} do
+      Repo.delete!(user)
+
+      conn =
+        build_conn()
+        |> Map.put(:body_params, @snake_times)
+        |> Guardian.Plug.put_current_resource(user)
+
+      log =
+        ExUnit.CaptureLog.capture_log([level: :error], fn ->
+          conn = MealPlannerApiWeb.SlotCookingTimesController.update(conn, %{})
+          send(self(), {:conn, conn})
+        end)
+
+      assert_received {:conn, conn}
+      assert %{"error" => %{"code" => "unknown_error"}} = json_response(conn, 500)
+      assert log =~ "[error]"
+      assert log =~ "Slot cooking times write failed for user #{user.id}"
+      assert log =~ "user_id"
     end
   end
 
