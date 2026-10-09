@@ -391,7 +391,8 @@ defmodule MealPlannerApi.Services.InventoryService do
       &(&1.ingredient_id == entry.ingredient_id and &1.unit == entry.unit and
           &1.source_kind == source_kind and LotFreshness.usable?(&1, today))
     )
-    |> Enum.sum_by(& &1.quantity_milli)
+    |> Enum.map(& &1.quantity_milli)
+    |> Enum.sum()
   end
 
   # What the User can still use, per ingredient and unit.
@@ -404,7 +405,7 @@ defmodule MealPlannerApi.Services.InventoryService do
         ingredient_id: ingredient_id,
         name: hd(lots).ingredient.name,
         unit: unit,
-        total_milli: Enum.sum_by(lots, & &1.quantity_milli)
+        total_milli: lots |> Enum.map(& &1.quantity_milli) |> Enum.sum()
       }
     end)
   end
