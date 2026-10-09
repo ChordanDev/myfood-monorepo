@@ -89,14 +89,13 @@ function fillPlanCache() {
       } as never,
     ],
     recipeSummaries: { 'recipe-1': { id: 'recipe-1', name: 'Soup' } as never },
-    favoriteRecipeIds: ['recipe-1'],
   });
 }
 
 describe('AuthProvider — meal plan cache', () => {
   afterEach(() => {
     jest.restoreAllMocks();
-    useMealPlanStore.setState({ entries: [], recipeSummaries: {}, favoriteRecipeIds: [] });
+    useMealPlanStore.setState({ entries: [], recipeSummaries: {} });
   });
 
   it('keeps the cached plan when the same account is restored', async () => {
@@ -117,7 +116,6 @@ describe('AuthProvider — meal plan cache', () => {
 
     expect(useMealPlanStore.getState().entries).toEqual([]);
     expect(useMealPlanStore.getState().recipeSummaries).toEqual({});
-    expect(useMealPlanStore.getState().favoriteRecipeIds).toEqual([]);
     act(() => tree.unmount());
   });
 

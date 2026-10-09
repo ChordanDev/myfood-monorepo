@@ -84,7 +84,8 @@ export function HomeScreen() {
     void useFavoritesStore.getState().toggle(
       favoriteSummaryFromRecipe({
         id: selectedRecipeId,
-        name: recipeSummaries[selectedRecipeId]?.name ?? getRecipeById(selectedRecipeId)?.name ?? '',
+        name:
+          recipeSummaries[selectedRecipeId]?.name ?? getRecipeById(selectedRecipeId)?.name ?? '',
         durationMinutes: null,
         ingredients: [],
       })
