@@ -70,6 +70,7 @@ defmodule MealPlannerApiWeb.PlanningChannel do
   require Logger
 
   alias MealPlannerApi.AccountAccess
+  alias MealPlannerApi.Persistence.Planning
   alias MealPlannerApi.Generation.{PlanningSessionServer, PlanningSessionSupervisor, Server}
   alias MealPlannerApi.Services.PlanningChatService
   alias MealPlannerApiWeb.ApiError
@@ -121,6 +122,8 @@ defmodule MealPlannerApiWeb.PlanningChannel do
     with :ok <- check_authenticated(socket),
          {:ok, membership} <- fetch_active_membership(socket, topic_account_id),
          :ok <- check_join_capability(membership) do
+      send(self(), :after_join)
+
       {:ok,
        socket
        |> assign(:account_id, topic_account_id)
@@ -128,6 +131,42 @@ defmodule MealPlannerApiWeb.PlanningChannel do
     else
       {:error, code} -> {:error, error_payload(code)}
     end
+  end
+
+  # Issue #27 — a client that joins (or rejoins) while its Account has an
+  # :active PlanningSession receives `session_resumed` with the pending
+  # proposal and the recent chat, so it can recover the session without a
+  # command. No active session, no push.
+  @impl true
+  def handle_info(:after_join, socket) do
+    account_id = socket.assigns.account_id
+
+    case Planning.get_active_planning_session(account_id) do
+      nil -> :ok
+      session -> push(socket, "session_resumed", resumed_payload(account_id, session))
+    end
+
+    {:noreply, socket}
+  end
+
+  defp resumed_payload(account_id, session) do
+    proposal = Planning.latest_pending_proposal(account_id)
+
+    Casing.camelize_keys(%{
+      session_id: session.id,
+      proposal_id: proposal && proposal.id,
+      proposal: proposal && proposal.proposal_json,
+      messages:
+        account_id
+        |> Planning.recent_planning_messages(session.id)
+        |> Enum.map(fn message ->
+          %{
+            role: Atom.to_string(message.role),
+            content: message.content,
+            intent_kind: message.intent_kind
+          }
+        end)
+    })
   end
 
   # `UserSocket.connect/3` verifies the token once and the socket can stay

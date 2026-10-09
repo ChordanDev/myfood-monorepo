@@ -12,7 +12,9 @@ defmodule MealPlannerApi.Persistence.Planning do
     CookingSession,
     CookingStepEvent,
     PlanningGenerationRun,
+    PlanningMessage,
     PlanningProposal,
+    PlanningSession,
     ScheduledMeal
   }
 
@@ -27,6 +29,52 @@ defmodule MealPlannerApi.Persistence.Planning do
 
   def update_proposal(proposal, attrs),
     do: proposal |> PlanningProposal.changeset(attrs) |> Repo.update()
+
+  @doc """
+  The `:active` planning session of the account, or `nil`. Read-only.
+  """
+  @spec get_active_planning_session(Ecto.UUID.t()) :: PlanningSession.t() | nil
+  def get_active_planning_session(account_id) do
+    from(s in PlanningSession,
+      where: s.account_id == ^account_id and s.status == :active,
+      order_by: [desc: s.started_at],
+      limit: 1
+    )
+    |> Repo.one()
+  end
+
+  @doc """
+  The most recent `:pending` proposal generated for the account, or `nil`.
+  Read-only.
+  """
+  @spec latest_pending_proposal(Ecto.UUID.t()) :: PlanningProposal.t() | nil
+  def latest_pending_proposal(account_id) do
+    from(p in PlanningProposal,
+      join: r in PlanningGenerationRun,
+      on: r.id == p.generation_run_id,
+      where: r.account_id == ^account_id and p.status == :pending,
+      order_by: [desc: p.inserted_at],
+      limit: 1
+    )
+    |> Repo.one()
+  end
+
+  @doc """
+  The last `limit` messages of a planning session of the account, oldest
+  first. Read-only.
+  """
+  @spec recent_planning_messages(Ecto.UUID.t(), Ecto.UUID.t(), pos_integer()) :: [
+          PlanningMessage.t()
+        ]
+  def recent_planning_messages(account_id, session_id, limit \\ 20) do
+    from(m in PlanningMessage,
+      where: m.account_id == ^account_id and m.session_id == ^session_id,
+      order_by: [desc: m.inserted_at],
+      limit: ^limit
+    )
+    |> Repo.all()
+    |> Enum.reverse()
+  end
 
   def schedule_meal(attrs),
     do: %ScheduledMeal{} |> ScheduledMeal.changeset(attrs) |> Repo.insert()
