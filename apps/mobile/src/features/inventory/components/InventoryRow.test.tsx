@@ -4,6 +4,7 @@ import React from 'react';
 import { StyleSheet, Text } from 'react-native';
 import { act, create, ReactTestInstance, ReactTestRendererJSON } from 'react-test-renderer';
 import { INVENTORY_CATEGORY_COLORS } from '../constants/categories';
+import { MILK as MILK_LOT } from '../mocks';
 import type { InventoryItem } from '../types';
 import { InventoryRow } from './InventoryRow';
 
@@ -21,14 +22,7 @@ jest.mock('@/context/RecipeThemeContext', () => ({
   }),
 }));
 
-const MILK: InventoryItem = {
-  id: 'inv-milk',
-  name: 'Leche entera',
-  category: 'lacteos',
-  quantity: 1000,
-  unit: 'ml',
-  confidence: 'estimated',
-};
+const MILK: InventoryItem = { ...MILK_LOT, name: 'Leche entera', quantityMilli: 1_000_000 };
 
 function renderRow(item: InventoryItem) {
   const onEdit = jest.fn();
@@ -77,14 +71,18 @@ describe('InventoryRow', () => {
     );
   });
 
-  it('tags an estimated quantity as approximate', () => {
-    const { root } = renderRow(MILK);
+  it('paints a category the screen does not draw with the color of the one it maps to', () => {
+    const { tree } = renderRow({ ...MILK, category: 'granos' });
 
-    expect(getTexts(root)).toContain('aprox.');
+    const surface = tree.toJSON() as ReactTestRendererJSON;
+
+    expect(StyleSheet.flatten(surface.props.style)).toEqual(
+      expect.objectContaining({ backgroundColor: INVENTORY_CATEGORY_COLORS.almacen })
+    );
   });
 
-  it('does not tag an exact quantity', () => {
-    const { root } = renderRow({ ...MILK, confidence: 'exact' });
+  it('does not tag the quantity as approximate', () => {
+    const { root } = renderRow(MILK);
 
     expect(getTexts(root)).not.toContain('aprox.');
   });

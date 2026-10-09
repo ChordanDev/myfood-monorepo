@@ -3,6 +3,7 @@
 import React from 'react';
 import { Text, TextInput } from 'react-native';
 import { act, create, ReactTestInstance } from 'react-test-renderer';
+import { MILK as MILK_LOT } from '../mocks';
 import type { InventoryItem } from '../types';
 import { InventoryEditSheet } from './InventoryEditSheet';
 
@@ -35,12 +36,10 @@ jest.mock('@/context/RecipeThemeContext', () => ({
 }));
 
 const MILK: InventoryItem = {
-  id: 'inv-milk',
+  ...MILK_LOT,
   name: 'Leche entera',
-  category: 'lacteos',
-  quantity: 1000,
-  unit: 'ml',
-  confidence: 'estimated',
+  quantityMilli: 1_000_000,
+  notes: null,
 };
 
 function renderSheet(item: InventoryItem = MILK) {
@@ -102,25 +101,19 @@ function press(root: ReactTestInstance, label: string) {
 }
 
 describe('InventoryEditSheet', () => {
-  it('prefills the name, the raw quantity with its unit and the notes', () => {
+  it('shows the name and the notes as text and prefills the raw quantity with its unit', () => {
     const { root } = renderSheet({ ...MILK, notes: 'En la puerta' });
 
-    expect(getInput(root, 'Nombre').props.value).toBe('Leche entera');
+    expect(root.findAllByType(TextInput)).toHaveLength(1);
     expect(getInput(root, 'Cantidad').props.value).toBe('1000');
-    expect(getInput(root, 'Notas').props.value).toBe('En la puerta');
-    expect(getTexts(root)).toContain('ml');
+    expect(getTexts(root)).toEqual(expect.arrayContaining(['Leche entera', 'En la puerta', 'ml']));
   });
 
-  it('prefills a decimal quantity with a comma and keeps it out of an unrelated save', () => {
-    const { root, onSave } = renderSheet({ ...MILK, quantity: 0.5, unit: 'unit' });
+  it('prefills a decimal quantity with a comma', () => {
+    const { root } = renderSheet({ ...MILK, quantityMilli: 500, unit: 'unit' });
 
     expect(getInput(root, 'Cantidad').props.value).toBe('0,5');
     expect(getTexts(root)).toContain('u');
-
-    type(root, 'Notas', 'Media docena');
-    press(root, 'Guardar');
-
-    expect(onSave.mock.calls[0][0]).toStrictEqual({ notes: 'Media docena' });
   });
 
   it('asks for the quantity with a numeric keyboard', () => {
@@ -129,63 +122,23 @@ describe('InventoryEditSheet', () => {
     expect(getInput(root, 'Cantidad').props.keyboardType).toBe('decimal-pad');
   });
 
-  it('saves only the notes when nothing else changed', () => {
-    const { root, onSave } = renderSheet();
-
-    type(root, 'Notas', 'En la puerta');
-    press(root, 'Guardar');
-
-    expect(onSave).toHaveBeenCalledTimes(1);
-    // An untouched quantity must stay out of the patch: the store marks any quantity it gets as exact.
-    expect(onSave.mock.calls[0][0]).toStrictEqual({ notes: 'En la puerta' });
-  });
-
-  it('saves the parsed quantity when it changed', () => {
+  it('saves the typed quantity in thousandths', () => {
     const { root, onSave } = renderSheet();
 
     type(root, 'Cantidad', '1,5');
     press(root, 'Guardar');
 
-    expect(onSave.mock.calls[0][0]).toStrictEqual({ quantity: 1.5 });
+    expect(onSave).toHaveBeenCalledTimes(1);
+    expect(onSave).toHaveBeenCalledWith(1500);
   });
 
-  it('leaves the quantity out when it is retyped with the same value', () => {
+  it('saves zero, which empties the lot', () => {
     const { root, onSave } = renderSheet();
 
-    type(root, 'Cantidad', '1000,0');
+    type(root, 'Cantidad', '0');
     press(root, 'Guardar');
 
-    expect(onSave.mock.calls[0][0]).toStrictEqual({});
-  });
-
-  it('saves a renamed item without surrounding spaces', () => {
-    const { root, onSave } = renderSheet();
-
-    type(root, 'Nombre', '  Leche descremada ');
-    press(root, 'Guardar');
-
-    expect(onSave.mock.calls[0][0]).toStrictEqual({ name: 'Leche descremada' });
-  });
-
-  it('saves emptied notes so they can be cleared', () => {
-    const { root, onSave } = renderSheet({ ...MILK, notes: 'En la puerta' });
-
-    type(root, 'Notas', '  ');
-    press(root, 'Guardar');
-
-    expect(onSave.mock.calls[0][0]).toStrictEqual({ notes: '' });
-  });
-
-  it('cannot be saved while the name is empty', () => {
-    const { root, onSave } = renderSheet();
-
-    type(root, 'Nombre', '   ');
-
-    expect(getButton(root, 'Guardar').props.disabled).toBe(true);
-
-    press(root, 'Guardar');
-
-    expect(onSave).not.toHaveBeenCalled();
+    expect(onSave).toHaveBeenCalledWith(0);
   });
 
   it.each(['', 'abc', '-1', '1.000,5'])('cannot be saved with the quantity "%s"', (quantity) => {
@@ -200,7 +153,7 @@ describe('InventoryEditSheet', () => {
     expect(onSave).not.toHaveBeenCalled();
   });
 
-  it('can be saved again once the fields are valid', () => {
+  it('can be saved again once the quantity is valid', () => {
     const { root } = renderSheet();
 
     type(root, 'Cantidad', 'abc');

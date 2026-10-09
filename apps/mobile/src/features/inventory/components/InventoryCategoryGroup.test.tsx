@@ -4,6 +4,7 @@ import React from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import { act, create, ReactTestInstance } from 'react-test-renderer';
 import { INVENTORY_CATEGORY_COLORS } from '../constants/categories';
+import { ONION } from '../mocks';
 import type { InventoryItem } from '../types';
 import { InventoryCategoryGroup } from './InventoryCategoryGroup';
 
@@ -22,22 +23,11 @@ jest.mock('@/context/RecipeThemeContext', () => ({
   }),
 }));
 
-const ONION: InventoryItem = {
-  id: 'inv-onion',
-  name: 'Cebolla',
-  category: 'verduras',
-  quantity: 3,
-  unit: 'unit',
-  confidence: 'exact',
-};
-
 const TOMATO: InventoryItem = {
+  ...ONION,
   id: 'inv-tomato',
   name: 'Tomate',
-  category: 'verduras',
-  quantity: 2,
-  unit: 'unit',
-  confidence: 'estimated',
+  quantityMilli: 2_000,
 };
 
 function renderGroup() {

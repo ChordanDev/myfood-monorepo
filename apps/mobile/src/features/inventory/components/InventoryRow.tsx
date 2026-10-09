@@ -1,10 +1,9 @@
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Text } from 'react-native';
 import { Pencil, Trash2 } from 'lucide-react-native';
 import { ShadowSurface } from '@/components';
 import { useRecipeTheme } from '@/context/RecipeThemeContext';
-import { withOpacity } from '@/utils/colors';
-import { formatQuantity } from '@/utils/formatQuantity';
 import { INVENTORY_CATEGORY_COLORS } from '../constants/categories';
+import { formatQuantityMilli, toDisplayCategory } from '../domain';
 import type { InventoryItem } from '../types';
 
 interface InventoryRowProps {
@@ -20,21 +19,16 @@ export function InventoryRow({ item, onEdit, onDelete }: InventoryRowProps) {
 
   return (
     <ShadowSurface
-      style={[styles.row, { backgroundColor: INVENTORY_CATEGORY_COLORS[item.category] }]}>
+      style={[
+        styles.row,
+        { backgroundColor: INVENTORY_CATEGORY_COLORS[toDisplayCategory(item.category)] },
+      ]}>
       <Text style={[styles.quantity, { color: theme.textBlack }]}>
-        {formatQuantity(item.quantity, item.unit)}
+        {formatQuantityMilli(item.quantityMilli, item.unit)}
       </Text>
       <Text numberOfLines={1} style={[styles.name, { color: theme.textBlack }]}>
         {item.name}
       </Text>
-
-      {item.confidence === 'estimated' ? (
-        <View style={[styles.approxPill, { backgroundColor: withOpacity(theme.textBlack, 0.1) }]}>
-          <Text style={[styles.approxLabel, { color: withOpacity(theme.textBlack, 0.6) }]}>
-            aprox.
-          </Text>
-        </View>
-      ) : null}
 
       <Pressable
         accessibilityLabel={`Editar ${item.name}`}
@@ -62,17 +56,6 @@ const styles = StyleSheet.create({
     height: 36,
     justifyContent: 'center',
     width: 36,
-  },
-  approxLabel: {
-    fontFamily: 'Inter_600SemiBold',
-    fontSize: 11,
-    letterSpacing: 0.3,
-    lineHeight: 14,
-  },
-  approxPill: {
-    borderRadius: 9999,
-    paddingHorizontal: 7,
-    paddingVertical: 3,
   },
   name: {
     flex: 1,

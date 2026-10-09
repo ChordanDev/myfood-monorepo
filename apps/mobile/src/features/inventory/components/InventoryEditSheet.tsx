@@ -6,13 +6,13 @@ import { useRecipeTheme } from '@/context/RecipeThemeContext';
 import { useKeyboardAnimation } from '@/hooks/useKeyboardAnimation';
 import { withOpacity } from '@/utils/colors';
 import { UNIT_LABEL } from '@/utils/formatQuantity';
-import { parseQuantityInput } from '../domain';
-import type { InventoryItem, InventoryItemPatch } from '../types';
+import { milliToInputText, parseQuantityInputMilli } from '../domain';
+import type { InventoryItem } from '../types';
 
 interface InventoryEditSheetProps {
   visible: boolean;
   item: InventoryItem | null;
-  onSave: (patch: InventoryItemPatch) => void;
+  onSave: (quantityMilli: number) => void;
   onClose: () => void;
 }
 
@@ -61,20 +61,18 @@ export function InventoryEditSheet({ visible, item, onSave, onClose }: Inventory
 
 interface InventoryEditFormProps {
   item: InventoryItem;
-  onSave: (patch: InventoryItemPatch) => void;
+  onSave: (quantityMilli: number) => void;
   onClose: () => void;
 }
 
+// Only the quantity can be changed: no endpoint edits the name or the notes of a lot.
 function InventoryEditForm({ item, onSave, onClose }: InventoryEditFormProps) {
   const { theme } = useRecipeTheme();
-  const [name, setName] = useState(item.name);
-  // Unrounded, so an untouched field parses back to exactly the stored quantity.
-  const [quantityText, setQuantityText] = useState(String(item.quantity).replace('.', ','));
-  const [notes, setNotes] = useState(item.notes ?? '');
+  const [quantityText, setQuantityText] = useState(milliToInputText(item.quantityMilli));
 
-  const trimmedName = name.trim();
-  const quantity = parseQuantityInput(quantityText);
-  const canSave = trimmedName.length > 0 && quantity !== null;
+  // The user types display units; the API takes thousandths.
+  const quantityMilli = parseQuantityInputMilli(quantityText);
+  const canSave = quantityMilli !== null;
 
   const fieldStyle = {
     backgroundColor: withOpacity(theme.icon, 0.15),
@@ -86,42 +84,23 @@ function InventoryEditForm({ item, onSave, onClose }: InventoryEditFormProps) {
   };
 
   const handleSave = () => {
-    if (trimmedName.length === 0 || quantity === null) {
+    if (quantityMilli === null) {
       return;
     }
 
-    const patch: InventoryItemPatch = {};
-    const trimmedNotes = notes.trim();
-
-    if (trimmedName !== item.name) patch.name = trimmedName;
-    // The store marks any quantity it receives as exact, so an unchanged one stays out.
-    if (quantity !== item.quantity) patch.quantity = quantity;
-    if (trimmedNotes !== (item.notes ?? '')) patch.notes = trimmedNotes;
-
-    onSave(patch);
+    onSave(quantityMilli);
   };
 
   return (
     <>
       <Text accessibilityRole="header" style={[styles.title, { color: theme.textLight }]}>
-        Editar producto
+        {item.name}
       </Text>
+      {item.notes ? (
+        <Text style={[styles.notes, { color: theme.textMedium }]}>{item.notes}</Text>
+      ) : null}
 
       <View style={styles.fields}>
-        <View style={styles.fieldGroup}>
-          <Text style={[styles.fieldLabel, { color: theme.textMedium }]}>Nombre</Text>
-          <View style={[styles.field, fieldStyle]}>
-            <TextInput
-              accessibilityLabel="Nombre"
-              value={name}
-              onChangeText={setName}
-              returnKeyType="done"
-              style={[styles.input, { color: theme.textLight }]}
-              {...inputProps}
-            />
-          </View>
-        </View>
-
         <View style={styles.fieldGroup}>
           <Text style={[styles.fieldLabel, { color: theme.textMedium }]}>Cantidad</Text>
           <View style={[styles.field, fieldStyle]}>
@@ -134,21 +113,6 @@ function InventoryEditForm({ item, onSave, onClose }: InventoryEditFormProps) {
               {...inputProps}
             />
             <Text style={[styles.unit, { color: theme.textMedium }]}>{UNIT_LABEL[item.unit]}</Text>
-          </View>
-        </View>
-
-        <View style={styles.fieldGroup}>
-          <Text style={[styles.fieldLabel, { color: theme.textMedium }]}>Notas</Text>
-          <View style={[styles.field, styles.notesField, fieldStyle]}>
-            <TextInput
-              accessibilityLabel="Notas"
-              value={notes}
-              onChangeText={setNotes}
-              placeholder="Opcional"
-              multiline
-              style={[styles.input, styles.notesInput, { color: theme.textLight }]}
-              {...inputProps}
-            />
           </View>
         </View>
       </View>
@@ -218,13 +182,12 @@ const styles = StyleSheet.create({
     fontSize: 15,
     paddingVertical: 12,
   },
-  notesField: {
-    alignItems: 'flex-start',
-  },
-  notesInput: {
-    maxHeight: 96,
-    minHeight: 72,
-    textAlignVertical: 'top',
+  notes: {
+    fontFamily: 'Inter_500Medium',
+    fontSize: 14,
+    lineHeight: 20,
+    marginTop: 6,
+    textAlign: 'center',
   },
   panel: {
     borderTopLeftRadius: 24,

@@ -17,7 +17,7 @@ import {
 } from '../constants/layout';
 import { groupInventoryByCategory } from '../domain';
 import { useInventoryStore } from '../store';
-import type { InventoryItem, InventoryItemPatch } from '../types';
+import type { InventoryItem } from '../types';
 
 // The subtitle sits right under the title, so the usual gap below the title moves under it.
 const TITLE_BOTTOM_SPACING = 4;
@@ -27,8 +27,8 @@ export function InventoryScreen() {
   const metrics = useTitleMetrics();
   const insets = useSafeAreaInsets();
   const items = useInventoryStore((state) => state.items);
-  const updateItem = useInventoryStore((state) => state.updateItem);
-  const removeItem = useInventoryStore((state) => state.removeItem);
+  const setQuantity = useInventoryStore((state) => state.setQuantity);
+  const dispose = useInventoryStore((state) => state.dispose);
   // The item is kept after closing so the fields do not empty while the sheet fades out.
   const [editSheet, setEditSheet] = useState<{ visible: boolean; item: InventoryItem | null }>({
     visible: false,
@@ -56,9 +56,10 @@ export function InventoryScreen() {
     setEditSheet((current) => ({ ...current, visible: false }));
   };
 
-  const handleSaveEdit = (patch: InventoryItemPatch) => {
+  // A failed write leaves the cache as it was, so the row keeps what the API last said.
+  const handleSaveEdit = (quantityMilli: number) => {
     if (editSheet.item) {
-      updateItem(editSheet.item.id, patch);
+      setQuantity(editSheet.item.id, quantityMilli).catch(() => undefined);
     }
 
     handleCloseEditSheet();
@@ -105,7 +106,7 @@ export function InventoryScreen() {
                 category={group.category}
                 items={group.items}
                 onEditItem={(item) => setEditSheet({ visible: true, item })}
-                onDeleteItem={(item) => removeItem(item.id)}
+                onDeleteItem={(item) => dispose(item.id).catch(() => undefined)}
               />
             ))
           ) : (
