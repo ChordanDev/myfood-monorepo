@@ -9,6 +9,11 @@ import type { ShoppingCart } from '../types';
 // minute keeps it alive without a request per tick or per render.
 export const CART_RENEW_INTERVAL_MS = 60_000;
 
+// The server no longer holds the lease: it ran out or the Cart is gone.
+function isLeaseGone(caught: unknown) {
+  return isApiError(caught) && ['stale_cart', 'cart_not_found'].includes(caught.code);
+}
+
 interface UseCartLeaseOptions {
   // The Cart the last read of the list reported for the signed-in Membership, if any.
   listCart: ShoppingCart | null;
@@ -67,9 +72,10 @@ export function useCartLease({ listCart, refreshList }: UseCartLeaseOptions) {
 
       lastActivityAt.current = Date.now();
       renewCart(sessionId)
-        .then(setCart)
+        // A renewal that lands after the Cart was cancelled must not bring it back.
+        .then((lease) => setCart((prev) => (prev?.sessionId === lease.sessionId ? lease : prev)))
         .catch((caught: unknown) => {
-          if (isApiError(caught) && ['stale_cart', 'cart_not_found'].includes(caught.code)) {
+          if (isLeaseGone(caught)) {
             dropCart();
           }
         });
@@ -100,7 +106,9 @@ export function useCartLease({ listCart, refreshList }: UseCartLeaseOptions) {
         } else if (isApiError(caught) && caught.code === 'stale_cart') {
           dropCart();
         } else {
+          // The row may be stale (gone or reserved meanwhile): read the list so it heals.
           setError(caught);
+          refreshList();
         }
       }
     },
@@ -116,7 +124,7 @@ export function useCartLease({ listCart, refreshList }: UseCartLeaseOptions) {
       await cancelCart(sessionId);
       dropCart();
     } catch (caught) {
-      if (isApiError(caught) && caught.code === 'cart_not_found') dropCart();
+      if (isLeaseGone(caught)) dropCart();
       else setError(caught);
     }
   }, [sessionId, dropCart]);

@@ -119,6 +119,17 @@ describe('useCartLease', () => {
       expect(result.current.cart).toBeNull();
     });
 
+    it('reads the list again and keeps the Cart on any other error', async () => {
+      api.markInCart.mockRejectedValue(new ApiError('unknown_error', 'Request failed', 422));
+      const { result, refreshList } = setup(LEASE);
+
+      await tickItems(result);
+
+      expect(refreshList).toHaveBeenCalledTimes(1);
+      expect(result.current.cart).toEqual(LEASE);
+      expect(result.current.errorMessage).toBeDefined();
+    });
+
     it('forgets that state on the next successful tick', async () => {
       api.markInCart.mockRejectedValueOnce(new ApiError('cart_locked', 'held', 409));
       const { result } = setup();
@@ -236,6 +247,40 @@ describe('useCartLease', () => {
 
       await tick(180_000);
       expect(api.renewCart).not.toHaveBeenCalled();
+    });
+
+    it('drops the Cart when cancelling finds the lease stale', async () => {
+      api.cancelCart.mockRejectedValue(new ApiError('stale_cart', 'expired', 409));
+      const { result, refreshList } = setup();
+      await tickItems(result);
+      refreshList.mockClear();
+
+      await act(async () => {
+        await result.current.cancel();
+      });
+
+      expect(result.current.cart).toBeNull();
+      expect(refreshList).toHaveBeenCalledTimes(1);
+    });
+
+    it('does not bring the Cart back when a renewal lands after cancelling', async () => {
+      let resolveRenew: (lease: typeof LEASE) => void = () => {};
+      api.renewCart.mockReturnValue(new Promise((resolve) => (resolveRenew = resolve)));
+      const { result } = setup();
+      await tickItems(result);
+      await tick(60_000);
+      expect(api.renewCart).toHaveBeenCalledTimes(1);
+
+      await act(async () => {
+        await result.current.cancel();
+      });
+      expect(result.current.cart).toBeNull();
+
+      await act(async () => {
+        resolveRenew(LEASE);
+      });
+
+      expect(result.current.cart).toBeNull();
     });
 
     it('asks nothing when there is no Cart', async () => {
