@@ -2258,11 +2258,18 @@ defmodule MealPlannerApiWeb.PlanningChannelTest do
         ]
       }
 
+      # Only keys are rewritten, except in `generation_error`: it has the same
+      # keys whoever broadcast it, so the payload gains the ones it lacked.
       for event <- PlanningChannel.outbound_events() do
         Endpoint.broadcast!("planning:#{account.id}", event, payload)
 
+        expected_for_event =
+          if event == "generation_error",
+            do: Map.merge(expected, %{"details" => %{}, "runId" => nil}),
+            else: expected
+
         assert_push(^event, pushed)
-        assert pushed == expected, "#{event} was pushed as #{inspect(pushed)}"
+        assert pushed == expected_for_event, "#{event} was pushed as #{inspect(pushed)}"
       end
     end
 
@@ -2995,6 +3002,11 @@ defmodule MealPlannerApiWeb.PlanningChannelTest do
   # contains `broadcast`, local or remote: `broadcast!(socket, "event", _)`,
   # `broadcast(state, "event", _)`, `Server.broadcast!(pubsub, topic, "event",
   # _)`. A topic is built by interpolation, so it is not a literal.
+  #
+  # In `planning_channel.ex` a literal passed to `push/3` counts too: the
+  # channel derives `planning_message` from the generation's `proposal_ready`
+  # and pushes it to the client without broadcasting it. Other modules push on
+  # their own channels (`AIChannel`), which is not this topic.
   defp broadcast_event_literals(path) do
     {_ast, events} =
       path
@@ -3002,10 +3014,10 @@ defmodule MealPlannerApiWeb.PlanningChannelTest do
       |> Code.string_to_quoted!()
       |> Macro.prewalk([], fn
         {{:., _, [_module, name]}, _meta, args} = node, events when is_atom(name) ->
-          {node, events ++ event_literals(name, args)}
+          {node, events ++ event_literals(name, args, path)}
 
         {name, _meta, args} = node, events when is_atom(name) and is_list(args) ->
-          {node, events ++ event_literals(name, args)}
+          {node, events ++ event_literals(name, args, path)}
 
         node, events ->
           {node, events}
@@ -3014,8 +3026,10 @@ defmodule MealPlannerApiWeb.PlanningChannelTest do
     events
   end
 
-  defp event_literals(name, args) do
-    if name |> Atom.to_string() |> String.contains?("broadcast") do
+  defp event_literals(name, args, path) do
+    pushes? = name == :push and String.ends_with?(path, "channels/planning_channel.ex")
+
+    if pushes? or name |> Atom.to_string() |> String.contains?("broadcast") do
       Enum.filter(args, &is_binary/1)
     else
       []

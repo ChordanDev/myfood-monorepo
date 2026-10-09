@@ -193,7 +193,7 @@ The command that starts a Planning session and its first generation (issue #25).
 | `rangeTo` | `"YYYY-MM-DD"` | Last day, inclusive. Optional when `dayCount` is sent |
 | `dayCount` | integer | Number of days, 1 to 7. Optional when `rangeTo` is sent; when both are sent they must agree |
 | `request` | string | Optional free text, at most 1000 characters after trimming. A blank text counts as none. It reaches the generation as the `request` constraint |
-| `requestId` | string | Optional. Correlates `generation_started` and `generation_error`; generated when missing |
+| `requestId` | string | Optional. Correlates `generation_started`, and `generation_error` when that event carries it; generated when missing |
 
 The command validates the range, checks the Account is eligible, starts the session (`session_started`), then starts the generation through the same call `generate_menu` uses and replies:
 
@@ -245,6 +245,63 @@ The older `invalid_range` and `overlapping_range` codes stay in the allowlist; `
   "range_to": "2026-06-15"
 }
 ```
+
+#### Planner events (frozen shapes)
+
+The Planner screen reads five events of `planning:<account_id>` (issue #25). Their payloads are frozen: a key is added only with a new version of this section, and a test pins each shape. Every key is camelCase. The shapes are built by the channel (`MealPlannerApiWeb.Channels.Serializers.PlanningEvents`), not by the generation server.
+
+| Event | Emitted | Payload |
+|-------|---------|---------|
+| `session_started` | When the session row is created | `{ "sessionId": "uuid" }` |
+| `generation_started` | After `start_planning` started the generation | `{ "requestId": "string", "runId": "uuid", "sessionId": "uuid" }`. `generate_menu` emits it without `sessionId`, and `swap_constraints` with `{ "requestId", "reason": "constraint_update" }` |
+| `proposal_ready` | When the generation finished a proposal | see below |
+| `planning_message` | Right after `proposal_ready`, same socket | see below |
+| `generation_error` | When a generation failed or could not start | `{ "reason": "string", "details": {}, "runId": "uuid" \| null, "requestId": "string" \| null }` |
+
+`proposal_ready`, day by day:
+
+```json
+{
+  "proposalId": "uuid",
+  "runId": "uuid",
+  "estimatedCostCents": 1950,
+  "days": [
+    {
+      "date": "2026-10-09",
+      "costCents": 1250,
+      "meals": [
+        {
+          "slot": "lunch",
+          "recipeId": "uuid",
+          "recipeName": "Chicken rice",
+          "priceCents": 1250,
+          "macros": { "proteinG": 30, "carbsG": 60, "calories": 500 }
+        }
+      ]
+    }
+  ]
+}
+```
+
+Days are in calendar order and the meals of a day in `breakfast`, `lunch`, `dinner`, `snack` order. `priceCents` is `null` when the price of a recipe is unknown and then adds nothing to `costCents` and `estimatedCostCents`. The `proposal_ready` of `swap_constraints` is a different payload (`proposal` with `scheduledMeals` and `weeklyPlan`) and is pushed as it was.
+
+`planning_message` is the assistant's message about the proposal:
+
+```json
+{
+  "role": "assistant",
+  "text": "Here is your plan for 2 days: 3 meals, estimated cost 19.50.",
+  "proposalId": "uuid",
+  "runId": "uuid",
+  "summary": { "dayCount": 2, "mealCount": 3, "estimatedCostCents": 1950 }
+}
+```
+
+`generation_error.reason` is the raw reason (`"optimization_failed"`, `"invalid_date_range"`, `"pipeline_error"`), not an `ApiError` code; `details` is `{}` when the failure has none.
+
+`runId` and `requestId` are `null` when the failure comes from a path of the engine that carries a reason alone (`pipeline_error`, the reasons of the request validation, `invalid_modification`). Such an event cannot be matched to a run by id: a client attributes it to the in-flight generation of the account, of which there is at most one. Do not rely on the ids to correlate a `generation_error`.
+
+Order: `proposal_ready` is pushed before `planning_message`. `generation_started` is broadcast by the channel after it started the generation, so a generation that fails at once may deliver `generation_error` first; correlate by `runId` / `requestId` when they are present (see above when they are `null`), never by arrival order. A proposal reaches every member joined to the topic, each with its own `planning_message`.
 
 #### Outgoing Events
 
