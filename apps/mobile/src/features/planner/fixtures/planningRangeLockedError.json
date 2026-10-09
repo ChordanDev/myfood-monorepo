@@ -1,0 +1,9 @@
+{
+  "error": {
+    "code": "planning_range_locked",
+    "details": {
+      "ownerName": "Ana Peer"
+    },
+    "message": "Another planning session holds part of this date range."
+  }
+}

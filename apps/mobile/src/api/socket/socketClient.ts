@@ -9,6 +9,8 @@ export interface PhoenixPush {
 }
 
 export interface PhoenixChannel {
+  /** Binds `callback` to an event the server pushes on the topic. The binding survives rejoins. */
+  on(event: string, callback: (payload: unknown) => void): unknown;
   join(): PhoenixPush;
   leave(): unknown;
 }
@@ -49,9 +51,17 @@ export interface TopicJoinHandlers {
   onJoined?: () => void;
   /** The server refused the join. The topic has been left and is not retried. */
   onRefused?: (error: ApiError) => void;
+  /**
+   * Handlers of the events the server pushes on the topic, by event name. They are bound before
+   * the join, so an event pushed right after it is not missed, and they stay bound when the
+   * topic rejoins after a reconnect.
+   */
+  events?: Record<string, (payload: unknown) => void>;
 }
 
 export interface TopicSubscription {
+  /** Listens for a server event on the topic. Returns the function that stops listening. */
+  on(event: string, callback: (payload: unknown) => void): () => void;
   leave(): void;
 }
 
@@ -349,11 +359,35 @@ export function createSocketClient(deps: SocketClientDeps): SocketClient {
     // refresh that succeeded; null while no refresh has been spent on the join.
     let refreshedOnOpenCount: number | null = null;
 
+    // One binding per event name on the channel, fanned out to the handlers listening to it:
+    // the channel keeps its bindings when Phoenix rejoins it, so nothing is bound again.
+    const eventHandlers = new Map<string, Set<(payload: unknown) => void>>();
+
+    function on(event: string, callback: (payload: unknown) => void): () => void {
+      let handlers = eventHandlers.get(event);
+      if (!handlers) {
+        const bound = new Set<(payload: unknown) => void>();
+        handlers = bound;
+        eventHandlers.set(event, bound);
+        channel.on(event, (payload) => {
+          if (left) return;
+          [...bound].forEach((handler) => handler(payload));
+        });
+      }
+      const listeners = handlers;
+      listeners.add(callback);
+      return () => {
+        listeners.delete(callback);
+      };
+    }
+
     function leave(): void {
       if (left) return;
       left = true;
       channel.leave();
     }
+
+    Object.entries(handlers.events ?? {}).forEach(([event, handler]) => on(event, handler));
 
     function refuse(error: ApiError): void {
       if (left) return;
@@ -395,7 +429,7 @@ export function createSocketClient(deps: SocketClientDeps): SocketClient {
         });
       });
 
-    return { leave };
+    return { on, leave };
   }
 
   return {

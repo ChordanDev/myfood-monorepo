@@ -7,6 +7,9 @@ import {
   ONION,
   RICE,
   STEW,
+  VOICE_APPLY_RESULT,
+  VOICE_PREVIEW_HIGH_CONFIDENCE,
+  VOICE_TRANSCRIPT_HIGH,
   dataResponse,
   errorResponse,
   mutationEvent,
@@ -299,6 +302,81 @@ describe('dispose', () => {
     });
 
     expect(getItems()).toBe(itemsBefore);
+  });
+});
+
+describe('applyVoice', () => {
+  const payload = {
+    transcript: VOICE_TRANSCRIPT_HIGH,
+    intent: VOICE_PREVIEW_HIGH_CONFIDENCE.intent,
+    confirmed: false,
+  };
+
+  it('applies the intent through the API and patches the lot with the quantity after it', async () => {
+    fetchMock.mockReturnValueOnce(dataResponse(VOICE_APPLY_RESULT));
+
+    await useInventoryStore.getState().applyVoice(payload);
+
+    expect(sentRequest()).toEqual({
+      url: `${API_URL}/api/inventory/voice/apply`,
+      method: 'POST',
+      body: payload,
+    });
+    expect(getItems()).toEqual([{ ...RICE, quantityMilli: 1_000_000 }, MILK]);
+  });
+
+  it('removes a lot the intent emptied', async () => {
+    fetchMock.mockReturnValueOnce(
+      dataResponse({
+        ...VOICE_APPLY_RESULT,
+        mutationEvents: [mutationEvent(RICE, { operation: 'subtract', quantityAfterMilli: 0 })],
+      })
+    );
+
+    await useInventoryStore.getState().applyVoice(payload);
+
+    expect(getItems()).toEqual([MILK]);
+  });
+
+  it('ignores the events of lots the cache does not hold', async () => {
+    fetchMock.mockReturnValueOnce(dataResponse(VOICE_APPLY_RESULT));
+    useInventoryStore.setState({ items: [MILK] });
+
+    await useInventoryStore.getState().applyVoice(payload);
+
+    expect(getItems()).toEqual([MILK]);
+  });
+
+  it('leaves the cache untouched and rejects with the envelope error when it fails', async () => {
+    fetchMock.mockReturnValueOnce(
+      errorResponse('voice_confirmation_required', 'Confirmation required', 422)
+    );
+    const itemsBefore = getItems();
+
+    await expect(useInventoryStore.getState().applyVoice(payload)).rejects.toMatchObject({
+      code: 'voice_confirmation_required',
+    });
+
+    expect(getItems()).toBe(itemsBefore);
+  });
+
+  it('discards a read that was on its way during the write', async () => {
+    const { response, resolve } = deferredResponse();
+    fetchMock.mockReturnValueOnce(response);
+    const read = useInventoryStore.getState().refresh();
+    fetchMock.mockReturnValueOnce(dataResponse(VOICE_APPLY_RESULT));
+    await useInventoryStore.getState().applyVoice(payload);
+    // The stale read answers with the stock before the write; the store reads again
+    fetchMock.mockReturnValueOnce(
+      dataResponse({
+        ...INVENTORY_VIEW,
+        sections: { ok: [{ ...RICE, quantityMilli: 1_000_000 }], warning: [], expired: [] },
+      })
+    );
+    resolve(dataResponse(INVENTORY_VIEW));
+    await read;
+
+    expect(getItems()).toEqual([{ ...RICE, quantityMilli: 1_000_000 }]);
   });
 });
 

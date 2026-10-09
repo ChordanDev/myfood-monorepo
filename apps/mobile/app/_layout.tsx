@@ -21,7 +21,15 @@ import {
 } from '@expo-google-fonts/inter';
 import { COLORS } from '../src/constants/theme';
 import { AuthProvider } from '../src/features/auth';
+import { useClearFavoritesOnSignOut } from '../src/features/favorites';
 import { RecipeThemeProvider } from '../src/context/RecipeThemeContext';
+
+// Lives under the AuthProvider, which it reads; it draws nothing.
+function FavoritesSession() {
+  useClearFavoritesOnSignOut();
+
+  return null;
+}
 
 export default function RootLayout() {
   // Carga fuentes antes de renderizar la navegacion.
@@ -63,6 +71,7 @@ export default function RootLayout() {
     <GestureHandlerRootView style={{ flex: 1 }}>
       <SafeAreaProvider>
         <AuthProvider>
+          <FavoritesSession />
           <RecipeThemeProvider>
             <Stack screenOptions={{ headerShown: false }} />
           </RecipeThemeProvider>

@@ -113,25 +113,43 @@ defmodule MealPlannerApiWeb.InventoryControllerTest do
     assert adjust_body["data"]["item"]["quantityMilli"] == 750
     assert adjust_body["data"]["mutationEvent"]["quantityAfterMilli"] == 750
 
+    transcript = "me comí la mitad del pan test inventario"
+
     preview_conn =
       build_conn()
       |> put_req_header("authorization", "Bearer " <> token)
-      |> post("/api/inventory/voice/preview", %{"text" => "me comi medio pan test inventario"})
+      |> post("/api/inventory/voice/preview", %{"transcript" => transcript})
 
     preview_body = json_response(preview_conn, 200)
-    assert preview_body["data"]["confirmationRequired"] == true
-    assert length(preview_body["data"]["operations"]) >= 1
+    assert preview_body["data"]["confirmationRequired"] == false
+    assert preview_body["data"]["confidence"] >= 0.8
+
+    assert preview_body["data"]["intent"] == %{
+             "operation" => "subtract",
+             "ingredientId" => ingredient.id,
+             "name" => "Pan Test Inventario",
+             "quantityMilli" => 375,
+             "unit" => "g"
+           }
 
     apply_conn =
       build_conn()
       |> put_req_header("authorization", "Bearer " <> token)
       |> post("/api/inventory/voice/apply", %{
-        "raw_text" => preview_body["data"]["rawText"],
-        "operations" => preview_body["data"]["operations"]
+        "transcript" => transcript,
+        "intent" => preview_body["data"]["intent"],
+        "confirmed" => false
       })
 
     apply_body = json_response(apply_conn, 200)
-    assert apply_body["data"]["appliedOperations"] >= 1
+    assert apply_body["data"]["ingredientId"] == ingredient.id
+    assert apply_body["data"]["quantityDeltaMilli"] == -375
+
+    assert [%{"triggerType" => "voice", "operation" => "subtract", "quantityAfterMilli" => 375}] =
+             apply_body["data"]["mutationEvents"]
+
+    assert [%{trigger_type: :voice, raw_voice_text: ^transcript}] =
+             Enum.filter(ledger(item_id), &(&1.trigger_type == :voice))
 
     dispose_conn =
       build_conn()
@@ -481,13 +499,66 @@ defmodule MealPlannerApiWeb.InventoryControllerTest do
     end
   end
 
-  test "voice and rescue errors use the error envelope too" do
-    actor = actor()
+  describe "voice adjustment errors" do
+    test "a payload without a transcript is a validation error" do
+      actor = actor()
 
-    assert actor |> post_json("/api/inventory/voice/preview", %{}) |> json_response(422) ==
-             validation_error()
+      assert actor |> post_json("/api/inventory/voice/preview", %{}) |> json_response(422) ==
+               validation_error()
 
-    assert actor
+      assert actor
+             |> post_json("/api/inventory/voice/preview", %{"text" => "me comí el queso"})
+             |> json_response(422) == validation_error()
+
+      assert actor |> post_json("/api/inventory/voice/apply", %{}) |> json_response(422) ==
+               validation_error()
+    end
+
+    test "a transcript that names nothing in stock is voice_parse_failed" do
+      actor = actor()
+      _ = seed_lot(actor, ingredient("Queso Voz Error"), 400_000)
+
+      conn =
+        post_json(actor, "/api/inventory/voice/preview", %{"transcript" => "me comí la pizza"})
+
+      assert %{"error" => %{"code" => "voice_parse_failed", "message" => message}} =
+               json_response(conn, 422)
+
+      assert is_binary(message) and message != ""
+    end
+
+    test "applying a low-confidence intent unconfirmed is voice_confirmation_required" do
+      actor = actor()
+      cheese = ingredient("Queso Voz Confirm")
+      lot = seed_lot(actor, cheese, 400_000)
+      transcript = "se me acabó el queso voz confirm"
+
+      preview =
+        actor
+        |> post_json("/api/inventory/voice/preview", %{"transcript" => transcript})
+        |> json_response(200)
+
+      assert preview["data"]["confirmationRequired"] == true
+      assert preview["data"]["confidence"] < 0.8
+
+      payload = %{"transcript" => transcript, "intent" => preview["data"]["intent"]}
+
+      # A client-sent confidence is never read.
+      conn =
+        post_json(actor, "/api/inventory/voice/apply", Map.put(payload, "confidence", 1.0))
+
+      assert %{"error" => %{"code" => "voice_confirmation_required"}} = json_response(conn, 422)
+      assert [%{operation: :add}] = ledger(lot.id)
+
+      confirmed =
+        post_json(actor, "/api/inventory/voice/apply", Map.put(payload, "confirmed", true))
+
+      assert json_response(confirmed, 200)["data"]["quantityDeltaMilli"] == -400_000
+    end
+  end
+
+  test "rescue errors use the error envelope too" do
+    assert actor()
            |> post_json("/api/planning/rescue", %{"ingredientIds" => []})
            |> json_response(422) == validation_error()
   end

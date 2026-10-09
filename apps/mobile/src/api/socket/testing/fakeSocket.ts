@@ -48,6 +48,8 @@ export interface FakeChannel extends PhoenixChannel {
   replyOk(response?: unknown): void;
   /** The server refuses the join with `response`. */
   replyError(response: unknown): void;
+  /** The server pushes `event` on the topic, as it does for `session_resumed`. */
+  serverPush(event: string, payload: unknown): void;
 }
 
 type Connection = 'none' | 'connecting' | 'open' | 'lost';
@@ -55,6 +57,7 @@ type JoinStatus = 'ok' | 'error';
 
 function createFakeChannel(topic: string): FakeChannel {
   const hooks: { status: JoinStatus; callback: (response: unknown) => void }[] = [];
+  const bindings: { event: string; callback: (payload: unknown) => void }[] = [];
   let joined = false;
   let left = false;
 
@@ -75,6 +78,14 @@ function createFakeChannel(topic: string): FakeChannel {
   return {
     topic,
     hasLeft: () => left,
+    on(event, callback) {
+      bindings.push({ event, callback });
+    },
+    serverPush(event, payload) {
+      // A left channel is removed from its socket and gets no more pushes.
+      if (left) return;
+      bindings.filter((binding) => binding.event === event).forEach((b) => b.callback(payload));
+    },
     join() {
       if (joined) throw new Error(`FakeChannel ${topic}: join() called twice`);
       joined = true;

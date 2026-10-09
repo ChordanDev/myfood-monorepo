@@ -16,6 +16,9 @@ defmodule MealPlannerApi.Data.RecipeRepo do
     RecipeStep
   }
 
+  @typedoc "The Account and the User a favorite belongs to."
+  @type identity :: %{account_id: Ecto.UUID.t(), user_id: Ecto.UUID.t()}
+
   # -------------------------------------------------------------------------
   # Ingredients
   # -------------------------------------------------------------------------
@@ -77,6 +80,25 @@ defmodule MealPlannerApi.Data.RecipeRepo do
     Repo.one(
       from(r in Recipe,
         where: r.id == ^id and (r.account_id == ^account_id or is_nil(r.account_id))
+      )
+    )
+  end
+
+  @doc """
+  Returns the theme of a Recipe visible to the Account (same rule as
+  `get_visible_recipe/2`), or nil when it has none, is hidden or is missing.
+  """
+  @spec get_visible_recipe_theme(binary() | nil, binary()) :: map() | nil
+  def get_visible_recipe_theme(nil, id) do
+    # A catalog Recipe has no Account: only catalog Recipes are visible to it.
+    Repo.one(from(r in Recipe, where: r.id == ^id and is_nil(r.account_id), select: r.theme))
+  end
+
+  def get_visible_recipe_theme(account_id, id) do
+    Repo.one(
+      from(r in Recipe,
+        where: r.id == ^id and (is_nil(r.account_id) or r.account_id == ^account_id),
+        select: r.theme
       )
     )
   end
@@ -180,33 +202,55 @@ defmodule MealPlannerApi.Data.RecipeRepo do
   # Favorites
   # -------------------------------------------------------------------------
 
-  @spec add_favorite(pos_integer(), pos_integer()) ::
+  # Favorites belong to a User inside an Account. Each function takes the
+  # `identity` (`%{account_id: _, user_id: _}`, as `Identity.ensure_persistent_identity/1`
+  # returns it) so a favorite is never read or written for the Account alone.
+
+  @doc """
+  Inserts the favorite of the User, or leaves the stored one as it is when the
+  User already has it.
+  """
+  @spec add_favorite(identity(), Ecto.UUID.t()) ::
           {:ok, FavoriteRecipe.t()} | {:error, Ecto.Changeset.t()}
-  def add_favorite(account_id, recipe_id) do
-    attrs = %{account_id: account_id, recipe_id: recipe_id}
-    %FavoriteRecipe{} |> FavoriteRecipe.changeset(attrs) |> Repo.insert()
+  def add_favorite(%{account_id: account_id, user_id: user_id}, recipe_id) do
+    attrs = %{account_id: account_id, user_id: user_id, recipe_id: recipe_id}
+
+    %FavoriteRecipe{}
+    |> FavoriteRecipe.changeset(attrs)
+    |> Repo.insert(on_conflict: :nothing, conflict_target: [:account_id, :user_id, :recipe_id])
   end
 
-  @spec remove_favorite(pos_integer(), pos_integer()) :: :ok
-  def remove_favorite(account_id, recipe_id) do
+  @spec remove_favorite(identity(), Ecto.UUID.t()) :: :ok
+  def remove_favorite(%{account_id: account_id, user_id: user_id}, recipe_id) do
     from(f in FavoriteRecipe,
-      where: f.account_id == ^account_id and f.recipe_id == ^recipe_id
+      where: f.account_id == ^account_id and f.user_id == ^user_id and f.recipe_id == ^recipe_id
     )
     |> Repo.delete_all()
 
     :ok
   end
 
-  @spec list_favorites(pos_integer()) :: [Recipe.t()]
-  def list_favorites(account_id) do
+  @doc "The favorite recipes of the User, by name, with their ingredient lines."
+  @spec list_favorites(identity()) :: [Recipe.t()]
+  def list_favorites(%{account_id: account_id, user_id: user_id}) do
     from(f in FavoriteRecipe,
       join: r in assoc(f, :recipe),
-      where: f.account_id == ^account_id,
-      order_by: [asc: r.name],
-      preload: [recipe: :recipe_ingredients]
+      where: f.account_id == ^account_id and f.user_id == ^user_id,
+      order_by: [asc: r.name, asc: r.id],
+      preload: [recipe: [recipe_ingredients: :ingredient]]
     )
     |> Repo.all()
     |> Enum.map(& &1.recipe)
+  end
+
+  @doc "A recipe the Account can see, with its ingredient lines; nil when there is none."
+  @spec get_visible_recipe_with_ingredients(Ecto.UUID.t(), Ecto.UUID.t()) :: Recipe.t() | nil
+  def get_visible_recipe_with_ingredients(account_id, id) do
+    from(r in Recipe,
+      where: r.id == ^id and (r.account_id == ^account_id or is_nil(r.account_id)),
+      preload: [recipe_ingredients: :ingredient]
+    )
+    |> Repo.one()
   end
 
   @spec list_by_ids([pos_integer()]) :: [Recipe.t()]
@@ -228,11 +272,11 @@ defmodule MealPlannerApi.Data.RecipeRepo do
     |> Repo.all()
   end
 
-  @spec is_favorite?(pos_integer(), pos_integer()) :: boolean()
-  def is_favorite?(account_id, recipe_id) do
+  @spec is_favorite?(identity(), Ecto.UUID.t()) :: boolean()
+  def is_favorite?(%{account_id: account_id, user_id: user_id}, recipe_id) do
     Repo.exists?(
       from(f in FavoriteRecipe,
-        where: f.account_id == ^account_id and f.recipe_id == ^recipe_id
+        where: f.account_id == ^account_id and f.user_id == ^user_id and f.recipe_id == ^recipe_id
       )
     )
   end
@@ -242,15 +286,15 @@ defmodule MealPlannerApi.Data.RecipeRepo do
   # -------------------------------------------------------------------------
 
   @doc """
-  Returns the list of favorite recipe IDs for a given account.
+  Returns the list of favorite recipe IDs of a User inside an Account.
   Used by GenerationServer to inject preferred_recipe_ids into the OR-Tools payload.
 
   Returns a list of maps with `:id` key, e.g. `[%{id: 1}, %{id: 5}]`.
   """
-  @spec list_favorite_ids(pos_integer()) :: [%{id: pos_integer()}]
-  def list_favorite_ids(account_id) do
+  @spec list_favorite_ids(identity()) :: [%{id: Ecto.UUID.t()}]
+  def list_favorite_ids(%{account_id: account_id, user_id: user_id}) do
     from(f in FavoriteRecipe,
-      where: f.account_id == ^account_id,
+      where: f.account_id == ^account_id and f.user_id == ^user_id,
       select: %{id: f.recipe_id}
     )
     |> Repo.all()

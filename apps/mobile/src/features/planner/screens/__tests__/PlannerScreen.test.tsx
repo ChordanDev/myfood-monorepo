@@ -821,4 +821,19 @@ describe('PlannerScreen planning topic', () => {
     expect(tree.root.findByProps({ value: '', isThinking: false })).toBeDefined();
     act(() => tree.unmount());
   });
+
+  it.each(['session_expired', 'session_lost_lock'])(
+    'tells the user the session is over on %s',
+    (event) => {
+      const { tree } = renderHarness();
+      act(() => socket.channels[0].replyOk());
+
+      act(() => socket.channels[0].serverPush(event, {}));
+
+      expect(getJoinNoticeText(tree)).toBe(
+        'Esta sesión de planificación terminó. Empezá una nueva para seguir.'
+      );
+      act(() => tree.unmount());
+    }
+  );
 });

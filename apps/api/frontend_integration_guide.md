@@ -97,6 +97,7 @@ Success response (`200`):
       "id": "...",
       "type": "individual",
       "trialEndsAt": "2026-01-08T12:00:00Z",
+      "timezone": null,
       "subscriptionStatus": "none",
       "access": {
         "canUseApp": true,
@@ -319,6 +320,42 @@ Errors (envelope, see section 10):
 
 Only the first problem is reported: a key that is not a slot, then each slot in the order breakfast,
 lunch, dinner, and within a slot its minutes before its Hunger level.
+
+### 3.6 Update the Account timezone
+
+- Method: `PUT`
+- Path: `/api/account/timezone`
+- Not capability-gated: an Account whose access has expired can still use it.
+
+The app sends the device's IANA timezone so the Account's "today" follows the User when they travel.
+`account.timezone` in `GET /api/me` is the stored value, `null` until one is saved (the Account's day is
+then the UTC day). Send it only when it differs from the one `me` reported.
+
+Request body, `timezone` required:
+
+```json
+{
+  "timezone": "America/Argentina/Buenos_Aires"
+}
+```
+
+- `timezone`: string, an IANA timezone id known to the server. Missing, `null`, blank, non-string and
+  unknown values are rejected.
+
+Success response (`200`):
+
+```json
+{
+  "account": {
+    "id": "...",
+    "timezone": "America/Argentina/Buenos_Aires"
+  }
+}
+```
+
+Any member of the Account may update it and the last write wins. A rejected request answers
+`422 validation_error` with a `message` that names `timezone`, and the stored value is unchanged. Dates
+already computed are not recomputed: only later requests see the new "today".
 
 ## 4. Planning (REST)
 
@@ -713,7 +750,7 @@ Every error of the routes in this section uses the envelope of section 10:
 
 | Status | Code                       | When                                                                                              |
 | ------ | -------------------------- | ------------------------------------------------------------------------------------------------- |
-| `422`  | `validation_error`         | Missing, unknown or malformed ingredient; missing, zero, negative or non-integer quantity; missing or unknown unit; malformed `expiresAt`; `notes` that is not a string or is longer than 1000 characters; `isLeftover` that is not a boolean; a voice payload without `text` or `operations`; a rescue request without ingredients |
+| `422`  | `validation_error`         | Missing, unknown or malformed ingredient; missing, zero, negative or non-integer quantity; missing or unknown unit; malformed `expiresAt`; `notes` that is not a string or is longer than 1000 characters; `isLeftover` that is not a boolean; a voice payload without a `transcript`, or an apply whose `intent` is missing, not a `subtract`, or has a non-positive `quantityMilli` or a malformed `ingredientId`; a rescue request without ingredients |
 | `404`  | `inventory_item_not_found` | `:item_id` is not a lot of the Account: unknown, owned by another Account, or not a UUID          |
 | `404`  | `not_found`                | No recipe is available for a rescue plan                                                          |
 | `500`  | `unknown_error`            | Unexpected failure                                                                                |
@@ -722,32 +759,84 @@ The envelope does not name the field that failed.
 
 ### 6.6 Voice flows
 
-- Preview parse:
+A spoken Inventory adjustment is previewed, then applied. Only `subtract` exists.
+
+- Preview parse (writes nothing):
   - `POST /api/inventory/voice/preview`
-- Apply operations:
+- Apply the intent:
   - `POST /api/inventory/voice/apply`
 
 Preview request:
 
 ```json
 {
-  "text": "Use medio tomate y la mitad del kilo de pollo"
+  "transcript": "Me comí la mitad del queso crema"
 }
 ```
 
-Apply request:
+Preview response (`200`):
 
 ```json
 {
-  "raw_text": "Use medio tomate",
-  "operations": [
-    {
-      "inventory_item_id": "...",
-      "quantity_milli": 200
+  "data": {
+    "confirmationRequired": false,
+    "confidence": 0.9,
+    "intent": {
+      "operation": "subtract",
+      "ingredientId": "...",
+      "name": "Queso crema",
+      "quantityMilli": 200000,
+      "unit": "g"
     }
-  ]
+  }
 }
 ```
+
+`confidence` is from 0 to 1. A named ingredient in stock, a consume verb and a stated amount (a
+fraction, or a quantity in the unit of the stock) is confident; a vague or missing amount takes all
+the stock with low confidence. `confirmationRequired` is `true` when `confidence` is below `0.8`.
+
+Apply request: send back the `transcript` and the `intent` of the preview, with `confirmed: true`
+once the User confirmed it.
+
+```json
+{
+  "transcript": "Me comí la mitad del queso crema",
+  "intent": {
+    "operation": "subtract",
+    "ingredientId": "...",
+    "name": "Queso crema",
+    "quantityMilli": 200000,
+    "unit": "g"
+  },
+  "confirmed": false
+}
+```
+
+Apply response (`200`) lists one mutation event per lot touched, first expiring lot first, each with
+`triggerType` `voice` and the transcript stored in the ledger. The subtraction is capped at the
+stock, so `quantityDeltaMilli` can be smaller in magnitude than the intent.
+
+```json
+{
+  "data": {
+    "ingredientId": "...",
+    "quantityDeltaMilli": -200000,
+    "mutationEvents": [{ "id": "...", "inventoryItemId": "...", "triggerType": "voice", "operation": "subtract", "quantityBeforeMilli": 400000, "quantityDeltaMilli": -200000, "quantityAfterMilli": 200000, "insertedAt": "..." }]
+  }
+}
+```
+
+The server derives the confidence again from the transcript and never reads a client one. An intent
+that is not confident, or that differs from what the transcript says, is refused without
+`confirmed: true`.
+
+| Status | Code                          | When                                                          |
+| ------ | ----------------------------- | ------------------------------------------------------------- |
+| `422`  | `voice_parse_failed`          | The transcript names no ingredient the Account has in stock   |
+| `422`  | `voice_confirmation_required` | Apply of a low-confidence or edited intent without `confirmed: true` |
+| `422`  | `validation_error`            | Missing transcript or malformed intent                        |
+| `404`  | `inventory_item_not_found`    | The intent's ingredient has no usable stock any more          |
 
 ### 6.7 Rescue planning from expiring ingredients
 
@@ -1301,6 +1390,7 @@ Two error body shapes are in use. Which one a request gets depends on the code p
     `/api/auth/signup/request-code`, `/api/auth/signup/verify-code` and `/api/auth/refresh`;
   - `GET /api/me` and its alias `GET /api/auth/me`;
   - `PUT /api/me/profile`: `422 validation_error` and `422 invalid_cooking_skill`;
+  - `PUT /api/account/timezone`: `422 validation_error` (see 3.6);
   - `GET` and `PUT /api/me/slot-cooking-times`: `404 slot_cooking_times_not_found`, `422 validation_error`
     and `422 invalid_hunger_level` (see 3.4 and 3.5);
   - `GET /api/recipes/:id`: `404 recipe_not_found` and `403 forbidden` (section 11);
@@ -1352,7 +1442,12 @@ Returns the frozen version of a recipe the Account can see: a catalog recipe or 
     "estimatedCostCents": 385000,
     "tags": [],
     "imageUrl": null,
-    "theme": null
+    "theme": {
+      "colorBlack": "#0D1007", "colorDark": "#15180F", "colorMedium": "#364025", "colorLight": "#8D9373",
+      "primaryAccent": "#EF9432", "appBg": "#BCBFA7", "icon": "#D8D98B", "textBlack": "#0D1007",
+      "textDark": "#1B210E", "textMedium": "#D8D98B", "textLight": "#F5F3D4",
+      "primaryAccentIntense": "#FF8400", "alert": "#C94F3D"
+    }
   }
 }
 ```
@@ -1373,8 +1468,14 @@ Fields:
   read at request time, not frozen with the version.
 - `steps[]`: ordered by `order`. `steps[].durationMinutes` is in minutes, or `null`.
 - `estimatedCostCents`: estimated cost of the recipe in cents; `0` when no cost is known.
-- `tags`, `imageUrl` and `theme` are placeholders: they answer `[]`, `null` and `null` until the backend
-  stores them.
+- `theme`: the palette the app takes while this recipe is in view, or `null` (the client then applies its
+  default theme). Keys are camelCase: `colorBlack`, `colorDark`, `colorMedium`, `colorLight`, `primaryAccent`,
+  `appBg`, `icon`, `textBlack`, `textDark`, `textMedium`, `textLight`, `primaryAccentIntense` and `alert`
+  (hex strings), plus an optional `appBgGradient` of two hex strings. It is frozen with the version. A
+  derived recipe (`ai_generated`, `user_created`) whose version has no theme serves the current theme of its
+  base recipe, read when the request is served; with no base, or a base without a theme, it is `null`.
+  Versions frozen before themes existed read as `null`.
+- `tags` and `imageUrl` are placeholders: they answer `[]` and `null` until the backend stores them.
 
 Errors use the envelope of section 10:
 
