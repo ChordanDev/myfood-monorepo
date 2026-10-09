@@ -1,20 +1,22 @@
 import { useEffect, useState } from 'react';
 import type { ApiError } from '@/api/errors';
-import { getSocketClient, planningTopic } from '@/api/socket';
+import { getSocketClient, planningTopic, type TopicSubscription } from '@/api/socket';
 import { useAuth } from '@/features/auth/hooks/useAuth';
 
-/** `idle` while there is no Account to join for. */
+/**
+ * `idle` while there is no Account to join for. A joined topic hands out its subscription, to
+ * push commands and listen to events for as long as the caller is mounted.
+ */
 export type PlanningTopicState =
   | { status: 'idle' }
   | { status: 'joining' }
-  | { status: 'joined' }
+  | { status: 'joined'; subscription: TopicSubscription }
   | { status: 'refused'; error: ApiError };
 
 type JoinAnswer = Extract<PlanningTopicState, { status: 'joined' | 'refused' }>;
 
 const IDLE: PlanningTopicState = { status: 'idle' };
 const JOINING: PlanningTopicState = { status: 'joining' };
-const JOINED: JoinAnswer = { status: 'joined' };
 
 /**
  * Keeps the planning topic of the signed-in Account joined while the caller is mounted, and
@@ -47,7 +49,7 @@ export function usePlanningTopic(): PlanningTopicState {
     void client.connect();
     const subscription = client.joinTopic(planningTopic(accountId), {
       onJoined: () => {
-        if (isCurrent) setAnswer(JOINED);
+        if (isCurrent) setAnswer({ status: 'joined', subscription });
       },
       onRefused: (error) => {
         if (isCurrent) setAnswer({ status: 'refused', error });

@@ -18,6 +18,9 @@ jest.mock('@/features/auth/hooks/useAuth', () => ({
   useAuth: () => ({ me: mockAccountId === null ? null : { account: { id: mockAccountId } } }),
 }));
 
+// The subscription is the one the hook joined with; the tests below check what it does.
+const JOINED = { status: 'joined', subscription: expect.anything() };
+
 function refusal(code: string) {
   return { error: { code, message: 'refused' } };
 }
@@ -108,7 +111,7 @@ describe('usePlanningTopic', () => {
 
     act(() => socket.channels[0].replyOk());
 
-    expect(planningTopic).toEqual({ status: 'joined' });
+    expect(planningTopic).toEqual(JOINED);
   });
 
   it('joins once the session arrives after mount for the same Account', async () => {
@@ -123,7 +126,7 @@ describe('usePlanningTopic', () => {
     act(() => socket.channels[0].replyOk());
 
     expect(socket.channels).toHaveLength(1);
-    expect(planningTopic).toEqual({ status: 'joined' });
+    expect(planningTopic).toEqual(JOINED);
   });
 
   it.each(['forbidden', 'trial_expired'] as const)(
@@ -181,7 +184,7 @@ describe('usePlanningTopic', () => {
 
     act(() => socket.channels[1].replyOk());
 
-    expect(planningTopic).toEqual({ status: 'joined' });
+    expect(planningTopic).toEqual(JOINED);
   });
 
   it('leaves the topic when the Account id is gone', async () => {
@@ -207,7 +210,7 @@ describe('usePlanningTopic', () => {
 
     act(() => socket.channels[1].replyOk());
 
-    expect(planningTopic).toEqual({ status: 'joined' });
+    expect(planningTopic).toEqual(JOINED);
   });
 
   it('stays joined when the topic rejoins after a reconnect', async () => {
@@ -223,7 +226,7 @@ describe('usePlanningTopic', () => {
     });
 
     expect(socket.channels).toHaveLength(1);
-    expect(planningTopic).toEqual({ status: 'joined' });
+    expect(planningTopic).toEqual(JOINED);
   });
 
   it('holds a single subscription when StrictMode runs the effect twice', async () => {
@@ -239,6 +242,6 @@ describe('usePlanningTopic', () => {
     socket.open();
     act(() => liveChannels()[0].replyOk());
 
-    expect(planningTopic).toEqual({ status: 'joined' });
+    expect(planningTopic).toEqual(JOINED);
   });
 });

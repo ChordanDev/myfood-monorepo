@@ -11,8 +11,11 @@ import {
   ChatComposer,
   ChatTypingIndicator,
 } from '@/features/assistant-chat';
-import { PlannerHeader, PlanningJoinNotice } from '../components';
+import { PlannerHeader, PlanningDraftPanel, PlanningJoinNotice } from '../components';
 import { CUSTOM_TAB_BAR_CONTENT_HEIGHT } from '../constants';
+import { formatPlanningRangeLabel } from '../domain/planningRange';
+import { usePlanningDraft } from '../hooks/usePlanningDraft';
+import { usePlanningRange } from '../hooks/usePlanningRange';
 import { usePlanningTopic } from '../hooks/usePlanningTopic';
 import { resolveTurnTrailingSpace } from './turnAnchor';
 
@@ -53,6 +56,8 @@ export const PlannerScreen = () => {
   const insets = useSafeAreaInsets();
   const reduceMotion = useReducedMotion();
   const planningTopic = usePlanningTopic();
+  const planningRange = usePlanningRange();
+  const { draft, start: startPlanning, retry: retryPlanning } = usePlanningDraft(planningTopic);
   const scrollViewRef = useRef<ScrollView>(null);
   const responseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const initialScrollFrameRef = useRef<number | null>(null);
@@ -179,6 +184,12 @@ export const PlannerScreen = () => {
     }, MOCK_ASSISTANT_RESPONSE_DELAY_MS);
   }, [cancelPendingScrollFrames, input, isThinking, messages]);
 
+  // What is typed in the composer is the free-text request of the plan, sent with the start.
+  const handleStartPlanning = useCallback(() => {
+    startPlanning(planningRange.range, input);
+    setInput('');
+  }, [input, planningRange.range, startPlanning]);
+
   const handleActiveTurnLayout = useCallback(
     (messageId: string, event: LayoutChangeEvent) => {
       const { y } = event.nativeEvent.layout;
@@ -248,7 +259,7 @@ export const PlannerScreen = () => {
     <View style={[styles.screen, { backgroundColor: theme.appBg }]}>
       <NoisyBackground opacity={0.3} />
 
-      <PlannerHeader />
+      <PlannerHeader planningRange={planningRange} />
 
       {planningTopic.status === 'refused' ? (
         <PlanningJoinNotice message={getAuthErrorMessage(planningTopic.error)} />
@@ -300,6 +311,13 @@ export const PlannerScreen = () => {
           )
         )}
         {isThinking ? <ChatTypingIndicator /> : null}
+        <PlanningDraftPanel
+          draft={draft}
+          startLabel={`Planificar ${formatPlanningRangeLabel(planningRange.range)}`}
+          canStart={planningTopic.status === 'joined'}
+          onStart={handleStartPlanning}
+          onRetry={retryPlanning}
+        />
         <View
           testID="planner-turn-trailing-space"
           pointerEvents="none"
