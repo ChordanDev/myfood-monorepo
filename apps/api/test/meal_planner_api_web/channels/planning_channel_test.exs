@@ -2663,6 +2663,38 @@ defmodule MealPlannerApiWeb.PlanningChannelTest do
       assert payload["messages"] == []
     end
 
+    test "a pending proposal from before the session started is not pushed", %{
+      account: account,
+      user: user,
+      token: token
+    } do
+      insert_proposal(account, user, %{"stale_marker" => true}) |> backdate!(60)
+      session = insert_active_session(account, user)
+
+      {:ok, _reply, _socket} = join_planning(account, token)
+
+      assert_push "session_resumed", payload
+      assert payload["sessionId"] == session.id
+      assert payload["proposalId"] == nil
+      assert payload["proposal"] == nil
+    end
+
+    test "a pending proposal created after the session started is pushed", %{
+      account: account,
+      user: user,
+      token: token
+    } do
+      insert_proposal(account, user, %{"stale_marker" => true}) |> backdate!(60)
+      session = insert_active_session(account, user)
+      fresh = insert_proposal(account, user, %{"meals" => []})
+
+      {:ok, _reply, _socket} = join_planning(account, token)
+
+      assert_push "session_resumed", payload
+      assert payload["sessionId"] == session.id
+      assert payload["proposalId"] == fresh.id
+    end
+
     test "keeps only the last 20 messages, oldest first", %{
       account: account,
       user: user,

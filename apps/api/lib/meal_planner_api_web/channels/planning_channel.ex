@@ -150,7 +150,7 @@ defmodule MealPlannerApiWeb.PlanningChannel do
   end
 
   defp resumed_payload(account_id, session) do
-    proposal = Planning.latest_pending_proposal(account_id)
+    proposal = Planning.latest_pending_proposal(account_id, session)
 
     Casing.camelize_keys(%{
       session_id: session.id,
