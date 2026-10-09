@@ -23,10 +23,11 @@ export interface GenerationStartedPayload {
   sessionId: string;
 }
 
+// The producer sends decimals (`12.5`) and `null` for a macro it does not know.
 export interface PlannerMealMacros {
-  proteinG: number;
-  carbsG: number;
-  calories: number;
+  proteinG: number | null;
+  carbsG: number | null;
+  calories: number | null;
 }
 
 export interface PlannerMeal {
@@ -98,6 +99,9 @@ const str: Shape<string> = (value, path) =>
 const int: Shape<number> = (value, path) =>
   typeof value === 'number' && Number.isInteger(value) ? value : fail(path, 'an integer');
 
+const num: Shape<number> = (value, path) =>
+  typeof value === 'number' && Number.isFinite(value) ? value : fail(path, 'a number');
+
 function literal<T extends string>(allowed: readonly T[]): Shape<T> {
   return (value, path) => {
     const match = allowed.find((candidate) => candidate === value);
@@ -143,7 +147,11 @@ function record<T>(
 const anyRecord: Shape<Record<string, unknown>> = (value, path) =>
   isRecord(value) ? value : fail(path, 'an object');
 
-const macros = record<PlannerMealMacros>({ proteinG: int, carbsG: int, calories: int });
+const macros = record<PlannerMealMacros>({
+  proteinG: nullable(num),
+  carbsG: nullable(num),
+  calories: nullable(num),
+});
 
 const meal = record<PlannerMeal>({
   slot: literal(PLANNER_MEAL_SLOTS),

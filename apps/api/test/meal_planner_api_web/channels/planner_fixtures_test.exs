@@ -77,9 +77,17 @@ defmodule MealPlannerApiWeb.PlannerFixturesTest do
 
     proposal =
       GenerationService.build_proposal_json([
-        resolved(day_2, :dinner, r3, "Lentil stew", 700),
+        resolved(day_2, :dinner, r3, "Lentil stew", 700, %{
+          protein_g: 12.5,
+          calories: 500,
+          carbs_g: 60
+        }),
         resolved(day_1, :lunch, r2, "Chicken rice", 1_250),
-        resolved(day_1, :breakfast, r1, "Oatmeal", nil)
+        resolved(day_1, :breakfast, r1, "Oatmeal", nil, %{
+          protein_g: 30,
+          calories: 500,
+          carbs_g: nil
+        })
       ])
 
     Endpoint.broadcast!("planning:#{account.id}", "proposal_ready", %{
@@ -169,14 +177,16 @@ defmodule MealPlannerApiWeb.PlannerFixturesTest do
     {peer_user, membership}
   end
 
-  defp resolved(date, slot, recipe_id, name, price_cents) do
+  # `macros` carry a fractional value and a missing one in some meals: the real
+  # producer sends decimals and `nil`.
+  defp resolved(date, slot, recipe_id, name, price_cents, macros \\ nil) do
     %{
       date: date,
       slot: slot,
       recipe_id: recipe_id,
       recipe_name: name,
       price_cents: price_cents,
-      macros: %{protein_g: 30, calories: 500, carbs_g: 60}
+      macros: macros || %{protein_g: 30, calories: 500, carbs_g: 60}
     }
   end
 end

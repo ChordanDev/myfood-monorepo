@@ -69,6 +69,12 @@ defmodule MealPlannerApiWeb.Channels.Serializers.PlanningEvents do
   `reason` is a string, `details` a map (empty when there are none) and the
   two ids are `nil` when the broadcaster had none. A key a broadcaster adds is
   kept.
+
+  Both ids are `nil` for the reason-only paths of the engine
+  (`pipeline_error`, the reasons of the request validation,
+  `invalid_modification`), so a client cannot always correlate the event by
+  id: it attributes such an event to the in-flight generation of the account
+  (at most one).
   """
   @spec generation_error(map()) :: map()
   def generation_error(payload) when is_map(payload) do
