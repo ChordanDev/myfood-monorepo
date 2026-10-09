@@ -1,7 +1,9 @@
-import { useCallback, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Keyboard } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { formatDateKey } from '@/features/home/utils/calendarDate';
+import { favoriteSummaryFromRecipe } from '@/features/favorites/domain/favoriteFormat';
+import { selectIsFavorite, useFavoritesStore } from '@/features/favorites/store';
 import { useInventoryStore } from '@/features/inventory';
 import { useMealPlanStore } from '@/store';
 import { canMarkAsCooked, isRecipeChatEnabled, resolveRecipeEntry } from '../domain/recipeEntry';
@@ -36,8 +38,8 @@ export function useRecipeScreen() {
 
   const { recipe, status, retry } = useRecipe(recipeId, firstParam(params.recipeVersionId));
   const entries = useMealPlanStore((state) => state.entries);
-  const favoriteRecipeIds = useMealPlanStore((state) => state.favoriteRecipeIds);
-  const toggleFavoriteRecipe = useMealPlanStore((state) => state.toggleFavoriteRecipe);
+  const isFavorite = useFavoritesStore(selectIsFavorite(recipeId));
+  const toggleFavorite = useFavoritesStore((state) => state.toggle);
   const markAsCooked = useMealPlanStore((state) => state.markAsCooked);
   const inventory = useInventoryStore((state) => state.items);
   const catalog = useInventoryStore((state) => state.ingredients);
@@ -58,9 +60,21 @@ export function useRecipeScreen() {
 
   const handleBack = useCallback(() => router.back(), [router]);
 
+  // The star starts right: the favorites are the server's. A failed read keeps what the device
+  // had, and the next toggle settles the recipe on its own.
+  useEffect(() => {
+    useFavoritesStore
+      .getState()
+      .load()
+      .catch(() => {});
+  }, []);
+
+  // The store flips the star at once and takes it back if the server refuses.
   const handleToggleFavorite = useCallback(() => {
-    toggleFavoriteRecipe(recipeId);
-  }, [recipeId, toggleFavoriteRecipe]);
+    if (!recipe) return;
+
+    void toggleFavorite(favoriteSummaryFromRecipe(recipe));
+  }, [recipe, toggleFavorite]);
 
   // Marking a meal as cooked consumes its ingredients, so the check only asks; the sheet decides.
   const handleRequestMarkAsCooked = useCallback(() => {
@@ -92,7 +106,7 @@ export function useRecipeScreen() {
     recipe,
     status,
     rows,
-    isFavorite: favoriteRecipeIds.includes(recipeId),
+    isFavorite,
     canMarkAsCooked: canMarkAsCooked(entry),
     isChatEnabled: isRecipeChatEnabled(entry, todayKey),
     isCookedConfirmVisible,

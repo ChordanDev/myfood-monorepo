@@ -42,11 +42,14 @@ const mockTheme: Required<RecipeThemeConfig> = {
   alert: '#0f0f0f',
 };
 
+const mockPush = jest.fn();
+
 jest.mock('expo-router', () => {
   const ReactMock = require('react');
   return {
     Redirect: ({ href }: { href: string }) =>
       ReactMock.createElement('RedirectMock', { testID: 'redirect', href }),
+    useRouter: () => ({ push: mockPush }),
   };
 });
 
@@ -521,6 +524,16 @@ describe('SettingsScreen', () => {
 
       expect(queryButton(root, 'settings-row-plan')).toBeNull();
       expect(getHost(root, 'settings-row-plan').props.accessibilityRole).toBeUndefined();
+    });
+  });
+
+  describe('favorites', () => {
+    it('opens the favorites list from the account group', async () => {
+      const { root } = await renderScreen();
+
+      await press(root, 'settings-row-favorites');
+
+      expect(mockPush).toHaveBeenCalledWith('/favorites');
     });
   });
 
