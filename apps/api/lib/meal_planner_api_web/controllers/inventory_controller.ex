@@ -110,6 +110,12 @@ defmodule MealPlannerApiWeb.InventoryController do
     conn |> ApiError.error(:inventory_item_not_found)
   end
 
+  defp render_error(conn, :voice_parse_failed), do: conn |> ApiError.error(:voice_parse_failed)
+
+  defp render_error(conn, :voice_confirmation_required) do
+    conn |> ApiError.error(:voice_confirmation_required)
+  end
+
   defp render_error(conn, :no_rescue_recipe_found), do: conn |> ApiError.error(:not_found)
   defp render_error(conn, :invalid_identity), do: conn |> ApiError.error(:invalid_identity)
   defp render_error(conn, _reason), do: conn |> ApiError.server_fault()

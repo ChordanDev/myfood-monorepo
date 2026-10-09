@@ -510,6 +510,59 @@ defmodule MealPlannerApiWeb.CalendarControllerTest do
       assert Enum.any?(meals, &(&1.date == ~D[2026-07-03] and &1.slot == :dinner))
     end
 
+    test "keeps recipe, cooked flag and quantity of the replacement meals", %{conn: conn} do
+      user =
+        user_with_memberships(
+          %{email: "calendar-controller-keep-attrs@example.com"},
+          [{%{name: "Calendar keep attrs account", plan: :family_4}, :owner}]
+        )
+
+      [membership] = user.memberships
+      token = issue_access_v2_token(user, membership)
+
+      {:ok, recipe} =
+        Catalog.create_recipe(%{
+          name: "Kept Recipe",
+          account_id: membership.account_id,
+          created_by_user_id: user.id,
+          source: :user_created,
+          servings: 2,
+          calories_per_serving: 300,
+          prep_time_minutes: 10,
+          suitable_for_slots: [:lunch]
+        })
+
+      conn =
+        conn
+        |> put_req_header("authorization", "Bearer " <> token)
+        |> put("/api/calendar/meals/range", %{
+          "from" => "2026-07-01",
+          "to" => "2026-07-07",
+          "meals" => [
+            %{
+              "date" => "2026-07-02",
+              "slot" => "lunch",
+              "recipeId" => recipe.id,
+              "isCooked" => true,
+              "selectedQuantity" => 2
+            }
+          ]
+        })
+
+      assert %{"data" => %{"replaced" => 1}} = json_response(conn, 200)
+
+      [meal] =
+        MealPlannerApi.Data.PlanningRepo.list_scheduled_meals(
+          membership.account_id,
+          ~D[2026-07-01],
+          ~D[2026-07-07]
+        )
+
+      assert meal.recipe_id == recipe.id
+      assert meal.is_cooked == true
+      assert meal.selected_quantity == 2
+    end
+
     test "returns 422 when `from` is missing", %{conn: conn} do
       user =
         user_with_memberships(

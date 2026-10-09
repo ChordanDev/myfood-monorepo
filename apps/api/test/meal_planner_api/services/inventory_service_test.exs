@@ -223,10 +223,6 @@ defmodule MealPlannerApi.Services.InventoryServiceTest do
       assert is_function(&InventoryService.adjust_item_quantity/3)
     end
 
-    test "parse_voice_and_apply/3 is callable" do
-      assert is_function(&InventoryService.parse_voice_and_apply/3)
-    end
-
     test "get_inventory_item/2 is callable" do
       assert is_function(&InventoryService.get_inventory_item/2)
     end
@@ -671,6 +667,316 @@ defmodule MealPlannerApi.Services.InventoryServiceTest do
       assert {:error, :inventory_item_not_found} =
                InventoryService.dispose_item(scoped_user, "not-a-uuid", %{})
     end
+  end
+
+  describe "voice_preview/2 and voice_apply/2 — spoken subtract" do
+    setup do
+      account = insert_account("Service Voice Acc")
+      user = insert_user_with_active_membership(account.id, "voice@example.com", :owner)
+      scoped_user = %{id: user.id, account_id: account.id, plan: :family_4}
+      cheese = insert_ingredient("Queso crema")
+      %{account: account, user: user, scoped_user: scoped_user, cheese: cheese}
+    end
+
+    test "preview reads a confident intent from the transcript", ctx do
+      seed_lot(ctx.account, ctx.user, ctx.cheese, %{delta: 400_000})
+
+      assert {:ok, preview} =
+               InventoryService.voice_preview(ctx.scoped_user, %{
+                 "transcript" => "me comí la mitad del queso crema"
+               })
+
+      assert preview.confirmation_required == false
+      assert preview.confidence >= 0.8
+
+      assert preview.intent == %{
+               operation: "subtract",
+               ingredient_id: ctx.cheese.id,
+               name: "Queso crema",
+               quantity_milli: 200_000,
+               unit: "g"
+             }
+    end
+
+    test "preview of a vague amount asks for confirmation", ctx do
+      seed_lot(ctx.account, ctx.user, ctx.cheese, %{delta: 400_000})
+
+      assert {:ok, %{confirmation_required: true, confidence: c, intent: intent}} =
+               InventoryService.voice_preview(ctx.scoped_user, %{
+                 "transcript" => "se me acabó el queso crema"
+               })
+
+      assert c < 0.8
+      assert intent.quantity_milli == 400_000
+    end
+
+    test "preview fails when no ingredient in stock is named", ctx do
+      assert {:error, :voice_parse_failed} =
+               InventoryService.voice_preview(ctx.scoped_user, %{
+                 "transcript" => "me comí el queso crema"
+               })
+
+      seed_lot(ctx.account, ctx.user, ctx.cheese, %{delta: 400_000})
+
+      assert {:error, :voice_parse_failed} =
+               InventoryService.voice_preview(ctx.scoped_user, %{"transcript" => "hola"})
+    end
+
+    test "preview ignores an expired lot and a lot of another Account", ctx do
+      seed_lot(ctx.account, ctx.user, ctx.cheese, %{
+        delta: 400_000,
+        expired_at: DateTime.add(DateTime.utc_now(), -5 * 86_400)
+      })
+
+      other = insert_account("Service Voice Other")
+      other_user = insert_user_with_active_membership(other.id, "voice_other@example.com", :owner)
+      seed_lot(other, other_user, ctx.cheese, %{delta: 900_000})
+
+      assert {:error, :voice_parse_failed} =
+               InventoryService.voice_preview(ctx.scoped_user, %{
+                 "transcript" => "me comí la mitad del queso crema"
+               })
+    end
+
+    test "preview rejects a payload without a transcript", ctx do
+      assert {:error, :invalid_voice_payload} =
+               InventoryService.voice_preview(ctx.scoped_user, %{})
+
+      assert {:error, :invalid_voice_payload} =
+               InventoryService.voice_preview(ctx.scoped_user, %{"text" => "me comí el queso"})
+
+      assert {:error, :invalid_voice_payload} =
+               InventoryService.voice_preview(ctx.scoped_user, %{"transcript" => "  "})
+    end
+
+    test "apply subtracts a confident intent and logs the voice event with the transcript", ctx do
+      lot = seed_lot(ctx.account, ctx.user, ctx.cheese, %{delta: 400_000})
+      transcript = "me comí la mitad del queso crema"
+      {:ok, %{intent: intent}} = preview(ctx, transcript)
+
+      assert {:ok, result} =
+               InventoryService.voice_apply(ctx.scoped_user, %{
+                 "transcript" => transcript,
+                 "intent" => stringify(intent),
+                 "confirmed" => false
+               })
+
+      assert result.ingredient_id == ctx.cheese.id
+      assert result.quantity_delta_milli == -200_000
+      assert [event] = result.mutation_events
+
+      assert %{
+               inventory_item_id: item_id,
+               trigger_type: "voice",
+               operation: "subtract",
+               quantity_before_milli: 400_000,
+               quantity_delta_milli: -200_000,
+               quantity_after_milli: 200_000
+             } = event
+
+      assert item_id == lot.id
+
+      assert InventoryPersistence.get_inventory_item_for_account(ctx.account.id, lot.id).quantity_milli ==
+               200_000
+
+      stored = Repo.get!(InventoryMutationEvent, event.id)
+      assert stored.trigger_type == :voice
+      assert stored.operation == :subtract
+      assert stored.raw_voice_text == transcript
+      assert stored.source_user_id == ctx.user.id
+    end
+
+    test "apply refuses a low-confidence intent that is not confirmed", ctx do
+      lot = seed_lot(ctx.account, ctx.user, ctx.cheese, %{delta: 400_000})
+      transcript = "se me acabó el queso crema"
+      {:ok, %{intent: intent}} = preview(ctx, transcript)
+
+      for confirmed <- [nil, false, "true", 1] do
+        payload = %{"transcript" => transcript, "intent" => stringify(intent)}
+
+        payload =
+          if is_nil(confirmed), do: payload, else: Map.put(payload, "confirmed", confirmed)
+
+        assert {:error, :voice_confirmation_required} =
+                 InventoryService.voice_apply(ctx.scoped_user, payload)
+      end
+
+      assert InventoryPersistence.get_inventory_item_for_account(ctx.account.id, lot.id).quantity_milli ==
+               400_000
+
+      assert {:ok, result} =
+               InventoryService.voice_apply(ctx.scoped_user, %{
+                 "transcript" => transcript,
+                 "intent" => stringify(intent),
+                 "confirmed" => true
+               })
+
+      assert result.quantity_delta_milli == -400_000
+    end
+
+    test "apply never trusts the client: an inflated intent needs confirmation", ctx do
+      seed_lot(ctx.account, ctx.user, ctx.cheese, %{delta: 400_000})
+      transcript = "me comí la mitad del queso crema"
+      {:ok, %{intent: intent}} = preview(ctx, transcript)
+      inflated = %{intent | quantity_milli: 390_000}
+
+      assert {:error, :voice_confirmation_required} =
+               InventoryService.voice_apply(ctx.scoped_user, %{
+                 "transcript" => transcript,
+                 "intent" => stringify(inflated),
+                 "confidence" => 1.0
+               })
+    end
+
+    test "apply needs confirmation when the client names another unit than the transcript", ctx do
+      eggs = insert_ingredient("Huevo")
+      seed_lot(ctx.account, ctx.user, eggs, %{unit: :unit, delta: 12_000})
+      grams = seed_lot(ctx.account, ctx.user, eggs, %{unit: :g, delta: 600_000})
+      transcript = "me comí 300 gramos de huevos"
+      {:ok, %{intent: intent}} = preview(ctx, transcript)
+      assert intent.unit == "g"
+
+      assert {:error, :voice_confirmation_required} =
+               InventoryService.voice_apply(ctx.scoped_user, %{
+                 "transcript" => transcript,
+                 "intent" => %{stringify(intent) | "unit" => "unit"}
+               })
+
+      assert {:ok, _result} =
+               InventoryService.voice_apply(ctx.scoped_user, %{
+                 "transcript" => transcript,
+                 "intent" => stringify(intent)
+               })
+
+      assert InventoryPersistence.get_inventory_item_for_account(ctx.account.id, grams.id).quantity_milli ==
+               300_000
+    end
+
+    test "apply caps the subtraction at the stock and never goes negative", ctx do
+      lot = seed_lot(ctx.account, ctx.user, ctx.cheese, %{delta: 400_000})
+      transcript = "me comí la mitad del queso crema"
+      {:ok, %{intent: intent}} = preview(ctx, transcript)
+
+      # Stock fell between the preview and the apply.
+      {:ok, _} =
+        InventoryPersistence.apply_delta_and_log(%{
+          account_id: ctx.account.id,
+          inventory_item_id: lot.id,
+          target_quantity_milli: 50_000,
+          source_user_id: ctx.user.id,
+          trigger_type: :manual,
+          operation: :set
+        })
+
+      assert {:ok, result} =
+               InventoryService.voice_apply(ctx.scoped_user, %{
+                 "transcript" => transcript,
+                 "intent" => stringify(intent),
+                 "confirmed" => true
+               })
+
+      assert result.quantity_delta_milli == -50_000
+
+      assert InventoryPersistence.get_inventory_item_for_account(ctx.account.id, lot.id).quantity_milli ==
+               0
+    end
+
+    test "apply consumes several lots in FEFO order", ctx do
+      now = DateTime.utc_now()
+
+      later =
+        seed_lot(ctx.account, ctx.user, ctx.cheese, %{
+          delta: 300_000,
+          expired_at: DateTime.add(now, 20 * 86_400),
+          notes: "later"
+        })
+
+      sooner =
+        seed_lot(ctx.account, ctx.user, ctx.cheese, %{
+          delta: 100_000,
+          expired_at: DateTime.add(now, 5 * 86_400),
+          notes: "sooner"
+        })
+
+      transcript = "usé 250 gramos de queso crema"
+      {:ok, %{intent: intent}} = preview(ctx, transcript)
+      assert intent.quantity_milli == 250_000
+
+      assert {:ok, result} =
+               InventoryService.voice_apply(ctx.scoped_user, %{
+                 "transcript" => transcript,
+                 "intent" => stringify(intent)
+               })
+
+      assert result.quantity_delta_milli == -250_000
+      assert Enum.map(result.mutation_events, & &1.inventory_item_id) == [sooner.id, later.id]
+      assert Enum.all?(result.mutation_events, &(&1.trigger_type == "voice"))
+
+      assert InventoryPersistence.get_inventory_item_for_account(ctx.account.id, sooner.id).quantity_milli ==
+               0
+
+      assert InventoryPersistence.get_inventory_item_for_account(ctx.account.id, later.id).quantity_milli ==
+               150_000
+    end
+
+    test "apply refuses a transcript that parses to nothing", ctx do
+      seed_lot(ctx.account, ctx.user, ctx.cheese, %{delta: 400_000})
+
+      intent = %{
+        "operation" => "subtract",
+        "ingredient_id" => ctx.cheese.id,
+        "quantity_milli" => 1_000,
+        "unit" => "g"
+      }
+
+      assert {:error, :voice_parse_failed} =
+               InventoryService.voice_apply(ctx.scoped_user, %{
+                 "transcript" => "hola",
+                 "intent" => intent,
+                 "confirmed" => true
+               })
+    end
+
+    test "apply rejects malformed payloads", ctx do
+      seed_lot(ctx.account, ctx.user, ctx.cheese, %{delta: 400_000})
+      transcript = "me comí la mitad del queso crema"
+
+      good = %{
+        "operation" => "subtract",
+        "ingredient_id" => ctx.cheese.id,
+        "quantity_milli" => 200_000,
+        "unit" => "g"
+      }
+
+      for payload <- [
+            %{},
+            %{"transcript" => transcript},
+            %{"transcript" => transcript, "intent" => "x"},
+            %{"transcript" => transcript, "intent" => %{good | "quantity_milli" => 0}},
+            %{"transcript" => transcript, "intent" => %{good | "quantity_milli" => -5}},
+            %{"transcript" => transcript, "intent" => %{good | "ingredient_id" => "nope"}},
+            %{"transcript" => transcript, "intent" => %{good | "operation" => "add"}},
+            %{"intent" => good}
+          ] do
+        assert {:error, :invalid_voice_payload} =
+                 InventoryService.voice_apply(ctx.scoped_user, payload)
+      end
+    end
+
+    test "the old text and operations contract is gone", ctx do
+      assert {:error, :invalid_voice_payload} =
+               InventoryService.voice_apply(ctx.scoped_user, %{
+                 "raw_text" => "me comí el queso crema",
+                 "operations" => [
+                   %{"inventory_item_id" => Ecto.UUID.generate(), "quantity_milli" => 1}
+                 ]
+               })
+    end
+
+    defp preview(ctx, transcript),
+      do: InventoryService.voice_preview(ctx.scoped_user, %{"transcript" => transcript})
+
+    defp stringify(intent), do: Map.new(intent, fn {k, v} -> {Atom.to_string(k), v} end)
   end
 
   describe "concurrency & lost update prevention" do

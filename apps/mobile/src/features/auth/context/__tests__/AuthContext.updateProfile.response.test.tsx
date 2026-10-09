@@ -36,6 +36,7 @@ const me: CurrentMe = {
     type: 'individual',
     trialEndsAt: '2099-12-31T00:00:00Z',
     subscriptionStatus: 'none',
+    timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
     access: { canUseApp: true, reason: null },
   },
   membership: { role: 'owner' },

@@ -70,6 +70,14 @@ export interface ProfileUpdateUser {
   cookingSkill: CookingSkill | null;
 }
 
+export interface AccountTimezonePayload {
+  timezone: string;
+}
+
+export interface AccountTimezoneResponse {
+  account: { id: string; timezone: string | null };
+}
+
 export interface ProfileUpdateResponse {
   user: ProfileUpdateUser;
 }
@@ -108,6 +116,8 @@ export type AuthErrorCode =
   | 'shopping_item_not_found'
   | 'shopping_item_not_planned'
   | 'shopping_item_in_cart'
+  | 'voice_parse_failed'
+  | 'voice_confirmation_required'
   | 'generation_in_progress'
   | 'no_active_generation'
   | 'missing_session_id'
@@ -117,6 +127,8 @@ export type AuthErrorCode =
   | 'subscription_required'
   | 'invalid_range'
   | 'overlapping_range'
+  | 'planning_invalid_range'
+  | 'planning_range_locked'
   | 'forbidden_intent'
   | 'unknown_intent'
   | 'invalid_payload'
@@ -208,6 +220,8 @@ export interface AuthAccount {
   type: AuthAccountType;
   trialEndsAt: string | null;
   subscriptionStatus: AuthSubscriptionStatus;
+  // IANA zone the Account's "today" follows; null until the app first sends one.
+  timezone: string | null;
   access: AuthAccountAccess;
 }
 

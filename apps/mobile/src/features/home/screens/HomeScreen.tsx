@@ -15,13 +15,17 @@ import {
 import { FoodCard } from '../components/FoodCard';
 import { getAvailableEatTodayDestinations, type EatTodayDestinationType } from '../domain/eatToday';
 import { useHomeResponsiveScale } from '../hooks/useHomeResponsiveScale';
+import { useEatToday } from '../hooks/useEatToday';
 import { useHomeState } from '../hooks/useHomeState';
+import { useLoadLivePlan } from '../hooks/useLoadLivePlan';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useHomeRecipeTheme } from '../hooks/useHomeRecipeTheme';
 import { formatDateKey } from '../utils/calendarDate';
 import { CookingResultSheet, useMarkAsCooked } from '@/features/cooking';
 import { useMealPlanStore } from '@/store';
 import { useGradientCrossfade } from '@/hooks/useGradientCrossfade';
+import { favoriteSummaryFromRecipe } from '@/features/favorites/domain/favoriteFormat';
+import { selectIsFavorite, useFavoritesStore } from '@/features/favorites/store';
 import { getRecipeImageSource } from '@/features/recipe/utils/recipeImageSource';
 
 const DEFAULT_FOOD_IMAGE = require('../../../../assets/AuthFoodImages/Gemini_Generated_Image_16g8h616g8h616g8-removebg-preview.png');
@@ -31,11 +35,12 @@ export function HomeScreen() {
   const metrics = useHomeResponsiveScale();
   const insets = useSafeAreaInsets();
   const tabBarHeight = insets.bottom + 60;
-  const eatToday = useMealPlanStore((state) => state.eatToday);
+  const eatToday = useEatToday();
+  useLoadLivePlan();
+  const recipeSummaries = useMealPlanStore((state) => state.recipeSummaries);
+  const getRecipeById = useMealPlanStore((state) => state.getRecipeById);
   const cooking = useMarkAsCooked();
   const markAsSkipped = useMealPlanStore((state) => state.markAsSkipped);
-  const favoriteRecipeIds = useMealPlanStore((state) => state.favoriteRecipeIds);
-  const toggleFavoriteRecipe = useMealPlanStore((state) => state.toggleFavoriteRecipe);
   // Destinations are captured when the sheet opens so the options cannot change while it is shown.
   const [eatTodaySheet, setEatTodaySheet] = useState<{
     visible: boolean;
@@ -68,14 +73,23 @@ export function HomeScreen() {
   } = useGradientCrossfade(backgroundColors);
 
   const selectedRecipeId = selectedMeal?.recipeId;
-  const isSelectedMealFavorite = Boolean(
-    selectedRecipeId && favoriteRecipeIds.includes(selectedRecipeId)
-  );
+  // The favorites are the server's, the same ones the recipe screen reads.
+  const isSelectedMealFavorite = useFavoritesStore(selectIsFavorite(selectedRecipeId ?? ''));
 
   const handleToggleFavorite = () => {
-    if (selectedRecipeId) {
-      toggleFavoriteRecipe(selectedRecipeId);
-    }
+    if (!selectedRecipeId) return;
+
+    // The plan does not carry the recipe's duration or ingredient names: the row is drawn
+    // bare until the server answers with its own.
+    void useFavoritesStore.getState().toggle(
+      favoriteSummaryFromRecipe({
+        id: selectedRecipeId,
+        name:
+          recipeSummaries[selectedRecipeId]?.name ?? getRecipeById(selectedRecipeId)?.name ?? '',
+        durationMinutes: null,
+        ingredients: [],
+      })
+    );
   };
 
   const handleOpenRecipe = () => {
@@ -115,20 +129,23 @@ export function HomeScreen() {
     setEatTodaySheet((current) => ({ ...current, visible: false }));
   };
 
-  const handleSelectEatTodayDestination = (mealType: EatTodayDestinationType) => {
+  const handleSelectEatTodayDestination = async (mealType: EatTodayDestinationType) => {
     handleCloseEatTodaySheet();
 
     if (!selectedDate || !selectedMealType) {
       return;
     }
 
-    eatToday({
+    const moved = await eatToday({
       sourceDate: selectedDate,
       sourceType: selectedMealType,
       targetDate: todayKey,
       targetType: mealType,
     });
-    handleSelectDate(todayKey, mealType);
+
+    if (moved) {
+      handleSelectDate(todayKey, mealType);
+    }
   };
 
   return (

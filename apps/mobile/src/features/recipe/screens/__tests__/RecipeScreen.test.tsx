@@ -4,6 +4,8 @@ import { act, create, type ReactTestRenderer } from 'react-test-renderer';
 import { ApiError } from '@/api/errors';
 import { formatDateKey } from '@/features/home/utils/calendarDate';
 import { CHAT_COMPOSER_MIN_HEIGHT } from '@/features/assistant-chat';
+import { addFavorite, listFavorites, removeFavorite } from '@/features/favorites/api/favoritesApi';
+import { useFavoritesStore } from '@/features/favorites/store';
 import { finishCookingSession, startCookingSession } from '@/features/cooking/api';
 import { COOKING_FINISH_WITH_SHORTAGE, COOKING_START } from '@/features/cooking/fixtures';
 import { useInventoryStore, type InventoryItem } from '@/features/inventory';
@@ -71,6 +73,14 @@ jest.mock('react-native', () => {
     enumerable: true,
   });
 });
+
+// The favorites are the server's: the API module is replaced, and the list read stays pending
+// unless a test answers it.
+jest.mock('@/features/favorites/api/favoritesApi', () => ({
+  listFavorites: jest.fn(),
+  addFavorite: jest.fn(),
+  removeFavorite: jest.fn(),
+}));
 
 jest.mock('expo-linear-gradient', () => ({
   LinearGradient: 'LinearGradient',
@@ -260,8 +270,15 @@ describe('RecipeScreen', () => {
     global.fetch = fetchMock;
     process.env.EXPO_PUBLIC_API_URL = 'https://api.example.test';
     useRecipeCacheStore.getState().clear();
+    useFavoritesStore.getState().clear();
+    jest
+      .mocked(listFavorites)
+      .mockReset()
+      .mockReturnValue(new Promise(() => {}));
+    jest.mocked(addFavorite).mockReset();
+    jest.mocked(removeFavorite).mockReset();
     mockRouteParams = { id: 'r1', entryId: 'e-today' };
-    useMealPlanStore.setState({ entries: [entry()], recipes: [RECIPE], favoriteRecipeIds: [] });
+    useMealPlanStore.setState({ entries: [entry()], recipes: [RECIPE] });
     useInventoryStore.setState({
       items: [inventoryItem()],
       ingredients: [
@@ -560,14 +577,71 @@ describe('RecipeScreen', () => {
     expect(findButton(tree, 'recipe-header-cooked').props.disabled).toBe(true);
   });
 
-  it('toggles the recipe as a favorite', () => {
+  it('reads the favorites so the star starts right', async () => {
+    jest.mocked(listFavorites).mockResolvedValue([
+      {
+        recipeId: 'r1',
+        name: 'Pollo con arroz y tomate',
+        mainIngredients: [],
+        durationMinutes: null,
+      },
+    ]);
+    const tree = renderScreen();
+
+    await act(async () => {});
+
+    expect(listFavorites).toHaveBeenCalled();
+    expect(findButton(tree, 'recipe-header-favorite').props.accessibilityLabel).toBe(
+      'Quitar de favoritos'
+    );
+  });
+
+  it('favorites the recipe at once, before the server answers', () => {
+    jest.mocked(addFavorite).mockReturnValue(new Promise(() => {}));
     const tree = renderScreen();
 
     press(tree, 'recipe-header-favorite');
 
-    expect(useMealPlanStore.getState().favoriteRecipeIds).toEqual(['r1']);
+    expect(addFavorite).toHaveBeenCalledWith('r1');
+    expect(useFavoritesStore.getState().favorites).toEqual([
+      {
+        recipeId: 'r1',
+        name: 'Pollo con arroz y tomate',
+        mainIngredients: ['Arroz blanco', 'Pollo (pechuga)', 'Tomate'],
+        durationMinutes: null,
+      },
+    ]);
     expect(findButton(tree, 'recipe-header-favorite').props.accessibilityLabel).toBe(
       'Quitar de favoritos'
+    );
+  });
+
+  it('takes the star back when the server refuses the favorite', async () => {
+    jest.mocked(addFavorite).mockRejectedValue(new ApiError('recipe_not_found', 'nope', 404));
+    const tree = renderScreen();
+
+    await act(async () => {
+      findButton(tree, 'recipe-header-favorite').props.onPress();
+    });
+
+    expect(useFavoritesStore.getState().favorites).toEqual([]);
+    expect(findButton(tree, 'recipe-header-favorite').props.accessibilityLabel).toBe(
+      'Agregar a favoritos'
+    );
+  });
+
+  it('unfavorites a favorite recipe at once and tells the server', () => {
+    useFavoritesStore.setState({
+      favorites: [{ recipeId: 'r1', name: 'Pollo', mainIngredients: [], durationMinutes: null }],
+    });
+    jest.mocked(removeFavorite).mockReturnValue(new Promise(() => {}));
+    const tree = renderScreen();
+
+    press(tree, 'recipe-header-favorite');
+
+    expect(removeFavorite).toHaveBeenCalledWith('r1');
+    expect(findButton(tree, 'recipe-header-favorite').props.accessibilityLabel).toBe(
+      'Agregar a favoritos'
     );
   });
 

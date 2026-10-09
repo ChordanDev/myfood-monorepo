@@ -5,6 +5,9 @@ import type {
   InventoryItemDisposal,
   InventoryItemWrite,
   InventoryView,
+  VoiceApplyPayload,
+  VoiceApplyResult,
+  VoicePreview,
 } from '../types';
 
 // Every success of the inventory routes is wrapped as `{ data }`. The transport hands back
@@ -52,5 +55,21 @@ export async function setItemQuantity(
 export async function disposeItem(itemId: string): Promise<InventoryItemDisposal> {
   return unwrapData<InventoryItemDisposal>(
     await apiClient.post<unknown>(itemPath(itemId, 'dispose'), undefined, { auth: true })
+  );
+}
+
+// Parses a transcript without touching the inventory. Rejects with `voice_parse_failed` when
+// nothing can be understood.
+export async function previewVoice(transcript: string): Promise<VoicePreview> {
+  return unwrapData<VoicePreview>(
+    await apiClient.post<unknown>('/api/inventory/voice/preview', { transcript }, { auth: true })
+  );
+}
+
+// The API re-derives the confidence from the transcript: an intent that needs confirmation is
+// refused with `voice_confirmation_required` unless `confirmed` is true.
+export async function applyVoice(payload: VoiceApplyPayload): Promise<VoiceApplyResult> {
+  return unwrapData<VoiceApplyResult>(
+    await apiClient.post<unknown>('/api/inventory/voice/apply', payload, { auth: true })
   );
 }

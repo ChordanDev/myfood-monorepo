@@ -1,6 +1,6 @@
 import { ScrollView, StyleSheet, View, useWindowDimensions } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
-import { Redirect } from 'expo-router';
+import { Redirect, useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { NoisyBackground, SafeAreaContent, TitlePrimary } from '@/components';
 import { MEAL_SLOT_LABEL } from '@/constants/mealSlots';
@@ -45,6 +45,7 @@ const CONTENT_BOTTOM_SPACING = 24;
 
 export function SettingsScreen() {
   const { theme } = useRecipeTheme();
+  const router = useRouter();
   const { isLoading, isAuthenticated, isComplete, canUseApp } = useAuth();
   const {
     me,
@@ -196,6 +197,11 @@ export function SettingsScreen() {
           </SettingsGroup>
 
           <SettingsGroup title="Cuenta" testID="settings-group-account">
+            <SettingsRow
+              testID="settings-row-favorites"
+              label="Favoritos"
+              onPress={() => router.push('/favorites')}
+            />
             <SettingsRow
               testID="settings-row-plan"
               label="Plan"

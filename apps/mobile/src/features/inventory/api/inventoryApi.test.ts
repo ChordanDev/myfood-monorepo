@@ -1,6 +1,23 @@
 import { isApiError } from '@/api/errors';
-import { INVENTORY_VIEW, MILK, RICE, dataResponse, errorResponse, mutationEvent } from '../mocks';
-import { addExtraItem, disposeItem, getInventory, setItemQuantity } from './inventoryApi';
+import {
+  INVENTORY_VIEW,
+  MILK,
+  RICE,
+  VOICE_APPLY_RESULT,
+  VOICE_PREVIEW_LOW_CONFIDENCE,
+  VOICE_TRANSCRIPT_LOW,
+  dataResponse,
+  errorResponse,
+  mutationEvent,
+} from '../mocks';
+import {
+  addExtraItem,
+  applyVoice,
+  disposeItem,
+  getInventory,
+  previewVoice,
+  setItemQuantity,
+} from './inventoryApi';
 
 jest.mock('expo-secure-store', () => ({
   getItemAsync: jest.fn(() => Promise.resolve('access-1')),
@@ -94,6 +111,47 @@ describe('inventoryApi', () => {
       `${API_URL}/api/inventory/items/${RICE.id}/dispose`,
       expect.objectContaining({ method: 'POST' })
     );
+  });
+
+  it('previews a transcript and unwraps the parsed intent', async () => {
+    fetchMock.mockReturnValueOnce(dataResponse(VOICE_PREVIEW_LOW_CONFIDENCE));
+
+    await expect(previewVoice(VOICE_TRANSCRIPT_LOW)).resolves.toEqual(VOICE_PREVIEW_LOW_CONFIDENCE);
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      `${API_URL}/api/inventory/voice/preview`,
+      expect.objectContaining({
+        method: 'POST',
+        headers: expect.objectContaining({ Authorization: 'Bearer access-1' }),
+      })
+    );
+    expect(sentBody()).toEqual({ transcript: VOICE_TRANSCRIPT_LOW });
+  });
+
+  it('rejects an unparseable transcript with the envelope error', async () => {
+    fetchMock.mockReturnValueOnce(errorResponse('voice_parse_failed', 'Cannot parse', 422));
+
+    await expect(previewVoice('hola')).rejects.toMatchObject({
+      code: 'voice_parse_failed',
+      status: 422,
+    });
+  });
+
+  it('applies an intent with the transcript and the confirmation flag', async () => {
+    fetchMock.mockReturnValueOnce(dataResponse(VOICE_APPLY_RESULT));
+    const payload = {
+      transcript: VOICE_TRANSCRIPT_LOW,
+      intent: VOICE_PREVIEW_LOW_CONFIDENCE.intent,
+      confirmed: true,
+    };
+
+    await expect(applyVoice(payload)).resolves.toEqual(VOICE_APPLY_RESULT);
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      `${API_URL}/api/inventory/voice/apply`,
+      expect.objectContaining({ method: 'POST' })
+    );
+    expect(sentBody()).toEqual(payload);
   });
 
   it('escapes the item id it puts in the path', async () => {
