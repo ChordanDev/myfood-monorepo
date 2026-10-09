@@ -81,6 +81,20 @@ defmodule MealPlannerApi.Data.RecipeRepo do
     )
   end
 
+  @doc """
+  Returns the theme of a Recipe visible to the Account (same rule as
+  `get_visible_recipe/2`), or nil when it has none, is hidden or is missing.
+  """
+  @spec get_visible_recipe_theme(binary() | nil, binary()) :: map() | nil
+  def get_visible_recipe_theme(account_id, id) do
+    Repo.one(
+      from(r in Recipe,
+        where: r.id == ^id and (is_nil(r.account_id) or r.account_id == ^account_id),
+        select: r.theme
+      )
+    )
+  end
+
   @spec create_recipe(map()) :: {:ok, Recipe.t()} | {:error, Ecto.Changeset.t()}
   def create_recipe(attrs), do: %Recipe{} |> Recipe.changeset(attrs) |> Repo.insert()
 

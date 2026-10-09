@@ -149,6 +149,38 @@ defmodule MealPlannerApiWeb.MobileCasingContractTest do
       assert id == f.recipe.id
       assert is_binary(version_id)
     end
+
+    test "GET /api/recipes/:id keeps the camelCase keys of the theme unchanged", f do
+      theme = %{
+        "colorBlack" => "#0D1007",
+        "colorDark" => "#15180F",
+        "colorMedium" => "#364025",
+        "colorLight" => "#8D9373",
+        "primaryAccent" => "#EF9432",
+        "appBg" => "#BCBFA7",
+        "appBgGradient" => ["#BCBFA7", "#8D9373"],
+        "icon" => "#D8D98B",
+        "textBlack" => "#0D1007",
+        "textDark" => "#1B210E",
+        "textMedium" => "#D8D98B",
+        "textLight" => "#F5F3D4",
+        "primaryAccentIntense" => "#FF8400",
+        "alert" => "#C94F3D"
+      }
+
+      {:ok, themed} =
+        Catalog.create_recipe(%{
+          account_id: f.account.id,
+          created_by_user_id: f.owner.id,
+          name: "Casing contract themed recipe",
+          source: :user_created,
+          theme: theme
+        })
+
+      body = f |> request(:get, "/api/recipes/#{themed.id}") |> success()
+
+      assert body["data"]["theme"] == theme
+    end
   end
 
   describe "cooking" do

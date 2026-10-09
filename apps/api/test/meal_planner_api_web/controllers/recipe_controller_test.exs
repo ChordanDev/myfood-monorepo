@@ -20,6 +20,22 @@ defmodule MealPlannerApiWeb.RecipeControllerTest do
                   __DIR__
                 )
 
+  @palette %{
+    "colorBlack" => "#0D1007",
+    "colorDark" => "#15180F",
+    "colorMedium" => "#364025",
+    "colorLight" => "#8D9373",
+    "primaryAccent" => "#EF9432",
+    "appBg" => "#BCBFA7",
+    "icon" => "#D8D98B",
+    "textBlack" => "#0D1007",
+    "textDark" => "#1B210E",
+    "textMedium" => "#D8D98B",
+    "textLight" => "#F5F3D4",
+    "primaryAccentIntense" => "#FF8400",
+    "alert" => "#C94F3D"
+  }
+
   setup do
     user =
       user_with_memberships(%{email: "detail-#{Ecto.UUID.generate()}@example.com"}, [
@@ -208,6 +224,122 @@ defmodule MealPlannerApiWeb.RecipeControllerTest do
                {1, "Dice the potatoes"},
                {2, "Fry them in butter"}
              ]
+    end
+  end
+
+  describe "GET /api/recipes/:id theme" do
+    test "serves the theme stored with the Recipe, camelCase keys as stored", f do
+      recipe = recipe!(f, %{account_id: nil, source: :traditional, theme: @palette})
+
+      assert f |> request(recipe.id) |> json_response(200) |> get_in(["data", "theme"]) ==
+               @palette
+    end
+
+    test "keeps the optional two-color background gradient", f do
+      theme = Map.put(@palette, "appBgGradient", ["#BCBFA7", "#8D9373"])
+      recipe = recipe!(f, %{theme: theme})
+
+      assert f |> request(recipe.id) |> json_response(200) |> get_in(["data", "theme"]) ==
+               theme
+    end
+
+    test "serves the theme frozen in the version, not the one the row has later", f do
+      recipe = recipe!(f, %{theme: @palette})
+      RecipeVersions.freeze(recipe.id)
+
+      recipe
+      |> Ecto.Changeset.change(theme: Map.put(@palette, "appBg", "#000000"))
+      |> Repo.update!()
+
+      assert f |> request(recipe.id) |> json_response(200) |> get_in(["data", "theme"]) ==
+               @palette
+    end
+
+    test "a corrected recipe keeps the theme of the recipe it corrects", f do
+      recipe = recipe!(f, %{theme: @palette})
+      {:ok, successor} = RecipeVersions.correct(recipe.id, %{name: "Corrected tortilla"})
+
+      assert f
+             |> request(successor.recipe_id)
+             |> json_response(200)
+             |> get_in(["data", "theme"]) == @palette
+    end
+
+    test "a derived recipe without a theme serves the theme of its base recipe", f do
+      base = recipe!(f, %{account_id: nil, source: :traditional, theme: @palette})
+      derived = recipe!(f, %{source: :ai_generated, base_recipe_id: base.id})
+
+      assert f |> request(derived.id) |> json_response(200) |> get_in(["data", "theme"]) ==
+               @palette
+    end
+
+    test "a derived recipe with a theme of its own keeps it", f do
+      own = Map.put(@palette, "primaryAccent", "#112233")
+      base = recipe!(f, %{account_id: nil, source: :traditional, theme: @palette})
+      derived = recipe!(f, %{source: :ai_generated, base_recipe_id: base.id, theme: own})
+
+      assert f |> request(derived.id) |> json_response(200) |> get_in(["data", "theme"]) == own
+    end
+
+    test "the base recipe's theme is read live, not frozen into the derived version", f do
+      base = recipe!(f, %{account_id: nil, source: :traditional, theme: @palette})
+      derived = recipe!(f, %{source: :ai_generated, base_recipe_id: base.id})
+      newer = Map.put(@palette, "appBg", "#000000")
+
+      base |> Ecto.Changeset.change(theme: newer) |> Repo.update!()
+
+      assert f |> request(derived.id) |> json_response(200) |> get_in(["data", "theme"]) ==
+               newer
+    end
+
+    test "a recipe with neither a theme nor a base serves null", f do
+      assert f |> request(recipe!(f).id) |> json_response(200) |> get_in(["data", "theme"]) ==
+               nil
+    end
+
+    test "a derived recipe whose base has no theme serves null", f do
+      base = recipe!(f, %{account_id: nil, source: :traditional})
+      derived = recipe!(f, %{source: :ai_generated, base_recipe_id: base.id})
+
+      assert f |> request(derived.id) |> json_response(200) |> get_in(["data", "theme"]) ==
+               nil
+    end
+
+    test "a base recipe the Account cannot see gives no theme", f do
+      other =
+        user_with_memberships(%{email: "detail-base-#{Ecto.UUID.generate()}@example.com"}, [
+          {%{plan: :individual, name: "Base household"}, :owner}
+        ])
+
+      {:ok, hidden} =
+        Catalog.create_recipe(%{
+          account_id: hd(other.memberships).account_id,
+          name: "Hidden base",
+          source: :ai_generated,
+          theme: @palette
+        })
+
+      derived = recipe!(f, %{source: :ai_generated, base_recipe_id: hidden.id})
+
+      assert f |> request(derived.id) |> json_response(200) |> get_in(["data", "theme"]) ==
+               nil
+    end
+
+    test "a theme missing a color, with an unknown key or a bad gradient is rejected" do
+      invalid = [
+        Map.delete(@palette, "alert"),
+        Map.put(@palette, "colorPurple", "#fff"),
+        Map.put(@palette, "appBg", 12),
+        Map.put(@palette, "appBgGradient", ["#fff"]),
+        Map.put(@palette, "appBgGradient", ["#fff", "#000", "#111"])
+      ]
+
+      for theme <- invalid do
+        assert {:error, changeset} =
+                 Catalog.create_recipe(%{name: "Bad theme", source: :traditional, theme: theme})
+
+        assert Keyword.has_key?(changeset.errors, :theme)
+      end
     end
   end
 
