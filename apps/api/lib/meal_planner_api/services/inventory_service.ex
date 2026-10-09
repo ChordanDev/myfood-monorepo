@@ -37,44 +37,50 @@ defmodule MealPlannerApi.Services.InventoryService do
   @spec inventory_view(map()) :: {:ok, map()} | {:error, term()}
   def inventory_view(user) do
     with {:ok, identity} <- Identity.ensure_persistent_identity(user) do
-      items = InventoryPersistence.list_inventory_with_ingredient(identity.account_id)
       now = DateTime.utc_now()
 
+      # A disposed or fully consumed lot is kept at quantity zero for the ledger;
+      # it is not stock.
       decorated =
-        Enum.map(items, fn item ->
-          status = freshness_status(item, now)
-
-          %{
-            id: item.id,
-            ingredient_id: item.ingredient_id,
-            ingredient_name: item.ingredient.name,
-            category: Atom.to_string(item.ingredient.category),
-            quantity_milli: item.quantity_milli,
-            unit: Atom.to_string(item.unit),
-            source_kind: Atom.to_string(item.source_kind),
-            acquired_at: iso_datetime(item.acquired_at),
-            expired_at: iso_datetime(item.expired_at),
-            inferred_expired_at: iso_datetime(LotFreshness.inferred_expiry(item, now)),
-            freshness_status: status
-          }
-        end)
+        identity.account_id
+        |> InventoryPersistence.list_inventory_with_ingredient()
+        |> Enum.filter(&(&1.quantity_milli > 0))
+        |> Enum.map(&view_item(&1, now))
 
       {:ok,
        %{
          sections: %{
-           ok: Enum.filter(decorated, &(&1.freshness_status == "ok")),
-           warning: Enum.filter(decorated, &(&1.freshness_status == "warning")),
-           expired: Enum.filter(decorated, &(&1.freshness_status == "expired"))
+           ok: Enum.filter(decorated, &(&1.freshness == "ok")),
+           warning: Enum.filter(decorated, &(&1.freshness == "warning")),
+           expired: Enum.filter(decorated, &(&1.freshness == "expired"))
          },
          by_category: group_by_category(decorated),
          extras: Enum.filter(decorated, &(&1.source_kind == "extra")),
          totals: %{
            items_count: length(decorated),
-           warning_count: Enum.count(decorated, &(&1.freshness_status == "warning")),
-           expired_count: Enum.count(decorated, &(&1.freshness_status == "expired"))
+           warning_count: Enum.count(decorated, &(&1.freshness == "warning")),
+           expired_count: Enum.count(decorated, &(&1.freshness == "expired"))
          }
        }}
     end
+  end
+
+  defp view_item(item, now) do
+    %{
+      id: item.id,
+      ingredient_id: item.ingredient_id,
+      name: item.ingredient.name,
+      category: Atom.to_string(item.ingredient.category),
+      quantity_milli: item.quantity_milli,
+      unit: Atom.to_string(item.unit),
+      source_kind: Atom.to_string(item.source_kind),
+      acquired_at: iso_datetime(item.acquired_at),
+      # Always a date, whether the expiry is explicit or inferred.
+      expires_at: item |> LotFreshness.effective_expiry(now) |> Date.to_iso8601(),
+      freshness: freshness_status(item, now),
+      is_leftover: item.is_leftover,
+      notes: item.notes
+    }
   end
 
   @spec freshness_status(map(), DateTime.t()) :: String.t()
