@@ -4,8 +4,8 @@ import { ApiError, isApiError } from '@/api/errors';
 import { MOCK_INGREDIENTS } from '@/mocks/domainMocks';
 import type { Ingredient } from '@/types/domain';
 import { safeAsyncStorage } from '@/utils/safeAsyncStorage';
-import { addExtraItem, disposeItem, getInventory, setItemQuantity } from '../api';
-import type { AddExtraItemPayload, InventoryItem } from '../types';
+import { addExtraItem, applyVoice, disposeItem, getInventory, setItemQuantity } from '../api';
+import type { AddExtraItemPayload, InventoryItem, VoiceApplyPayload } from '../types';
 
 type InventoryLoadStatus = 'idle' | 'loading' | 'ready' | 'error';
 
@@ -19,6 +19,7 @@ interface InventoryState {
   addExtra: (payload: AddExtraItemPayload) => Promise<InventoryItem>;
   setQuantity: (id: string, quantityMilli: number) => Promise<void>;
   dispose: (id: string) => Promise<void>;
+  applyVoice: (payload: VoiceApplyPayload) => Promise<void>;
   consumeIngredient: (ingredientId: string, quantityMilli: number) => void;
   getIngredient: (id: string) => Ingredient | undefined;
 }
@@ -100,6 +101,19 @@ export const useInventoryStore = create<InventoryState>()(
         await disposeItem(id);
         writeCount += 1;
         set((state) => ({ items: state.items.filter((item) => item.id !== id) }));
+      },
+      // Each event of the answer says what its lot holds now, so the cache takes it as is.
+      applyVoice: async (payload) => {
+        const { mutationEvents } = await applyVoice(payload);
+        writeCount += 1;
+        set((state) => ({
+          items: mutationEvents.reduce((items, event) => {
+            const lot = items.find((item) => item.id === event.inventoryItemId);
+            return lot
+              ? replaceLot(items, { ...lot, quantityMilli: event.quantityAfterMilli })
+              : items;
+          }, state.items),
+        }));
       },
       // Temporary: `consumeIngredient` (cooking) only patches the cache, in thousandths, until
       // the cooking slice calls the API. The API never hears of it, so the next read replaces

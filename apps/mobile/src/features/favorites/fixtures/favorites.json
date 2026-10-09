@@ -1,0 +1,16 @@
+{
+  "data": [
+    {
+      "recipeId": "0b1c2d3e-4f50-4a61-8b72-93a4b5c6d7e8",
+      "name": "Tortilla de papas",
+      "mainIngredients": ["Papa", "Aceite de girasol", "Huevo"],
+      "durationMinutes": 40
+    },
+    {
+      "recipeId": "1c2d3e4f-5061-4b72-9c83-a4b5c6d7e8f9",
+      "name": "Ensalada de lentejas",
+      "mainIngredients": ["Lentejas"],
+      "durationMinutes": null
+    }
+  ]
+}

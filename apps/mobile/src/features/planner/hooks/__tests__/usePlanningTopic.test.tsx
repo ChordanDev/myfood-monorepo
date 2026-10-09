@@ -241,4 +241,71 @@ describe('usePlanningTopic', () => {
 
     expect(planningTopic).toEqual({ status: 'joined' });
   });
+
+  describe('the live session', () => {
+    const resumed = {
+      sessionId: 'session-1',
+      proposalId: 'proposal-1',
+      proposal: { days: [] },
+      messages: [{ role: 'user', content: 'Plan my week', intentKind: 'plan_week' }],
+    };
+
+    async function renderJoined() {
+      await renderPlanningTopic('account-1');
+      socket.open();
+      act(() => socket.channels[0].replyOk());
+    }
+
+    it('surfaces the session the server resumes after the join', async () => {
+      await renderJoined();
+
+      act(() => socket.channels[0].serverPush('session_resumed', resumed));
+
+      expect(planningTopic).toEqual({ status: 'joined', resumed });
+    });
+
+    it('has no resumed session when the server pushes none', async () => {
+      await renderJoined();
+
+      expect(planningTopic).toEqual({ status: 'joined' });
+    });
+
+    it.each(['session_lost_lock', 'session_expired'] as const)(
+      'reports the session as over on %s',
+      async (event) => {
+        await renderJoined();
+        act(() => socket.channels[0].serverPush('session_resumed', resumed));
+
+        act(() => socket.channels[0].serverPush(event, {}));
+
+        expect(planningTopic).toEqual({ status: 'joined', sessionOver: event });
+      }
+    );
+
+    it('starts a new session when the server resumes one after the previous ended', async () => {
+      await renderJoined();
+      act(() => socket.channels[0].serverPush('session_expired', {}));
+
+      act(() => socket.channels[0].serverPush('session_resumed', resumed));
+
+      expect(planningTopic).toEqual({ status: 'joined', resumed });
+    });
+
+    it('ignores a resumed payload without a session id', async () => {
+      await renderJoined();
+
+      act(() => socket.channels[0].serverPush('session_resumed', { proposal: null }));
+
+      expect(planningTopic).toEqual({ status: 'joined' });
+    });
+
+    it('drops the session of the previous Account when the Account changes', async () => {
+      await renderJoined();
+      act(() => socket.channels[0].serverPush('session_resumed', resumed));
+
+      await renderPlanningTopic('account-2');
+
+      expect(planningTopic).toEqual({ status: 'joining' });
+    });
+  });
 });

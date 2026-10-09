@@ -1,1 +1,8 @@
-export { addExtraItem, disposeItem, getInventory, setItemQuantity } from './inventoryApi';
+export {
+  addExtraItem,
+  applyVoice,
+  disposeItem,
+  getInventory,
+  previewVoice,
+  setItemQuantity,
+} from './inventoryApi';

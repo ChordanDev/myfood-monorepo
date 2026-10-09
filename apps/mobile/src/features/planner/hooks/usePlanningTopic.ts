@@ -2,15 +2,37 @@ import { useEffect, useState } from 'react';
 import type { ApiError } from '@/api/errors';
 import { getSocketClient, planningTopic } from '@/api/socket';
 import { useAuth } from '@/features/auth/hooks/useAuth';
+import {
+  SESSION_OVER_EVENTS,
+  type SessionOverReason,
+  type SessionResumedPayload,
+} from '../types/planningSession';
 
 /** `idle` while there is no Account to join for. */
 export type PlanningTopicState =
   | { status: 'idle' }
   | { status: 'joining' }
-  | { status: 'joined' }
+  | {
+      status: 'joined';
+      /** The session the server resumed after the join; absent when there is none. */
+      resumed?: SessionResumedPayload;
+      /** Why the session ended; absent while it has not. */
+      sessionOver?: SessionOverReason;
+    }
   | { status: 'refused'; error: ApiError };
 
 type JoinAnswer = Extract<PlanningTopicState, { status: 'joined' | 'refused' }>;
+
+/** What the topic pushed about the session since the join, until the next push replaces it. */
+type SessionEvents = { resumed?: SessionResumedPayload; sessionOver?: SessionOverReason };
+
+function isSessionResumed(payload: unknown): payload is SessionResumedPayload {
+  return (
+    typeof payload === 'object' &&
+    payload !== null &&
+    typeof (payload as { sessionId?: unknown }).sessionId === 'string'
+  );
+}
 
 const IDLE: PlanningTopicState = { status: 'idle' };
 const JOINING: PlanningTopicState = { status: 'joining' };
@@ -27,6 +49,7 @@ export function usePlanningTopic(): PlanningTopicState {
   const accountId = me?.account.id ?? null;
   // What the server answered to the join of `answeredAccountId`; null until it answers.
   const [answer, setAnswer] = useState<JoinAnswer | null>(null);
+  const [sessionEvents, setSessionEvents] = useState<SessionEvents>({});
   const [answeredAccountId, setAnsweredAccountId] = useState(accountId);
 
   // An answer holds for one Account's topic only. It is dropped while rendering, so the screen
@@ -34,6 +57,7 @@ export function usePlanningTopic(): PlanningTopicState {
   if (answeredAccountId !== accountId) {
     setAnsweredAccountId(accountId);
     setAnswer(null);
+    setSessionEvents({});
   }
 
   useEffect(() => {
@@ -52,6 +76,20 @@ export function usePlanningTopic(): PlanningTopicState {
       onRefused: (error) => {
         if (isCurrent) setAnswer({ status: 'refused', error });
       },
+      events: {
+        // The server pushes it after a join only when the Account has an active session.
+        session_resumed: (payload) => {
+          if (isCurrent && isSessionResumed(payload)) setSessionEvents({ resumed: payload });
+        },
+        ...Object.fromEntries(
+          SESSION_OVER_EVENTS.map((reason) => [
+            reason,
+            () => {
+              if (isCurrent) setSessionEvents({ sessionOver: reason });
+            },
+          ])
+        ),
+      },
     });
 
     return () => {
@@ -61,5 +99,8 @@ export function usePlanningTopic(): PlanningTopicState {
   }, [accountId]);
 
   if (accountId === null) return IDLE;
-  return answer ?? JOINING;
+  if (answer?.status === 'refused') return answer;
+  if (answer === null && !sessionEvents.resumed && !sessionEvents.sessionOver) return JOINING;
+  if (!sessionEvents.resumed && !sessionEvents.sessionOver) return JOINED;
+  return { status: 'joined', ...sessionEvents };
 }

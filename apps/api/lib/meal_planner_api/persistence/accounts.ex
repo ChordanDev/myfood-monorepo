@@ -57,6 +57,20 @@ defmodule MealPlannerApi.Persistence.Accounts do
     end
   end
 
+  @doc """
+  Stores `timezone`, an IANA id, on the Account with `account_id`. The rules
+  are the ones of `Account.changeset/2`; nothing is stored when it rejects
+  the zone.
+  """
+  @spec update_account_timezone(Ecto.UUID.t(), String.t()) ::
+          {:ok, Account.t()} | {:error, :account_not_found | Ecto.Changeset.t()}
+  def update_account_timezone(account_id, timezone) do
+    case Repo.get(Account, account_id) do
+      %Account{} = account -> account |> Account.changeset(%{timezone: timezone}) |> Repo.update()
+      nil -> {:error, :account_not_found}
+    end
+  end
+
   def upsert_user_dietary_profile(user_id, attrs) do
     attrs = Map.put(attrs, :user_id, user_id)
 
