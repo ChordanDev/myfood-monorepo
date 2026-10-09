@@ -49,6 +49,7 @@ defmodule MealPlannerApi.Persistence.Inventory.InventoryItem do
     ])
     |> validate_number(:quantity_milli, greater_than_or_equal_to: 0)
     |> validate_number(:acquired_price_cents, greater_than_or_equal_to: 0)
+    |> validate_length(:notes, max: 1_000)
     |> foreign_key_constraint(:account_id)
     |> foreign_key_constraint(:ingredient_id)
   end

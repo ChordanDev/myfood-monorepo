@@ -3,6 +3,7 @@ defmodule MealPlannerApiWeb.InventoryController do
 
   alias MealPlannerApi.Services.InventoryService
   alias MealPlannerApi.Services.BudgetService
+  alias MealPlannerApiWeb.ApiError
   alias MealPlannerApiWeb.Controllers.AccountScopeHelpers
 
   # Phase A — Tenancy Refactor (PR 3c task 3.18): tenancy scope is always
@@ -88,13 +89,28 @@ defmodule MealPlannerApiWeb.InventoryController do
     json(conn, %{data: data})
   end
 
-  defp render_error(conn, reason) do
-    conn
-    |> put_status(:unprocessable_entity)
-    |> json(%{error: serialize_reason(reason)})
+  # Every error leaves through the `ApiError` envelope. It carries a code and
+  # the message of that code only, so it does not name the field that failed.
+  @validation_reasons ~w(
+    missing_ingredient invalid_ingredient_id ingredient_not_found
+    missing_quantity invalid_quantity
+    missing_unit invalid_unit
+    invalid_expires_at invalid_notes invalid_is_leftover
+    invalid_voice_payload no_ingredients_selected
+  )a
+
+  defp render_error(conn, reason) when reason in @validation_reasons do
+    conn |> ApiError.error(:validation_error)
   end
 
-  defp serialize_reason(reason) when is_atom(reason), do: Atom.to_string(reason)
-  defp serialize_reason(reason) when is_binary(reason), do: reason
-  defp serialize_reason(_), do: "invalid_payload"
+  # A lot or a meal the payload described could not be stored as given.
+  defp render_error(conn, %Ecto.Changeset{}), do: conn |> ApiError.error(:validation_error)
+
+  defp render_error(conn, :inventory_item_not_found) do
+    conn |> ApiError.error(:inventory_item_not_found)
+  end
+
+  defp render_error(conn, :no_rescue_recipe_found), do: conn |> ApiError.error(:not_found)
+  defp render_error(conn, :invalid_identity), do: conn |> ApiError.error(:invalid_identity)
+  defp render_error(conn, _reason), do: conn |> ApiError.server_fault()
 end

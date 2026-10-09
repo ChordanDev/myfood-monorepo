@@ -38,7 +38,7 @@ The Inventory screen shows lots with milli quantities, units and freshness secti
 ## Tasks
 
 - [x] **T1 API read shape and new columns.** Migration and schema for `is_leftover` (boolean, default false, not null) and `notes` (nullable text); item serialization per D2; zero-quantity lots hidden (D1). Route: delegated direct (migration, schema, service, tests).
-- [ ] **T2 API writes and envelope errors.** `add-extra` reads `expires_at`, `notes`, `is_leftover` (D3, D9); the three writes return `{ item, mutation_event }` or `{ disposed: true, mutation_event }`; errors per D4 including the mobile code contract files; integration guide updated. Route: delegated direct (controller, service, persistence, ApiError, mobile contract, tests, docs).
+- [x] **T2 API writes and envelope errors.** `add-extra` reads `expires_at`, `notes`, `is_leftover` (D3, D9); the three writes return `{ item, mutation_event }` or `{ disposed: true, mutation_event }`; errors per D4 including the mobile code contract files; integration guide updated. Route: delegated direct (controller, service, persistence, ApiError, mobile contract, tests, docs).
 - [ ] **T3 Mobile inventory client and cache store.** `features/inventory/api`, API types, milli formatting and input conversion, category mapping (D6); store without fixture seeding or `confidence`, integer milli, replaced by read and mutation responses; cross-feature callers adapted (D8). Route: delegated direct (many files across features).
 - [ ] **T4 Mobile screen and edit flows.** Inventory screen renders freshness sections from the API; add, set-quantity and dispose flows call the API and surface envelope errors (D7); screen and flow tests against a fake API with frozen fixtures. Route: delegated direct (screens, components, tests).
 
@@ -63,14 +63,17 @@ Forecast: about 1100 to 1400 authored changed lines, above the 400-line budget. 
 
 | Task | Commit | Checks | Review |
 | ---- | ------ | ------ | ------ |
-| T1   | `650b214` | RED 7 failing of 43, GREEN 102 passed; format, compile clean; `mix test` 1211 passed, 20 skipped; parent spot check 27 passed | pending assessment |
-| T2   |        |        |        |
+| T1   | `650b214` | RED 7 failing of 43, GREEN 102 passed; format, compile clean; `mix test` 1211 passed, 20 skipped; parent spot check 27 passed | medium, under budget; covered by review `review-17aa8dd30a7a45bb` (approved, acknowledged) |
+| T2   | `40b26fb` | RED 28 failing of 76 (API), 2 of 8 (mobile contract); GREEN 76 and 8; format, compile clean; `mix test` 1226 passed, 20 skipped; mobile typecheck clean, lint 0 errors 4 warnings; parent spot check 16 passed | high (auth hot path); consent granted; four lenses approved, acknowledged, authority burned |
 | T3   |        |        |        |
 | T4   |        |        |        |
 
-Next step: T2.
+Next step: T3. Reviewed boundary: `40b26fb`.
 
 ## Notes and follow-ups
 
 - Checkout and cooking slices must replace the `addItem` and `consumeIngredient` shims (D8).
 - No endpoint edits `notes` or the name of an existing lot (D7).
+- T2 moved every `InventoryController` error to the envelope, including voice preview/apply and `/api/planning/rescue`; an unrecognised reason is now 500 `unknown_error`.
+- The mutation event is serialized with `trigger_type` (schema field name), so the wire key is `triggerType`.
+- Advisory review findings on T1+T2 (non-blocking, later work): `notes` has no length bound (`inventory_item.ex:16`); a nil `mutation_event` would be dereferenced in the write result (`inventory_service.ex:87-98`); the controller catch-all drops the failure reason and its reason allowlist can drift from the service (`inventory_controller.ex:94-115`); zero lots are filtered in memory (`inventory_service.ex:45-48`); a date-boundary flake risk in `inventory_controller_test.exs:293-326`; `acquired_at`/price are not validated on add-extra (`inventory_service.ex:541-542`).
