@@ -17,7 +17,7 @@ Ticket: ChordanDev/myfood-monorepo#20. Parent spec: #2. Branch: `claude/issue-20
 ## Tasks
 
 - [x] T1 API: extract slot-times validation; compose profile + stamp + timezone + preferences + slot times in one transaction (service + controller + route + tests incl. rollback, idempotent timestamp, `/api/me` isComplete).
-- [ ] T2 Mobile: add `timezone` (device IANA zone) to request type and payload builder; adjust tests; drop dead `onboarding_already_complete` handling only if tests stay green.
+- [x] T2 Mobile: add `timezone` (device IANA zone) to request type and payload builder; adjust tests; drop dead `onboarding_already_complete` handling only if tests stay green.
 
 ## Checks
 
@@ -27,3 +27,4 @@ Ticket: ChordanDev/myfood-monorepo#20. Parent spec: #2. Branch: `claude/issue-20
 ## Progress / evidence
 
 - T1: delegated writer (2+ non-trivial files). Checks: onboarding/profile/preferences/slot/current_me tests 136 passed, full `mix test` 1455 with one flaky failure that passed on rerun, format and `--warnings-as-errors` clean.
+- T2: inline (small, mechanical). Checks: jest onboarding/services/auth/app tests 252 passed, typecheck clean, lint 0 errors (4 pre-existing warnings), prettier ok.
