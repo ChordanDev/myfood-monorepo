@@ -36,7 +36,7 @@ describe('favorite recipes', () => {
   });
 });
 
-describe('marking a meal as cooked', () => {
+describe('marking a meal as cooked (the server consumes the stock)', () => {
   const recipe = MOCK_MASTER_RECIPES[0];
   const entry: MealPlanEntry = {
     id: 'entry-1',
@@ -45,7 +45,6 @@ describe('marking a meal as cooked', () => {
     recipeId: recipe.id,
     isCooked: false,
   };
-  // The inventory counts in thousandths of the unit; the recipe amounts are display units.
   const rice = buildInventoryItem({
     id: 'inv-i1',
     ingredientId: 'i1',
@@ -66,19 +65,19 @@ describe('marking a meal as cooked', () => {
     useInventoryStore.setState({ items: [rice, oil] });
   });
 
-  it('consumes the recipe ingredients from the inventory without going below zero', () => {
+  it('marks the entry as cooked without touching the local inventory', () => {
     useMealPlanStore.getState().markAsCooked('entry-1');
 
-    // The oil ran out, so its lot left the inventory.
-    expect(useInventoryStore.getState().items).toEqual([{ ...rice, quantityMilli: 400_000 }]);
     expect(useMealPlanStore.getState().entries[0].isCooked).toBe(true);
+    expect(useInventoryStore.getState().items).toEqual([rice, oil]);
   });
 
-  it('does not consume the ingredients twice', () => {
+  it('keeps the entry cooked when it is marked twice', () => {
     useMealPlanStore.getState().markAsCooked('entry-1');
     useMealPlanStore.getState().markAsCooked('entry-1');
 
-    expect(useInventoryStore.getState().items[0].quantityMilli).toBe(400_000);
+    expect(useMealPlanStore.getState().entries[0].isCooked).toBe(true);
+    expect(useInventoryStore.getState().items).toEqual([rice, oil]);
   });
 });
 
@@ -122,13 +121,13 @@ describe('meal confirmation', () => {
     useInventoryStore.setState({ items: initialInventory });
   });
 
-  it('marks an entry as cooked and consumes the recipe ingredients', () => {
+  it('marks an entry as cooked and leaves the inventory untouched', () => {
     seedEntry();
 
     useMealPlanStore.getState().markAsCooked('entry-1');
 
     expect(getEntry().isCooked).toBe(true);
-    expect(getInventory()).toEqual([{ ...rice, quantityMilli: 400_000 }]);
+    expect(getInventory()).toEqual(initialInventory);
   });
 
   it('marks an entry as skipped and leaves the inventory untouched', () => {

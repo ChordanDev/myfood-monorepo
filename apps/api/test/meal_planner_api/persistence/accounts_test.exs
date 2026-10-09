@@ -8,7 +8,7 @@ defmodule MealPlannerApi.Persistence.AccountsTest do
 
   alias Ecto.Adapters.SQL.Sandbox
   alias MealPlannerApi.Persistence.Accounts
-  alias MealPlannerApi.Persistence.Accounts.User
+  alias MealPlannerApi.Persistence.Accounts.{Account, User}
   alias MealPlannerApi.Repo
 
   @profile %{name: "Ana", household_size: 4, cooking_skill: "intermediate"}
@@ -46,6 +46,31 @@ defmodule MealPlannerApi.Persistence.AccountsTest do
     test "returns :user_not_found for an id with no User" do
       assert Accounts.update_user_profile(Ecto.UUID.generate(), @profile) ==
                {:error, :user_not_found}
+    end
+  end
+
+  describe "update_account_timezone/2" do
+    test "stores the zone on the Account with that id", %{user: user} do
+      [membership] = user.memberships
+
+      assert {:ok, %Account{timezone: "Asia/Tokyo"}} =
+               Accounts.update_account_timezone(membership.account_id, "Asia/Tokyo")
+
+      assert Repo.get!(Account, membership.account_id).timezone == "Asia/Tokyo"
+    end
+
+    test "rejects an unknown zone and stores nothing", %{user: user} do
+      [membership] = user.memberships
+
+      assert {:error, %Ecto.Changeset{errors: [timezone: _]}} =
+               Accounts.update_account_timezone(membership.account_id, "Mars/Olympus")
+
+      assert Repo.get!(Account, membership.account_id).timezone == nil
+    end
+
+    test "answers :account_not_found for an unknown id" do
+      assert {:error, :account_not_found} =
+               Accounts.update_account_timezone(Ecto.UUID.generate(), "Asia/Tokyo")
     end
   end
 end
