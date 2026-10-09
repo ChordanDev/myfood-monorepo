@@ -18,6 +18,9 @@ jest.mock('@/features/auth/hooks/useAuth', () => ({
   useAuth: () => ({ me: mockAccountId === null ? null : { account: { id: mockAccountId } } }),
 }));
 
+// The subscription is the one the hook joined with; the tests below check what it does.
+const JOINED = { status: 'joined', subscription: expect.anything() };
+
 function refusal(code: string) {
   return { error: { code, message: 'refused' } };
 }
@@ -108,7 +111,7 @@ describe('usePlanningTopic', () => {
 
     act(() => socket.channels[0].replyOk());
 
-    expect(planningTopic).toEqual({ status: 'joined' });
+    expect(planningTopic).toEqual(JOINED);
   });
 
   it('joins once the session arrives after mount for the same Account', async () => {
@@ -123,7 +126,7 @@ describe('usePlanningTopic', () => {
     act(() => socket.channels[0].replyOk());
 
     expect(socket.channels).toHaveLength(1);
-    expect(planningTopic).toEqual({ status: 'joined' });
+    expect(planningTopic).toEqual(JOINED);
   });
 
   it.each(['forbidden', 'trial_expired'] as const)(
@@ -181,7 +184,7 @@ describe('usePlanningTopic', () => {
 
     act(() => socket.channels[1].replyOk());
 
-    expect(planningTopic).toEqual({ status: 'joined' });
+    expect(planningTopic).toEqual(JOINED);
   });
 
   it('leaves the topic when the Account id is gone', async () => {
@@ -207,7 +210,7 @@ describe('usePlanningTopic', () => {
 
     act(() => socket.channels[1].replyOk());
 
-    expect(planningTopic).toEqual({ status: 'joined' });
+    expect(planningTopic).toEqual(JOINED);
   });
 
   it('stays joined when the topic rejoins after a reconnect', async () => {
@@ -223,7 +226,7 @@ describe('usePlanningTopic', () => {
     });
 
     expect(socket.channels).toHaveLength(1);
-    expect(planningTopic).toEqual({ status: 'joined' });
+    expect(planningTopic).toEqual(JOINED);
   });
 
   it('holds a single subscription when StrictMode runs the effect twice', async () => {
@@ -239,7 +242,7 @@ describe('usePlanningTopic', () => {
     socket.open();
     act(() => liveChannels()[0].replyOk());
 
-    expect(planningTopic).toEqual({ status: 'joined' });
+    expect(planningTopic).toEqual(JOINED);
   });
 
   describe('the live session', () => {
@@ -261,13 +264,15 @@ describe('usePlanningTopic', () => {
 
       act(() => socket.channels[0].serverPush('session_resumed', resumed));
 
-      expect(planningTopic).toEqual({ status: 'joined', resumed });
+      expect(planningTopic).toMatchObject({ status: 'joined', resumed });
     });
 
     it('has no resumed session when the server pushes none', async () => {
       await renderJoined();
 
-      expect(planningTopic).toEqual({ status: 'joined' });
+      expect(planningTopic).toMatchObject({ status: 'joined' });
+      expect(planningTopic).not.toHaveProperty('resumed');
+      expect(planningTopic).not.toHaveProperty('sessionOver');
     });
 
     it.each(['session_lost_lock', 'session_expired'] as const)(
@@ -278,7 +283,7 @@ describe('usePlanningTopic', () => {
 
         act(() => socket.channels[0].serverPush(event, {}));
 
-        expect(planningTopic).toEqual({ status: 'joined', sessionOver: event });
+        expect(planningTopic).toMatchObject({ status: 'joined', sessionOver: event });
       }
     );
 
@@ -288,7 +293,7 @@ describe('usePlanningTopic', () => {
 
       act(() => socket.channels[0].serverPush('session_resumed', resumed));
 
-      expect(planningTopic).toEqual({ status: 'joined', resumed });
+      expect(planningTopic).toMatchObject({ status: 'joined', resumed });
     });
 
     it('ignores a resumed payload without a session id', async () => {
@@ -296,7 +301,9 @@ describe('usePlanningTopic', () => {
 
       act(() => socket.channels[0].serverPush('session_resumed', { proposal: null }));
 
-      expect(planningTopic).toEqual({ status: 'joined' });
+      expect(planningTopic).toMatchObject({ status: 'joined' });
+      expect(planningTopic).not.toHaveProperty('resumed');
+      expect(planningTopic).not.toHaveProperty('sessionOver');
     });
 
     it('drops the session of the previous Account when the Account changes', async () => {

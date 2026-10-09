@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import type { ApiError } from '@/api/errors';
-import { getSocketClient, planningTopic } from '@/api/socket';
+import { getSocketClient, planningTopic, type TopicSubscription } from '@/api/socket';
 import { useAuth } from '@/features/auth/hooks/useAuth';
 import {
   SESSION_OVER_EVENTS,
@@ -8,12 +8,17 @@ import {
   type SessionResumedPayload,
 } from '../types/planningSession';
 
-/** `idle` while there is no Account to join for. */
+/**
+ * `idle` while there is no Account to join for. A joined topic hands out its subscription, to
+ * push commands and listen to events for as long as the caller is mounted.
+ */
 export type PlanningTopicState =
   | { status: 'idle' }
   | { status: 'joining' }
   | {
       status: 'joined';
+      /** To push commands and listen to events on the topic; left when the caller unmounts. */
+      subscription: TopicSubscription;
       /** The session the server resumed after the join; absent when there is none. */
       resumed?: SessionResumedPayload;
       /** Why the session ended; absent while it has not. */
@@ -21,7 +26,9 @@ export type PlanningTopicState =
     }
   | { status: 'refused'; error: ApiError };
 
-type JoinAnswer = Extract<PlanningTopicState, { status: 'joined' | 'refused' }>;
+type JoinAnswer =
+  | { status: 'joined'; subscription: TopicSubscription }
+  | { status: 'refused'; error: ApiError };
 
 /** What the topic pushed about the session since the join, until the next push replaces it. */
 type SessionEvents = { resumed?: SessionResumedPayload; sessionOver?: SessionOverReason };
@@ -36,7 +43,6 @@ function isSessionResumed(payload: unknown): payload is SessionResumedPayload {
 
 const IDLE: PlanningTopicState = { status: 'idle' };
 const JOINING: PlanningTopicState = { status: 'joining' };
-const JOINED: JoinAnswer = { status: 'joined' };
 
 /**
  * Keeps the planning topic of the signed-in Account joined while the caller is mounted, and
@@ -71,7 +77,7 @@ export function usePlanningTopic(): PlanningTopicState {
     void client.connect();
     const subscription = client.joinTopic(planningTopic(accountId), {
       onJoined: () => {
-        if (isCurrent) setAnswer(JOINED);
+        if (isCurrent) setAnswer({ status: 'joined', subscription });
       },
       onRefused: (error) => {
         if (isCurrent) setAnswer({ status: 'refused', error });
@@ -100,7 +106,6 @@ export function usePlanningTopic(): PlanningTopicState {
 
   if (accountId === null) return IDLE;
   if (answer?.status === 'refused') return answer;
-  if (answer === null && !sessionEvents.resumed && !sessionEvents.sessionOver) return JOINING;
-  if (!sessionEvents.resumed && !sessionEvents.sessionOver) return JOINED;
-  return { status: 'joined', ...sessionEvents };
+  if (answer === null) return JOINING;
+  return { ...answer, ...sessionEvents };
 }

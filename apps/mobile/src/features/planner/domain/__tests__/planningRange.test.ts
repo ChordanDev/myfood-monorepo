@@ -1,6 +1,8 @@
 import type { MealPlanEntry } from '@/types/domain';
 import {
+  clampPlanningRange,
   formatPlanningRangeButtonLabel,
+  formatPlanningStartLabel,
   formatPlanningRangeLabel,
   getDefaultPlanningRange,
   getFirstPlannableDate,
@@ -228,5 +230,44 @@ describe('formatPlanningRangeButtonLabel', () => {
     expect(formatPlanningRangeButtonLabel({ start: null, end: null })).toBe(
       'Elegir los días a planificar'
     );
+  });
+});
+
+describe('clampPlanningRange', () => {
+  it('keeps a range of up to seven days', () => {
+    const range = { start: '2026-09-28', end: '2026-10-04' };
+
+    expect(clampPlanningRange(range)).toBe(range);
+  });
+
+  it('moves the end of a longer range back to the seventh day, across a month', () => {
+    expect(clampPlanningRange({ start: '2026-09-28', end: '2026-10-20' })).toEqual({
+      start: '2026-09-28',
+      end: '2026-10-04',
+    });
+  });
+
+  it('leaves a range without an end alone', () => {
+    const range = { start: '2026-09-28', end: null };
+
+    expect(clampPlanningRange(range)).toBe(range);
+  });
+});
+
+describe('formatPlanningStartLabel', () => {
+  it('names the range it will plan', () => {
+    expect(formatPlanningStartLabel({ start: '2026-09-16', end: '2026-09-24' })).toBe(
+      'Planificar 16 - 24 Septiembre'
+    );
+  });
+
+  it('names the one day of a range with only its start, which is the span that is sent', () => {
+    expect(formatPlanningStartLabel({ start: '2026-09-16', end: null })).toBe(
+      'Planificar 16 Septiembre'
+    );
+  });
+
+  it('is plain while no day is picked', () => {
+    expect(formatPlanningStartLabel({ start: null, end: null })).toBe('Planificar');
   });
 });

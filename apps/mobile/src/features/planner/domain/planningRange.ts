@@ -11,6 +11,9 @@ import {
 // Days the Planner offers to plan when the user has not picked any: a week.
 const DEFAULT_PLANNING_DAYS = 7;
 
+// The most days one Planning session can cover: the window of the generation on the server.
+export const MAX_PLANNING_DAYS = 7;
+
 const SHORT_MONTH_LENGTH = 3;
 
 // Every day here is a 'YYYY-MM-DD' key, which sorts like the date it names. `todayKey` is one
@@ -44,6 +47,17 @@ export function getDefaultPlanningRange(firstPlannableDate: string): CalendarRan
     start: firstPlannableDate,
     end: addDays(firstPlannableDate, DEFAULT_PLANNING_DAYS - 1),
   };
+}
+
+/**
+ * The range cut to the days one session can plan: an end more than `MAX_PLANNING_DAYS` days
+ * after the start is moved back to the last day that fits. An open range stays as it is.
+ */
+export function clampPlanningRange(range: CalendarRange): CalendarRange {
+  if (range.start === null || range.end === null) return range;
+
+  const lastAllowedDate = addDays(range.start, MAX_PLANNING_DAYS - 1);
+  return range.end > lastAllowedDate ? { start: range.start, end: lastAllowedDate } : range;
 }
 
 export function isPlannableDate(dateKey: string, firstPlannableDate: string) {
@@ -117,4 +131,13 @@ export function formatPlanningRangeButtonLabel(range: CalendarRange) {
 
   const label = formatPlanningRangeLabel(range);
   return `${action}, ahora ${label.charAt(0).toLowerCase()}${label.slice(1)}`;
+}
+
+/**
+ * What the start button reads. A range with only its start is planned as that one day (that is
+ * what `start_planning` is sent), so the label names the one day instead of `Desde ...`.
+ */
+export function formatPlanningStartLabel({ start, end }: CalendarRange) {
+  if (start === null) return 'Planificar';
+  return `Planificar ${formatPlanningRangeLabel({ start, end: end ?? start })}`;
 }

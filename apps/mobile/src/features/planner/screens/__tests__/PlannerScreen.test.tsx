@@ -52,10 +52,23 @@ jest.mock('react-native-reanimated', () => ({
 
 jest.mock('lucide-react-native', () => ({ CircleAlert: 'CircleAlert' }));
 
-// The header is another suite's; the join notice is rendered as it is.
+// The header is another suite's; the other components are rendered as they are.
 jest.mock('../../components', () => ({
   ...jest.requireActual('../../components/PlanningJoinNotice'),
+  ...jest.requireActual('../../components/PlanningDraftPanel'),
   PlannerHeader: 'PlannerHeader',
+}));
+
+// The range is another suite's too: it reads the plan store and the Home barrel, which loads
+// that feature's screens.
+jest.mock('../../hooks/usePlanningRange', () => ({
+  usePlanningRange: () => ({ range: { start: '2030-01-01', end: '2030-01-02' } }),
+}));
+
+// The pure modules behind the Home barrel: the barrel itself loads its screens.
+jest.mock('@/features/home', () => ({
+  ...jest.requireActual('@/features/home/constants/calendar'),
+  ...jest.requireActual('@/features/home/utils/calendarDate'),
 }));
 
 // The real barrel would load the app client, and with it the Phoenix client.
