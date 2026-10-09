@@ -7,7 +7,7 @@
         {
           "macros": {
             "calories": 500,
-            "carbsG": 60,
+            "carbsG": null,
             "proteinG": 30
           },
           "priceCents": null,
@@ -36,7 +36,7 @@
           "macros": {
             "calories": 500,
             "carbsG": 60,
-            "proteinG": 30
+            "proteinG": 12.5
           },
           "priceCents": 700,
           "recipeId": "00000000-0000-4000-8000-0000000000a3",

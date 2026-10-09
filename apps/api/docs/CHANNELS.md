@@ -305,7 +305,7 @@ Order: `proposal_ready` is pushed before `planning_message`. `generation_started
 
 #### Planner fixtures
 
-The frozen payloads above are also committed as JSON in `apps/mobile/src/features/planner/fixtures/` (`startPlanningReply`, `sessionStarted`, `generationStarted`, `proposalReady`, `planningMessage`, `generationError`, `planningInvalidRangeError`, `planningRangeLockedError`). They are written from real channel runs, never by hand:
+The frozen payloads above are also committed as JSON in `apps/mobile/src/features/planner/fixtures/` (`startPlanningReply`, `sessionStarted`, `generationStarted`, `proposalReady`, `planningMessage`, `generationError`, `planningInvalidRangeError`, `planningRangeLockedError`). The channel serializers are real: every fixture except `proposalReady`/`planningMessage` is recorded from a real channel run. `proposal_ready` is driven by a synthetic broadcast of a proposal built in the test (with a fractional macro and a missing one, as the producer sends them):
 
 - `test/meal_planner_api_web/channels/planner_fixtures_test.exs` runs `start_planning` and records each payload through `MealPlannerApiWeb.PlannerFixtures.check!/3`. Without `UPDATE_FIXTURES`, the test fails when a committed file differs from the fresh payload, so API drift fails an API test.
 - The mobile test `src/features/planner/fixtures/__tests__/plannerFixtures.test.ts` parses every file with the types in `src/features/planner/types/planningEvents.ts` (missing, extra or mistyped keys throw), so app drift fails an app test.
