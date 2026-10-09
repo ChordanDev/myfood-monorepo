@@ -1,7 +1,7 @@
 defmodule MealPlannerApiWeb.PlanningStartTest do
   @moduledoc """
   `start_planning` as the Planner screen uses it (issue #25): the command
-  validates a range of 1 to 10 days that starts today or later, starts the
+  validates a range of 1 to 7 days that starts today or later, starts the
   Planning session, starts the generation, and the five events the screen
   reads reach the client in camelCase with a frozen shape.
 
@@ -178,9 +178,9 @@ defmodule MealPlannerApiWeb.PlanningStartTest do
     for {label, params} <- [
           {"no end and no day count", %{"rangeFrom" => :from}},
           {"a day count of zero", %{"rangeFrom" => :from, "dayCount" => 0}},
-          {"a day count of eleven", %{"rangeFrom" => :from, "dayCount" => 11}},
+          {"a day count of eight", %{"rangeFrom" => :from, "dayCount" => 8}},
           {"a day count that is a string", %{"rangeFrom" => :from, "dayCount" => "3"}},
-          {"a range of eleven days", %{"rangeFrom" => :from, "rangeTo" => {:days, 10}}},
+          {"a range of eight days", %{"rangeFrom" => :from, "rangeTo" => {:days, 7}}},
           {"a day count that disagrees with the end",
            %{"rangeFrom" => :from, "rangeTo" => {:days, 2}, "dayCount" => 5}},
           {"a start two days in the past", %{"rangeFrom" => {:days, -2}, "dayCount" => 2}},
@@ -280,21 +280,16 @@ defmodule MealPlannerApiWeb.PlanningStartTest do
       assert active_sessions(account) == 0
     end
 
-    # The generation window of `Generation.Server` holds 7 days; the Planner
-    # takes up to 10. Until the server window follows, a range of 8 to 10
-    # days is refused by the generation, not by the channel: the session is
-    # cancelled and the member can retry with a shorter range.
-    test "a range the generation window refuses cancels the session", %{
-      account: account,
-      token: token
-    } do
+    # `Generation.Server` holds a window of 7 days, so the channel caps the
+    # range there and refuses a longer one before any session starts.
+    test "a range of seven days is the longest accepted", %{account: account, token: token} do
       socket = join_planning!(token, account)
 
-      ref = push(socket, "start_planning", %{"rangeFrom" => in_days(0), "dayCount" => 9})
+      ref = push(socket, "start_planning", %{"rangeFrom" => in_days(0), "dayCount" => 7})
 
-      assert_error_reply(ref, :invalid_date_range)
-      assert_push("generation_error", %{"reason" => "invalid_date_range"})
-      assert active_sessions(account) == 0
+      assert_reply(ref, :ok, %{"sessionId" => _})
+      assert_push("generation_started", %{"runId" => _})
+      stop_generation_server(account.id)
     end
   end
 

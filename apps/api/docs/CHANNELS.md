@@ -191,7 +191,7 @@ The command that starts a Planning session and its first generation (issue #25).
 |-------------------|------|-------------|
 | `rangeFrom` | `"YYYY-MM-DD"` | First day. Today or later; one day before today (UTC) is still accepted, because a member east of UTC sees a date that is yesterday in UTC |
 | `rangeTo` | `"YYYY-MM-DD"` | Last day, inclusive. Optional when `dayCount` is sent |
-| `dayCount` | integer | Number of days, 1 to 10. Optional when `rangeTo` is sent; when both are sent they must agree |
+| `dayCount` | integer | Number of days, 1 to 7. Optional when `rangeTo` is sent; when both are sent they must agree |
 | `request` | string | Optional free text, at most 1000 characters after trimming. A blank text counts as none. It reaches the generation as the `request` constraint |
 | `requestId` | string | Optional. Correlates `generation_started` and `generation_error`; generated when missing |
 
@@ -201,13 +201,13 @@ The command validates the range, checks the Account is eligible, starts the sess
 { "sessionId": "550e8400-e29b-41d4-a716-446655440002", "status": "active" }
 ```
 
-`generation_started` follows with the `runId`. When the generation cannot start the session is cancelled (`session_cancelled`), a `generation_error` event is pushed and the command replies the error envelope with `requestId`, so the member can start again. Known limit: the generation window of the server holds 7 days, so a range of 8 to 10 days is accepted by the channel and refused by the generation as `invalid_date_range`.
+`generation_started` follows with the `runId`. When the generation cannot start the session is cancelled (`session_cancelled`), a `generation_error` event is pushed and the command replies the error envelope with `requestId`, so the member can start again. The range is capped at 7 days because the window of the generation server holds 7 days; a longer range is refused before any session starts.
 
 Refusals reply the error envelope with these codes:
 
 | Code | Condition |
 |------|-----------|
-| `planning_invalid_range` | A date is missing or is not an ISO 8601 date, the range ends before it starts, lasts more than 10 days, starts more than a day in the past, or `dayCount` is not an integer from 1 to 10 or disagrees with `rangeTo` |
+| `planning_invalid_range` | A date is missing or is not an ISO 8601 date, the range ends before it starts, lasts more than 7 days, starts more than a day in the past, or `dayCount` is not an integer from 1 to 7 or disagrees with `rangeTo` |
 | `planning_range_locked` | An active session of the Account already holds part of the range |
 | `invalid_payload` | `request` is not a string or is longer than 1000 characters |
 | `subscription_required` | The Account is not eligible |

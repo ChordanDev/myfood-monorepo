@@ -614,7 +614,7 @@ defmodule MealPlannerApiWeb.PlanningChannel do
   # first day may be. The Planner sends the day the member sees as today; a
   # member east of UTC sees a date that is still yesterday in UTC, so one day
   # back is accepted.
-  @max_planning_days 10
+  @max_planning_days 7
   @max_days_in_past 1
 
   # The longest free text a member may type with the request.
