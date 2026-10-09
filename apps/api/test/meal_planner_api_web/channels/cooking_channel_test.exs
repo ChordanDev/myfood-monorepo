@@ -305,7 +305,7 @@ defmodule MealPlannerApiWeb.CookingChannelTest do
       {:ok, meal} =
         Planning.schedule_meal(%{
           account_id: account.id,
-          date: ~D[2026-06-10],
+          date: Date.utc_today(),
           slot: :lunch,
           recipe_id: recipe.id,
           is_cooked: false
@@ -384,7 +384,7 @@ defmodule MealPlannerApiWeb.CookingChannelTest do
       {:ok, meal_in_b} =
         Planning.schedule_meal(%{
           account_id: membership_b.account_id,
-          date: ~D[2026-04-02],
+          date: Date.utc_today(),
           slot: :lunch,
           recipe_id: recipe.id,
           is_cooked: false
@@ -426,7 +426,7 @@ defmodule MealPlannerApiWeb.CookingChannelTest do
       {:ok, meal} =
         Planning.schedule_meal(%{
           account_id: account.id,
-          date: ~D[2026-06-11],
+          date: Date.utc_today(),
           slot: :dinner,
           recipe_id: recipe.id,
           is_cooked: false
@@ -492,7 +492,7 @@ defmodule MealPlannerApiWeb.CookingChannelTest do
       {:ok, meal} =
         Planning.schedule_meal(%{
           account_id: account.id,
-          date: ~D[2026-06-12],
+          date: Date.utc_today(),
           slot: :lunch,
           recipe_id: recipe.id,
           is_cooked: false
@@ -545,7 +545,7 @@ defmodule MealPlannerApiWeb.CookingChannelTest do
       {:ok, meal} =
         Planning.schedule_meal(%{
           account_id: account.id,
-          date: ~D[2026-06-13],
+          date: Date.utc_today(),
           slot: :lunch,
           recipe_id: recipe.id,
           is_cooked: false
@@ -597,7 +597,7 @@ defmodule MealPlannerApiWeb.CookingChannelTest do
       {:ok, meal} =
         Planning.schedule_meal(%{
           account_id: account.id,
-          date: ~D[2026-06-14],
+          date: Date.utc_today(),
           slot: :lunch,
           recipe_id: recipe.id,
           is_cooked: false
@@ -669,7 +669,7 @@ defmodule MealPlannerApiWeb.CookingChannelTest do
       {:ok, meal} =
         Planning.schedule_meal(%{
           account_id: account.id,
-          date: ~D[2026-06-15],
+          date: Date.utc_today(),
           slot: :dinner,
           recipe_id: recipe.id,
           is_cooked: false
@@ -687,8 +687,47 @@ defmodule MealPlannerApiWeb.CookingChannelTest do
 
       assert_push("session_finished", %{
         session_id: ^session_id,
-        status: "completed"
+        status: "completed",
+        scheduled_meal: %{is_cooked: true},
+        inventory_mutations: [],
+        shortages: []
       })
+
+      ref = push(socket, "finish_session", %{"session_id" => session_id})
+      assert_reply(ref, :error, %{reason: :cooking_already_finished})
+    end
+
+    test "start_session refuses a meal not scheduled today", %{
+      account: account,
+      user: user,
+      token: token
+    } do
+      {:ok, recipe} =
+        Catalog.create_recipe(%{
+          account_id: account.id,
+          created_by_user_id: user.id,
+          name: "Not today",
+          source: :user_created,
+          servings: 2,
+          suitable_for_slots: [:dinner]
+        })
+
+      {:ok, meal} =
+        Planning.schedule_meal(%{
+          account_id: account.id,
+          date: Date.add(Date.utc_today(), 3),
+          slot: :dinner,
+          recipe_id: recipe.id,
+          is_cooked: false
+        })
+
+      {:ok, socket} = connect(UserSocket, %{"token" => token})
+
+      {:ok, _reply, socket} =
+        subscribe_and_join(socket, CookingChannel, "cooking:#{account.id}:x")
+
+      ref = push(socket, "start_session", %{"scheduled_meal_id" => meal.id})
+      assert_reply(ref, :error, %{reason: :cooking_chat_unavailable})
     end
 
     test "error with missing session_id", %{account: account, token: token} do
@@ -726,7 +765,7 @@ defmodule MealPlannerApiWeb.CookingChannelTest do
       {:ok, meal} =
         Planning.schedule_meal(%{
           account_id: account.id,
-          date: ~D[2026-06-16],
+          date: Date.utc_today(),
           slot: :lunch,
           recipe_id: recipe.id,
           is_cooked: false

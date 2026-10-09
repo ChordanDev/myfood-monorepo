@@ -116,6 +116,11 @@ defmodule MealPlannerApiWeb.ApiError do
           | :optimization_failed
           | :optimizer_unavailable
           | :optimizer_timeout
+          | :scheduled_meal_not_found
+          | :cooking_session_not_active
+          | :cooking_already_finished
+          | :cooking_chat_unavailable
+          | :inventory_mutation_failed
 
   @type envelope :: %{error: %{code: code() | :unknown_error, message: String.t()}}
 
@@ -185,7 +190,14 @@ defmodule MealPlannerApiWeb.ApiError do
     invalid_date_range: {422, "The start date must not be after the end date."},
     optimization_failed: {422, "A menu could not be generated for this request."},
     optimizer_unavailable: {503, "The menu optimizer is not available. Try again later."},
-    optimizer_timeout: {504, "The menu optimizer took too long. Try again later."}
+    optimizer_timeout: {504, "The menu optimizer took too long. Try again later."},
+    # Cooking sessions (issue #35). An unknown session or recipe step shares
+    # `not_found`.
+    scheduled_meal_not_found: {404, "The scheduled meal was not found."},
+    cooking_session_not_active: {409, "The cooking session is not active."},
+    cooking_already_finished: {409, "This meal has already been cooked."},
+    cooking_chat_unavailable: {409, "Cooking is only available for a meal scheduled for today."},
+    inventory_mutation_failed: {422, "The inventory could not be updated. Nothing was saved."}
   }
 
   @unknown_error_message "An unexpected error occurred."

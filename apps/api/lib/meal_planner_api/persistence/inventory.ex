@@ -135,14 +135,16 @@ defmodule MealPlannerApi.Persistence.Inventory do
   @doc """
   Subtracts a requested quantity across usable lots in stable FEFO order.
 
-  Expired and zero-quantity lots are not touched. If requested stock is absent, the
+  Expired and zero-quantity lots are not touched. Usability is judged against the
+  `:today` option (a `Date`), which callers acting for an Account take from
+  `MealPlannerApi.AccountClock`; it defaults to the UTC date. If requested stock is absent, the
   operation succeeds with an applied delta of zero and creates neither a zero lot nor
   a mutation event.
   """
   def subtract_usable_lots_and_log(opts) when is_map(opts) do
     mutation = normalize_mutation(opts)
     requested = abs(mutation.delta)
-    today = Date.utc_today()
+    today = mutation.today || Date.utc_today()
 
     Repo.transaction(fn ->
       lock_logical_key!(Repo, mutation)
@@ -391,6 +393,7 @@ defmodule MealPlannerApi.Persistence.Inventory do
       delete?: operation in [:delete, "delete"],
       target_qty: value(opts, :target_quantity_milli),
       delta: value(opts, :delta) || 0,
+      today: value(opts, :today),
       metadata: value(opts, :metadata) || %{},
       raw_voice_text: value(opts, :raw_voice_text),
       source_checkout_session_id: value(opts, :source_checkout_session_id),

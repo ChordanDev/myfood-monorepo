@@ -97,6 +97,18 @@ defmodule MealPlannerApiWeb.ApiErrorTest do
       assert %{"error" => %{"code" => "rate_limited"}} = json_response(conn, 429)
     end
 
+    test "maps the Cooking session codes to their HTTP status", %{conn: conn} do
+      for {code, status} <- [
+            scheduled_meal_not_found: 404,
+            cooking_session_not_active: 409,
+            cooking_already_finished: 409,
+            cooking_chat_unavailable: 409,
+            inventory_mutation_failed: 422
+          ] do
+        assert {code, ApiError.error(conn, code).status} == {code, status}
+      end
+    end
+
     test "maps the Slot cooking times codes to their HTTP status", %{conn: conn} do
       assert (conn |> ApiError.error(:slot_cooking_times_not_found)).status == 404
       assert (conn |> ApiError.error(:invalid_hunger_level)).status == 422
@@ -245,12 +257,18 @@ defmodule MealPlannerApiWeb.ApiErrorTest do
       # The codes of `PUT /api/me/preferences` (issue #18) that are its own.
       preferences_codes = ~w(invalid_diet invalid_hard_restriction)a
 
+      # The codes of the Cooking session routes (issue #35).
+      cooking_codes =
+        ~w(scheduled_meal_not_found cooking_session_not_active cooking_already_finished
+           cooking_chat_unavailable inventory_mutation_failed)a
+
       assert Enum.sort(ApiError.codes()) ==
                Enum.sort(
                  auth_codes ++
                    [:recipe_not_found] ++
                    profile_codes ++
-                   slot_cooking_times_codes ++ preferences_codes ++ Map.keys(@channel_codes)
+                   slot_cooking_times_codes ++
+                   preferences_codes ++ cooking_codes ++ Map.keys(@channel_codes)
                )
     end
   end

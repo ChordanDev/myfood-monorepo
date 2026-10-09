@@ -55,7 +55,8 @@ defmodule MealPlannerApi.Services.CookingAtomicityTest do
     expired = lot!(f, first, %{expired_at: DateTime.add(now, -86_400)})
     extra = lot!(f, first, %{source_kind: :extra})
 
-    assert {:ok, %{inventory_mutations: 2}} = finish(f)
+    assert {:ok, %{inventory_mutations: mutations}} = finish(f)
+    assert length(mutations) == 3
     assert Repo.get!(InventoryItem, early.id).quantity_milli == 0
     assert Repo.get!(InventoryItem, later.id).quantity_milli == 900
     assert Repo.get!(InventoryItem, expired.id).quantity_milli == 1000
@@ -79,7 +80,7 @@ defmodule MealPlannerApi.Services.CookingAtomicityTest do
                event.quantity_after_milli
     end
 
-    assert {:ok, %{inventory_mutations: 0}} = finish(f)
+    assert {:error, :cooking_already_finished} = finish(f)
     assert events(f) == events
     assert Repo.get!(CookingSession, f.session.id) == completed
   end
@@ -139,7 +140,7 @@ defmodule MealPlannerApi.Services.CookingAtomicityTest do
         Repo.query!("DROP FUNCTION cooking_atomicity_failure()")
       end
 
-      assert {:ok, %{inventory_mutations: 2}} = finish(f)
+      assert {:ok, %{inventory_mutations: [_, _]}} = finish(f)
       assert length(events(f)) == 2
     end
   end
@@ -150,11 +151,20 @@ defmodule MealPlannerApi.Services.CookingAtomicityTest do
         if unquote(separate_session?), do: session!(f.account.id, f.meal.id), else: f.session
 
       results = concurrent_finish(f, [f.session.id, other.id])
-      assert Enum.sort(Enum.map(results, & &1.inventory_mutations)) == [0, 2]
+
+      # The loser waits on the meal lock and then sees the meal already cooked.
+      assert [{:error, :cooking_already_finished}, {:ok, %{inventory_mutations: [_, _]}}] =
+               Enum.sort_by(results, &elem(&1, 0))
+
       assert length(events(f)) == 2
       assert Enum.all?(f.lots, &(Repo.get!(InventoryItem, &1.id).quantity_milli == 800))
-      assert Repo.get!(CookingSession, f.session.id).status == :completed
-      assert Repo.get!(CookingSession, other.id).status == :completed
+
+      completed =
+        [f.session.id, other.id]
+        |> Enum.uniq()
+        |> Enum.count(&(Repo.get!(CookingSession, &1).status == :completed))
+
+      assert completed == 1
       assert Repo.get!(ScheduledMeal, f.meal.id).is_cooked
     end
   end
@@ -170,7 +180,10 @@ defmodule MealPlannerApi.Services.CookingAtomicityTest do
 
     other = session!(f.account.id, meal.id)
     results = concurrent_finish(f, [f.session.id, other.id])
-    assert Enum.map(results, & &1.inventory_mutations) == [2, 2]
+
+    assert [{:ok, %{inventory_mutations: [_, _]}}, {:ok, %{inventory_mutations: [_, _]}}] =
+             results
+
     assert length(events(f)) == 4
     assert Enum.all?(f.lots, &(Repo.get!(InventoryItem, &1.id).quantity_milli == 600))
   end
@@ -191,8 +204,9 @@ defmodule MealPlannerApi.Services.CookingAtomicityTest do
             receive do
               :finish ->
                 result = CookingService.finish_session(f.actor, session_id)
+                send(parent, {:finished, self(), result})
 
-                if match?({:ok, %{inventory_mutations: 2}}, result) do
+                if match?({:ok, %{inventory_mutations: [_, _]}}, result) do
                   assert %{rows: [[2]]} =
                            Repo.query!("""
                            SELECT count(*) FROM pg_locks
@@ -217,10 +231,16 @@ defmodule MealPlannerApi.Services.CookingAtomicityTest do
     assert length(Enum.uniq(Enum.map(ready, &elem(&1, 1)))) == 2
     Enum.each(ready, fn {worker, _pid} -> send(worker, :finish) end)
 
-    Enum.map(workers, fn worker ->
-      assert {:ok, {:ok, result}} = Task.await(worker, 12_000)
-      result
-    end)
+    # A refused finish rolls its nested transaction back, which also rolls the
+    # barrier transaction back; the service result is what the test asserts.
+    results =
+      for _ <- workers do
+        assert_receive {:finished, _worker, result}, 12_000
+        result
+      end
+
+    Enum.each(workers, &Task.await(&1, 12_000))
+    results
   end
 
   defp finish(f), do: CookingService.finish_session(f.actor, f.session.id)
