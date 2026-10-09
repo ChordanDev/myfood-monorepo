@@ -100,11 +100,12 @@ defmodule MealPlannerApiWeb.Router do
 
   # Phase 3 — `revenuecat-access-enforcement` (PR 3) design-exempt
   # auth/context pipeline: authenticated (`current_membership` populated),
-  # capability-exempt. The four routes below (`/me`, `/auth/me`,
-  # `/account/context`, `/auth/switch-account`) MUST remain reachable
-  # for an expired Account so the React Native client can read auth
-  # context, switch memberships, and start billing recovery without
-  # being gated by the same webhook that hasn't yet arrived
+  # capability-exempt. The routes in this scope and in the two below it
+  # (`/auth/me`, `/account/context`, `/account/dietary-profile`,
+  # `/account/excluded-ingredients`, `/auth/switch-account` and the `/me`
+  # routes) MUST remain reachable for an expired Account so the React Native
+  # client can read auth context, switch memberships, and start billing
+  # recovery without being gated by the same webhook that hasn't yet arrived
   # (`design.md` §"Interfaces / Contracts"). `:enforce_account_scope` is
   # not applied because none of these routes carry `:account_id` in the
   # URL (it is a no-op without that path param — see
@@ -170,6 +171,10 @@ defmodule MealPlannerApiWeb.Router do
   # exemption: a User of an Account whose Trial expired can still read and
   # save their preferences.
   #
+  # Issue #20 — `POST /onboarding/complete` shares the exemption too: a User
+  # whose Account Access state is `expired` can still finish Onboarding, which
+  # saves their profile, preferences and Slot cooking times together.
+  #
   # Issue #62 — `PUT /account/timezone` sits here for the same exemption: the
   # app syncs the device timezone even when the Account's Trial expired.
   scope "/api", MealPlannerApiWeb do
@@ -182,6 +187,7 @@ defmodule MealPlannerApiWeb.Router do
     put("/me/slot-cooking-times", SlotCookingTimesController, :update)
     get("/me/preferences", PreferencesController, :show)
     put("/me/preferences", PreferencesController, :update)
+    post("/onboarding/complete", OnboardingController, :complete)
   end
 
   # Product routes of the mobile app. `:mobile_casing` is opt-in and this is

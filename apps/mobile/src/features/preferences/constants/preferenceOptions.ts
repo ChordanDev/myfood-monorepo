@@ -2,7 +2,7 @@ import type { CookingSkill, CookingTimeSlot, HungerLevel } from '@/features/auth
 
 export const COOKING_SKILLS: readonly CookingSkill[] = ['beginner', 'intermediate', 'advanced'];
 export const HUNGER_LEVELS: readonly HungerLevel[] = ['light', 'normal', 'strong'];
-export const MEAL_SLOTS: readonly CookingTimeSlot[] = ['breakfast', 'lunch', 'dinner'];
+export const COOKING_TIME_SLOTS: readonly CookingTimeSlot[] = ['breakfast', 'lunch', 'dinner'];
 
 // Preset minute buckets shown in the UI. The spec requires serialization as
 // integer minutes, so the buckets are simply integer values.
