@@ -1,7 +1,7 @@
 defmodule MealPlannerApiWeb.PlanningStartTest do
   @moduledoc """
   `start_planning` as the Planner screen uses it (issue #25): the command
-  validates a range of 1 to 10 days that starts today or later, starts the
+  validates a range of 1 to 7 days that starts today or later, starts the
   Planning session, starts the generation, and the five events the screen
   reads reach the client in camelCase with a frozen shape.
 
@@ -11,9 +11,11 @@ defmodule MealPlannerApiWeb.PlanningStartTest do
 
   import Ecto.Query, only: [from: 2]
   import MealPlannerApiWeb.CasingAssertions, only: [assert_camel_case_keys: 1]
+  import MealPlannerApi.Generation.ServerTestFixtures, only: [stop_generation_server: 1]
   import MealPlannerApiWeb.ChannelHelpers, only: [issue_identity_and_token: 2]
 
   alias MealPlannerApi.Data.PlanningRepo
+  alias MealPlannerApi.Generation.Server
   alias MealPlannerApi.Persistence.Accounts.{AccountMembership, User}
   alias MealPlannerApi.Persistence.Planning.PlanningSession
   alias MealPlannerApi.Repo
@@ -105,6 +107,272 @@ defmodule MealPlannerApiWeb.PlanningStartTest do
     end
   end
 
+  describe "params (T2)" do
+    test "accepts camelCase dates and a free text, and starts the generation", %{
+      account: account,
+      token: token
+    } do
+      socket = join_planning!(token, account)
+      from = in_days(1)
+      to = in_days(3)
+
+      ref =
+        push(socket, "start_planning", %{
+          "rangeFrom" => from,
+          "rangeTo" => to,
+          "request" => "  something light, no fish  "
+        })
+
+      assert_reply(ref, :ok, %{"sessionId" => session_id, "status" => :active})
+
+      session = Repo.get!(PlanningSession, session_id)
+      assert session.range_from == Date.from_iso8601!(from)
+      assert session.range_to == Date.from_iso8601!(to)
+
+      # The generation started through the same call `generate_menu` makes,
+      # with the dates of the session and the free text as the request.
+      assert_push("generation_started", %{"runId" => run_id})
+      assert %{current_run_id: ^run_id, constraints: constraints} = Server.get_status(account.id)
+      assert constraints["date_from"] == from
+      assert constraints["date_to"] == to
+      assert constraints["request"] == "something light, no fish"
+
+      stop_generation_server(account.id)
+    end
+
+    test "dayCount stands for rangeTo, and the free text is optional", %{
+      account: account,
+      token: token
+    } do
+      socket = join_planning!(token, account)
+      from = in_days(0)
+
+      ref = push(socket, "start_planning", %{"rangeFrom" => from, "dayCount" => 4})
+
+      assert_reply(ref, :ok, %{"sessionId" => session_id})
+      session = Repo.get!(PlanningSession, session_id)
+      assert session.range_to == Date.add(Date.from_iso8601!(from), 3)
+
+      assert_push("generation_started", %{"runId" => run_id})
+      assert %{current_run_id: ^run_id, constraints: constraints} = Server.get_status(account.id)
+      refute Map.has_key?(constraints, "request")
+
+      stop_generation_server(account.id)
+    end
+
+    test "snake_case params keep working", %{account: account, token: token} do
+      socket = join_planning!(token, account)
+
+      ref =
+        push(socket, "start_planning", %{
+          "range_from" => in_days(1),
+          "range_to" => in_days(2),
+          "day_count" => 2
+        })
+
+      assert_reply(ref, :ok, %{"sessionId" => _})
+      assert_push("generation_started", %{"runId" => _})
+      stop_generation_server(account.id)
+    end
+
+    for {label, params} <- [
+          {"no end and no day count", %{"rangeFrom" => :from}},
+          {"a day count of zero", %{"rangeFrom" => :from, "dayCount" => 0}},
+          {"a day count of eight", %{"rangeFrom" => :from, "dayCount" => 8}},
+          {"a day count that is a string", %{"rangeFrom" => :from, "dayCount" => "3"}},
+          {"a range of eight days", %{"rangeFrom" => :from, "rangeTo" => {:days, 7}}},
+          {"a day count that disagrees with the end",
+           %{"rangeFrom" => :from, "rangeTo" => {:days, 2}, "dayCount" => 5}},
+          {"a start two days in the past", %{"rangeFrom" => {:days, -2}, "dayCount" => 2}},
+          {"a start that is not a string", %{"rangeFrom" => 20_261_010, "dayCount" => 2}}
+        ] do
+      test "#{label} replies planning_invalid_range and starts nothing", %{
+        account: account,
+        token: token
+      } do
+        socket = join_planning!(token, account)
+
+        params =
+          Map.new(unquote(Macro.escape(params)), fn
+            {key, :from} -> {key, in_days(0)}
+            {key, {:days, offset}} -> {key, in_days(offset)}
+            other -> other
+          end)
+
+        ref = push(socket, "start_planning", params)
+
+        assert_error_reply(ref, :planning_invalid_range)
+        assert active_sessions(account) == 0
+
+        assert Registry.lookup(MealPlannerApi.Generation.Generations, {:generation, account.id}) ==
+                 []
+      end
+    end
+
+    test "today is a valid start", %{account: account, token: token} do
+      socket = join_planning!(token, account)
+
+      ref = push(socket, "start_planning", %{"rangeFrom" => in_days(0), "dayCount" => 1})
+
+      assert_reply(ref, :ok, %{"sessionId" => _})
+      stop_generation_server(account.id)
+    end
+
+    for {label, text} <- [
+          {"a number", 42},
+          {"a list", ["a"]},
+          {"more than 1000 characters", String.duplicate("a", 1001)}
+        ] do
+      test "a free text that is #{label} replies invalid_payload and starts nothing", %{
+        account: account,
+        token: token
+      } do
+        socket = join_planning!(token, account)
+
+        ref =
+          push(socket, "start_planning", %{
+            "rangeFrom" => in_days(0),
+            "dayCount" => 2,
+            "request" => unquote(Macro.escape(text))
+          })
+
+        assert_error_reply(ref, :invalid_payload)
+        assert active_sessions(account) == 0
+      end
+    end
+
+    test "a blank free text is the same as none", %{account: account, token: token} do
+      socket = join_planning!(token, account)
+
+      ref =
+        push(socket, "start_planning", %{
+          "rangeFrom" => in_days(0),
+          "dayCount" => 2,
+          "request" => "   "
+        })
+
+      assert_reply(ref, :ok, %{"sessionId" => _})
+      assert_push("generation_started", %{"runId" => _})
+      refute Map.has_key?(Server.get_status(account.id).constraints, "request")
+      stop_generation_server(account.id)
+    end
+
+    test "a generation that cannot start replies its error, cancels the session and stops it",
+         %{account: account, token: token} do
+      socket = join_planning!(token, account)
+      before = session_children()
+      start_generation_server_stub(account.id, {:error, :invalid_date_range})
+
+      ref =
+        push(socket, "start_planning", %{
+          "requestId" => "req_start_1",
+          "rangeFrom" => in_days(0),
+          "dayCount" => 2
+        })
+
+      assert_receive %Phoenix.Socket.Reply{ref: ^ref, status: :error, payload: payload}
+      assert payload["requestId"] == "req_start_1"
+
+      assert_push("generation_error", %{"requestId" => "req_start_1", "reason" => reason})
+      assert reason == "invalid_date_range"
+      assert_push("session_cancelled", %{"sessionId" => cancelled_id})
+
+      assert Repo.get!(PlanningSession, cancelled_id).status == :cancelled
+      assert active_sessions(account) == 0
+      assert session_children() -- before == []
+    end
+
+    test "a run already in flight replies generation_in_progress without a topic-wide error",
+         %{account: account, token: token} do
+      socket = join_planning!(token, account)
+      before = session_children()
+      start_generation_server_stub(account.id, {:error, :already_running})
+
+      ref =
+        push(socket, "start_planning", %{
+          "requestId" => "req_start_1",
+          "rangeFrom" => in_days(0),
+          "dayCount" => 2
+        })
+
+      payload = assert_error_reply(ref, :generation_in_progress)
+      assert payload["requestId"] == "req_start_1"
+
+      assert_push("session_cancelled", %{"sessionId" => cancelled_id})
+      refute_push("generation_error", _)
+
+      assert Repo.get!(PlanningSession, cancelled_id).status == :cancelled
+      assert active_sessions(account) == 0
+      assert session_children() -- before == []
+    end
+
+    @tag capture_log: true
+    test "a generation server that does not answer fails the start, the channel survives",
+         %{account: account, token: token} do
+      socket = join_planning!(token, account)
+      before = session_children()
+      start_generation_server_stub(account.id, :never_replies)
+
+      ref =
+        push(socket, "start_planning", %{
+          "requestId" => "req_start_1",
+          "rangeFrom" => in_days(0),
+          "dayCount" => 2
+        })
+
+      assert_receive %Phoenix.Socket.Reply{ref: ^ref, status: :error, payload: payload}, 8_000
+      assert payload["error"]["code"] == :generation_in_progress
+      assert payload["requestId"] == "req_start_1"
+
+      assert_push("generation_error", %{"requestId" => "req_start_1"})
+      assert_push("session_cancelled", %{"sessionId" => cancelled_id})
+      assert Repo.get!(PlanningSession, cancelled_id).status == :cancelled
+      assert active_sessions(account) == 0
+      assert session_children() -- before == []
+      assert Process.alive?(socket.channel_pid)
+    end
+
+    test "rangeTo null with a dayCount is accepted", %{account: account, token: token} do
+      socket = join_planning!(token, account)
+
+      ref =
+        push(socket, "start_planning", %{
+          "rangeFrom" => in_days(0),
+          "rangeTo" => nil,
+          "dayCount" => 3
+        })
+
+      assert_reply(ref, :ok, %{"sessionId" => _})
+      stop_generation_server(account.id)
+    end
+
+    test "a rangeTo with dayCount null is accepted", %{account: account, token: token} do
+      socket = join_planning!(token, account)
+
+      ref =
+        push(socket, "start_planning", %{
+          "rangeFrom" => in_days(0),
+          "rangeTo" => in_days(2),
+          "dayCount" => nil
+        })
+
+      assert_reply(ref, :ok, %{"sessionId" => _})
+      stop_generation_server(account.id)
+    end
+
+    # `Generation.Server` holds a window of 7 days, so the channel caps the
+    # range there and refuses a longer one before any session starts.
+    test "a range of seven days is the longest accepted", %{account: account, token: token} do
+      socket = join_planning!(token, account)
+
+      ref = push(socket, "start_planning", %{"rangeFrom" => in_days(0), "dayCount" => 7})
+
+      assert_reply(ref, :ok, %{"sessionId" => _})
+      assert_push("generation_started", %{"runId" => _})
+      stop_generation_server(account.id)
+    end
+  end
+
   # ==========================================================================
   # Helpers
   # ==========================================================================
@@ -173,6 +441,40 @@ defmodule MealPlannerApiWeb.PlanningStartTest do
       lock_owner_membership_id: membership_id,
       lease_expires_at: DateTime.add(DateTime.utc_now(), 120, :second)
     })
+  end
+
+  defp active_sessions(account) do
+    Repo.aggregate(
+      from(s in PlanningSession, where: s.account_id == ^account.id and s.status == :active),
+      :count
+    )
+  end
+
+  # Registers a process as the generation server of the account. It answers
+  # `reply` to the first call it receives, whatever the call is.
+  defp start_generation_server_stub(account_id, reply) do
+    test_pid = self()
+
+    spawn_link(fn ->
+      {:ok, _owner} =
+        Registry.register(MealPlannerApi.Generation.Generations, {:generation, account_id}, nil)
+
+      send(test_pid, :generation_server_stub_registered)
+
+      receive do
+        {:"$gen_call", _from, _request} when reply == :never_replies -> Process.sleep(:infinity)
+        {:"$gen_call", from, _request} -> GenServer.reply(from, reply)
+      end
+    end)
+
+    assert_receive :generation_server_stub_registered
+  end
+
+  defp session_children do
+    MealPlannerApi.Generation.PlanningSessionSupervisor
+    |> DynamicSupervisor.which_children()
+    |> Enum.map(fn {_id, pid, _type, _modules} -> pid end)
+    |> Enum.filter(&(is_pid(&1) and Process.alive?(&1)))
   end
 
   defp assert_error_reply(ref, code) do

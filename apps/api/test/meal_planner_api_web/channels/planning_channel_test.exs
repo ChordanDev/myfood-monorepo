@@ -47,6 +47,11 @@ defmodule MealPlannerApiWeb.PlanningChannelTest do
   # demand, and whether `:budget_cents` existed would depend on which test
   # ran first. Naming the atoms of the intents this file sends makes them
   # exist as soon as this module is loaded.
+  # An ISO date `offset` days from today. `start_planning` refuses a range that
+  # starts in the past, so the tests that start a session ask for dates
+  # relative to the day they run.
+  defp in_days(offset), do: Date.utc_today() |> Date.add(offset) |> Date.to_iso8601()
+
   defp intent_atoms, do: [:kind, :payload, :change_constraints, :budget_cents]
 
   # Phase 4 — `revenuecat-access-enforcement` realtime enforcement
@@ -1536,8 +1541,8 @@ defmodule MealPlannerApiWeb.PlanningChannelTest do
 
       ref =
         push(socket, "start_planning", %{
-          "range_from" => "2026-04-01",
-          "range_to" => "2026-04-07"
+          "range_from" => in_days(1),
+          "range_to" => in_days(7)
         })
 
       assert_reply(ref, :ok, %{"sessionId" => session_id, "status" => :active})
@@ -1552,8 +1557,8 @@ defmodule MealPlannerApiWeb.PlanningChannelTest do
       assert reloaded.account_id == account.id
       assert reloaded.lock_owner_user_id == user.id
       assert reloaded.lock_owner_membership_id == owner_membership_id
-      assert reloaded.range_from == ~D[2026-04-01]
-      assert reloaded.range_to == ~D[2026-04-07]
+      assert reloaded.range_from == Date.add(Date.utc_today(), 1)
+      assert reloaded.range_to == Date.add(Date.utc_today(), 7)
     end
 
     test "expired Account (ineligible) returns :subscription_required, no row, no broadcast",
@@ -1567,8 +1572,8 @@ defmodule MealPlannerApiWeb.PlanningChannelTest do
 
       ref =
         push(socket, "start_planning", %{
-          "range_from" => "2026-04-01",
-          "range_to" => "2026-04-07"
+          "range_from" => in_days(1),
+          "range_to" => in_days(7)
         })
 
       assert_error_reply(ref, :subscription_required)
@@ -1597,8 +1602,8 @@ defmodule MealPlannerApiWeb.PlanningChannelTest do
 
       {:ok, existing} =
         PlanningRepo.create_session(account.id, %{
-          range_from: ~D[2026-04-05],
-          range_to: ~D[2026-04-12],
+          range_from: Date.add(Date.utc_today(), 5),
+          range_to: Date.add(Date.utc_today(), 12),
           lock_owner_user_id: owner_user.id,
           lock_owner_membership_id: owner_membership_id,
           lease_expires_at: DateTime.add(DateTime.utc_now(), 120, :second)
@@ -1611,8 +1616,8 @@ defmodule MealPlannerApiWeb.PlanningChannelTest do
 
       ref =
         push(socket, "start_planning", %{
-          "range_from" => "2026-04-10",
-          "range_to" => "2026-04-15"
+          "range_from" => in_days(10),
+          "range_to" => in_days(15)
         })
 
       assert_error_reply(ref, :planning_range_locked)
@@ -1678,8 +1683,8 @@ defmodule MealPlannerApiWeb.PlanningChannelTest do
       # First start a session so the channel caches `session_pid`.
       ref_start =
         push(socket, "start_planning", %{
-          "range_from" => "2026-05-01",
-          "range_to" => "2026-05-07"
+          "range_from" => in_days(31),
+          "range_to" => in_days(37)
         })
 
       assert_reply(ref_start, :ok, %{"sessionId" => session_id, "status" => :active})
@@ -1716,8 +1721,8 @@ defmodule MealPlannerApiWeb.PlanningChannelTest do
 
       ref_start =
         push(socket, "start_planning", %{
-          "range_from" => "2026-05-08",
-          "range_to" => "2026-05-14"
+          "range_from" => in_days(38),
+          "range_to" => in_days(44)
         })
 
       assert_reply(ref_start, :ok, %{"sessionId" => session_id, "status" => :active})
@@ -1748,8 +1753,8 @@ defmodule MealPlannerApiWeb.PlanningChannelTest do
 
       ref_start =
         push(socket, "start_planning", %{
-          "range_from" => "2026-05-15",
-          "range_to" => "2026-05-21"
+          "range_from" => in_days(45),
+          "range_to" => in_days(51)
         })
 
       assert_reply(ref_start, :ok, %{"sessionId" => session_id, "status" => :active})
@@ -1795,8 +1800,8 @@ defmodule MealPlannerApiWeb.PlanningChannelTest do
 
       ref_start =
         push(socket, "start_planning", %{
-          "range_from" => "2026-05-22",
-          "range_to" => "2026-05-28"
+          "range_from" => in_days(52),
+          "range_to" => in_days(58)
         })
 
       assert_reply(ref_start, :ok, %{"sessionId" => started_id, "status" => :active})
@@ -1824,8 +1829,8 @@ defmodule MealPlannerApiWeb.PlanningChannelTest do
 
       ref_start =
         push(socket, "start_planning", %{
-          "range_from" => "2026-05-29",
-          "range_to" => "2026-06-04"
+          "range_from" => in_days(59),
+          "range_to" => in_days(65)
         })
 
       assert_reply(ref_start, :ok, %{"sessionId" => session_id, "status" => :active})
@@ -1860,8 +1865,8 @@ defmodule MealPlannerApiWeb.PlanningChannelTest do
 
       ref_start =
         push(socket, "start_planning", %{
-          "range_from" => "2026-06-05",
-          "range_to" => "2026-06-11"
+          "range_from" => in_days(66),
+          "range_to" => in_days(72)
         })
 
       assert_reply(ref_start, :ok, %{"sessionId" => session_id, "status" => :active})
@@ -1912,8 +1917,8 @@ defmodule MealPlannerApiWeb.PlanningChannelTest do
 
       ref_a_start =
         push(socket_a, "start_planning", %{
-          "range_from" => "2026-06-01",
-          "range_to" => "2026-06-07"
+          "range_from" => in_days(62),
+          "range_to" => in_days(68)
         })
 
       assert_reply(ref_a_start, :ok, %{"sessionId" => a_session_id, "status" => :active})
@@ -1931,8 +1936,8 @@ defmodule MealPlannerApiWeb.PlanningChannelTest do
       # ── B tries an OVERLAPPING range → refused ──
       ref_b_overlap =
         push(socket_b, "start_planning", %{
-          "range_from" => "2026-06-05",
-          "range_to" => "2026-06-12"
+          "range_from" => in_days(66),
+          "range_to" => in_days(72)
         })
 
       # B is not the owner of the lock, so the error names who holds it.
@@ -1945,8 +1950,8 @@ defmodule MealPlannerApiWeb.PlanningChannelTest do
       # ── B starts a NON-OVERLAPPING range → ok ──
       ref_b_ok =
         push(socket_b, "start_planning", %{
-          "range_from" => "2026-06-15",
-          "range_to" => "2026-06-21"
+          "range_from" => in_days(76),
+          "range_to" => in_days(82)
         })
 
       assert_reply(ref_b_ok, :ok, %{"sessionId" => b_session_id, "status" => :active})
@@ -2119,8 +2124,8 @@ defmodule MealPlannerApiWeb.PlanningChannelTest do
 
       ref_start =
         push(socket, "start_planning", %{
-          "rangeFrom" => "2026-07-01",
-          "rangeTo" => "2026-07-07"
+          "rangeFrom" => in_days(92),
+          "rangeTo" => in_days(98)
         })
 
       assert_reply(ref_start, :ok, start_reply)
@@ -2132,8 +2137,8 @@ defmodule MealPlannerApiWeb.PlanningChannelTest do
       assert started == %{"sessionId" => session_id}
 
       session = Repo.get!(MealPlannerApi.Persistence.Planning.PlanningSession, session_id)
-      assert session.range_from == ~D[2026-07-01]
-      assert session.range_to == ~D[2026-07-07]
+      assert session.range_from == Date.add(Date.utc_today(), 92)
+      assert session.range_to == Date.add(Date.utc_today(), 98)
 
       # The intent is atomized after the normalization: `budgetCents` is not
       # a key the atomizer knows, `budget_cents` is.
@@ -2430,8 +2435,8 @@ defmodule MealPlannerApiWeb.PlanningChannelTest do
 
         ref_start =
           push(socket, "start_planning", %{
-            "range_from" => "2026-06-12",
-            "range_to" => "2026-06-18"
+            "range_from" => in_days(73),
+            "range_to" => in_days(79)
           })
 
         assert_reply(ref_start, :ok, %{"sessionId" => session_id, "status" => :active})
