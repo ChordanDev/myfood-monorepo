@@ -132,3 +132,12 @@ export function formatPlanningRangeButtonLabel(range: CalendarRange) {
   const label = formatPlanningRangeLabel(range);
   return `${action}, ahora ${label.charAt(0).toLowerCase()}${label.slice(1)}`;
 }
+
+/**
+ * What the start button reads. A range with only its start is planned as that one day (that is
+ * what `start_planning` is sent), so the label names the one day instead of `Desde ...`.
+ */
+export function formatPlanningStartLabel({ start, end }: CalendarRange) {
+  if (start === null) return 'Planificar';
+  return `Planificar ${formatPlanningRangeLabel({ start, end: end ?? start })}`;
+}

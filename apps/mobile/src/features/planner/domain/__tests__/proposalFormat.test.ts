@@ -1,4 +1,9 @@
-import { formatCostCents, formatProposalDay, MEAL_SLOT_LABELS } from '../proposalFormat';
+import {
+  formatCostCents,
+  formatMealMacros,
+  formatProposalDay,
+  MEAL_SLOT_LABELS,
+} from '../proposalFormat';
 
 describe('formatCostCents', () => {
   it('shows pesos with a thousands dot and no decimals, like the rest of the app', () => {
@@ -23,5 +28,25 @@ describe('MEAL_SLOT_LABELS', () => {
       dinner: 'Cena',
       snack: 'Merienda',
     });
+  });
+});
+
+describe('formatMealMacros', () => {
+  it('reads whole macros as they are', () => {
+    expect(formatMealMacros({ calories: 500, proteinG: 30, carbsG: 60 })).toBe(
+      '500 kcal · P 30 g · C 60 g'
+    );
+  });
+
+  it('keeps one decimal of a fractional macro', () => {
+    expect(formatMealMacros({ calories: 500, proteinG: 12.5, carbsG: 60.04 })).toBe(
+      '500 kcal · P 12.5 g · C 60 g'
+    );
+  });
+
+  it('shows a dash for a macro the producer does not know', () => {
+    expect(formatMealMacros({ calories: null, proteinG: 30, carbsG: null })).toBe(
+      '– kcal · P 30 g · C – g'
+    );
   });
 });

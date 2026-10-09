@@ -15,6 +15,9 @@ export interface SessionStartedPayload {
   sessionId: string;
 }
 
+// `session_cancelled`, `session_expired` and `session_lost_lock` all say which session ended.
+export type SessionEndedPayload = SessionStartedPayload;
+
 // `generate_menu` and `swap_constraints` emit other shapes of this event; this one is the
 // `start_planning` shape.
 export interface GenerationStartedPayload {
@@ -177,6 +180,12 @@ export const parseSessionStarted = parseWith(
   'sessionStarted',
   record<SessionStartedPayload>({ sessionId: str })
 );
+
+const sessionEnded = record<SessionEndedPayload>({ sessionId: str });
+
+export const parseSessionCancelled = parseWith('sessionCancelled', sessionEnded);
+export const parseSessionExpired = parseWith('sessionExpired', sessionEnded);
+export const parseSessionLostLock = parseWith('sessionLostLock', sessionEnded);
 
 export const parseGenerationStarted = parseWith(
   'generationStarted',

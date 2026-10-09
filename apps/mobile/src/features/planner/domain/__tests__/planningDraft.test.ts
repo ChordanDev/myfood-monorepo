@@ -143,6 +143,89 @@ describe('planningDraftReducer', () => {
     expect(draft.status).toBe('generating');
   });
 
+  describe('a generation_error with no run and no request', () => {
+    // The engine sends it for reason-only failures, and the account has at most one generation
+    // in flight, so it is the failure of the one this draft is waiting for.
+    const unattributed = { ...error, runId: null, requestId: null };
+
+    it('fails the draft that waits for generation_started', () => {
+      const draft = run([requested, { type: 'generation_error', payload: unattributed }]);
+
+      expect(draft).toMatchObject({
+        status: 'failed',
+        failure: { kind: 'generation', reason: error.reason },
+      });
+    });
+
+    it('fails the draft whose run is known', () => {
+      const draft = run([
+        requested,
+        { type: 'generation_started', payload: started },
+        { type: 'generation_error', payload: unattributed },
+      ]);
+
+      expect(draft).toMatchObject({ status: 'failed', failure: { kind: 'generation' } });
+    });
+
+    it('does not touch a draft that is ready', () => {
+      const draft = run([
+        requested,
+        { type: 'generation_started', payload: started },
+        { type: 'proposal_ready', payload: proposal },
+        { type: 'generation_error', payload: unattributed },
+      ]);
+
+      expect(draft.status).toBe('ready');
+    });
+  });
+
+  describe('the end of the session of the draft', () => {
+    const ended = ['session_cancelled', 'session_expired', 'session_lost_lock'] as const;
+
+    it.each(ended)('fails the draft on %s of its session', (type) => {
+      const draft = run([
+        requested,
+        { type: 'generation_started', payload: started },
+        { type, payload: { sessionId: started.sessionId } },
+      ]);
+
+      expect(draft).toMatchObject({
+        status: 'failed',
+        sessionId: started.sessionId,
+        failure: { kind: 'generation', reason: type },
+      });
+    });
+
+    it.each(ended)('ignores %s of another session', (type) => {
+      const draft = run([
+        requested,
+        { type: 'generation_started', payload: started },
+        { type, payload: { sessionId: 'a-session-of-another-member' } },
+      ]);
+
+      expect(draft).toMatchObject({ status: 'generating', sessionId: started.sessionId });
+    });
+
+    it('ignores it while the session is not known yet', () => {
+      const draft = run([
+        requested,
+        { type: 'session_cancelled', payload: { sessionId: started.sessionId } },
+      ]);
+
+      expect(draft.status).toBe('generating');
+    });
+
+    it('keeps the session id in a draft that failed on a generation_error', () => {
+      const draft = run([
+        requested,
+        { type: 'generation_started', payload: started },
+        { type: 'generation_error', payload: error },
+      ]);
+
+      expect(draft).toMatchObject({ status: 'failed', sessionId: started.sessionId });
+    });
+  });
+
   it('fails with the error of a rejected start request', () => {
     const rejection = new ApiError('planning_invalid_range', 'bad range', 0);
 

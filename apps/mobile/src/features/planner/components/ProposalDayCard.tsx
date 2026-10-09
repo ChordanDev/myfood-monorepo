@@ -1,6 +1,11 @@
 import { StyleSheet, Text, View } from 'react-native';
 import { useRecipeTheme } from '@/context/RecipeThemeContext';
-import { formatCostCents, formatProposalDay, MEAL_SLOT_LABELS } from '../domain/proposalFormat';
+import {
+  formatCostCents,
+  formatMealMacros,
+  formatProposalDay,
+  MEAL_SLOT_LABELS,
+} from '../domain/proposalFormat';
 import type { PlannerDay } from '../types/planningEvents';
 
 interface ProposalDayCardProps {
@@ -31,7 +36,7 @@ export function ProposalDayCard({ day }: ProposalDayCardProps) {
           </Text>
           <Text style={[styles.recipe, { color: theme.textBlack }]}>{meal.recipeName}</Text>
           <Text style={[styles.macros, { color: theme.textDark }]}>
-            {`${meal.macros.calories} kcal · P ${meal.macros.proteinG} g · C ${meal.macros.carbsG} g`}
+            {formatMealMacros(meal.macros)}
           </Text>
         </View>
       ))}

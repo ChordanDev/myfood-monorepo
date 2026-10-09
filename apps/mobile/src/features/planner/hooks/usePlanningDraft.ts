@@ -8,12 +8,15 @@ import {
   type PlanningDraft,
   type PlanningDraftAction,
 } from '../domain/planningDraft';
-import { buildStartPlanningParams } from '../domain/startPlanning';
+import { buildStartPlanningParams, isPlanningRequestTooLong } from '../domain/startPlanning';
 import {
   parseGenerationError,
   parseGenerationStarted,
   parsePlanningMessage,
   parseProposalReady,
+  parseSessionCancelled,
+  parseSessionExpired,
+  parseSessionLostLock,
   parseStartPlanningReply,
 } from '../types/planningEvents';
 import type { PlanningTopicState } from './usePlanningTopic';
@@ -43,16 +46,33 @@ const DRAFT_EVENTS: {
     event: 'generation_error',
     toAction: (payload) => ({ type: 'generation_error', payload: parseGenerationError(payload) }),
   },
+  // The session of the draft ending is the end of its generation: nothing else will answer.
+  {
+    event: 'session_cancelled',
+    toAction: (payload) => ({ type: 'session_cancelled', payload: parseSessionCancelled(payload) }),
+  },
+  {
+    event: 'session_expired',
+    toAction: (payload) => ({ type: 'session_expired', payload: parseSessionExpired(payload) }),
+  },
+  {
+    event: 'session_lost_lock',
+    toAction: (payload) => ({ type: 'session_lost_lock', payload: parseSessionLostLock(payload) }),
+  },
 ];
 
 export interface PlanningDraftController {
   draft: PlanningDraft;
   /**
    * Starts planning `range` with the optional free-text `request`. Does nothing while the topic
-   * is not joined or no day is picked.
+   * is not joined or no day is picked. `onAccepted` runs once the server accepts the start, so
+   * the caller can drop what the User typed only then.
    */
-  start: (range: CalendarRange, request: string) => void;
-  /** Starts again with the range and request of the last start. */
+  start: (range: CalendarRange, request: string, onAccepted?: () => void) => void;
+  /**
+   * Starts again with the range and request of the last start. After a generation that failed
+   * the session is still active and holds the range, so it is cancelled first.
+   */
   retry: () => void;
 }
 
@@ -85,7 +105,12 @@ export function usePlanningDraft(topic: PlanningTopicState): PlanningDraftContro
   const lastStartRef = useRef<{ range: CalendarRange; request: string } | null>(null);
 
   const start = useCallback(
-    (range: CalendarRange, request: string) => {
+    (
+      range: CalendarRange,
+      request: string,
+      onAccepted?: () => void,
+      sessionToCancel: string | null = null
+    ) => {
       if (subscription === null) return;
       const requestId = newRequestId();
       const params = buildStartPlanningParams(range, request, requestId);
@@ -93,9 +118,34 @@ export function usePlanningDraft(topic: PlanningTopicState): PlanningDraftContro
 
       lastStartRef.current = { range, request };
       dispatch({ type: 'start_requested', requestId });
-      subscription.push('start_planning', params).then(
+
+      // The server would refuse it as `invalid_payload`; say so without the round trip.
+      if (isPlanningRequestTooLong(request)) {
+        dispatch({
+          type: 'start_rejected',
+          requestId,
+          error: new ApiError('invalid_payload', 'The request is too long'),
+        });
+        return;
+      }
+
+      const sendStart = () => subscription.push('start_planning', params);
+      // A session that is already over answers an error, which changes nothing here.
+      const sent =
+        sessionToCancel === null
+          ? sendStart()
+          : subscription
+              .push('cancel_planning', { sessionId: sessionToCancel })
+              .then(
+                () => undefined,
+                () => undefined
+              )
+              .then(sendStart);
+
+      sent.then(
         (reply) => {
-          // Nothing to do with the reply: the events carry the progress. A drifted one is logged.
+          onAccepted?.();
+          // The events carry the progress. A drifted reply is logged.
           try {
             parseStartPlanningReply(reply);
           } catch (error) {
@@ -103,6 +153,8 @@ export function usePlanningDraft(topic: PlanningTopicState): PlanningDraftContro
           }
         },
         (error: unknown) => {
+          // The server may be slow, not gone: the events still resolve the draft.
+          if (isApiError(error) && error.code === 'timeout') return;
           dispatch({
             type: 'start_rejected',
             requestId,
@@ -116,8 +168,11 @@ export function usePlanningDraft(topic: PlanningTopicState): PlanningDraftContro
 
   const retry = useCallback(() => {
     const last = lastStartRef.current;
-    if (last !== null) start(last.range, last.request);
-  }, [start]);
+    if (last === null) return;
+    const sessionToCancel =
+      draft.status === 'failed' && draft.failure.kind === 'generation' ? draft.sessionId : null;
+    start(last.range, last.request, undefined, sessionToCancel);
+  }, [draft, start]);
 
   return { draft, start, retry };
 }

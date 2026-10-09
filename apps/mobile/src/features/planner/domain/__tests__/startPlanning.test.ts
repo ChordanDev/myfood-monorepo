@@ -1,4 +1,8 @@
-import { buildStartPlanningParams } from '../startPlanning';
+import {
+  buildStartPlanningParams,
+  isPlanningRequestTooLong,
+  MAX_PLANNING_REQUEST_CHARS,
+} from '../startPlanning';
 
 describe('buildStartPlanningParams', () => {
   it('sends the first and last day of the range with the request id', () => {
@@ -26,5 +30,16 @@ describe('buildStartPlanningParams', () => {
 
   it('is null when no day is picked', () => {
     expect(buildStartPlanningParams({ start: null, end: null }, '', 'req-1')).toBeNull();
+  });
+});
+
+describe('isPlanningRequestTooLong', () => {
+  it('allows the cap and refuses one character more, after trimming', () => {
+    expect(isPlanningRequestTooLong(` ${'x'.repeat(MAX_PLANNING_REQUEST_CHARS)} `)).toBe(false);
+    expect(isPlanningRequestTooLong('x'.repeat(MAX_PLANNING_REQUEST_CHARS + 1))).toBe(true);
+  });
+
+  it('counts characters, not UTF-16 units', () => {
+    expect(isPlanningRequestTooLong('🍝'.repeat(MAX_PLANNING_REQUEST_CHARS))).toBe(false);
   });
 });

@@ -69,8 +69,13 @@ jest.mock('../../components', () => ({
   PlannerHeader: 'PlannerHeader',
 }));
 
+let mockRange: { start: string | null; end: string | null } = {
+  start: '2030-01-01',
+  end: '2030-01-02',
+};
+
 jest.mock('../../hooks/usePlanningRange', () => ({
-  usePlanningRange: () => ({ range: { start: '2030-01-01', end: '2030-01-02' } }),
+  usePlanningRange: () => ({ range: mockRange }),
 }));
 
 // The pure modules behind the Home barrel: the barrel itself loads its screens.
@@ -137,6 +142,10 @@ function type(request: string): void {
   );
 }
 
+function composerValue(): string {
+  return tree.root.findByProps({ testIDPrefix: 'planner-composer' }).props.value;
+}
+
 function emit(event: string, payload: unknown): void {
   act(() => channel().emit(event, payload));
 }
@@ -162,6 +171,7 @@ function emitProposal(): void {
 
 describe('PlannerScreen first proposal', () => {
   beforeEach(() => {
+    mockRange = { start: '2030-01-01', end: '2030-01-02' };
     mockSocketClient = createSocketClient({
       url: 'wss://api.example.test/socket',
       createSocket: (url, options) => {
@@ -199,7 +209,18 @@ describe('PlannerScreen first proposal', () => {
     expect(textsOf('planner-start')).toEqual(['Planificar 1 - 2 Enero']);
   });
 
-  it('starts planning with the picked range and the typed request, and clears the request', () => {
+  it('names the one day it will plan when the range has only a start', () => {
+    mockRange = { start: '2030-01-03', end: null };
+    renderJoined();
+
+    expect(textsOf('planner-start')).toEqual(['Planificar 3 Enero']);
+
+    press('planner-start');
+
+    expect(lastPush().payload).toMatchObject({ rangeFrom: '2030-01-03', rangeTo: '2030-01-03' });
+  });
+
+  it('starts planning with the picked range and the typed request, and clears the request once accepted', async () => {
     renderJoined();
     type('  sin carne  ');
 
@@ -212,7 +233,43 @@ describe('PlannerScreen first proposal', () => {
       requestId: 'req_fixture_1',
       request: 'sin carne',
     });
-    expect(tree.root.findByProps({ testIDPrefix: 'planner-composer' }).props.value).toBe('');
+    expect(composerValue()).toBe('  sin carne  ');
+
+    await replyOk();
+
+    expect(composerValue()).toBe('');
+  });
+
+  it('keeps the typed request when the server refuses the start', async () => {
+    renderJoined();
+    type('sin carne');
+    press('planner-start');
+
+    await replyError(planningRangeLockedError);
+
+    expect(composerValue()).toBe('sin carne');
+  });
+
+  it('keeps what the User typed after the tap when the start is accepted', async () => {
+    renderJoined();
+    type('sin carne');
+    press('planner-start');
+    type('sin carne y sin lacteos');
+
+    await replyOk();
+
+    expect(composerValue()).toBe('sin carne y sin lacteos');
+  });
+
+  it('refuses a request over 1000 characters without pushing, and keeps it', () => {
+    renderJoined();
+    type('x'.repeat(1001));
+
+    press('planner-start');
+
+    expect(channel().pushes).toHaveLength(0);
+    expect(textsOf('planner-failure')).toEqual(['Los datos enviados no son válidos.']);
+    expect(composerValue()).toBe('x'.repeat(1001));
   });
 
   it('sends no request when nothing is typed', () => {
@@ -251,7 +308,7 @@ describe('PlannerScreen first proposal', () => {
       '$13',
       'Desayuno',
       'Oatmeal',
-      '500 kcal · P 30 g · C 60 g',
+      '500 kcal · P 30 g · C – g',
       'Almuerzo',
       'Chicken rice',
       '500 kcal · P 30 g · C 60 g',
@@ -261,7 +318,7 @@ describe('PlannerScreen first proposal', () => {
       '$7',
       'Cena',
       'Lentil stew',
-      '500 kcal · P 30 g · C 60 g',
+      '500 kcal · P 12.5 g · C 60 g',
     ]);
     expect(textsOf('planner-proposal')).toContain(
       'Here is your plan for 2 days: 3 meals, estimated cost 19.50.'
@@ -342,15 +399,19 @@ describe('PlannerScreen first proposal', () => {
       ]);
     });
 
-    it('shows a timeout when the server never answers', async () => {
+    it('keeps waiting when the server is slow to answer, and shows the proposal that follows', async () => {
       renderJoined();
       press('planner-start');
 
       await act(async () => lastPush().timeout());
 
-      expect(textsOf('planner-failure')).toEqual([
-        'La conexión tardó demasiado. Revisá tu señal e intentá nuevamente.',
-      ]);
+      expect(byTestId('planner-progress')).toBeDefined();
+      expect(byTestId('planner-failure')).toBeUndefined();
+
+      emitGenerationStarted();
+      emitProposal();
+
+      expect(byTestId('planner-proposal')).toBeDefined();
     });
   });
 
@@ -381,6 +442,30 @@ describe('PlannerScreen first proposal', () => {
       expect(byTestId('planner-failure')).toBeDefined();
     });
 
+    it('fails on an error that names no run and no request', async () => {
+      renderJoined();
+      press('planner-start');
+      await replyOk();
+      emitGenerationStarted();
+
+      emit('generation_error', { ...generationError, runId: null, requestId: null });
+
+      expect(byTestId('planner-progress')).toBeUndefined();
+      expect(byTestId('planner-failure')).toBeDefined();
+    });
+
+    it('fails when the session of the generation is cancelled', async () => {
+      renderJoined();
+      press('planner-start');
+      await replyOk();
+      emitGenerationStarted();
+
+      emit('session_cancelled', { sessionId: generationStarted.sessionId });
+
+      expect(byTestId('planner-progress')).toBeUndefined();
+      expect(byTestId('planner-failure')).toBeDefined();
+    });
+
     it('ignores the error of a run the screen did not start', async () => {
       renderJoined();
       press('planner-start');
@@ -402,10 +487,20 @@ describe('PlannerScreen first proposal', () => {
 
       press('planner-retry');
 
-      expect(channel().pushes).toHaveLength(2);
-      expect(lastPush().payload).toEqual(channel().pushes[0].payload);
+      // The session of the failed generation still holds the range: it is cancelled first.
+      expect(channel().pushes.map((push) => push.event)).toEqual([
+        'start_planning',
+        'cancel_planning',
+      ]);
+      expect(lastPush().payload).toEqual({ sessionId: generationStarted.sessionId });
       expect(byTestId('planner-progress')).toBeDefined();
       expect(byTestId('planner-failure')).toBeUndefined();
+
+      await act(async () => lastPush().replyOk({ sessionId: 's', status: 'cancelled' }));
+
+      expect(channel().pushes).toHaveLength(3);
+      expect(lastPush().event).toBe('start_planning');
+      expect(lastPush().payload).toEqual(channel().pushes[0].payload);
 
       await replyOk();
       emitGenerationStarted();
@@ -425,7 +520,11 @@ describe('PlannerScreen first proposal', () => {
       emitGenerationStarted();
       emitProposal();
 
-      expect(channel().pushes).toHaveLength(2);
+      // A refused start left no session behind: nothing to cancel.
+      expect(channel().pushes.map((push) => push.event)).toEqual([
+        'start_planning',
+        'start_planning',
+      ]);
       expect(byTestId('planner-proposal')).toBeDefined();
     });
   });

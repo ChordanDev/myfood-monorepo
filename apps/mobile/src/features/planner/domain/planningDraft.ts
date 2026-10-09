@@ -5,6 +5,7 @@ import type {
   GenerationStartedPayload,
   PlanningMessagePayload,
   ProposalReadyPayload,
+  SessionEndedPayload,
 } from '../types/planningEvents';
 
 // The state of the first proposal, derived from the events of the planning topic: nothing is
@@ -21,12 +22,20 @@ type RunEvent =
   | { type: 'planning_message'; payload: PlanningMessagePayload }
   | { type: 'generation_error'; payload: GenerationErrorPayload };
 
+/** The events that say the session of the draft is over, which ends its generation too. */
+export type SessionEndEvent =
+  | { type: 'session_cancelled'; payload: SessionEndedPayload }
+  | { type: 'session_expired'; payload: SessionEndedPayload }
+  | { type: 'session_lost_lock'; payload: SessionEndedPayload };
+
 export type PlanningDraft =
   | { status: 'idle' }
   | {
       status: 'generating';
       requestId: string;
       runId: string | null;
+      /** Learned from `generation_started`; the events that end a session name it. */
+      sessionId: string | null;
       message: PlanningMessagePayload | null;
       /** Events of an unknown run, kept until `generation_started` says whose they are. */
       early: RunEvent[];
@@ -37,12 +46,19 @@ export type PlanningDraft =
       proposal: ProposalReadyPayload;
       message: PlanningMessagePayload | null;
     }
-  | { status: 'failed'; requestId: string; failure: PlanningFailure };
+  | {
+      status: 'failed';
+      requestId: string;
+      /** The session the generation ran in, if known: a retry cancels it first. */
+      sessionId: string | null;
+      failure: PlanningFailure;
+    };
 
 export type PlanningDraftAction =
   | { type: 'start_requested'; requestId: string }
   | { type: 'start_rejected'; requestId: string; error: ApiError }
   | { type: 'generation_started'; payload: GenerationStartedPayload }
+  | SessionEndEvent
   | RunEvent;
 
 export const IDLE_PLANNING_DRAFT: PlanningDraft = { status: 'idle' };
@@ -59,6 +75,7 @@ function applyRunEvent(draft: Generating, action: RunEvent): PlanningDraft {
       return {
         status: 'failed',
         requestId: draft.requestId,
+        sessionId: draft.sessionId,
         failure: { kind: 'generation', reason: action.payload.reason },
       };
     case 'proposal_ready':
@@ -74,10 +91,13 @@ function applyRunEvent(draft: Generating, action: RunEvent): PlanningDraft {
 }
 
 // Whether `action` is about the run of `draft`: by the run id, or for an error by the request id.
+// An error with neither id comes from a reason-only path of the engine. The Account has at most
+// one generation in flight, so it is the failure of the one this draft waits for.
 function belongsToRun(draft: Generating, action: RunEvent): boolean {
   const { payload } = action;
-  if (action.type === 'generation_error' && action.payload.requestId === draft.requestId) {
-    return true;
+  if (action.type === 'generation_error') {
+    const { requestId, runId } = action.payload;
+    if (requestId === draft.requestId || (requestId === null && runId === null)) return true;
   }
   return draft.runId !== null && payload.runId === draft.runId;
 }
@@ -106,6 +126,7 @@ export function planningDraftReducer(
         status: 'generating',
         requestId: action.requestId,
         runId: null,
+        sessionId: null,
         message: null,
         early: [],
       };
@@ -116,6 +137,7 @@ export function planningDraftReducer(
         ? {
             status: 'failed',
             requestId: action.requestId,
+            sessionId: draft.sessionId,
             failure: { kind: 'request', error: action.error },
           }
         : draft;
@@ -128,9 +150,25 @@ export function planningDraftReducer(
         return draft;
       }
       const { early, ...rest } = draft;
-      const known: PlanningDraft = { ...rest, early: [], runId: action.payload.runId };
+      const known: PlanningDraft = {
+        ...rest,
+        early: [],
+        runId: action.payload.runId,
+        sessionId: action.payload.sessionId,
+      };
       return early.reduce(reduceRunEvent, known);
     }
+    case 'session_cancelled':
+    case 'session_expired':
+    case 'session_lost_lock':
+      return draft.status === 'generating' && draft.sessionId === action.payload.sessionId
+        ? {
+            status: 'failed',
+            requestId: draft.requestId,
+            sessionId: draft.sessionId,
+            failure: { kind: 'generation', reason: action.type },
+          }
+        : draft;
     default:
       return reduceRunEvent(draft, action);
   }

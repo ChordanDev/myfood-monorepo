@@ -13,7 +13,7 @@ import {
 } from '@/features/assistant-chat';
 import { PlannerHeader, PlanningDraftPanel, PlanningJoinNotice } from '../components';
 import { CUSTOM_TAB_BAR_CONTENT_HEIGHT } from '../constants';
-import { formatPlanningRangeLabel } from '../domain/planningRange';
+import { formatPlanningStartLabel } from '../domain/planningRange';
 import { usePlanningDraft } from '../hooks/usePlanningDraft';
 import { usePlanningRange } from '../hooks/usePlanningRange';
 import { usePlanningTopic } from '../hooks/usePlanningTopic';
@@ -184,10 +184,14 @@ export const PlannerScreen = () => {
     }, MOCK_ASSISTANT_RESPONSE_DELAY_MS);
   }, [cancelPendingScrollFrames, input, isThinking, messages]);
 
-  // What is typed in the composer is the free-text request of the plan, sent with the start.
+  // What is typed in the composer is the free-text request of the plan, sent with the start. It
+  // is dropped once the server accepts the start, so a refused one leaves it to be fixed, unless
+  // the User has typed something else in the meantime.
   const handleStartPlanning = useCallback(() => {
-    startPlanning(planningRange.range, input);
-    setInput('');
+    const sent = input;
+    startPlanning(planningRange.range, sent, () =>
+      setInput((current) => (current === sent ? '' : current))
+    );
   }, [input, planningRange.range, startPlanning]);
 
   const handleActiveTurnLayout = useCallback(
@@ -313,7 +317,7 @@ export const PlannerScreen = () => {
         {isThinking ? <ChatTypingIndicator /> : null}
         <PlanningDraftPanel
           draft={draft}
-          startLabel={`Planificar ${formatPlanningRangeLabel(planningRange.range)}`}
+          startLabel={formatPlanningStartLabel(planningRange.range)}
           canStart={planningTopic.status === 'joined'}
           onStart={handleStartPlanning}
           onRetry={retryPlanning}
