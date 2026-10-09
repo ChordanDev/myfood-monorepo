@@ -1,0 +1,6 @@
+{
+  "error": {
+    "code": "planning_invalid_range",
+    "message": "The planning range must be 1 to 10 days and start today or later."
+  }
+}

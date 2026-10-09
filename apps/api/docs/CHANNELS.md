@@ -301,6 +301,22 @@ Days are in calendar order and the meals of a day in `breakfast`, `lunch`, `dinn
 
 Order: `proposal_ready` is pushed before `planning_message`. `generation_started` is broadcast by the channel after it started the generation, so a generation that fails at once may deliver `generation_error` first; correlate by `runId` / `requestId`, never by arrival order. A proposal reaches every member joined to the topic, each with its own `planning_message`.
 
+#### Planner fixtures
+
+The frozen payloads above are also committed as JSON in `apps/mobile/src/features/planner/fixtures/` (`startPlanningReply`, `sessionStarted`, `generationStarted`, `proposalReady`, `planningMessage`, `generationError`, `planningInvalidRangeError`, `planningRangeLockedError`). They are written from real channel runs, never by hand:
+
+- `test/meal_planner_api_web/channels/planner_fixtures_test.exs` runs `start_planning` and records each payload through `MealPlannerApiWeb.PlannerFixtures.check!/3`. Without `UPDATE_FIXTURES`, the test fails when a committed file differs from the fresh payload, so API drift fails an API test.
+- The mobile test `src/features/planner/fixtures/__tests__/plannerFixtures.test.ts` parses every file with the types in `src/features/planner/types/planningEvents.ts` (missing, extra or mistyped keys throw), so app drift fails an app test.
+- Volatile values are normalized: UUIDs become `00000000-0000-4000-8000-00000000000N` and the dates of the run become `2030-01-01`, `2030-01-02`.
+
+To regenerate after an intended payload change, from `apps/api` (with the test database env set):
+
+```sh
+UPDATE_FIXTURES=1 mix test test/meal_planner_api_web/channels/planner_fixtures_test.exs
+```
+
+Then update `planningEvents.ts`, run `npm test` in `apps/mobile`, and commit the JSON files with the change.
+
 #### Outgoing Events
 
 | Event | Payload | Description |

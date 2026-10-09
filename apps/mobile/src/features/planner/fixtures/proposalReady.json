@@ -1,0 +1,52 @@
+{
+  "days": [
+    {
+      "costCents": 1250,
+      "date": "2030-01-01",
+      "meals": [
+        {
+          "macros": {
+            "calories": 500,
+            "carbsG": 60,
+            "proteinG": 30
+          },
+          "priceCents": null,
+          "recipeId": "00000000-0000-4000-8000-0000000000a1",
+          "recipeName": "Oatmeal",
+          "slot": "breakfast"
+        },
+        {
+          "macros": {
+            "calories": 500,
+            "carbsG": 60,
+            "proteinG": 30
+          },
+          "priceCents": 1250,
+          "recipeId": "00000000-0000-4000-8000-0000000000a2",
+          "recipeName": "Chicken rice",
+          "slot": "lunch"
+        }
+      ]
+    },
+    {
+      "costCents": 700,
+      "date": "2030-01-02",
+      "meals": [
+        {
+          "macros": {
+            "calories": 500,
+            "carbsG": 60,
+            "proteinG": 30
+          },
+          "priceCents": 700,
+          "recipeId": "00000000-0000-4000-8000-0000000000a3",
+          "recipeName": "Lentil stew",
+          "slot": "dinner"
+        }
+      ]
+    }
+  ],
+  "estimatedCostCents": 1950,
+  "proposalId": "00000000-0000-4000-8000-000000000003",
+  "runId": "00000000-0000-4000-8000-000000000002"
+}
