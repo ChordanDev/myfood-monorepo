@@ -132,6 +132,18 @@ Real-time meal planning workflow coordination.
 
 **Topic Pattern:** `planning:<account_id>`
 
+#### Join
+
+A refused join replies the error envelope (see below) with one of three codes, checked in this order:
+
+| Code | Condition |
+|------|-----------|
+| `unauthenticated` | The socket carries no identity, or its access token has expired since the socket connected |
+| `forbidden` | No Membership resolves for the socket, the Membership belongs to another Account than the topic, or it is not active |
+| `trial_expired` | Capability enforcement is on and the Account is not eligible. The HTTP API replies the same code for the same rule |
+
+`unauthenticated` is the client's cue to refresh the access token and reconnect the socket with the new one; rejoining on the same connection is refused again. A token without an expiry claim is not treated as expired. The other two codes do not change with a retry.
+
 #### Payload Casing and Error Replies
 
 Payloads are camelCase in both directions:
