@@ -1,12 +1,17 @@
 import React from 'react';
 import { KeyboardAvoidingView, ScrollView, StyleSheet, Text } from 'react-native';
 import { act, create, ReactTestInstance } from 'react-test-renderer';
+import { createSocketClient, type SocketClient } from '@/api/socket/socketClient';
+import { createFakeSocket, type FakeSocket } from '@/api/socket/testing/fakeSocket';
 import { CHAT_COMPOSER_CLEARANCE, CHAT_COMPOSER_MIN_HEIGHT } from '@/features/assistant-chat';
 import { CUSTOM_TAB_BAR_CONTENT_HEIGHT } from '../../constants';
 import { PlannerScreen } from '../PlannerScreen';
 
 const mockUseReducedMotion = jest.fn(() => false);
 const mockTypingIndicatorRender = jest.fn();
+let mockSocketClient: SocketClient;
+// No Account by default: the screen joins no topic unless a test signs one in.
+let mockAccountId: string | null = null;
 
 jest.mock('react-native', () => {
   const ReactMock = jest.requireActual('react') as typeof import('react');
@@ -32,6 +37,7 @@ jest.mock('@/context/RecipeThemeContext', () => ({
       appBg: '#ffffff',
       colorLight: '#eeeeee',
       textBlack: '#111111',
+      textDark: '#222222',
     },
   }),
 }));
@@ -44,8 +50,22 @@ jest.mock('react-native-reanimated', () => ({
   useReducedMotion: () => mockUseReducedMotion(),
 }));
 
+jest.mock('lucide-react-native', () => ({ CircleAlert: 'CircleAlert' }));
+
+// The header is another suite's; the join notice is rendered as it is.
 jest.mock('../../components', () => ({
+  ...jest.requireActual('../../components/PlanningJoinNotice'),
   PlannerHeader: 'PlannerHeader',
+}));
+
+// The real barrel would load the app client, and with it the Phoenix client.
+jest.mock('@/api/socket', () => ({
+  ...jest.requireActual('@/api/socket/topics'),
+  getSocketClient: () => mockSocketClient,
+}));
+
+jest.mock('@/features/auth/hooks/useAuth', () => ({
+  useAuth: () => ({ me: mockAccountId === null ? null : { account: { id: mockAccountId } } }),
 }));
 
 // The real barrel would load the composer, which this suite's reanimated mock cannot evaluate, so
@@ -187,6 +207,7 @@ function expectAnchoredOffsetToBeTheFurthest(tree: ReturnType<typeof create>, la
 beforeEach(() => {
   jest.useFakeTimers();
   mockUseReducedMotion.mockReturnValue(false);
+  mockAccountId = null;
 });
 
 afterEach(() => {
@@ -722,6 +743,82 @@ describe('PlannerScreen turn trailing space', () => {
 
     expect(getTrailingSpaceHeight(tree)).toBe(358);
     expect(mockTypingIndicatorRender).not.toHaveBeenCalled();
+    act(() => tree.unmount());
+  });
+});
+
+describe('PlannerScreen planning topic', () => {
+  let socket: FakeSocket;
+
+  function refusal(code: string) {
+    return { error: { code, message: 'refused' } };
+  }
+
+  function findJoinNotices(tree: ReturnType<typeof create>): ReactTestInstance[] {
+    return tree.root.findAll(
+      (node) => typeof node.type === 'string' && node.props.accessibilityRole === 'alert'
+    );
+  }
+
+  function getJoinNoticeText(tree: ReturnType<typeof create>): string {
+    const [notice, ...others] = findJoinNotices(tree);
+
+    expect(others).toEqual([]);
+    return notice.findByType(Text).props.children;
+  }
+
+  beforeEach(() => {
+    mockAccountId = 'account-1';
+    mockSocketClient = createSocketClient({
+      url: 'wss://api.example.test/socket',
+      createSocket: (url, options) => {
+        socket = createFakeSocket(url, options);
+        return socket;
+      },
+      getAccessToken: async () => 'access-1',
+      refreshTokens: jest.fn(),
+      subscribeToAccessToken: () => () => {},
+    });
+  });
+
+  it("joins the Account's planning topic and shows no notice while it joins", () => {
+    const { tree } = renderHarness();
+
+    expect(socket.channels.map((channel) => channel.topic)).toEqual(['planning:account-1']);
+    expect(findJoinNotices(tree)).toEqual([]);
+
+    act(() => tree.unmount());
+    expect(socket.channels[0].hasLeft()).toBe(true);
+  });
+
+  it('shows no notice once the topic is joined', () => {
+    const { tree } = renderHarness();
+
+    act(() => socket.channels[0].replyOk());
+
+    expect(findJoinNotices(tree)).toEqual([]);
+    act(() => tree.unmount());
+  });
+
+  it.each([
+    { code: 'trial_expired', reason: 'Tu período de prueba terminó.' },
+    { code: 'forbidden', reason: 'No tenés permiso para hacer esto.' },
+  ])('shows the reason of a join refused as $code', ({ code, reason }) => {
+    const { tree } = renderHarness();
+
+    act(() => socket.channels[0].replyError(refusal(code)));
+
+    expect(getJoinNoticeText(tree)).toBe(reason);
+    act(() => tree.unmount());
+  });
+
+  it('keeps the conversation and the composer in place under a refused join', () => {
+    const { tree } = renderHarness();
+
+    act(() => socket.channels[0].replyError(refusal('trial_expired')));
+
+    expect(tree.root.findByProps({ testID: 'planner-initial-request-message' })).toBeDefined();
+    expect(tree.root.findByProps({ value: '', isThinking: false })).toBeDefined();
     act(() => tree.unmount());
   });
 });

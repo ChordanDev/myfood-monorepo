@@ -50,6 +50,7 @@ Dentro de una feature los módulos se importan entre sí por ruta relativa. El `
 - **Global Components** (`src/components`): Componentes reutilizables en toda la app (Button, Input, Card)
 - **Feature Components** (`src/features/[name]/components`): Componentes específicos de la funcionalidad
 - **Services** (`src/services`): Manejo de requests HTTP hacia la API de Elixir
+- **Socket** (`src/api/socket`): Único dueño del cliente Phoenix (conexión, token, join y reconexión). Las features usan `getSocketClient()` y nunca importan `phoenix` directamente; ESLint lo impide fuera de esa carpeta
 - **Store** (`src/store`): Estado global con Zustand o Context API, compartido entre features
 - **Types** (`src/types`): Tipos e interfaces globales compartidas entre features
 - **Utils** (`src/utils`): Funciones auxiliares, validadores, formateadores
