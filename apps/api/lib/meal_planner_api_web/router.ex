@@ -169,6 +169,10 @@ defmodule MealPlannerApiWeb.Router do
   # Issue #18 — `GET` and `PUT /me/preferences` sit here for the same
   # exemption: a User of an Account whose Trial expired can still read and
   # save their preferences.
+  #
+  # Issue #20 — `POST /onboarding/complete` shares the exemption too: a User
+  # whose Account Access state is `expired` can still finish Onboarding, which
+  # saves their profile, preferences and Slot cooking times together.
   scope "/api", MealPlannerApiWeb do
     pipe_through([:api, :mobile_casing, :auth])
 
@@ -178,6 +182,7 @@ defmodule MealPlannerApiWeb.Router do
     put("/me/slot-cooking-times", SlotCookingTimesController, :update)
     get("/me/preferences", PreferencesController, :show)
     put("/me/preferences", PreferencesController, :update)
+    post("/onboarding/complete", OnboardingController, :complete)
   end
 
   # Product routes of the mobile app. `:mobile_casing` is opt-in and this is
