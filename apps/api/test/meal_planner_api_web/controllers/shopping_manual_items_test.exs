@@ -6,6 +6,8 @@ defmodule MealPlannerApiWeb.ShoppingManualItemsTest do
   """
   use MealPlannerApiWeb.ConnCase, async: false
 
+  import Ecto.Query
+
   alias MealPlannerApi.Generation.ServerTestFixtures, as: Fixtures
   alias MealPlannerApi.Persistence.Accounts.AccountMembership
   alias MealPlannerApi.Persistence.Planning
@@ -389,6 +391,119 @@ defmodule MealPlannerApiWeb.ShoppingManualItemsTest do
     end
   end
 
+  describe "a range replace of the calendar (issue #40)" do
+    setup c do
+      owner_id =
+        Repo.one!(
+          from(m in AccountMembership, where: m.account_id == ^c.account.id, select: m.user_id)
+        )
+
+      other_ingredient = Fixtures.insert_ingredient("Other ingredient #{Ecto.UUID.generate()}")
+
+      other_recipe =
+        Fixtures.insert_recipe("Other recipe #{Ecto.UUID.generate()}",
+          account_id: c.account.id,
+          created_by_user_id: owner_id
+        )
+
+      Fixtures.attach_recipe_ingredient(other_recipe, other_ingredient, 100, :g)
+
+      # The same Ingredient as the planned meal of the setup, in another recipe.
+      same_recipe =
+        Fixtures.insert_recipe("Same ingredient recipe #{Ecto.UUID.generate()}",
+          account_id: c.account.id,
+          created_by_user_id: owner_id
+        )
+
+      Fixtures.attach_recipe_ingredient(same_recipe, c.ingredient, 250, :g)
+
+      %{
+        today: c.meal.date,
+        tomorrow: Date.add(c.meal.date, 1),
+        recipe_id: c.meal.recipe_id,
+        other_recipe: other_recipe,
+        same_recipe: same_recipe,
+        other_ingredient: other_ingredient
+      }
+    end
+
+    test "keeps a manual item and a removed item while the meal still needs the Ingredient", c do
+      %{"id" => manual_id} = create_manual(c.token, %{"name" => "Dish soap"}, 201)
+      [%{"allocations" => [%{"itemId" => item_id}]}] = shopping_list(c.token)["planned"]
+      set_status(c.token, %{"itemIds" => [item_id], "status" => "removed"}, 200)
+
+      # The same slot, a recipe that needs the same Ingredient in another amount.
+      replace_range!(c, [%{date: c.today, slot: :lunch, recipe_id: c.same_recipe.id}])
+
+      list = shopping_list(c.token)
+
+      assert [%{"status" => "removed", "quantityMilli" => 250, "ingredientId" => ingredient_id}] =
+               list["planned"]
+
+      assert ingredient_id == c.ingredient.id
+
+      assert list["totals"] == %{
+               "needed" => 0,
+               "inCart" => 0,
+               "removed" => 1,
+               "estimatedCents" => 0
+             }
+
+      assert [%{"id" => ^manual_id, "name" => "Dish soap"}] = list["manual"]
+      assert Repo.get(ShoppingItem, manual_id)
+    end
+
+    test "restores the removed item to needed after the replace", c do
+      [%{"allocations" => [%{"itemId" => item_id}]}] = shopping_list(c.token)["planned"]
+      set_status(c.token, %{"itemIds" => [item_id], "status" => "removed"}, 200)
+
+      replace_range!(c, [%{date: c.today, slot: :lunch, recipe_id: c.recipe_id}])
+
+      assert [%{"status" => "removed", "allocations" => [%{"itemId" => new_item_id}]}] =
+               shopping_list(c.token)["planned"]
+
+      refute new_item_id == item_id
+      set_status(c.token, %{"itemIds" => [new_item_id], "status" => "needed"}, 200)
+      assert [%{"status" => "needed", "quantityMilli" => 400}] = shopping_list(c.token)["planned"]
+    end
+
+    test "drops a removed item the meals no longer need, and does not bring it back", c do
+      [%{"allocations" => [%{"itemId" => item_id}]}] = shopping_list(c.token)["planned"]
+      set_status(c.token, %{"itemIds" => [item_id], "status" => "removed"}, 200)
+
+      replace_range!(c, [%{date: c.today, slot: :lunch, recipe_id: c.other_recipe.id}])
+
+      assert [%{"ingredientId" => other_id, "status" => "needed"}] =
+               shopping_list(c.token)["planned"]
+
+      assert other_id == c.other_ingredient.id
+      assert Repo.get(ShoppingItem, item_id) == nil
+
+      # A later plan that needs the Ingredient again lists it as needed.
+      replace_range!(c, [%{date: c.today, slot: :lunch, recipe_id: c.recipe_id}])
+
+      assert [%{"ingredientId" => ingredient_id, "status" => "needed"}] =
+               shopping_list(c.token)["planned"]
+
+      assert ingredient_id == c.ingredient.id
+    end
+
+    test "removes only the slot the User removed, not the same Ingredient at another slot", c do
+      [%{"allocations" => [%{"itemId" => item_id}]}] = shopping_list(c.token)["planned"]
+      set_status(c.token, %{"itemIds" => [item_id], "status" => "removed"}, 200)
+
+      replace_range!(c, [
+        %{date: c.today, slot: :lunch, recipe_id: c.recipe_id},
+        %{date: c.today, slot: :dinner, recipe_id: c.recipe_id}
+      ])
+
+      lines = shopping_list(c.token, %{"groupBy" => "meal"})["planned"]
+      statuses = Map.new(lines, &{hd(&1["allocations"])["slot"], &1["status"]})
+
+      assert statuses == %{"lunch" => "removed", "dinner" => "needed"}
+    end
+  end
+
   # ---- helpers ---------------------------------------------------------------
 
   defp planned_item!(c, overrides \\ %{}) do
@@ -454,10 +569,22 @@ defmodule MealPlannerApiWeb.ShoppingManualItemsTest do
     |> delete("/api/shopping-items/#{id}")
   end
 
-  defp shopping_list(token) do
+  defp replace_range!(c, meals) do
+    account_id = c.account.id
+    range = {c.today, Date.add(c.today, 2)}
+
+    assert {:ok, %{replaced: _}} =
+             MealPlannerApi.Services.ShoppingService.replace_scheduled_meals_for_range(
+               account_id,
+               range,
+               meals
+             )
+  end
+
+  defp shopping_list(token, params \\ %{}) do
     build_conn()
     |> put_req_header("authorization", "Bearer " <> token)
-    |> get("/api/shopping-list")
+    |> get("/api/shopping-list", params)
     |> json_response(200)
     |> assert_camel_case_keys()
     |> Map.fetch!("data")

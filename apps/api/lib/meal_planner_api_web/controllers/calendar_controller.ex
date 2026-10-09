@@ -3,6 +3,7 @@ defmodule MealPlannerApiWeb.CalendarController do
 
   alias MealPlannerApi.AccountClock
   alias MealPlannerApi.Persistence.Calendar
+  alias MealPlannerApi.Services.ShoppingService
 
   # Phase A — Tenancy Refactor (PR 3c task 3.14): tenancy scope is always
   # resolved from `conn.assigns.current_membership.account_id` (the
@@ -45,7 +46,7 @@ defmodule MealPlannerApiWeb.CalendarController do
          {:ok, to_date} <- parse_date(range_param(params, "to", "end_date")),
          :ok <- validate_date_range(from_date, to_date),
          {:ok, meals} <- parse_replacement_meals(Map.get(params, "meals")) do
-      case Calendar.replace_scheduled_meals_for_range(
+      case ShoppingService.replace_scheduled_meals_for_range(
              membership.account_id,
              {from_date, to_date},
              meals

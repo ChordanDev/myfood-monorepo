@@ -1065,9 +1065,10 @@ changes nothing. The call is all or nothing; if one item is refused none changes
 
 A removed item stays in `planned` (7.1) so it can be restored: it stops adding to the `quantityMilli` of its
 line, to `estimatedCents` and to the Cart, and a line whose allocations are all removed reads `removed`. A
-re-plan (a confirmed plan or a calendar range replace) keeps it removed while the planned meal still needs
-that ingredient and unit on that date, and drops it when the meal no longer does. Manual items are never
-touched by a re-plan.
+re-plan (a confirmed plan or `PUT /api/calendar/meals/range`) keeps it removed while a planned meal on the
+same date and slot still needs that ingredient and unit, with the shortage of the new plan, and drops it when
+none does. Changing the recipe of a single slot starts that meal over, so its removals are dropped too.
+Manual items are never touched by a re-plan.
 
 Errors use the error envelope of section 10:
 
