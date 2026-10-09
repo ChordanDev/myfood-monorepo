@@ -116,6 +116,8 @@ export type AuthErrorCode =
   | 'subscription_required'
   | 'invalid_range'
   | 'overlapping_range'
+  | 'planning_invalid_range'
+  | 'planning_range_locked'
   | 'forbidden_intent'
   | 'unknown_intent'
   | 'invalid_payload'

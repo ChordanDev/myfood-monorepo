@@ -197,6 +197,8 @@ defmodule MealPlannerApiWeb.ApiErrorTest do
       subscription_required: 403,
       invalid_range: 422,
       overlapping_range: 409,
+      planning_invalid_range: 422,
+      planning_range_locked: 409,
       forbidden_intent: 422,
       unknown_intent: 422,
       invalid_payload: 422,

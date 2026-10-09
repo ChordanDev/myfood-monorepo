@@ -183,6 +183,29 @@ Ok reply; the `session_started` event carries the same `sessionId`:
 - An event emitted by another server process (generation, the planning session, the session sweeper, the AI chat channel) has no ordering guarantee relative to a reply. `session_started` is one of them: a client must not assume on which side of the `start_planning` reply it arrives.
 - Clients correlate replies and events by `requestId` / `sessionId`, never by arrival order.
 
+#### start_planning
+
+The command that starts a Planning session. Its refusals reply the error envelope with these codes (issue #25):
+
+| Code | Condition |
+|------|-----------|
+| `planning_invalid_range` | A date is missing or is not an ISO 8601 date, or the range ends before it starts |
+| `planning_range_locked` | An active session of the Account already holds part of the range |
+
+`planning_range_locked` may carry `details` inside `error`, next to `code` and `message`: `{"ownerName": "Ana"}`, the display name of the member who holds the range. It is present only when that member is not the caller; a member who collides with their own session gets no `details`.
+
+```json
+{
+  "error": {
+    "code": "planning_range_locked",
+    "message": "Another planning session holds part of this date range.",
+    "details": { "ownerName": "Ana" }
+  }
+}
+```
+
+The older `invalid_range` and `overlapping_range` codes stay in the allowlist; `start_planning` no longer replies them.
+
 #### Incoming Events
 
 | Event | Payload | Description |
