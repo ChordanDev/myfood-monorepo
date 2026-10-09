@@ -50,24 +50,30 @@ Out of scope: manual items and removed/restored (S2, #40), Cart lease (S3, #41),
 
 ## Tasks
 
-- [ ] **T1 — Account timezone foundation** (route: delegated, writer trigger: migration + schema + config + module + tests)
+- [x] **T1 — Account timezone foundation** (route: delegated, writer trigger: migration + schema + config + module + tests)
   - `accounts.timezone` nullable column; schema field validated as a known IANA zone when present.
   - tz database dependency configured as the Elixir time zone database.
   - One function answering "today for this Account" (UTC while none is stored), with an injectable instant.
   - Checks: focused unit tests (zone ahead of / behind UTC around midnight, nil, unknown zone), `mix format --check-formatted`, `mix compile --warnings-as-errors`.
-- [ ] **T2 — Rebuilder: date limit and groupings** (route: delegated, same writer run as T1, disjoint files)
+- [x] **T2 — Rebuilder: date limit and groupings** (route: delegated, same writer run as T1, disjoint files)
   - Pure `limit_to_date/2` and `group_lines/2` (`:ingredient` aggregates with allocations, `:meal` splits).
   - Checks: `shopping_rebuilder_test.exs` pure tests, RED observed before GREEN.
-- [ ] **T3 — `GET /api/shopping-list` contract** (route: delegated, writer trigger: service + controller + several test files + docs)
+- [x] **T3 — `GET /api/shopping-list` contract** (route: delegated, writer trigger: service + controller + several test files + docs)
   - New payload, `untilDate`/`groupBy` parsing and validation, Account's today for pruning and range.
   - Tests bound to the old shape updated; `frontend_integration_guide.md` §7.1 and glossary updated.
   - Checks: controller + service + contract tests, full `mix test`, `mix format --check-formatted`, `mix compile --warnings-as-errors`.
-- [ ] **T4 — Mobile store as a cache** (route: delegated)
-  - Shopping API module; the store holds the last read plus `untilDate` and grouping; no derivation from the mock plan.
-  - Checks: store test proving a read replaces the cache; `npm run typecheck`, `npm run lint`.
-- [ ] **T5 — Shopping screen on the API list** (route: delegated)
-  - Screen tested against fixtures with both groupings and a date filter.
-  - Checks: `npm test`, `npm run typecheck`, `npm run lint`.
+- [ ] **T4 — Mobile shopping API module** (route: delegated, additive)
+  - `getShoppingList` over `apiClient` (query params, `{ data }` unwrapped), response types, fixtures
+    of both groupings and a date-limited read.
+  - Checks: API module tests against `fetch`; `npm run typecheck`, `npm run lint`.
+- [ ] **T5 — Store as a cache and read-only Shopping screen** (route: delegated, same writer run as T4)
+  - The store holds the last read plus `untilDate` and grouping (D11-D15); the local derivation, the
+    mock offers and the local mutations leave the screen; the recipe screen stops adding to the list.
+  - Checks: store test proving a read replaces the cache; screen tested against fixtures with both
+    groupings and a date filter; `npm test`, `npm run typecheck`, `npm run lint`.
+
+T4 and T5 were re-cut from the first plan (store / screen): a store with a new shape cannot land
+without the screen that reads it, while the API module can land alone.
 
 ## Acceptance criteria (issue #39)
 
@@ -85,17 +91,46 @@ User's decision.
 
 ## Open questions
 
-- Mobile (T4/T5): what backs Cart ticks, remove/restore, manual add and confirm purchase
-  between S1 and S2/S3/S5. To be settled before T4.
+None. Settled by the User on 2026-10-08: the mobile slice is **read-only** (D11).
+
+## Mobile decisions
+
+| # | Decision | Rationale |
+|---|----------|-----------|
+| D11 | Read-only screen: Cart ticks, remove/restore, manual add and confirm purchase are unmounted until S2 (#40), S3 (#41) and S5 (#43); their components stay in the repository. The recipe screen's "add to the Shopping list" is disabled. | User's choice: the store is a pure cache plus filters, no throwaway local overlay. |
+| D12 | The store keeps the last read in memory and persists only the preferences (`chosenUntilDate`, `groupBy`). | No offline queue in this spec; a persisted list would outlive a sign-out. |
+| D13 | Grouping is an explicit preference: the switcher offers per Ingredient and per meal (`groupBy`). Cards stay grouped by Ingredient category in both. | Issue: "optionally per meal"; spec #5: grouping is a client preference. |
+| D14 | The mock supermarket offers, prices and the "by supermarket" grouping leave the screen. `supermarketId` stays in the cache. | They only ever matched mock Ingredient ids; the API serves no supermarket names or prices on this read. |
+| D15 | The date pill offers `plannedDates` from the read; the app never sends or compares a device-local date. A stored date the server rejects (`validation_error`) is cleared and the list is read again. | X2 (#12). |
 
 ## Progress
 
 | Task | Route | Commit | Checks | Review |
 |------|-------|--------|--------|--------|
-| T1 | delegated | — | — | — |
-| T2 | delegated | — | — | — |
-| T3 | delegated | — | — | — |
+| T1 | delegated | `7be15e5` | RED observed (missing module, uncast field) then 21 passed; full suite 1246 passed, 20 skipped; format and `compile --warnings-as-errors` clean | medium, granted, approved (`review-591e8b34c07feca3`, with T2) |
+| T2 | delegated | `04431d5` | RED 8/31 then 31 passed; parent spot check 52 passed | medium, granted, approved; 3 advisory findings folded into T3 |
+| T3 | delegated | `e299f62` | RED observed (service 4/12, rebuilder 31/36, `validation_error` 32/37) then green; full suite 1267 passed, 20 skipped; format and `compile --warnings-as-errors` clean; mobile contract test 8 passed, typecheck clean; parent spot check 67 passed | high, granted, 4 lenses, approved (`review-6cdbb3482ec51f43`); advisory only |
 | T4 | delegated | — | — | — |
 | T5 | delegated | — | — | — |
 
-Next step: T1 + T2 writer run.
+Reviewed boundary: `e299f62`. Engram mirror: pending (save rejected, several active sessions for this project).
+
+Accepted review follow-ups (advisory, lineage `review-591e8b34c07feca3`), done with T3:
+- `group_lines/2` with `:ingredient`: removed rows must not inflate a line that still reads `needed`.
+- A test for a slot outside the schema enum sorting last.
+- Document that rows without an Ingredient (manual, S2) are not a supported input yet.
+
+Test database for this worktree: `MYFOOD_TEST_DATABASE=meal_planner_api_test_issue39`.
+
+T3 notes: `validation_error` was added to `ApiError` and to the mobile error allowlist (spec #5 names
+the code). The envelope has no member naming the failing param. Deleted test: "includes archived
+when include_archived=true" (the read no longer lists archived items).
+
+Advisory findings of the T3 review (lineage `review-6cdbb3482ec51f43`):
+- Stale comments (prune "always runs", test clock comment, SQL order vs service order): fixed, in the next commit.
+- `Cart.active_for/3` uses `Repo.one`: safe, the unique index `one_active_member_cart` allows one draft Cart per member.
+- Derivation is no longer capped at 7 days without `untilDate` (D2) and runs one lookup per shortage line; the
+  check-then-insert has no unique index behind it (pre-existing). Not fixed here; flagged as a follow-up.
+- Untested: the lease boundary of `Cart.active_for/3`, and the no-archive / no-expiry side of a rejected read.
+
+Next step: mobile writer run (T4 + T5).

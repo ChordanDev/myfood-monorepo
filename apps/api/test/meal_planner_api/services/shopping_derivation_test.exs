@@ -31,7 +31,7 @@ defmodule MealPlannerApi.Services.ShoppingDerivationTest do
   @meal_count 2
   @planned_item_count @ingredient_count * @meal_count
 
-  describe "get_shopping_list/2 read one after another" do
+  describe "get_shopping_list/3 read one after another" do
     setup do
       :ok = Sandbox.checkout(Repo)
       :ok = SubscriptionPlanFixtures.ensure_plans!()
@@ -40,11 +40,11 @@ defmodule MealPlannerApi.Services.ShoppingDerivationTest do
 
     test "derives each planned Shopping item once and a second read adds none", f do
       assert {:ok, first} = ShoppingService.get_shopping_list(f.actor)
-      assert first.pending_count == @planned_item_count
+      assert length(listed_item_ids(first)) == @planned_item_count
       stored = stored_items(f)
 
       assert {:ok, second} = ShoppingService.get_shopping_list(f.actor)
-      assert second.pending_count == @planned_item_count
+      assert length(listed_item_ids(second)) == @planned_item_count
       assert stored_items(f) == stored
       assert_one_item_per_planned_key(f)
     end
@@ -55,8 +55,8 @@ defmodule MealPlannerApi.Services.ShoppingDerivationTest do
       log =
         capture_log(fn ->
           assert {:ok, list} = ShoppingService.get_shopping_list(f.actor)
-          assert list.items == []
-          assert list.pending_count == 0
+          assert list.planned == []
+          assert list.totals.needed == 0
         end)
 
       assert log =~ "shopping item derivation failed"
@@ -70,7 +70,7 @@ defmodule MealPlannerApi.Services.ShoppingDerivationTest do
   # single transaction that never commits, so two readers on it could never
   # race for the same planned key. Every row is committed and has to be
   # deleted by hand.
-  describe "get_shopping_list/2 read at the same time" do
+  describe "get_shopping_list/3 read at the same time" do
     setup do
       :ok = Sandbox.checkout(Repo, sandbox: false)
       :ok = SubscriptionPlanFixtures.ensure_committed_plan!("family_4")
@@ -120,8 +120,14 @@ defmodule MealPlannerApi.Services.ShoppingDerivationTest do
 
       # A read that starts after the race sees every item, none of them twice.
       assert {:ok, list} = ShoppingService.get_shopping_list(f.actor)
-      assert list.pending_count == @planned_item_count
+      assert length(listed_item_ids(list)) == @planned_item_count
     end
+  end
+
+  # The Shopping items a read lists: each allocation of a planned line is one
+  # of them.
+  defp listed_item_ids(list) do
+    list.planned |> Enum.flat_map(& &1.allocations) |> Enum.map(& &1.item_id)
   end
 
   defp assert_one_item_per_planned_key(f) do
@@ -144,9 +150,9 @@ defmodule MealPlannerApi.Services.ShoppingDerivationTest do
   end
 
   # An Account with a member and a recipe of several Ingredients scheduled on
-  # consecutive days, starting today: the default Shopping list window covers
-  # every Scheduled meal, and an empty Inventory makes each Ingredient a
-  # Shortage.
+  # consecutive days, starting today: a Shopping list read without
+  # `until_date` covers every Scheduled meal, and an empty Inventory makes
+  # each Ingredient a Shortage.
   defp schedule_fixture(suffix \\ Ecto.UUID.generate()) do
     account = Fixtures.insert_account("Shopping derivation #{suffix}")
     user = Fixtures.insert_user_with_membership(account, "derivation-#{suffix}@example.com")

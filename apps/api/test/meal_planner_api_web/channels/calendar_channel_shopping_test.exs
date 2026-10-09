@@ -2,7 +2,7 @@ defmodule MealPlannerApiWeb.CalendarChannelShoppingTest do
   @moduledoc """
   `upsert_meal` updates a Scheduled meal in place, so its Shopping items outlive a recipe
   swap unless the update drops them. These tests read the list back through
-  `ShoppingService.get_shopping_list/2`, the same path as `GET /api/shopping-list`.
+  `ShoppingService.get_shopping_list/3`, the same path as `GET /api/shopping-list`.
   """
   use MealPlannerApiWeb.ChannelCase, async: false
 
@@ -115,14 +115,11 @@ defmodule MealPlannerApiWeb.CalendarChannelShoppingTest do
     meal_id
   end
 
+  # Read per meal, so every Shopping item is a line of its own.
   defp listed_ingredient_ids(ctx) do
-    {:ok, list} =
-      ShoppingService.get_shopping_list(ctx.shopper, %{
-        "from_date" => Date.to_iso8601(Date.utc_today()),
-        "to_date" => Date.to_iso8601(Date.add(ctx.date, 1))
-      })
+    {:ok, list} = ShoppingService.get_shopping_list(ctx.shopper, %{"group_by" => "meal"})
 
-    list.items |> Enum.flat_map(& &1.lines) |> Enum.map(& &1.ingredient_id) |> Enum.sort()
+    list.planned |> Enum.map(& &1.ingredient_id) |> Enum.sort()
   end
 
   defp items_for_meal(meal_id) do

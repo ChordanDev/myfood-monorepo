@@ -1,6 +1,7 @@
 defmodule MealPlannerApi.ShoppingServiceTest do
   use ExUnit.Case, async: true
 
+  alias MealPlannerApi.Persistence.Accounts.Account
   alias MealPlannerApi.Persistence.Catalog
   alias MealPlannerApi.Persistence.Identity
   alias MealPlannerApi.Persistence.Planning
@@ -16,7 +17,7 @@ defmodule MealPlannerApi.ShoppingServiceTest do
   defp create_test_ingredient(_account_id) do
     {:ok, ingredient} =
       Catalog.upsert_ingredient_by_name(%{
-        name: "Test Ingredient #{:rand.uniform(10000)}",
+        name: "Test Ingredient #{System.unique_integer([:positive])}",
         category: :carnes,
         calories_per_100: 250,
         protein_g_per_100: Decimal.new("26.0"),
@@ -251,191 +252,278 @@ defmodule MealPlannerApi.ShoppingServiceTest do
     |> Repo.insert!()
   end
 
-  describe "get_shopping_list/2" do
+  # Issue #39: the read takes the instant as its third argument. These tests
+  # leave it at its default and build their dates from the current UTC day;
+  # the "Account's today" block below is the one that fixes "now".
+  describe "get_shopping_list/3" do
     test "archives past-dated pending items on every call" do
-      {:ok, identity} =
-        Identity.ensure_persistent_identity(%{
-          id: "u_archive_#{:rand.uniform(10000)}",
-          account_id: "acct_archive_#{:rand.uniform(10000)}",
-          plan: :family_4
-        })
-
-      account_id = identity.account_id
-      user = %{id: identity.user_id, account_id: account_id, plan: :family_4}
-
+      {account_id, user} = identity!("archive")
       ingredient = create_test_ingredient(account_id)
-      recipe = create_test_recipe(account_id, identity.user_id)
-
-      {:ok, _ri} =
-        Catalog.add_recipe_ingredient(%{
-          recipe_id: recipe.id,
-          ingredient_id: ingredient.id,
-          quantity_milli: 200,
-          unit: :g
-        })
-
       past_date = Date.add(Date.utc_today(), -5)
 
-      {:ok, meal} =
-        Planning.schedule_meal(%{
-          account_id: account_id,
-          date: past_date,
-          slot: :breakfast,
-          recipe_id: recipe.id,
-          is_cooked: false
-        })
+      meal = schedule_meal!(account_id, user.id, past_date, :breakfast, ingredient, 200)
+      past_item = pending_item!(account_id, meal, ingredient, 200)
 
-      {:ok, past_item} =
-        Shopping.create_shopping_item(%{
-          account_id: account_id,
-          scheduled_meal_id: meal.id,
-          planned_date: past_date,
-          ingredient_id: ingredient.id,
-          quantity_milli: 200,
-          unit: :g,
-          status: :pending
-        })
-
-      # Verify item was created with correct status before calling get_shopping_list
-      items_before = Shopping.list_items_for_account(account_id, include_archived: true)
-      pending_items_before = Enum.filter(items_before, &(&1.status == :pending))
-      assert length(pending_items_before) >= 1, "Item should be created with pending status"
-
-      # Call get_shopping_list with today's date range
-      today = Date.utc_today()
-
-      {:ok, _response} =
-        ShoppingService.get_shopping_list(user, %{
-          "from_date" => Date.to_iso8601(today),
-          "to_date" => Date.to_iso8601(Date.add(today, 6))
-        })
-
-      # Check that the past item was archived
-      items = Shopping.list_items_for_account(account_id, include_archived: true)
-      archived_items = Enum.filter(items, &(&1.status == :archived))
-      assert length(archived_items) >= 1
+      assert {:ok, _response} = ShoppingService.get_shopping_list(user)
 
       # The same row is archived in place, and the write is stamped.
-      assert %{status: :archived} = archived = Enum.find(items, &(&1.id == past_item.id))
+      assert %{status: :archived} = archived = Repo.get!(Shopping.ShoppingItem, past_item.id)
       assert archived.quantity_milli == 200
       assert archived.inserted_at == past_item.inserted_at
       assert DateTime.compare(archived.updated_at, past_item.updated_at) == :gt
     end
 
-    test "excludes archived items by default" do
-      {:ok, identity} =
-        Identity.ensure_persistent_identity(%{
-          id: "u_exclude_#{:rand.uniform(10000)}",
-          account_id: "acct_exclude_#{:rand.uniform(10000)}",
-          plan: :family_4
-        })
-
-      account_id = identity.account_id
-      user = %{id: identity.user_id, account_id: account_id, plan: :family_4}
-
+    test "does not list a past item it has just archived" do
+      {account_id, user} = identity!("exclude")
       ingredient = create_test_ingredient(account_id)
-      recipe = create_test_recipe(account_id, identity.user_id)
-
-      {:ok, _ri} =
-        Catalog.add_recipe_ingredient(%{
-          recipe_id: recipe.id,
-          ingredient_id: ingredient.id,
-          quantity_milli: 150,
-          unit: :ml
-        })
-
       past_date = Date.add(Date.utc_today(), -3)
 
-      {:ok, meal} =
-        Planning.schedule_meal(%{
-          account_id: account_id,
-          date: past_date,
-          slot: :lunch,
-          recipe_id: recipe.id,
-          is_cooked: false
-        })
+      meal = schedule_meal!(account_id, user.id, past_date, :lunch, ingredient, 150)
+      _item = pending_item!(account_id, meal, ingredient, 150)
 
-      {:ok, _item} =
-        Shopping.create_shopping_item(%{
-          account_id: account_id,
-          scheduled_meal_id: meal.id,
-          planned_date: past_date,
-          ingredient_id: ingredient.id,
-          quantity_milli: 150,
-          unit: :ml,
-          status: :pending
-        })
+      assert {:ok, response} = ShoppingService.get_shopping_list(user)
 
-      # Trigger archiving by calling get_shopping_list
-      today = Date.utc_today()
-
-      {:ok, response} =
-        ShoppingService.get_shopping_list(user, %{
-          "from_date" => Date.to_iso8601(today),
-          "to_date" => Date.to_iso8601(Date.add(today, 6))
-        })
-
-      # By default, archived items should not appear in the list
-      item_ingredient_ids = Enum.map(response.items, & &1.ingredient_id)
-      refute Enum.member?(item_ingredient_ids, ingredient.id)
+      assert response.planned == []
+      assert response.planned_dates == []
     end
 
-    test "includes archived when include_archived=true" do
-      {:ok, identity} =
-        Identity.ensure_persistent_identity(%{
-          id: "u_include_#{:rand.uniform(10000)}",
-          account_id: "acct_include_#{:rand.uniform(10000)}",
-          plan: :family_4
-        })
+    test "lists only pending and in cart items, as needed and in_cart" do
+      {account_id, user} = identity!("statuses")
+      date = Date.add(Date.utc_today(), 1)
 
-      account_id = identity.account_id
-      user = %{id: identity.user_id, account_id: account_id, plan: :family_4}
+      [pending, in_cart, archived, checked_out] =
+        for {status, slot} <- [
+              pending: :breakfast,
+              in_cart: :lunch,
+              archived: :snack,
+              checked_out: :dinner
+            ] do
+          ingredient = create_test_ingredient(account_id)
+          meal = schedule_meal!(account_id, user.id, date, slot)
+          pending_item!(account_id, meal, ingredient, 100, %{status: status})
+          ingredient.id
+        end
 
+      assert {:ok, response} = ShoppingService.get_shopping_list(user)
+
+      assert Enum.map(response.planned, &{&1.ingredient_id, &1.status, &1.source}) == [
+               {pending, "needed", "planned_meal"},
+               {in_cart, "in_cart", "planned_meal"}
+             ]
+
+      refute archived in Enum.map(response.planned, & &1.ingredient_id)
+      refute checked_out in Enum.map(response.planned, & &1.ingredient_id)
+      assert response.manual == []
+      assert response.totals.needed == 1
+      assert response.totals.in_cart == 1
+      assert response.totals.removed == 0
+    end
+
+    test "estimated_cents adds up the needed items only" do
+      {account_id, user} = identity!("estimate")
+      date = Date.add(Date.utc_today(), 1)
       ingredient = create_test_ingredient(account_id)
-      recipe = create_test_recipe(account_id, identity.user_id)
 
+      for {slot, status, cents} <- [
+            {:breakfast, :pending, 6000},
+            {:lunch, :pending, 4500},
+            {:dinner, :in_cart, 900}
+          ] do
+        meal = schedule_meal!(account_id, user.id, date, slot)
+
+        pending_item!(account_id, meal, ingredient, 100, %{
+          status: status,
+          estimated_price_cents: cents
+        })
+      end
+
+      assert {:ok, %{totals: totals}} = ShoppingService.get_shopping_list(user)
+
+      # One ingredient line: part of it is in a Cart, so it still reads needed.
+      assert totals == %{needed: 1, in_cart: 0, removed: 0, estimated_cents: 10_500}
+    end
+
+    test "orders lines by date, then by slot in the order of the day" do
+      {account_id, user} = identity!("order")
+      today = Date.utc_today()
+      tomorrow = Date.add(today, 1)
+
+      # Alphabetical slot order would put dinner before lunch and snack.
+      planned =
+        for {date, slot} <- [
+              {tomorrow, :breakfast},
+              {today, :dinner},
+              {today, :snack},
+              {today, :lunch}
+            ] do
+          ingredient = create_test_ingredient(account_id)
+          schedule_meal!(account_id, user.id, date, slot, ingredient, 100)
+          {date, slot, ingredient.id}
+        end
+
+      assert {:ok, response} = ShoppingService.get_shopping_list(user, %{"group_by" => "meal"})
+
+      # The meals above are scheduled in the reverse of the expected order.
+      expected =
+        planned
+        |> Enum.reverse()
+        |> Enum.map(fn {date, slot, ingredient_id} ->
+          {date, Atom.to_string(slot), ingredient_id}
+        end)
+
+      assert Enum.map(response.planned, fn %{allocations: [allocation]} = line ->
+               {allocation.date, allocation.slot, line.ingredient_id}
+             end) == expected
+
+      assert response.planned_dates == [today, tomorrow]
+    end
+
+    test "rejects a malformed until_date and an unknown group_by" do
+      {_account_id, user} = identity!("validation")
+
+      for until_date <- ["08/10/2026", "2026-13-40", "", "tomorrow", 20_261_008] do
+        assert {:error, {:validation_error, :until_date}} ==
+                 ShoppingService.get_shopping_list(user, %{"until_date" => until_date})
+      end
+
+      for group_by <- ["category", "", "INGREDIENT", 1] do
+        assert {:error, {:validation_error, :group_by}} ==
+                 ShoppingService.get_shopping_list(user, %{"group_by" => group_by})
+      end
+    end
+  end
+
+  # 23:30 UTC on 8 October is already 9 October in Auckland (UTC+13).
+  @late_utc_evening ~U[2026-10-08 23:30:00Z]
+
+  describe "get_shopping_list/3 — the Account's today" do
+    test "an Account ahead of UTC does not list a meal on the UTC day that is already its yesterday" do
+      {account_id, user} = identity!("tz_ahead")
+      set_timezone!(account_id, "Pacific/Auckland")
+
+      utc_day = create_test_ingredient(account_id)
+      account_day = create_test_ingredient(account_id)
+
+      past_meal = schedule_meal!(account_id, user.id, ~D[2026-10-08], :dinner, utc_day, 300)
+      past_item = pending_item!(account_id, past_meal, utc_day, 300)
+      schedule_meal!(account_id, user.id, ~D[2026-10-09], :lunch, account_day, 300)
+
+      assert {:ok, response} = ShoppingService.get_shopping_list(user, %{}, @late_utc_evening)
+
+      assert Enum.map(response.planned, & &1.ingredient_id) == [account_day.id]
+      assert response.planned_dates == [~D[2026-10-09]]
+
+      # The item of the Account's yesterday is pruned by the same clock.
+      assert Repo.get!(Shopping.ShoppingItem, past_item.id).status == :archived
+    end
+
+    test "an Account ahead of UTC rejects an until_date equal to the UTC day" do
+      {account_id, user} = identity!("tz_until")
+      set_timezone!(account_id, "Pacific/Auckland")
+
+      assert {:error, {:validation_error, :until_date}} ==
+               ShoppingService.get_shopping_list(
+                 user,
+                 %{"until_date" => "2026-10-08"},
+                 @late_utc_evening
+               )
+
+      assert {:ok, _response} =
+               ShoppingService.get_shopping_list(
+                 user,
+                 %{"until_date" => "2026-10-09"},
+                 @late_utc_evening
+               )
+    end
+
+    test "an Account with no timezone uses the UTC day" do
+      {account_id, user} = identity!("tz_none")
+      ingredient = create_test_ingredient(account_id)
+
+      schedule_meal!(account_id, user.id, ~D[2026-10-08], :dinner, ingredient, 300)
+
+      assert {:ok, response} =
+               ShoppingService.get_shopping_list(
+                 user,
+                 %{"until_date" => "2026-10-08"},
+                 @late_utc_evening
+               )
+
+      assert Enum.map(response.planned, & &1.ingredient_id) == [ingredient.id]
+      assert response.planned_dates == [~D[2026-10-08]]
+
+      assert {:error, {:validation_error, :until_date}} ==
+               ShoppingService.get_shopping_list(
+                 user,
+                 %{"until_date" => "2026-10-07"},
+                 @late_utc_evening
+               )
+    end
+  end
+
+  defp identity!(tag) do
+    {:ok, identity} =
+      Identity.ensure_persistent_identity(%{
+        id: "u_#{tag}_#{:rand.uniform(1_000_000)}",
+        account_id: "acct_#{tag}_#{:rand.uniform(1_000_000)}",
+        plan: :family_4
+      })
+
+    {identity.account_id,
+     %{id: identity.user_id, account_id: identity.account_id, plan: :family_4}}
+  end
+
+  defp set_timezone!(account_id, timezone) do
+    Account
+    |> Repo.get!(account_id)
+    |> Account.changeset(%{timezone: timezone})
+    |> Repo.update!()
+  end
+
+  # A Scheduled meal of a fresh recipe. Given an ingredient, the recipe needs
+  # `quantity_milli` grams of it, so the read derives a Shopping item for it.
+  defp schedule_meal!(account_id, user_id, date, slot, ingredient \\ nil, quantity_milli \\ nil) do
+    recipe = create_test_recipe(account_id, user_id)
+
+    if ingredient do
       {:ok, _ri} =
         Catalog.add_recipe_ingredient(%{
           recipe_id: recipe.id,
           ingredient_id: ingredient.id,
-          quantity_milli: 100,
-          unit: :unit
+          quantity_milli: quantity_milli,
+          unit: :g
         })
-
-      past_date = Date.add(Date.utc_today(), -2)
-
-      {:ok, meal} =
-        Planning.schedule_meal(%{
-          account_id: account_id,
-          date: past_date,
-          slot: :dinner,
-          recipe_id: recipe.id,
-          is_cooked: false
-        })
-
-      {:ok, _archived_item} =
-        Shopping.create_shopping_item(%{
-          account_id: account_id,
-          scheduled_meal_id: meal.id,
-          planned_date: past_date,
-          ingredient_id: ingredient.id,
-          quantity_milli: 100,
-          unit: :unit,
-          status: :archived
-        })
-
-      # With include_archived=true, archived items should be included
-      today = Date.utc_today()
-
-      {:ok, response_with} =
-        ShoppingService.get_shopping_list(user, %{
-          "from_date" => Date.to_iso8601(today),
-          "to_date" => Date.to_iso8601(Date.add(today, 6)),
-          "include_archived" => "true"
-        })
-
-      # Check archived_count in the response
-      assert response_with.archived_count >= 1
     end
+
+    {:ok, meal} =
+      Planning.schedule_meal(%{
+        account_id: account_id,
+        date: date,
+        slot: slot,
+        recipe_id: recipe.id,
+        is_cooked: false
+      })
+
+    meal
+  end
+
+  defp pending_item!(account_id, meal, ingredient, quantity_milli, overrides \\ %{}) do
+    {:ok, item} =
+      Shopping.create_shopping_item(
+        Map.merge(
+          %{
+            account_id: account_id,
+            scheduled_meal_id: meal.id,
+            planned_date: meal.date,
+            ingredient_id: ingredient.id,
+            quantity_milli: quantity_milli,
+            unit: :g,
+            status: :pending
+          },
+          overrides
+        )
+      )
+
+    item
   end
 end

@@ -8,87 +8,185 @@ defmodule MealPlannerApi.Services.ShoppingService do
 
   import Ecto.Query, warn: false
   require Logger
+  alias MealPlannerApi.AccountClock
+  alias MealPlannerApi.Cart
   alias MealPlannerApi.Data.ShoppingRepo
   alias MealPlannerApi.Data.RecipeRepo
   alias MealPlannerApi.Persistence.Identity
   alias MealPlannerApi.Persistence.Shopping
   alias MealPlannerApi.Repo
+  alias MealPlannerApi.Services.ShoppingRebuilder
 
   # -------------------------------------------------------------------------
   # Shopping list
   # -------------------------------------------------------------------------
 
-  @spec get_shopping_list(map(), map()) :: {:ok, map()} | {:error, term()}
-  def get_shopping_list(user, params \\ %{}) do
-    case Identity.ensure_persistent_identity(user) do
-      {:ok, identity} ->
-        account_id = identity.account_id
-        {:ok, _} = MealPlannerApi.Cart.expire_account(account_id)
-        from_date = parse_date(Map.get(params, "from_date"), Date.utc_today())
-        end_date = parse_date(Map.get(params, "to_date"), Date.add(from_date, 6))
-        include_archived = params |> Map.get("include_archived", "false") |> parse_bool_param()
+  @list_groupings %{"ingredient" => :ingredient, "meal" => :meal}
 
-        # Auto-archive past items (always runs on every call)
-        prune_past_items(account_id, from_date)
+  @doc """
+  The Shopping list of the caller's Account (issue #39).
 
-        # Build items from scheduled meals (if not already created)
-        _ = ensure_shopping_items_from_schedule(account_id, from_date, end_date)
+  ## Parameters
 
-        items = Shopping.list_pending_items_with_context(account_id, from_date, end_date)
-        in_cart = Shopping.list_in_cart_items_with_context(account_id, from_date, end_date)
+    * `user` — the caller, scoped to the Account being read.
+    * `params` — snake_case request params. Two are read, both optional:
+      `"until_date"` (`YYYY-MM-DD`) keeps the lines of Scheduled meals on
+      or before that day, and `"group_by"` (`"ingredient"`, the default,
+      or `"meal"`) picks one line per ingredient or one per meal.
+    * `now` — the instant of the read. "Today" is the Account's today at
+      that instant (`MealPlannerApi.AccountClock.today/2`), never a date
+      sent by the client.
 
-        # If include_archived is true, also fetch archived items
-        archived =
-          if include_archived do
-            Shopping.list_items_for_account(account_id, include_archived: true)
-            |> Enum.filter(fn item -> item.status == :archived end)
-          else
-            []
-          end
+  ## Returns
 
-        # Group items by ingredient_id, aggregating quantities and prices
-        all_items = items ++ in_cart ++ archived
+  `{:ok, payload}` with:
 
-        grouped =
-          Enum.group_by(all_items, &{&1.ingredient_id, &1.unit})
-          |> Enum.map(fn {_ingredient_id, grouped_items} ->
-            first = hd(grouped_items)
+    * `planned` — the lines `ShoppingRebuilder.group_lines/2` builds from
+      the pending and in-cart Shopping items planned from today on, with
+      `status` `"needed"` or `"in_cart"` and `source` `"planned_meal"`.
+    * `manual` — always `[]` until manual items exist.
+    * `cart` — `%{session_id, lease_expires_at}` for the caller's own
+      active Cart, otherwise `nil`. A line held in another member's Cart
+      still reads `"in_cart"`.
+    * `totals` — `needed`, `in_cart` and `removed` count the planned
+      lines by status; `estimated_cents` adds the estimated price of the
+      needed items.
+    * `planned_dates` — the sorted dates with an uncooked Scheduled meal
+      from today on, whatever `until_date` is.
 
-            needed_qty =
-              Enum.reduce(grouped_items, 0, fn i, acc -> acc + (i.quantity_milli || 0) end)
-
-            serialize_shopping_item(first)
-            |> Map.put(:total_quantity_milli, needed_qty)
-            |> Map.put(:item_count, length(grouped_items))
-            |> Map.put(:lines, Enum.map(grouped_items, &serialize_shopping_item/1))
-          end)
-
-        {:ok,
-         %{
-           items: grouped,
-           pending_count: length(items),
-           in_cart_count: length(in_cart),
-           archived_count: length(archived),
-           total_estimated_cents: Enum.reduce(items, 0, &((&1.estimated_price_cents || 0) + &2))
-         }}
-
-      {:error, reason} ->
-        {:error, reason}
+  `{:error, {:validation_error, :until_date}}` for an `until_date` that
+  is malformed or before the Account's today, and
+  `{:error, {:validation_error, :group_by}}` for an unknown `group_by`.
+  The list is not built in either case: no Cart is expired and no item
+  is archived or created.
+  """
+  @spec get_shopping_list(map(), map(), DateTime.t()) :: {:ok, map()} | {:error, term()}
+  def get_shopping_list(user, params \\ %{}, now \\ DateTime.utc_now()) do
+    with {:ok, identity} <- Identity.ensure_persistent_identity(user),
+         today = AccountClock.today(identity.account_id, now),
+         {:ok, until_date} <- parse_until_date(Map.get(params, "until_date"), today),
+         {:ok, group_by} <- parse_group_by(Map.get(params, "group_by")) do
+      {:ok, build_shopping_list(identity, today, until_date, group_by, now)}
     end
   end
 
-  defp parse_bool_param("true"), do: true
-  defp parse_bool_param("1"), do: true
-  defp parse_bool_param(true), do: true
-  defp parse_bool_param(_), do: false
+  defp build_shopping_list(identity, today, until_date, group_by, now) do
+    account_id = identity.account_id
+    {:ok, _} = Cart.expire_account(account_id, now)
 
-  # Prune/archive past-dated items (planned_date before today)
-  # Always runs on every get_shopping_list call, as one statement. Nothing
-  # in it depends on a single row, so a failure is a database failure and is
-  # left to fail the read.
-  defp prune_past_items(account_id, _from_date) do
-    today = Date.utc_today()
+    # Auto-archive past items (runs on every read that passes validation)
+    prune_past_items(account_id, today)
 
+    upcoming_meals = upcoming_uncooked_meals(account_id, today)
+
+    # Build items from scheduled meals (if not already created)
+    _ =
+      ensure_shopping_items_from_schedule(
+        account_id,
+        ShoppingRebuilder.limit_to_date(upcoming_meals, until_date)
+      )
+
+    items =
+      account_id
+      |> Shopping.list_open_items_with_context(today, until_date)
+      |> Enum.sort_by(&list_position/1)
+
+    planned =
+      items
+      |> Enum.map(&planned_row/1)
+      |> ShoppingRebuilder.group_lines(group_by)
+
+    %{
+      planned: Enum.map(planned, &serialize_line/1),
+      manual: [],
+      cart: serialize_cart(Cart.active_for(account_id, identity.user_id, now)),
+      totals: %{
+        needed: Enum.count(planned, &(&1.status == :needed)),
+        in_cart: Enum.count(planned, &(&1.status == :in_cart)),
+        removed: Enum.count(planned, &(&1.status == :removed)),
+        estimated_cents:
+          items
+          |> Enum.filter(&(&1.status == :pending))
+          |> Enum.reduce(0, &((&1.estimated_price_cents || 0) + &2))
+      },
+      planned_dates: upcoming_meals |> Enum.map(& &1.date) |> Enum.uniq() |> Enum.sort(Date)
+    }
+  end
+
+  defp parse_until_date(nil, _today), do: {:ok, nil}
+
+  defp parse_until_date(value, today) when is_binary(value) do
+    with {:ok, date} <- Date.from_iso8601(value),
+         true <- Date.compare(date, today) != :lt do
+      {:ok, date}
+    else
+      _malformed_or_past -> {:error, {:validation_error, :until_date}}
+    end
+  end
+
+  defp parse_until_date(_value, _today), do: {:error, {:validation_error, :until_date}}
+
+  defp parse_group_by(nil), do: {:ok, :ingredient}
+
+  defp parse_group_by(value) do
+    case Map.fetch(@list_groupings, value) do
+      {:ok, group_by} -> {:ok, group_by}
+      :error -> {:error, {:validation_error, :group_by}}
+    end
+  end
+
+  # Rows reach the rebuilder by date, then by slot in the order of the day,
+  # then by item id so two reads list them the same way.
+  defp list_position(item) do
+    {Date.to_erl(item.planned_date), ShoppingRebuilder.slot_rank(item.scheduled_meal.slot),
+     item.id}
+  end
+
+  # The row `ShoppingRebuilder.group_lines/2` takes for one Shopping item.
+  defp planned_row(item) do
+    %{
+      item_id: item.id,
+      ingredient_id: item.ingredient_id,
+      name: item.ingredient.name,
+      category: item.ingredient.category,
+      unit: item.unit,
+      quantity_milli: item.quantity_milli,
+      status: list_status(item.status),
+      source: :planned_meal,
+      supermarket_id: item.assigned_supermarket_id,
+      scheduled_meal_id: item.scheduled_meal_id,
+      date: item.planned_date,
+      slot: item.scheduled_meal.slot
+    }
+  end
+
+  defp list_status(:pending), do: :needed
+  defp list_status(:in_cart), do: :in_cart
+
+  # Enum values leave as strings, like the rest of this service. Dates stay
+  # `Date` structs, which the JSON encoder writes as ISO 8601.
+  defp serialize_line(line) do
+    %{
+      line
+      | category: Atom.to_string(line.category),
+        unit: Atom.to_string(line.unit),
+        status: Atom.to_string(line.status),
+        source: Atom.to_string(line.source),
+        allocations: Enum.map(line.allocations, &%{&1 | slot: Atom.to_string(&1.slot)})
+    }
+  end
+
+  defp serialize_cart(nil), do: nil
+
+  defp serialize_cart(%Shopping.CheckoutSession{} = cart) do
+    %{session_id: cart.id, lease_expires_at: cart.lease_expires_at}
+  end
+
+  # Prune/archive past-dated items (planned_date before the Account's today)
+  # Runs on every get_shopping_list call that passes validation, as one
+  # statement. Nothing in it depends on a single row, so a failure is a
+  # database failure and is left to fail the read.
+  defp prune_past_items(account_id, today) do
     from(i in MealPlannerApi.Persistence.Shopping.ShoppingItem,
       where: i.account_id == ^account_id,
       where: i.planned_date < ^today,
@@ -97,25 +195,29 @@ defmodule MealPlannerApi.Services.ShoppingService do
     |> Repo.update_all(set: [status: :archived, updated_at: DateTime.utc_now()])
   end
 
-  # Ensure shopping items exist for all scheduled meals in the date range.
+  # Every uncooked Scheduled meal of the Account from `today` on, in the
+  # order the shortages are computed: by date, then by id.
+  defp upcoming_uncooked_meals(account_id, today) do
+    from(m in MealPlannerApi.Persistence.Planning.ScheduledMeal,
+      where: m.account_id == ^account_id,
+      where: m.date >= ^today,
+      where: m.is_cooked == false,
+      order_by: [asc: m.date, asc: m.id]
+    )
+    |> Repo.all()
+  end
+
+  # Ensure shopping items exist for the given scheduled meals.
   #
-  # Runs on every Shopping list read, from any number of requests at once:
-  # the Shortage lines that have no Shopping item yet are stored in one
-  # statement that skips the planned keys another request stored first.
+  # Runs on every Shopping list read that passes validation, from any number
+  # of requests at once: the Shortage lines that have no Shopping item yet
+  # are stored in one statement that skips the planned keys another request
+  # stored first.
   #
   # A failure here must not fail the read: it is logged and the read answers
   # with the Shopping items already stored.
-  defp ensure_shopping_items_from_schedule(account_id, from_date, to_date) do
-    scheduled_meals =
-      from(m in MealPlannerApi.Persistence.Planning.ScheduledMeal,
-        where: m.account_id == ^account_id,
-        where: m.date >= ^from_date,
-        where: m.date <= ^to_date,
-        where: m.is_cooked == false,
-        order_by: [asc: m.date, asc: m.id]
-      )
-      |> Repo.all()
-      |> Repo.preload(recipe: :recipe_ingredients)
+  defp ensure_shopping_items_from_schedule(account_id, scheduled_meals) do
+    scheduled_meals = Repo.preload(scheduled_meals, recipe: :recipe_ingredients)
 
     pool =
       MealPlannerApi.Services.InventoryService.list_for_account(account_id)
@@ -128,7 +230,7 @@ defmodule MealPlannerApi.Services.ShoppingService do
         )
       end)
 
-    lines = MealPlannerApi.Services.ShoppingRebuilder.compute_net_shortages(scheduled_meals, pool)
+    lines = ShoppingRebuilder.compute_net_shortages(scheduled_meals, pool)
 
     # A Shopping item in any status answers for its planned key: what was
     # bought or archived is not derived again.

@@ -30,6 +30,8 @@ This file and `docs/adr/` are the only durable docs in the repository. Specs, ma
 
 **Subscription plan** — A purchasable tier that maps to an Account plan and its seat cap. `(code: Subscriptions.Plan)` `(alias: Family plan, Premium family)`
 
+**Account's today** — The current calendar date for an Account: the date in the Account's stored IANA timezone, and the UTC date while none is stored. The server computes it; the app never sends its local date. `(code: AccountClock, Account.timezone)` `(alias: Account timezone, local date)`
+
 ## Profile & preferences
 
 **Onboarding profile** — The setup data captured right after first authentication: display name, household size and cooking skill. Dietary data is not part of it. `(code: mobile OnboardingProfile)` `(alias: signup data)`
@@ -135,6 +137,8 @@ This file and `docs/adr/` are the only durable docs in the repository. Specs, ma
 **Shopping item source** — Whether a Shopping item came from a `planned_meal` or was added `manual`ly; manual items never merge with planned ones. `(code: mobile ShoppingItemSource)`
 
 **Shortage** — The net quantity of an ingredient still missing after subtracting available Inventory from what Scheduled meals need. `(code: Services.ShoppingRebuilder)` `(alias: faltante)`
+
+**Allocation** — The share of a Shopping list line that one Scheduled meal needs: the quantity to buy for that meal, with its date and Meal slot. A line grouped by ingredient has one Allocation per meal that needs it. `(code: Services.ShoppingRebuilder)`
 
 **Cart** — The Shopping items a User has marked for purchase but not yet confirmed. `(code: Cart)` `(alias: in_cart)`
 

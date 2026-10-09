@@ -27,7 +27,8 @@ defmodule MealPlannerApi.Services.ShoppingRebuilder do
   alias MealPlannerApi.Persistence.Planning.ScheduledMeal
 
   # Slots in the order of the day, as the Scheduled meal schema declares
-  # them. A slot outside this list sorts after the known ones.
+  # them. A slot outside this list sorts after the known ones. Read through
+  # `slot_rank/1`.
   @slot_rank ScheduledMeal |> Ecto.Enum.values(:slot) |> Enum.with_index() |> Map.new()
   @unknown_slot_rank map_size(@slot_rank)
 
@@ -102,6 +103,11 @@ defmodule MealPlannerApi.Services.ShoppingRebuilder do
       `:planned_meal | :manual`.
     * `group_by` — `:ingredient` or `:meal`.
 
+  Every row is expected to have an Ingredient and a Scheduled meal. Rows
+  without an Ingredient (manual items, a later slice) are not a supported
+  input yet: with `:ingredient` they would all share the `nil` key and
+  collapse into one line.
+
   ## Returns
 
   A list of `%{id, ingredient_id, name, category, quantity_milli, unit,
@@ -116,12 +122,16 @@ defmodule MealPlannerApi.Services.ShoppingRebuilder do
   line, and lines follow the first appearance of each pair in the input:
 
     * `id` is `"<ingredient_id>:<unit>"`.
-    * `quantity_milli` is the sum of the rows. No rounding, no unit
-      conversion: the same ingredient in two units stays on two lines.
-    * `allocations` are sorted by date, then by slot in the order of the
-      day (breakfast, lunch, snack, dinner).
-    * `status` is the status every row shares, otherwise `:needed`, so a
-      line never reads as in the Cart while part of it is not.
+    * `quantity_milli` is the sum of the rows that are not `:removed`. No
+      rounding, no unit conversion: the same ingredient in two units stays
+      on two lines.
+    * `allocations` list every row, removed ones included, sorted by date,
+      then by slot in the order of the day (see `slot_rank/1`).
+    * `status` is the status the rows that are not `:removed` share,
+      otherwise `:needed`, so a line never reads as in the Cart while part
+      of it is not.
+    * A line whose rows are all `:removed` is the exception: it reads
+      `:removed` and its `quantity_milli` is the sum of every row.
     * `supermarket_id` is the value every row shares, otherwise `nil`.
     * `name`, `category` and `source` come from the first row.
   """
@@ -152,22 +162,41 @@ defmodule MealPlannerApi.Services.ShoppingRebuilder do
     |> Enum.map(&ingredient_line(Map.fetch!(groups, &1)))
   end
 
+  @doc """
+  Position of a Scheduled meal slot in the order of the day: breakfast,
+  lunch, snack, dinner, as the Scheduled meal schema declares them.
+
+  A slot outside the schema enum, `nil` included, ranks after every known
+  slot. Sort rows by `{date, slot_rank(slot)}` to list them the way the
+  allocations of a line are listed.
+  """
+  @spec slot_rank(atom()) :: non_neg_integer()
+  def slot_rank(slot), do: Map.get(@slot_rank, slot, @unknown_slot_rank)
+
   defp ingredient_key(row), do: {row.ingredient_id, row.unit}
 
   defp ingredient_line([first | _] = rows) do
+    # The rows that decide the quantity and the status: the ones still on
+    # the list, or all of them when every row was removed.
+    counted =
+      case Enum.reject(rows, &(&1.status == :removed)) do
+        [] -> rows
+        live -> live
+      end
+
     %{
       id: "#{first.ingredient_id}:#{first.unit}",
       ingredient_id: first.ingredient_id,
       name: first.name,
       category: first.category,
-      quantity_milli: rows |> Enum.map(& &1.quantity_milli) |> Enum.sum(),
+      quantity_milli: counted |> Enum.map(& &1.quantity_milli) |> Enum.sum(),
       unit: first.unit,
-      status: shared_value(rows, :status, :needed),
+      status: shared_value(counted, :status, :needed),
       source: first.source,
       supermarket_id: shared_value(rows, :supermarket_id, nil),
       allocations:
         rows
-        |> Enum.sort_by(&{Date.to_erl(&1.date), Map.get(@slot_rank, &1.slot, @unknown_slot_rank)})
+        |> Enum.sort_by(&{Date.to_erl(&1.date), slot_rank(&1.slot)})
         |> Enum.map(&allocation/1)
     }
   end

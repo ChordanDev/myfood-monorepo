@@ -284,14 +284,10 @@ defmodule MealPlannerApiWeb.CrossAccountIsolationTest do
   end
 
   defp assert_shopping_scoped(conn, own, other) do
-    resp =
-      get(conn, "/api/shopping-list", %{
-        "from_date" => Date.to_iso8601(own.today),
-        "to_date" => Date.to_iso8601(Date.add(own.today, 1))
-      })
+    resp = get(conn, "/api/shopping-list")
 
     body = json_response(resp, 200)
-    all_ids = Enum.map(body["data"]["items"], & &1["ingredientId"])
+    all_ids = Enum.map(body["data"]["planned"], & &1["ingredientId"])
 
     assert own.ingredient_id in all_ids
     refute other.ingredient_id in all_ids
