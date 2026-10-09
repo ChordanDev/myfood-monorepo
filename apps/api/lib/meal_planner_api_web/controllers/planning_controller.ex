@@ -65,7 +65,7 @@ defmodule MealPlannerApiWeb.PlanningController do
 
   defp error_status(:invalid_date), do: :bad_request
   defp error_status(:invalid_slot), do: :bad_request
-  defp error_status(:identity_resolution_failed), do: :unauthorized
+  defp error_status(:invalid_identity), do: :unauthorized
   defp error_status(:optimization_failed), do: :unprocessable_entity
   defp error_status(_), do: :unprocessable_entity
 
@@ -81,9 +81,8 @@ defmodule MealPlannerApiWeb.PlanningController do
     |> json(%{error: "optimization_failed"})
   end
 
-  defp status_for(:identity_resolution_failed), do: :unauthorized
+  defp status_for(:invalid_identity), do: :unauthorized
   defp status_for(:optimization_failed), do: :unprocessable_entity
-  defp status_for(:persistence_failed), do: :unprocessable_entity
   defp status_for(:exceeds_max_planning_days), do: :bad_request
   defp status_for(_), do: :unprocessable_entity
 end

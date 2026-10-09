@@ -42,8 +42,15 @@ defmodule MealPlannerApi.Services.PlanningService do
         }
 
   @spec generate_weekly_plan(planning_user(), planning_params(), module()) ::
-          {:ok, %{plan: [map()], estimated_cost_cents: integer(), optimizer_used: boolean()}}
-          | {:error, :identity_resolution_failed | :optimization_failed | :persistence_failed}
+          {:ok,
+           %{
+             days: [map()],
+             estimated_cost_cents: non_neg_integer(),
+             optimizer_used: boolean(),
+             max_planning_days: pos_integer(),
+             subscription_tier: String.t()
+           }}
+          | {:error, term()}
   def generate_weekly_plan(user, params \\ %{}, optimizer \\ client_module()) do
     with {:ok, identity} <- resolve_identity(user),
          {:ok, max_days} <- resolve_max_days(user),
@@ -67,9 +74,6 @@ defmodule MealPlannerApi.Services.PlanningService do
          subscription_tier: to_string(Map.get(user, :subscription_tier, :free))
        }}
     else
-      {:error, :no_candidates_for_slot, _details} ->
-        {:error, :optimization_failed}
-
       {:error, reason} ->
         {:error, reason}
     end
@@ -206,7 +210,7 @@ defmodule MealPlannerApi.Services.PlanningService do
   # -------------------------------------------------------------------------
 
   @spec build_candidates(planning_user(), map()) ::
-          {:ok, %{String.t() => [map()]}} | {:error, :no_candidates_for_slot, map()}
+          {:ok, %{String.t() => [map()]}} | {:error, :not_a_member | :forbidden}
   def build_candidates(user, identity) do
     participants = Map.get(user, :participant_ids, Map.get(user, :user_ids, [identity.user_id]))
     descriptors = Enum.map(@slots, &%{date: Date.utc_today(), slot: &1})
