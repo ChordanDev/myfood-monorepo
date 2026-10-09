@@ -643,4 +643,69 @@ defmodule MealPlannerApiWeb.CalendarControllerTest do
   end
 
   # ─── Helper functions ────────────────────────────────────────────────────────
+  describe "isSkipped" do
+    test "GET /api/calendar and /api/calendar/slot derive isSkipped, never with isCooked" do
+      %{token: token, user: %{id: user_id}, account: %{id: account_id}} =
+        insert_identity_with_token!(plan: :family_4)
+
+      {:ok, recipe} =
+        Catalog.create_recipe(%{
+          name: "Skipped test",
+          account_id: account_id,
+          created_by_user_id: user_id,
+          source: :user_created,
+          servings: 2,
+          suitable_for_slots: [:lunch, :dinner]
+        })
+
+      today = Date.utc_today()
+      yesterday = Date.add(today, -1)
+
+      {:ok, skipped} =
+        Calendar.upsert_scheduled_meal(account_id, %{
+          date: yesterday,
+          slot: :lunch,
+          recipe_id: recipe.id
+        })
+
+      {:ok, cooked} =
+        Calendar.upsert_scheduled_meal(account_id, %{
+          date: yesterday,
+          slot: :dinner,
+          recipe_id: recipe.id
+        })
+
+      {:ok, _} = Calendar.set_is_cooked(account_id, cooked.id, true)
+
+      {:ok, current} =
+        Calendar.upsert_scheduled_meal(account_id, %{
+          date: today,
+          slot: :lunch,
+          recipe_id: recipe.id
+        })
+
+      body =
+        build_conn()
+        |> put_req_header("authorization", "Bearer " <> token)
+        |> get("/api/calendar", %{
+          "start_date" => Date.to_iso8601(yesterday),
+          "end_date" => Date.to_iso8601(today)
+        })
+        |> json_response(200)
+
+      flags = Map.new(body["data"]["meals"], &{&1["mealId"], {&1["isCooked"], &1["isSkipped"]}})
+      assert flags[skipped.id] == {false, true}
+      assert flags[cooked.id] == {true, false}
+      assert flags[current.id] == {false, false}
+
+      slot =
+        build_conn()
+        |> put_req_header("authorization", "Bearer " <> token)
+        |> get("/api/calendar/slot", %{"date" => Date.to_iso8601(yesterday), "slot" => "lunch"})
+        |> json_response(200)
+
+      assert %{"mealId" => id, "isSkipped" => true, "isCooked" => false} = slot["data"]
+      assert id == skipped.id
+    end
+  end
 end
