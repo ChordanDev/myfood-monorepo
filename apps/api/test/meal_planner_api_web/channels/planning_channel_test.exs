@@ -1937,7 +1937,7 @@ defmodule MealPlannerApiWeb.PlanningChannelTest do
       ref_b_overlap =
         push(socket_b, "start_planning", %{
           "range_from" => in_days(66),
-          "range_to" => in_days(73)
+          "range_to" => in_days(72)
         })
 
       # B is not the owner of the lock, so the error names who holds it.
