@@ -7,12 +7,14 @@ defmodule MealPlannerApiWeb.PlanningChannel do
 
   Eventos entrantes del cliente:
   - `generate_menu` — inicia generación de menú (usa GenerationServer)
+  - `start_planning` — abre la sesión de planificación del rango y arranca su primera generación (issue #25)
   - `chat` — mensaje de modificación del usuario (usa GenerationServer)
   - `confirm_proposal` — confirma propuesta (canal atómico, PlanningSession-lock + Repo.transaction/1; sin fallback HTTP)
   - `reject_proposal` — rechaza propuesta (usa PlanningChatService, backward compat)
 
   Eventos salientes (broadcast):
   - `generation_started` — generación iniciada
+  - `planning_message` — mensaje del asistente sobre la propuesta (lo deriva el canal, issue #25)
   - `proposal_ready` — propuesta disponible
   - `proposal_confirmed` — propuesta confirmada
   - `proposal_rejected` — propuesta rechazada
@@ -70,12 +72,15 @@ defmodule MealPlannerApiWeb.PlanningChannel do
   require Logger
 
   alias MealPlannerApi.AccountAccess
+  alias MealPlannerApi.Persistence.Planning
   alias MealPlannerApi.Generation.{PlanningSessionServer, PlanningSessionSupervisor, Server}
+  alias MealPlannerApi.Planning.LockOwner
   alias MealPlannerApi.Services.PlanningChatService
   alias MealPlannerApiWeb.ApiError
   alias MealPlannerApiWeb.Casing
   alias MealPlannerApiWeb.ChannelCapability
   alias MealPlannerApiWeb.Channels.IntentAtomizer
+  alias MealPlannerApiWeb.Channels.Serializers.PlanningEvents
   alias MealPlannerApiWeb.Plugs.LoadCurrentMembershipSocket
 
   # The `ApiError` allowlist by reason name, so a reason a service returned as
@@ -95,6 +100,7 @@ defmodule MealPlannerApiWeb.PlanningChannel do
     proposal_confirmed
     proposal_rejected
     proposal_update
+    planning_message
     session_started
     session_resumed
     session_cancelled
@@ -121,6 +127,8 @@ defmodule MealPlannerApiWeb.PlanningChannel do
     with :ok <- check_authenticated(socket),
          {:ok, membership} <- fetch_active_membership(socket, topic_account_id),
          :ok <- check_join_capability(membership) do
+      send(self(), :after_join)
+
       {:ok,
        socket
        |> assign(:account_id, topic_account_id)
@@ -128,6 +136,42 @@ defmodule MealPlannerApiWeb.PlanningChannel do
     else
       {:error, code} -> {:error, error_payload(code)}
     end
+  end
+
+  # Issue #27 — a client that joins (or rejoins) while its Account has an
+  # :active PlanningSession receives `session_resumed` with the pending
+  # proposal and the recent chat, so it can recover the session without a
+  # command. No active session, no push.
+  @impl true
+  def handle_info(:after_join, socket) do
+    account_id = socket.assigns.account_id
+
+    case Planning.get_active_planning_session(account_id) do
+      nil -> :ok
+      session -> push(socket, "session_resumed", resumed_payload(account_id, session))
+    end
+
+    {:noreply, socket}
+  end
+
+  defp resumed_payload(account_id, session) do
+    proposal = Planning.latest_pending_proposal(account_id, session)
+
+    Casing.camelize_keys(%{
+      session_id: session.id,
+      proposal_id: proposal && proposal.id,
+      proposal: proposal && proposal.proposal_json,
+      messages:
+        account_id
+        |> Planning.recent_planning_messages(session.id)
+        |> Enum.map(fn message ->
+          %{
+            role: Atom.to_string(message.role),
+            content: message.content,
+            intent_kind: message.intent_kind
+          }
+        end)
+    })
   end
 
   # `UserSocket.connect/3` verifies the token once and the socket can stay
@@ -192,7 +236,36 @@ defmodule MealPlannerApiWeb.PlanningChannel do
 
   # Issue #11 — every event of `@outbound_events` goes through here on its
   # way to the client, whichever module broadcast it.
+  #
+  # Three events are shaped before they leave (issue #25, see
+  # `PlanningEvents`): the proposal of the generation becomes day-by-day cards
+  # and is followed by the `planning_message` of the assistant, and a
+  # `generation_error` has the same keys whoever broadcast it. Every other
+  # payload only has its keys camelized.
   @impl true
+  def handle_out("proposal_ready", payload, socket) do
+    case PlanningEvents.proposal_ready(payload) do
+      {:ok, ready, message} ->
+        push(socket, "proposal_ready", Casing.camelize_keys(ready))
+        push(socket, "planning_message", Casing.camelize_keys(message))
+
+      :passthrough ->
+        push(socket, "proposal_ready", Casing.camelize_keys(payload))
+    end
+
+    {:noreply, socket}
+  end
+
+  def handle_out("generation_error", payload, socket) do
+    push(
+      socket,
+      "generation_error",
+      payload |> PlanningEvents.generation_error() |> Casing.camelize_keys()
+    )
+
+    {:noreply, socket}
+  end
+
   def handle_out(event, payload, socket) do
     push(socket, event, Casing.camelize_keys(payload))
     {:noreply, socket}
@@ -354,37 +427,64 @@ defmodule MealPlannerApiWeb.PlanningChannel do
     user = socket.assigns.current_user
     account_id = membership.account_id
 
-    with {:ok, date_from} <- parse_iso_date(Map.get(payload, "range_from")),
-         {:ok, date_to} <- parse_iso_date(Map.get(payload, "range_to")),
+    request_id = Map.get(payload, "request_id", build_request_id())
+
+    with {:ok, {date_from, date_to} = range} <- parse_range(payload),
+         {:ok, request_text} <- parse_request_text(payload),
          :ok <- check_account_eligible(account_id),
          {:ok, %{session_id: started_id, pid: pid}} <-
-           PlanningSessionSupervisor.start_session(
-             account_id,
-             user.id,
-             membership.id,
-             {date_from, date_to},
-             channel_pid: socket.channel_pid
-           ) do
+           start_session(account_id, user.id, membership.id, range, socket.channel_pid) do
       # `session_started` is broadcast by PlanningSessionServer
       # itself on `planning:<account_id>`. The socket (and any
       # other joined member) receives it as a pubsub broadcast.
       # Do NOT re-broadcast here or the event fires twice.
       #
-      # Cache the pid on the socket assigns so `send_message`
-      # (PR4 task 4.8) can route intents back to the same server
-      # without a Registry lookup.
-      socket =
-        socket
-        |> assign(:session_id, started_id)
-        |> assign(:session_pid, pid)
+      # The generation starts through the same public call `generate_menu`
+      # uses, with the range of the session and the free text of the member
+      # as the request. A generation that cannot start leaves no session
+      # behind: the session is cancelled, so the member can start again.
+      constraints = start_constraints(date_from, date_to, request_text)
 
-      {:reply, {:ok, %{session_id: started_id, status: :active}}, socket}
+      case start_generation(account_id, user.id, constraints, socket.channel_pid) do
+        {:ok, run_id} ->
+          # Cache the pid on the socket assigns so `send_message`
+          # (PR4 task 4.8) can route intents back to the same server
+          # without a Registry lookup.
+          socket =
+            socket
+            |> assign(:session_id, started_id)
+            |> assign(:session_pid, pid)
+
+          broadcast!(socket, "generation_started", %{
+            request_id: request_id,
+            run_id: run_id,
+            session_id: started_id
+          })
+
+          {:reply, {:ok, %{session_id: started_id, status: :active}}, socket}
+
+        {:error, :already_running} ->
+          # As `generate_menu` does: the run in flight is not ours, so the
+          # topic is not told of a failure, only this caller is refused.
+          cancel_unstarted_session(membership, started_id, pid)
+          {:reply, {:error, error_payload(:generation_in_progress, request_id)}, socket}
+
+        {:error, reason} ->
+          cancel_unstarted_session(membership, started_id, pid)
+          event = %{request_id: request_id, reason: serialize_reason(reason)}
+          broadcast!(socket, "generation_error", event)
+          {:reply, {:error, error_payload(reason, request_id)}, socket}
+      end
     else
       {:error, :subscription_required} ->
         {:reply, {:error, error_payload(:subscription_required)}, socket}
 
-      {:error, :invalid_range} ->
-        {:reply, {:error, error_payload(:invalid_range)}, socket}
+      {:error, :planning_invalid_range} ->
+        {:reply, {:error, error_payload(:planning_invalid_range)}, socket}
+
+      {:error, {:range_locked, range}} ->
+        details = range_lock_details(account_id, range, membership.id)
+        {:reply, {:error, error_payload(:planning_range_locked, %{}, details)}, socket}
 
       {:error, reason} ->
         {:reply, {:error, error_payload(reason)}, socket}
@@ -512,16 +612,23 @@ defmodule MealPlannerApiWeb.PlanningChannel do
   defp error_payload(reason, request_id),
     do: build_error_payload(reason, %{request_id: request_id})
 
-  defp build_error_payload(reason, correlation) do
-    reason |> error_envelope() |> Map.merge(correlation) |> Casing.camelize_keys()
+  # `details` ride inside `error`, next to `code` and `message`, when the
+  # reason is worth more than its message (`planning_range_locked` names the
+  # member who holds the range).
+  defp error_payload(reason, correlation, details) do
+    build_error_payload(reason, correlation, details)
+  end
+
+  defp build_error_payload(reason, correlation, details \\ %{}) do
+    reason |> error_envelope(details) |> Map.merge(correlation) |> Casing.camelize_keys()
   end
 
   # A reason outside the allowlist replies `unknown_error` and is logged, so
   # nothing free-form reaches the client.
-  defp error_envelope(reason) do
+  defp error_envelope(reason, details) do
     case error_code(reason) do
       {:ok, code} ->
-        ApiError.envelope(code)
+        ApiError.envelope(code, details)
 
       :error ->
         Logger.warning(
@@ -580,16 +687,159 @@ defmodule MealPlannerApiWeb.PlanningChannel do
     end
   end
 
-  # Parses an ISO8601 date string for `start_planning` payloads.
-  # Returns `{:ok, Date.t()}` or `{:error, :invalid_range}` on parse fail.
-  defp parse_iso_date(string) when is_binary(string) do
-    case Date.from_iso8601(string) do
-      {:ok, date} -> {:ok, date}
-      _ -> {:error, :invalid_range}
+  # The most days a Planning session covers, and how far in the past its
+  # first day may be. The Planner sends the day the member sees as today; a
+  # member east of UTC sees a date that is still yesterday in UTC, so one day
+  # back is accepted.
+  @max_planning_days 7
+  @max_days_in_past 1
+
+  # The longest free text a member may type with the request.
+  @max_request_chars 1_000
+
+  # The range of a `start_planning` payload: `range_from` is an ISO 8601 date
+  # that is today or later, and the range ends with `range_to` or lasts
+  # `day_count` days (when both are sent they must agree). It covers 1 to
+  # `@max_planning_days` days. Anything else is `:planning_invalid_range`.
+  defp parse_range(payload) do
+    with {:ok, date_from} <- parse_iso_date(Map.get(payload, "range_from")),
+         {:ok, date_to} <- range_end(date_from, payload),
+         :ok <- check_range_length(date_from, date_to),
+         :ok <- check_not_in_the_past(date_from) do
+      {:ok, {date_from, date_to}}
     end
   end
 
-  defp parse_iso_date(_), do: {:error, :invalid_range}
+  # A key sent as `null` is as absent as one not sent.
+  defp range_end(date_from, payload) do
+    case {Map.get(payload, "range_to"), Map.get(payload, "day_count")} do
+      {nil, nil} ->
+        invalid_range()
+
+      {nil, count} ->
+        case day_count_end(date_from, count) do
+          %Date{} = date_to -> {:ok, date_to}
+          nil -> invalid_range()
+        end
+
+      {range_to, nil} ->
+        parse_iso_date(range_to)
+
+      {range_to, count} ->
+        with {:ok, date_to} <- parse_iso_date(range_to) do
+          if date_to == day_count_end(date_from, count), do: {:ok, date_to}, else: invalid_range()
+        end
+    end
+  end
+
+  defp day_count_end(date_from, count) when is_integer(count) and count >= 1,
+    do: Date.add(date_from, count - 1)
+
+  defp day_count_end(_date_from, _count), do: nil
+
+  defp check_range_length(date_from, date_to) do
+    days = Date.diff(date_to, date_from) + 1
+    if days in 1..@max_planning_days, do: :ok, else: invalid_range()
+  end
+
+  defp check_not_in_the_past(date_from) do
+    earliest = Date.add(Date.utc_today(), -@max_days_in_past)
+    if Date.compare(date_from, earliest) == :lt, do: invalid_range(), else: :ok
+  end
+
+  defp invalid_range, do: {:error, :planning_invalid_range}
+
+  defp parse_iso_date(string) when is_binary(string) do
+    case Date.from_iso8601(string) do
+      {:ok, date} -> {:ok, date}
+      _ -> invalid_range()
+    end
+  end
+
+  defp parse_iso_date(_), do: invalid_range()
+
+  # The free text of the request is optional. Surrounding whitespace is not
+  # part of it and a blank text is no text; anything but a string, or a
+  # string over `@max_request_chars`, is `:invalid_payload`.
+  defp parse_request_text(payload) do
+    case Map.get(payload, "request") do
+      nil ->
+        {:ok, nil}
+
+      text when is_binary(text) ->
+        case String.trim(text) do
+          "" ->
+            {:ok, nil}
+
+          trimmed ->
+            if String.length(trimmed) > @max_request_chars,
+              do: {:error, :invalid_payload},
+              else: {:ok, trimmed}
+        end
+
+      _not_text ->
+        {:error, :invalid_payload}
+    end
+  end
+
+  # What `Server.start_generation/4` is given: the dates of the session and,
+  # when the member typed one, the free text under `"request"`.
+  defp start_constraints(date_from, date_to, request_text) do
+    base = %{
+      "date_from" => Date.to_iso8601(date_from),
+      "date_to" => Date.to_iso8601(date_to)
+    }
+
+    if request_text, do: Map.put(base, "request", request_text), else: base
+  end
+
+  defp start_session(account_id, user_id, membership_id, range, channel_pid) do
+    case PlanningSessionSupervisor.start_session(
+           account_id,
+           user_id,
+           membership_id,
+           range,
+           channel_pid: channel_pid
+         ) do
+      {:error, :overlapping_range} -> {:error, {:range_locked, range}}
+      other -> other
+    end
+  end
+
+  # `Server.start_generation/4` is a blocking call into the engine process of
+  # the Account, which another member's pipeline can keep busy for longer
+  # than the call timeout. An exit of that call (timeout, process gone) is
+  # an error like any other, never a crash of the channel.
+  defp start_generation(account_id, user_id, constraints, channel_pid) do
+    Server.start_generation(account_id, user_id, constraints, channel_pid)
+  catch
+    :exit, _reason -> {:error, :generation_in_progress}
+  end
+
+  # A session whose generation did not start is cancelled, as its owner
+  # would: the lock is released, the topic hears `session_cancelled` and the
+  # session process is stopped so nothing keeps the row's account busy.
+  defp cancel_unstarted_session(membership, session_id, session_pid) do
+    _ =
+      MealPlannerApi.Data.PlanningRepo.cancel_session(
+        membership.account_id,
+        session_id,
+        membership.id,
+        membership.role == :owner
+      )
+
+    _ = DynamicSupervisor.terminate_child(PlanningSessionSupervisor, session_pid)
+    broadcast_session_cancelled(membership.account_id, session_id)
+  end
+
+  # The details of `planning_range_locked`: the display name of the member
+  # who holds the range, only when it is not the caller.
+  defp range_lock_details(account_id, range, caller_membership_id) do
+    case LockOwner.owner_name(account_id, range, caller_membership_id) do
+      {:ok, name} -> %{owner_name: name}
+      :none -> %{}
+    end
+  end
 
   # Phase 4 PR4 task 4.4 — Validates `session_id` is a UUID string and
   # returns it. Anything else falls back to `{:error, :invalid_session_id}`

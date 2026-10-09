@@ -3,7 +3,6 @@
 import React from 'react';
 import { StyleSheet, Text, TextInput, View } from 'react-native';
 import { act, create, ReactTestInstance } from 'react-test-renderer';
-import { InventoryVoiceButton } from '../components';
 import { INVENTORY_CATEGORY_COLORS } from '../constants/categories';
 import {
   CHICKEN,
@@ -12,6 +11,11 @@ import {
   ONION,
   RICE,
   STEW,
+  VOICE_APPLY_RESULT,
+  VOICE_PREVIEW_HIGH_CONFIDENCE,
+  VOICE_PREVIEW_LOW_CONFIDENCE,
+  VOICE_TRANSCRIPT_HIGH,
+  VOICE_TRANSCRIPT_LOW,
   buildInventoryItem,
   dataResponse,
   errorResponse,
@@ -673,10 +677,106 @@ describe('InventoryScreen', () => {
     });
   });
 
-  it('offers the voice button without wiring it to anything yet', async () => {
-    queueRead();
-    const root = await renderScreen();
+  describe('voice adjustment', () => {
+    const VOICE_BUTTON = 'Agregar o editar por voz';
 
-    expect(root.findByType(InventoryVoiceButton).props.onPress).toBeUndefined();
+    function voiceCalls() {
+      return fetchMock.mock.calls
+        .map((_call, index) => sentRequest(index))
+        .filter(({ url }) => String(url).includes('/api/inventory/voice/'));
+    }
+
+    async function previewTranscript(root: ReactTestInstance, text: string) {
+      press(root, VOICE_BUTTON);
+      type(root, 'Qué usaste', text);
+      await pressAndSettle(root, 'Interpretar');
+    }
+
+    it('opens the voice sheet from the voice button', async () => {
+      queueRead();
+      const root = await renderScreen();
+
+      expect(root.findAllByType(TextInput)).toHaveLength(0);
+      press(root, VOICE_BUTTON);
+
+      expect(root.findAllByType(TextInput)).toHaveLength(1);
+    });
+
+    it('applies a high confidence intent right away, without confirmed, and patches the lot', async () => {
+      queueRead();
+      const root = await renderScreen();
+
+      fetchMock.mockReturnValueOnce(dataResponse(VOICE_PREVIEW_HIGH_CONFIDENCE));
+      fetchMock.mockReturnValueOnce(dataResponse(VOICE_APPLY_RESULT));
+      await previewTranscript(root, VOICE_TRANSCRIPT_HIGH);
+
+      expect(voiceCalls().map(({ url }) => url)).toEqual([
+        `${API_URL}/api/inventory/voice/preview`,
+        `${API_URL}/api/inventory/voice/apply`,
+      ]);
+      expect(voiceCalls()[1].body).toEqual({
+        transcript: VOICE_TRANSCRIPT_HIGH,
+        intent: VOICE_PREVIEW_HIGH_CONFIDENCE.intent,
+        confirmed: false,
+      });
+      expect(getTexts(root)).toEqual(
+        expect.arrayContaining(['Listo', 'Descontamos 500 g de Arroz de tu inventario.', '1 kg'])
+      );
+    });
+
+    it('never applies a low confidence intent until the User taps Confirm, then sends confirmed', async () => {
+      queueRead();
+      const root = await renderScreen();
+
+      fetchMock.mockReturnValueOnce(dataResponse(VOICE_PREVIEW_LOW_CONFIDENCE));
+      await previewTranscript(root, VOICE_TRANSCRIPT_LOW);
+
+      expect(voiceCalls().map(({ url }) => url)).toEqual([
+        `${API_URL}/api/inventory/voice/preview`,
+      ]);
+      expect(getTexts(root)).toContain('Entendimos: descontar 500 g de Arroz.');
+
+      fetchMock.mockReturnValueOnce(dataResponse(VOICE_APPLY_RESULT));
+      await pressAndSettle(root, 'Confirmar');
+
+      expect(voiceCalls()).toHaveLength(2);
+      expect(voiceCalls()[1]).toMatchObject({
+        url: `${API_URL}/api/inventory/voice/apply`,
+        body: {
+          transcript: VOICE_TRANSCRIPT_LOW,
+          intent: VOICE_PREVIEW_LOW_CONFIDENCE.intent,
+          confirmed: true,
+        },
+      });
+      expect(getTexts(root)).toContain('Descontamos 500 g de Arroz de tu inventario.');
+    });
+
+    it('never calls apply when the User cancels a low confidence intent', async () => {
+      queueRead();
+      const root = await renderScreen();
+
+      fetchMock.mockReturnValueOnce(dataResponse(VOICE_PREVIEW_LOW_CONFIDENCE));
+      await previewTranscript(root, VOICE_TRANSCRIPT_LOW);
+      press(root, 'Cancelar');
+
+      expect(voiceCalls().map(({ url }) => url)).toEqual([
+        `${API_URL}/api/inventory/voice/preview`,
+      ]);
+      expect(getTexts(root)).toContain('1,5 kg');
+    });
+
+    it('shows the message of a transcript that cannot be parsed and stays on the entry', async () => {
+      queueRead();
+      const root = await renderScreen();
+
+      fetchMock.mockReturnValueOnce(errorResponse('voice_parse_failed', 'Cannot parse', 422));
+      await previewTranscript(root, 'hola');
+
+      expect(getTexts(root)).toContain(
+        'No pudimos entender lo que dijiste. Probá de nuevo o ajustalo a mano.'
+      );
+      expect(voiceCalls()).toHaveLength(1);
+      expect(root.findAllByType(TextInput)).toHaveLength(1);
+    });
   });
 });

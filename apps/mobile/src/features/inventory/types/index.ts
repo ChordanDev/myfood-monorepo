@@ -9,4 +9,8 @@ export type {
   InventoryMutationEvent,
   InventorySourceKind,
   InventoryView,
+  VoiceApplyPayload,
+  VoiceApplyResult,
+  VoiceIntent,
+  VoicePreview,
 } from './inventory';

@@ -55,6 +55,7 @@ defmodule MealPlannerApiWeb.CurrentMeTest do
                  id: account.id,
                  type: unquote(type),
                  trialEndsAt: unquote(trial_ends_at),
+                 timezone: nil,
                  subscriptionStatus: unquote(subscription_status),
                  access: unquote(Macro.escape(access))
                }
@@ -86,12 +87,19 @@ defmodule MealPlannerApiWeb.CurrentMeTest do
                  id: account.id,
                  type: "individual",
                  trialEndsAt: "2026-06-14T00:00:00.000000Z",
+                 timezone: nil,
                  subscriptionStatus: "none",
                  access: %{canUseApp: true, reason: nil}
                },
                membership: %{role: "owner"},
                onboarding: %{isComplete: false}
              }
+    end
+
+    test "serializes the stored timezone" do
+      me = CurrentMe.build(user(), account(%{timezone: "Asia/Tokyo"}), membership(), @now)
+
+      assert me.account.timezone == "Asia/Tokyo"
     end
 
     test "encodes to the JSON field names the mobile client reads" do
@@ -107,7 +115,7 @@ defmodule MealPlannerApiWeb.CurrentMeTest do
                ["cookingSkill", "displayName", "email", "householdSize", "id"]
 
       assert json["account"] |> Map.keys() |> Enum.sort() ==
-               ["access", "id", "subscriptionStatus", "trialEndsAt", "type"]
+               ["access", "id", "subscriptionStatus", "timezone", "trialEndsAt", "type"]
 
       assert json["account"]["access"] == %{"canUseApp" => false, "reason" => "trial_expired"}
       assert json["membership"] == %{"role" => "owner"}
@@ -203,6 +211,7 @@ defmodule MealPlannerApiWeb.CurrentMeTest do
                     id: membership.account_id,
                     type: "family_plus",
                     trialEndsAt: "2026-06-14T00:00:00.000000Z",
+                    timezone: nil,
                     subscriptionStatus: "none",
                     access: %{canUseApp: true, reason: nil}
                   },
