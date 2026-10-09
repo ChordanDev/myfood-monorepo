@@ -296,8 +296,20 @@ async function pressText(root: ReactTestInstance, text: string) {
   await settle();
 }
 
+function getIndicators(root: ReactTestInstance, label: string) {
+  return root
+    .findAllByType(ActivityIndicator)
+    .filter((indicator) => indicator.props.accessibilityLabel === label);
+}
+
+// The first read is on its way: there is no list to show yet.
 function isLoading(root: ReactTestInstance) {
-  return root.findAllByType(ActivityIndicator).length > 0;
+  return getIndicators(root, 'Cargando la lista de compras').length > 0;
+}
+
+// A read is on its way over the list on screen.
+function isReadingAgain(root: ReactTestInstance) {
+  return getIndicators(root, READING_AGAIN).length > 0;
 }
 
 // The first line of every row that is struck through: the ones shown as in the cart.
@@ -324,6 +336,7 @@ const UNTIL_THE_12TH = 'Elegir hasta qué día comprar, ahora 12 Oct';
 const EMPTY_LABEL = 'No hay nada para comprar';
 const NETWORK_ERROR = 'No pudimos conectar con el servidor. Revisá tu conexión.';
 const RETRY = 'Reintentar';
+const READING_AGAIN = 'Actualizando la lista de compras';
 
 const HEADER = ['Hasta 12 Oct', 'Por ingrediente', 'Por comida', 'COMPRAS'];
 
@@ -592,13 +605,14 @@ describe('ShoppingScreen', () => {
       ]);
     });
 
-    it('keeps the list of the other grouping on screen until the new one lands', async () => {
+    it('keeps the list of the other grouping on screen, shown as being read again, until the new one lands', async () => {
       const root = await renderLoadedScreen();
       const request = holdTheNextRequest();
 
       await press(root, 'Por comida');
 
       expect(isLoading(root)).toBe(false);
+      expect(isReadingAgain(root)).toBe(true);
       // Still the lines per ingredient: the rice of three meals does not pass for one meal.
       expect(getTexts(root)).toEqual(expect.arrayContaining(['1,25 kg · Arroz', 'Para 3 comidas']));
       expect(getTexts(root)).not.toContain('400 g · Arroz');
@@ -606,6 +620,7 @@ describe('ShoppingScreen', () => {
       request.answer(SHOPPING_LIST_BY_MEAL);
       await settle();
 
+      expect(isReadingAgain(root)).toBe(false);
       expect(getTexts(root)).toEqual(expect.arrayContaining(['400 g · Arroz', '450 g · Arroz']));
       expect(getTexts(root)).not.toContain('1,25 kg · Arroz');
     });
@@ -728,8 +743,11 @@ describe('ShoppingScreen', () => {
     });
 
     it('goes back to the whole list when the server rejects the stored day', async () => {
-      // A day chosen while it was upcoming, which the Account's today has left behind.
-      useShoppingListStore.setState({ chosenUntilDate: '2026-10-01' });
+      // A day this user chose while it was upcoming, which the Account's today has left behind.
+      useShoppingListStore.setState({
+        chosenUntilDate: '2026-10-01',
+        chosenUntilDateOwnerId: USER_A.id,
+      });
       fetchMock.mockReset();
       fetchMock.mockResolvedValueOnce(jsonResponse(SHOPPING_LIST_VALIDATION_ERROR, false, 422));
       answerOnceWith(SHOPPING_LIST_BY_INGREDIENT);
@@ -885,13 +903,14 @@ describe('ShoppingScreen', () => {
       ]);
     });
 
-    it('keeps the list on screen, with no loading indication, while the new read is on its way', async () => {
+    it('keeps the list on screen, shown as being read again, while the new read is on its way', async () => {
       const root = await renderLoadedScreen();
       const request = holdTheNextRequest();
 
       await focusScreen();
 
       expect(isLoading(root)).toBe(false);
+      expect(isReadingAgain(root)).toBe(true);
       expect(getTexts(root)).toEqual([
         ...HEADER,
         '6 ítems · 1 en el carrito',
@@ -901,6 +920,7 @@ describe('ShoppingScreen', () => {
       request.answer(SHOPPING_LIST_UNTIL_OCT_10);
       await settle();
 
+      expect(isReadingAgain(root)).toBe(false);
       expect(getTexts(root)).toContain('800 g · Arroz');
     });
 
@@ -913,6 +933,101 @@ describe('ShoppingScreen', () => {
       await focusScreen();
 
       expect(requestedUrls()[3]).toBe(`${LIST_URL}?untilDate=2026-10-10&groupBy=meal`);
+    });
+  });
+
+  describe('a read over the list on screen', () => {
+    it('is shown next to the title, in a color of the palette, and not among the cards', async () => {
+      const root = await renderLoadedScreen();
+      const request = holdTheNextRequest();
+
+      await focusScreen();
+
+      const [indicator] = getIndicators(root, READING_AGAIN);
+      expect(indicator.props.color).toBe('#222222');
+      expect(root.findByType(ScrollView).findAllByType(ActivityIndicator)).toEqual([]);
+
+      request.answer(SHOPPING_LIST_BY_INGREDIENT);
+      await settle();
+    });
+
+    it('takes the place of the message when a failed read is tried again, until it lands', async () => {
+      const root = await renderLoadedScreen();
+      fetchMock.mockReset();
+      failTheNetworkOnce();
+      await focusScreen();
+      expect(getTexts(root)).toContain(NETWORK_ERROR);
+      expect(isReadingAgain(root)).toBe(false);
+      const request = holdTheNextRequest();
+
+      await pressText(root, RETRY);
+
+      expect(isReadingAgain(root)).toBe(true);
+      expect(isLoading(root)).toBe(false);
+      // The message is gone and the list is still there, with everything it offers to press.
+      expect(getTexts(root)).toEqual([
+        ...HEADER,
+        '6 ítems · 1 en el carrito',
+        ...CARDS_BY_INGREDIENT,
+      ]);
+      expect(getButtonLabels(root)).toEqual([UNTIL_THE_12TH, 'Por ingrediente', 'Por comida']);
+
+      request.answer(SHOPPING_LIST_BY_INGREDIENT);
+      await settle();
+
+      expect(isReadingAgain(root)).toBe(false);
+      expect(getTexts(root)).not.toContain(NETWORK_ERROR);
+    });
+
+    it('gives way to the message again when the retry fails too', async () => {
+      const root = await renderLoadedScreen();
+      fetchMock.mockReset();
+      failTheNetworkOnce();
+      await focusScreen();
+      failTheNetworkOnce();
+
+      await pressText(root, RETRY);
+
+      expect(isReadingAgain(root)).toBe(false);
+      expect(getTexts(root)).toEqual(expect.arrayContaining([NETWORK_ERROR, '1,25 kg · Arroz']));
+    });
+
+    it('is not shown on the first read: there is no list under it yet', async () => {
+      const request = holdTheNextRequest();
+      const root = renderScreen();
+      await settle();
+
+      expect(isLoading(root)).toBe(true);
+      expect(isReadingAgain(root)).toBe(false);
+
+      request.answer(SHOPPING_LIST_BY_INGREDIENT);
+      await settle();
+
+      expect(isLoading(root)).toBe(false);
+      expect(isReadingAgain(root)).toBe(false);
+    });
+
+    it('is not shown for the list of another user, read again when they left', async () => {
+      const root = await renderLoadedScreen();
+      const readOfUserA = holdTheNextRequest();
+      await focusScreen();
+      expect(isReadingAgain(root)).toBe(true);
+      mockIsFocused = false;
+
+      signInAs(USER_B);
+
+      // Nothing was asked for yet, so the store still holds the list of the other user, with
+      // its read on its way.
+      expect(useShoppingListStore.getState()).toMatchObject({
+        ownerId: 'user-a',
+        list: SHOPPING_LIST_BY_INGREDIENT,
+        status: 'loading',
+      });
+      expect(isReadingAgain(root)).toBe(false);
+      expect(isLoading(root)).toBe(true);
+
+      readOfUserA.answer(SHOPPING_LIST_BY_INGREDIENT);
+      await settle();
     });
   });
 
@@ -947,6 +1062,25 @@ describe('ShoppingScreen', () => {
 
       expect(getTexts(root)).toContain('800 g · Arroz');
       expect(getTexts(root)).not.toContain('1,25 kg · Arroz');
+    });
+
+    it('reads its whole list, not until the day the user before picked', async () => {
+      const root = await renderLoadedScreen();
+      await press(root, UNTIL_THE_12TH);
+      await pickUntilDate('2026-10-10');
+      expect(getTexts(root)).toContain('Hasta 10 Oct');
+
+      signInAs(USER_B);
+      await settle();
+
+      // The plan of this user has a meal on the 10th too, so the server would take that day.
+      expect(requestedUrls()[2]).toBe(`${LIST_URL}?groupBy=ingredient`);
+      expect(useShoppingListStore.getState().chosenUntilDate).toBeUndefined();
+      expect(getTexts(root)).toEqual([
+        ...HEADER,
+        '6 ítems · 1 en el carrito',
+        ...CARDS_BY_INGREDIENT,
+      ]);
     });
 
     it('says its first read failed, without the list of the user before', async () => {

@@ -90,6 +90,12 @@ const requestedUrls = () => fetchMock.mock.calls.map(([url]) => url as string);
 
 const shopping = () => useShoppingListStore.getState();
 
+// A day already chosen when the test starts, by the user who is signed in unless another one
+// is named.
+function holdChosenDay(chosenUntilDate: string, chosenUntilDateOwnerId: string = USER_A) {
+  useShoppingListStore.setState({ chosenUntilDate, chosenUntilDateOwnerId });
+}
+
 function storedState() {
   const [key, value] = jest.mocked(AsyncStorage.setItem).mock.lastCall ?? [];
 
@@ -124,6 +130,7 @@ describe('before the first read', () => {
       status: 'idle',
       error: null,
       chosenUntilDate: undefined,
+      chosenUntilDateOwnerId: undefined,
       groupBy: 'ingredient',
     });
   });
@@ -239,7 +246,7 @@ describe('the day the list is asked to reach', () => {
   });
 
   it('keeps limiting the later reads to the chosen day, in either grouping', async () => {
-    useShoppingListStore.setState({ chosenUntilDate: '2026-10-10' });
+    holdChosenDay('2026-10-10');
     answerWith(SHOPPING_LIST_BY_MEAL);
 
     await shopping().setGroupBy('meal');
@@ -248,7 +255,7 @@ describe('the day the list is asked to reach', () => {
   });
 
   it('asks for every upcoming meal again when the choice is cleared', async () => {
-    useShoppingListStore.setState({ chosenUntilDate: '2026-10-10' });
+    holdChosenDay('2026-10-10');
     answerWith(SHOPPING_LIST_BY_INGREDIENT);
 
     await shopping().setChosenUntilDate(undefined);
@@ -391,14 +398,14 @@ describe('the user the list was read for', () => {
     expect(shopping().ownerId).toBe(USER_B);
   });
 
-  it('keeps how the list is read when the user changes', async () => {
-    useShoppingListStore.setState({ chosenUntilDate: '2026-10-10', groupBy: 'meal' });
+  it('keeps the grouping when the user changes: it is how this device reads the list', async () => {
+    useShoppingListStore.setState({ groupBy: 'meal' });
     answerWith(SHOPPING_LIST_BY_MEAL);
 
     await shopping().refresh(USER_B);
 
-    expect(requestedUrls()).toEqual([`${LIST_URL}?untilDate=2026-10-10&groupBy=meal`]);
-    expect(shopping()).toMatchObject({ chosenUntilDate: '2026-10-10', groupBy: 'meal' });
+    expect(requestedUrls()).toEqual([`${LIST_URL}?groupBy=meal`]);
+    expect(shopping().groupBy).toBe('meal');
   });
 
   it('ignores an answer that lands for a user who is no longer the current one', async () => {
@@ -471,15 +478,40 @@ describe('the user the list was read for', () => {
       expect(shopping()).toMatchObject({ ownerId: null, list: null, status: 'idle' });
     });
 
-    it('keeps a preference that is chosen, without reading', async () => {
+    it('keeps a grouping that is chosen, without reading', async () => {
       await shopping().refresh(null);
 
       await shopping().setGroupBy('meal');
+
+      expect(shopping()).toMatchObject({ groupBy: 'meal', list: null, status: 'idle' });
+      expect(fetchMock).not.toHaveBeenCalled();
+    });
+
+    it('keeps no day that is chosen: there is nobody it would belong to', async () => {
+      await shopping().refresh(null);
+
       await shopping().setChosenUntilDate('2026-10-10');
 
-      expect(shopping()).toMatchObject({ groupBy: 'meal', chosenUntilDate: '2026-10-10' });
+      expect(shopping()).toMatchObject({
+        chosenUntilDate: undefined,
+        chosenUntilDateOwnerId: undefined,
+      });
       expect(shopping()).toMatchObject({ list: null, status: 'idle' });
       expect(fetchMock).not.toHaveBeenCalled();
+    });
+
+    it('keeps the day of the user who signed out, for when they come back', async () => {
+      holdChosenDay('2026-10-10');
+      await shopping().refresh(null);
+      answerWith(SHOPPING_LIST_UNTIL_OCT_10);
+
+      await shopping().refresh(USER_A);
+
+      expect(requestedUrls()).toEqual([`${LIST_URL}?untilDate=2026-10-10&groupBy=ingredient`]);
+      expect(shopping()).toMatchObject({
+        chosenUntilDate: '2026-10-10',
+        chosenUntilDateOwnerId: USER_A,
+      });
     });
   });
 
@@ -492,6 +524,102 @@ describe('the user the list was read for', () => {
 
     expect(shopping().ownerId).toBe(USER_B);
     expect(shopping().list).toEqual(SHOPPING_LIST_BY_MEAL);
+  });
+});
+
+describe('the user who chose the day', () => {
+  it('is recorded with the day', async () => {
+    answerWith(SHOPPING_LIST_UNTIL_OCT_10);
+
+    await shopping().setChosenUntilDate('2026-10-10');
+
+    expect(shopping()).toMatchObject({
+      chosenUntilDate: '2026-10-10',
+      chosenUntilDateOwnerId: USER_A,
+    });
+  });
+
+  it('is forgotten with the day when the choice is cleared', async () => {
+    holdChosenDay('2026-10-10');
+    answerWith(SHOPPING_LIST_BY_INGREDIENT);
+
+    await shopping().setChosenUntilDate(undefined);
+
+    expect(shopping()).toMatchObject({
+      chosenUntilDate: undefined,
+      chosenUntilDateOwnerId: undefined,
+    });
+  });
+
+  it('keeps the day, and reads with it, every time they read again', async () => {
+    answerWith(SHOPPING_LIST_UNTIL_OCT_10);
+    await shopping().setChosenUntilDate('2026-10-10');
+
+    answerWith(SHOPPING_LIST_UNTIL_OCT_10);
+    await shopping().refresh(USER_A);
+
+    expect(requestedUrls()[1]).toBe(`${LIST_URL}?untilDate=2026-10-10&groupBy=ingredient`);
+    expect(shopping()).toMatchObject({
+      chosenUntilDate: '2026-10-10',
+      chosenUntilDateOwnerId: USER_A,
+    });
+  });
+
+  describe('once another user reads on the same device', () => {
+    // User A limited the list to the 10th, a day the plan of user B has a meal on too: the
+    // read of user B would be taken as it comes, cut at a day they never chose.
+    beforeEach(async () => {
+      answerWith(SHOPPING_LIST_UNTIL_OCT_10);
+      await shopping().setChosenUntilDate('2026-10-10');
+      fetchMock.mockClear();
+    });
+
+    it('asks for every upcoming meal of theirs, and holds no chosen day', async () => {
+      answerWith(SHOPPING_LIST_BY_INGREDIENT);
+
+      await shopping().refresh(USER_B);
+
+      expect(requestedUrls()).toEqual([`${LIST_URL}?groupBy=ingredient`]);
+      expect(shopping()).toMatchObject({
+        ownerId: USER_B,
+        chosenUntilDate: undefined,
+        chosenUntilDateOwnerId: undefined,
+      });
+      expect(shopping().list).toEqual(SHOPPING_LIST_BY_INGREDIENT);
+      expect(shopping().list?.plannedDates).toContain('2026-10-10');
+    });
+
+    it('forgets the day in the storage too', async () => {
+      answerWith(SHOPPING_LIST_BY_INGREDIENT);
+
+      await shopping().refresh(USER_B);
+
+      expect(storedState()).toEqual({ version: 4, state: { groupBy: 'ingredient' } });
+    });
+
+    it('keeps the day they choose as theirs', async () => {
+      answerWith(SHOPPING_LIST_BY_INGREDIENT);
+      await shopping().refresh(USER_B);
+
+      answerWith(SHOPPING_LIST_UNTIL_OCT_10);
+      await shopping().setChosenUntilDate('2026-10-10');
+
+      expect(requestedUrls()[1]).toBe(`${LIST_URL}?untilDate=2026-10-10&groupBy=ingredient`);
+      expect(shopping()).toMatchObject({
+        chosenUntilDate: '2026-10-10',
+        chosenUntilDateOwnerId: USER_B,
+      });
+    });
+  });
+
+  it('is needed to read with a day: one that belongs to nobody is forgotten', async () => {
+    useShoppingListStore.setState({ chosenUntilDate: '2026-10-10' });
+    answerWith(SHOPPING_LIST_BY_INGREDIENT);
+
+    await shopping().refresh(USER_A);
+
+    expect(requestedUrls()).toEqual([`${LIST_URL}?groupBy=ingredient`]);
+    expect(shopping().chosenUntilDate).toBeUndefined();
   });
 });
 
@@ -555,7 +683,7 @@ describe('a read that fails', () => {
 describe('a stored day the server rejects', () => {
   // The day was chosen while it was upcoming, and the Account's today has moved past it.
   beforeEach(() => {
-    useShoppingListStore.setState({ chosenUntilDate: '2026-10-01' });
+    holdChosenDay('2026-10-01');
   });
 
   it('is cleared, and the list is read again without it', async () => {
@@ -569,17 +697,18 @@ describe('a stored day the server rejects', () => {
       `${LIST_URL}?groupBy=ingredient`,
     ]);
     expect(shopping().chosenUntilDate).toBeUndefined();
+    expect(shopping().chosenUntilDateOwnerId).toBeUndefined();
     expect(shopping().list).toEqual(SHOPPING_LIST_BY_INGREDIENT);
     expect(shopping()).toMatchObject({ status: 'ready', error: null });
   });
 
-  it('is cleared in the storage too', async () => {
+  it('is cleared in the storage too, with the user who chose it', async () => {
     rejectTheFilters();
     answerWith(SHOPPING_LIST_BY_INGREDIENT);
 
     await shopping().refresh(USER_A);
 
-    expect(storedState()).toEqual({ version: 3, state: { groupBy: 'ingredient' } });
+    expect(storedState()).toEqual({ version: 4, state: { groupBy: 'ingredient' } });
   });
 
   it('is read again only once: a second rejection is the error of the read', async () => {
@@ -600,6 +729,7 @@ describe('a stored day the server rejects', () => {
     await shopping().refresh(USER_A);
 
     expect(shopping().chosenUntilDate).toBe('2026-10-01');
+    expect(shopping().chosenUntilDateOwnerId).toBe(USER_A);
     expect(shopping().status).toBe('error');
   });
 });
@@ -607,7 +737,7 @@ describe('a stored day the server rejects', () => {
 describe('a stored day the plan no longer has a meal on', () => {
   // The 9th is still upcoming, so the server takes it, but it is not one of the planned dates.
   beforeEach(() => {
-    useShoppingListStore.setState({ chosenUntilDate: '2026-10-09' });
+    holdChosenDay('2026-10-09');
   });
 
   it('is cleared, and the list is read again without it', async () => {
@@ -621,6 +751,7 @@ describe('a stored day the plan no longer has a meal on', () => {
       `${LIST_URL}?groupBy=ingredient`,
     ]);
     expect(shopping().chosenUntilDate).toBeUndefined();
+    expect(shopping().chosenUntilDateOwnerId).toBeUndefined();
     expect(shopping().list).toEqual(SHOPPING_LIST_BY_INGREDIENT);
     expect(shopping().status).toBe('ready');
   });
@@ -628,7 +759,7 @@ describe('a stored day the plan no longer has a meal on', () => {
   it('never shows the read that was limited to it', async () => {
     answerWith(SHOPPING_LIST_BY_INGREDIENT);
     await shopping().setChosenUntilDate(undefined);
-    useShoppingListStore.setState({ chosenUntilDate: '2026-10-09' });
+    holdChosenDay('2026-10-09');
     const lists: unknown[] = [];
     const stopListening = useShoppingListStore.subscribe((state) => lists.push(state.list));
 
@@ -655,29 +786,30 @@ describe('a rejection without a stored day', () => {
 });
 
 describe('persistence', () => {
-  it('stores the two preferences under its own key, and nothing of the read', async () => {
+  // What this version stores once user A limited the list to the 10th, read per meal.
+  const STORED_DAY_OF_USER_A = {
+    version: 4,
+    state: { chosenUntilDate: '2026-10-10', chosenUntilDateOwnerId: USER_A, groupBy: 'meal' },
+  };
+
+  it('stores the day, who chose it and the grouping under its own key, and nothing of the read', async () => {
     answerWith(SHOPPING_LIST_BY_MEAL);
     await shopping().setGroupBy('meal');
     answerWith(SHOPPING_LIST_UNTIL_OCT_10);
     await shopping().setChosenUntilDate('2026-10-10');
 
     expect(shopping().list).not.toBeNull();
-    expect(storedState()).toEqual({
-      version: 3,
-      state: { chosenUntilDate: '2026-10-10', groupBy: 'meal' },
-    });
+    expect(storedState()).toEqual(STORED_DAY_OF_USER_A);
   });
 
   it('brings the preferences back when the storage is read, with no list', async () => {
-    await AsyncStorage.setItem(
-      STORAGE_KEY,
-      JSON.stringify({ version: 3, state: { chosenUntilDate: '2026-10-10', groupBy: 'meal' } })
-    );
+    await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(STORED_DAY_OF_USER_A));
 
     await useShoppingListStore.persist.rehydrate();
 
     expect(shopping()).toMatchObject({
       chosenUntilDate: '2026-10-10',
+      chosenUntilDateOwnerId: USER_A,
       groupBy: 'meal',
       list: null,
       status: 'idle',
@@ -685,10 +817,7 @@ describe('persistence', () => {
   });
 
   it('reads the list with the stored preferences when it is asked for before they are back', async () => {
-    await AsyncStorage.setItem(
-      STORAGE_KEY,
-      JSON.stringify({ version: 3, state: { chosenUntilDate: '2026-10-10', groupBy: 'meal' } })
-    );
+    await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(STORED_DAY_OF_USER_A));
     answerWith(SHOPPING_LIST_BY_MEAL);
 
     const hydration = useShoppingListStore.persist.rehydrate();
@@ -696,6 +825,94 @@ describe('persistence', () => {
     await Promise.all([hydration, read]);
 
     expect(requestedUrls()).toEqual([`${LIST_URL}?untilDate=2026-10-10&groupBy=meal`]);
+  });
+
+  describe('when the app starts again', () => {
+    // Nothing was read yet, so the cache belongs to nobody: only the storage knows who chose
+    // the day.
+    beforeEach(async () => {
+      useShoppingListStore.setState(useShoppingListStore.getInitialState(), true);
+      await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(STORED_DAY_OF_USER_A));
+      jest.mocked(AsyncStorage.setItem).mockClear();
+    });
+
+    it('reads until the stored day for the user who chose it, and keeps it', async () => {
+      await useShoppingListStore.persist.rehydrate();
+      expect(shopping()).toMatchObject({ ownerId: null, chosenUntilDate: '2026-10-10' });
+      answerWith(SHOPPING_LIST_BY_MEAL);
+
+      await shopping().refresh(USER_A);
+
+      expect(requestedUrls()).toEqual([`${LIST_URL}?untilDate=2026-10-10&groupBy=meal`]);
+      expect(shopping()).toMatchObject({
+        ownerId: USER_A,
+        chosenUntilDate: '2026-10-10',
+        chosenUntilDateOwnerId: USER_A,
+      });
+      expect(JSON.parse((await AsyncStorage.getItem(STORAGE_KEY)) ?? '')).toEqual(
+        STORED_DAY_OF_USER_A
+      );
+    });
+
+    it('drops the stored day for another user, and keeps the grouping', async () => {
+      answerWith(SHOPPING_LIST_BY_MEAL);
+
+      // Asked for while the storage is still being read: the day is not in the state yet.
+      const hydration = useShoppingListStore.persist.rehydrate();
+      const read = shopping().refresh(USER_B);
+      await Promise.all([hydration, read]);
+
+      expect(requestedUrls()).toEqual([`${LIST_URL}?groupBy=meal`]);
+      expect(shopping()).toMatchObject({
+        ownerId: USER_B,
+        chosenUntilDate: undefined,
+        chosenUntilDateOwnerId: undefined,
+        groupBy: 'meal',
+      });
+      expect(storedState()).toEqual({ version: 4, state: { groupBy: 'meal' } });
+    });
+  });
+
+  describe('of preferences stored by version 3', () => {
+    // What version 3 wrote: the day was kept for the device, whoever was signed in.
+    const VERSION_3_STATE = { chosenUntilDate: '2026-10-10', groupBy: 'meal' };
+
+    it('drops the chosen day, which has no user to belong to, and keeps the grouping', () => {
+      expect(migrateShoppingListState(VERSION_3_STATE)).toEqual({
+        chosenUntilDate: undefined,
+        chosenUntilDateOwnerId: undefined,
+        groupBy: 'meal',
+      });
+    });
+
+    it('does not trust a user stored next to the day', () => {
+      expect(
+        migrateShoppingListState({ ...VERSION_3_STATE, chosenUntilDateOwnerId: USER_A })
+      ).toEqual({
+        chosenUntilDate: undefined,
+        chosenUntilDateOwnerId: undefined,
+        groupBy: 'meal',
+      });
+    });
+
+    it('is upgraded by the store when it reads the storage, and written back as version 4', async () => {
+      await AsyncStorage.setItem(
+        STORAGE_KEY,
+        JSON.stringify({ version: 3, state: VERSION_3_STATE })
+      );
+
+      await useShoppingListStore.persist.rehydrate();
+
+      expect(shopping()).toMatchObject({
+        chosenUntilDate: undefined,
+        chosenUntilDateOwnerId: undefined,
+        groupBy: 'meal',
+      });
+      expect(JSON.parse((await AsyncStorage.getItem(STORAGE_KEY)) ?? '')).toEqual({
+        version: 4,
+        state: { groupBy: 'meal' },
+      });
+    });
   });
 
   describe('of a list stored by version 2', () => {
@@ -710,19 +927,12 @@ describe('persistence', () => {
       chosenUntilDate: '2026-10-12',
     };
 
-    it('keeps the chosen day and drops everything else', () => {
+    it('drops everything, the chosen day included, and reads per ingredient', () => {
       expect(migrateShoppingListState(VERSION_2_STATE)).toEqual({
-        chosenUntilDate: '2026-10-12',
+        chosenUntilDate: undefined,
+        chosenUntilDateOwnerId: undefined,
         groupBy: 'ingredient',
       });
-    });
-
-    it('keeps the chosen day only as a date key', () => {
-      for (const stored of [null, 20261012, '12/10/2026', 'tomorrow', ['2026-10-12']]) {
-        expect(
-          migrateShoppingListState({ ...VERSION_2_STATE, chosenUntilDate: stored }).chosenUntilDate
-        ).toBeUndefined();
-      }
     });
 
     it.each([[null], ['garbage'], [42], [[]], [{}]])(
@@ -730,12 +940,13 @@ describe('persistence', () => {
       (stored) => {
         expect(migrateShoppingListState(stored)).toEqual({
           chosenUntilDate: undefined,
+          chosenUntilDateOwnerId: undefined,
           groupBy: 'ingredient',
         });
       }
     );
 
-    it('is upgraded by the store when it reads the storage, and written back as version 3', async () => {
+    it('is upgraded by the store when it reads the storage, and written back as version 4', async () => {
       await AsyncStorage.setItem(
         STORAGE_KEY,
         JSON.stringify({ version: 2, state: VERSION_2_STATE })
@@ -743,13 +954,13 @@ describe('persistence', () => {
 
       await useShoppingListStore.persist.rehydrate();
 
-      expect(shopping()).toMatchObject({ chosenUntilDate: '2026-10-12', groupBy: 'ingredient' });
+      expect(shopping()).toMatchObject({ chosenUntilDate: undefined, groupBy: 'ingredient' });
       for (const dropped of ['cartIds', 'removedIds', 'manualItems', 'groupingMode', 'offers']) {
         expect(shopping()).not.toHaveProperty(dropped);
       }
       expect(JSON.parse((await AsyncStorage.getItem(STORAGE_KEY)) ?? '')).toEqual({
-        version: 3,
-        state: { chosenUntilDate: '2026-10-12', groupBy: 'ingredient' },
+        version: 4,
+        state: { groupBy: 'ingredient' },
       });
     });
   });

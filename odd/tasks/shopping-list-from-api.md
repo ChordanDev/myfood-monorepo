@@ -126,7 +126,7 @@ None. Settled by the User on 2026-10-08: the mobile slice is **read-only** (D11)
 | # | Decision | Rationale |
 |---|----------|-----------|
 | D11 | Read-only screen: Cart ticks, remove/restore, manual add and confirm purchase are unmounted until S2 (#40), S3 (#41) and S5 (#43); their components stay in the repository. The recipe screen's "add to the Shopping list" is disabled. | User's choice: the store is a pure cache plus filters, no throwaway local overlay. |
-| D12 | The store keeps the last read in memory and persists only the preferences (`chosenUntilDate`, `groupBy`). | No offline queue in this spec; a persisted list would outlive a sign-out. |
+| D12 | The store keeps the last read in memory and persists only how the list is read: the chosen day together with the user who chose it, and `groupBy`. A day another user chose is forgotten before reading; `groupBy` is a preference of the device. | No offline queue in this spec; a persisted list would outlive a sign-out. A day belongs to a plan, so it must not limit the list of the next user of the device. |
 | D13 | Grouping is an explicit preference: the switcher offers per Ingredient and per meal (`groupBy`). Cards stay grouped by Ingredient category in both. | Issue: "optionally per meal"; spec #5: grouping is a client preference. |
 | D14 | The mock supermarket offers, prices and the "by supermarket" grouping leave the screen. `supermarketId` stays in the cache. | They only ever matched mock Ingredient ids; the API serves no supermarket names or prices on this read. |
 | D15 | The date pill offers `plannedDates` from the read; the app never sends or compares a device-local date. A stored date the server rejects (`validation_error`) is cleared and the list is read again. | X2 (#12). |
@@ -190,5 +190,14 @@ instead: no blockers. Its findings:
 - Open, display only: the shared home calendar still highlights the device's today in the date pill popover.
 - Test gaps: guard ordering on the two auto-retry paths; hydration failure; the pill is asserted
   through a mocked `FloatingCalendar`.
+
+Jorge advisory reviews (2026-10-08): #98, #99, #100 and #101 approved with no confirmed finding. #102 asked
+for changes, both confirmed against the code and fixed in the commit after this one's parent:
+- The chosen day leaked to the next user of the device (kept on an owner change and persisted device-wide),
+  silently cutting their list. It is now stored with its owner (D12). Clearing it on every owner change, as
+  suggested, would also wipe it on each cold start, where the cache owner starts as nobody.
+- No feedback while a read was in flight over a cached list (for example after "Reintentar"). The title row
+  now shows an activity indicator.
+Checks: `npm test` 97 suites, 1442 passed; typecheck clean; lint 0 errors. Not run on a device.
 
 Next step: review and merge of the stacked pull requests, in order.

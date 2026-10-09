@@ -99,6 +99,9 @@ export function useShoppingList() {
     counters,
     // The first read of the signed-in user is on its way: there is no list to show yet.
     isLoading: ownerId !== null && list === null && status !== 'error',
+    // A read is on its way over the list on show: after a retry, a change of preference or a
+    // return to the screen. Never together with `isLoading`, which has no list.
+    isReadingAgain: list !== null && status === 'loading',
     // A read landed and it has no line to buy.
     isEmpty: list !== null && groups.length === 0,
     // Set while the last read failed. The list of the read before it, if any, stays.

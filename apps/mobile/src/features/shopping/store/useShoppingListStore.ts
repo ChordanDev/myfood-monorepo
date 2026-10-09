@@ -19,30 +19,42 @@ interface ShoppingListState {
   // 'YYYY-MM-DD' key of the last day the user chose to buy for. Without one the list reaches
   // the last planned date. It is how this device reads the list, not something to sync.
   chosenUntilDate: string | undefined;
+  // Id of the user who chose that day, set and cleared with it. A day is a day of their plan:
+  // it is stored with them, since the cache belongs to nobody when the app starts, and it is
+  // never used to read the list of anyone else.
+  chosenUntilDateOwnerId: string | undefined;
+  // How the lines are grouped. Unlike the day, it is a preference of the device: it stays
+  // when the user changes.
   groupBy: ShoppingGroupBy;
   // Reads the list of the signed-in user with the current preferences, and replaces the
   // cached one with the answer. A list cached for another user is dropped before anything is
-  // asked for. Without a signed-in user (`null`) there is no list and nothing is read.
+  // asked for, and so is a day another user chose. Without a signed-in user (`null`) there
+  // is no list and nothing is read.
   refresh: (ownerId: string | null) => Promise<void>;
-  // Both keep the preference and read the list of the user of the cache again with it.
+  // Both keep the preference and read the list of the user of the cache again with it. The
+  // day is kept as theirs: without a user of the cache no day is kept.
   setChosenUntilDate: (dateKey: string | undefined) => Promise<void>;
   setGroupBy: (groupBy: ShoppingGroupBy) => Promise<void>;
 }
 
-type PersistedShoppingListState = Pick<ShoppingListState, 'chosenUntilDate' | 'groupBy'>;
+type PersistedShoppingListState = Pick<
+  ShoppingListState,
+  'chosenUntilDate' | 'chosenUntilDateOwnerId' | 'groupBy'
+>;
+
+// No day is chosen, so nobody chose one.
+const NO_CHOSEN_DATE = { chosenUntilDate: undefined, chosenUntilDateOwnerId: undefined };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
-function readDateKey(value: unknown) {
-  return typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value) ? value : undefined;
-}
-
 /**
  * Upgrades what an earlier version stored. Up to version 2 the list lived on the device: the
  * cart, the removed rows and the items added by hand were stored next to a grouping by
- * supermarket. The server owns all of that now, so only the chosen day is kept.
+ * supermarket. The server owns all of that now. Up to version 3 the chosen day was stored
+ * without the user who chose it, so it is dropped: there is nobody to read the list with it
+ * for. Only the grouping is kept.
  *
  * Nothing is trusted: only the fields this store owns are read, each one by its shape, so a
  * stored state of any version, or a malformed one, hydrates into valid preferences.
@@ -51,7 +63,7 @@ export function migrateShoppingListState(persistedState: unknown): PersistedShop
   const stored = isRecord(persistedState) ? persistedState : {};
 
   return {
-    chosenUntilDate: readDateKey(stored.chosenUntilDate),
+    ...NO_CHOSEN_DATE,
     groupBy: stored.groupBy === 'meal' ? 'meal' : 'ingredient',
   };
 }
@@ -74,7 +86,7 @@ export const useShoppingListStore = create<ShoppingListState>()(
         const isLastRead = () => readNumber === lastReadNumber && get().ownerId === ownerId;
 
         // What was read for another user goes first, so it is gone whatever this read comes
-        // to. The preferences stay: they are how this device reads the list.
+        // to. The preferences are looked at below, once the stored ones are in the state.
         if (get().ownerId !== ownerId) set({ ownerId, list: null, status: 'idle', error: null });
         if (ownerId === null) return;
 
@@ -82,13 +94,22 @@ export const useShoppingListStore = create<ShoppingListState>()(
         await storedPreferences;
         // Overtaken while it waited, by a newer read or by a sign-out: nothing is asked for.
         if (!isLastRead()) return;
+
+        // A day another user chose is forgotten before anything is asked for: their plan may
+        // have a meal on it too, and the server would then cut this list at a day this user
+        // never chose. Whose day it is comes from the state, not from a change of the user
+        // of the cache: when the app starts that user is nobody, and the stored day is still
+        // the day of whoever chose it.
+        if (get().chosenUntilDate !== undefined && get().chosenUntilDateOwnerId !== ownerId) {
+          set(NO_CHOSEN_DATE);
+        }
         const { chosenUntilDate, groupBy } = get();
 
         // A chosen day stops being one the list can reach without this device knowing: only
         // the server knows the Account's today and its plan. The day is then forgotten and
         // the list is read again. That read carries no day, so it cannot come back here.
         const forgetChosenDateAndReadAgain = () => {
-          set({ chosenUntilDate: undefined });
+          set(NO_CHOSEN_DATE);
           return read(ownerId);
         };
 
@@ -125,12 +146,18 @@ export const useShoppingListStore = create<ShoppingListState>()(
         list: null,
         status: 'idle',
         error: null,
-        chosenUntilDate: undefined,
+        ...NO_CHOSEN_DATE,
         groupBy: 'ingredient',
         refresh: read,
         setChosenUntilDate: (chosenUntilDate) => {
-          set({ chosenUntilDate });
-          return read(get().ownerId);
+          const { ownerId } = get();
+
+          set(
+            chosenUntilDate === undefined || ownerId === null
+              ? NO_CHOSEN_DATE
+              : { chosenUntilDate, chosenUntilDateOwnerId: ownerId }
+          );
+          return read(ownerId);
         },
         setGroupBy: (groupBy) => {
           set({ groupBy });
@@ -140,14 +167,20 @@ export const useShoppingListStore = create<ShoppingListState>()(
     },
     {
       name: 'shopping-list-storage',
-      version: 3,
+      version: 4,
       storage: createJSONStorage(() => safeAsyncStorage),
       // Runs when the stored version is another one.
       migrate: migrateShoppingListState,
-      // Only how the user reads the list is stored. The list itself is the server's, and a
-      // stored copy, or the user it was read for, would outlive the session it was read in.
-      partialize: ({ chosenUntilDate, groupBy }): PersistedShoppingListState => ({
+      // Only how the user reads the list is stored: the day with the user who chose it, and
+      // the grouping. The list itself is the server's, and a stored copy, or the user it was
+      // read for, would outlive the session it was read in.
+      partialize: ({
         chosenUntilDate,
+        chosenUntilDateOwnerId,
+        groupBy,
+      }): PersistedShoppingListState => ({
+        chosenUntilDate,
+        chosenUntilDateOwnerId,
         groupBy,
       }),
       onRehydrateStorage: () => {

@@ -35,6 +35,7 @@ export function ShoppingScreen() {
     metaLines,
     counters,
     isLoading,
+    isReadingAgain,
     isEmpty,
     errorMessage,
     retry,
@@ -71,9 +72,19 @@ export function ShoppingScreen() {
         </View>
 
         <View style={styles.titleRow}>
-          <Animated.Text accessibilityRole="header" style={[styles.title, titleStyle]}>
-            COMPRAS
-          </Animated.Text>
+          <View style={styles.titleGroup}>
+            <Animated.Text accessibilityRole="header" style={[styles.title, titleStyle]}>
+              COMPRAS
+            </Animated.Text>
+            {/* The list under it stays, and stays usable: this only says it is being read again. */}
+            {isReadingAgain ? (
+              <ActivityIndicator
+                accessibilityLabel="Actualizando la lista de compras"
+                color={theme.textDark}
+                size="small"
+              />
+            ) : null}
+          </View>
           {counters ? (
             <Animated.Text style={[styles.counter, mutedStyle]}>
               {formatCountersLabel(counters)}
@@ -149,6 +160,13 @@ const styles = StyleSheet.create({
     fontFamily: 'Montserrat_700Bold',
     fontSize: 28,
     lineHeight: 34,
+  },
+  // The title comes first, so the row keeps aligning the counter to its baseline whether the
+  // indicator is there or not.
+  titleGroup: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 8,
   },
   titleRow: {
     alignItems: 'baseline',
