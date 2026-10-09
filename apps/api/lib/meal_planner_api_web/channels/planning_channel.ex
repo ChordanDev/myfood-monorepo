@@ -406,7 +406,7 @@ defmodule MealPlannerApiWeb.PlanningChannel do
       # behind: the session is cancelled, so the member can start again.
       constraints = start_constraints(date_from, date_to, request_text)
 
-      case Server.start_generation(account_id, user.id, constraints, socket.channel_pid) do
+      case start_generation(account_id, user.id, constraints, socket.channel_pid) do
         {:ok, run_id} ->
           # Cache the pid on the socket assigns so `send_message`
           # (PR4 task 4.8) can route intents back to the same server
@@ -424,11 +424,17 @@ defmodule MealPlannerApiWeb.PlanningChannel do
 
           {:reply, {:ok, %{session_id: started_id, status: :active}}, socket}
 
+        {:error, :already_running} ->
+          # As `generate_menu` does: the run in flight is not ours, so the
+          # topic is not told of a failure, only this caller is refused.
+          cancel_unstarted_session(membership, started_id, pid)
+          {:reply, {:error, error_payload(:generation_in_progress, request_id)}, socket}
+
         {:error, reason} ->
-          cancel_unstarted_session(membership, started_id)
+          cancel_unstarted_session(membership, started_id, pid)
           event = %{request_id: request_id, reason: serialize_reason(reason)}
           broadcast!(socket, "generation_error", event)
-          {:reply, {:error, error_payload(generation_start_reason(reason), request_id)}, socket}
+          {:reply, {:error, error_payload(reason, request_id)}, socket}
       end
     else
       {:error, :subscription_required} ->
@@ -665,26 +671,27 @@ defmodule MealPlannerApiWeb.PlanningChannel do
     end
   end
 
-  defp range_end(date_from, %{"range_to" => range_to} = payload) do
-    with {:ok, date_to} <- parse_iso_date(range_to) do
-      case Map.fetch(payload, "day_count") do
-        :error ->
-          {:ok, date_to}
+  # A key sent as `null` is as absent as one not sent.
+  defp range_end(date_from, payload) do
+    case {Map.get(payload, "range_to"), Map.get(payload, "day_count")} do
+      {nil, nil} ->
+        invalid_range()
 
-        {:ok, count} ->
+      {nil, count} ->
+        case day_count_end(date_from, count) do
+          %Date{} = date_to -> {:ok, date_to}
+          nil -> invalid_range()
+        end
+
+      {range_to, nil} ->
+        parse_iso_date(range_to)
+
+      {range_to, count} ->
+        with {:ok, date_to} <- parse_iso_date(range_to) do
           if date_to == day_count_end(date_from, count), do: {:ok, date_to}, else: invalid_range()
-      end
+        end
     end
   end
-
-  defp range_end(date_from, %{"day_count" => count}) do
-    case day_count_end(date_from, count) do
-      %Date{} = date_to -> {:ok, date_to}
-      nil -> invalid_range()
-    end
-  end
-
-  defp range_end(_date_from, _payload), do: invalid_range()
 
   defp day_count_end(date_from, count) when is_integer(count) and count >= 1,
     do: Date.add(date_from, count - 1)
@@ -760,15 +767,20 @@ defmodule MealPlannerApiWeb.PlanningChannel do
     end
   end
 
-  # `Server.start_generation/4` answers `:already_running` while a run of the
-  # Account is in flight, which the channel names `generation_in_progress` as
-  # `generate_menu` does.
-  defp generation_start_reason(:already_running), do: :generation_in_progress
-  defp generation_start_reason(reason), do: reason
+  # `Server.start_generation/4` is a blocking call into the engine process of
+  # the Account, which another member's pipeline can keep busy for longer
+  # than the call timeout. An exit of that call (timeout, process gone) is
+  # an error like any other, never a crash of the channel.
+  defp start_generation(account_id, user_id, constraints, channel_pid) do
+    Server.start_generation(account_id, user_id, constraints, channel_pid)
+  catch
+    :exit, _reason -> {:error, :generation_in_progress}
+  end
 
   # A session whose generation did not start is cancelled, as its owner
-  # would: the lock is released and the topic hears `session_cancelled`.
-  defp cancel_unstarted_session(membership, session_id) do
+  # would: the lock is released, the topic hears `session_cancelled` and the
+  # session process is stopped so nothing keeps the row's account busy.
+  defp cancel_unstarted_session(membership, session_id, session_pid) do
     _ =
       MealPlannerApi.Data.PlanningRepo.cancel_session(
         membership.account_id,
@@ -777,6 +789,7 @@ defmodule MealPlannerApiWeb.PlanningChannel do
         membership.role == :owner
       )
 
+    _ = DynamicSupervisor.terminate_child(PlanningSessionSupervisor, session_pid)
     broadcast_session_cancelled(membership.account_id, session_id)
   end
 

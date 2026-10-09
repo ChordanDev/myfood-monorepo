@@ -193,7 +193,7 @@ The command that starts a Planning session and its first generation (issue #25).
 | `rangeTo` | `"YYYY-MM-DD"` | Last day, inclusive. Optional when `dayCount` is sent |
 | `dayCount` | integer | Number of days, 1 to 7. Optional when `rangeTo` is sent; when both are sent they must agree |
 | `request` | string | Optional free text, at most 1000 characters after trimming. A blank text counts as none. It reaches the generation as the `request` constraint |
-| `requestId` | string | Optional. Correlates `generation_started` and `generation_error`; generated when missing |
+| `requestId` | string | Optional. Correlates `generation_started`, and `generation_error` when that event carries it; generated when missing |
 
 The command validates the range, checks the Account is eligible, starts the session (`session_started`), then starts the generation through the same call `generate_menu` uses and replies:
 
@@ -201,7 +201,7 @@ The command validates the range, checks the Account is eligible, starts the sess
 { "sessionId": "550e8400-e29b-41d4-a716-446655440002", "status": "active" }
 ```
 
-`generation_started` follows with the `runId`. When the generation cannot start the session is cancelled (`session_cancelled`), a `generation_error` event is pushed and the command replies the error envelope with `requestId`, so the member can start again. The range is capped at 7 days because the window of the generation server holds 7 days; a longer range is refused before any session starts.
+`generation_started` follows with the `runId`. When the generation cannot start the session is cancelled (`session_cancelled`), its process is stopped, and the command replies the error envelope with `requestId`, so the member can start again. A `generation_error` event is pushed too, except when the account already has a run in flight: that case replies `generation_in_progress` only, as `generate_menu` does, and the topic is not told of a failure. A start that does not get an answer from the generation server in time is handled as a failed start. `rangeTo` and `dayCount` sent as `null` count as absent. The range is capped at 7 days because the window of the generation server holds 7 days; a longer range is refused before any session starts.
 
 Refusals reply the error envelope with these codes:
 
@@ -297,13 +297,15 @@ Days are in calendar order and the meals of a day in `breakfast`, `lunch`, `dinn
 }
 ```
 
-`generation_error.reason` is the raw reason (`"optimization_failed"`, `"already_running"`, `"pipeline_error"`), not an `ApiError` code; `details` is `{}` when the failure has none.
+`generation_error.reason` is the raw reason (`"optimization_failed"`, `"invalid_date_range"`, `"pipeline_error"`), not an `ApiError` code; `details` is `{}` when the failure has none.
 
-Order: `proposal_ready` is pushed before `planning_message`. `generation_started` is broadcast by the channel after it started the generation, so a generation that fails at once may deliver `generation_error` first; correlate by `runId` / `requestId`, never by arrival order. A proposal reaches every member joined to the topic, each with its own `planning_message`.
+`runId` and `requestId` are `null` when the failure comes from a path of the engine that carries a reason alone (`pipeline_error`, the reasons of the request validation, `invalid_modification`). Such an event cannot be matched to a run by id: a client attributes it to the in-flight generation of the account, of which there is at most one. Do not rely on the ids to correlate a `generation_error`.
+
+Order: `proposal_ready` is pushed before `planning_message`. `generation_started` is broadcast by the channel after it started the generation, so a generation that fails at once may deliver `generation_error` first; correlate by `runId` / `requestId` when they are present (see above when they are `null`), never by arrival order. A proposal reaches every member joined to the topic, each with its own `planning_message`.
 
 #### Planner fixtures
 
-The frozen payloads above are also committed as JSON in `apps/mobile/src/features/planner/fixtures/` (`startPlanningReply`, `sessionStarted`, `generationStarted`, `proposalReady`, `planningMessage`, `generationError`, `planningInvalidRangeError`, `planningRangeLockedError`). They are written from real channel runs, never by hand:
+The frozen payloads above are also committed as JSON in `apps/mobile/src/features/planner/fixtures/` (`startPlanningReply`, `sessionStarted`, `generationStarted`, `proposalReady`, `planningMessage`, `generationError`, `planningInvalidRangeError`, `planningRangeLockedError`). The channel serializers are real: every fixture except `proposalReady`/`planningMessage` is recorded from a real channel run. `proposal_ready` is driven by a synthetic broadcast of a proposal built in the test (with a fractional macro and a missing one, as the producer sends them):
 
 - `test/meal_planner_api_web/channels/planner_fixtures_test.exs` runs `start_planning` and records each payload through `MealPlannerApiWeb.PlannerFixtures.check!/3`. Without `UPDATE_FIXTURES`, the test fails when a committed file differs from the fresh payload, so API drift fails an API test.
 - The mobile test `src/features/planner/fixtures/__tests__/plannerFixtures.test.ts` parses every file with the types in `src/features/planner/types/planningEvents.ts` (missing, extra or mistyped keys throw), so app drift fails an app test.
