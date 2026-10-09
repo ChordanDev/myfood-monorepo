@@ -4,8 +4,9 @@ defmodule MealPlannerApi.Persistence.Inventory do
 
   Quantity changes are serialized and audited in the same transaction. Ingredient-level
   additions without lot metadata accumulate in the oldest anonymous lot; metadata-bearing
-  additions remain distinct lots. Ingredient-level subtraction consumes usable lots in a
-  stable FEFO order.
+  additions remain distinct lots. Lot metadata is the acquisition date, the expiry, the
+  price, the notes and a set leftover flag. Ingredient-level subtraction consumes usable
+  lots in a stable FEFO order.
   """
 
   import Ecto.Query, warn: false
@@ -18,7 +19,7 @@ defmodule MealPlannerApi.Persistence.Inventory do
     InventoryMutationEvent
   }
 
-  @lot_fields [:acquired_at, :expired_at, :acquired_price_cents]
+  @lot_fields [:acquired_at, :expired_at, :acquired_price_cents, :notes]
 
   def list_inventory(account_id) do
     from(i in InventoryItem,
@@ -135,14 +136,16 @@ defmodule MealPlannerApi.Persistence.Inventory do
   @doc """
   Subtracts a requested quantity across usable lots in stable FEFO order.
 
-  Expired and zero-quantity lots are not touched. If requested stock is absent, the
+  Expired and zero-quantity lots are not touched. Usability is judged against the
+  `:today` option (a `Date`), which callers acting for an Account take from
+  `MealPlannerApi.AccountClock`; it defaults to the UTC date. If requested stock is absent, the
   operation succeeds with an applied delta of zero and creates neither a zero lot nor
   a mutation event.
   """
   def subtract_usable_lots_and_log(opts) when is_map(opts) do
     mutation = normalize_mutation(opts)
     requested = abs(mutation.delta)
-    today = Date.utc_today()
+    today = mutation.today || Date.utc_today()
 
     Repo.transaction(fn ->
       lock_logical_key!(Repo, mutation)
@@ -225,6 +228,8 @@ defmodule MealPlannerApi.Persistence.Inventory do
         acquired_at: mutation.lot_metadata.acquired_at,
         expired_at: mutation.lot_metadata.expired_at,
         acquired_price_cents: mutation.lot_metadata.acquired_price_cents,
+        notes: mutation.lot_metadata.notes,
+        is_leftover: mutation.lot_metadata.is_leftover,
         last_mutation_at: DateTime.utc_now()
       }
 
@@ -284,7 +289,8 @@ defmodule MealPlannerApi.Persistence.Inventory do
       else
         from(i in base,
           where:
-            is_nil(i.acquired_at) and is_nil(i.expired_at) and is_nil(i.acquired_price_cents),
+            is_nil(i.acquired_at) and is_nil(i.expired_at) and is_nil(i.acquired_price_cents) and
+              is_nil(i.notes) and i.is_leftover == false,
           order_by: [asc: i.inserted_at, asc: i.id]
         )
       end
@@ -391,11 +397,15 @@ defmodule MealPlannerApi.Persistence.Inventory do
       delete?: operation in [:delete, "delete"],
       target_qty: value(opts, :target_quantity_milli),
       delta: value(opts, :delta) || 0,
+      today: value(opts, :today),
       metadata: value(opts, :metadata) || %{},
       raw_voice_text: value(opts, :raw_voice_text),
       source_checkout_session_id: value(opts, :source_checkout_session_id),
       source_cooking_session_id: value(opts, :source_cooking_session_id),
-      lot_metadata: Map.new(@lot_fields, &{&1, value(opts, &1)})
+      lot_metadata:
+        @lot_fields
+        |> Map.new(&{&1, value(opts, &1)})
+        |> Map.put(:is_leftover, value(opts, :is_leftover) == true)
     }
   end
 
@@ -442,8 +452,9 @@ defmodule MealPlannerApi.Persistence.Inventory do
   defp preload_item(nil, _repo), do: nil
   defp preload_item(item, repo), do: repo.preload(item, [:ingredient])
 
+  # `is_leftover: false` is the column default, so only a set flag is metadata.
   defp metadata_bearing?(metadata),
-    do: Enum.any?(@lot_fields, &(not is_nil(Map.get(metadata, &1))))
+    do: metadata.is_leftover or Enum.any?(@lot_fields, &(not is_nil(Map.get(metadata, &1))))
 
   defp has_quantity?(attrs),
     do: Map.has_key?(attrs, :quantity_milli) or Map.has_key?(attrs, "quantity_milli")

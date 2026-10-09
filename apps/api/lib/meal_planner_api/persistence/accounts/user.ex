@@ -89,6 +89,22 @@ defmodule MealPlannerApi.Persistence.Accounts.User do
     |> validate_inclusion(:cooking_skill, @cooking_skills)
   end
 
+  @doc """
+  The Onboarding profile of `profile_changeset/2` plus the completion stamp:
+  `onboarding_completed_at` becomes `now` only while it is nil, so a later
+  completion keeps the first timestamp.
+  """
+  @spec completion_changeset(t(), map(), DateTime.t()) :: Ecto.Changeset.t()
+  def completion_changeset(%__MODULE__{} = user, attrs, %DateTime{} = now) do
+    changeset = profile_changeset(user, attrs)
+
+    if is_nil(user.onboarding_completed_at) do
+      put_change(changeset, :onboarding_completed_at, now)
+    else
+      changeset
+    end
+  end
+
   # A blank name over a stored one is cast to a nil change.
   defp trim(nil), do: nil
   defp trim(name), do: String.trim(name)

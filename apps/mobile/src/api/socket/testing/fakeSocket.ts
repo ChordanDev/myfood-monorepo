@@ -57,13 +57,15 @@ export interface FakeChannel extends PhoenixChannel {
   readonly topic: string;
   /** Every message pushed on this channel, oldest first. */
   readonly pushes: readonly FakePush[];
-  /** The server pushes `event` to the channel. Dropped once the channel has left. */
+  /** Same as `serverPush`. Dropped once the channel has left. */
   emit(event: string, payload: unknown): void;
   hasLeft(): boolean;
   /** The server accepts the join, or the rejoin that follows a reconnect. */
   replyOk(response?: unknown): void;
   /** The server refuses the join with `response`. */
   replyError(response: unknown): void;
+  /** The server pushes `event` on the topic, as it does for `session_resumed`. */
+  serverPush(event: string, payload: unknown): void;
 }
 
 type Connection = 'none' | 'connecting' | 'open' | 'lost';
@@ -71,8 +73,7 @@ type JoinStatus = 'ok' | 'error' | 'timeout';
 
 function createFakeChannel(topic: string): FakeChannel {
   const pushes: FakePush[] = [];
-  const listeners = new Map<string, Map<number, (payload: unknown) => void>>();
-  let nextRef = 1;
+  const bindings: { event: string; callback: (payload: unknown) => void }[] = [];
   let joined = false;
   let left = false;
 
@@ -103,6 +104,12 @@ function createFakeChannel(topic: string): FakeChannel {
     joinPush.deliver(status, response);
   }
 
+  function serverPush(event: string, payload: unknown): void {
+    // A left channel is removed from its socket and gets no more pushes.
+    if (left) return;
+    bindings.filter((binding) => binding.event === event).forEach((b) => b.callback(payload));
+  }
+
   return {
     topic,
     pushes,
@@ -118,21 +125,12 @@ function createFakeChannel(topic: string): FakeChannel {
       });
       return pushed;
     },
-    on(event, callback) {
-      const ref = nextRef++;
-      const byRef = listeners.get(event) ?? new Map<number, (payload: unknown) => void>();
-      byRef.set(ref, callback);
-      listeners.set(event, byRef);
-      return ref;
-    },
-    off(event, ref) {
-      listeners.get(event)?.delete(ref);
-    },
-    emit(event, payload) {
-      if (left) return;
-      [...(listeners.get(event)?.values() ?? [])].forEach((callback) => callback(payload));
-    },
     hasLeft: () => left,
+    on(event, callback) {
+      bindings.push({ event, callback });
+    },
+    serverPush,
+    emit: serverPush,
     join() {
       if (joined) throw new Error(`FakeChannel ${topic}: join() called twice`);
       joined = true;

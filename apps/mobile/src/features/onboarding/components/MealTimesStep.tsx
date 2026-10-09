@@ -1,7 +1,7 @@
 import { View } from 'react-native';
 import type { CookingTimeSlot, HungerLevel } from '@/features/auth/types/auth';
 import type { RecipeThemeConfig } from '@/types/domain';
-import { MEAL_SLOTS } from '@/features/preferences/constants/preferenceOptions';
+import { COOKING_TIME_SLOTS } from '@/features/preferences/constants/preferenceOptions';
 import { SlotEditor } from '@/features/onboarding/components/SlotEditor';
 import type { SlotFormState, SlotMode } from '@/features/onboarding/utils/onboardingSlot';
 
@@ -25,7 +25,7 @@ export function MealTimesStep({
 }: MealTimesStepProps) {
   return (
     <View style={{ gap: 14 }}>
-      {MEAL_SLOTS.map((slot) => (
+      {COOKING_TIME_SLOTS.map((slot) => (
         <SlotEditor
           key={slot}
           slot={slot}

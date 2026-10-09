@@ -98,6 +98,42 @@ defmodule MealPlannerApi.Services.RecipeLifecycleTest do
     assert hd(overview.meals).calories_per_serving == 100
   end
 
+  test "a corrected derived recipe keeps its base and serves the base theme", f do
+    palette = %{
+      "colorBlack" => "#0D1007",
+      "colorDark" => "#15180F",
+      "colorMedium" => "#364025",
+      "colorLight" => "#8D9373",
+      "primaryAccent" => "#EF9432",
+      "appBg" => "#BCBFA7",
+      "icon" => "#D8D98B",
+      "textBlack" => "#0D1007",
+      "textDark" => "#1B210E",
+      "textMedium" => "#D8D98B",
+      "textLight" => "#F5F3D4",
+      "primaryAccentIntense" => "#FF8400",
+      "alert" => "#C94F3D"
+    }
+
+    {:ok, base} =
+      Catalog.create_recipe(%{name: "Themed base", source: :traditional, theme: palette})
+
+    {:ok, derived} =
+      Catalog.create_recipe(%{
+        account_id: f.account.id,
+        name: "Derived soup",
+        source: :ai_generated,
+        base_recipe_id: base.id
+      })
+
+    {:ok, successor} = RecipeVersions.correct(derived.id, %{name: "Corrected derived soup"})
+
+    assert Catalog.get_recipe!(successor.recipe_id).base_recipe_id == base.id
+
+    assert {:ok, project} = RecipeService.get_recipe(f.actor, successor.recipe_id)
+    assert project.theme == palette
+  end
+
   test "expired Accounts cannot read recipe detail", f do
     Repo.update!(
       Ecto.Changeset.change(Repo.reload!(f.account),
@@ -145,7 +181,7 @@ defmodule MealPlannerApi.Services.RecipeLifecycleTest do
     assert {:ok, %{chat_messages: []}} = CookingService.session_state(f.actor, session.session_id)
     assert {:ok, _} = CookingService.finish_session(f.actor, session.session_id)
 
-    assert {:error, :session_closed} =
+    assert {:error, :cooking_session_not_active} =
              CookingService.answer_question(f.actor, session.session_id, "Continue?")
 
     assert Repo.aggregate(MealPlannerApi.Persistence.Planning.CookingChatMessage, :count) == 0
@@ -233,7 +269,7 @@ defmodule MealPlannerApi.Services.RecipeLifecycleTest do
     assert_receive {:cooking_ai, worker, "How hot?", _opts}
     assert {:ok, _} = CookingService.finish_session(f.actor, session.session_id)
     send(worker, :answer)
-    assert {:error, :session_closed} = Task.await(task)
+    assert {:error, :cooking_session_not_active} = Task.await(task)
     assert Repo.aggregate(MealPlannerApi.Persistence.Planning.CookingChatMessage, :count) == 0
   end
 
@@ -341,12 +377,12 @@ defmodule MealPlannerApi.Services.RecipeLifecycleTest do
 
     {:ok, session} = CookingService.start_session(f.actor, meal.id)
 
-    assert {:ok, %{inventory_mutations: 1}} =
+    assert {:ok, %{inventory_mutations: [%{quantity_delta_milli: -400}], shortages: []}} =
              CookingService.finish_session(f.actor, session.session_id)
 
     assert Repo.reload!(lot).quantity_milli == 600
 
-    assert {:ok, %{inventory_mutations: 0}} =
+    assert {:error, :cooking_already_finished} =
              CookingService.finish_session(f.actor, session.session_id)
 
     assert Repo.reload!(lot).quantity_milli == 600

@@ -1,7 +1,10 @@
-import { useCallback, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Keyboard } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { formatDateKey } from '@/features/home/utils/calendarDate';
+import { favoriteSummaryFromRecipe } from '@/features/favorites/domain/favoriteFormat';
+import { selectIsFavorite, useFavoritesStore } from '@/features/favorites/store';
+import { useMarkAsCooked } from '@/features/cooking';
 import { useInventoryStore } from '@/features/inventory';
 import { useMealPlanStore } from '@/store';
 import { canMarkAsCooked, isRecipeChatEnabled, resolveRecipeEntry } from '../domain/recipeEntry';
@@ -36,9 +39,9 @@ export function useRecipeScreen() {
 
   const { recipe, status, retry } = useRecipe(recipeId, firstParam(params.recipeVersionId));
   const entries = useMealPlanStore((state) => state.entries);
-  const favoriteRecipeIds = useMealPlanStore((state) => state.favoriteRecipeIds);
-  const toggleFavoriteRecipe = useMealPlanStore((state) => state.toggleFavoriteRecipe);
-  const markAsCooked = useMealPlanStore((state) => state.markAsCooked);
+  const isFavorite = useFavoritesStore(selectIsFavorite(recipeId));
+  const toggleFavorite = useFavoritesStore((state) => state.toggle);
+  const cooking = useMarkAsCooked();
   const inventory = useInventoryStore((state) => state.items);
   const catalog = useInventoryStore((state) => state.ingredients);
   const [isCookedConfirmVisible, setIsCookedConfirmVisible] = useState(false);
@@ -58,11 +61,24 @@ export function useRecipeScreen() {
 
   const handleBack = useCallback(() => router.back(), [router]);
 
-  const handleToggleFavorite = useCallback(() => {
-    toggleFavoriteRecipe(recipeId);
-  }, [recipeId, toggleFavoriteRecipe]);
+  // The star starts right: the favorites are the server's. A failed read keeps what the device
+  // had, and the next toggle settles the recipe on its own.
+  useEffect(() => {
+    useFavoritesStore
+      .getState()
+      .load()
+      .catch(() => {});
+  }, []);
 
-  // Marking a meal as cooked consumes its ingredients, so the check only asks; the sheet decides.
+  // The store flips the star at once and takes it back if the server refuses.
+  const handleToggleFavorite = useCallback(() => {
+    if (!recipe) return;
+
+    void toggleFavorite(favoriteSummaryFromRecipe(recipe));
+  }, [recipe, toggleFavorite]);
+
+  // Marking a meal as cooked consumes its ingredients on the server, so the check only asks; the
+  // sheet decides.
   const handleRequestMarkAsCooked = useCallback(() => {
     if (!canMarkAsCooked(entry)) return;
 
@@ -77,30 +93,39 @@ export function useRecipeScreen() {
     setIsCookedConfirmVisible(false);
   }, []);
 
-  const handleConfirmCooked = useCallback(() => {
+  const handleConfirmCooked = useCallback(async () => {
     if (!isAwaitingCookedAnswerRef.current) return;
 
     isAwaitingCookedAnswerRef.current = false;
     setIsCookedConfirmVisible(false);
     if (!entry || !canMarkAsCooked(entry)) return;
 
-    markAsCooked(entry.id);
-    router.back();
-  }, [entry, markAsCooked, router]);
+    // The summary is shown over the recipe; the screen closes when the user dismisses it.
+    await cooking.markAsCooked(entry.id);
+  }, [cooking, entry]);
+
+  const { dismiss: dismissCookingResult, summary: cookingSummary } = cooking;
+  const handleCloseCookingResult = useCallback(() => {
+    dismissCookingResult();
+    if (cookingSummary) router.back();
+  }, [cookingSummary, dismissCookingResult, router]);
 
   return {
     recipe,
     status,
     rows,
-    isFavorite: favoriteRecipeIds.includes(recipeId),
+    isFavorite,
     canMarkAsCooked: canMarkAsCooked(entry),
     isChatEnabled: isRecipeChatEnabled(entry, todayKey),
     isCookedConfirmVisible,
+    cookingSummary,
+    cookingErrorMessage: cooking.errorMessage,
     handleBack,
     handleRetry: retry,
     handleToggleFavorite,
     handleRequestMarkAsCooked,
     handleConfirmCooked,
     handleCancelCooked,
+    handleCloseCookingResult,
   };
 }

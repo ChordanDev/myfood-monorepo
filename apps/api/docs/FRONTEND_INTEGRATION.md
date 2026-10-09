@@ -262,6 +262,9 @@ asumir un tipo específico.
 | `GET` | `/api/recipes` | Lista de recetas |
 | `GET` | `/api/inventory` | Inventario del usuario |
 | `PUT` | `/api/me/profile` | Editar el perfil de Onboarding del usuario actual |
+| `GET` | `/api/me/favorites` | Recetas favoritas del usuario actual |
+| `POST` | `/api/me/favorites` | Marcar una receta como favorita (idempotente) |
+| `DELETE` | `/api/me/favorites/:recipeId` | Quitar una receta de los favoritos |
 
 ### Editar el perfil de Onboarding
 
@@ -302,6 +305,37 @@ Los campos se validan en el orden `displayName`, `householdSize`, `cookingSkill`
 decide la respuesta: `422 invalid_cooking_skill` cuando `cookingSkill` es un string fuera del catálogo, y
 `422 validation_error` en cualquier otro caso, con un `message` que nombra el campo. Una request rechazada
 no guarda nada.
+
+### Favoritos
+
+Los favoritos son del usuario dentro de la cuenta activa: otro miembro de la misma cuenta no los ve.
+Las tres rutas comparten la exención de `/api/me`: una cuenta con el acceso vencido también puede usarlas.
+Escribir un favorito por estas rutas o por el evento `toggle_favorite` del canal de calendario toca la
+misma fila, así que cada uno ve lo que hizo el otro.
+
+`GET /api/me/favorites` responde `200` con los resúmenes ordenados por nombre (lista vacía si no hay
+ninguno, nunca `404`). `mainIngredients` trae hasta tres nombres, los de mayor cantidad; `durationMinutes`
+es preparación más cocción y `null` si la receta no tiene ninguna.
+
+```json
+{
+  "data": [
+    {
+      "recipeId": "0b1c2d3e-4f50-4a61-8b72-93a4b5c6d7e8",
+      "name": "Tortilla de papas",
+      "mainIngredients": ["Papa", "Aceite de girasol", "Huevo"],
+      "durationMinutes": 40
+    }
+  ]
+}
+```
+
+`POST /api/me/favorites` con `{ "recipeId": "…" }` es idempotente: responde `200` con
+`{ "data": <resumen> }` tanto si lo agregó ahora como si ya era favorito. Un `recipeId` ausente o que no es
+string da `422 validation_error`; una receta inexistente, con id mal formado o de otra cuenta da
+`404 recipe_not_found`.
+
+`DELETE /api/me/favorites/:recipeId` responde `204` sin cuerpo, aunque la receta no fuera favorita.
 
 ### Ejemplo: Obtener Calendario
 
@@ -839,6 +873,8 @@ formato por defecto:
 | `invalid_payload` | Datos inválidos | Validar input del usuario |
 | `validation_error` | Un campo de la request no es válido; el `message` nombra el campo | Corregir ese campo |
 | `invalid_cooking_skill` | `cookingSkill` no está en el catálogo | Enviar `beginner`, `intermediate` o `advanced` |
+| `slot_cooking_times_not_found` | El usuario todavía no guardó los tiempos de cocina por slot | Usar los valores por defecto y guardarlos con `PUT /api/me/slot-cooking-times` |
+| `invalid_hunger_level` | `hungerLevel` no está en el catálogo | Enviar `light`, `normal` o `strong` |
 | `generation_in_progress` | Ya hay una generación en curso | Esperar o cancelar |
 | `no_active_generation` | No hay generación activa | Generar primero |
 | `budget_exceeded` | Supera el presupuesto | Reducir constraints |

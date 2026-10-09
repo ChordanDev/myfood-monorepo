@@ -139,7 +139,14 @@ defmodule MealPlannerApiWeb.CookingChannel do
 
     case CookingService.finish_session(user, session_id) do
       {:ok, result} ->
-        push(socket, "session_finished", result)
+        # The channel keeps the session identity it always pushed, next to the
+        # finish summary the HTTP route returns.
+        push(
+          socket,
+          "session_finished",
+          Map.merge(result, %{session_id: session_id, status: "completed"})
+        )
+
         {:noreply, socket}
 
       {:error, reason} ->

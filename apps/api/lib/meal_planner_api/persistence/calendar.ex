@@ -4,6 +4,7 @@ defmodule MealPlannerApi.Persistence.Calendar do
   import Ecto.Query, warn: false
 
   alias Ecto.Multi
+  alias MealPlannerApi.AccountClock
   alias MealPlannerApi.Data.PlanningRepo
   alias MealPlannerApi.Repo
   alias MealPlannerApi.Persistence.Shopping
@@ -12,10 +13,15 @@ defmodule MealPlannerApi.Persistence.Calendar do
 
   @default_slot :lunch
 
+  @doc """
+  The Home view of a date range. "Today" is the Account's (`AccountClock`) at
+  `opts[:now]`, the current instant by default, and every meal carries
+  `is_skipped`: its date is before that today and it was not cooked.
+  """
   def monthly_overview(account_id, user_id, start_date, end_date, opts \\ %{}) do
-    selected_date = Map.get(opts, :selected_date, Date.utc_today())
+    today = AccountClock.today(account_id, Map.get(opts, :now, DateTime.utc_now()))
+    selected_date = Map.get(opts, :selected_date, today)
     selected_slot = Map.get(opts, :selected_slot, @default_slot)
-    today = Date.utc_today()
 
     meals =
       from(m in ScheduledMeal,
@@ -61,6 +67,7 @@ defmodule MealPlannerApi.Persistence.Calendar do
         }
       )
       |> Repo.all()
+      |> Enum.map(&put_is_skipped(&1, today))
 
     meals_by_date = Enum.group_by(meals, & &1.date)
 
@@ -181,8 +188,13 @@ defmodule MealPlannerApi.Persistence.Calendar do
              :ok <- validate_meal_date(date, from_date, to_date),
              :ok <- validate_unique_slot(seen, date, slot) do
           normalized_meal =
-            meal
-            |> Map.take([:recipe_id, :is_cooked, :ai_generation_id, :selected_quantity])
+            [:recipe_id, :is_cooked, :ai_generation_id, :selected_quantity]
+            |> Enum.reduce(%{}, fn key, acc ->
+              case meal_value(meal, key) do
+                nil -> acc
+                value -> Map.put(acc, key, value)
+              end
+            end)
             |> Map.put(:date, date)
             |> Map.put(:slot, slot)
 
@@ -250,8 +262,10 @@ defmodule MealPlannerApi.Persistence.Calendar do
     Returns `nil` if no meal exists for that slot.
     Includes recipe macros and favorite status via joins.
   """
-  @spec get_slot_meal(pos_integer(), pos_integer(), Date.t(), atom()) :: map() | nil
-  def get_slot_meal(account_id, user_id, date, slot) when is_atom(slot) do
+  @spec get_slot_meal(Ecto.UUID.t(), Ecto.UUID.t(), Date.t(), atom(), DateTime.t()) ::
+          map() | nil
+  def get_slot_meal(account_id, user_id, date, slot, now \\ DateTime.utc_now())
+      when is_atom(slot) do
     from(m in ScheduledMeal,
       where: m.account_id == ^account_id and m.date == ^date and m.slot == ^slot,
       left_join: r in assoc(m, :recipe),
@@ -293,6 +307,15 @@ defmodule MealPlannerApi.Persistence.Calendar do
       }
     )
     |> Repo.one()
+    |> case do
+      nil -> nil
+      meal -> put_is_skipped(meal, AccountClock.today(account_id, now))
+    end
+  end
+
+  # A meal is skipped when its day passed uncooked; a cooked meal never is.
+  defp put_is_skipped(meal, today) do
+    Map.put(meal, :is_skipped, Date.compare(meal.date, today) == :lt and not meal.is_cooked)
   end
 
   def toggle_favorite(account_id, user_id, recipe_id) do

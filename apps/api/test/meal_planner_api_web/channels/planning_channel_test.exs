@@ -2552,6 +2552,219 @@ defmodule MealPlannerApiWeb.PlanningChannelTest do
     issue_access_v2_token(peer_user, membership)
   end
 
+  # Issue #27 — after a join the channel pushes `session_resumed` when the
+  # Account has an :active PlanningSession, so a reconnecting client recovers
+  # the pending proposal and the recent chat.
+  describe "join/3 session_resumed push" do
+    defp insert_proposal(account, user, proposal_json, status \\ :pending) do
+      {:ok, run} =
+        PlanningRepo.create_generation_run(%{
+          account_id: account.id,
+          user_id: user.id,
+          status: :completed,
+          input_context: %{},
+          started_at: DateTime.utc_now(),
+          completed_at: DateTime.utc_now()
+        })
+
+      {:ok, proposal} =
+        PlanningRepo.create_proposal(%{
+          generation_run_id: run.id,
+          proposal_json: proposal_json,
+          status: status
+        })
+
+      proposal
+    end
+
+    defp backdate!(record, seconds_ago) do
+      record
+      |> Ecto.Changeset.change(%{
+        inserted_at: DateTime.add(DateTime.utc_now(), -seconds_ago, :second)
+      })
+      |> Repo.update!()
+    end
+
+    defp insert_planning_message(account, session, role, content, intent_kind, seconds_ago) do
+      %MealPlannerApi.Persistence.Planning.PlanningMessage{}
+      |> MealPlannerApi.Persistence.Planning.PlanningMessage.changeset(%{
+        account_id: account.id,
+        session_id: session.id,
+        role: role,
+        content: content,
+        intent_kind: intent_kind
+      })
+      |> Repo.insert!()
+      |> backdate!(seconds_ago)
+    end
+
+    defp join_planning(account, token) do
+      {:ok, socket} = connect(UserSocket, %{"token" => token})
+      subscribe_and_join(socket, PlanningChannel, "planning:#{account.id}")
+    end
+
+    test "pushes nothing when the account has no active session", %{
+      account: account,
+      user: user,
+      token: token
+    } do
+      insert_proposal(account, user, %{"meals" => []})
+
+      {:ok, _reply, _socket} = join_planning(account, token)
+
+      refute_push "session_resumed", _payload, 200
+    end
+
+    test "pushes nothing when the only session is terminal", %{
+      account: account,
+      user: user,
+      token: token
+    } do
+      session = insert_active_session(account, user)
+      {:ok, _} = PlanningRepo.expire_session(account.id, session.id)
+
+      {:ok, _reply, _socket} = join_planning(account, token)
+
+      refute_push "session_resumed", _payload, 200
+    end
+
+    test "pushes the session id, latest pending proposal and recent messages in camelCase", %{
+      account: account,
+      user: user,
+      token: token
+    } do
+      session = insert_active_session(account, user)
+
+      %{"old_marker" => true} |> then(&insert_proposal(account, user, &1)) |> backdate!(60)
+      insert_proposal(account, user, %{"rejected_marker" => true}, :rejected)
+      latest = insert_proposal(account, user, %{"meals" => [%{"recipe_id" => 7}]})
+
+      insert_planning_message(account, session, :user, "second", nil, 10)
+      insert_planning_message(account, session, :assistant, "third", "change_constraints", 5)
+      insert_planning_message(account, session, :user, "first", nil, 20)
+
+      {:ok, _reply, _socket} = join_planning(account, token)
+
+      assert_push "session_resumed", payload
+      assert_camel_case_keys(payload)
+
+      assert payload["sessionId"] == session.id
+      assert payload["proposalId"] == latest.id
+      assert payload["proposal"] == %{"meals" => [%{"recipeId" => 7}]}
+
+      assert [
+               %{"role" => "user", "content" => "first", "intentKind" => nil},
+               %{"role" => "user", "content" => "second", "intentKind" => nil},
+               %{
+                 "role" => "assistant",
+                 "content" => "third",
+                 "intentKind" => "change_constraints"
+               }
+             ] = payload["messages"]
+    end
+
+    test "pushes a null proposal when the session has none pending", %{
+      account: account,
+      user: user,
+      token: token
+    } do
+      session = insert_active_session(account, user)
+
+      {:ok, _reply, _socket} = join_planning(account, token)
+
+      assert_push "session_resumed", payload
+      assert payload["sessionId"] == session.id
+      assert payload["proposalId"] == nil
+      assert payload["proposal"] == nil
+      assert payload["messages"] == []
+    end
+
+    test "a pending proposal from before the session started is not pushed", %{
+      account: account,
+      user: user,
+      token: token
+    } do
+      insert_proposal(account, user, %{"stale_marker" => true}) |> backdate!(60)
+      session = insert_active_session(account, user)
+
+      {:ok, _reply, _socket} = join_planning(account, token)
+
+      assert_push "session_resumed", payload
+      assert payload["sessionId"] == session.id
+      assert payload["proposalId"] == nil
+      assert payload["proposal"] == nil
+    end
+
+    test "a pending proposal created after the session started is pushed", %{
+      account: account,
+      user: user,
+      token: token
+    } do
+      insert_proposal(account, user, %{"stale_marker" => true}) |> backdate!(60)
+      session = insert_active_session(account, user)
+      fresh = insert_proposal(account, user, %{"meals" => []})
+
+      {:ok, _reply, _socket} = join_planning(account, token)
+
+      assert_push "session_resumed", payload
+      assert payload["sessionId"] == session.id
+      assert payload["proposalId"] == fresh.id
+    end
+
+    test "keeps only the last 20 messages, oldest first", %{
+      account: account,
+      user: user,
+      token: token
+    } do
+      session = insert_active_session(account, user)
+
+      for n <- 1..25 do
+        insert_planning_message(account, session, :user, "m#{n}", nil, 100 - n)
+      end
+
+      {:ok, _reply, _socket} = join_planning(account, token)
+
+      assert_push "session_resumed", payload
+      contents = Enum.map(payload["messages"], & &1["content"])
+      assert contents == Enum.map(6..25, &"m#{&1}")
+    end
+
+    test "another account's active session is not pushed", %{account: account, token: token} do
+      {:ok, other_user, other_account, _other_token} =
+        issue_identity_and_token("u_plan_other", "acct_plan_other")
+
+      other_session = insert_active_session(other_account, other_user)
+      insert_proposal(other_account, other_user, %{"secret" => true})
+      insert_planning_message(other_account, other_session, :user, "secret chat", nil, 1)
+
+      {:ok, _reply, _socket} = join_planning(account, token)
+
+      refute_push "session_resumed", _payload, 200
+    end
+
+    test "own session never carries another account's proposal or messages", %{
+      account: account,
+      user: user,
+      token: token
+    } do
+      {:ok, other_user, other_account, _other_token} =
+        issue_identity_and_token("u_plan_other2", "acct_plan_other2")
+
+      other_session = insert_active_session(other_account, other_user)
+      insert_proposal(other_account, other_user, %{"secret" => true})
+      insert_planning_message(other_account, other_session, :user, "secret chat", nil, 1)
+
+      session = insert_active_session(account, user)
+
+      {:ok, _reply, _socket} = join_planning(account, token)
+
+      assert_push "session_resumed", payload
+      assert payload["sessionId"] == session.id
+      assert payload["proposal"] == nil
+      assert payload["messages"] == []
+    end
+  end
+
   describe "helper functions behavior" do
     test "build_request_id generates unique ids", %{
       account: account,
