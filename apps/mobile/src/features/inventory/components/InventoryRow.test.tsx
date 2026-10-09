@@ -4,6 +4,7 @@ import React from 'react';
 import { StyleSheet, Text } from 'react-native';
 import { act, create, ReactTestInstance, ReactTestRendererJSON } from 'react-test-renderer';
 import { INVENTORY_CATEGORY_COLORS } from '../constants/categories';
+import { MILK as MILK_LOT } from '../mocks';
 import type { InventoryItem } from '../types';
 import { InventoryRow } from './InventoryRow';
 
@@ -22,24 +23,21 @@ jest.mock('@/context/RecipeThemeContext', () => ({
 }));
 
 const MILK: InventoryItem = {
-  id: 'inv-milk',
+  ...MILK_LOT,
   name: 'Leche entera',
-  category: 'lacteos',
-  quantity: 1000,
-  unit: 'ml',
-  confidence: 'estimated',
+  quantityMilli: 1_000_000,
+  notes: null,
 };
 
 function renderRow(item: InventoryItem) {
   const onEdit = jest.fn();
-  const onDelete = jest.fn();
   let tree: ReturnType<typeof create>;
 
   act(() => {
-    tree = create(<InventoryRow item={item} onEdit={onEdit} onDelete={onDelete} />);
+    tree = create(<InventoryRow item={item} onEdit={onEdit} />);
   });
 
-  return { tree: tree!, root: tree!.root, onEdit, onDelete };
+  return { tree: tree!, root: tree!.root, onEdit };
 }
 
 function getButton(root: ReactTestInstance, label: string): ReactTestInstance {
@@ -77,39 +75,66 @@ describe('InventoryRow', () => {
     );
   });
 
-  it('tags an estimated quantity as approximate', () => {
-    const { root } = renderRow(MILK);
+  it('paints a category the screen does not draw with the color of the one it maps to', () => {
+    const { tree } = renderRow({ ...MILK, category: 'granos' });
 
-    expect(getTexts(root)).toContain('aprox.');
+    const surface = tree.toJSON() as ReactTestRendererJSON;
+
+    expect(StyleSheet.flatten(surface.props.style)).toEqual(
+      expect.objectContaining({ backgroundColor: INVENTORY_CATEGORY_COLORS.almacen })
+    );
   });
 
-  it('does not tag an exact quantity', () => {
-    const { root } = renderRow({ ...MILK, confidence: 'exact' });
+  it('does not tag the quantity as approximate', () => {
+    const { root } = renderRow(MILK);
 
     expect(getTexts(root)).not.toContain('aprox.');
   });
 
-  it('edits and deletes through buttons labelled with the item name', () => {
-    const { root, onEdit, onDelete } = renderRow(MILK);
+  it('marks a leftover', () => {
+    const { root } = renderRow({ ...MILK, isLeftover: true });
 
+    expect(getTexts(root)).toContain('Sobra');
+  });
+
+  it('does not mark a lot that is not a leftover', () => {
+    const { root } = renderRow(MILK);
+
+    expect(getTexts(root)).not.toContain('Sobra');
+  });
+
+  it('shows the notes under the name, on a single line', () => {
+    const { root } = renderRow({ ...MILK, notes: 'Abierta, usar pronto' });
+
+    const notes = root
+      .findAllByType(Text)
+      .find((node) => node.props.children === 'Abierta, usar pronto');
+
+    expect(getTexts(root).slice(0, 3)).toEqual(['1 L', 'Leche entera', 'Abierta, usar pronto']);
+    expect(notes!.props.numberOfLines).toBe(1);
+  });
+
+  it('shows only the name when the lot has no notes', () => {
+    const { root } = renderRow(MILK);
+
+    expect(getTexts(root)).toEqual(['1 L', 'Leche entera']);
+  });
+
+  it('edits through a button labelled with the item name, its only action', () => {
+    const { root, onEdit } = renderRow(MILK);
+
+    const buttons = root.findAll(
+      (node) =>
+        node.props.accessibilityRole === 'button' && typeof node.props.onPress === 'function'
+    );
     const editButton = getButton(root, 'Editar Leche entera');
-    const deleteButton = getButton(root, 'Borrar Leche entera');
 
-    expect(editButton.props.accessibilityRole).toBe('button');
-    expect(deleteButton.props.accessibilityRole).toBe('button');
+    expect(buttons).toEqual([editButton]);
 
     act(() => {
       editButton.props.onPress();
     });
 
-    expect(onEdit).toHaveBeenCalledTimes(1);
-    expect(onDelete).not.toHaveBeenCalled();
-
-    act(() => {
-      deleteButton.props.onPress();
-    });
-
-    expect(onDelete).toHaveBeenCalledTimes(1);
     expect(onEdit).toHaveBeenCalledTimes(1);
   });
 });

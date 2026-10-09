@@ -12,6 +12,8 @@ defmodule MealPlannerApi.Persistence.Inventory.InventoryItem do
     field(:acquired_price_cents, :integer)
     field(:acquired_at, :utc_datetime_usec)
     field(:expired_at, :utc_datetime_usec)
+    field(:is_leftover, :boolean, default: false)
+    field(:notes, :string)
     field(:last_mutation_at, :utc_datetime_usec)
 
     belongs_to(:account, MealPlannerApi.Persistence.Accounts.Account)
@@ -33,6 +35,8 @@ defmodule MealPlannerApi.Persistence.Inventory.InventoryItem do
       :acquired_price_cents,
       :acquired_at,
       :expired_at,
+      :is_leftover,
+      :notes,
       :last_mutation_at
     ])
     |> validate_required([
@@ -45,6 +49,7 @@ defmodule MealPlannerApi.Persistence.Inventory.InventoryItem do
     ])
     |> validate_number(:quantity_milli, greater_than_or_equal_to: 0)
     |> validate_number(:acquired_price_cents, greater_than_or_equal_to: 0)
+    |> validate_length(:notes, max: 1_000)
     |> foreign_key_constraint(:account_id)
     |> foreign_key_constraint(:ingredient_id)
   end

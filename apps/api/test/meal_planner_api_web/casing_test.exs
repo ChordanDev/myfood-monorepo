@@ -265,7 +265,7 @@ defmodule MealPlannerApiWeb.CasingTest do
       input = %{
         by_category: %{
           "no_perecederos" => [
-            %{ingredient_id: 7, ingredient_name: "Rice", freshness_status: "ok"}
+            %{ingredient_id: 7, name: "Rice", is_leftover: false, expires_at: "2026-10-22"}
           ],
           "lacteos" => []
         }
@@ -274,7 +274,12 @@ defmodule MealPlannerApiWeb.CasingTest do
       assert Casing.camelize_keys(input) == %{
                "byCategory" => %{
                  "no_perecederos" => [
-                   %{"ingredientId" => 7, "ingredientName" => "Rice", "freshnessStatus" => "ok"}
+                   %{
+                     "ingredientId" => 7,
+                     "name" => "Rice",
+                     "isLeftover" => false,
+                     "expiresAt" => "2026-10-22"
+                   }
                  ],
                  "lacteos" => []
                }

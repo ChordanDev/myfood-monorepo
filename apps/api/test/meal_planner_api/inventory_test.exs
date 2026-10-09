@@ -258,6 +258,49 @@ defmodule MealPlannerApi.InventoryTest do
                [500, 700]
     end
 
+    test "additions with notes or the leftover flag remain distinct and anonymous additions skip them" do
+      %{account: account, ingredient: ingredient, user_id: user_id} = lot_identity("notes")
+
+      add = fn attrs ->
+        assert {:ok, result} =
+                 %{
+                   account_id: account.id,
+                   ingredient_id: ingredient.id,
+                   unit: :g,
+                   source_kind: :extra,
+                   source_user_id: user_id,
+                   trigger_type: :manual,
+                   operation: :add
+                 }
+                 |> Map.merge(attrs)
+                 |> PersistenceInventory.apply_delta_and_log()
+
+        result.item
+      end
+
+      leftover = add.(%{delta: 100, is_leftover: true})
+      noted = add.(%{delta: 200, notes: "Opened bag"})
+      anonymous = add.(%{delta: 30})
+      # `is_leftover: false` is the column default, not lot metadata.
+      merged = add.(%{delta: 40, is_leftover: false})
+
+      assert %{is_leftover: true, notes: nil, quantity_milli: 100} = leftover
+      assert %{is_leftover: false, notes: "Opened bag", quantity_milli: 200} = noted
+      assert merged.id == anonymous.id
+      assert %{is_leftover: false, notes: nil, quantity_milli: 70} = merged
+
+      assert PersistenceInventory.list_inventory(account.id)
+             |> Enum.map(& &1.quantity_milli)
+             |> Enum.sort() == [70, 100, 200]
+    end
+
+    test "a lot rejects notes longer than 1000 characters" do
+      changeset = &InventoryItem.changeset(%InventoryItem{}, %{notes: String.duplicate("a", &1)})
+
+      assert Keyword.has_key?(changeset.(1001).errors, :notes)
+      refute Keyword.has_key?(changeset.(1000).errors, :notes)
+    end
+
     test "availability excludes expired lots and subtraction consumes usable lots in stable FEFO order" do
       %{account: account, ingredient: ingredient, user: user, user_id: user_id} =
         lot_identity("fefo")

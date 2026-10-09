@@ -87,6 +87,15 @@ defmodule MealPlannerApiWeb.ApiErrorTest do
       assert (conn |> ApiError.error(:invalid_hard_restriction)).status == 422
     end
 
+    test "maps the inventory code to its HTTP status", %{conn: conn} do
+      conn = conn |> ApiError.error(:inventory_item_not_found)
+
+      assert %{"error" => %{"code" => "inventory_item_not_found", "message" => message}} =
+               json_response(conn, 404)
+
+      assert is_binary(message) and message != ""
+    end
+
     test "keeps a response header set on the conn before rendering", %{conn: conn} do
       conn =
         conn
@@ -250,7 +259,8 @@ defmodule MealPlannerApiWeb.ApiErrorTest do
                  auth_codes ++
                    [:recipe_not_found] ++
                    profile_codes ++
-                   slot_cooking_times_codes ++ preferences_codes ++ Map.keys(@channel_codes)
+                   slot_cooking_times_codes ++
+                   preferences_codes ++ [:inventory_item_not_found] ++ Map.keys(@channel_codes)
                )
     end
   end

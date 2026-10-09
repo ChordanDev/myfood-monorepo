@@ -142,10 +142,15 @@ function inventoryItem(overrides: Partial<InventoryItem> = {}): InventoryItem {
     id: 'inv-i1',
     ingredientId: 'i1',
     name: 'Arroz Blanco',
-    category: 'almacen',
-    quantity: 500,
+    category: 'no_perecederos',
+    quantityMilli: 500_000,
     unit: 'g',
-    confidence: 'exact',
+    sourceKind: 'planned',
+    acquiredAt: null,
+    expiresAt: '2026-12-01',
+    freshness: 'ok',
+    isLeftover: false,
+    notes: null,
     ...overrides,
   };
 }
@@ -321,7 +326,7 @@ describe('RecipeScreen', () => {
             id: 'inv-i2',
             ingredientId: 'i2',
             name: 'Pollo (Pechuga)',
-            quantity: 50,
+            quantityMilli: 50_000,
           }),
         ],
       });
@@ -335,7 +340,12 @@ describe('RecipeScreen', () => {
       useInventoryStore.setState({
         items: [
           inventoryItem(),
-          inventoryItem({ id: 'inv-free', ingredientId: undefined, name: 'Pollo', quantity: 900 }),
+          inventoryItem({
+            id: 'inv-free',
+            ingredientId: undefined,
+            name: 'Pollo',
+            quantityMilli: 900_000,
+          }),
         ],
       });
       const tree = renderScreen();

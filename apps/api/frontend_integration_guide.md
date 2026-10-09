@@ -529,6 +529,12 @@ Planning chat errors return `422` with:
 
 ## 6. Inventory (REST)
 
+Keys are camelCase on these routes, in requests and in responses (issue #11). snake_case request keys are
+still accepted. Values are not rewritten: `no_perecederos` stays a category and `validation_error` stays a
+code.
+
+Quantities are integers in thousandths of the unit (`quantityMilli: 1500` with `unit: "g"` is 1.5 g).
+
 ### 6.1 Get inventory view
 
 - Method: `GET`
@@ -544,30 +550,47 @@ Success response:
       "warning": [],
       "expired": []
     },
-    "by_category": [],
+    "byCategory": {
+      "no_perecederos": []
+    },
     "extras": [],
     "totals": {
-      "items_count": 12,
-      "warning_count": 2,
-      "expired_count": 1
+      "itemsCount": 12,
+      "warningCount": 2,
+      "expiredCount": 1
     }
   }
 }
 ```
 
+A lot at quantity zero (disposed or fully consumed) is not listed and not counted.
+
 Each inventory item contains:
 
-- `id`
-- `ingredient_id`
-- `ingredient_name`
-- `category`
-- `quantity_milli`
-- `unit`
-- `source_kind`
-- `acquired_at`
-- `expired_at`
-- `inferred_expired_at`
-- `freshness_status`
+```json
+{
+  "id": "<item_uuid>",
+  "ingredientId": "<ingredient_uuid>",
+  "name": "Arroz",
+  "category": "no_perecederos",
+  "quantityMilli": 400,
+  "unit": "g",
+  "sourceKind": "extra",
+  "acquiredAt": null,
+  "expiresAt": "2026-10-28",
+  "freshness": "ok",
+  "isLeftover": false,
+  "notes": null
+}
+```
+
+- `category`: `lacteos`, `frutas`, `verduras`, `carnes`, `granos`, `congelados`, `no_perecederos` or `otros`.
+- `unit`: `g`, `ml` or `unit`.
+- `sourceKind`: `planned` or `extra`.
+- `acquiredAt`: ISO 8601 datetime, or `null`.
+- `expiresAt`: always an ISO date (`YYYY-MM-DD`). It is the explicit expiry when the lot has one, else the
+  one inferred from the acquisition date and the category.
+- `freshness`: `ok`, `warning` or `expired`.
 
 ### 6.2 Add extra item
 
@@ -578,13 +601,49 @@ Request body:
 
 ```json
 {
-  "ingredient_id": "<ingredient_uuid>",
-  "quantity_milli": 500,
-  "unit": "g"
+  "ingredientId": "<ingredient_uuid>",
+  "quantityMilli": 500,
+  "unit": "g",
+  "expiresAt": "2026-10-28",
+  "notes": "Opened bag",
+  "isLeftover": false
 }
 ```
 
-Valid units: `g`, `ml`, `unit`
+- `ingredientId` or `ingredientName` (exact catalogue name) is required; `ingredientId` wins when both are
+  sent.
+- `quantityMilli`: required, an integer above zero.
+- `unit`: required, one of `g`, `ml`, `unit`.
+- `expiresAt`: optional, an ISO date or an ISO datetime with an offset. It is stored and read back as its
+  UTC date.
+- `notes`: optional string, trimmed, of at most 1000 characters. A blank one is stored as `null`.
+- `isLeftover`: optional boolean, `false` when omitted.
+
+An add with `expiresAt`, `notes` or `isLeftover: true` creates a lot of its own. An add with none of them
+accumulates in the anonymous lot of that ingredient and unit, and the response carries the accumulated lot.
+
+Success response:
+
+```json
+{
+  "data": {
+    "item": { "id": "<item_uuid>", "quantityMilli": 500, "...": "the item of 6.1" },
+    "mutationEvent": {
+      "id": "<event_uuid>",
+      "inventoryItemId": "<item_uuid>",
+      "triggerType": "manual",
+      "operation": "add",
+      "quantityBeforeMilli": 0,
+      "quantityDeltaMilli": 500,
+      "quantityAfterMilli": 500,
+      "insertedAt": "2026-10-08T17:02:11.482913Z"
+    }
+  }
+}
+```
+
+`triggerType` is `purchase`, `cooking`, `manual` or `voice`; `operation` is `add`, `subtract`, `set` or
+`delete`.
 
 ### 6.3 Update quantity
 
@@ -595,9 +654,14 @@ Request body:
 
 ```json
 {
-  "quantity_milli": 250
+  "quantityMilli": 250
 }
 ```
+
+`quantityMilli` is the new quantity of the lot: an integer, zero or above. Setting zero empties the lot,
+which then leaves the inventory view.
+
+Success response: `{ "data": { "item": {...}, "mutationEvent": {...} } }` as in 6.2, with operation `set`.
 
 ### 6.4 Dispose item
 
@@ -612,7 +676,51 @@ Request body (optional reason):
 }
 ```
 
-### 6.5 Voice flows
+Success response:
+
+```json
+{
+  "data": {
+    "disposed": true,
+    "mutationEvent": {
+      "id": "<event_uuid>",
+      "inventoryItemId": "<item_uuid>",
+      "triggerType": "manual",
+      "operation": "delete",
+      "quantityBeforeMilli": 500,
+      "quantityDeltaMilli": -500,
+      "quantityAfterMilli": 0,
+      "insertedAt": "2026-10-08T17:05:40.120377Z"
+    }
+  }
+}
+```
+
+The lot is kept at quantity zero, so its mutation events survive, and it leaves the inventory view.
+
+### 6.5 Inventory errors
+
+Every error of the routes in this section uses the envelope of section 10:
+
+```json
+{
+  "error": {
+    "code": "validation_error",
+    "message": "The request is not valid."
+  }
+}
+```
+
+| Status | Code                       | When                                                                                              |
+| ------ | -------------------------- | ------------------------------------------------------------------------------------------------- |
+| `422`  | `validation_error`         | Missing, unknown or malformed ingredient; missing, zero, negative or non-integer quantity; missing or unknown unit; malformed `expiresAt`; `notes` that is not a string or is longer than 1000 characters; `isLeftover` that is not a boolean; a voice payload without `text` or `operations`; a rescue request without ingredients |
+| `404`  | `inventory_item_not_found` | `:item_id` is not a lot of the Account: unknown, owned by another Account, or not a UUID          |
+| `404`  | `not_found`                | No recipe is available for a rescue plan                                                          |
+| `500`  | `unknown_error`            | Unexpected failure                                                                                |
+
+The envelope does not name the field that failed.
+
+### 6.6 Voice flows
 
 - Preview parse:
   - `POST /api/inventory/voice/preview`
@@ -641,7 +749,7 @@ Apply request:
 }
 ```
 
-### 6.6 Rescue planning from expiring ingredients
+### 6.7 Rescue planning from expiring ingredients
 
 - Method: `POST`
 - Path: `/api/planning/rescue`
@@ -1133,11 +1241,13 @@ Two error body shapes are in use. Which one a request gets depends on the code p
     and `422 invalid_hunger_level` (see 3.4 and 3.5);
   - `GET /api/recipes/:id`: `404 recipe_not_found` and `403 forbidden` (section 11);
   - `GET /api/shopping-list`, for a rejected `untilDate` or `groupBy` (7.1): `422 validation_error`. Its
-    other errors still use the flat shape below.
+    other errors still use the flat shape below;
+  - the inventory routes of section 6, for every error: `422 validation_error`,
+    `404 inventory_item_not_found` (see 6.5).
 - **Flat (legacy, not migrated to the envelope):** `{ "error": "<reason>" }`, with the status chosen by each
   endpoint (`422` in most controllers). It is still returned by:
   - the validation and domain errors that the non-auth controllers build themselves: account context,
-    dietary profile, planning, planning chat, calendar, cooking, shopping, inventory, memberships, invites,
+    dietary profile, planning, planning chat, calendar, cooking, shopping, memberships, invites,
     account leave and billing;
   - `/api/auth/switch-account`, for the errors its own controller or plug builds;
   - the account scope check on `/api/accounts/:account_id/*`: `403` with `{ "error": "account_mismatch" }`.
