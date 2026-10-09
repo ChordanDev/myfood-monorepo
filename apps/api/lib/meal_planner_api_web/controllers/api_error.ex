@@ -90,6 +90,8 @@ defmodule MealPlannerApiWeb.ApiError do
           | :inventory_item_not_found
           | :shopping_item_not_manual
           | :shopping_item_not_found
+          | :shopping_item_not_planned
+          | :shopping_item_in_cart
           | :generation_in_progress
           | :no_active_generation
           | :missing_session_id
@@ -178,6 +180,9 @@ defmodule MealPlannerApiWeb.ApiError do
     # `shopping_item_not_found`, so existence is not revealed.
     shopping_item_not_manual: {422, "Only a Shopping item added by hand can be deleted."},
     shopping_item_not_found: {404, "The Shopping item was not found."},
+    # Removing or restoring planned Shopping items (issue #40).
+    shopping_item_not_planned: {422, "Only a planned Shopping item can be removed or restored."},
+    shopping_item_in_cart: {409, "A Shopping item in a Cart cannot be removed."},
     # Planning channel (issue #11): every deliberate reason a join or a
     # command of `PlanningChannel` replies, named as the reason was.
     generation_in_progress: {409, "A menu generation is already in progress for this account."},

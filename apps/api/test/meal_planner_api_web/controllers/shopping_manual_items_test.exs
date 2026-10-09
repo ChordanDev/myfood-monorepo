@@ -242,6 +242,153 @@ defmodule MealPlannerApiWeb.ShoppingManualItemsTest do
     end
   end
 
+  describe "POST /api/shopping-items/set-status" do
+    setup c do
+      later = Date.add(Date.utc_today(), 2)
+
+      {:ok, second_meal} =
+        Planning.schedule_meal(%{
+          account_id: c.account.id,
+          date: later,
+          slot: :dinner,
+          recipe_id: c.meal.recipe_id,
+          is_cooked: false
+        })
+
+      first = planned_item!(c)
+
+      second =
+        planned_item!(c, %{
+          scheduled_meal_id: second_meal.id,
+          planned_date: second_meal.date,
+          estimated_price_cents: 300
+        })
+
+      %{first: first, second: second}
+    end
+
+    test "removes a planned item and restores it", c do
+      assert %{"status" => "removed", "updatedRows" => 1, "itemIds" => [id]} =
+               set_status(c.token, %{"itemIds" => [c.first.id], "status" => "removed"}, 200)
+
+      assert id == c.first.id
+      assert %{status: :removed} = Repo.get!(ShoppingItem, c.first.id)
+
+      # One of the two allocations is removed: the line keeps the other one.
+      assert [%{"status" => "needed", "quantityMilli" => 400, "allocations" => [_, _]}] =
+               shopping_list(c.token)["planned"]
+
+      set_status(c.token, %{"itemIds" => [c.second.id], "status" => "removed"}, 200)
+
+      list = shopping_list(c.token)
+      assert [%{"status" => "removed", "quantityMilli" => 800}] = list["planned"]
+
+      assert list["totals"] == %{
+               "needed" => 0,
+               "inCart" => 0,
+               "removed" => 1,
+               "estimatedCents" => 0
+             }
+
+      set_status(c.token, %{"itemIds" => [c.first.id, c.second.id], "status" => "needed"}, 200)
+
+      list = shopping_list(c.token)
+      assert [%{"status" => "needed", "quantityMilli" => 800}] = list["planned"]
+
+      assert list["totals"] == %{
+               "needed" => 1,
+               "inCart" => 0,
+               "removed" => 0,
+               "estimatedCents" => 300
+             }
+
+      assert %{status: :pending} = Repo.get!(ShoppingItem, c.first.id)
+    end
+
+    test "excludes a removed item from the estimate and from the Cart", c do
+      set_status(c.token, %{"itemIds" => [c.second.id], "status" => "removed"}, 200)
+
+      assert shopping_list(c.token)["totals"]["estimatedCents"] == 0
+
+      conn =
+        build_conn()
+        |> put_req_header("authorization", "Bearer " <> c.token)
+        |> post("/api/shopping-items/mark-cart", %{"item_ids" => [c.second.id]})
+
+      assert conn.status >= 400
+      assert %{status: :removed} = Repo.get!(ShoppingItem, c.second.id)
+    end
+
+    test "accepts a single itemId and is idempotent", c do
+      for updated <- [1, 0] do
+        assert %{"updatedRows" => ^updated} =
+                 set_status(c.token, %{"itemId" => c.first.id, "status" => "removed"}, 200)
+      end
+
+      assert %{status: :removed} = Repo.get!(ShoppingItem, c.first.id)
+    end
+
+    test "rejects an invalid request with validation_error and changes nothing", c do
+      for params <- [
+            %{"itemIds" => [c.first.id]},
+            %{"itemIds" => [c.first.id], "status" => "in_cart"},
+            %{"itemIds" => [c.first.id], "status" => "pending"},
+            %{"itemIds" => [c.first.id], "status" => 1},
+            %{"status" => "removed"},
+            %{"itemIds" => [], "status" => "removed"},
+            %{"itemIds" => "abc", "status" => "removed"},
+            %{"itemIds" => [c.first.id, c.first.id], "status" => "removed"}
+          ] do
+        assert rejected(post_set_status(c.token, params), 422) == "validation_error",
+               "expected #{inspect(params)} to be rejected"
+      end
+
+      assert %{status: :pending} = Repo.get!(ShoppingItem, c.first.id)
+    end
+
+    test "answers shopping_item_not_found for unknown, foreign and malformed ids, all or nothing",
+         c do
+      %{"id" => foreign_id} = create_manual(c.other_token, %{"name" => "Theirs"}, 201)
+
+      for id <- [Ecto.UUID.generate(), foreign_id, "not-a-uuid"] do
+        params = %{"itemIds" => [c.first.id, id], "status" => "removed"}
+        assert rejected(post_set_status(c.token, params), 404) == "shopping_item_not_found"
+      end
+
+      assert %{status: :pending} = Repo.get!(ShoppingItem, c.first.id)
+    end
+
+    test "refuses a manual item with shopping_item_not_planned", c do
+      %{"id" => manual_id} = create_manual(c.token, %{"name" => "Dish soap"}, 201)
+
+      params = %{"itemIds" => [c.first.id, manual_id], "status" => "removed"}
+      assert rejected(post_set_status(c.token, params), 422) == "shopping_item_not_planned"
+
+      assert %{status: :pending} = Repo.get!(ShoppingItem, c.first.id)
+      assert %{status: :pending} = Repo.get!(ShoppingItem, manual_id)
+    end
+
+    test "refuses to remove an item that is in a Cart with shopping_item_in_cart", c do
+      build_conn()
+      |> put_req_header("authorization", "Bearer " <> c.token)
+      |> post("/api/shopping-items/mark-cart", %{"item_ids" => [c.first.id]})
+      |> json_response(200)
+
+      params = %{"itemIds" => [c.first.id], "status" => "removed"}
+      assert rejected(post_set_status(c.token, params), 409) == "shopping_item_in_cart"
+      assert %{status: :in_cart} = Repo.get!(ShoppingItem, c.first.id)
+    end
+
+    test "does not touch an item that was already bought", c do
+      Repo.get!(ShoppingItem, c.first.id)
+      |> Ecto.Changeset.change(status: :checked_out)
+      |> Repo.update!()
+
+      params = %{"itemIds" => [c.first.id], "status" => "removed"}
+      assert rejected(post_set_status(c.token, params), 404) == "shopping_item_not_found"
+    end
+  end
+
   # ---- helpers ---------------------------------------------------------------
 
   defp planned_item!(c, overrides \\ %{}) do
@@ -282,6 +429,20 @@ defmodule MealPlannerApiWeb.ShoppingManualItemsTest do
   defp create_manual(token, params, status) do
     token
     |> post_manual(params)
+    |> json_response(status)
+    |> assert_camel_case_keys()
+    |> Map.fetch!("data")
+  end
+
+  defp post_set_status(token, params) do
+    build_conn()
+    |> put_req_header("authorization", "Bearer " <> token)
+    |> post("/api/shopping-items/set-status", params)
+  end
+
+  defp set_status(token, params, status) do
+    token
+    |> post_set_status(params)
     |> json_response(status)
     |> assert_camel_case_keys()
     |> Map.fetch!("data")

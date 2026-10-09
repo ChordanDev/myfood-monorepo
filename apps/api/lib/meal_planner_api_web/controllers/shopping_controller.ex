@@ -42,6 +42,15 @@ defmodule MealPlannerApiWeb.ShoppingController do
     end
   end
 
+  def set_status(conn, params) do
+    user = scoped_user(conn)
+
+    case ShoppingService.set_item_status(user, params) do
+      {:ok, result} -> json(conn, %{data: result})
+      {:error, reason} -> render_item_error(conn, reason)
+    end
+  end
+
   defp render_item_error(conn, :validation_error), do: conn |> ApiError.error(:validation_error)
 
   defp render_item_error(conn, :shopping_item_not_manual),
@@ -49,6 +58,12 @@ defmodule MealPlannerApiWeb.ShoppingController do
 
   defp render_item_error(conn, :shopping_item_not_found),
     do: conn |> ApiError.error(:shopping_item_not_found)
+
+  defp render_item_error(conn, :shopping_item_not_planned),
+    do: conn |> ApiError.error(:shopping_item_not_planned)
+
+  defp render_item_error(conn, :shopping_item_in_cart),
+    do: conn |> ApiError.error(:shopping_item_in_cart)
 
   defp render_item_error(conn, :invalid_identity), do: conn |> ApiError.error(:invalid_identity)
   defp render_item_error(conn, _reason), do: conn |> ApiError.server_fault()

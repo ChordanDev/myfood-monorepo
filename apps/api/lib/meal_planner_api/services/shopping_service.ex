@@ -377,6 +377,106 @@ defmodule MealPlannerApi.Services.ShoppingService do
   defp deletable(%{status: status}) when status in [:pending, :in_cart], do: :ok
   defp deletable(_closed), do: {:error, :shopping_item_not_found}
 
+  # -------------------------------------------------------------------------
+  # Removed and restored planned items (issue #40)
+  # -------------------------------------------------------------------------
+
+  @item_statuses %{"removed" => :removed, "needed" => :pending}
+
+  @doc """
+  Removes planned Shopping items from the list, or restores them.
+
+  A removed item is one the User will not buy: its line stops counting
+  toward the quantity to buy, the estimate and the Cart, and the list
+  still returns it with status `removed` so it can be restored. A rebuild
+  of the plan keeps it removed while the meal still needs the Ingredient.
+
+  ## Parameters
+
+    * `params` — snake_case request params: `"status"` (`"removed"` or
+      `"needed"`) and the items, `"item_ids"` (a list of ids without
+      repeats) or a single `"item_id"`.
+
+  ## Returns
+
+  `{:ok, %{status, item_ids, updated_rows}}`. Setting the status an item
+  already has changes nothing and succeeds. All items are checked before
+  any is changed; one failure changes none.
+
+    * `{:error, :validation_error}` — a missing or unknown `status`, or
+      no items, a repeated item or an id that is not a string.
+    * `{:error, :shopping_item_not_found}` — an id that is unknown, of
+      another Account, malformed, or of an item already bought or closed.
+    * `{:error, :shopping_item_not_planned}` — a manual item. It is
+      deleted, not removed.
+    * `{:error, :shopping_item_in_cart}` — removing an item that is in a
+      Cart. Take it out of the Cart first.
+  """
+  @spec set_item_status(map(), map()) :: {:ok, map()} | {:error, term()}
+  def set_item_status(user, params) when is_map(params) do
+    with {:ok, identity} <- Identity.ensure_persistent_identity(user),
+         {:ok, status} <- item_status(Map.get(params, "status")),
+         {:ok, item_ids} <- item_ids(params) do
+      Repo.transaction(fn -> change_item_status(identity.account_id, item_ids, status) end)
+    end
+  end
+
+  defp item_status(value) do
+    case is_binary(value) && Map.fetch(@item_statuses, value) do
+      {:ok, status} -> {:ok, status}
+      _unknown -> {:error, :validation_error}
+    end
+  end
+
+  defp item_ids(%{"item_ids" => ids}) when is_list(ids) and ids != [] do
+    if Enum.all?(ids, &is_binary/1) and length(Enum.uniq(ids)) == length(ids),
+      do: {:ok, ids},
+      else: {:error, :validation_error}
+  end
+
+  defp item_ids(%{"item_id" => id}) when is_binary(id), do: {:ok, [id]}
+  defp item_ids(_params), do: {:error, :validation_error}
+
+  # Locks the items the way the Cart does, so a reservation cannot slip in
+  # between the check and the write. The transaction rolls back on the first
+  # failure, so a request changes every item or none.
+  defp change_item_status(account_id, item_ids, status) do
+    with {:ok, uuids} <- cast_item_ids(item_ids),
+         items = Shopping.lock_items_for_account(account_id, uuids),
+         true <- length(items) == length(uuids) || {:error, :shopping_item_not_found},
+         :ok <- check_status_change(items, status) do
+      to_change = Enum.reject(items, &(&1.status == status))
+      Shopping.set_items_status(Enum.map(to_change, & &1.id), status)
+
+      %{
+        status: Atom.to_string(list_status(status)),
+        item_ids: Enum.map(items, & &1.id),
+        updated_rows: length(to_change)
+      }
+    else
+      {:error, reason} -> Repo.rollback(reason)
+    end
+  end
+
+  defp cast_item_ids(item_ids) do
+    casts = Enum.map(item_ids, &Ecto.UUID.cast/1)
+
+    if Enum.all?(casts, &match?({:ok, _}, &1)),
+      do: {:ok, Enum.map(casts, fn {:ok, uuid} -> uuid end)},
+      else: {:error, :shopping_item_not_found}
+  end
+
+  defp check_status_change(items, status) do
+    Enum.find_value(items, :ok, fn item ->
+      cond do
+        item.source == :manual -> {:error, :shopping_item_not_planned}
+        item.status == :in_cart and status == :removed -> {:error, :shopping_item_in_cart}
+        item.status in [:pending, :removed, :in_cart] -> nil
+        true -> {:error, :shopping_item_not_found}
+      end
+    end)
+  end
+
   @spec build_shopping_list_from_schedule(map(), map()) :: {:ok, map()} | {:error, term()}
   def build_shopping_list_from_schedule(user, params \\ %{}) do
     case Identity.ensure_persistent_identity(user) do

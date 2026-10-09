@@ -106,6 +106,8 @@ export type AuthErrorCode =
   | 'inventory_item_not_found'
   | 'shopping_item_not_manual'
   | 'shopping_item_not_found'
+  | 'shopping_item_not_planned'
+  | 'shopping_item_in_cart'
   | 'generation_in_progress'
   | 'no_active_generation'
   | 'missing_session_id'
