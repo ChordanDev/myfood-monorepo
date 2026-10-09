@@ -97,6 +97,7 @@ Success response (`200`):
       "id": "...",
       "type": "individual",
       "trialEndsAt": "2026-01-08T12:00:00Z",
+      "timezone": null,
       "subscriptionStatus": "none",
       "access": {
         "canUseApp": true,
@@ -319,6 +320,42 @@ Errors (envelope, see section 10):
 
 Only the first problem is reported: a key that is not a slot, then each slot in the order breakfast,
 lunch, dinner, and within a slot its minutes before its Hunger level.
+
+### 3.6 Update the Account timezone
+
+- Method: `PUT`
+- Path: `/api/account/timezone`
+- Not capability-gated: an Account whose access has expired can still use it.
+
+The app sends the device's IANA timezone so the Account's "today" follows the User when they travel.
+`account.timezone` in `GET /api/me` is the stored value, `null` until one is saved (the Account's day is
+then the UTC day). Send it only when it differs from the one `me` reported.
+
+Request body, `timezone` required:
+
+```json
+{
+  "timezone": "America/Argentina/Buenos_Aires"
+}
+```
+
+- `timezone`: string, an IANA timezone id known to the server. Missing, `null`, blank, non-string and
+  unknown values are rejected.
+
+Success response (`200`):
+
+```json
+{
+  "account": {
+    "id": "...",
+    "timezone": "America/Argentina/Buenos_Aires"
+  }
+}
+```
+
+Any member of the Account may update it and the last write wins. A rejected request answers
+`422 validation_error` with a `message` that names `timezone`, and the stored value is unchanged. Dates
+already computed are not recomputed: only later requests see the new "today".
 
 ## 4. Planning (REST)
 
@@ -1237,6 +1274,7 @@ Two error body shapes are in use. Which one a request gets depends on the code p
     `/api/auth/signup/request-code`, `/api/auth/signup/verify-code` and `/api/auth/refresh`;
   - `GET /api/me` and its alias `GET /api/auth/me`;
   - `PUT /api/me/profile`: `422 validation_error` and `422 invalid_cooking_skill`;
+  - `PUT /api/account/timezone`: `422 validation_error` (see 3.6);
   - `GET` and `PUT /api/me/slot-cooking-times`: `404 slot_cooking_times_not_found`, `422 validation_error`
     and `422 invalid_hunger_level` (see 3.4 and 3.5);
   - `GET /api/recipes/:id`: `404 recipe_not_found` and `403 forbidden` (section 11);

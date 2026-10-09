@@ -42,6 +42,7 @@ function makeMe(overrides: Partial<CurrentMe> = {}): CurrentMe {
       type: 'individual',
       trialEndsAt: '2099-12-31T00:00:00Z',
       subscriptionStatus: 'none',
+      timezone: null,
       access: { canUseApp: true, reason: null },
     },
     membership: { role: 'owner' },
@@ -185,6 +186,7 @@ describe('AuthProvider — infinite loop guard (Judgment Day C3)', () => {
         ...makeMe().account,
         trialEndsAt: '2020-01-01T00:00:00Z', // long in the past
         subscriptionStatus: 'none',
+        timezone: null,
         access: { canUseApp: true, reason: null },
       },
     });
@@ -222,6 +224,7 @@ describe('AuthProvider — infinite loop guard (Judgment Day C3)', () => {
         ...makeMe().account,
         trialEndsAt: '2020-01-01T00:00:00Z',
         subscriptionStatus: 'none',
+        timezone: null,
         access: { canUseApp: true, reason: null },
       },
     });
@@ -283,6 +286,7 @@ describe('AuthProvider — infinite loop guard (Judgment Day C3)', () => {
         ...makeMe().account,
         trialEndsAt: '2026-01-01T00:00:01Z',
         subscriptionStatus: 'none',
+        timezone: null,
         access: { canUseApp: true, reason: null },
       },
     });

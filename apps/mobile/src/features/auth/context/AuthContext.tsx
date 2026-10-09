@@ -18,7 +18,12 @@ import type {
 } from '../types/auth';
 import * as authService from '@/services/authService';
 import { isTransientAuthError } from '@/services/authService';
-import { normalizeProfileFields, withUpdatedProfile } from '../utils/currentMe';
+import { useAccountTimezoneSync } from '../hooks/useAccountTimezoneSync';
+import {
+  normalizeProfileFields,
+  withAccountTimezone,
+  withUpdatedProfile,
+} from '../utils/currentMe';
 import { reconcileAfterCompletion } from '../utils/postCompletion';
 
 export const AuthContext = createContext<AuthContextValue | null>(null);
@@ -91,6 +96,7 @@ function areCurrentMeEquivalent(a: CurrentMe | null, b: CurrentMe | null): boole
   if (a.account.type !== b.account.type) return false;
   if (a.account.trialEndsAt !== b.account.trialEndsAt) return false;
   if (a.account.subscriptionStatus !== b.account.subscriptionStatus) return false;
+  if (a.account.timezone !== b.account.timezone) return false;
   if (a.account.access.canUseApp !== b.account.access.canUseApp) return false;
   if (a.account.access.reason !== b.account.access.reason) return false;
   if (a.membership.role !== b.membership.role) return false;
@@ -371,6 +377,16 @@ export function AuthProvider({ children }: AuthProviderProps) {
     },
     []
   );
+
+  const applyAccountTimezone = useCallback((timezone: string) => {
+    const currentMe = meRef.current;
+    if (!currentMe || currentMe.account.timezone === timezone) return;
+    const nextMe = withAccountTimezone(currentMe, timezone);
+    meRef.current = nextMe;
+    setMe(nextMe);
+  }, []);
+
+  useAccountTimezoneSync(accessToken ? me : null, applyAccountTimezone);
 
   const handleRevalidationError = useCallback(
     async (error: unknown) => {

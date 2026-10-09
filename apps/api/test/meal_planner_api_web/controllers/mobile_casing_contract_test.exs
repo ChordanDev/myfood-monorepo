@@ -375,6 +375,7 @@ defmodule MealPlannerApiWeb.MobileCasingContractTest do
                "user" => %{"displayName" => _, "householdSize" => nil, "cookingSkill" => nil},
                "account" => %{
                  "trialEndsAt" => trial_ends_at,
+                 "timezone" => nil,
                  "subscriptionStatus" => "none",
                  "access" => %{"canUseApp" => true, "reason" => nil}
                },
