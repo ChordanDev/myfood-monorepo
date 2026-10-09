@@ -99,6 +99,8 @@ defmodule MealPlannerApiWeb.ApiErrorTest do
     test "maps the manual Shopping item codes to their HTTP status", %{conn: conn} do
       assert (conn |> ApiError.error(:shopping_item_not_manual)).status == 422
       assert (conn |> ApiError.error(:shopping_item_not_found)).status == 404
+      assert (conn |> ApiError.error(:shopping_item_not_planned)).status == 422
+      assert (conn |> ApiError.error(:shopping_item_in_cart)).status == 409
     end
 
     test "maps the voice adjustment codes to 422", %{conn: conn} do
@@ -305,7 +307,9 @@ defmodule MealPlannerApiWeb.ApiErrorTest do
                    [
                      :inventory_item_not_found,
                      :shopping_item_not_manual,
-                     :shopping_item_not_found
+                     :shopping_item_not_found,
+                     :shopping_item_not_planned,
+                     :shopping_item_in_cart
                    ] ++
                    Map.keys(@channel_codes)
                )

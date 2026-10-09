@@ -922,7 +922,7 @@ Fields:
   - `id`: `<ingredientId>:<unit>` with `groupBy=ingredient`; the Shopping item id with `groupBy=meal`.
   - `status`: `needed`, `in_cart` or `removed`. An ingredient line reads `in_cart` only when every
     allocation is in a Cart, whoever holds it; otherwise it reads `needed`. A line reads `removed` only when
-    every allocation was removed; its quantity then adds up all of them, so it can be restored.
+    every allocation was removed (7.8); its quantity then adds up all of them, so it can be restored.
   - `source`: always `planned_meal`.
   - `supermarketId`: the supermarket every allocation is assigned to, or `null` when there is none or they
     differ.
@@ -1116,8 +1116,56 @@ the error envelope of section 10:
 
 | Status | Code                       | When                                                                                         |
 | ------ | -------------------------- | -------------------------------------------------------------------------------------------- |
-| `422`  | `shopping_item_not_manual` | The item is a planned one. Planned items are removed, not deleted                           |
+| `422`  | `shopping_item_not_manual` | The item is a planned one. Planned items are removed, not deleted (7.8)                       |
 | `404`  | `shopping_item_not_found`  | `:itemId` is unknown, of another Account, not a UUID, or of an item already bought or closed |
+
+### 7.8 Remove or restore a planned item
+
+- Method: `POST`
+- Path: `/api/shopping-items/set-status`
+
+Request body:
+
+```json
+{
+  "itemIds": ["<shopping_item_uuid>", "<shopping_item_uuid>"],
+  "status": "removed"
+}
+```
+
+- `itemIds`: required, a non-empty list of Shopping item ids without repeats. These are the `itemId` of the
+  `allocations` of a `planned` line (7.1). A single `itemId` string is read in place of the list.
+- `status`: required, `removed` (the User will not buy it) or `needed` (restore it).
+
+Success response (`200`):
+
+```json
+{
+  "data": {
+    "status": "removed",
+    "itemIds": ["<shopping_item_uuid>", "<shopping_item_uuid>"],
+    "updatedRows": 2
+  }
+}
+```
+
+`updatedRows` counts the items whose status changed: setting the status an item already has succeeds and
+changes nothing. The call is all or nothing; if one item is refused none changes.
+
+A removed item stays in `planned` (7.1) so it can be restored: it stops adding to the `quantityMilli` of its
+line, to `estimatedCents` and to the Cart, and a line whose allocations are all removed reads `removed`. A
+re-plan (a confirmed plan or a calendar range replace) keeps it removed while the planned meal still needs
+that ingredient and unit on that date, and drops it when the meal no longer does. Manual items are never
+touched by a re-plan.
+
+Errors use the error envelope of section 10:
+
+| Status | Code                        | When                                                                                  |
+| ------ | --------------------------- | ------------------------------------------------------------------------------------- |
+| `422`  | `validation_error`          | `status` is missing or is not `removed` or `needed`, or `itemIds` is empty or repeats |
+| `404`  | `shopping_item_not_found`   | An id is unknown, of another Account, not a UUID, or of an item already bought        |
+| `422`  | `shopping_item_not_planned` | An id is a manual item. Manual items are deleted (7.7), not removed                   |
+| `409`  | `shopping_item_in_cart`     | Removing an item that is in a Cart. Take it out of the Cart first                     |
 
 ## 8. WebSocket Integration (`planning_channel`)
 
@@ -1398,8 +1446,10 @@ Two error body shapes are in use. Which one a request gets depends on the code p
     other errors still use the flat shape below;
   - the inventory routes of section 6, for every error: `422 validation_error`,
     `404 inventory_item_not_found` (see 6.5);
-  - `POST /api/shopping-items/manual` and `DELETE /api/shopping-items/:itemId` (7.6 and 7.7):
-    `422 validation_error`, `422 shopping_item_not_manual`, `404 shopping_item_not_found`.
+  - `POST /api/shopping-items/manual`, `DELETE /api/shopping-items/:itemId` and
+    `POST /api/shopping-items/set-status` (7.6 to 7.8): `422 validation_error`,
+    `422 shopping_item_not_manual`, `422 shopping_item_not_planned`, `404 shopping_item_not_found`,
+    `409 shopping_item_in_cart`.
 - **Flat (legacy, not migrated to the envelope):** `{ "error": "<reason>" }`, with the status chosen by each
   endpoint (`422` in most controllers). It is still returned by:
   - the validation and domain errors that the non-auth controllers build themselves: account context,

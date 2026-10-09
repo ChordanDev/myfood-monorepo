@@ -90,6 +90,8 @@ defmodule MealPlannerApiWeb.ApiError do
           | :inventory_item_not_found
           | :shopping_item_not_manual
           | :shopping_item_not_found
+          | :shopping_item_not_planned
+          | :shopping_item_in_cart
           | :generation_in_progress
           | :no_active_generation
           | :missing_session_id
@@ -186,6 +188,9 @@ defmodule MealPlannerApiWeb.ApiError do
     # `shopping_item_not_found`, so existence is not revealed.
     shopping_item_not_manual: {422, "Only a Shopping item added by hand can be deleted."},
     shopping_item_not_found: {404, "The Shopping item was not found."},
+    # Removing or restoring planned Shopping items (issue #40).
+    shopping_item_not_planned: {422, "Only a planned Shopping item can be removed or restored."},
+    shopping_item_in_cart: {409, "A Shopping item in a Cart cannot be removed."},
     # Voice adjustment of Inventory (issue #44).
     voice_parse_failed: {422, "The spoken adjustment could not be understood."},
     voice_confirmation_required: {422, "This adjustment needs the User's confirmation first."},

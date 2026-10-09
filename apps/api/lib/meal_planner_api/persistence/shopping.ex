@@ -99,6 +99,36 @@ defmodule MealPlannerApi.Persistence.Shopping do
   end
 
   @doc """
+  Locks and returns the Account's Shopping items with these ids, in id
+  order, the way the Cart locks them. Ids of other Accounts or that do not
+  exist are simply not returned. Call it inside a transaction.
+  """
+  @spec lock_items_for_account(Ecto.UUID.t(), [Ecto.UUID.t()]) :: [ShoppingItem.t()]
+  def lock_items_for_account(account_id, item_ids) when is_list(item_ids) do
+    from(i in ShoppingItem,
+      where: i.account_id == ^account_id and i.id in ^item_ids,
+      order_by: i.id,
+      lock: "FOR UPDATE"
+    )
+    |> Repo.all()
+  end
+
+  @doc """
+  Sets the status of Shopping items by id, one statement, and stamps the
+  write. Returns the number of rows changed.
+  """
+  @spec set_items_status([Ecto.UUID.t()], atom()) :: non_neg_integer()
+  def set_items_status([], _status), do: 0
+
+  def set_items_status(item_ids, status) when is_list(item_ids) do
+    {count, _} =
+      from(i in ShoppingItem, where: i.id in ^item_ids)
+      |> Repo.update_all(set: [status: status, updated_at: DateTime.utc_now()])
+
+    count
+  end
+
+  @doc """
   The manual Shopping items of an Account that are still on the list
   (`:pending` or `:in_cart`), oldest first, with their Ingredient loaded.
   They are for no date, so no date limit applies to them.
