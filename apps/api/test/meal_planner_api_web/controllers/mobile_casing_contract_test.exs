@@ -212,6 +212,15 @@ defmodule MealPlannerApiWeb.MobileCasingContractTest do
 
       assert current_step_id == step.id
       assert state["data"]["snapshot"]["timers"] == timers
+
+      finished =
+        f |> request(:post, "/api/cooking/sessions/#{session_id}/finish") |> success()
+
+      assert %{
+               "scheduledMeal" => %{"id" => ^scheduled_meal_id, "isCooked" => true},
+               "inventoryMutations" => [],
+               "shortages" => []
+             } = finished["data"]
     end
   end
 

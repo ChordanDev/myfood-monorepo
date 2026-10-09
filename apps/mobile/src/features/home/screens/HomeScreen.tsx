@@ -19,6 +19,7 @@ import { useHomeState } from '../hooks/useHomeState';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useHomeRecipeTheme } from '../hooks/useHomeRecipeTheme';
 import { formatDateKey } from '../utils/calendarDate';
+import { CookingResultSheet, useMarkAsCooked } from '@/features/cooking';
 import { useMealPlanStore } from '@/store';
 import { useGradientCrossfade } from '@/hooks/useGradientCrossfade';
 import { getRecipeImageSource } from '@/features/recipe/utils/recipeImageSource';
@@ -31,7 +32,7 @@ export function HomeScreen() {
   const insets = useSafeAreaInsets();
   const tabBarHeight = insets.bottom + 60;
   const eatToday = useMealPlanStore((state) => state.eatToday);
-  const markAsCooked = useMealPlanStore((state) => state.markAsCooked);
+  const cooking = useMarkAsCooked();
   const markAsSkipped = useMealPlanStore((state) => state.markAsSkipped);
   const favoriteRecipeIds = useMealPlanStore((state) => state.favoriteRecipeIds);
   const toggleFavoriteRecipe = useMealPlanStore((state) => state.toggleFavoriteRecipe);
@@ -88,7 +89,7 @@ export function HomeScreen() {
 
   const handleConfirmCooked = () => {
     if (selectedMeal) {
-      markAsCooked(selectedMeal.id);
+      void cooking.markAsCooked(selectedMeal.id);
     }
   };
 
@@ -245,6 +246,11 @@ export function HomeScreen() {
           </View>
         </View>
       </SafeAreaContent>
+      <CookingResultSheet
+        summary={cooking.summary}
+        errorMessage={cooking.errorMessage}
+        onClose={cooking.dismiss}
+      />
       <EatTodaySheet
         visible={eatTodaySheet.visible}
         destinations={eatTodaySheet.destinations}
