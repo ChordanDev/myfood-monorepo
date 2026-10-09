@@ -122,6 +122,8 @@ defmodule MealPlannerApiWeb.ApiError do
           | :cooking_already_finished
           | :cooking_chat_unavailable
           | :inventory_mutation_failed
+          | :voice_parse_failed
+          | :voice_confirmation_required
 
   @type envelope :: %{error: %{code: code() | :unknown_error, message: String.t()}}
 
@@ -171,6 +173,9 @@ defmodule MealPlannerApiWeb.ApiError do
     cooking_already_finished: {409, "This meal has already been cooked."},
     cooking_chat_unavailable: {409, "Cooking is only available for a meal scheduled for today."},
     inventory_mutation_failed: {422, "The inventory could not be updated. Nothing was saved."},
+    # Voice adjustment of Inventory (issue #44).
+    voice_parse_failed: {422, "The spoken adjustment could not be understood."},
+    voice_confirmation_required: {422, "This adjustment needs the User's confirmation first."},
     # Planning channel (issue #11): every deliberate reason a join or a
     # command of `PlanningChannel` replies, named as the reason was.
     generation_in_progress: {409, "A menu generation is already in progress for this account."},

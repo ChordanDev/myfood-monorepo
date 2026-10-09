@@ -1,4 +1,10 @@
-import type { InventoryItem, InventoryMutationEvent, InventoryView } from '../types';
+import type {
+  InventoryItem,
+  InventoryMutationEvent,
+  InventoryView,
+  VoiceApplyResult,
+  VoicePreview,
+} from '../types';
 
 // Frozen answers of the inventory API, shaped as section 6 of the integration guide.
 export const RICE: InventoryItem = {
@@ -114,6 +120,45 @@ export function mutationEvent(
     ...overrides,
   };
 }
+
+// Voice adjustment: "usé 500 gramos de arroz" is parsed with confidence, "usé un poco de arroz"
+// is not and has to be confirmed by the User.
+export const VOICE_TRANSCRIPT_HIGH = 'usé 500 gramos de arroz';
+export const VOICE_TRANSCRIPT_LOW = 'usé un poco de arroz';
+
+const VOICE_RICE_INTENT = Object.freeze({
+  operation: 'subtract',
+  ingredientId: RICE.ingredientId,
+  name: 'Arroz',
+  quantityMilli: 500_000,
+  unit: 'g',
+} as const);
+
+export const VOICE_PREVIEW_HIGH_CONFIDENCE: VoicePreview = Object.freeze({
+  confirmationRequired: false,
+  confidence: 0.95,
+  intent: VOICE_RICE_INTENT,
+});
+
+export const VOICE_PREVIEW_LOW_CONFIDENCE: VoicePreview = Object.freeze({
+  confirmationRequired: true,
+  confidence: 0.55,
+  intent: VOICE_RICE_INTENT,
+});
+
+export const VOICE_APPLY_RESULT: VoiceApplyResult = Object.freeze({
+  ingredientId: RICE.ingredientId,
+  quantityDeltaMilli: -500_000,
+  mutationEvents: [
+    mutationEvent(RICE, {
+      triggerType: 'voice',
+      operation: 'subtract',
+      quantityBeforeMilli: 1_500_000,
+      quantityDeltaMilli: -500_000,
+      quantityAfterMilli: 1_000_000,
+    }),
+  ],
+});
 
 // What `fetch` resolves to, as far as the transport reads a response.
 function jsonResponse(payload: unknown, status: number): Promise<Response> {

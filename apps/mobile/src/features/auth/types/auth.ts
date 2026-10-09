@@ -112,6 +112,8 @@ export type AuthErrorCode =
   | 'invalid_diet'
   | 'invalid_hard_restriction'
   | 'inventory_item_not_found'
+  | 'voice_parse_failed'
+  | 'voice_confirmation_required'
   | 'generation_in_progress'
   | 'no_active_generation'
   | 'missing_session_id'

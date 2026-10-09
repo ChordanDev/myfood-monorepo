@@ -72,3 +72,31 @@ export interface InventoryItemDisposal {
   disposed: true;
   mutationEvent: InventoryMutationEvent;
 }
+
+// What the voice parser understood from a transcript. Subtract only.
+export interface VoiceIntent {
+  operation: 'subtract';
+  ingredientId: string;
+  name: string;
+  quantityMilli: number; // Integer above zero
+  unit: UnitType;
+}
+
+export interface VoicePreview {
+  // True below the confidence the API trusts: the intent must not be applied unconfirmed
+  confirmationRequired: boolean;
+  confidence: number; // 0..1
+  intent: VoiceIntent;
+}
+
+export interface VoiceApplyPayload {
+  transcript: string;
+  intent: VoiceIntent;
+  confirmed: boolean;
+}
+
+export interface VoiceApplyResult {
+  ingredientId: string;
+  quantityDeltaMilli: number; // Negative
+  mutationEvents: InventoryMutationEvent[];
+}
