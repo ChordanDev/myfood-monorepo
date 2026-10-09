@@ -154,6 +154,40 @@ defmodule MealPlannerApi.Data.ShoppingRepo do
   def create_shopping_item(attrs),
     do: %ShoppingItem{} |> ShoppingItem.changeset(attrs) |> Repo.insert()
 
+  # The partial unique index `shopping_items_open_planned_key_index`: its
+  # predicate is part of the conflict target, or PostgreSQL does not match it.
+  @open_planned_key {:unsafe_fragment,
+                     ~s|("account_id","scheduled_meal_id","planned_date","ingredient_id","unit") | <>
+                       ~s|WHERE status IN ('pending','in_cart')|}
+
+  @doc """
+  Stores a ShoppingItem, replacing the open one (`:pending` or `:in_cart`)
+  that has the same planned key: Account, Scheduled meal, planned date,
+  Ingredient and unit.
+
+  The given `quantity_milli`, `checkout_session_id`, `status` and
+  `reservation_token` win over the stored row, which keeps its id and
+  `inserted_at`, so a reserved item comes back without its reservation. Closed ShoppingItems with
+  the same planned key are left alone.
+
+  The plan confirm rebuild writes through this: a Shopping list read can
+  derive an open ShoppingItem between the rebuild's wipe and its insert, and
+  a plain insert would then fail the confirm.
+  """
+  @spec upsert_open_shopping_item(map()) ::
+          {:ok, ShoppingItem.t()} | {:error, Ecto.Changeset.t()}
+  def upsert_open_shopping_item(attrs) do
+    %ShoppingItem{}
+    |> ShoppingItem.changeset(attrs)
+    |> Repo.insert(
+      on_conflict:
+        {:replace,
+         [:quantity_milli, :checkout_session_id, :status, :reservation_token, :updated_at]},
+      conflict_target: @open_planned_key,
+      returning: true
+    )
+  end
+
   @spec upsert_shopping_item(map()) :: {:ok, ShoppingItem.t()} | {:error, Ecto.Changeset.t()}
   def upsert_shopping_item(attrs) do
     %ShoppingItem{}

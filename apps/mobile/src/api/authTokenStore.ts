@@ -16,6 +16,33 @@ export const DEVICE_ID_KEY = 'auth_device_id';
 
 type TokenPair = Pick<AuthSession, 'accessToken' | 'refreshToken' | 'tokenType'>;
 
+type AccessTokenListener = (accessToken: string | null) => void;
+
+const accessTokenListeners = new Set<AccessTokenListener>();
+
+/**
+ * Subscribes to access token changes: the listener receives the new token
+ * once it is stored and `null` once the session is cleared. A storage failure
+ * after the change began does not skip the announcement. Returns the function
+ * that removes the subscription.
+ */
+export function subscribeToAccessToken(listener: AccessTokenListener): () => void {
+  accessTokenListeners.add(listener);
+  return () => {
+    accessTokenListeners.delete(listener);
+  };
+}
+
+function notifyAccessToken(accessToken: string | null): void {
+  for (const listener of accessTokenListeners) {
+    try {
+      listener(accessToken);
+    } catch {
+      // The tokens are already stored: a failing listener must not fail the write.
+    }
+  }
+}
+
 export function withLocalOnboardingCompletion(
   me: CurrentMe,
   completedUserId: string | null
@@ -41,7 +68,12 @@ export async function getCompletedOnboardingUserId(): Promise<string | null> {
 
 export async function persistTokens(tokens: TokenPair): Promise<void> {
   await secureStorage.setItem(ACCESS_TOKEN_KEY, tokens.accessToken);
-  await secureStorage.setItem(REFRESH_TOKEN_KEY, tokens.refreshToken);
+  try {
+    await secureStorage.setItem(REFRESH_TOKEN_KEY, tokens.refreshToken);
+  } finally {
+    // The access token is stored whether or not the refresh token write succeeds.
+    notifyAccessToken(tokens.accessToken);
+  }
 }
 
 export async function persistSession(session: AuthSession): Promise<void> {
@@ -115,10 +147,16 @@ export async function getStoredSession(): Promise<StoredAuthSession | null> {
 }
 
 export async function clearSession(): Promise<void> {
-  await secureStorage.deleteItem(ACCESS_TOKEN_KEY);
-  await secureStorage.deleteItem(REFRESH_TOKEN_KEY);
-  await secureStorage.deleteItem(ME_KEY);
-  await secureStorage.deleteItem(ONBOARDING_COMPLETED_USER_ID_KEY);
+  try {
+    await secureStorage.deleteItem(ACCESS_TOKEN_KEY);
+    await secureStorage.deleteItem(REFRESH_TOKEN_KEY);
+    await secureStorage.deleteItem(ME_KEY);
+    await secureStorage.deleteItem(ONBOARDING_COMPLETED_USER_ID_KEY);
+  } finally {
+    // The caller is ending the session: subscribers must stop using it even
+    // when a delete failed and left part of it in storage.
+    notifyAccessToken(null);
+  }
 }
 
 export async function getDeviceId(): Promise<string> {

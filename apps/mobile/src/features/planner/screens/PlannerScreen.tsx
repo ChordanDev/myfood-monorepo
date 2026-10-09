@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { type LayoutChangeEvent, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useReducedMotion } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { getAuthErrorMessage } from '@/api/errors';
 import { NoisyBackground } from '@/components';
 import { useRecipeTheme } from '@/context/RecipeThemeContext';
 import {
@@ -10,8 +11,9 @@ import {
   ChatComposer,
   ChatTypingIndicator,
 } from '@/features/assistant-chat';
-import { PlannerHeader } from '../components';
+import { PlannerHeader, PlanningJoinNotice } from '../components';
 import { CUSTOM_TAB_BAR_CONTENT_HEIGHT } from '../constants';
+import { usePlanningTopic } from '../hooks/usePlanningTopic';
 import { resolveTurnTrailingSpace } from './turnAnchor';
 
 interface PlannerMessage {
@@ -50,6 +52,7 @@ export const PlannerScreen = () => {
   const { theme } = useRecipeTheme();
   const insets = useSafeAreaInsets();
   const reduceMotion = useReducedMotion();
+  const planningTopic = usePlanningTopic();
   const scrollViewRef = useRef<ScrollView>(null);
   const responseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const initialScrollFrameRef = useRef<number | null>(null);
@@ -246,6 +249,10 @@ export const PlannerScreen = () => {
       <NoisyBackground opacity={0.3} />
 
       <PlannerHeader />
+
+      {planningTopic.status === 'refused' ? (
+        <PlanningJoinNotice message={getAuthErrorMessage(planningTopic.error)} />
+      ) : null}
 
       <ScrollView
         ref={scrollViewRef}

@@ -432,6 +432,16 @@ defmodule MealPlannerApi.Cart do
         {:error, reason} -> Repo.rollback(reason)
       end
 
+      # Close the purchased item before storing its remainder: both share the
+      # planned key, and only one open Shopping item is allowed per key. The
+      # remainder is computed from `item`, which still holds the reserved
+      # quantity.
+      update!(item, %{
+        status: :checked_out,
+        quantity_milli: quantity,
+        estimated_price_cents: line["total_cents"]
+      })
+
       if quantity < item.quantity_milli do
         item
         |> Map.from_struct()
@@ -447,12 +457,6 @@ defmodule MealPlannerApi.Cart do
         |> then(&ShoppingItem.changeset(%ShoppingItem{}, &1))
         |> insert!()
       end
-
-      update!(item, %{
-        status: :checked_out,
-        quantity_milli: quantity,
-        estimated_price_cents: line["total_cents"]
-      })
     end
   end
 
