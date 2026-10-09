@@ -86,6 +86,11 @@ defmodule MealPlannerApi.Data.RecipeRepo do
   `get_visible_recipe/2`), or nil when it has none, is hidden or is missing.
   """
   @spec get_visible_recipe_theme(binary() | nil, binary()) :: map() | nil
+  def get_visible_recipe_theme(nil, id) do
+    # A catalog Recipe has no Account: only catalog Recipes are visible to it.
+    Repo.one(from(r in Recipe, where: r.id == ^id and is_nil(r.account_id), select: r.theme))
+  end
+
   def get_visible_recipe_theme(account_id, id) do
     Repo.one(
       from(r in Recipe,

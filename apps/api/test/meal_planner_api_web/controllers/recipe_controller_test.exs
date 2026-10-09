@@ -325,6 +325,22 @@ defmodule MealPlannerApiWeb.RecipeControllerTest do
                nil
     end
 
+    test "a catalog derived recipe serves the theme of its catalog base", f do
+      base = recipe!(f, %{account_id: nil, source: :traditional, theme: @palette})
+      derived = recipe!(f, %{account_id: nil, source: :ai_generated, base_recipe_id: base.id})
+
+      assert f |> request(derived.id) |> json_response(200) |> get_in(["data", "theme"]) ==
+               @palette
+    end
+
+    test "a catalog derived recipe does not serve the theme of an Account-owned base", f do
+      owned = recipe!(f, %{source: :ai_generated, theme: @palette})
+      derived = recipe!(f, %{account_id: nil, source: :ai_generated, base_recipe_id: owned.id})
+
+      assert f |> request(derived.id) |> json_response(200) |> get_in(["data", "theme"]) ==
+               nil
+    end
+
     test "a theme missing a color, with an unknown key or a bad gradient is rejected" do
       invalid = [
         Map.delete(@palette, "alert"),

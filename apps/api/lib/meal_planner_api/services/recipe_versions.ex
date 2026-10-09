@@ -76,6 +76,7 @@ defmodule MealPlannerApi.Services.RecipeVersions do
       recipe_attrs =
         Map.take(snapshot, Enum.map(@recipe_fields, &to_string/1))
         |> Map.put("account_id", recipe.account_id)
+        |> Map.put("base_recipe_id", recipe.base_recipe_id)
         |> Map.put("created_by_user_id", recipe.created_by_user_id)
 
       successor = insert!(Recipe.changeset(%Recipe{}, recipe_attrs))
