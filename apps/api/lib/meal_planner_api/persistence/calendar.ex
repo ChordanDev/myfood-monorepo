@@ -6,6 +6,7 @@ defmodule MealPlannerApi.Persistence.Calendar do
   alias Ecto.Multi
   alias MealPlannerApi.Data.PlanningRepo
   alias MealPlannerApi.Repo
+  alias MealPlannerApi.Persistence.Shopping
   alias MealPlannerApi.Persistence.Catalog.{FavoriteRecipe, SlotFavorite}
   alias MealPlannerApi.Persistence.Planning.ScheduledMeal
 
@@ -103,9 +104,30 @@ defmodule MealPlannerApi.Persistence.Calendar do
         |> Repo.insert()
 
       meal ->
-        meal
-        |> ScheduledMeal.changeset(attrs)
-        |> Repo.update()
+        update_scheduled_meal(meal, attrs)
+    end
+  end
+
+  # The meal keeps its id, so the delete cascade never fires: a recipe swap has to drop the
+  # open Shopping items itself, or they stay listed for the old recipe's ingredients. The
+  # recipe is the only thing that changes what a meal needs; its date and slot are the lookup
+  # key, and the snapshot is frozen while the recipe stays.
+  defp update_scheduled_meal(meal, attrs) do
+    changeset = ScheduledMeal.changeset(meal, attrs)
+
+    Multi.new()
+    |> Multi.update(:meal, changeset)
+    |> Multi.run(:stale_shopping_items, fn _repo, %{meal: updated} ->
+      if Map.has_key?(changeset.changes, :recipe_id) do
+        {:ok, Shopping.delete_open_items_for_meal(updated.account_id, updated.id)}
+      else
+        {:ok, 0}
+      end
+    end)
+    |> Repo.transaction()
+    |> case do
+      {:ok, %{meal: updated}} -> {:ok, updated}
+      {:error, _step, reason, _changes} -> {:error, reason}
     end
   end
 

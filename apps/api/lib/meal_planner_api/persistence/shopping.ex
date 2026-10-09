@@ -3,6 +3,8 @@ defmodule MealPlannerApi.Persistence.Shopping do
 
   import Ecto.Query, warn: false
 
+  require Logger
+
   alias MealPlannerApi.Repo
 
   alias MealPlannerApi.Persistence.Shopping.{
@@ -11,6 +13,12 @@ defmodule MealPlannerApi.Persistence.Shopping do
     Supermarket,
     SupermarketCatalog
   }
+
+  # A Shopping item derived from a Scheduled meal: its planned key, without
+  # the Account, and the columns the derivation writes.
+  @planned_key_fields [:scheduled_meal_id, :planned_date, :ingredient_id, :unit]
+  @planned_line_fields @planned_key_fields ++ [:quantity_milli]
+  @planned_item_fields [:account_id, :status | @planned_line_fields]
 
   def create_supermarket(attrs),
     do: %Supermarket{} |> Supermarket.changeset(attrs) |> Repo.insert()
@@ -60,6 +68,131 @@ defmodule MealPlannerApi.Persistence.Shopping do
 
   def update_shopping_item(item, attrs),
     do: item |> ShoppingItem.changeset(attrs) |> Repo.update()
+
+  @typedoc "Scheduled meal, planned date, Ingredient and unit of a Shopping item."
+  @type planned_key :: {Ecto.UUID.t(), Date.t(), Ecto.UUID.t(), atom()}
+
+  @doc """
+  Returns the planned keys the Account already has a Shopping item for, among
+  the given Scheduled meals.
+
+  Every status counts: a Shopping item that was bought or archived still
+  answers for its Scheduled meal, so it is not derived again.
+  """
+  @spec planned_item_keys(Ecto.UUID.t(), [Ecto.UUID.t()]) :: MapSet.t(planned_key())
+  def planned_item_keys(_account_id, []), do: MapSet.new()
+
+  def planned_item_keys(account_id, scheduled_meal_ids) when is_list(scheduled_meal_ids) do
+    from(i in ShoppingItem,
+      where: i.account_id == ^account_id and i.scheduled_meal_id in ^scheduled_meal_ids,
+      distinct: true,
+      select: {i.scheduled_meal_id, i.planned_date, i.ingredient_id, i.unit}
+    )
+    |> Repo.all()
+    |> MapSet.new()
+  end
+
+  @doc """
+  Stores the Shopping items derived from Scheduled meals as `:pending`, each
+  planned key at most once.
+
+  `lines` are Shortage lines as `ShoppingRebuilder.compute_net_shortages/2`
+  emits them: `scheduled_meal_id`, `planned_date`, `ingredient_id`, `unit` and
+  `quantity_milli`. They are written in one statement that skips every line
+  whose planned key already has an open Shopping item, so calling this again
+  with the same lines, or from two requests at the same time, stores nothing
+  twice. Of two lines that share a planned key the first one is kept.
+
+  A failure never drops the other lines, and it is always logged:
+
+    * a line `ShoppingItem.changeset/2` rejects is skipped;
+    * if the statement fails, the lines are stored one by one and the ones
+      the database rejects are skipped.
+
+  An error the changeset does not know about is raised to the caller.
+  """
+  @spec insert_planned_items(Ecto.UUID.t(), [map()]) :: :ok
+  def insert_planned_items(_account_id, []), do: :ok
+
+  def insert_planned_items(account_id, lines) when is_list(lines) do
+    {valid, rejected} =
+      lines
+      |> Enum.map(&planned_item_changeset(account_id, &1))
+      |> Enum.split_with(& &1.valid?)
+
+    Enum.each(rejected, &log_planned_item(account_id, &1, "shopping planned item skipped"))
+
+    valid
+    |> Enum.uniq_by(&planned_item_key/1)
+    |> insert_planned_changesets(account_id)
+  end
+
+  defp insert_planned_changesets([], _account_id), do: :ok
+
+  defp insert_planned_changesets(changesets, account_id) do
+    # `insert_all/3` generates the binary id of each row but not its
+    # timestamps.
+    now = DateTime.utc_now()
+
+    # Sorted, so two requests that store the same lines at the same time take
+    # the index entries in the same order and cannot deadlock each other.
+    rows =
+      changesets
+      |> Enum.map(fn changeset ->
+        changeset
+        |> Ecto.Changeset.apply_changes()
+        |> Map.take(@planned_item_fields)
+        |> Map.merge(%{inserted_at: now, updated_at: now})
+      end)
+      |> Enum.sort_by(
+        &{&1.scheduled_meal_id, Date.to_erl(&1.planned_date), &1.ingredient_id, &1.unit}
+      )
+
+    try do
+      Repo.insert_all(ShoppingItem, rows, on_conflict: :nothing)
+      :ok
+    rescue
+      exception ->
+        Logger.error(
+          "shopping planned items batch insert failed account_id=#{account_id} " <>
+            "lines=#{length(rows)} exception=#{inspect(exception.__struct__)} " <>
+            "message=#{Exception.message(exception)}"
+        )
+
+        Enum.each(changesets, &insert_planned_changeset(account_id, &1))
+    end
+  end
+
+  defp insert_planned_changeset(account_id, changeset) do
+    case Repo.insert(changeset, on_conflict: :nothing) do
+      {:ok, _item} ->
+        :ok
+
+      {:error, rejected} ->
+        log_planned_item(account_id, rejected, "shopping planned item insert failed")
+    end
+  end
+
+  defp planned_item_changeset(account_id, line) do
+    attrs =
+      line
+      |> Map.take(@planned_line_fields)
+      |> Map.merge(%{account_id: account_id, status: :pending})
+
+    ShoppingItem.changeset(%ShoppingItem{}, attrs)
+  end
+
+  defp planned_item_key(changeset),
+    do: Enum.map(@planned_key_fields, &Ecto.Changeset.get_field(changeset, &1))
+
+  defp log_planned_item(account_id, changeset, message) do
+    key =
+      Enum.map_join(@planned_key_fields, " ", fn field ->
+        "#{field}=#{Ecto.Changeset.get_field(changeset, field)}"
+      end)
+
+    Logger.error("#{message} account_id=#{account_id} #{key} errors=#{inspect(changeset.errors)}")
+  end
 
   def list_pending_items(account_id, from_date, to_date) do
     from(i in ShoppingItem,
@@ -145,6 +278,23 @@ defmodule MealPlannerApi.Persistence.Shopping do
           i.planned_date < ^date
     )
     |> Repo.update_all(set: [status: :archived, updated_at: DateTime.utc_now()])
+  end
+
+  @doc """
+  Deletes the open (`:pending`, `:in_cart`) Shopping items of one Scheduled meal, so the next
+  list read derives them again from the meal as it is now. Closed items are kept.
+  """
+  @spec delete_open_items_for_meal(Ecto.UUID.t(), Ecto.UUID.t()) :: non_neg_integer()
+  def delete_open_items_for_meal(account_id, scheduled_meal_id) do
+    {deleted, _} =
+      from(i in ShoppingItem,
+        where:
+          i.account_id == ^account_id and i.scheduled_meal_id == ^scheduled_meal_id and
+            i.status in [:pending, :in_cart]
+      )
+      |> Repo.delete_all()
+
+    deleted
   end
 
   def update_open_items_for_ingredient(account_id, ingredient_id, attrs, from_date, to_date) do

@@ -51,6 +51,19 @@ defmodule MealPlannerApiWeb.PlanningChannel do
 
   A command whose payload is not a map replies `invalid_payload`, whatever
   the event.
+
+  ## Join refusals
+
+  A refused join replies one of three codes (issue #24), checked in this
+  order:
+
+    * `unauthenticated`: the socket carries no identity, or its access token
+      has expired since the socket connected. The client refreshes the token
+      and reconnects.
+    * `forbidden`: no Membership resolves for the socket, the Membership
+      belongs to another Account than the topic, or it is not active.
+    * `trial_expired`: capability enforcement is on and the Account is not
+      eligible, the code the HTTP capability plug replies for the same rule.
   """
   use MealPlannerApiWeb, :channel
 
@@ -100,31 +113,61 @@ defmodule MealPlannerApiWeb.PlanningChannel do
   @spec outbound_events() :: [String.t()]
   def outbound_events, do: @outbound_events
 
+  # Issue #24 — a refused join replies one of three codes, checked in this
+  # order: `unauthenticated`, `forbidden`, `trial_expired`. See "Join
+  # refusals" in the moduledoc.
   @impl true
   def join("planning:" <> topic_account_id, _payload, socket) do
+    with :ok <- check_authenticated(socket),
+         {:ok, membership} <- fetch_active_membership(socket, topic_account_id),
+         :ok <- check_join_capability(membership) do
+      {:ok,
+       socket
+       |> assign(:account_id, topic_account_id)
+       |> assign(:current_membership, membership)}
+    else
+      {:error, code} -> {:error, error_payload(code)}
+    end
+  end
+
+  # `UserSocket.connect/3` verifies the token once and the socket can stay
+  # open past the expiry of that token, so the join checks the expiry again.
+  # A socket that carries no user or no claims is refused the same way.
+  defp check_authenticated(socket) do
+    case socket.assigns do
+      %{current_user: user, claims: %{} = claims} when not is_nil(user) ->
+        if token_expired?(claims), do: {:error, :unauthenticated}, else: :ok
+
+      _no_identity ->
+        {:error, :unauthenticated}
+    end
+  end
+
+  # A token without an integer `exp` claim has no expiry to compare and is
+  # not treated as expired.
+  defp token_expired?(%{"exp" => exp}) when is_integer(exp),
+    do: exp <= System.system_time(:second)
+
+  defp token_expired?(_claims), do: false
+
+  defp fetch_active_membership(socket, topic_account_id) do
     membership = LoadCurrentMembershipSocket.membership_from_socket(socket)
 
     cond do
-      is_nil(membership) ->
-        {:error, error_payload(:forbidden)}
+      is_nil(membership) -> {:error, :forbidden}
+      to_string(membership.account_id) != topic_account_id -> {:error, :forbidden}
+      membership.status != :active -> {:error, :forbidden}
+      true -> {:ok, membership}
+    end
+  end
 
-      to_string(membership.account_id) != topic_account_id ->
-        {:error, error_payload(:forbidden)}
-
-      membership.status != :active ->
-        {:error, error_payload(:forbidden)}
-
-      true ->
-        case ChannelCapability.authorize(membership) do
-          :ok ->
-            {:ok,
-             socket
-             |> assign(:account_id, topic_account_id)
-             |> assign(:current_membership, membership)}
-
-          {:error, :subscription_required} ->
-            {:error, error_payload(:subscription_required)}
-        end
+  # `ChannelCapability` is shared with channels that still reply
+  # `subscription_required`. The planning join names the denial as the HTTP
+  # capability plug does for the same rule.
+  defp check_join_capability(membership) do
+    case ChannelCapability.authorize(membership) do
+      :ok -> :ok
+      {:error, :subscription_required} -> {:error, :trial_expired}
     end
   end
 
