@@ -14,6 +14,7 @@ defmodule MealPlannerApiWeb.PlanningChannel do
 
   Eventos salientes (broadcast):
   - `generation_started` — generación iniciada
+  - `planning_message` — mensaje del asistente sobre la propuesta (lo deriva el canal, issue #25)
   - `proposal_ready` — propuesta disponible
   - `proposal_confirmed` — propuesta confirmada
   - `proposal_rejected` — propuesta rechazada
@@ -78,6 +79,7 @@ defmodule MealPlannerApiWeb.PlanningChannel do
   alias MealPlannerApiWeb.Casing
   alias MealPlannerApiWeb.ChannelCapability
   alias MealPlannerApiWeb.Channels.IntentAtomizer
+  alias MealPlannerApiWeb.Channels.Serializers.PlanningEvents
   alias MealPlannerApiWeb.Plugs.LoadCurrentMembershipSocket
 
   # The `ApiError` allowlist by reason name, so a reason a service returned as
@@ -97,6 +99,7 @@ defmodule MealPlannerApiWeb.PlanningChannel do
     proposal_confirmed
     proposal_rejected
     proposal_update
+    planning_message
     session_started
     session_resumed
     session_cancelled
@@ -194,7 +197,36 @@ defmodule MealPlannerApiWeb.PlanningChannel do
 
   # Issue #11 — every event of `@outbound_events` goes through here on its
   # way to the client, whichever module broadcast it.
+  #
+  # Three events are shaped before they leave (issue #25, see
+  # `PlanningEvents`): the proposal of the generation becomes day-by-day cards
+  # and is followed by the `planning_message` of the assistant, and a
+  # `generation_error` has the same keys whoever broadcast it. Every other
+  # payload only has its keys camelized.
   @impl true
+  def handle_out("proposal_ready", payload, socket) do
+    case PlanningEvents.proposal_ready(payload) do
+      {:ok, ready, message} ->
+        push(socket, "proposal_ready", Casing.camelize_keys(ready))
+        push(socket, "planning_message", Casing.camelize_keys(message))
+
+      :passthrough ->
+        push(socket, "proposal_ready", Casing.camelize_keys(payload))
+    end
+
+    {:noreply, socket}
+  end
+
+  def handle_out("generation_error", payload, socket) do
+    push(
+      socket,
+      "generation_error",
+      payload |> PlanningEvents.generation_error() |> Casing.camelize_keys()
+    )
+
+    {:noreply, socket}
+  end
+
   def handle_out(event, payload, socket) do
     push(socket, event, Casing.camelize_keys(payload))
     {:noreply, socket}

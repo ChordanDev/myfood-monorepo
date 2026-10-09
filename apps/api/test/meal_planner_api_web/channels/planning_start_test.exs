@@ -18,8 +18,9 @@ defmodule MealPlannerApiWeb.PlanningStartTest do
   alias MealPlannerApi.Generation.Server
   alias MealPlannerApi.Persistence.Accounts.{AccountMembership, User}
   alias MealPlannerApi.Persistence.Planning.PlanningSession
+  alias MealPlannerApi.Services.GenerationService
   alias MealPlannerApi.Repo
-  alias MealPlannerApiWeb.{ApiError, PlanningChannel, UserSocket}
+  alias MealPlannerApiWeb.{ApiError, Endpoint, PlanningChannel, UserSocket}
 
   @moduletag :capture_log
 
@@ -293,6 +294,207 @@ defmodule MealPlannerApiWeb.PlanningStartTest do
     end
   end
 
+  describe "events (T3)" do
+    setup %{account: account, token: token} do
+      %{socket: join_planning!(token, account)}
+    end
+
+    test "session_started carries the sessionId only", %{socket: socket, account: account} do
+      ref = push(socket, "start_planning", %{"rangeFrom" => in_days(0), "dayCount" => 2})
+
+      assert_reply(ref, :ok, %{"sessionId" => session_id})
+      assert_push("session_started", payload)
+      assert payload == %{"sessionId" => session_id}
+
+      stop_generation_server(account.id)
+    end
+
+    test "generation_started carries requestId, runId and sessionId", %{
+      socket: socket,
+      account: account
+    } do
+      ref =
+        push(socket, "start_planning", %{
+          "requestId" => "req_events_1",
+          "rangeFrom" => in_days(0),
+          "dayCount" => 2
+        })
+
+      assert_reply(ref, :ok, %{"sessionId" => session_id})
+      assert_push("generation_started", payload)
+
+      assert %{"requestId" => "req_events_1", "runId" => run_id, "sessionId" => ^session_id} =
+               payload
+
+      assert is_binary(run_id)
+      assert Enum.sort(Map.keys(payload)) == ["requestId", "runId", "sessionId"]
+      assert_camel_case_keys(payload)
+
+      stop_generation_server(account.id)
+    end
+
+    test "the generation error of a run with no recipes arrives normalized", %{
+      socket: socket,
+      account: account
+    } do
+      ref = push(socket, "start_planning", %{"rangeFrom" => in_days(0), "dayCount" => 2})
+      assert_reply(ref, :ok, %{"sessionId" => _})
+      assert_push("generation_started", %{"runId" => run_id})
+
+      assert_push("generation_error", error, 10_000)
+
+      assert Enum.sort(Map.keys(error)) == ["details", "reason", "requestId", "runId"]
+      assert error["runId"] == run_id
+      assert is_binary(error["reason"])
+      assert is_map(error["details"])
+      assert_camel_case_keys(error)
+
+      stop_generation_server(account.id)
+    end
+
+    test "generation_error has one shape whatever the broadcaster", %{
+      socket: _socket,
+      account: account
+    } do
+      topic = "planning:#{account.id}"
+
+      # Engine, pipeline failure: only a reason.
+      Endpoint.broadcast!(topic, "generation_error", %{reason: "pipeline_error"})
+
+      assert_push("generation_error", only_reason)
+
+      assert only_reason == %{
+               "reason" => "pipeline_error",
+               "details" => %{},
+               "runId" => nil,
+               "requestId" => nil
+             }
+
+      # Engine, optimization failure: run, reason and details.
+      Endpoint.broadcast!(topic, "generation_error", %{
+        run_id: "run-1",
+        reason: "optimization_failed",
+        details: %{missing_slots: 2}
+      })
+
+      assert_push("generation_error", from_engine)
+
+      assert from_engine == %{
+               "reason" => "optimization_failed",
+               "details" => %{"missingSlots" => 2},
+               "runId" => "run-1",
+               "requestId" => nil
+             }
+
+      # Channel, a command that failed: request id and reason.
+      Endpoint.broadcast!(topic, "generation_error", %{request_id: "req-9", reason: "forbidden"})
+
+      assert_push("generation_error", from_channel)
+
+      assert from_channel == %{
+               "reason" => "forbidden",
+               "details" => %{},
+               "runId" => nil,
+               "requestId" => "req-9"
+             }
+    end
+
+    test "proposal_ready carries day-by-day cards and the estimated cost, then planning_message follows",
+         %{socket: _socket, account: account} do
+      day_1 = in_days(1)
+      day_2 = in_days(2)
+
+      proposal =
+        GenerationService.build_proposal_json([
+          resolved(day_2, :dinner, "r-3", "Lentil stew", 700),
+          resolved(day_1, :lunch, "r-2", "Chicken rice", 1_250),
+          resolved(day_1, :breakfast, "r-1", "Oatmeal", nil)
+        ])
+
+      Endpoint.broadcast!("planning:#{account.id}", "proposal_ready", %{
+        proposal_id: "prop-1",
+        run_id: "run-1",
+        proposal: proposal
+      })
+
+      [first, second] = next_pushes(2)
+
+      assert {"proposal_ready", ready} = first
+      assert_camel_case_keys(ready)
+
+      assert ready == %{
+               "proposalId" => "prop-1",
+               "runId" => "run-1",
+               "estimatedCostCents" => 1_950,
+               "days" => [
+                 %{
+                   "date" => day_1,
+                   "costCents" => 1_250,
+                   "meals" => [
+                     meal("breakfast", "r-1", "Oatmeal", nil),
+                     meal("lunch", "r-2", "Chicken rice", 1_250)
+                   ]
+                 },
+                 %{
+                   "date" => day_2,
+                   "costCents" => 700,
+                   "meals" => [meal("dinner", "r-3", "Lentil stew", 700)]
+                 }
+               ]
+             }
+
+      assert {"planning_message", message} = second
+      assert_camel_case_keys(message)
+
+      assert message == %{
+               "role" => "assistant",
+               "text" => "Here is your plan for 2 days: 3 meals, estimated cost 19.50.",
+               "proposalId" => "prop-1",
+               "runId" => "run-1",
+               "summary" => %{"dayCount" => 2, "mealCount" => 3, "estimatedCostCents" => 1_950}
+             }
+    end
+
+    test "a proposal with one meal reads in the singular", %{socket: _socket, account: account} do
+      proposal =
+        GenerationService.build_proposal_json([
+          resolved(in_days(1), :lunch, "r-2", "Chicken rice", 100)
+        ])
+
+      Endpoint.broadcast!("planning:#{account.id}", "proposal_ready", %{
+        proposal_id: "p",
+        run_id: "r",
+        proposal: proposal
+      })
+
+      [_ready, {"planning_message", message}] =
+        next_pushes(2)
+
+      assert message["text"] == "Here is your plan for 1 day: 1 meal, estimated cost 1.00."
+    end
+
+    test "a proposal_ready that is not the generation's keeps its payload", %{
+      socket: _socket,
+      account: account
+    } do
+      Endpoint.broadcast!("planning:#{account.id}", "proposal_ready", %{
+        request_id: "req-1",
+        proposal: %{scheduled_meals: []}
+      })
+
+      assert_push("proposal_ready", payload)
+      assert payload == %{"requestId" => "req-1", "proposal" => %{"scheduledMeals" => []}}
+      refute_push("planning_message", _)
+    end
+
+    test "the events of the Planner are intercepted" do
+      for event <-
+            ~w(session_started generation_started proposal_ready planning_message generation_error) do
+        assert event in PlanningChannel.outbound_events()
+      end
+    end
+  end
+
   # ==========================================================================
   # Helpers
   # ==========================================================================
@@ -361,6 +563,42 @@ defmodule MealPlannerApiWeb.PlanningStartTest do
       lock_owner_membership_id: membership_id,
       lease_expires_at: DateTime.add(DateTime.utc_now(), 120, :second)
     })
+  end
+
+  defp resolved(date, slot, recipe_id, name, price_cents) do
+    %{
+      date: date,
+      slot: slot,
+      recipe_id: recipe_id,
+      recipe_name: name,
+      price_cents: price_cents,
+      macros: %{protein_g: 30, calories: 500, carbs_g: 60}
+    }
+  end
+
+  defp meal(slot, recipe_id, name, price_cents) do
+    %{
+      "slot" => slot,
+      "recipeId" => recipe_id,
+      "recipeName" => name,
+      "priceCents" => price_cents,
+      "macros" => %{"proteinG" => 30, "calories" => 500, "carbsG" => 60}
+    }
+  end
+
+  # The first `count` pushes of proposal_ready or planning_message, in the order they reached
+  # the client. A selective `receive` with one pattern walks the mailbox in
+  # arrival order, so the list is the order.
+  defp next_pushes(count) do
+    for _ <- 1..count do
+      receive do
+        %Phoenix.Socket.Message{event: event, payload: payload}
+        when event in ["proposal_ready", "planning_message"] ->
+          {event, payload}
+      after
+        1_000 -> flunk("expected #{count} proposal_ready / planning_message pushes")
+      end
+    end
   end
 
   defp active_sessions(account) do
