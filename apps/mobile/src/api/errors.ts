@@ -129,7 +129,7 @@ export const AUTH_ERROR_MESSAGES: Partial<Record<AuthErrorCode, string>> = {
   subscription_required: 'Necesitás una suscripción activa para continuar.',
   invalid_range: 'El rango de fechas no es válido.',
   overlapping_range: 'Esas fechas se superponen con una planificación en curso.',
-  planning_invalid_range: 'Elegí entre 1 y 10 días, empezando hoy o más adelante.',
+  planning_invalid_range: 'Elegí entre 1 y 7 días, empezando hoy o más adelante.',
   planning_range_locked: 'Esas fechas ya están en una planificación en curso.',
   forbidden_intent: 'Ese cambio no está permitido.',
   unknown_intent: 'No pudimos entender ese cambio. Probá de nuevo.',

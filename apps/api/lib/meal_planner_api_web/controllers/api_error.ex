@@ -175,7 +175,7 @@ defmodule MealPlannerApiWeb.ApiError do
     # of `invalid_range` / `overlapping_range`. The locked range may carry the
     # display name of the member who holds it, see `envelope/2`.
     planning_invalid_range:
-      {422, "The planning range must be 1 to 10 days and start today or later."},
+      {422, "The planning range must be 1 to 7 days and start today or later."},
     planning_range_locked: {409, "Another planning session holds part of this date range."},
     forbidden_intent: {422, "The intent contains a field that is not allowed."},
     unknown_intent: {422, "The intent kind is not recognized."},
