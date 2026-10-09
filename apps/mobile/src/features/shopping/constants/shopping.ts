@@ -1,12 +1,36 @@
-import type { IngredientCategory } from '@/types/domain';
+import { INGREDIENT_CATEGORY_LABELS } from '@/constants/ingredientCategories';
+import { INGREDIENT_CATEGORIES, type IngredientCategory } from '@/types/domain';
+import type { ShoppingMealSlot } from '../types';
 
-// The category groups are listed in `INGREDIENT_CATEGORIES` order, under the shared
-// `INGREDIENT_CATEGORY_LABELS`. This is the group of the items whose category is not one of them.
+// Group of the lines whose category has no title here.
 export const FALLBACK_CATEGORY: IngredientCategory = 'otros';
 
-// Group of the items no supermarket has an offer for.
-export const NO_SUPERMARKET_GROUP_KEY = 'no-supermarket';
-export const NO_SUPERMARKET_TITLE = 'Sin súper';
+// Categories the server files an ingredient under that the rest of the app does not have.
+const SERVER_ONLY_CATEGORY_LABELS = {
+  granos: 'Granos',
+  no_perecederos: 'No perecederos',
+};
+
+// Title of every category a line can be grouped under.
+export const SHOPPING_CATEGORY_LABELS: Record<string, string> = {
+  ...INGREDIENT_CATEGORY_LABELS,
+  ...SERVER_ONLY_CATEGORY_LABELS,
+};
+
+// Order of the category groups: the one the categories are listed in everywhere, then the
+// ones only the server has, and the fallback group last.
+export const SHOPPING_CATEGORIES: string[] = [
+  ...INGREDIENT_CATEGORIES.filter((category) => category !== FALLBACK_CATEGORY),
+  ...Object.keys(SERVER_ONLY_CATEGORY_LABELS),
+  FALLBACK_CATEGORY,
+];
+
+export const SHOPPING_SLOT_LABELS: Record<ShoppingMealSlot, string> = {
+  breakfast: 'Desayuno',
+  lunch: 'Almuerzo',
+  snack: 'Merienda',
+  dinner: 'Cena',
+};
 
 export const NO_PRICE_LABEL = 'Sin precio';
 

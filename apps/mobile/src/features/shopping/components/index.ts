@@ -7,5 +7,6 @@ export { ShoppingCheckbox } from './ShoppingCheckbox';
 export { ShoppingDatePill } from './ShoppingDatePill';
 export { ShoppingGroupCard } from './ShoppingGroupCard';
 export { ShoppingItemRow } from './ShoppingItemRow';
+export { ShoppingLoadError } from './ShoppingLoadError';
 export { ShoppingManualCard } from './ShoppingManualCard';
 export { ShoppingRestoreLine } from './ShoppingRestoreLine';

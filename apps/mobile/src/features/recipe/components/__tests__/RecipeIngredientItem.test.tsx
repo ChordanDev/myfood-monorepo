@@ -67,6 +67,19 @@ describe('RecipeIngredientItem', () => {
     expect(onRequest).toHaveBeenCalledWith(BASE_ROW);
   });
 
+  it('shows a missing ingredient as missing, with nothing to press, without a request handler', () => {
+    let tree: ReactTestRenderer;
+
+    act(() => {
+      tree = create(<RecipeIngredientItem row={BASE_ROW} />);
+    });
+
+    expect(renderedTexts(tree!)).toContain('Falta');
+    expect(renderedTexts(tree!)).not.toContain('Falta · agregar');
+    expect(tree!.root.findAllByProps({ testID: 'recipe-ingredient-add-i2' })).toHaveLength(0);
+    expect(tree!.root.findAllByProps({ accessibilityRole: 'button' })).toHaveLength(0);
+  });
+
   it('shows a listed ingredient as already in the list, without an add action', () => {
     const { tree, onRequest } = render({ ...BASE_ROW, status: 'listed' });
 

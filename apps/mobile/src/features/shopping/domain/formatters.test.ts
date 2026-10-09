@@ -1,7 +1,13 @@
-import type { ManualShoppingListItem, PlannedShoppingListItem } from '../types';
+import type {
+  ManualShoppingListItem,
+  ShoppingLineAllocation,
+  ShoppingListLine,
+  ShoppingMealSlot,
+} from '../types';
 import {
   formatCartButtonLabel,
   formatCountersLabel,
+  formatItemMealsLine,
   formatItemMetaLine,
   formatItemNameLine,
   formatPrice,
@@ -56,15 +62,17 @@ describe('formatUntilLabel', () => {
 });
 
 describe('row lines', () => {
-  const milk: PlannedShoppingListItem = {
-    id: 'planned:milk',
+  const milk: ShoppingListLine = {
+    id: 'milk:ml',
     source: 'planned_meal',
     status: 'needed',
     name: 'Leche entera',
     ingredientId: 'milk',
-    amountToBuy: 1000,
+    quantityMilli: 1_000_000,
     unit: 'ml',
     category: 'lacteos',
+    supermarketId: null,
+    allocations: [],
   };
 
   const paper: ManualShoppingListItem = {
@@ -76,6 +84,16 @@ describe('row lines', () => {
 
   it('writes the quantity before the name of a planned item', () => {
     expect(formatItemNameLine(milk)).toBe('1 L · Leche entera');
+  });
+
+  it.each([
+    [400_000, 'g', '400 g · Leche entera'],
+    [1_250_000, 'g', '1,25 kg · Leche entera'],
+    [2_500, 'g', '2,5 g · Leche entera'],
+    [750_000, 'ml', '750 ml · Leche entera'],
+    [5_000, 'unit', '5 u · Leche entera'],
+  ] as const)('reads %d thousandths of a %s as "%s"', (quantityMilli, unit, line) => {
+    expect(formatItemNameLine({ ...milk, quantityMilli, unit })).toBe(line);
   });
 
   it('writes just the name of a manual item', () => {
@@ -90,6 +108,73 @@ describe('row lines', () => {
 
   it('says there is no price when there is no offer', () => {
     expect(formatItemMetaLine(undefined)).toBe('Sin precio');
+  });
+});
+
+describe('formatItemMealsLine', () => {
+  function share(date: string, slot: ShoppingMealSlot): ShoppingLineAllocation {
+    return {
+      itemId: `item:${date}:${slot}`,
+      scheduledMealId: `meal:${date}:${slot}`,
+      date,
+      slot,
+      quantityMilli: 1,
+    };
+  }
+
+  function line(...allocations: ShoppingLineAllocation[]): ShoppingListLine {
+    return {
+      id: 'rice:g',
+      source: 'planned_meal',
+      status: 'needed',
+      name: 'Arroz',
+      ingredientId: 'rice',
+      quantityMilli: allocations.length,
+      unit: 'g',
+      category: 'granos',
+      supermarketId: null,
+      allocations,
+    };
+  }
+
+  const lunch = share('2026-10-08', 'lunch');
+  const dinner = share('2026-10-10', 'dinner');
+
+  it('says which meal the line of one meal is for, with its day and its slot', () => {
+    expect(formatItemMealsLine(line(lunch), 'meal')).toBe('8 Oct · Almuerzo');
+  });
+
+  it.each([
+    ['breakfast', 'Desayuno'],
+    ['lunch', 'Almuerzo'],
+    ['snack', 'Merienda'],
+    ['dinner', 'Cena'],
+  ] as const)('names the %s slot "%s"', (slot, label) => {
+    expect(formatItemMealsLine(line(share('2026-03-05', slot)), 'meal')).toBe(`5 Mar · ${label}`);
+  });
+
+  it('writes only the day of a slot it has no name for', () => {
+    const brunch = share('2026-10-08', 'brunch' as ShoppingMealSlot);
+
+    expect(formatItemMealsLine(line(brunch), 'meal')).toBe('8 Oct');
+  });
+
+  it('says how many meals an ingredient line adds up', () => {
+    expect(formatItemMealsLine(line(lunch, dinner), 'ingredient')).toBe('Para 2 comidas');
+    expect(formatItemMealsLine(line(lunch, dinner, lunch), 'ingredient')).toBe('Para 3 comidas');
+  });
+
+  it('has nothing to add to an ingredient line for a single meal', () => {
+    expect(formatItemMealsLine(line(lunch), 'ingredient')).toBeUndefined();
+  });
+
+  it('never passes a line of several meals for the line of one, whatever the grouping', () => {
+    expect(formatItemMealsLine(line(lunch, dinner), 'meal')).toBe('Para 2 comidas');
+  });
+
+  it('has nothing to say about a line without meals', () => {
+    expect(formatItemMealsLine(line(), 'meal')).toBeUndefined();
+    expect(formatItemMealsLine(line(), 'ingredient')).toBeUndefined();
   });
 });
 

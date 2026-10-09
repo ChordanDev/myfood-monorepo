@@ -1,300 +1,197 @@
 import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
-import { useInventoryStore } from '@/features/inventory/store';
+import { isApiError } from '@/api/errors';
 import { safeAsyncStorage } from '@/utils/safeAsyncStorage';
-import { MOCK_SUPERMARKET_OFFERS } from '../mocks';
-import type {
-  ManualShoppingListItem,
-  ShoppingGroupingMode,
-  ShoppingItemStatus,
-  ShoppingListItem,
-  SupermarketOffer,
-} from '../types';
-
-// Manual ids never collide with the planned ones, which are `planned:<ingredientId>`.
-const MANUAL_ID_PREFIX = 'manual:';
-
-const MANUAL_ITEM_STATUSES: ShoppingItemStatus[] = ['needed', 'in_cart', 'removed'];
-
-function isManualItemId(id: string) {
-  return id.startsWith(MANUAL_ID_PREFIX);
-}
-
-// Sequence of a manual id, or 0 when the id does not carry one.
-function getManualItemSequence(id: string) {
-  const sequence = Number(id.slice(MANUAL_ID_PREFIX.length));
-  return Number.isInteger(sequence) && sequence > 0 ? sequence : 0;
-}
-
-function getHighestManualItemSequence(ids: string[]) {
-  return ids.reduce((highest, id) => Math.max(highest, getManualItemSequence(id)), 0);
-}
-
-// Moves the manual items in status `from` to status `to`: only the ones in `ids`, or all of
-// them without it. The stored status decides, so a stale row never skips a transition. The
-// same list is returned when no item moves, so a subscriber is not woken up for nothing.
-function moveManualItems(
-  manualItems: ManualShoppingListItem[],
-  from: ShoppingItemStatus,
-  to: ShoppingItemStatus,
-  ids?: string[]
-) {
-  const moves = (item: ManualShoppingListItem) =>
-    item.status === from && (ids === undefined || ids.includes(item.id));
-
-  if (!manualItems.some(moves)) return manualItems;
-  return manualItems.map((item) => (moves(item) ? { ...item, status: to } : item));
-}
+import { getShoppingList } from '../api/shoppingApi';
+import type { ShoppingGroupBy, ShoppingListLoadStatus, ShoppingListRead } from '../types';
 
 interface ShoppingListState {
-  // Ids of the planned items in the cart. A manual item carries that in its own status.
-  cartIds: string[];
-  removedIds: string[];
-  manualItems: ManualShoppingListItem[];
-  // Last sequence handed out to a manual item. A confirmed purchase deletes manual items
-  // for good, so the stored items alone cannot tell which ids were already used.
-  lastManualItemSequence: number;
-  groupingMode: ShoppingGroupingMode;
+  // Id of the signed-in user the list, its status and its error belong to, or `null` when
+  // they belong to nobody. The cache lives in memory, so it outlives a sign-out: what was read
+  // for one user is never the list of the next one on the same device.
+  ownerId: string | null;
+  // The last read of the list, whole. The server owns the list: nothing here is derived on
+  // the device or merged between reads. `null` until the first read lands.
+  list: ShoppingListRead | null;
+  status: ShoppingListLoadStatus;
+  // What the last read failed with, while `status` is `error`.
+  error: unknown;
   // 'YYYY-MM-DD' key of the last day the user chose to buy for. Without one the list reaches
-  // the last planned date. It is how this device shows the list, not something to sync.
+  // the last planned date. It is how this device reads the list, not something to sync.
   chosenUntilDate: string | undefined;
-  offers: SupermarketOffer[];
-  addToCart: (itemIds: string[]) => void;
-  takeOutOfCart: (itemIds: string[]) => void;
-  confirmPurchase: (items: ShoppingListItem[]) => void;
-  removeItem: (item: ShoppingListItem) => void;
-  // Puts one removed row back on the list. An id that is not removed changes nothing.
-  restoreItem: (itemId: string) => void;
-  restoreRemovedItems: () => void;
-  addManualItem: (name: string) => void;
-  setGroupingMode: (groupingMode: ShoppingGroupingMode) => void;
-  // Stored as given: whether the day can still be chosen is decided when the list is derived.
-  setChosenUntilDate: (dateKey: string | undefined) => void;
+  // Id of the user who chose that day, set and cleared with it. A day is a day of their plan:
+  // it is stored with them, since the cache belongs to nobody when the app starts, and it is
+  // never used to read the list of anyone else.
+  chosenUntilDateOwnerId: string | undefined;
+  // How the lines are grouped. Unlike the day, it is a preference of the device: it stays
+  // when the user changes.
+  groupBy: ShoppingGroupBy;
+  // Reads the list of the signed-in user with the current preferences, and replaces the
+  // cached one with the answer. A list cached for another user is dropped before anything is
+  // asked for, and so is a day another user chose. Without a signed-in user (`null`) there
+  // is no list and nothing is read.
+  refresh: (ownerId: string | null) => Promise<void>;
+  // Both keep the preference and read the list of the user of the cache again with it. The
+  // day is kept as theirs: without a user of the cache no day is kept.
+  setChosenUntilDate: (dateKey: string | undefined) => Promise<void>;
+  setGroupBy: (groupBy: ShoppingGroupBy) => Promise<void>;
 }
 
 type PersistedShoppingListState = Pick<
   ShoppingListState,
-  | 'cartIds'
-  | 'removedIds'
-  | 'manualItems'
-  | 'lastManualItemSequence'
-  | 'groupingMode'
-  | 'chosenUntilDate'
+  'chosenUntilDate' | 'chosenUntilDateOwnerId' | 'groupBy'
 >;
+
+// No day is chosen, so nobody chose one.
+const NO_CHOSEN_DATE = { chosenUntilDate: undefined, chosenUntilDateOwnerId: undefined };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
-// The distinct strings of a stored list; anything else stored in its place is dropped.
-function readIds(value: unknown): string[] {
-  if (!Array.isArray(value)) return [];
-  return [...new Set(value.filter((id): id is string => typeof id === 'string'))];
-}
-
-function readStoredManualItems(value: unknown) {
-  return Array.isArray(value) ? value.filter(isRecord) : [];
-}
-
-function readManualItemId({ id }: Record<string, unknown>) {
-  return typeof id === 'string' && isManualItemId(id) ? id : undefined;
-}
-
-// A stored manual item rebuilt from the fields the list owns, or nothing when it is not one
-// the list can show: without a manual id or a name, or in a status this version does not know.
-function readManualItem(stored: Record<string, unknown>): ManualShoppingListItem | undefined {
-  const id = readManualItemId(stored);
-  const { name, status } = stored;
-  const knownStatus = MANUAL_ITEM_STATUSES.find((candidate) => candidate === status);
-
-  if (id === undefined || typeof name !== 'string' || knownStatus === undefined) return undefined;
-  return { id, source: 'manual', status: knownStatus, name };
-}
-
-function readSequence(value: unknown) {
-  return typeof value === 'number' && Number.isInteger(value) && value > 0 ? value : 0;
-}
-
-function readDateKey(value: unknown) {
-  return typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value) ? value : undefined;
-}
-
 /**
- * Upgrades what an earlier version stored. Version 1 kept purchase records and manual items
- * that stayed `purchased`: the records are dropped, because that stock is already in the
- * inventory, and so are those items, because a confirmed purchase now leaves the list. A
- * removed manual item stays removed.
+ * Upgrades what an earlier version stored. Up to version 2 the list lived on the device: the
+ * cart, the removed rows and the items added by hand were stored next to a grouping by
+ * supermarket. The server owns all of that now. Up to version 3 the chosen day was stored
+ * without the user who chose it, so it is dropped: there is nobody to read the list with it
+ * for. Only the grouping is kept.
  *
  * Nothing is trusted: only the fields this store owns are read, each one by its shape, so a
- * stored state of any version, or a malformed one, hydrates into a valid list. The id counter
- * starts after the highest manual id found, dropped items included, so no id is handed out twice.
+ * stored state of any version, or a malformed one, hydrates into valid preferences.
  */
 export function migrateShoppingListState(persistedState: unknown): PersistedShoppingListState {
   const stored = isRecord(persistedState) ? persistedState : {};
-  const storedManualItems = readStoredManualItems(stored.manualItems);
-  const storedManualItemIds = storedManualItems.flatMap((item) => readManualItemId(item) ?? []);
 
   return {
-    cartIds: readIds(stored.cartIds),
-    removedIds: readIds(stored.removedIds),
-    manualItems: storedManualItems.flatMap((item) => readManualItem(item) ?? []),
-    lastManualItemSequence: Math.max(
-      readSequence(stored.lastManualItemSequence),
-      getHighestManualItemSequence(storedManualItemIds)
-    ),
-    groupingMode: stored.groupingMode === 'supermarket' ? 'supermarket' : 'category',
-    chosenUntilDate: readDateKey(stored.chosenUntilDate),
+    ...NO_CHOSEN_DATE,
+    groupBy: stored.groupBy === 'meal' ? 'meal' : 'ingredient',
   };
 }
 
+// Settles once the stored preferences are in the state, or could not be read. A read waits
+// for it, so a list asked for while the app starts is never read without them.
+let storedPreferences: Promise<void> = Promise.resolve();
+
+// Number of the last read that was asked for. Only its answer may land: a slower answer to
+// an earlier read would otherwise overwrite the list of the preferences chosen after it, or
+// the list of the user who signed in after it.
+let lastReadNumber = 0;
+
 export const useShoppingListStore = create<ShoppingListState>()(
   persist(
-    (set, get) => ({
-      cartIds: [],
-      removedIds: [],
-      manualItems: [],
-      lastManualItemSequence: 0,
-      groupingMode: 'category',
-      chosenUntilDate: undefined,
-      offers: MOCK_SUPERMARKET_OFFERS,
-      // Marking is staging: nothing reaches the inventory until the purchase is confirmed.
-      addToCart: (itemIds) => {
-        set((state) => {
-          // A removed planned item is not on the list, so it cannot be put in the cart.
-          const addedIds = [...new Set(itemIds)].filter(
-            (id) =>
-              !isManualItemId(id) && !state.cartIds.includes(id) && !state.removedIds.includes(id)
-          );
+    (set, get) => {
+      const read = async (ownerId: string | null): Promise<void> => {
+        lastReadNumber += 1;
+        const readNumber = lastReadNumber;
+        const isLastRead = () => readNumber === lastReadNumber && get().ownerId === ownerId;
 
-          return {
-            cartIds: addedIds.length > 0 ? [...state.cartIds, ...addedIds] : state.cartIds,
-            manualItems: moveManualItems(state.manualItems, 'needed', 'in_cart', itemIds),
-          };
-        });
-      },
-      takeOutOfCart: (itemIds) => {
-        set((state) => ({
-          cartIds: state.cartIds.some((id) => itemIds.includes(id))
-            ? state.cartIds.filter((id) => !itemIds.includes(id))
-            : state.cartIds,
-          manualItems: moveManualItems(state.manualItems, 'in_cart', 'needed', itemIds),
-        }));
-      },
-      /**
-       * Buys the cart. `items` is the list as it is derived right now: it says which planned
-       * rows still exist and how much each one is missing, while the store says which ones
-       * are in the cart. So an id whose row is gone (its meal was cooked, the plan changed)
-       * is dropped without touching the inventory, and a second call finds the cart empty.
-       *
-       * The inventory covers the plan from then on, so the bought rows leave the list by
-       * themselves. A manual item has no stock to cover it: it is deleted. There is no undo.
-       */
-      confirmPurchase: (items) => {
-        const { cartIds, removedIds } = get();
+        // What was read for another user goes first, so it is gone whatever this read comes
+        // to. The preferences are looked at below, once the stored ones are in the state.
+        if (get().ownerId !== ownerId) set({ ownerId, list: null, status: 'idle', error: null });
+        if (ownerId === null) return;
 
-        for (const item of items) {
-          if (item.source !== 'planned_meal') continue;
-          if (!cartIds.includes(item.id) || removedIds.includes(item.id)) continue;
+        set({ status: 'loading', error: null });
+        await storedPreferences;
+        // Overtaken while it waited, by a newer read or by a sign-out: nothing is asked for.
+        if (!isLastRead()) return;
 
-          useInventoryStore.getState().addItem(item.ingredientId, item.amountToBuy);
+        // A day another user chose is forgotten before anything is asked for: their plan may
+        // have a meal on it too, and the server would then cut this list at a day this user
+        // never chose. Whose day it is comes from the state, not from a change of the user
+        // of the cache: when the app starts that user is nobody, and the stored day is still
+        // the day of whoever chose it.
+        if (get().chosenUntilDate !== undefined && get().chosenUntilDateOwnerId !== ownerId) {
+          set(NO_CHOSEN_DATE);
         }
+        const { chosenUntilDate, groupBy } = get();
 
-        set((state) => ({
-          cartIds: [],
-          manualItems: state.manualItems.filter((item) => item.status !== 'in_cart'),
-        }));
-      },
-      // A removed row leaves the cart too: restoring it brings it back as needed.
-      removeItem: (item) => {
-        set((state) => {
-          if (item.source === 'manual') {
-            return {
-              manualItems: state.manualItems.map((manualItem) =>
-                manualItem.id === item.id ? { ...manualItem, status: 'removed' } : manualItem
-              ),
-            };
+        // A chosen day stops being one the list can reach without this device knowing: only
+        // the server knows the Account's today and its plan. The day is then forgotten and
+        // the list is read again. That read carries no day, so it cannot come back here.
+        const forgetChosenDateAndReadAgain = () => {
+          set(NO_CHOSEN_DATE);
+          return read(ownerId);
+        };
+
+        try {
+          const list = await getShoppingList({ untilDate: chosenUntilDate, groupBy });
+          if (!isLastRead()) return;
+
+          // The day lost its meals: the read is limited to a day the list no longer offers,
+          // so it would leave out meals the pill says it reaches.
+          if (chosenUntilDate !== undefined && !list.plannedDates.includes(chosenUntilDate)) {
+            return forgetChosenDateAndReadAgain();
           }
 
-          return {
-            cartIds: state.cartIds.includes(item.id)
-              ? state.cartIds.filter((id) => id !== item.id)
-              : state.cartIds,
-            removedIds: state.removedIds.includes(item.id)
-              ? state.removedIds
-              : [...state.removedIds, item.id],
-          };
-        });
-      },
-      // Like removing, restoring never puts a row in the cart: it comes back as needed.
-      restoreItem: (itemId) => {
-        set((state) => ({
-          removedIds: state.removedIds.includes(itemId)
-            ? state.removedIds.filter((id) => id !== itemId)
-            : state.removedIds,
-          manualItems: moveManualItems(state.manualItems, 'removed', 'needed', [itemId]),
-        }));
-      },
-      restoreRemovedItems: () => {
-        set((state) => ({
-          removedIds: [],
-          manualItems: moveManualItems(state.manualItems, 'removed', 'needed'),
-        }));
-      },
-      addManualItem: (name) => {
-        const trimmedName = name.trim();
-        if (!trimmedName) return;
+          set({ list, status: 'ready', error: null });
+        } catch (error) {
+          if (!isLastRead()) return;
 
-        set((state) => {
-          // The stored ids are read too, so a state restored with a counter that is behind
-          // them still never repeats one.
-          const sequence =
-            Math.max(
-              state.lastManualItemSequence,
-              getHighestManualItemSequence(state.manualItems.map((item) => item.id))
-            ) + 1;
+          // The day is before the Account's today: the server rejects the read.
+          if (
+            chosenUntilDate !== undefined &&
+            isApiError(error) &&
+            error.code === 'validation_error'
+          ) {
+            return forgetChosenDateAndReadAgain();
+          }
 
-          return {
-            lastManualItemSequence: sequence,
-            manualItems: [
-              ...state.manualItems,
-              {
-                id: `${MANUAL_ID_PREFIX}${sequence}`,
-                source: 'manual',
-                status: 'needed',
-                name: trimmedName,
-              },
-            ],
-          };
-        });
-      },
-      setGroupingMode: (groupingMode) => set({ groupingMode }),
-      setChosenUntilDate: (chosenUntilDate) => set({ chosenUntilDate }),
-    }),
+          // The list of the last read that landed stays: it is still the best one known.
+          set({ status: 'error', error });
+        }
+      };
+
+      return {
+        ownerId: null,
+        list: null,
+        status: 'idle',
+        error: null,
+        ...NO_CHOSEN_DATE,
+        groupBy: 'ingredient',
+        refresh: read,
+        setChosenUntilDate: (chosenUntilDate) => {
+          const { ownerId } = get();
+
+          set(
+            chosenUntilDate === undefined || ownerId === null
+              ? NO_CHOSEN_DATE
+              : { chosenUntilDate, chosenUntilDateOwnerId: ownerId }
+          );
+          return read(ownerId);
+        },
+        setGroupBy: (groupBy) => {
+          set({ groupBy });
+          return read(get().ownerId);
+        },
+      };
+    },
     {
       name: 'shopping-list-storage',
-      // The chosen day was added without a new version: a list stored before it has no such
-      // field, and hydrates without a chosen day.
-      version: 2,
+      version: 4,
       storage: createJSONStorage(() => safeAsyncStorage),
       // Runs when the stored version is another one.
       migrate: migrateShoppingListState,
-      // Only what the user did is stored. The offers are catalogue data: persisting them
-      // would freeze a stale copy on the device every time their source changes.
+      // Only how the user reads the list is stored: the day with the user who chose it, and
+      // the grouping. The list itself is the server's, and a stored copy, or the user it was
+      // read for, would outlive the session it was read in.
       partialize: ({
-        cartIds,
-        removedIds,
-        manualItems,
-        lastManualItemSequence,
-        groupingMode,
         chosenUntilDate,
+        chosenUntilDateOwnerId,
+        groupBy,
       }): PersistedShoppingListState => ({
-        cartIds,
-        removedIds,
-        manualItems,
-        lastManualItemSequence,
-        groupingMode,
         chosenUntilDate,
+        chosenUntilDateOwnerId,
+        groupBy,
       }),
+      onRehydrateStorage: () => {
+        let settle: () => void = () => {};
+        storedPreferences = new Promise((resolve) => {
+          settle = resolve;
+        });
+
+        // Called when the storage was read, and when reading it failed.
+        return () => settle();
+      },
     }
   )
 );

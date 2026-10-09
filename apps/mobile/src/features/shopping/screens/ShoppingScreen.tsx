@@ -1,5 +1,4 @@
-import { useState } from 'react';
-import { ScrollView, StyleSheet, View } from 'react-native';
+import { ActivityIndicator, ScrollView, StyleSheet, View } from 'react-native';
 import Animated from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { NoisyBackground, SafeAreaContent, SegmentedSwitcher } from '@/components';
@@ -7,28 +6,21 @@ import { useRecipeTheme } from '@/context/RecipeThemeContext';
 import { CUSTOM_TAB_BAR_CONTENT_HEIGHT } from '@/features/planner/constants';
 import { useAnimatedThemeStyle } from '@/hooks/useAnimatedThemeStyle';
 import { withOpacity } from '@/utils/colors';
-import {
-  SHOPPING_CART_BUTTON_SIZE,
-  ShoppingAddItemSheet,
-  ShoppingCartButton,
-  ShoppingCartSheet,
-  ShoppingDatePill,
-  ShoppingGroupCard,
-  ShoppingManualCard,
-  ShoppingRestoreLine,
-} from '../components';
+import { ShoppingDatePill, ShoppingGroupCard, ShoppingLoadError } from '../components';
 import { formatCountersLabel } from '../domain';
 import { useShoppingList } from '../hooks/useShoppingList';
-import type { ShoppingGroupingMode } from '../types';
+import type { ShoppingGroupBy } from '../types';
 
-const GROUPING_OPTIONS: { value: ShoppingGroupingMode; label: string }[] = [
-  { value: 'category', label: 'Por categoría' },
-  { value: 'supermarket', label: 'Por súper' },
+const GROUPING_OPTIONS: { value: ShoppingGroupBy; label: string }[] = [
+  { value: 'ingredient', label: 'Por ingrediente' },
+  { value: 'meal', label: 'Por comida' },
 ];
 
 const HORIZONTAL_PADDING = 14;
 const LIST_GAP = 14;
 
+// The list as the server has it, to read: marking a row, removing it, adding one by hand and
+// buying the cart are not on this screen until the server takes them.
 export function ShoppingScreen() {
   const insets = useSafeAreaInsets();
   const { theme } = useRecipeTheme();
@@ -37,31 +29,21 @@ export function ShoppingScreen() {
     untilLabel,
     untilCalendar,
     setUntilDate,
-    groupingMode,
-    setGroupingMode,
+    groupBy,
+    setGroupBy,
     groups,
-    bestOffers,
+    metaLines,
     counters,
-    manualItems,
-    cartItems,
-    cartCount,
-    toggleItem,
-    toggleGroup,
-    takeOutOfCart,
-    confirmPurchase,
-    addManualItem,
-    removeItem,
-    restoreRemoved,
+    isLoading,
+    isReadingAgain,
+    isEmpty,
+    errorMessage,
+    retry,
   } = useShoppingList();
-  const [isAddSheetVisible, setIsAddSheetVisible] = useState(false);
-  const [isCartSheetVisible, setIsCartSheetVisible] = useState(false);
-  const isListEmpty = groups.length === 0 && manualItems.length === 0;
   // The tab bar floats over the screen, so the content clears it by hand.
   const tabBarHeight = insets.bottom + CUSTOM_TAB_BAR_CONTENT_HEIGHT;
-  // The cart button floats over the list, one gap above the tab bar.
-  const cartButtonBottom = tabBarHeight + LIST_GAP;
-  // The list ends one gap above the button, so the last checkbox scrolls clear of it.
-  const listBottomPadding = cartButtonBottom + SHOPPING_CART_BUTTON_SIZE + LIST_GAP;
+  // The list ends one gap above the tab bar, so the last card scrolls clear of it.
+  const listBottomPadding = tabBarHeight + LIST_GAP;
 
   const groundStyle = useAnimatedThemeStyle({ backgroundColor: theme.appBg });
   const titleStyle = useAnimatedThemeStyle({ color: theme.textDark });
@@ -72,7 +54,7 @@ export function ShoppingScreen() {
       <NoisyBackground opacity={0.3} />
       <SafeAreaContent includeBottom={false}>
         <View style={styles.header}>
-          {/* An empty plan has no last date to show. */}
+          {/* Without a planned date, or before the first read, there is no last date to show. */}
           {untilDate && untilLabel ? (
             <ShoppingDatePill
               label={untilLabel}
@@ -83,19 +65,31 @@ export function ShoppingScreen() {
           ) : null}
           <SegmentedSwitcher
             options={GROUPING_OPTIONS}
-            value={groupingMode}
-            onChange={setGroupingMode}
+            value={groupBy}
+            onChange={setGroupBy}
             style={styles.switcher}
           />
         </View>
 
         <View style={styles.titleRow}>
-          <Animated.Text accessibilityRole="header" style={[styles.title, titleStyle]}>
-            COMPRAS
-          </Animated.Text>
-          <Animated.Text style={[styles.counter, mutedStyle]}>
-            {formatCountersLabel(counters)}
-          </Animated.Text>
+          <View style={styles.titleGroup}>
+            <Animated.Text accessibilityRole="header" style={[styles.title, titleStyle]}>
+              COMPRAS
+            </Animated.Text>
+            {/* The list under it stays, and stays usable: this only says it is being read again. */}
+            {isReadingAgain ? (
+              <ActivityIndicator
+                accessibilityLabel="Actualizando la lista de compras"
+                color={theme.textDark}
+                size="small"
+              />
+            ) : null}
+          </View>
+          {counters ? (
+            <Animated.Text style={[styles.counter, mutedStyle]}>
+              {formatCountersLabel(counters)}
+            </Animated.Text>
+          ) : null}
         </View>
 
         <ScrollView
@@ -105,62 +99,31 @@ export function ShoppingScreen() {
           // would leave that much empty space under the last card.
           contentInsetAdjustmentBehavior="never"
           showsVerticalScrollIndicator={false}>
-          {isListEmpty ? (
+          {/* Above the cards: a list that could not be read again is still the last one read. */}
+          {errorMessage ? <ShoppingLoadError message={errorMessage} onRetry={retry} /> : null}
+          {isLoading ? (
+            <ActivityIndicator
+              accessibilityLabel="Cargando la lista de compras"
+              color={theme.textDark}
+              style={styles.loading}
+            />
+          ) : null}
+          {isEmpty ? (
             <Animated.Text style={[styles.emptyLabel, mutedStyle]}>
               No hay nada para comprar
             </Animated.Text>
           ) : null}
+          {/* Without handlers a card is read-only: the rows show the list and take no press. */}
           {groups.map((group) => (
-            <ShoppingGroupCard
-              key={group.key}
-              group={group}
-              bestOffers={bestOffers}
-              onToggleItem={toggleItem}
-              onRemoveItem={removeItem}
-              onToggleAll={toggleGroup}
-            />
+            <ShoppingGroupCard key={group.key} group={group} metaLines={metaLines} />
           ))}
-          {/* Always last and always there: it is where a manual item is added from. */}
-          <ShoppingManualCard
-            items={manualItems}
-            onToggleItem={toggleItem}
-            onRemoveItem={removeItem}
-            onAdd={() => setIsAddSheetVisible(true)}
-          />
-          {counters.removed > 0 ? (
-            <ShoppingRestoreLine removedCount={counters.removed} onRestore={restoreRemoved} />
-          ) : null}
         </ScrollView>
       </SafeAreaContent>
-      {/* Always on screen, even with an empty cart. Only the button takes touches. */}
-      <View
-        testID="shopping-cart-button"
-        pointerEvents="box-none"
-        style={[styles.cartButton, { bottom: cartButtonBottom }]}>
-        <ShoppingCartButton count={cartCount} onPress={() => setIsCartSheetVisible(true)} />
-      </View>
-      <ShoppingAddItemSheet
-        visible={isAddSheetVisible}
-        onAdd={addManualItem}
-        onClose={() => setIsAddSheetVisible(false)}
-      />
-      <ShoppingCartSheet
-        visible={isCartSheetVisible}
-        items={cartItems}
-        bestOffers={bestOffers}
-        onTakeOut={takeOutOfCart}
-        onConfirm={confirmPurchase}
-        onClose={() => setIsCartSheetVisible(false)}
-      />
     </Animated.View>
   );
 }
 
 const styles = StyleSheet.create({
-  cartButton: {
-    position: 'absolute',
-    right: HORIZONTAL_PADDING,
-  },
   counter: {
     fontFamily: 'Inter_500Medium',
     fontSize: 12,
@@ -184,6 +147,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: HORIZONTAL_PADDING,
     paddingTop: 14,
   },
+  loading: {
+    paddingVertical: 24,
+  },
   screen: {
     flex: 1,
   },
@@ -194,6 +160,13 @@ const styles = StyleSheet.create({
     fontFamily: 'Montserrat_700Bold',
     fontSize: 28,
     lineHeight: 34,
+  },
+  // The title comes first, so the row keeps aligning the counter to its baseline whether the
+  // indicator is there or not.
+  titleGroup: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 8,
   },
   titleRow: {
     alignItems: 'baseline',

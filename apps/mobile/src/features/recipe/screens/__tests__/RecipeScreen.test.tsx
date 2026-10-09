@@ -4,8 +4,7 @@ import { act, create, type ReactTestRenderer } from 'react-test-renderer';
 import { formatDateKey } from '@/features/home/utils/calendarDate';
 import { CHAT_COMPOSER_MIN_HEIGHT } from '@/features/assistant-chat';
 import { useInventoryStore, type InventoryItem } from '@/features/inventory';
-import { getPlannedItemId } from '@/features/shopping/domain';
-import { readShoppingListItems, useShoppingListStore } from '@/features/shopping/store';
+import { useShoppingListStore } from '@/features/shopping/store';
 import { useMealPlanStore } from '@/store';
 import type { MasterRecipe, MealPlanEntry, RecipeThemeConfig } from '@/types/domain';
 import { RecipeBottomFade } from '../../components/RecipeBottomFade';
@@ -85,16 +84,6 @@ jest.mock('@/features/assistant-chat', () => ({
 // recipe only reads the store, the same instance the meal plan consumes ingredients from.
 jest.mock('@/features/inventory', () => ({
   useInventoryStore: jest.requireActual('@/features/inventory/store').useInventoryStore,
-}));
-
-// The same goes for the shopping barrel and its screen. The recipe reads the real derived list
-// and changes the real shopping store, the ones the Carrito is drawn from.
-jest.mock('@/features/shopping', () => ({
-  getIngredientListState: jest.requireActual('@/features/shopping/domain').getIngredientListState,
-  useShoppingListItems: jest.requireActual('@/features/shopping/hooks/useShoppingListItems')
-    .useShoppingListItems,
-  addIngredientToShoppingList: jest.requireActual('@/features/shopping/store')
-    .addIngredientToShoppingList,
 }));
 
 jest.mock('@/context/RecipeThemeContext', () => ({
@@ -225,31 +214,10 @@ function press(tree: ReactTestRenderer, testID: string) {
   });
 }
 
+// The Shopping list is the server's: the recipe neither reads it nor asks the server for it.
 const shopping = () => useShoppingListStore.getState();
 
-function plannedItemOf(ingredientId: string) {
-  const plannedItemId = getPlannedItemId(ingredientId);
-  const item = readShoppingListItems().find((candidate) => candidate.id === plannedItemId);
-  if (!item) throw new Error(`The shopping list has no planned row for ${ingredientId}`);
-
-  return item;
-}
-
-// Takes the planned row of an ingredient off the shopping list, as the Carrito does.
-function removeFromShoppingList(ingredientId: string) {
-  act(() => {
-    shopping().removeItem(plannedItemOf(ingredientId));
-  });
-}
-
-// The meal of the route was already cooked: the shopping list does not cover its ingredients.
-function cookTheMeal() {
-  act(() => {
-    useMealPlanStore.setState({ entries: [entry({ isCooked: true })] });
-  });
-}
-
-// What the row of an ingredient reads at its end: "En stock", "En la lista", "Falta · agregar".
+// What the row of an ingredient reads at its end: "En stock" or "Falta".
 function ingredientStatus(tree: ReactTestRenderer, ingredientId: string) {
   const [row] = tree.root.findAllByProps({ testID: `recipe-ingredient-row-${ingredientId}` });
 
@@ -280,13 +248,6 @@ describe('RecipeScreen', () => {
         { id: 'i2', name: 'Pollo (Pechuga)', category: 'carnes', basePrice: 10, unit: 'g' },
         { id: 'i3', name: 'Tomate', category: 'verduras', basePrice: 3, unit: 'unit' },
       ],
-    });
-    useShoppingListStore.setState({
-      cartIds: [],
-      removedIds: [],
-      manualItems: [],
-      lastManualItemSequence: 0,
-      groupingMode: 'category',
     });
   });
 
@@ -330,106 +291,29 @@ describe('RecipeScreen', () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  describe('ingredients and the shopping list', () => {
-    it('reads a missing ingredient of the planned meal as already in the list, untouched', () => {
-      const stateBefore = shopping();
+  describe('ingredients the inventory is short of', () => {
+    it('reads them as missing, with nothing to send to the shopping list', () => {
       const tree = renderScreen();
 
       expect(ingredientStatus(tree, 'i1')).toBe('En stock');
-      expect(ingredientStatus(tree, 'i2')).toBe('En la lista');
-      expect(ingredientStatus(tree, 'i3')).toBe('En la lista');
+      expect(ingredientStatus(tree, 'i2')).toBe('Falta');
+      expect(ingredientStatus(tree, 'i3')).toBe('Falta');
       expect(hasAddAction(tree, 'i2')).toBe(false);
       expect(hasAddAction(tree, 'i3')).toBe(false);
       expect(renderedTexts(tree)).not.toContain('Falta · agregar');
+      expect(renderedTexts(tree)).not.toContain('En la lista');
+    });
+
+    it('neither reads nor changes the shopping list, nor asks the server for it', () => {
+      const stateBefore = shopping();
+
+      renderScreen();
+
       expect(shopping()).toBe(stateBefore);
+      expect(fetchMock).not.toHaveBeenCalled();
     });
 
-    it('still reads it as in the list while it waits in the cart', () => {
-      shopping().addToCart([getPlannedItemId('i2')]);
-
-      expect(ingredientStatus(renderScreen(), 'i2')).toBe('En la lista');
-    });
-
-    it('offers to add an ingredient that was removed from the list, and restores it when pressed', () => {
-      const tree = renderScreen();
-
-      removeFromShoppingList('i2');
-
-      expect(shopping().removedIds).toEqual([getPlannedItemId('i2')]);
-      expect(ingredientStatus(tree, 'i2')).toBe('Falta · agregar');
-      expect(ingredientStatus(tree, 'i3')).toBe('En la lista');
-
-      press(tree, 'recipe-ingredient-add-i2');
-
-      expect(shopping().removedIds).toEqual([]);
-      expect(shopping().manualItems).toEqual([]);
-      expect(plannedItemOf('i2').status).toBe('needed');
-      expect(ingredientStatus(tree, 'i2')).toBe('En la lista');
-      expect(hasAddAction(tree, 'i2')).toBe(false);
-    });
-
-    it('adds an ingredient by hand when the meal was cooked and the list does not cover it', () => {
-      cookTheMeal();
-      const tree = renderScreen();
-
-      expect(ingredientStatus(tree, 'i2')).toBe('Falta · agregar');
-      expect(ingredientStatus(tree, 'i3')).toBe('Falta · agregar');
-
-      press(tree, 'recipe-ingredient-add-i2');
-
-      expect(shopping().manualItems).toEqual([
-        { id: 'manual:1', source: 'manual', status: 'needed', name: 'Pollo (Pechuga)' },
-      ]);
-      expect(shopping().removedIds).toEqual([]);
-      expect(ingredientStatus(tree, 'i2')).toBe('En la lista');
-      expect(hasAddAction(tree, 'i2')).toBe(false);
-      expect(ingredientStatus(tree, 'i3')).toBe('Falta · agregar');
-    });
-
-    it('adds a single item for a recipe that is not planned, even when it is tapped twice', () => {
-      useMealPlanStore.setState({ entries: [] });
-      const tree = renderScreen();
-      // Both taps land before the screen re-renders, so they reach the same handler.
-      const { onPress } = findButton(tree, 'recipe-ingredient-add-i3').props;
-
-      act(() => {
-        onPress();
-        onPress();
-      });
-
-      expect(shopping().manualItems.map((item) => item.name)).toEqual(['Tomate']);
-      expect(ingredientStatus(tree, 'i3')).toBe('En la lista');
-    });
-
-    it('reads an ingredient as in the list when an item added by hand carries its name', () => {
-      cookTheMeal();
-      shopping().addManualItem('  tomate ');
-      const tree = renderScreen();
-
-      expect(ingredientStatus(tree, 'i3')).toBe('En la lista');
-      expect(ingredientStatus(tree, 'i2')).toBe('Falta · agregar');
-    });
-
-    it('offers to add it again once the item added by hand is removed from the list', () => {
-      cookTheMeal();
-      const tree = renderScreen();
-      press(tree, 'recipe-ingredient-add-i2');
-
-      act(() => {
-        shopping().removeItem(shopping().manualItems[0]);
-      });
-
-      expect(ingredientStatus(tree, 'i2')).toBe('Falta · agregar');
-
-      press(tree, 'recipe-ingredient-add-i2');
-
-      expect(shopping().manualItems).toEqual([
-        { id: 'manual:1', source: 'manual', status: 'needed', name: 'Pollo (Pechuga)' },
-      ]);
-      expect(ingredientStatus(tree, 'i2')).toBe('En la lista');
-    });
-
-    it('keeps a partly stocked ingredient on the list for the amount the inventory is short of', () => {
+    it('reads a partly stocked ingredient as missing', () => {
       useInventoryStore.setState({
         items: [
           inventoryItem(),
@@ -443,8 +327,8 @@ describe('RecipeScreen', () => {
       });
       const tree = renderScreen();
 
-      expect(ingredientStatus(tree, 'i2')).toBe('En la lista');
-      expect(plannedItemOf('i2')).toMatchObject({ amountToBuy: 150, unit: 'g' });
+      expect(ingredientStatus(tree, 'i2')).toBe('Falta');
+      expect(renderedTexts(tree)).toContain('2 te faltan');
     });
 
     it('does not count an inventory item without a catalog link as stock', () => {
@@ -457,11 +341,10 @@ describe('RecipeScreen', () => {
       const tree = renderScreen();
 
       expect(renderedTexts(tree)).toContain('2 te faltan');
-      expect(ingredientStatus(tree, 'i2')).toBe('En la lista');
-      expect(plannedItemOf('i2')).toMatchObject({ amountToBuy: 200 });
+      expect(ingredientStatus(tree, 'i2')).toBe('Falta');
     });
 
-    it('shows an ingredient outside the catalog as missing, with nothing to add to the list', () => {
+    it('shows an ingredient outside the catalog as missing, like the others', () => {
       useMealPlanStore.setState({
         recipes: [
           { ...RECIPE, ingredients: [...RECIPE.ingredients, { ingredientId: 'ghost', amount: 3 }] },
@@ -472,7 +355,6 @@ describe('RecipeScreen', () => {
       expect(ingredientStatus(tree, 'ghost')).toBe('Falta');
       expect(hasAddAction(tree, 'ghost')).toBe(false);
       expect(renderedTexts(tree)).toContain('3 te faltan');
-      expect(shopping().manualItems).toEqual([]);
     });
   });
 
@@ -931,7 +813,6 @@ describe('RecipeScreen', () => {
     });
 
     it('shows the question, then the typing indicator, then the assistant reply', () => {
-      removeFromShoppingList('i2');
       const tree = renderScreen();
 
       ask(tree, QUESTION);
@@ -945,15 +826,17 @@ describe('RecipeScreen', () => {
 
       expect(getComposer(tree).props.isThinking).toBe(false);
       expect(tree.root.findAllByType('ChatTypingIndicator' as never)).toHaveLength(0);
-      expect(renderedTexts(tree).some((text) => text.includes('¿lo agrego a compras?'))).toBe(true);
-      expect(renderedTexts(tree)).toEqual(
-        expect.arrayContaining(['Sí, agregalo', 'No hace falta'])
-      );
+      expect(
+        renderedTexts(tree).some((text) => text.includes('podés adaptar Pollo con arroz y tomate'))
+      ).toBe(true);
     });
 
-    it('makes no offer while the shopping list already has every missing ingredient', () => {
+    it('makes no offer to send a missing ingredient to the shopping list', () => {
+      const stateBefore = shopping();
       const tree = renderScreen();
 
+      // The chicken and the tomato are missing: the assistant still only gives its advice.
+      expect(ingredientStatus(tree, 'i2')).toBe('Falta');
       ask(tree, QUESTION);
       waitForReply();
 
@@ -962,72 +845,11 @@ describe('RecipeScreen', () => {
       );
       expect(renderedTexts(tree)).not.toContain('Sí, agregalo');
       expect(renderedTexts(tree)).not.toContain('No hace falta');
-    });
-
-    it('offers the first missing ingredient the list lacks, skipping the listed ones', () => {
-      removeFromShoppingList('i3');
-      const tree = renderScreen();
-
-      ask(tree, QUESTION);
-      waitForReply();
-
-      expect(
-        renderedTexts(tree).some((text) => text.includes('No tenés tomate en el inventario'))
-      ).toBe(true);
-    });
-
-    it('restores the offered ingredient on the shopping list when the user confirms', () => {
-      removeFromShoppingList('i2');
-      const tree = renderScreen();
-
-      ask(tree, QUESTION);
-      waitForReply();
-      press(tree, 'recipe-chat-action-turn-1-assistant-confirm_add');
-
-      expect(shopping().removedIds).toEqual([]);
-      expect(shopping().manualItems).toEqual([]);
-      expect(plannedItemOf('i2').status).toBe('needed');
-      expect(hasAddAction(tree, 'i2')).toBe(false);
-      expect(ingredientStatus(tree, 'i2')).toBe('En la lista');
       expect(
         tree.root.findAllByProps({ testID: 'recipe-chat-action-turn-1-assistant-confirm_add' })
       ).toHaveLength(0);
-      expect(
-        tree.root.findAllByProps({ testID: 'recipe-chat-action-turn-1-assistant-dismiss_add' })
-      ).toHaveLength(0);
-    });
-
-    it('adds the offered ingredient by hand when the list does not cover it, as the row does', () => {
-      cookTheMeal();
-      const tree = renderScreen();
-
-      ask(tree, QUESTION);
-      waitForReply();
-      press(tree, 'recipe-chat-action-turn-1-assistant-confirm_add');
-
-      expect(shopping().manualItems).toEqual([
-        { id: 'manual:1', source: 'manual', status: 'needed', name: 'Pollo (Pechuga)' },
-      ]);
-      expect(shopping().removedIds).toEqual([]);
-      expect(hasAddAction(tree, 'i2')).toBe(false);
-      expect(ingredientStatus(tree, 'i2')).toBe('En la lista');
-      expect(ingredientStatus(tree, 'i3')).toBe('Falta · agregar');
-    });
-
-    it('changes nothing on the shopping list when the user dismisses the offer', () => {
-      removeFromShoppingList('i2');
-      const stateBefore = shopping();
-      const tree = renderScreen();
-
-      ask(tree, QUESTION);
-      waitForReply();
-      press(tree, 'recipe-chat-action-turn-1-assistant-dismiss_add');
-
       expect(shopping()).toBe(stateBefore);
-      expect(
-        tree.root.findAllByProps({ testID: 'recipe-chat-action-turn-1-assistant-dismiss_add' })
-      ).toHaveLength(0);
-      expect(findButton(tree, 'recipe-ingredient-add-i2')).toBeTruthy();
+      expect(fetchMock).not.toHaveBeenCalled();
     });
 
     it('scrolls to the end once a new message has been laid out', () => {

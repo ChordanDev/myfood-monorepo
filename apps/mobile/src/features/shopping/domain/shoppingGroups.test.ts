@@ -1,221 +1,163 @@
-import type { IngredientCategory, UnitType } from '@/types/domain';
-import type {
-  ManualShoppingListItem,
-  PlannedShoppingListItem,
-  ShoppingGroup,
-  ShoppingItemStatus,
-  SupermarketOffer,
-} from '../types';
-import {
-  getBestOffer,
-  getManualItems,
-  groupItemsByCategory,
-  groupItemsBySupermarket,
-} from './shoppingGroups';
+import type { ShoppingGroup, ShoppingItemStatus, ShoppingListLine } from '../types';
+import { groupItemsByCategory } from './shoppingGroups';
 
-function buildPlannedItem(
-  ingredientId: string,
-  category: IngredientCategory,
-  amountToBuy = 1,
+function buildLine(
+  id: string,
+  category: string,
   status: ShoppingItemStatus = 'needed',
-  unit: UnitType = 'unit'
-): PlannedShoppingListItem {
+  name = id
+): ShoppingListLine {
   return {
-    id: `planned:${ingredientId}`,
+    id,
     source: 'planned_meal',
     status,
-    name: ingredientId,
-    ingredientId,
-    amountToBuy,
-    unit,
+    name,
+    ingredientId: id,
+    quantityMilli: 1000,
+    unit: 'unit',
     category,
+    supermarketId: null,
+    allocations: [],
   };
 }
 
-function buildManualItem(
-  id: string,
-  status: ShoppingItemStatus = 'needed'
-): ManualShoppingListItem {
-  return { id, source: 'manual', status, name: id };
-}
-
-function buildOffer(
-  ingredientId: string,
-  supermarket: string,
-  unitPrice: number
-): SupermarketOffer {
-  return { ingredientId, supermarket, unitPrice };
-}
-
-// Groups as [key, title, item ids].
+// Groups as [key, title, line ids].
 function summarize(groups: ShoppingGroup[]) {
   return groups.map((group) => [group.key, group.title, group.items.map((item) => item.id)]);
 }
 
-describe('getBestOffer', () => {
-  const milk = buildPlannedItem('milk', 'lacteos', 1000, 'needed', 'ml');
-
-  it('picks the cheapest offer and prices it for the amount to buy', () => {
-    const offers = [
-      buildOffer('milk', 'Jumbo', 2.1),
-      buildOffer('milk', 'Coto', 1.85),
-      buildOffer('tomato', 'Dia', 0.5),
-    ];
-
-    expect(getBestOffer(milk, offers)).toEqual({
-      supermarket: 'Coto',
-      unitPrice: 1.85,
-      price: 1850,
-    });
-  });
-
-  it('keeps the first offer listed when prices tie', () => {
-    const offers = [buildOffer('milk', 'Jumbo', 2), buildOffer('milk', 'Coto', 2)];
-
-    expect(getBestOffer(milk, offers)?.supermarket).toBe('Jumbo');
-  });
-
-  it('returns nothing when no supermarket offers the ingredient', () => {
-    expect(getBestOffer(milk, [buildOffer('tomato', 'Coto', 0.5)])).toBeUndefined();
-  });
-
-  it('returns nothing for a manual item', () => {
-    expect(getBestOffer(buildManualItem('milk'), [buildOffer('milk', 'Coto', 2)])).toBeUndefined();
-  });
-});
-
 describe('groupItemsByCategory', () => {
   it('orders the groups as the screen lists them, with Spanish titles', () => {
-    const items = [
-      buildPlannedItem('napkins', 'otros'),
-      buildPlannedItem('soap', 'limpieza_otros'),
-      buildPlannedItem('salt', 'condimentos'),
-      buildPlannedItem('cola', 'bebidas'),
-      buildPlannedItem('peas', 'congelados'),
-      buildPlannedItem('rice', 'almacen'),
-      buildPlannedItem('bread', 'panaderia'),
-      buildPlannedItem('milk', 'lacteos'),
-      buildPlannedItem('hake', 'pescados_mariscos'),
-      buildPlannedItem('chicken', 'carnes'),
-      buildPlannedItem('apple', 'frutas'),
-      buildPlannedItem('tomato', 'verduras'),
+    const lines = [
+      buildLine('lentejas', 'granos'),
+      buildLine('bread', 'panaderia'),
+      buildLine('soap', 'limpieza_otros'),
+      buildLine('milk', 'lacteos'),
+      buildLine('tomato', 'verduras'),
+      buildLine('juice', 'bebidas'),
+      buildLine('apple', 'frutas'),
+      buildLine('rice', 'almacen'),
+      buildLine('tuna', 'no_perecederos'),
+      buildLine('beef', 'carnes'),
+      buildLine('peas', 'congelados'),
+      buildLine('salmon', 'pescados_mariscos'),
+      buildLine('candle', 'otros'),
+      buildLine('salt', 'condimentos'),
     ];
 
-    expect(summarize(groupItemsByCategory(items))).toEqual([
-      ['verduras', 'Verduras', ['planned:tomato']],
-      ['frutas', 'Frutas', ['planned:apple']],
-      ['carnes', 'Carnes', ['planned:chicken']],
-      ['pescados_mariscos', 'Pescados y mariscos', ['planned:hake']],
-      ['lacteos', 'Lácteos', ['planned:milk']],
-      ['panaderia', 'Panadería', ['planned:bread']],
-      ['almacen', 'Despensa', ['planned:rice']],
-      ['congelados', 'Congelados', ['planned:peas']],
-      ['bebidas', 'Bebidas', ['planned:cola']],
-      ['condimentos', 'Condimentos', ['planned:salt']],
-      ['limpieza_otros', 'Limpieza y otros', ['planned:soap']],
-      ['otros', 'Otros', ['planned:napkins']],
+    expect(summarize(groupItemsByCategory(lines))).toEqual([
+      ['verduras', 'Verduras', ['tomato']],
+      ['frutas', 'Frutas', ['apple']],
+      ['carnes', 'Carnes', ['beef']],
+      ['pescados_mariscos', 'Pescados y mariscos', ['salmon']],
+      ['lacteos', 'Lácteos', ['milk']],
+      ['panaderia', 'Panadería', ['bread']],
+      ['almacen', 'Despensa', ['rice']],
+      ['congelados', 'Congelados', ['peas']],
+      ['bebidas', 'Bebidas', ['juice']],
+      ['condimentos', 'Condimentos', ['salt']],
+      ['limpieza_otros', 'Limpieza y otros', ['soap']],
+      ['granos', 'Granos', ['lentejas']],
+      ['no_perecederos', 'No perecederos', ['tuna']],
+      ['otros', 'Otros', ['candle']],
+    ]);
+  });
+
+  it('titles every category the server files an ingredient under', () => {
+    const serverCategories = [
+      'lacteos',
+      'frutas',
+      'verduras',
+      'carnes',
+      'granos',
+      'congelados',
+      'no_perecederos',
+      'otros',
+    ];
+    const groups = groupItemsByCategory(
+      serverCategories.map((category) => buildLine(category, category))
+    );
+
+    // Each one has a group of its own: none of them falls under the fallback.
+    expect(groups.map((group) => group.key).sort()).toEqual([...serverCategories].sort());
+    expect(groups.map((group) => group.title)).toEqual([
+      'Verduras',
+      'Frutas',
+      'Carnes',
+      'Lácteos',
+      'Congelados',
+      'Granos',
+      'No perecederos',
+      'Otros',
     ]);
   });
 
   it('omits empty groups', () => {
-    const items = [buildPlannedItem('milk', 'lacteos'), buildPlannedItem('tomato', 'verduras')];
+    const lines = [buildLine('milk', 'lacteos'), buildLine('cheese', 'lacteos')];
 
-    expect(summarize(groupItemsByCategory(items))).toEqual([
-      ['verduras', 'Verduras', ['planned:tomato']],
-      ['lacteos', 'Lácteos', ['planned:milk']],
+    expect(summarize(groupItemsByCategory(lines))).toEqual([
+      ['lacteos', 'Lácteos', ['cheese', 'milk']],
     ]);
   });
 
-  it('sorts the items of a group by name, in Spanish order', () => {
-    const items = [
-      buildPlannedItem('zapallo', 'verduras'),
-      buildPlannedItem('Échalote', 'verduras'),
-      buildPlannedItem('ajo', 'verduras'),
+  it('sorts the lines of a group by name, in Spanish order', () => {
+    const lines = [
+      buildLine('1', 'verduras', 'needed', 'Zapallo'),
+      buildLine('2', 'verduras', 'needed', 'ñame'),
+      buildLine('3', 'verduras', 'needed', 'Ajo'),
+      buildLine('4', 'verduras', 'needed', 'Ñoquis'),
+      buildLine('5', 'verduras', 'needed', 'Nabo'),
     ];
 
-    expect(summarize(groupItemsByCategory(items))).toEqual([
-      ['verduras', 'Verduras', ['planned:ajo', 'planned:Échalote', 'planned:zapallo']],
+    const [group] = groupItemsByCategory(lines);
+
+    expect(group.items.map((item) => item.name)).toEqual([
+      'Ajo',
+      'Nabo',
+      'ñame',
+      'Ñoquis',
+      'Zapallo',
     ]);
   });
 
-  it('puts an item of an unknown category under "Otros"', () => {
-    const items = [
-      buildPlannedItem('salt', 'otros'),
-      buildPlannedItem('kibble', 'mascotas' as IngredientCategory),
+  it('keeps the lines an ingredient has per meal together, in the order of the read', () => {
+    const lines = [
+      buildLine('rice-oct-8', 'granos', 'needed', 'Arroz'),
+      buildLine('oats-oct-8', 'granos', 'needed', 'Avena'),
+      buildLine('rice-oct-10', 'granos', 'needed', 'Arroz'),
+      buildLine('rice-oct-12', 'granos', 'needed', 'Arroz'),
     ];
 
-    expect(summarize(groupItemsByCategory(items))).toEqual([
-      ['otros', 'Otros', ['planned:kibble', 'planned:salt']],
+    expect(summarize(groupItemsByCategory(lines))).toEqual([
+      ['granos', 'Granos', ['rice-oct-8', 'rice-oct-10', 'rice-oct-12', 'oats-oct-8']],
     ]);
   });
 
-  it('leaves out removed and manual items, and keeps the ones in the cart', () => {
-    const items = [
-      buildPlannedItem('milk', 'lacteos', 1, 'in_cart'),
-      buildPlannedItem('tomato', 'verduras', 1, 'removed'),
-      buildManualItem('manual-1'),
-    ];
+  it('puts a line of a category it has no title for under "Otros"', () => {
+    const lines = [buildLine('candle', 'otros'), buildLine('mystery', 'especias_raras')];
 
-    expect(summarize(groupItemsByCategory(items))).toEqual([
-      ['lacteos', 'Lácteos', ['planned:milk']],
-    ]);
-  });
-});
-
-describe('groupItemsBySupermarket', () => {
-  it('groups each item under the supermarket holding its best offer, both sorted by name', () => {
-    const items = [
-      buildPlannedItem('milk', 'lacteos'),
-      buildPlannedItem('tomato', 'verduras'),
-      buildPlannedItem('rice', 'almacen'),
-      buildPlannedItem('apple', 'frutas'),
-    ];
-    const offers = [
-      buildOffer('milk', 'Jumbo', 5),
-      buildOffer('milk', 'Coto', 9),
-      buildOffer('tomato', 'Día', 3),
-      buildOffer('rice', 'Disco', 4),
-      buildOffer('apple', 'Jumbo', 2),
-    ];
-
-    expect(summarize(groupItemsBySupermarket(items, offers))).toEqual([
-      ['supermarket:Día', 'Día', ['planned:tomato']],
-      ['supermarket:Disco', 'Disco', ['planned:rice']],
-      ['supermarket:Jumbo', 'Jumbo', ['planned:apple', 'planned:milk']],
+    expect(summarize(groupItemsByCategory(lines))).toEqual([
+      ['otros', 'Otros', ['candle', 'mystery']],
     ]);
   });
 
-  it('puts the items without an offer under "Sin súper", last and sorted by name', () => {
-    const items = [
-      buildPlannedItem('salt', 'otros'),
-      buildPlannedItem('milk', 'lacteos'),
-      buildPlannedItem('pepper', 'otros'),
+  it('leaves out the removed lines, and keeps the ones in the cart', () => {
+    const lines = [
+      buildLine('cheese', 'lacteos', 'removed'),
+      buildLine('milk', 'lacteos', 'in_cart'),
+      buildLine('yogurt', 'lacteos'),
     ];
 
-    expect(summarize(groupItemsBySupermarket(items, [buildOffer('milk', 'Coto', 9)]))).toEqual([
-      ['supermarket:Coto', 'Coto', ['planned:milk']],
-      ['no-supermarket', 'Sin súper', ['planned:pepper', 'planned:salt']],
+    expect(summarize(groupItemsByCategory(lines))).toEqual([
+      ['lacteos', 'Lácteos', ['milk', 'yogurt']],
     ]);
   });
 
-  it('leaves out removed and manual items', () => {
-    const items = [buildPlannedItem('milk', 'lacteos', 1, 'removed'), buildManualItem('manual-1')];
+  it('leaves the lines of the read in the order they came in', () => {
+    const lines = [buildLine('b', 'lacteos'), buildLine('a', 'lacteos')];
 
-    expect(groupItemsBySupermarket(items, [buildOffer('milk', 'Coto', 9)])).toEqual([]);
-  });
-});
+    groupItemsByCategory(lines);
 
-describe('getManualItems', () => {
-  it('lists the manual items that are not removed, in list order', () => {
-    const paper = buildManualItem('manual-1');
-    const soap = buildManualItem('manual-2', 'in_cart');
-    const items = [
-      buildPlannedItem('milk', 'lacteos'),
-      paper,
-      buildManualItem('manual-3', 'removed'),
-      soap,
-    ];
-
-    expect(getManualItems(items)).toEqual([paper, soap]);
+    expect(lines.map((line) => line.id)).toEqual(['b', 'a']);
   });
 });

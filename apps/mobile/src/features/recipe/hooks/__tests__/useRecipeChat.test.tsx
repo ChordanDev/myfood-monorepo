@@ -202,6 +202,22 @@ describe('useRecipeChat', () => {
       expect(result.current.messages[1].offer).toEqual(CHICKEN_OFFER);
     });
 
+    it('makes no offer without a way to take one: the reply is only the advice', () => {
+      const { result } = renderChat({
+        rows: [RICE_IN_STOCK, CHICKEN_MISSING],
+        onAddOffer: undefined,
+      });
+
+      ask(result, '¿Puedo hacerla más liviana?');
+      waitForReply();
+
+      const [, reply] = result.current.messages;
+      expect(reply).toEqual(expect.objectContaining({ author: 'assistant' }));
+      expect(reply.offer).toBeUndefined();
+      expect(reply.actions).toBeUndefined();
+      expect(reply.text).not.toContain('compras');
+    });
+
     it('adds the ingredient and removes the quick actions when the user confirms', () => {
       const { result, args, offerMessage } = askWithMissingChicken();
 

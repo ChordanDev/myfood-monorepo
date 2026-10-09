@@ -41,6 +41,8 @@ type BuildAssistantReplyArgs = {
   question: string;
   recipeName: string;
   rows: RecipeIngredientRow[];
+  /** Whether an accepted offer has somewhere to go. Without it the reply makes none. */
+  canOffer?: boolean;
 };
 
 /** A row the assistant can offer: short in the inventory, not listed yet and in the catalog. */
@@ -67,14 +69,15 @@ function toOffer(row: OfferableRow): RecipeChatOffer {
  * Deterministic stand-in for the assistant, written in Rioplatense `voseo`.
  *
  * When the inventory is short of a catalog ingredient the shopping list does not have yet, the
- * reply closes by offering to add the first one to it.
+ * reply closes by offering to add the first one to it, as long as an offer can be taken.
  */
 export function buildAssistantReply({
   recipeName,
   rows,
+  canOffer = true,
 }: BuildAssistantReplyArgs): RecipeChatReply {
   const advice = `Sí, podés adaptar ${recipeName} a tu gusto. Usá lo que ya tenés en casa y probá ajustar las cantidades de a poco.`;
-  const offerableRow = rows.find(isOfferable);
+  const offerableRow = canOffer ? rows.find(isOfferable) : undefined;
   if (!offerableRow) return { text: advice };
 
   return {

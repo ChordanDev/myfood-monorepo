@@ -1,152 +1,111 @@
 import { useCallback, useMemo } from 'react';
-import { useMealPlanStore } from '@/store';
+import { useFocusEffect } from 'expo-router';
+import { getAuthErrorMessage } from '@/api/errors';
+import { useAuth } from '@/features/auth';
 import {
+  formatItemMealsLine,
   formatUntilLabel,
-  getBestOffer,
-  getCartItems,
   getDefaultUntilDate,
-  getManualItems,
   getShoppingCounters,
   getUntilCalendar,
   groupItemsByCategory,
-  groupItemsBySupermarket,
   resolveUntilDate,
 } from '../domain';
-import { getTodayKey, readShoppingListItems, useShoppingListStore } from '../store';
-import type { BestOffer, ShoppingGroupingMode, ShoppingListItem, SupermarketOffer } from '../types';
-import { useShoppingListItems } from './useShoppingListItems';
+import { useShoppingListStore } from '../store';
+import type { ShoppingGroupBy, ShoppingListLine } from '../types';
 
-function groupItems(
-  items: ShoppingListItem[],
-  groupingMode: ShoppingGroupingMode,
-  offers: SupermarketOffer[]
-) {
-  return groupingMode === 'supermarket'
-    ? groupItemsBySupermarket(items, offers)
-    : groupItemsByCategory(items);
-}
+// Second line of every row that has one, keyed by line id.
+function getMetaLines(lines: ShoppingListLine[], groupBy: ShoppingGroupBy) {
+  const metaLines: Record<string, string> = {};
 
-// The list and its groups as the stores hold them right now: see `readShoppingListItems`.
-function readFreshList() {
-  const { groupingMode, offers } = useShoppingListStore.getState();
-  const items = readShoppingListItems();
-
-  return { items, groups: groupItems(items, groupingMode, offers) };
-}
-
-// Best offer of every item that has one, keyed by item id.
-function getBestOffers(items: ShoppingListItem[], offers: SupermarketOffer[]) {
-  const bestOffers: Record<string, BestOffer> = {};
-
-  for (const item of items) {
-    const bestOffer = getBestOffer(item, offers);
-    if (bestOffer) bestOffers[item.id] = bestOffer;
+  for (const line of lines) {
+    const metaLine = formatItemMealsLine(line, groupBy);
+    if (metaLine !== undefined) metaLines[line.id] = metaLine;
   }
 
-  return bestOffers;
+  return metaLines;
 }
 
+// The Shopping list as the screen shows it: the last read of the server, and how the user
+// asked to read it. Nothing is derived from what the device knows about the plan.
 export function useShoppingList() {
-  // Read for the pill and its calendar only; the list itself reaches the same date.
-  const entries = useMealPlanStore((state) => state.entries);
+  // The signed-in user, or nobody: whose list this is.
+  const ownerId = useAuth().user?.id ?? null;
+  const cacheOwnerId = useShoppingListStore((state) => state.ownerId);
+  const cachedList = useShoppingListStore((state) => state.list);
+  const cachedStatus = useShoppingListStore((state) => state.status);
+  const cachedError = useShoppingListStore((state) => state.error);
   const chosenUntilDate = useShoppingListStore((state) => state.chosenUntilDate);
-  const todayKey = getTodayKey();
-  const items = useShoppingListItems();
-  const groupingMode = useShoppingListStore((state) => state.groupingMode);
-  const offers = useShoppingListStore((state) => state.offers);
-  const setGroupingMode = useShoppingListStore((state) => state.setGroupingMode);
-  const addManualItem = useShoppingListStore((state) => state.addManualItem);
-  const restoreRemoved = useShoppingListStore((state) => state.restoreRemovedItems);
+  const groupBy = useShoppingListStore((state) => state.groupBy);
+  const refresh = useShoppingListStore((state) => state.refresh);
+  const setChosenUntilDate = useShoppingListStore((state) => state.setChosenUntilDate);
+  const setGroupBy = useShoppingListStore((state) => state.setGroupBy);
+
+  // The cache outlives a sign-out, and the read below only drops it once it runs. So what was
+  // read for another user is left out here, while rendering: it is never drawn, not even on
+  // the render before that read starts.
+  const isOwnCache = ownerId !== null && cacheOwnerId === ownerId;
+  const list = isOwnCache ? cachedList : null;
+  const status = isOwnCache ? cachedStatus : 'idle';
+  const error = isOwnCache ? cachedError : null;
+
+  // The list changes behind the screen, when a meal is planned or cooked on another tab or by
+  // another member: it is read when the screen is first shown and every time it is come back
+  // to. It is read again too when the user changes, and dropped when nobody is signed in.
+  useFocusEffect(
+    useCallback(() => {
+      refresh(ownerId);
+    }, [refresh, ownerId])
+  );
 
   const untilDate = useMemo(
-    () => resolveUntilDate(entries, chosenUntilDate, todayKey),
-    [entries, chosenUntilDate, todayKey]
+    () => (list ? resolveUntilDate(list.plannedDates, chosenUntilDate) : undefined),
+    [list, chosenUntilDate]
   );
-  const untilCalendar = useMemo(() => getUntilCalendar(entries, todayKey), [entries, todayKey]);
-
-  const groups = useMemo(
-    () => groupItems(items, groupingMode, offers),
-    [items, groupingMode, offers]
+  const untilCalendar = useMemo(
+    () => (list ? getUntilCalendar(list.plannedDates) : undefined),
+    [list]
   );
-  const bestOffers = useMemo(() => getBestOffers(items, offers), [items, offers]);
-  const counters = useMemo(() => getShoppingCounters(items), [items]);
-  // Rows of "Agregados a mano". The store keeps the removed ones; these are the listed ones.
-  const listedManualItems = useMemo(() => getManualItems(items), [items]);
 
-  // Rows the cart sheet lists: derived with the rest, so each one carries the amount it is
-  // missing now, and a row that left the list is not among them.
-  const cartItems = useMemo(() => getCartItems(items), [items]);
-
-  // Marking a row only moves it in or out of the cart; the inventory is not touched.
-  const toggleItem = useCallback((itemId: string) => {
-    const item = readFreshList().items.find((candidate) => candidate.id === itemId);
-    if (!item) return;
-
-    const { addToCart, takeOutOfCart } = useShoppingListStore.getState();
-    if (item.status === 'needed') addToCart([item.id]);
-    else if (item.status === 'in_cart') takeOutOfCart([item.id]);
-  }, []);
-
-  // "Marcar todos": puts what is still needed in the cart; with the whole group already in
-  // it, takes the group back out.
-  const toggleGroup = useCallback((groupKey: string) => {
-    const group = readFreshList().groups.find((candidate) => candidate.key === groupKey);
-    if (!group) return;
-
-    const { addToCart, takeOutOfCart } = useShoppingListStore.getState();
-    const neededIds = group.items.filter((item) => item.status === 'needed').map(({ id }) => id);
-    if (neededIds.length > 0) addToCart(neededIds);
-    else takeOutOfCart(group.items.map(({ id }) => id));
-  }, []);
-
-  // Not a toggle: pressed twice from the cart sheet, the row is out, not back in.
-  const takeOutOfCart = useCallback((itemId: string) => {
-    useShoppingListStore.getState().takeOutOfCart([itemId]);
-  }, []);
-
-  // "Marcar como comprado": buys the cart for what each row is missing at this moment.
-  const confirmPurchase = useCallback(() => {
-    useShoppingListStore.getState().confirmPurchase(readFreshList().items);
-  }, []);
-
-  // Only a row that is still listed can be removed: one that left the list since the render
-  // it was pressed on (its meal was cooked, say) is not there to take off.
-  const removeItem = useCallback((itemId: string) => {
-    const item = readFreshList().items.find((candidate) => candidate.id === itemId);
-    if (!item) return;
-
-    useShoppingListStore.getState().removeItem(item);
-  }, []);
+  const groups = useMemo(() => groupItemsByCategory(list?.planned ?? []), [list]);
+  const metaLines = useMemo(() => getMetaLines(list?.planned ?? [], groupBy), [list, groupBy]);
+  const counters = useMemo(() => (list ? getShoppingCounters(list.totals) : undefined), [list]);
 
   // Picking the last planned day asks for the whole plan, so nothing is kept as chosen: the
   // list keeps reaching the last planned date as the plan grows.
-  const setUntilDate = useCallback((dateKey: string) => {
-    const lastPlannedDate = getDefaultUntilDate(useMealPlanStore.getState().entries);
+  const setUntilDate = useCallback(
+    (dateKey: string) => {
+      const lastPlannedDate = getDefaultUntilDate(list?.plannedDates ?? []);
 
-    useShoppingListStore
-      .getState()
-      .setChosenUntilDate(dateKey === lastPlannedDate ? undefined : dateKey);
-  }, []);
+      setChosenUntilDate(dateKey === lastPlannedDate ? undefined : dateKey);
+    },
+    [list, setChosenUntilDate]
+  );
+
+  const retry = useCallback(() => {
+    refresh(ownerId);
+  }, [refresh, ownerId]);
 
   return {
     untilDate,
     untilLabel: untilDate === undefined ? undefined : formatUntilLabel(untilDate),
     untilCalendar,
     setUntilDate,
-    groupingMode,
-    setGroupingMode,
+    groupBy,
+    setGroupBy,
     groups,
-    bestOffers,
+    metaLines,
+    // Not known until a read lands.
     counters,
-    manualItems: listedManualItems,
-    cartItems,
-    cartCount: counters.inCart,
-    toggleItem,
-    toggleGroup,
-    takeOutOfCart,
-    confirmPurchase,
-    addManualItem,
-    removeItem,
-    restoreRemoved,
+    // The first read of the signed-in user is on its way: there is no list to show yet.
+    isLoading: ownerId !== null && list === null && status !== 'error',
+    // A read is on its way over the list on show: after a retry, a change of preference or a
+    // return to the screen. Never together with `isLoading`, which has no list.
+    isReadingAgain: list !== null && status === 'loading',
+    // A read landed and it has no line to buy.
+    isEmpty: list !== null && groups.length === 0,
+    // Set while the last read failed. The list of the read before it, if any, stays.
+    errorMessage: status === 'error' ? getAuthErrorMessage(error) : undefined,
+    retry,
   };
 }

@@ -46,7 +46,7 @@ export function ShoppingManualCard({
       }>
       {items.length > 0 ? (
         items.map((item) => (
-          // A manual item has no offer: the row reads "Sin precio".
+          // A manual item is for no meal: its row is its name.
           <ShoppingItemRow
             key={item.id}
             item={item}

@@ -20,6 +20,7 @@ import { useAnimatedThemeStyle } from '@/hooks/useAnimatedThemeStyle';
 
 export function Calendar({
   planByDate = {},
+  markedDates,
   selectedDate,
   onSelectDate,
   isDateSelectable,
@@ -81,7 +82,11 @@ export function Calendar({
         const isPendingConfirmation = isPendingDate(dateString, planByDate, today);
         // A past day with nothing left to confirm reads like a day without a plan.
         const isSettledPastDay = dayDate < today && !isPendingConfirmation;
-        const isPlanned = Boolean(planByDate[dateString]?.length) && !isSettledPastDay;
+        // Marks handed in from outside are taken as they are: their caller decides which days
+        // are planned, past ones included.
+        const isPlanned = markedDates
+          ? markedDates.includes(dateString)
+          : Boolean(planByDate[dateString]?.length) && !isSettledPastDay;
 
         const textColor = isSelected
           ? theme.textBlack

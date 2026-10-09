@@ -19,8 +19,11 @@ type UseRecipeChatArgs = {
   rows: RecipeIngredientRow[];
   /** The chat only works on the day the meal is planned. */
   isEnabled: boolean;
-  /** Called when the user accepts an offer to send an ingredient to the shopping list. */
-  onAddOffer: (offer: RecipeChatOffer) => void;
+  /**
+   * Called when the user accepts an offer to send an ingredient to the shopping list. Without
+   * it an accepted offer would go nowhere, so the assistant makes none.
+   */
+  onAddOffer?: (offer: RecipeChatOffer) => void;
 };
 
 /** Conversation with the cooking assistant. It lives only while the screen is mounted. */
@@ -30,6 +33,7 @@ export function useRecipeChat({ recipeName, rows, isEnabled, onAddOffer }: UseRe
   const [isThinking, setIsThinking] = useState(false);
   const replyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const turnCountRef = useRef(0);
+  const canOffer = onAddOffer !== undefined;
   // The reply is built when it arrives, so it reads the stock as it is by then.
   const rowsRef = useRef(rows);
 
@@ -56,12 +60,17 @@ export function useRecipeChat({ recipeName, rows, isEnabled, onAddOffer }: UseRe
 
     replyTimerRef.current = setTimeout(() => {
       replyTimerRef.current = null;
-      const reply = buildAssistantReply({ question, recipeName, rows: rowsRef.current });
+      const reply = buildAssistantReply({
+        question,
+        recipeName,
+        rows: rowsRef.current,
+        canOffer,
+      });
 
       setMessages((current) => [...current, createAssistantMessage(`${turnId}-assistant`, reply)]);
       setIsThinking(false);
     }, RECIPE_CHAT_REPLY_DELAY_MS);
-  }, [input, isEnabled, isThinking, recipeName]);
+  }, [canOffer, input, isEnabled, isThinking, recipeName]);
 
   const answerQuickAction = useCallback(
     (messageId: string, actionId: RecipeChatAction['id']) => {
@@ -70,7 +79,7 @@ export function useRecipeChat({ recipeName, rows, isEnabled, onAddOffer }: UseRe
       if (result.messages === messages) return;
 
       setMessages(result.messages);
-      if (result.offerToAdd) onAddOffer(result.offerToAdd);
+      if (result.offerToAdd) onAddOffer?.(result.offerToAdd);
     },
     [messages, onAddOffer]
   );

@@ -51,14 +51,12 @@ export function RecipeScreen() {
     handleRequestMarkAsCooked,
     handleConfirmCooked,
     handleCancelCooked,
-    handleRequestIngredient,
-    handleAddOffer,
   } = useRecipeScreen();
+  // Without a way to take an offer, the assistant makes none.
   const chat = useRecipeChat({
     recipeName: recipe?.name ?? '',
     rows,
     isEnabled: isChatEnabled,
-    onAddOffer: handleAddOffer,
   });
   const [composerHeight, setComposerHeight] = useState(CHAT_COMPOSER_MIN_HEIGHT);
   // How far the keyboard lifts the composer, as the composer itself computes it; zero at rest.
@@ -109,11 +107,8 @@ export function RecipeScreen() {
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
           onContentSizeChange={handleContentSizeChange}>
-          <RecipeIngredientsCard
-            rows={rows}
-            facts={buildRecipeFacts(recipe)}
-            onRequestIngredient={handleRequestIngredient}
-          />
+          {/* Without a request handler the rows only read: a missing one cannot be added. */}
+          <RecipeIngredientsCard rows={rows} facts={buildRecipeFacts(recipe)} />
           <RecipePreparationCard steps={recipe.steps} />
           <RecipeChatSection
             messages={chat.messages}

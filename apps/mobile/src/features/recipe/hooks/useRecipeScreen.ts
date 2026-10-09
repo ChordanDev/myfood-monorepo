@@ -3,18 +3,9 @@ import { Keyboard } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { formatDateKey } from '@/features/home/utils/calendarDate';
 import { useInventoryStore } from '@/features/inventory';
-import {
-  addIngredientToShoppingList,
-  getIngredientListState,
-  useShoppingListItems,
-  type ShoppingListItem,
-} from '@/features/shopping';
 import { useMealPlanStore } from '@/store';
-import type { Ingredient } from '@/types/domain';
-import type { RecipeChatOffer } from '../domain/recipeChat';
 import { canMarkAsCooked, isRecipeChatEnabled, resolveRecipeEntry } from '../domain/recipeEntry';
-import { resolveRecipeIngredients, type RecipeIngredientRow } from '../domain/recipeIngredients';
-import type { RecipeIngredientLine } from '../types/recipe';
+import { resolveRecipeIngredients } from '../domain/recipeIngredients';
 import { useRecipe } from './useRecipe';
 
 type RecipeRouteParams = {
@@ -31,37 +22,12 @@ function firstParam(value: string | string[] | undefined): string | undefined {
 }
 
 /**
- * Ids of the recipe ingredients the shopping list already has a row for. An id outside the
- * catalog has no name to look for among the items added by hand, so it is never listed.
+ * Owns the store access and the handlers of the recipe screen; the components only draw.
+ *
+ * The screen does not read or change the Shopping list: that list is the server's, and
+ * sending an ingredient to it from here waits for the server to take items added by hand. So
+ * no row reads as already listed, and none offers to be added.
  */
-function getListedIngredientIds(
-  lines: RecipeIngredientLine[],
-  catalog: Ingredient[],
-  shoppingItems: ShoppingListItem[]
-): string[] {
-  return lines.flatMap(({ ingredientId }) => {
-    const ingredient = catalog.find((candidate) => candidate.id === ingredientId);
-    const isListed =
-      ingredient !== undefined && getIngredientListState(shoppingItems, ingredient) === 'listed';
-
-    return isListed ? [ingredientId] : [];
-  });
-}
-
-/**
- * "agregar" means the same on an ingredient row and from the chat: the shopping list gets the
- * ingredient under its catalog name, which is the name its planned row would carry.
- */
-function addToShoppingList(ingredientId: string | undefined) {
-  const { ingredients } = useInventoryStore.getState();
-  const ingredient = ingredients.find((candidate) => candidate.id === ingredientId);
-  // An id outside the catalog has no trustworthy name to put on the list.
-  if (!ingredient) return;
-
-  addIngredientToShoppingList(ingredient);
-}
-
-/** Owns the store access and the handlers of the recipe screen; the components only draw. */
 export function useRecipeScreen() {
   const params = useLocalSearchParams<RecipeRouteParams>();
   const recipeId = firstParam(params.id) ?? '';
@@ -75,7 +41,6 @@ export function useRecipeScreen() {
   const markAsCooked = useMealPlanStore((state) => state.markAsCooked);
   const inventory = useInventoryStore((state) => state.items);
   const catalog = useInventoryStore((state) => state.ingredients);
-  const shoppingItems = useShoppingListItems();
   const [isCookedConfirmVisible, setIsCookedConfirmVisible] = useState(false);
   // The answer is taken once: a second tap on "Sí" lands before the sheet has closed.
   const isAwaitingCookedAnswerRef = useRef(false);
@@ -86,16 +51,10 @@ export function useRecipeScreen() {
     [entries, entryId, recipeId, todayKey]
   );
   const ingredientLines = recipe?.ingredients;
-  const rows = useMemo(() => {
-    const lines = ingredientLines ?? [];
-
-    return resolveRecipeIngredients({
-      lines,
-      catalog,
-      inventory,
-      listedIngredientIds: getListedIngredientIds(lines, catalog, shoppingItems),
-    });
-  }, [catalog, ingredientLines, inventory, shoppingItems]);
+  const rows = useMemo(
+    () => resolveRecipeIngredients({ lines: ingredientLines ?? [], catalog, inventory }),
+    [catalog, ingredientLines, inventory]
+  );
 
   const handleBack = useCallback(() => router.back(), [router]);
 
@@ -129,14 +88,6 @@ export function useRecipeScreen() {
     router.back();
   }, [entry, markAsCooked, router]);
 
-  const handleRequestIngredient = useCallback((row: RecipeIngredientRow) => {
-    addToShoppingList(row.ingredientId);
-  }, []);
-
-  const handleAddOffer = useCallback((offer: RecipeChatOffer) => {
-    addToShoppingList(offer.ingredientId);
-  }, []);
-
   return {
     recipe,
     status,
@@ -151,7 +102,5 @@ export function useRecipeScreen() {
     handleRequestMarkAsCooked,
     handleConfirmCooked,
     handleCancelCooked,
-    handleRequestIngredient,
-    handleAddOffer,
   };
 }
