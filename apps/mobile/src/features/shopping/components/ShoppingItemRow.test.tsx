@@ -404,17 +404,62 @@ describe('ShoppingItemRow', () => {
       ]);
     });
 
-    it.each([
-      ['only the toggle', { onToggle: jest.fn() }],
-      ['only the removal', { onRemove: jest.fn() }],
-    ])('stays read-only with %s: a row is pressable with both or not at all', (_name, handlers) => {
+    it('stays read-only with only the toggle: a row is removable or it is read-only', () => {
       let tree: ReturnType<typeof create>;
 
       act(() => {
-        tree = create(<ShoppingItemRow item={CHEESE} {...handlers} />);
+        tree = create(<ShoppingItemRow item={CHEESE} onToggle={jest.fn()} />);
       });
 
       expect(getPressTargets(tree!.root)).toEqual([]);
+    });
+  });
+
+  describe('removable only, without a toggle', () => {
+    function renderRemovableRow(item: ShoppingListItem) {
+      const onRemove = jest.fn();
+      let tree: ReturnType<typeof create>;
+
+      act(() => {
+        tree = create(<ShoppingItemRow item={item} onRemove={onRemove} />);
+      });
+
+      return { root: tree!.root, onRemove };
+    }
+
+    const getRow = (root: ReactTestInstance) =>
+      root.find((node) => typeof node.props.onLongPress === 'function');
+
+    it('removes on a long press, and has nothing to tap or tick', () => {
+      const { root, onRemove } = renderRemovableRow(CHEESE);
+      const row = getRow(root);
+
+      expect(row.props.onPress).toBeUndefined();
+      expect(row.props.accessibilityRole).toBe('button');
+      expect(root.findAll((node) => node.props.testID === 'shopping-checkbox')).toEqual([]);
+
+      act(() => {
+        row.props.onLongPress();
+      });
+
+      expect(onRemove).toHaveBeenCalledWith('planned:cheese');
+    });
+
+    it('offers the removal as an accessibility action', () => {
+      const { root, onRemove } = renderRemovableRow(CHEESE);
+
+      act(() => {
+        getRow(root).props.onAccessibilityAction({ nativeEvent: { actionName: 'remove' } });
+      });
+
+      expect(onRemove).toHaveBeenCalledWith('planned:cheese');
+    });
+
+    it('says an item in the cart is, as the read-only row does', () => {
+      const { root } = renderRemovableRow({ ...CHEESE, status: 'in_cart' });
+
+      expect(getRow(root).props.accessibilityLabel).toBe('300 g · Queso cremoso, en el carrito');
+      expect(root.findAllByType(Check)).toHaveLength(1);
     });
   });
 });

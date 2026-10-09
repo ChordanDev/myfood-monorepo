@@ -171,4 +171,22 @@ describe('ShoppingManualCard', () => {
     expect(onToggleItem).toHaveBeenCalledTimes(1);
     expect(onAdd).not.toHaveBeenCalled();
   });
+
+  it('has no checkbox without a toggle: its rows are held to be removed', () => {
+    let tree: ReturnType<typeof create>;
+    const onRemoveItem = jest.fn();
+
+    act(() => {
+      tree = create(
+        <ShoppingManualCard items={ITEMS} onRemoveItem={onRemoveItem} onAdd={jest.fn()} />
+      );
+    });
+    const [row] = tree!.root.findAll((node) => typeof node.props.onLongPress === 'function');
+
+    expect(getPressables(tree!.root, 'checkbox')).toHaveLength(0);
+    act(() => {
+      row.props.onLongPress();
+    });
+    expect(onRemoveItem).toHaveBeenCalledWith('manual:1');
+  });
 });

@@ -12,8 +12,10 @@ export interface ShoppingItemRowProps {
   item: ShoppingListItem;
   // Second line of the row: the meals a planned line is for. Without it the row is one line.
   meta?: string;
-  // Without both handlers the row is read-only: it shows the item and nothing on it can be
-  // pressed.
+  // Without `onRemove` the row is read-only: it shows the item and nothing on it can be
+  // pressed. With only `onRemove` it can be held to remove it, and has no checkbox: marking a
+  // row is not offered. `onToggle` alone is read-only too, since a row marked and never
+  // removable is not a state the list has.
   onToggle?: (itemId: string) => void;
   onRemove?: (itemId: string) => void;
 }
@@ -59,7 +61,7 @@ export function ShoppingItemRow({ item, meta, onToggle, onRemove }: ShoppingItem
     </View>
   );
 
-  if (!onToggle || !onRemove) {
+  if (!onRemove) {
     return (
       // One element for assistive technologies, as the pressable row is.
       <View
@@ -74,20 +76,25 @@ export function ShoppingItemRow({ item, meta, onToggle, onRemove }: ShoppingItem
   }
 
   return (
-    // The whole row is the press target: one checkbox for assistive technologies.
+    // The whole row is the press target: one checkbox for assistive technologies, or one
+    // button that only removes when there is nothing to mark.
     <Pressable
-      onPress={() => {
-        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-        onToggle(item.id);
-      }}
+      onPress={
+        onToggle
+          ? () => {
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+              onToggle(item.id);
+            }
+          : undefined
+      }
       // A press that became a long press is not reported as a press too, so it never toggles.
       onLongPress={() => {
         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
         onRemove(item.id);
       }}
-      accessibilityRole="checkbox"
-      accessibilityLabel={label}
-      accessibilityState={{ checked: isInCart }}
+      accessibilityRole={onToggle ? 'checkbox' : 'button'}
+      accessibilityLabel={onToggle || !isInCart ? label : `${label}, ${IN_CART_LABEL}`}
+      accessibilityState={onToggle ? { checked: isInCart } : undefined}
       accessibilityHint="Mantené presionado para quitarlo de la lista."
       accessibilityActions={ACCESSIBILITY_ACTIONS}
       onAccessibilityAction={(event) => {
@@ -95,7 +102,7 @@ export function ShoppingItemRow({ item, meta, onToggle, onRemove }: ShoppingItem
       }}
       style={({ pressed }) => [styles.row, pressed && styles.pressed]}>
       {lines}
-      <ShoppingCheckbox checked={isInCart} />
+      {onToggle || isInCart ? <ShoppingCheckbox checked={isInCart} /> : null}
     </Pressable>
   );
 }

@@ -8,11 +8,17 @@ export interface ShoppingLoadErrorProps {
   // Why the list could not be read, already in the words the user reads.
   message: string;
   onRetry: () => void;
+  // What the button says. It retries a read, unless the caller gives it another job.
+  actionLabel?: string;
 }
 
 // Shown when a read of the list fails. Retrying is explicit: until then the screen keeps
 // whatever list it had.
-export function ShoppingLoadError({ message, onRetry }: ShoppingLoadErrorProps) {
+export function ShoppingLoadError({
+  message,
+  onRetry,
+  actionLabel = 'Reintentar',
+}: ShoppingLoadErrorProps) {
   const { theme } = useRecipeTheme();
   const surfaceStyle = useAnimatedThemeStyle({ backgroundColor: theme.colorLight });
   const messageStyle = useAnimatedThemeStyle({ color: theme.textDark });
@@ -30,7 +36,9 @@ export function ShoppingLoadError({ message, onRetry }: ShoppingLoadErrorProps) 
           onPress={onRetry}
           style={({ pressed }) => pressed && styles.pressed}>
           <Animated.View style={[styles.button, buttonStyle]}>
-            <Animated.Text style={[styles.buttonLabel, buttonLabelStyle]}>Reintentar</Animated.Text>
+            <Animated.Text style={[styles.buttonLabel, buttonLabelStyle]}>
+              {actionLabel}
+            </Animated.Text>
           </Animated.View>
         </Pressable>
       </Animated.View>

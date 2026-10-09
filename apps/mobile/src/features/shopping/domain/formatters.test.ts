@@ -7,6 +7,7 @@ import {
   formatItemNameLine,
   formatPrice,
   formatRemovedLabel,
+  parseQuantityMilli,
   formatUntilButtonLabel,
   formatUntilLabel,
 } from './formatters';
@@ -227,4 +228,24 @@ describe('formatRemovedLabel', () => {
     expect(formatRemovedLabel(2)).toBe('2 quitados · Restaurar');
     expect(formatRemovedLabel(11)).toBe('11 quitados · Restaurar');
   });
+});
+
+describe('parseQuantityMilli', () => {
+  it.each([
+    ['1', 1_000],
+    ['2,5', 2_500],
+    ['2.5', 2_500],
+    [' 0,001 ', 1],
+    ['500', 500_000],
+    ['3.', 3_000],
+  ])('reads "%s" as %d thousandths', (text, milli) => {
+    expect(parseQuantityMilli(text)).toBe(milli);
+  });
+
+  it.each(['', ' ', '0', '0,0', '-1', 'abc', '1,2,3', '1e3', '0,0004', '1 2'])(
+    'refuses "%s"',
+    (text) => {
+      expect(parseQuantityMilli(text)).toBeUndefined();
+    }
+  );
 });

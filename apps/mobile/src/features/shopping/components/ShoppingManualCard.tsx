@@ -16,7 +16,9 @@ const ADD_HIT_SLOP = getHeaderControlHitSlop(14);
 export interface ShoppingManualCardProps {
   // Manual items still on the list; the removed ones are not passed.
   items: ShoppingListLine[];
-  onToggleItem: (itemId: string) => void;
+  // Marking an item is not offered until the Cart takes manual items: without it the rows are
+  // held to be removed and have no checkbox.
+  onToggleItem?: (itemId: string) => void;
   onRemoveItem: (itemId: string) => void;
   onAdd: () => void;
 }
