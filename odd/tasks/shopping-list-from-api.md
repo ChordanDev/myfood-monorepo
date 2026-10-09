@@ -113,9 +113,17 @@ What the re-cut changed:
 - The recipe screen change (D11) was re-applied on the recipe-detail stack: everything it added is
   kept, and `RecipeScreen.test.tsx` goes from 55 tests on `main` to 46.
 
-Checks on the stack with `main` at `29a0f3e` merged in: API at slice 3 `mix test` 1410 passed, 20
+`main` at `19af867` was merged into the stack on 2026-10-09 (again one merge per branch, bottom up). It
+brought the idempotent Shopping item derivation (#109, #110), which conflicted with slice 3 in
+`shopping_service.ex`. The read keeps this feature's contract and takes `main`'s derivation and prune
+inside it: the batched lookup, the idempotent insert behind the unique index, and one `update_all` for the
+past items, now against the Account's today. Tests `main` added that read the list were moved to the new
+payload (`shopping_derivation_test.exs`, `calendar_channel_shopping_test.exs`); none was deleted. That
+closes the follow-up on duplicated Shopping items noted below.
+
+Checks on the stack with `main` at `19af867` merged in: API at slice 3 `mix test` 1441 passed, 20
 skipped, on a freshly migrated database; no duplicated migration version; mobile at slice 5 `npm test`
-97 suites, 1423 passed; typecheck clean; lint 0 errors.
+103 suites, 1569 passed; typecheck clean; lint 0 errors.
 
 ## Open questions
 
