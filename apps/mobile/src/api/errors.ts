@@ -4,8 +4,12 @@ interface ErrorEnvelope {
   error?: {
     code?: string;
     message?: string;
+    details?: unknown;
   };
 }
+
+/** Extra facts an error envelope may carry, such as `ownerName` of `planning_range_locked`. */
+export type ApiErrorDetails = Record<string, unknown>;
 
 export const KNOWN_AUTH_ERROR_CODES = new Set<AuthErrorCode>([
   'invalid_email',
@@ -181,7 +185,8 @@ export class ApiError extends Error {
   constructor(
     public readonly code: AuthErrorCode,
     message: string,
-    public readonly status: number = 0
+    public readonly status: number = 0,
+    public readonly details?: ApiErrorDetails
   ) {
     super(message);
     this.name = 'AuthApiError';
@@ -218,7 +223,15 @@ export function errorFromEnvelope(payload: unknown, status: number): ApiError {
     : 'unknown_error';
   const message =
     code === 'unknown_error' ? 'Request failed' : (envelope?.error?.message ?? 'Request failed');
-  return new ApiError(code, message, status);
+  const rawDetails = envelope?.error?.details;
+  const details =
+    code !== 'unknown_error' &&
+    typeof rawDetails === 'object' &&
+    rawDetails !== null &&
+    !Array.isArray(rawDetails)
+      ? (rawDetails as ApiErrorDetails)
+      : undefined;
+  return new ApiError(code, message, status, details);
 }
 
 export function isRefreshableAuthError(error: unknown): boolean {

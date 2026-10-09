@@ -1,11 +1,11 @@
-import { errorFromEnvelope, isSessionInvalidAuthError, type ApiError } from '../errors';
+import { ApiError, errorFromEnvelope, isSessionInvalidAuthError } from '../errors';
 
 /**
  * The part of the Phoenix client this module calls. Depending on these shapes
  * instead of the `phoenix` classes lets a test inject a fake socket.
  */
 export interface PhoenixPush {
-  receive(status: 'ok' | 'error', callback: (response: unknown) => void): PhoenixPush;
+  receive(status: 'ok' | 'error' | 'timeout', callback: (response: unknown) => void): PhoenixPush;
 }
 
 export interface PhoenixChannel {
@@ -13,6 +13,7 @@ export interface PhoenixChannel {
   on(event: string, callback: (payload: unknown) => void): unknown;
   join(): PhoenixPush;
   leave(): unknown;
+  push(event: string, payload: object): PhoenixPush;
 }
 
 export interface PhoenixSocket {
@@ -63,6 +64,12 @@ export interface TopicSubscription {
   /** Listens for a server event on the topic. Returns the function that stops listening. */
   on(event: string, callback: (payload: unknown) => void): () => void;
   leave(): void;
+  /**
+   * Sends `event` and resolves with the `ok` reply. It rejects with the `ApiError` of an error
+   * envelope (its `details` kept), with `timeout` when the server does not answer, and with
+   * `network_error` once the subscription has been left.
+   */
+  push(event: string, payload: object): Promise<unknown>;
 }
 
 export interface SocketClient {
@@ -429,7 +436,19 @@ export function createSocketClient(deps: SocketClientDeps): SocketClient {
         });
       });
 
-    return { on, leave };
+    function push(event: string, payload: object): Promise<unknown> {
+      if (left) return Promise.reject(new ApiError('network_error', 'The topic was left.'));
+      return new Promise((resolve, reject) => {
+        channel
+          .push(event, payload)
+          .receive('ok', resolve)
+          // A channel reply has no HTTP status.
+          .receive('error', (response) => reject(errorFromEnvelope(response, 0)))
+          .receive('timeout', () => reject(new ApiError('timeout', 'Request timeout')));
+      });
+    }
+
+    return { on, leave, push };
   }
 
   return {
