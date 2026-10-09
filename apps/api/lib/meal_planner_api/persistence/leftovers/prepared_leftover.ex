@@ -9,6 +9,10 @@ defmodule MealPlannerApi.Persistence.Leftovers.PreparedLeftover do
   use Ecto.Schema
   import Ecto.Changeset
 
+  # Matches the varchar(255) column; a longer title would raise instead of failing validation.
+  @title_max_length 255
+  @portions_max 1_000
+
   @primary_key {:id, :binary_id, autogenerate: true}
   @foreign_key_type :binary_id
 
@@ -40,7 +44,8 @@ defmodule MealPlannerApi.Persistence.Leftovers.PreparedLeftover do
     ])
     |> update_change(:title, &String.trim/1)
     |> validate_required([:account_id, :title, :portions, :stored_at, :consume_by_date])
-    |> validate_number(:portions, greater_than: 0)
+    |> validate_length(:title, max: @title_max_length)
+    |> validate_number(:portions, greater_than: 0, less_than_or_equal_to: @portions_max)
     |> foreign_key_constraint(:account_id)
     |> foreign_key_constraint(:scheduled_meal_id)
   end

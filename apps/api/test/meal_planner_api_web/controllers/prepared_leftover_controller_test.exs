@@ -65,12 +65,22 @@ defmodule MealPlannerApiWeb.PreparedLeftoverControllerTest do
             {%{"title" => "x"}, "portions"},
             {%{"title" => "x", "portions" => 0}, "portions"},
             {%{"title" => "x", "portions" => "2"}, "portions"},
-            {%{"title" => "x", "portions" => 1, "consumeByDate" => "tomorrow"}, "consumeByDate"}
+            {%{"title" => "x", "portions" => 1, "consumeByDate" => "tomorrow"}, "consumeByDate"},
+            {%{"title" => String.duplicate("a", 256), "portions" => 1}, "title"},
+            {%{"title" => "x", "portions" => 1_001}, "portions"},
+            {%{"title" => "x", "portions" => 2_147_483_648}, "portions"}
           ] do
         body = conn |> post(@path, params) |> json_response(422)
         assert body["error"]["code"] == "validation_error"
         assert body["error"]["message"] =~ field
       end
+    end
+
+    test "accepts a title at the length limit and portions at the cap", %{conn: conn} do
+      params = %{"title" => String.duplicate("a", 255), "portions" => 1_000}
+
+      assert %{"data" => %{"portions" => 1_000}} =
+               conn |> post(@path, params) |> json_response(201)
     end
   end
 
