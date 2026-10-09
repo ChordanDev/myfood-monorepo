@@ -15,8 +15,8 @@ After onboarding, the app keeps the Account timezone in sync with the device so 
 - Planning heuristic: about 400 authored changed lines per task; advisory only.
 
 ## Tasks
-- [ ] T1 API: `Accounts.update_account_timezone/2`, `AccountTimezoneController`, route, `timezone` in `CurrentMe`, tests (incl. "today" at an instant where zones differ), frontend_integration_guide.md. Route: delegated writer (2+ non-trivial files).
-- [ ] T2 Mobile: `timezone` in `AuthAccount`/`normalizeCurrentMe` (default null), `updateAccountTimezone` API + service, sync hook on launch/foreground, fixture tests (no request when equal, one when different). Route: delegated writer.
+- [x] T1 API (commit 5ce92d5; full API suite 1485 passed, format and warnings-as-errors clean): `Accounts.update_account_timezone/2`, `AccountTimezoneController`, route, `timezone` in `CurrentMe`, tests (incl. "today" at an instant where zones differ), frontend_integration_guide.md. Route: delegated writer (2+ non-trivial files).
+- [x] T2 Mobile (new tests green; `npm run verify` still fails on pre-existing `phoenix` imports and the authService error-code count 29 vs 34, unrelated): `timezone` in `AuthAccount`/`normalizeCurrentMe` (default null), `updateAccountTimezone` API + service, sync hook on launch/foreground, fixture tests (no request when equal, one when different). Route: delegated writer.
 
 ## Acceptance criteria
 See issue #62.
@@ -25,4 +25,4 @@ See issue #62.
 - Exploration done: no onboarding route in API yet; no timezone on mobile; `Intl.DateTimeFormat().resolvedOptions().timeZone` needs no new dependency.
 
 ## Next step
-T1.
+T2.

@@ -74,6 +74,14 @@ export interface ProfileUpdateUser {
   cookingSkill: CookingSkill | null;
 }
 
+export interface AccountTimezonePayload {
+  timezone: string;
+}
+
+export interface AccountTimezoneResponse {
+  account: { id: string; timezone: string | null };
+}
+
 export interface ProfileUpdateResponse {
   user: ProfileUpdateUser;
 }
@@ -202,6 +210,8 @@ export interface AuthAccount {
   type: AuthAccountType;
   trialEndsAt: string | null;
   subscriptionStatus: AuthSubscriptionStatus;
+  // IANA zone the Account's "today" follows; null until the app first sends one.
+  timezone: string | null;
   access: AuthAccountAccess;
 }
 
