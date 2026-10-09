@@ -13,8 +13,8 @@ A User saves cooked portions as a Prepared leftover (portions, consume-by date),
 - Mobile list screen with consume and discard, tested against fixtures.
 
 ## Tasks
-- [ ] T1 API: migration, schema, persistence module, service, controller, routes, error code, tests, GLOSSARY update. Route: delegated writer (2+ non-trivial files).
-- [ ] T2 Mobile: types, api client, list screen with consume/discard, fixtures, tests, route, `KNOWN_AUTH_ERROR_CODES` entry. Route: delegated writer.
+- [x] T1 API (commit 1bbe5f7, route: delegated writer): migration, schema, persistence module, service, controller, routes, error code, tests, GLOSSARY update. Route: delegated writer (2+ non-trivial files).
+- [x] T2 (commit 3b1e249) Mobile: types, api client, list screen with consume/discard, fixtures, tests, route, `KNOWN_AUTH_ERROR_CODES` entry. Route: delegated writer.
 
 ## Checks
 - API: `mix test` for new + migration tests (needs MYFOOD_TEST_DB_USERNAME override and per-worktree test DB).
