@@ -12,6 +12,7 @@ defmodule MealPlannerApi.Services.ShoppingService do
   alias MealPlannerApi.Cart
   alias MealPlannerApi.Data.ShoppingRepo
   alias MealPlannerApi.Data.RecipeRepo
+  alias MealPlannerApi.Persistence.Calendar, as: CalendarPersistence
   alias MealPlannerApi.Persistence.Identity
   alias MealPlannerApi.Persistence.Shopping
   alias MealPlannerApi.Repo
@@ -475,6 +476,77 @@ defmodule MealPlannerApi.Services.ShoppingService do
         true -> {:error, :shopping_item_not_found}
       end
     end)
+  end
+
+  # -------------------------------------------------------------------------
+  # Re-planning (issue #40)
+  # -------------------------------------------------------------------------
+
+  @doc """
+  Replaces the Scheduled meals of `[from_date, to_date]`
+  (`Persistence.Calendar.replace_scheduled_meals_for_range/3`) and carries
+  the Shopping list across the replacement.
+
+  The meals come back with new ids, which deletes their planned Shopping
+  items. What the User decided about them survives:
+
+    * manual items are for no meal, so the replacement never touches them;
+    * a planned item the User removed is removed again once the new meals
+      have their items, as long as a meal on the same date and slot still
+      needs the same Ingredient and unit. The quantity is the Shortage of
+      the new plan. A removal no meal needs any more is dropped.
+
+  The removed items are read before the replacement and restored after the
+  items of the new meals are derived, the way a Shopping list read derives
+  them (so the Shortage subtracts the Inventory from every upcoming meal,
+  not only these). With nothing removed this is the plain replacement and
+  the items are derived by the next read.
+
+  Returns what the replacement returns.
+  """
+  @spec replace_scheduled_meals_for_range(
+          Ecto.UUID.t(),
+          {Date.t(), Date.t()},
+          [map()],
+          DateTime.t()
+        ) :: {:ok, %{replaced: non_neg_integer()}} | {:error, atom()}
+  def replace_scheduled_meals_for_range(
+        account_id,
+        {from_date, to_date} = range,
+        meals,
+        now \\ DateTime.utc_now()
+      ) do
+    removed =
+      if valid_range?(from_date, to_date),
+        do: Shopping.removed_item_keys(account_id, from_date, to_date),
+        else: MapSet.new()
+
+    with {:ok, _result} = replaced <-
+           CalendarPersistence.replace_scheduled_meals_for_range(account_id, range, meals) do
+      carry_removed_items(account_id, removed, range, now)
+      replaced
+    end
+  end
+
+  defp valid_range?(%Date{} = from_date, %Date{} = to_date),
+    do: Date.compare(from_date, to_date) != :gt
+
+  defp valid_range?(_from_date, _to_date), do: false
+
+  defp carry_removed_items(account_id, removed, {from_date, to_date}, now) do
+    if MapSet.size(removed) > 0 do
+      today = AccountClock.today(account_id, now)
+
+      _ =
+        ensure_shopping_items_from_schedule(
+          account_id,
+          upcoming_uncooked_meals(account_id, today)
+        )
+
+      Shopping.restore_removed_items(account_id, removed, from_date, to_date)
+    end
+
+    :ok
   end
 
   @spec build_shopping_list_from_schedule(map(), map()) :: {:ok, map()} | {:error, term()}

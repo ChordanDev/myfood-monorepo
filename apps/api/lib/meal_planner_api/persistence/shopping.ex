@@ -383,8 +383,10 @@ defmodule MealPlannerApi.Persistence.Shopping do
   end
 
   @doc """
-  Deletes the open (`:pending`, `:in_cart`) Shopping items of one Scheduled meal, so the next
-  list read derives them again from the meal as it is now. Closed items are kept.
+  Deletes the planned Shopping items of one Scheduled meal that are still on the list
+  (`:pending`, `:in_cart` and `:removed`), so the next list read derives them again from the
+  meal as it is now. Closed items are kept. A removed item goes too: it was removed for the
+  recipe the meal had, which is the one thing a caller of this changes.
   """
   @spec delete_open_items_for_meal(Ecto.UUID.t(), Ecto.UUID.t()) :: non_neg_integer()
   def delete_open_items_for_meal(account_id, scheduled_meal_id) do
@@ -392,11 +394,61 @@ defmodule MealPlannerApi.Persistence.Shopping do
       from(i in ShoppingItem,
         where:
           i.account_id == ^account_id and i.scheduled_meal_id == ^scheduled_meal_id and
-            i.status in [:pending, :in_cart]
+            i.source == :planned_meal and i.status in [:pending, :in_cart, :removed]
       )
       |> Repo.delete_all()
 
     deleted
+  end
+
+  @typedoc """
+  What a removed item is remembered by while its Scheduled meals are replaced: the planned
+  date, the slot of the meal, the Ingredient and the unit. The meal id is not part of it,
+  because a replacement gives the meals new ids.
+  """
+  @type removed_key :: {Date.t(), atom(), Ecto.UUID.t(), atom()}
+
+  @doc """
+  The keys of the planned Shopping items the Account removed whose date falls in
+  `[from_date, to_date]`. Take it before the meals of the window are replaced and hand it to
+  `restore_removed_items/4` once their items are derived again.
+  """
+  @spec removed_item_keys(Ecto.UUID.t(), Date.t(), Date.t()) :: MapSet.t(removed_key())
+  def removed_item_keys(account_id, from_date, to_date) do
+    planned_in_window(account_id, from_date, to_date, :removed)
+    |> Repo.all()
+    |> MapSet.new(fn {_id, key} -> key end)
+  end
+
+  @doc """
+  Sets back to `:removed` the `:pending` planned items of `[from_date, to_date]` whose key is
+  in `keys`, and returns how many it changed. A key no item has any more (the meals do not
+  need that Ingredient now) is dropped by doing nothing.
+  """
+  @spec restore_removed_items(Ecto.UUID.t(), MapSet.t(removed_key()), Date.t(), Date.t()) ::
+          non_neg_integer()
+  def restore_removed_items(account_id, keys, from_date, to_date) do
+    if MapSet.size(keys) == 0 do
+      0
+    else
+      ids =
+        planned_in_window(account_id, from_date, to_date, :pending)
+        |> Repo.all()
+        |> Enum.filter(fn {_id, key} -> MapSet.member?(keys, key) end)
+        |> Enum.map(fn {id, _key} -> id end)
+
+      set_items_status(ids, :removed)
+    end
+  end
+
+  defp planned_in_window(account_id, from_date, to_date, status) do
+    from(i in ShoppingItem,
+      join: meal in assoc(i, :scheduled_meal),
+      where:
+        i.account_id == ^account_id and i.source == :planned_meal and i.status == ^status and
+          i.planned_date >= ^from_date and i.planned_date <= ^to_date,
+      select: {i.id, {i.planned_date, meal.slot, i.ingredient_id, i.unit}}
+    )
   end
 
   def update_open_items_for_ingredient(account_id, ingredient_id, attrs, from_date, to_date) do
