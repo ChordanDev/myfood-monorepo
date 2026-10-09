@@ -98,7 +98,6 @@ Review (receipt-driven development on):
   - The `PUT` changeset branch answers 500 through `server_fault`, drops the changeset without logging it and has no test. It is reachable: a User deleted between authentication and the write fails the `user_id` foreign key.
   - No test asserts that a refused replace rolls back an outer transaction that is already open; #20 depends on that case.
   - `replace_user_slot_cooking_times/2` only works with atom-keyed slot maps and its `@doc` does not say so.
-  - `validation_error` is general purpose but sits under a Slot cooking times heading in `api_error.ex` and its test.
 - `apps/api/docs/FRONTEND_INTEGRATION.md` still carries a legacy endpoints table and slots section that list `snack` and omit `/api/me`; not touched here.
 
 ## Delivery record

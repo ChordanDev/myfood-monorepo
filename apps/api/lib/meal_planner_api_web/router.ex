@@ -101,7 +101,8 @@ defmodule MealPlannerApiWeb.Router do
   # Phase 3 — `revenuecat-access-enforcement` (PR 3) design-exempt
   # auth/context pipeline: authenticated (`current_membership` populated),
   # capability-exempt. The routes in this scope and in the two below it
-  # (`/auth/me`, `/account/context`, `/auth/switch-account` and the `/me`
+  # (`/auth/me`, `/account/context`, `/account/dietary-profile`,
+  # `/account/excluded-ingredients`, `/auth/switch-account` and the `/me`
   # routes) MUST remain reachable for an expired Account so the React Native
   # client can read auth context, switch memberships, and start billing
   # recovery without being gated by the same webhook that hasn't yet arrived
