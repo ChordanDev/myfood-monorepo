@@ -28,7 +28,7 @@ A User picks 1-10 days from today or later, optionally types a request, taps sta
 Route per task is recorded when started.
 
 - [x] T1 Error codes: `planning_invalid_range`, `planning_range_locked` (owner display name when another Membership) in `ApiError`, mobile `errors.ts` and `auth.ts` union; start_planning maps to them.
-- [ ] T2 `start_planning` accepts camelCase dates, day count (1-10) and free text, starts generation, replies with the envelope on error.
+- [x] T2 `start_planning` accepts camelCase dates, day count (1-10) and free text, starts generation, replies with the envelope on error.
 - [ ] T3 Events `session_started`, `generation_started`, `proposal_ready`, `planning_message`, `generation_error` pushed in camelCase with frozen payload shapes (channel-built, engine untouched).
 - [ ] T4 Fixture mechanism: channel tests write payload fixtures, committed on the app side; an app test fails on drift.
 - [ ] T5 Mobile: socket `push`/`on`, fake socket extension, Planner state derived from events, day-by-day cards, progress, retry.
@@ -46,4 +46,5 @@ API (from `apps/api`): `mix format --check-formatted`, `mix compile --warnings-a
 
 Exploration done.
 
-- T1 (API half, delegated writer, worktree `myfood-monorepo-worktrees/planning-start`): `planning_invalid_range` (422) and `planning_range_locked` (409, `details.ownerName` only for another Membership) in `ApiError`, mobile `errors.ts` and `auth.ts`; `MealPlannerApi.Planning.LockOwner` reads the owner name. Observed: `mix test` for `test/meal_planner_api_web` 671 passed, `authErrorCodeContract.test.ts` 9 passed. Commit: recorded in the T2 entry.
+- T1 (API half, delegated writer, worktree `myfood-monorepo-worktrees/planning-start`): `planning_invalid_range` (422) and `planning_range_locked` (409, `details.ownerName` only for another Membership) in `ApiError`, mobile `errors.ts` and `auth.ts`; `MealPlannerApi.Planning.LockOwner` reads the owner name. Observed: `mix test` for `test/meal_planner_api_web` 671 passed, `authErrorCodeContract.test.ts` 9 passed. Commit `af194d5`.
+- T2 (API half): `start_planning` takes `rangeFrom`, `rangeTo` or `dayCount` (1-10), optional `request`; a range must start today or later (one day of UTC grace); starts the generation through `Server.start_generation` with the free text under the `request` constraint; a generation that cannot start cancels the session and replies the envelope. Existing channel tests moved to dates relative to today. Known conflict: `Generation.Server` window is 7 days, so 8-10 days is refused by the generation as `invalid_date_range`. Observed: `mix test test/meal_planner_api_web` 689 passed. Commit: recorded in the T3 entry.

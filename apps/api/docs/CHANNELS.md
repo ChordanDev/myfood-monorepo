@@ -185,12 +185,33 @@ Ok reply; the `session_started` event carries the same `sessionId`:
 
 #### start_planning
 
-The command that starts a Planning session. Its refusals reply the error envelope with these codes (issue #25):
+The command that starts a Planning session and its first generation (issue #25).
+
+| Param (camelCase) | Type | Description |
+|-------------------|------|-------------|
+| `rangeFrom` | `"YYYY-MM-DD"` | First day. Today or later; one day before today (UTC) is still accepted, because a member east of UTC sees a date that is yesterday in UTC |
+| `rangeTo` | `"YYYY-MM-DD"` | Last day, inclusive. Optional when `dayCount` is sent |
+| `dayCount` | integer | Number of days, 1 to 10. Optional when `rangeTo` is sent; when both are sent they must agree |
+| `request` | string | Optional free text, at most 1000 characters after trimming. A blank text counts as none. It reaches the generation as the `request` constraint |
+| `requestId` | string | Optional. Correlates `generation_started` and `generation_error`; generated when missing |
+
+The command validates the range, checks the Account is eligible, starts the session (`session_started`), then starts the generation through the same call `generate_menu` uses and replies:
+
+```json
+{ "sessionId": "550e8400-e29b-41d4-a716-446655440002", "status": "active" }
+```
+
+`generation_started` follows with the `runId`. When the generation cannot start the session is cancelled (`session_cancelled`), a `generation_error` event is pushed and the command replies the error envelope with `requestId`, so the member can start again. Known limit: the generation window of the server holds 7 days, so a range of 8 to 10 days is accepted by the channel and refused by the generation as `invalid_date_range`.
+
+Refusals reply the error envelope with these codes:
 
 | Code | Condition |
 |------|-----------|
-| `planning_invalid_range` | A date is missing or is not an ISO 8601 date, or the range ends before it starts |
+| `planning_invalid_range` | A date is missing or is not an ISO 8601 date, the range ends before it starts, lasts more than 10 days, starts more than a day in the past, or `dayCount` is not an integer from 1 to 10 or disagrees with `rangeTo` |
 | `planning_range_locked` | An active session of the Account already holds part of the range |
+| `invalid_payload` | `request` is not a string or is longer than 1000 characters |
+| `subscription_required` | The Account is not eligible |
+| `generation_in_progress` | A generation of the Account is already running (the session is cancelled) |
 
 `planning_range_locked` may carry `details` inside `error`, next to `code` and `message`: `{"ownerName": "Ana"}`, the display name of the member who holds the range. It is present only when that member is not the caller; a member who collides with their own session gets no `details`.
 
@@ -210,7 +231,7 @@ The older `invalid_range` and `overlapping_range` codes stay in the allowlist; `
 
 | Event | Payload | Description |
 |-------|---------|-------------|
-| `start_planning` | `{"range_from": "YYYY-MM-DD", "range_to": "YYYY-MM-DD"}` | Start a planning session for the date range |
+| `start_planning` | `{"range_from": "YYYY-MM-DD", "range_to": "YYYY-MM-DD", "request": "text"}` (or `day_count` instead of `range_to`) | Start a planning session and its first generation, see [start_planning](#start_planning) |
 | `choose_slot` | `{"slot_id": "uuid", "recipe_id": "uuid"}` | Assign recipe to a slot |
 | `remove_slot` | `{"slot_id": "uuid"}` | Remove recipe from a slot |
 | `generate_plan` | `{"strategy": "balanced|quick|varied"}` | Trigger AI plan generation |
