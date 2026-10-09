@@ -2,7 +2,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import type { MasterRecipe, MealPlanEntry } from '@/types/domain';
 import { MOCK_MASTER_RECIPES } from '@/mocks/domainMocks';
 import { useInventoryStore } from '@/features/inventory/store';
-import type { InventoryItem } from '@/features/inventory';
+import { buildInventoryItem } from '@/features/inventory/mocks';
 import { useMealPlanStore } from './useMealPlanStore';
 
 jest.mock('@react-native-async-storage/async-storage', () =>
@@ -45,24 +45,20 @@ describe('marking a meal as cooked (the server consumes the stock)', () => {
     recipeId: recipe.id,
     isCooked: false,
   };
-  const rice: InventoryItem = {
+  const rice = buildInventoryItem({
     id: 'inv-i1',
     ingredientId: 'i1',
     name: 'Rice',
-    category: 'almacen',
-    quantity: 500,
+    quantityMilli: 500_000,
     unit: 'g',
-    confidence: 'estimated',
-  };
-  const oil: InventoryItem = {
+  });
+  const oil = buildInventoryItem({
     id: 'inv-i5',
     ingredientId: 'i5',
     name: 'Olive oil',
-    category: 'almacen',
-    quantity: 4,
+    quantityMilli: 4_000,
     unit: 'ml',
-    confidence: 'estimated',
-  };
+  });
 
   beforeEach(() => {
     useMealPlanStore.setState({ entries: [entry], recipes: [recipe] });
@@ -91,15 +87,13 @@ describe('meal confirmation', () => {
     id: 'recipe-1',
     ingredients: [{ ingredientId: 'rice', amount: 100 }],
   };
-  const rice: InventoryItem = {
+  const rice = buildInventoryItem({
     id: 'inv-rice',
     ingredientId: 'rice',
     name: 'Rice',
-    category: 'almacen',
-    quantity: 500,
+    quantityMilli: 500_000,
     unit: 'g',
-    confidence: 'estimated',
-  };
+  });
   const initialInventory = [rice];
 
   function seedEntry(overrides: Partial<MealPlanEntry> = {}) {
