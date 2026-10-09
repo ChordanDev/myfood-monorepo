@@ -3,6 +3,8 @@ import type {
   ShoppingLineAllocation,
   ShoppingLineStatus,
   ShoppingListLine,
+  ShoppingItemsStatus,
+  ShoppingItemsStatusChange,
   ShoppingListRead,
   ShoppingMealSlot,
 } from '../types/shoppingApi';
@@ -202,3 +204,67 @@ export function toShoppingListResponse(read: ShoppingListRead) {
 export const SHOPPING_LIST_VALIDATION_ERROR = {
   error: { code: 'validation_error', message: 'A request parameter is not valid.' },
 };
+
+/**
+ * A line the User added by hand, as `manual` serves it (section 7.1): no Ingredient, the
+ * category `otros`, no allocation, 1 unit unless the quantity says otherwise.
+ */
+export const MANUAL_DISH_SOAP: ShoppingListLine = {
+  id: 'd4f6179d-5a2b-41ae-8c19-f2d5e61b3a71',
+  ingredientId: null,
+  name: 'Detergente',
+  category: 'otros',
+  quantityMilli: 1_000,
+  unit: 'unit',
+  status: 'needed',
+  source: 'manual',
+  supermarketId: null,
+  allocations: [],
+};
+
+/**
+ * The plan of `SHOPPING_LIST_BY_INGREDIENT` once the User removed the tomato and added the dish
+ * soap by hand. The removed line stays in `planned` with every allocation, so it can be
+ * restored, and the totals count it apart; the manual line is not counted.
+ */
+export const SHOPPING_LIST_WITH_MANUAL_AND_REMOVED: ShoppingListRead = {
+  planned: [
+    ingredientLine(RICE, [RICE_OCT_8, RICE_OCT_10, RICE_OCT_12]),
+    ingredientLine(CHICKEN, [CHICKEN_OCT_8, CHICKEN_OCT_12]),
+    ingredientLine(TOMATO, [TOMATO_OCT_8, TOMATO_OCT_10], 'removed'),
+    ingredientLine(OLIVE_OIL, [OLIVE_OIL_OCT_8], 'in_cart'),
+    ingredientLine(MILK, [MILK_OCT_10, MILK_OCT_12]),
+    ingredientLine(BANANA, [BANANA_OCT_12]),
+  ],
+  manual: [MANUAL_DISH_SOAP],
+  cart: CART,
+  totals: { needed: 4, inCart: 1, removed: 1, estimatedCents: 0 },
+  plannedDates: PLANNED_DATES,
+};
+
+/** The `itemId` of the two shares of the tomato line in the fixtures above. */
+export const TOMATO_ITEM_IDS = [TOMATO_OCT_8.itemId, TOMATO_OCT_10.itemId];
+
+/** The 201 body of `POST /api/shopping-items/manual`: the new line, as `manual` serves it. */
+export function toManualItemResponse(line: ShoppingListLine) {
+  return { data: line };
+}
+
+/** The 200 body of `DELETE /api/shopping-items/:itemId`. */
+export function toDeleteItemResponse(id: string) {
+  return { data: { id } };
+}
+
+/** The 200 body of `POST /api/shopping-items/set-status`. */
+export function toSetStatusResponse(
+  status: ShoppingItemsStatus,
+  itemIds: string[],
+  updatedRows: number = itemIds.length
+): { data: ShoppingItemsStatusChange } {
+  return { data: { status, itemIds, updatedRows } };
+}
+
+/** The error envelope of section 10 for a refused change of the list. */
+export function toShoppingErrorResponse(code: string, message: string) {
+  return { error: { code, message } };
+}

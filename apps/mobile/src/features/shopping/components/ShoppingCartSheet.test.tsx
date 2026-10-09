@@ -62,6 +62,12 @@ const NAPKINS: ShoppingListItem = {
   source: 'manual',
   status: 'in_cart',
   name: 'Servilletas',
+  ingredientId: null,
+  category: 'otros',
+  quantityMilli: 1_000,
+  unit: 'unit',
+  supermarketId: null,
+  allocations: [],
 };
 
 const CART = [CHICKEN, NAPKINS];
@@ -75,7 +81,7 @@ const CONFIRM = 'Marcar como comprado';
 const CANCEL = 'Cancelar';
 const EMPTY_HINT = 'Todavía no marcaste nada.';
 const TAKE_OUT_CHICKEN = 'Sacar del carrito, 200 g · Pollo (Pechuga)';
-const TAKE_OUT_NAPKINS = 'Sacar del carrito, Servilletas';
+const TAKE_OUT_NAPKINS = 'Sacar del carrito, 1 u · Servilletas';
 
 function renderSheet(initialItems: ShoppingListItem[] = CART, initiallyVisible = true) {
   const onTakeOut = jest.fn();
@@ -202,7 +208,7 @@ describe('ShoppingCartSheet', () => {
       TITLE,
       '200 g · Pollo (Pechuga)',
       'Día · $1.520',
-      'Servilletas',
+      '1 u · Servilletas',
       'Sin precio',
       CONFIRM,
       CANCEL,
@@ -224,7 +230,10 @@ describe('ShoppingCartSheet', () => {
       .filter((view) => view.props.accessible === true && !view.props.accessibilityRole)
       .map((view) => view.props.accessibilityLabel);
 
-    expect(rows).toEqual(['200 g · Pollo (Pechuga), Día · $1.520', 'Servilletas, Sin precio']);
+    expect(rows).toEqual([
+      '200 g · Pollo (Pechuga), Día · $1.520',
+      '1 u · Servilletas, Sin precio',
+    ]);
   });
 
   it('scrolls the rows inside a height bounded by the window', () => {
@@ -449,7 +458,7 @@ describe('ShoppingCartSheet', () => {
         update({ visible: false, items: [] });
 
         update({ visible: true, items: [NAPKINS] });
-        expect(getTexts(root)).toEqual([TITLE, 'Servilletas', 'Sin precio', CONFIRM, CANCEL]);
+        expect(getTexts(root)).toEqual([TITLE, '1 u · Servilletas', 'Sin precio', CONFIRM, CANCEL]);
         press(root, CONFIRM);
         press(root, CONFIRM);
 

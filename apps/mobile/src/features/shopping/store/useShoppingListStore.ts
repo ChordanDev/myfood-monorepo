@@ -2,8 +2,19 @@ import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
 import { isApiError } from '@/api/errors';
 import { safeAsyncStorage } from '@/utils/safeAsyncStorage';
-import { getShoppingList } from '../api/shoppingApi';
-import type { ShoppingGroupBy, ShoppingListLoadStatus, ShoppingListRead } from '../types';
+import {
+  addManualShoppingItem,
+  deleteShoppingItem,
+  getShoppingList,
+  setShoppingItemsStatus,
+} from '../api/shoppingApi';
+import type {
+  NewManualShoppingItem,
+  ShoppingGroupBy,
+  ShoppingItemsStatus,
+  ShoppingListLoadStatus,
+  ShoppingListRead,
+} from '../types';
 
 interface ShoppingListState {
   // Id of the signed-in user the list, its status and its error belong to, or `null` when
@@ -26,6 +37,17 @@ interface ShoppingListState {
   // How the lines are grouped. Unlike the day, it is a preference of the device: it stays
   // when the user changes.
   groupBy: ShoppingGroupBy;
+  // Changes of the list asked for and not answered yet.
+  pendingChanges: number;
+  // What the last change failed with. It is cleared when the next change starts.
+  changeError: unknown;
+  // Each change goes to the server and, once it is accepted, the list is read again: the
+  // server owns the list, so what the change did to it is never worked out on the device.
+  // They answer whether the server took the change; a failure is left in `changeError`.
+  addManualItem: (item: NewManualShoppingItem) => Promise<boolean>;
+  deleteItem: (itemId: string) => Promise<boolean>;
+  setItemsStatus: (itemIds: string[], status: ShoppingItemsStatus) => Promise<boolean>;
+  clearChangeError: () => void;
   // Reads the list of the signed-in user with the current preferences, and replaces the
   // cached one with the answer. A list cached for another user is dropped before anything is
   // asked for, and so is a day another user chose. Without a signed-in user (`null`) there
@@ -67,6 +89,14 @@ export function migrateShoppingListState(persistedState: unknown): PersistedShop
     groupBy: stored.groupBy === 'meal' ? 'meal' : 'ingredient',
   };
 }
+
+// What a refused change says about the list on the device: the item is not what it was
+// thought to be, or is gone. The list is then read again, so the screen stops offering it.
+const STALE_LIST_CODES: readonly string[] = [
+  'shopping_item_not_found',
+  'shopping_item_not_manual',
+  'shopping_item_not_planned',
+];
 
 // Settles once the stored preferences are in the state, or could not be read. A read waits
 // for it, so a list asked for while the app starts is never read without them.
@@ -141,8 +171,40 @@ export const useShoppingListStore = create<ShoppingListState>()(
         }
       };
 
+      // Asks the server for a change on behalf of the user of the cache. A user who signed out
+      // or changed while it was on its way finds the cache as the new user left it.
+      const change = async (run: () => Promise<unknown>): Promise<boolean> => {
+        const { ownerId } = get();
+        if (ownerId === null) return false;
+
+        set((state) => ({ pendingChanges: state.pendingChanges + 1, changeError: null }));
+        const settle = () => set((state) => ({ pendingChanges: state.pendingChanges - 1 }));
+
+        try {
+          await run();
+        } catch (error) {
+          settle();
+          if (get().ownerId !== ownerId) return false;
+
+          set({ changeError: error });
+          if (isApiError(error) && STALE_LIST_CODES.includes(error.code)) await read(ownerId);
+          return false;
+        }
+
+        settle();
+        // This read is the last one asked for, so no read that was on its way lands over it.
+        if (get().ownerId === ownerId) await read(ownerId);
+        return true;
+      };
+
       return {
         ownerId: null,
+        pendingChanges: 0,
+        changeError: null,
+        addManualItem: (item) => change(() => addManualShoppingItem(item)),
+        deleteItem: (itemId) => change(() => deleteShoppingItem(itemId)),
+        setItemsStatus: (itemIds, status) => change(() => setShoppingItemsStatus(itemIds, status)),
+        clearChangeError: () => set({ changeError: null }),
         list: null,
         status: 'idle',
         error: null,
