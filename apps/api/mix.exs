@@ -69,6 +69,7 @@ defmodule MealPlannerApi.MixProject do
       {:bandit, "~> 1.5"},
       {:bamboo, "~> 2.3"},
       {:uuid, "~> 1.1"},
+      {:tz, "~> 0.28"},
       {:mox, "~> 1.1", only: :test},
       {:ex_doc, "~> 0.36", only: :dev, runtime: false},
       {:tidewave, "~> 0.6", only: :dev},

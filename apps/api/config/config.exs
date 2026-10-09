@@ -67,6 +67,11 @@ config :phoenix, :filter_parameters, [
   "prompt"
 ]
 
+# IANA time zone database, compiled into the `tz` package: no runtime
+# download and no writable data directory. `MealPlannerApi.AccountClock`
+# needs it to resolve an Account's stored timezone.
+config :elixir, :time_zone_database, Tz.TimeZoneDatabase
+
 # Import environment specific config. This must remain at the bottom
 # of this file so it overrides the configuration defined above.
 import_config "#{config_env()}.exs"
