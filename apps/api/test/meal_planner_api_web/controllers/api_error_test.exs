@@ -96,6 +96,11 @@ defmodule MealPlannerApiWeb.ApiErrorTest do
       assert is_binary(message) and message != ""
     end
 
+    test "maps the manual Shopping item codes to their HTTP status", %{conn: conn} do
+      assert (conn |> ApiError.error(:shopping_item_not_manual)).status == 422
+      assert (conn |> ApiError.error(:shopping_item_not_found)).status == 404
+    end
+
     test "keeps a response header set on the conn before rendering", %{conn: conn} do
       conn =
         conn
@@ -278,7 +283,13 @@ defmodule MealPlannerApiWeb.ApiErrorTest do
                    profile_codes ++
                    slot_cooking_times_codes ++
                    preferences_codes ++
-                   cooking_codes ++ [:inventory_item_not_found] ++ Map.keys(@channel_codes)
+                   cooking_codes ++
+                   [
+                     :inventory_item_not_found,
+                     :shopping_item_not_manual,
+                     :shopping_item_not_found
+                   ] ++
+                   Map.keys(@channel_codes)
                )
     end
   end
