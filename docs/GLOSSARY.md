@@ -72,6 +72,8 @@ This file and `docs/adr/` are the only durable docs in the repository. Specs, ma
 
 **Recipe source** — Where a Recipe came from; `traditional` recipes are the trusted bank the planner draws from, the other two are derived. `(code: Recipe.source)`
 
+**Base recipe** — The Recipe a derived Recipe (`ai_generated` or `user_created`) was adapted from; it supplies the theme when the derived Recipe has none. `(code: Recipe.base_recipe_id)`
+
 **Recipe version** — An immutable published snapshot of a Recipe; a successor version gets a new Recipe row so existing proposals keep their recipe identity. `(code: Persistence.Catalog.RecipeVersion, Services.RecipeVersions)`
 
 **Recipe snapshot** — The full copy of a recipe frozen inside a Scheduled meal so it can be cooked and shopped even if the catalog changes later. `(code: ScheduledMeal.recipe_snapshot)` `(alias: Plan Recipe Snapshot)`
@@ -80,7 +82,7 @@ This file and `docs/adr/` are the only durable docs in the repository. Specs, ma
 
 **Slot favorite** — A favorite at the instance level: this date's lunch with this recipe, not the recipe itself. `(code: Persistence.Catalog.SlotFavorite)`
 
-**Recipe theme** — The color palette attached to a Recipe that the app applies globally while that recipe is today's selected meal. `(code: mobile RecipeThemeConfig, RecipeThemeContext)` `(alias: Rich Aesthetics)`
+**Recipe theme** — The color palette stored on a Recipe and served with it, which the app applies globally while that recipe is today's selected meal. A derived Recipe with no theme of its own serves its Base recipe's theme. `(code: mobile RecipeThemeConfig, RecipeThemeContext)` `(alias: Rich Aesthetics)`
 
 **Recipe cost** — The estimated price of cooking a Recipe on a given day, summed from Ingredient prices. `(code: Persistence.Catalog.RecipeDailyCost, Persistence.Shopping.RecipePrice)` `(alias: Costo Estimado de Receta)`
 
