@@ -1324,7 +1324,12 @@ Returns the frozen version of a recipe the Account can see: a catalog recipe or 
     "estimatedCostCents": 385000,
     "tags": [],
     "imageUrl": null,
-    "theme": null
+    "theme": {
+      "colorBlack": "#0D1007", "colorDark": "#15180F", "colorMedium": "#364025", "colorLight": "#8D9373",
+      "primaryAccent": "#EF9432", "appBg": "#BCBFA7", "icon": "#D8D98B", "textBlack": "#0D1007",
+      "textDark": "#1B210E", "textMedium": "#D8D98B", "textLight": "#F5F3D4",
+      "primaryAccentIntense": "#FF8400", "alert": "#C94F3D"
+    }
   }
 }
 ```
@@ -1345,8 +1350,14 @@ Fields:
   read at request time, not frozen with the version.
 - `steps[]`: ordered by `order`. `steps[].durationMinutes` is in minutes, or `null`.
 - `estimatedCostCents`: estimated cost of the recipe in cents; `0` when no cost is known.
-- `tags`, `imageUrl` and `theme` are placeholders: they answer `[]`, `null` and `null` until the backend
-  stores them.
+- `theme`: the palette the app takes while this recipe is in view, or `null` (the client then applies its
+  default theme). Keys are camelCase: `colorBlack`, `colorDark`, `colorMedium`, `colorLight`, `primaryAccent`,
+  `appBg`, `icon`, `textBlack`, `textDark`, `textMedium`, `textLight`, `primaryAccentIntense` and `alert`
+  (hex strings), plus an optional `appBgGradient` of two hex strings. It is frozen with the version. A
+  derived recipe (`ai_generated`, `user_created`) whose version has no theme serves the current theme of its
+  base recipe, read when the request is served; with no base, or a base without a theme, it is `null`.
+  Versions frozen before themes existed read as `null`.
+- `tags` and `imageUrl` are placeholders: they answer `[]` and `null` until the backend stores them.
 
 Errors use the envelope of section 10:
 

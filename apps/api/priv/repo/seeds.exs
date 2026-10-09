@@ -1,6 +1,7 @@
 alias MealPlannerApi.Persistence.Accounts
 alias MealPlannerApi.Persistence.Accounts.AccountMembership
 alias MealPlannerApi.Persistence.Catalog
+alias MealPlannerApi.Persistence.Catalog.Recipe
 alias MealPlannerApi.Persistence.Planning
 alias MealPlannerApi.Repo
 alias MealPlannerApi.Subscriptions.Plan
@@ -28,6 +29,34 @@ Enum.each(plans, fn attrs ->
     conflict_target: [:name]
   )
 end)
+
+# Catalog recipes carry their theme (issue #33). Both use the olive palette of
+# the mobile fixtures. They are upserted by name, so running the seeds again
+# leaves one row each and refreshes its theme.
+olive_theme = %{
+  "colorBlack" => "#0D1007",
+  "colorDark" => "#15180F",
+  "colorMedium" => "#364025",
+  "colorLight" => "#8D9373",
+  "primaryAccent" => "#EF9432",
+  "appBg" => "#BCBFA7",
+  "icon" => "#D8D98B",
+  "textBlack" => "#0D1007",
+  "textDark" => "#1B210E",
+  "textMedium" => "#D8D98B",
+  "textLight" => "#F5F3D4",
+  "primaryAccentIntense" => "#FF8400",
+  "alert" => "#C94F3D"
+}
+
+for name <- ["Pollo con Arroz y Tomate", "Pasta con Espinaca"] do
+  attrs = %{name: name, source: :traditional, servings: 2, theme: olive_theme}
+
+  case Repo.get_by(Recipe, name: name, source: :traditional) do
+    nil -> {:ok, _} = Catalog.create_recipe(attrs)
+    %Recipe{} = existing -> {:ok, _} = existing |> Recipe.changeset(attrs) |> Repo.update()
+  end
+end
 
 family_4_plan = Repo.get_by!(Plan, name: "family_4")
 
