@@ -201,7 +201,7 @@ The command validates the range, checks the Account is eligible, starts the sess
 { "sessionId": "550e8400-e29b-41d4-a716-446655440002", "status": "active" }
 ```
 
-`generation_started` follows with the `runId`. When the generation cannot start the session is cancelled (`session_cancelled`), a `generation_error` event is pushed and the command replies the error envelope with `requestId`, so the member can start again. The range is capped at 7 days because the window of the generation server holds 7 days; a longer range is refused before any session starts.
+`generation_started` follows with the `runId`. When the generation cannot start the session is cancelled (`session_cancelled`), its process is stopped, and the command replies the error envelope with `requestId`, so the member can start again. A `generation_error` event is pushed too, except when the account already has a run in flight: that case replies `generation_in_progress` only, as `generate_menu` does, and the topic is not told of a failure. A start that does not get an answer from the generation server in time is handled as a failed start. `rangeTo` and `dayCount` sent as `null` count as absent. The range is capped at 7 days because the window of the generation server holds 7 days; a longer range is refused before any session starts.
 
 Refusals reply the error envelope with these codes:
 
