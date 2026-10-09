@@ -1,0 +1,47 @@
+# Voice adjustment of Inventory (issue #44, S6)
+
+## Objective
+
+A User says "I ate half the cream cheese"; the app shows the parsed intent, asks for confirmation when unsure, applies it, and the ledger records the transcript. Part of #5. Blocked-by #42 is merged.
+
+## Scope and constraints
+
+- Subtract only. No migration needed: trigger `voice` and `raw_voice_text` already exist.
+- Contract: `POST /api/inventory/voice/preview {transcript}` -> `{confirmationRequired, intent:{operation, ingredientId, name, quantityMilli, unit}, confidence}`; `POST /api/inventory/voice/apply` with the intent. Errors in the envelope: `voice_parse_failed`, `voice_confirmation_required`.
+- Mobile never applies a low-confidence intent without the User confirming.
+
+## Decisions
+
+- Confidence is a number in 0..1 computed by the parser from evidence: ingredient name matched + consume verb + explicit amount (fraction or quantity) is high; name matched with a vague amount is low. `confirmationRequired = confidence < 0.8` (named constant).
+- Apply body: `{transcript, intent, confirmed}`. The server re-derives confidence from the transcript and never trusts a client-sent confidence: if confirmation is required and `confirmed != true` -> `voice_confirmation_required`.
+- No parseable intent -> `voice_parse_failed` (422).
+
+## Tasks
+
+- [x] T1 API: preview/apply contract, confidence, error codes, tests (RED first). Route: delegated writer.
+- [ ] T2 Mobile: `inventoryApi` voice calls, store action, fixtures, tests. Route: delegated writer.
+- [ ] T3 Mobile: confirm sheet + screen wiring; low-confidence never applies without confirm (fixture-driven test). Route: delegated writer.
+
+## Acceptance criteria
+
+- [ ] preview returns `{confirmationRequired, intent, confidence}` camelCase; `voice_parse_failed` in the envelope.
+- [ ] apply subtracts with trigger `voice` and the raw transcript; unconfirmed when required -> `voice_confirmation_required`.
+- [ ] Mobile never applies a low-confidence intent without confirmation; tested against fixtures.
+
+## Checks
+
+API (apps/api): `mix format --check-formatted`, `mix compile --warnings-as-errors`, `mix test`. Mobile (apps/mobile): `npm run lint`, `npm run typecheck`, `npm test`.
+
+## Progress
+
+| Task | Commit | Evidence |
+| --- | --- | --- |
+| merge origin/main (brings #42) | b350518 | api_error_test conflict resolved, format clean |
+| T1 API contract | (see git log) | RED 12 failing service tests; GREEN full suite 1522 passed, 0 failed, 20 skipped; spot check 470 passed |
+
+## Notes
+
+- Apply also requires `confirmed: true` when the client intent differs from the transcript re-parse.
+- FEFO runs per source kind (planned, then extra), not globally.
+- Old VoiceParserPort/RuleBased/AI parsers are now unused by the service; removal is a separate decision.
+- apply returns `{ingredientId, quantityDeltaMilli (negative), mutationEvents[]}`.

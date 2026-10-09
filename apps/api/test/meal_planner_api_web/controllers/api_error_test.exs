@@ -96,6 +96,18 @@ defmodule MealPlannerApiWeb.ApiErrorTest do
       assert is_binary(message) and message != ""
     end
 
+    test "maps the voice adjustment codes to 422", %{conn: conn} do
+      for code <- [:voice_parse_failed, :voice_confirmation_required] do
+        conn = conn |> ApiError.error(code)
+
+        assert %{"error" => %{"code" => code_string, "message" => message}} =
+                 json_response(conn, 422)
+
+        assert code_string == Atom.to_string(code)
+        assert is_binary(message) and message != ""
+      end
+    end
+
     test "keeps a response header set on the conn before rendering", %{conn: conn} do
       conn =
         conn
@@ -271,6 +283,9 @@ defmodule MealPlannerApiWeb.ApiErrorTest do
         ~w(scheduled_meal_not_found cooking_session_not_active cooking_already_finished
            cooking_chat_unavailable inventory_mutation_failed)a
 
+      # The codes of the Inventory voice adjustment (issue #44).
+      voice_codes = ~w(voice_parse_failed voice_confirmation_required)a
+
       assert Enum.sort(ApiError.codes()) ==
                Enum.sort(
                  auth_codes ++
@@ -278,7 +293,8 @@ defmodule MealPlannerApiWeb.ApiErrorTest do
                    profile_codes ++
                    slot_cooking_times_codes ++
                    preferences_codes ++
-                   cooking_codes ++ [:inventory_item_not_found] ++ Map.keys(@channel_codes)
+                   cooking_codes ++
+                   voice_codes ++ [:inventory_item_not_found] ++ Map.keys(@channel_codes)
                )
     end
   end
