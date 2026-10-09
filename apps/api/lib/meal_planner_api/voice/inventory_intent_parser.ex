@@ -38,13 +38,38 @@ defmodule MealPlannerApi.Voice.InventoryIntentParser do
     {["cuarto", "quarter"], {1, 4}}
   ]
 
-  # "medio kilo" is 500 g whatever the stock holds.
-  @half_bulk [
-    {["medio kilo", "mitad del kilo", "half a kilo", "half kilo"], :g},
-    {["medio litro", "mitad del litro", "half a liter", "half a litre"], :ml}
+  # "medio kilo" is 500 g and "un cuarto de kilo" 250 g whatever the stock
+  # holds. Kept ahead of the fractions of the stock.
+  @bulk_phrases [
+    {["medio kilo", "mitad del kilo", "half a kilo", "half kilo"], :g, 500_000},
+    {["medio litro", "mitad del litro", "half a liter", "half a litre"], :ml, 500_000},
+    {[
+       "cuarto de kilo",
+       "cuarto kilo",
+       "quarter of a kilo",
+       "quarter of kilo",
+       "a quarter kilo",
+       "quarter kilo"
+     ], :g, 250_000},
+    {[
+       "cuarto de litro",
+       "cuarto litro",
+       "quarter of a liter",
+       "quarter of a litre",
+       "quarter liter",
+       "quarter litre"
+     ], :ml, 250_000}
   ]
 
-  @quantity_regex ~r/(\d+(?:[.,]\d+)?)\s*(kilogramos?|kilos?|kgs?|gramos?|grs?|g|mililitros?|ml|litros?|lts?|l|unidades|unidad|u)\b/
+  @unit_labels "kilogramos?|kilos?|kgs?|gramos?|grs?|g|mililitros?|ml|litros?|lts?|l|unidades|unidad|u"
+
+  # A number not glued to another digit, a dot, a comma or a slash, so the
+  # denominator of "1/2" is never read as an amount of its own.
+  @quantity_regex Regex.compile!("(?<![\\d.,/])(\\d+(?:[.,]\\d+)?)\\s*(#{@unit_labels})\\b")
+  @fraction_regex Regex.compile!("(?<![\\d.,/])(\\d+)/(\\d+)\\s*(#{@unit_labels})\\b")
+
+  # Spoken words that start with a consume stem but are not the verb.
+  @not_verbs ~w(comida comidas)
 
   @type stock :: %{
           ingredient_id: String.t(),
@@ -126,7 +151,9 @@ defmodule MealPlannerApi.Voice.InventoryIntentParser do
   end
 
   defp consume_verb?(words) do
-    Enum.any?(words, fn word -> Enum.any?(@consume_stems, &String.starts_with?(word, &1)) end)
+    Enum.any?(words, fn word ->
+      word not in @not_verbs and Enum.any?(@consume_stems, &String.starts_with?(word, &1))
+    end)
   end
 
   # {quantity_milli, amount_evidence}. No stated amount takes all the stock.
@@ -158,16 +185,16 @@ defmodule MealPlannerApi.Voice.InventoryIntentParser do
   defp count_amount(text, stock) do
     name = stock.name |> words() |> Enum.join(" ") |> Regex.escape()
 
-    case Regex.run(~r/(\d+(?:[.,]\d+)?)\s+#{name}/, text) do
+    case Regex.run(~r/(?<![\d.,\/])(\d+(?:[.,]\d+)?)\s+#{name}/, text) do
       [_whole, number] -> round(parse_number(number) * 1_000)
       nil -> nil
     end
   end
 
   defp half_bulk_amount(words, stock) do
-    Enum.find_value(@half_bulk, fn {phrases, unit} ->
+    Enum.find_value(@bulk_phrases, fn {phrases, unit, quantity} ->
       if unit == stock.unit and Enum.any?(phrases, &contains_phrase?(words, words(&1))),
-        do: 500_000
+        do: quantity
     end)
   end
 
@@ -201,9 +228,29 @@ defmodule MealPlannerApi.Voice.InventoryIntentParser do
     |> String.split(" ", trim: true)
   end
 
-  # The same fold, keeping the decimal separators of a quantity.
+  # The same fold, keeping the decimal separators of a quantity and the slash
+  # of a fraction. "1/2 kg" becomes "0.500000 kg"; a slash fraction with no
+  # unit stays "1/2", which no amount pattern reads.
   defp decimal_text(text) do
-    text |> fold() |> String.replace(~r/[^\p{L}\p{N}.,]+/u, " ")
+    text
+    |> fold()
+    |> String.replace(~r/[^\p{L}\p{N}.,\/]+/u, " ")
+    |> then(
+      &Regex.replace(@fraction_regex, &1, fn whole, n, d, label ->
+        fraction_text(whole, n, d, label)
+      end)
+    )
+  end
+
+  defp fraction_text(whole, numerator, denominator, label) do
+    case String.to_integer(denominator) do
+      0 ->
+        whole
+
+      divisor ->
+        value = String.to_integer(numerator) / divisor
+        :erlang.float_to_binary(value, decimals: 6) <> " " <> label
+    end
   end
 
   defp fold(text) do

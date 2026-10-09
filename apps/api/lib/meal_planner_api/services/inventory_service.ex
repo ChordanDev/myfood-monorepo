@@ -317,13 +317,18 @@ defmodule MealPlannerApi.Services.InventoryService do
   defp check_voice_confirmation(parsed, intent, confirmed) do
     edited? =
       parsed.intent.ingredient_id != intent.ingredient_id or
-        parsed.intent.quantity_milli != intent.quantity_milli
+        parsed.intent.quantity_milli != intent.quantity_milli or
+        unit_edited?(parsed.intent.unit, intent.unit)
 
     if (InventoryIntentParser.confirmation_required?(parsed.confidence) or edited?) and
          confirmed != true,
        do: {:error, :voice_confirmation_required},
        else: :ok
   end
+
+  # A missing client unit means "use the parsed unit"; any other must match it.
+  defp unit_edited?(_parsed_unit, nil), do: false
+  defp unit_edited?(parsed_unit, unit), do: Atom.to_string(parsed_unit) != unit
 
   # The unit the intent names, else the unit the transcript would use.
   defp voice_stock_entry(stock, intent) do

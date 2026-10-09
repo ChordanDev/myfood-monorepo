@@ -47,6 +47,46 @@ defmodule MealPlannerApi.Voice.InventoryIntentParserTest do
              parse("me comí medio kilo de queso")
   end
 
+  test "a slash fraction before a unit is that share of the unit, never the denominator" do
+    stock = [%{@plain_cheese | total_milli: 2_000_000}]
+
+    assert {:ok, %{intent: %{quantity_milli: 500_000}, confidence: c}} =
+             InventoryIntentParser.parse("me comí 1/2 kg de queso", stock)
+
+    assert c >= 0.8
+
+    stock = [%{@plain_cheese | total_milli: 5_000_000}]
+
+    assert {:ok, %{intent: %{quantity_milli: 250_000}}} =
+             InventoryIntentParser.parse("me comí 1/4 kg de queso", stock)
+  end
+
+  test "a slash fraction without a unit never yields a confident wrong amount" do
+    stock = [%{@eggs | total_milli: 6_000}]
+
+    assert {:ok, %{intent: %{quantity_milli: quantity}, confidence: c}} =
+             InventoryIntentParser.parse("me comí 1/2 huevos", stock)
+
+    assert c < 0.8 or quantity != 2_000
+  end
+
+  test "un cuarto de kilo is 250 g whatever the stock holds" do
+    stock = [%{@plain_cheese | total_milli: 2_000_000}]
+
+    assert {:ok, %{intent: %{quantity_milli: 250_000}, confidence: c}} =
+             InventoryIntentParser.parse("usé un cuarto de kilo de queso", stock)
+
+    assert c == 0.9
+
+    assert {:ok, %{intent: %{quantity_milli: 250_000}}} =
+             InventoryIntentParser.parse("usé un cuarto de litro de leche", [@milk])
+  end
+
+  test "the noun comida is not a consume verb" do
+    assert {:ok, %{confidence: 0.7}} = parse("queso de la comida 200 g")
+    assert {:ok, %{confidence: 0.9}} = parse("me comí 200 g de queso")
+  end
+
   test "a bare count before a unit ingredient subtracts those units" do
     assert {:ok, %{intent: %{ingredient_id: "eggs", quantity_milli: 2_000}, confidence: c}} =
              parse("me comí 2 huevos")

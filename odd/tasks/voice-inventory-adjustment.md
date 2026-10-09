@@ -49,3 +49,9 @@ API (apps/api): `mix format --check-formatted`, `mix compile --warnings-as-error
 - `authService.test.ts` reads the ApiError rows after the "Planning channel" comment to the end of `@codes`; the channel block now sits last so cooking and voice rows no longer count as channel codes.
 - Voice sheet takes a typed transcript; no speech library is wired yet.
 - If apply answers `voice_confirmation_required` after a high-confidence preview, the error shows on the entry step (does not move to confirm).
+
+## Review follow-ups
+
+Fixed in this round: C1 (slash fractions), C2 (cuarto de kilo/litro), C4 (comida is not a verb), C5+SP-1 (unit edit needs confirmation).
+
+Not fixed here, tracked as follow-ups: C3, C6/TR-2, TR-1, C7, SP-2, SP-3, SP-4.

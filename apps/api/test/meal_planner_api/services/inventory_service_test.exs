@@ -828,6 +828,30 @@ defmodule MealPlannerApi.Services.InventoryServiceTest do
                })
     end
 
+    test "apply needs confirmation when the client names another unit than the transcript", ctx do
+      eggs = insert_ingredient("Huevo")
+      seed_lot(ctx.account, ctx.user, eggs, %{unit: :unit, delta: 12_000})
+      grams = seed_lot(ctx.account, ctx.user, eggs, %{unit: :g, delta: 600_000})
+      transcript = "me comí 300 gramos de huevos"
+      {:ok, %{intent: intent}} = preview(ctx, transcript)
+      assert intent.unit == "g"
+
+      assert {:error, :voice_confirmation_required} =
+               InventoryService.voice_apply(ctx.scoped_user, %{
+                 "transcript" => transcript,
+                 "intent" => %{stringify(intent) | "unit" => "unit"}
+               })
+
+      assert {:ok, _result} =
+               InventoryService.voice_apply(ctx.scoped_user, %{
+                 "transcript" => transcript,
+                 "intent" => stringify(intent)
+               })
+
+      assert InventoryPersistence.get_inventory_item_for_account(ctx.account.id, grams.id).quantity_milli ==
+               300_000
+    end
+
     test "apply caps the subtraction at the stock and never goes negative", ctx do
       lot = seed_lot(ctx.account, ctx.user, ctx.cheese, %{delta: 400_000})
       transcript = "me comí la mitad del queso crema"
