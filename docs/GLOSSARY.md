@@ -142,7 +142,7 @@ This file and `docs/adr/` are the only durable docs in the repository. Specs, ma
 
 **Cart** — The Shopping items a User has marked for purchase but not yet confirmed. `(code: Cart)` `(alias: in_cart)`
 
-**Cart lease** — The one-hour exclusive hold a User has on a Cart; abandoned leases are released automatically. `(code: Cart, CartSweeper, CheckoutSession.lease_expires_at)`
+**Cart lease** — The one-hour exclusive hold a User has on a Cart; abandoned leases are released automatically. Another Membership that marks held items is refused with `cart_locked`; an expired lease reads back as no Cart. The shopping screen renews it at most once a minute while active and cancels it when the User abandons the Cart. `(code: Cart, CartSweeper, CheckoutSession.lease_expires_at)`
 
 **Checkout session** — The atomic act of confirming a Cart as purchased (`physical` or `online`), which moves its items into Inventory. `(code: Persistence.Shopping.CheckoutSession, ShoppingCheckout)` `(alias: confirmar compra)`
 

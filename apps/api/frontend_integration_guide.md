@@ -775,6 +775,31 @@ Request body:
 }
 ```
 
+Success response (`in_cart: true`):
+
+```json
+{
+  "data": {
+    "sessionId": "<cart_session_uuid>",
+    "leaseExpiresAt": "<ISO 8601 datetime>",
+    "items": [{ "itemId": "<item_uuid>", "reservationToken": "<token>", "quantityMilli": 1500 }]
+  }
+}
+```
+
+Cart lease (one hour from the last activity):
+
+- Renew: `POST /api/cart/:sessionId/activity` returns `{ "data": { "sessionId", "leaseExpiresAt" } }`.
+  Clients renew at most once a minute while the shopping screen is active.
+- Cancel: `DELETE /api/cart/:sessionId` returns `{ "data": { "sessionId", "updatedRows", "status": "abandoned" } }`.
+- An expired lease reads back as `cart: null` on `GET /api/shopping-list`.
+
+Errors (`{ "error": { "code", "message" } }`):
+
+- `cart_locked` (409): the items are held in another Membership's live Cart.
+- `stale_cart` (409): the lease ran out; drop the local Cart and reread the list.
+- `cart_not_found` (404): the Cart belongs to another Membership or does not exist.
+
 ### 7.3 Assign supermarket
 
 - Method: `POST`
