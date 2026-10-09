@@ -38,6 +38,8 @@ export interface OnboardingCompletionRequest {
   profile: OnboardingProfile;
   preferences: UserPreferencesPayload;
   slotCookingTimes: SlotCookingTimesPayload;
+  /** IANA zone name of the device, stored on the Account. */
+  timezone: string;
 }
 
 export interface OnboardingCompletionUser {
