@@ -3,6 +3,7 @@ defmodule MealPlannerApiWeb.PlanningController do
 
   alias MealPlannerApi.Services.PlanningService
   alias MealPlannerApiWeb.Controllers.AccountScopeHelpers
+  alias MealPlannerApiWeb.MealSummary
 
   # Phase A — Tenancy Refactor (PR 3c task 3.15): tenancy scope is always
   # resolved from `conn.assigns.current_membership.account_id`, never
@@ -16,7 +17,7 @@ defmodule MealPlannerApiWeb.PlanningController do
 
     case PlanningService.generate_weekly_plan(user, params) do
       {:ok, plan} ->
-        json(conn, %{data: plan})
+        json(conn, %{data: serialize_weekly(plan)})
 
       {:error, reason} ->
         render_error(conn, reason)
@@ -55,6 +56,27 @@ defmodule MealPlannerApiWeb.PlanningController do
         |> put_status(error_status(reason))
         |> json(%{error: Atom.to_string(reason)})
     end
+  end
+
+  # The optimizer meals carry the candidate fields (`label`,
+  # `calories_per_serving`, ...); the response describes each one with the
+  # shared `MealSummary`. Candidates know neither favorites nor prep time, so
+  # `is_favorite` is false and `prep_time_minutes` is nil here.
+  defp serialize_weekly(plan) do
+    Map.update!(plan, :days, fn days ->
+      Enum.map(days, fn day ->
+        Map.update!(day, :meals, &Enum.map(&1, fn m -> weekly_meal(m) end))
+      end)
+    end)
+  end
+
+  defp weekly_meal(meal) do
+    MealSummary.serialize(%{
+      recipe_id: meal["recipe_id"],
+      recipe_name: meal["label"],
+      slot: meal["slot"],
+      calories: meal["calories_per_serving"]
+    })
   end
 
   defp scoped_user(conn) do

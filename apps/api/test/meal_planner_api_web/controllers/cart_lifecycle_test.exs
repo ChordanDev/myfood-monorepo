@@ -154,11 +154,11 @@ defmodule MealPlannerApiWeb.CartLifecycleTest do
     lot = hd(stock(f))
     snapshot = {stock(f), events(f)}
 
-    assert %{"error" => "item_not_found"} =
+    assert %{"error" => %{"code" => "inventory_item_not_found"}} =
              request(foreign, :post, "/api/inventory/items/#{lot.id}/quantity", %{
                "quantity_milli" => 999
              })
-             |> json_response(422)
+             |> json_response(404)
 
     assert {stock(f), events(f)} == snapshot
 

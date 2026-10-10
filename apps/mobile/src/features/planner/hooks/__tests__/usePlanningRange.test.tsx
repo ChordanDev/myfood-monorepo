@@ -9,6 +9,8 @@ jest.mock('@react-native-async-storage/async-storage', () =>
 );
 
 // The pure modules behind the Home barrel: the barrel itself loads its screens.
+jest.mock('@/features/home/hooks/useLoadLivePlan', () => ({ useLoadLivePlan: jest.fn() }));
+
 jest.mock('@/features/home', () => ({
   ...jest.requireActual('@/features/home/constants/calendar'),
   ...jest.requireActual('@/features/home/utils/calendarDate'),
@@ -133,9 +135,19 @@ describe('usePlanningRange', () => {
       renderPlanningRange();
       tap('2026-09-20');
 
-      const returned = tap('2026-10-03');
+      const returned = tap('2026-09-24');
 
-      expect(planning.range).toEqual({ start: '2026-09-20', end: '2026-10-03' });
+      expect(planning.range).toEqual({ start: '2026-09-20', end: '2026-09-24' });
+      expect(returned).toEqual(planning.range);
+    });
+
+    it('cuts a range longer than a week to its seventh day', () => {
+      renderPlanningRange();
+      tap('2026-09-28');
+
+      const returned = tap('2026-10-20');
+
+      expect(planning.range).toEqual({ start: '2026-09-28', end: '2026-10-04' });
       expect(returned).toEqual(planning.range);
     });
 

@@ -5,7 +5,7 @@ import { StyleSheet, Text } from 'react-native';
 import { act, create, ReactTestInstance } from 'react-test-renderer';
 import { Plus } from 'lucide-react-native';
 import { withOpacity } from '@/utils/colors';
-import type { ManualShoppingListItem, ShoppingItemStatus } from '../types';
+import type { ShoppingItemStatus, ShoppingListLine } from '../types';
 import { ShoppingManualCard } from './ShoppingManualCard';
 
 jest.mock('react-native-reanimated', () => {
@@ -46,12 +46,23 @@ const ADD_LABEL = 'Agregar a la lista';
 const EMPTY_HINT = 'Todavía no agregaste nada.';
 
 function manualItem(sequence: number, name: string, status: ShoppingItemStatus = 'needed') {
-  return { id: `manual:${sequence}`, source: 'manual', status, name } as ManualShoppingListItem;
+  return {
+    id: `manual:${sequence}`,
+    source: 'manual',
+    status,
+    name,
+    ingredientId: null,
+    category: 'otros',
+    quantityMilli: 1_000,
+    unit: 'unit',
+    supermarketId: null,
+    allocations: [],
+  } satisfies ShoppingListLine;
 }
 
 const ITEMS = [manualItem(1, 'Papel de cocina'), manualItem(2, 'Velas', 'in_cart')];
 
-function renderCard(items: ManualShoppingListItem[]) {
+function renderCard(items: ShoppingListLine[]) {
   const onToggleItem = jest.fn();
   const onRemoveItem = jest.fn();
   const onAdd = jest.fn();
@@ -86,16 +97,16 @@ function getLabels(root: ReactTestInstance, role: 'button' | 'checkbox'): string
 }
 
 describe('ShoppingManualCard', () => {
-  it('lists the manual items by name, each on a single line', () => {
+  it('lists the manual items with their quantity, each on a single line', () => {
     const { root } = renderCard(ITEMS);
 
-    expect(getTexts(root)).toEqual(['Agregados a mano', 'Papel de cocina', 'Velas']);
+    expect(getTexts(root)).toEqual(['Agregados a mano', '1 u · Papel de cocina', '1 u · Velas']);
   });
 
   it('has one checkbox per item and no "Marcar todos"', () => {
     const { root } = renderCard(ITEMS);
 
-    expect(getLabels(root, 'checkbox')).toEqual(['Papel de cocina', 'Velas']);
+    expect(getLabels(root, 'checkbox')).toEqual(['1 u · Papel de cocina', '1 u · Velas']);
     expect(
       getPressables(root, 'checkbox').map((row) => row.props.accessibilityState.checked)
     ).toEqual([false, true]);
@@ -159,5 +170,23 @@ describe('ShoppingManualCard', () => {
     expect(onRemoveItem).toHaveBeenCalledWith('manual:2');
     expect(onToggleItem).toHaveBeenCalledTimes(1);
     expect(onAdd).not.toHaveBeenCalled();
+  });
+
+  it('has no checkbox without a toggle: its rows are held to be removed', () => {
+    let tree: ReturnType<typeof create>;
+    const onRemoveItem = jest.fn();
+
+    act(() => {
+      tree = create(
+        <ShoppingManualCard items={ITEMS} onRemoveItem={onRemoveItem} onAdd={jest.fn()} />
+      );
+    });
+    const [row] = tree!.root.findAll((node) => typeof node.props.onLongPress === 'function');
+
+    expect(getPressables(tree!.root, 'checkbox')).toHaveLength(0);
+    act(() => {
+      row.props.onLongPress();
+    });
+    expect(onRemoveItem).toHaveBeenCalledWith('manual:1');
   });
 });

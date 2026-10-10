@@ -60,6 +60,13 @@ describe('catalog codes', () => {
 });
 
 describe('buildOnboardingPayload', () => {
+  it('carries the IANA timezone the device reports', () => {
+    const payload = buildOnboardingPayload(baseState);
+
+    expect(payload.timezone).toBe(Intl.DateTimeFormat().resolvedOptions().timeZone);
+    expect(payload.timezone).not.toBe('');
+  });
+
   it('serializes diet and hardRestrictions as catalog codes only', () => {
     const payload = buildOnboardingPayload({
       ...baseState,

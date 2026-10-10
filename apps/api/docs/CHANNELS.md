@@ -183,11 +183,55 @@ Ok reply; the `session_started` event carries the same `sessionId`:
 - An event emitted by another server process (generation, the planning session, the session sweeper, the AI chat channel) has no ordering guarantee relative to a reply. `session_started` is one of them: a client must not assume on which side of the `start_planning` reply it arrives.
 - Clients correlate replies and events by `requestId` / `sessionId`, never by arrival order.
 
+#### start_planning
+
+The command that starts a Planning session and its first generation (issue #25).
+
+| Param (camelCase) | Type | Description |
+|-------------------|------|-------------|
+| `rangeFrom` | `"YYYY-MM-DD"` | First day. Today or later; one day before today (UTC) is still accepted, because a member east of UTC sees a date that is yesterday in UTC |
+| `rangeTo` | `"YYYY-MM-DD"` | Last day, inclusive. Optional when `dayCount` is sent |
+| `dayCount` | integer | Number of days, 1 to 7. Optional when `rangeTo` is sent; when both are sent they must agree |
+| `request` | string | Optional free text, at most 1000 characters after trimming. A blank text counts as none. It reaches the generation as the `request` constraint |
+| `requestId` | string | Optional. Correlates `generation_started`, and `generation_error` when that event carries it; generated when missing |
+
+The command validates the range, checks the Account is eligible, starts the session (`session_started`), then starts the generation through the same call `generate_menu` uses and replies:
+
+```json
+{ "sessionId": "550e8400-e29b-41d4-a716-446655440002", "status": "active" }
+```
+
+`generation_started` follows with the `runId`. When the generation cannot start the session is cancelled (`session_cancelled`), its process is stopped, and the command replies the error envelope with `requestId`, so the member can start again. A `generation_error` event is pushed too, except when the account already has a run in flight: that case replies `generation_in_progress` only, as `generate_menu` does, and the topic is not told of a failure. A start that does not get an answer from the generation server in time is handled as a failed start. `rangeTo` and `dayCount` sent as `null` count as absent. The range is capped at 7 days because the window of the generation server holds 7 days; a longer range is refused before any session starts.
+
+Refusals reply the error envelope with these codes:
+
+| Code | Condition |
+|------|-----------|
+| `planning_invalid_range` | A date is missing or is not an ISO 8601 date, the range ends before it starts, lasts more than 7 days, starts more than a day in the past, or `dayCount` is not an integer from 1 to 7 or disagrees with `rangeTo` |
+| `planning_range_locked` | An active session of the Account already holds part of the range |
+| `invalid_payload` | `request` is not a string or is longer than 1000 characters |
+| `subscription_required` | The Account is not eligible |
+| `generation_in_progress` | A generation of the Account is already running (the session is cancelled) |
+
+`planning_range_locked` may carry `details` inside `error`, next to `code` and `message`: `{"ownerName": "Ana"}`, the display name of the member who holds the range. It is present only when that member is not the caller; a member who collides with their own session gets no `details`.
+
+```json
+{
+  "error": {
+    "code": "planning_range_locked",
+    "message": "Another planning session holds part of this date range.",
+    "details": { "ownerName": "Ana" }
+  }
+}
+```
+
+The older `invalid_range` and `overlapping_range` codes stay in the allowlist; `start_planning` no longer replies them.
+
 #### Incoming Events
 
 | Event | Payload | Description |
 |-------|---------|-------------|
-| `start_planning` | `{"range_from": "YYYY-MM-DD", "range_to": "YYYY-MM-DD"}` | Start a planning session for the date range |
+| `start_planning` | `{"range_from": "YYYY-MM-DD", "range_to": "YYYY-MM-DD", "request": "text"}` (or `day_count` instead of `range_to`) | Start a planning session and its first generation, see [start_planning](#start_planning) |
 | `choose_slot` | `{"slot_id": "uuid", "recipe_id": "uuid"}` | Assign recipe to a slot |
 | `remove_slot` | `{"slot_id": "uuid"}` | Remove recipe from a slot |
 | `generate_plan` | `{"strategy": "balanced|quick|varied"}` | Trigger AI plan generation |
@@ -201,6 +245,79 @@ Ok reply; the `session_started` event carries the same `sessionId`:
   "range_to": "2026-06-15"
 }
 ```
+
+#### Planner events (frozen shapes)
+
+The Planner screen reads five events of `planning:<account_id>` (issue #25). Their payloads are frozen: a key is added only with a new version of this section, and a test pins each shape. Every key is camelCase. The shapes are built by the channel (`MealPlannerApiWeb.Channels.Serializers.PlanningEvents`), not by the generation server.
+
+| Event | Emitted | Payload |
+|-------|---------|---------|
+| `session_started` | When the session row is created | `{ "sessionId": "uuid" }` |
+| `generation_started` | After `start_planning` started the generation | `{ "requestId": "string", "runId": "uuid", "sessionId": "uuid" }`. `generate_menu` emits it without `sessionId`, and `swap_constraints` with `{ "requestId", "reason": "constraint_update" }` |
+| `proposal_ready` | When the generation finished a proposal | see below |
+| `planning_message` | Right after `proposal_ready`, same socket | see below |
+| `generation_error` | When a generation failed or could not start | `{ "reason": "string", "details": {}, "runId": "uuid" \| null, "requestId": "string" \| null }` |
+
+`proposal_ready`, day by day:
+
+```json
+{
+  "proposalId": "uuid",
+  "runId": "uuid",
+  "estimatedCostCents": 1950,
+  "days": [
+    {
+      "date": "2026-10-09",
+      "costCents": 1250,
+      "meals": [
+        {
+          "slot": "lunch",
+          "recipeId": "uuid",
+          "recipeName": "Chicken rice",
+          "priceCents": 1250,
+          "macros": { "proteinG": 30, "carbsG": 60, "calories": 500 }
+        }
+      ]
+    }
+  ]
+}
+```
+
+Days are in calendar order and the meals of a day in `breakfast`, `lunch`, `dinner`, `snack` order. `priceCents` is `null` when the price of a recipe is unknown and then adds nothing to `costCents` and `estimatedCostCents`. The `proposal_ready` of `swap_constraints` is a different payload (`proposal` with `scheduledMeals` and `weeklyPlan`) and is pushed as it was.
+
+`planning_message` is the assistant's message about the proposal:
+
+```json
+{
+  "role": "assistant",
+  "text": "Here is your plan for 2 days: 3 meals, estimated cost 19.50.",
+  "proposalId": "uuid",
+  "runId": "uuid",
+  "summary": { "dayCount": 2, "mealCount": 3, "estimatedCostCents": 1950 }
+}
+```
+
+`generation_error.reason` is the raw reason (`"optimization_failed"`, `"invalid_date_range"`, `"pipeline_error"`), not an `ApiError` code; `details` is `{}` when the failure has none.
+
+`runId` and `requestId` are `null` when the failure comes from a path of the engine that carries a reason alone (`pipeline_error`, the reasons of the request validation, `invalid_modification`). Such an event cannot be matched to a run by id: a client attributes it to the in-flight generation of the account, of which there is at most one. Do not rely on the ids to correlate a `generation_error`.
+
+Order: `proposal_ready` is pushed before `planning_message`. `generation_started` is broadcast by the channel after it started the generation, so a generation that fails at once may deliver `generation_error` first; correlate by `runId` / `requestId` when they are present (see above when they are `null`), never by arrival order. A proposal reaches every member joined to the topic, each with its own `planning_message`.
+
+#### Planner fixtures
+
+The frozen payloads above are also committed as JSON in `apps/mobile/src/features/planner/fixtures/` (`startPlanningReply`, `sessionStarted`, `generationStarted`, `proposalReady`, `planningMessage`, `generationError`, `planningInvalidRangeError`, `planningRangeLockedError`). The channel serializers are real: every fixture except `proposalReady`/`planningMessage` is recorded from a real channel run. `proposal_ready` is driven by a synthetic broadcast of a proposal built in the test (with a fractional macro and a missing one, as the producer sends them):
+
+- `test/meal_planner_api_web/channels/planner_fixtures_test.exs` runs `start_planning` and records each payload through `MealPlannerApiWeb.PlannerFixtures.check!/3`. Without `UPDATE_FIXTURES`, the test fails when a committed file differs from the fresh payload, so API drift fails an API test.
+- The mobile test `src/features/planner/fixtures/__tests__/plannerFixtures.test.ts` parses every file with the types in `src/features/planner/types/planningEvents.ts` (missing, extra or mistyped keys throw), so app drift fails an app test.
+- Volatile values are normalized: UUIDs become `00000000-0000-4000-8000-00000000000N` and the dates of the run become `2030-01-01`, `2030-01-02`.
+
+To regenerate after an intended payload change, from `apps/api` (with the test database env set):
+
+```sh
+UPDATE_FIXTURES=1 mix test test/meal_planner_api_web/channels/planner_fixtures_test.exs
+```
+
+Then update `planningEvents.ts`, run `npm test` in `apps/mobile`, and commit the JSON files with the change.
 
 #### Outgoing Events
 

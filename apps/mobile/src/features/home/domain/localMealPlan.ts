@@ -1,4 +1,12 @@
-import type { MasterRecipe, MealPlanEntry, MealSlot, RecipeThemeConfig } from '@/types/domain';
+import type {
+  MasterRecipe,
+  MealPlanEntry,
+  MealSlot,
+  RecipeSummary,
+  RecipeThemeConfig,
+} from '@/types/domain';
+
+type RecipeSummaries = Record<string, RecipeSummary>;
 
 export type HomeMealSlot = Exclude<MealSlot, 'snack'>;
 
@@ -94,7 +102,8 @@ export function getSelectedLocalMeal(
 
 export function getHomeMealSummaries(
   entries: MealPlanEntry[],
-  recipes: MasterRecipe[]
+  recipes: MasterRecipe[],
+  summaries: RecipeSummaries = {}
 ): HomeMealSummary[] {
   return ORDERED_HOME_MEAL_TYPES.flatMap((type) =>
     entries
@@ -102,7 +111,10 @@ export function getHomeMealSummaries(
       .map((entry) => ({
         id: entry.id,
         type,
-        name: recipes.find((recipe) => recipe.id === entry.recipeId)?.name ?? 'Receta sin nombre',
+        name:
+          recipes.find((recipe) => recipe.id === entry.recipeId)?.name ??
+          summaries[entry.recipeId]?.name ??
+          'Receta sin nombre',
       }))
   );
 }

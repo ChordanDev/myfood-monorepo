@@ -12,7 +12,7 @@ import {
   resolveUntilDate,
 } from '../domain';
 import { useShoppingListStore } from '../store';
-import type { ShoppingGroupBy, ShoppingListLine } from '../types';
+import type { NewManualShoppingItem, ShoppingGroupBy, ShoppingListLine } from '../types';
 
 // Second line of every row that has one, keyed by line id.
 function getMetaLines(lines: ShoppingListLine[], groupBy: ShoppingGroupBy) {
@@ -24,6 +24,11 @@ function getMetaLines(lines: ShoppingListLine[], groupBy: ShoppingGroupBy) {
   }
 
   return metaLines;
+}
+
+// The Shopping items a line stands for: what the server takes to remove or restore it.
+function getItemIds({ allocations }: ShoppingListLine) {
+  return allocations.map(({ itemId }) => itemId);
 }
 
 // The Shopping list as the screen shows it: the last read of the server, and how the user
@@ -40,6 +45,12 @@ export function useShoppingList() {
   const refresh = useShoppingListStore((state) => state.refresh);
   const setChosenUntilDate = useShoppingListStore((state) => state.setChosenUntilDate);
   const setGroupBy = useShoppingListStore((state) => state.setGroupBy);
+  const pendingChanges = useShoppingListStore((state) => state.pendingChanges);
+  const cachedChangeError = useShoppingListStore((state) => state.changeError);
+  const addItem = useShoppingListStore((state) => state.addManualItem);
+  const deleteItem = useShoppingListStore((state) => state.deleteItem);
+  const setItemsStatus = useShoppingListStore((state) => state.setItemsStatus);
+  const clearChangeError = useShoppingListStore((state) => state.clearChangeError);
 
   // The cache outlives a sign-out, and the read below only drops it once it runs. So what was
   // read for another user is left out here, while rendering: it is never drawn, not even on
@@ -48,6 +59,7 @@ export function useShoppingList() {
   const list = isOwnCache ? cachedList : null;
   const status = isOwnCache ? cachedStatus : 'idle';
   const error = isOwnCache ? cachedError : null;
+  const changeError = isOwnCache ? cachedChangeError : null;
 
   // The list changes behind the screen, when a meal is planned or cooked on another tab or by
   // another member: it is read when the screen is first shown and every time it is come back
@@ -82,6 +94,35 @@ export function useShoppingList() {
     [list, setChosenUntilDate]
   );
 
+  // The lines the User added by hand, apart from the planned ones.
+  const manualItems = list?.manual ?? [];
+  const removedLines = useMemo(
+    () => (list?.planned ?? []).filter((line) => line.status === 'removed'),
+    [list]
+  );
+
+  // A manual item is deleted. A planned one is only removed, so it can be restored, with every
+  // share of it: the id of a line is not the id of a Shopping item.
+  const removeItem = useCallback(
+    (lineId: string) => {
+      const manualLine = list?.manual.find((line) => line.id === lineId);
+      if (manualLine) return deleteItem(manualLine.id);
+
+      const plannedLine = list?.planned.find((line) => line.id === lineId);
+      if (!plannedLine || plannedLine.status === 'removed') return Promise.resolve(false);
+
+      return setItemsStatus(getItemIds(plannedLine), 'removed');
+    },
+    [list, deleteItem, setItemsStatus]
+  );
+
+  // Brings back every line that was removed.
+  const restoreItems = useCallback(() => {
+    const itemIds = removedLines.flatMap(getItemIds);
+
+    return itemIds.length === 0 ? Promise.resolve(false) : setItemsStatus(itemIds, 'needed');
+  }, [removedLines, setItemsStatus]);
+
   const retry = useCallback(() => {
     refresh(ownerId);
   }, [refresh, ownerId]);
@@ -111,5 +152,16 @@ export function useShoppingList() {
     cart: list?.cart ?? null,
     // Whole lines, to find the items behind a row.
     lines: list?.planned ?? [],
+    manualItems,
+    // The planned lines the User removed, as the server counted them.
+    removedCount: list?.totals.removed ?? 0,
+    addManualItem: (item: NewManualShoppingItem) => addItem(item),
+    removeItem,
+    restoreItems,
+    // A change is on its way to the server.
+    isChanging: isOwnCache && pendingChanges > 0,
+    // Set while the last change was refused or could not be sent; the list is the last one read.
+    changeErrorMessage: changeError === null ? undefined : getAuthErrorMessage(changeError),
+    dismissChangeError: clearChangeError,
   };
 }

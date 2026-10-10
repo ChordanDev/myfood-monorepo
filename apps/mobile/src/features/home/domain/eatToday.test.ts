@@ -4,6 +4,7 @@ import {
   EAT_TODAY_DESTINATION_TYPES,
   EAT_TODAY_LABEL,
   getAvailableEatTodayDestinations,
+  planEatTodayReplacement,
 } from './eatToday';
 
 const TODAY_KEY = '2026-08-25';
@@ -76,5 +77,87 @@ describe('getAvailableEatTodayDestinations', () => {
   it('treats a day without entries as fully available before the cutoffs', () => {
     expect(getAvailableEatTodayDestinations([], at(10))).toEqual(['lunch', 'dinner']);
     expect(getAvailableEatTodayDestinations([], at(23))).toEqual([]);
+  });
+});
+
+describe('planEatTodayReplacement', () => {
+  function entry(
+    id: string,
+    date: string,
+    type: MealSlot,
+    overrides: Partial<MealPlanEntry> = {}
+  ): MealPlanEntry {
+    return { id, date, type, recipeId: `recipe-${id}`, isCooked: false, ...overrides };
+  }
+
+  const params = {
+    sourceDate: '2026-08-27',
+    sourceType: 'dinner' as const,
+    targetDate: TODAY_KEY,
+    targetType: 'lunch' as const,
+  };
+
+  it('swaps the source with the meal of the destination and sends every meal of the range', () => {
+    const entries = [
+      entry('today-lunch', TODAY_KEY, 'lunch', { selectedQuantity: 2 }),
+      entry('other-day', '2026-08-26', 'lunch'),
+      entry('source', '2026-08-27', 'dinner'),
+      entry('outside', '2026-09-30', 'lunch'),
+    ];
+
+    expect(planEatTodayReplacement(entries, params)).toEqual({
+      from: TODAY_KEY,
+      to: '2026-08-27',
+      meals: [
+        {
+          date: '2026-08-27',
+          slot: 'dinner',
+          recipeId: 'recipe-today-lunch',
+          isCooked: false,
+          selectedQuantity: 2,
+        },
+        { date: '2026-08-26', slot: 'lunch', recipeId: 'recipe-other-day', isCooked: false },
+        { date: TODAY_KEY, slot: 'lunch', recipeId: 'recipe-source', isCooked: false },
+      ],
+    });
+  });
+
+  it('moves the source when the destination is empty, leaving the rest of the range as it is', () => {
+    const entries = [
+      entry('source', '2026-08-27', 'dinner'),
+      entry('other-day', '2026-08-26', 'lunch'),
+    ];
+
+    const replacement = planEatTodayReplacement(entries, params);
+
+    expect(replacement?.meals).toEqual([
+      { date: TODAY_KEY, slot: 'lunch', recipeId: 'recipe-source', isCooked: false },
+      { date: '2026-08-26', slot: 'lunch', recipeId: 'recipe-other-day', isCooked: false },
+    ]);
+  });
+
+  it('works on a one-day range when both meals are on the same day', () => {
+    const entries = [entry('a', TODAY_KEY, 'dinner'), entry('b', TODAY_KEY, 'lunch')];
+
+    const replacement = planEatTodayReplacement(entries, { ...params, sourceDate: TODAY_KEY });
+
+    expect(replacement).toMatchObject({ from: TODAY_KEY, to: TODAY_KEY });
+    expect(replacement?.meals).toHaveLength(2);
+  });
+
+  it('plans nothing when the source is missing or cooked', () => {
+    expect(planEatTodayReplacement([], params)).toBeNull();
+    expect(
+      planEatTodayReplacement([entry('source', '2026-08-27', 'dinner', { isCooked: true })], params)
+    ).toBeNull();
+  });
+
+  it('plans nothing when the destination meal is already cooked', () => {
+    const entries = [
+      entry('source', '2026-08-27', 'dinner'),
+      entry('today-lunch', TODAY_KEY, 'lunch', { isCooked: true }),
+    ];
+
+    expect(planEatTodayReplacement(entries, params)).toBeNull();
   });
 });

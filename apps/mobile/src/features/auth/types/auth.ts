@@ -11,12 +11,6 @@ export type HungerLevel = 'light' | 'normal' | 'strong';
 // The meal slots the User cooks: the ones that carry a Slot cooking time.
 export type CookingTimeSlot = Exclude<MealSlot, 'snack'>;
 
-export const SUPPORTED_MEAL_SLOTS: readonly CookingTimeSlot[] = [
-  'breakfast',
-  'lunch',
-  'dinner',
-] as const;
-
 export interface OnboardingProfile {
   displayName: string;
   householdSize: number;
@@ -44,6 +38,8 @@ export interface OnboardingCompletionRequest {
   profile: OnboardingProfile;
   preferences: UserPreferencesPayload;
   slotCookingTimes: SlotCookingTimesPayload;
+  /** IANA zone name of the device, stored on the Account. */
+  timezone: string;
 }
 
 export interface OnboardingCompletionUser {
@@ -72,6 +68,14 @@ export interface ProfileUpdateUser {
   displayName: string | null;
   householdSize: number | null;
   cookingSkill: CookingSkill | null;
+}
+
+export interface AccountTimezonePayload {
+  timezone: string;
+}
+
+export interface AccountTimezoneResponse {
+  account: { id: string; timezone: string | null };
 }
 
 export interface ProfileUpdateResponse {
@@ -107,6 +111,13 @@ export type AuthErrorCode =
   | 'invalid_hunger_level'
   | 'invalid_diet'
   | 'invalid_hard_restriction'
+  | 'inventory_item_not_found'
+  | 'shopping_item_not_manual'
+  | 'shopping_item_not_found'
+  | 'shopping_item_not_planned'
+  | 'shopping_item_in_cart'
+  | 'voice_parse_failed'
+  | 'voice_confirmation_required'
   | 'generation_in_progress'
   | 'no_active_generation'
   | 'missing_session_id'
@@ -116,6 +127,8 @@ export type AuthErrorCode =
   | 'subscription_required'
   | 'invalid_range'
   | 'overlapping_range'
+  | 'planning_invalid_range'
+  | 'planning_range_locked'
   | 'forbidden_intent'
   | 'unknown_intent'
   | 'invalid_payload'
@@ -140,6 +153,11 @@ export type AuthErrorCode =
   | 'cart_locked'
   | 'stale_cart'
   | 'cart_not_found'
+  | 'scheduled_meal_not_found'
+  | 'cooking_session_not_active'
+  | 'cooking_already_finished'
+  | 'cooking_chat_unavailable'
+  | 'inventory_mutation_failed'
   | 'configuration_error'
   | 'network_error'
   | 'timeout'
@@ -205,6 +223,8 @@ export interface AuthAccount {
   type: AuthAccountType;
   trialEndsAt: string | null;
   subscriptionStatus: AuthSubscriptionStatus;
+  // IANA zone the Account's "today" follows; null until the app first sends one.
+  timezone: string | null;
   access: AuthAccountAccess;
 }
 

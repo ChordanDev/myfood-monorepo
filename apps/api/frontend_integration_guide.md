@@ -97,6 +97,7 @@ Success response (`200`):
       "id": "...",
       "type": "individual",
       "trialEndsAt": "2026-01-08T12:00:00Z",
+      "timezone": null,
       "subscriptionStatus": "none",
       "access": {
         "canUseApp": true,
@@ -320,6 +321,42 @@ Errors (envelope, see section 10):
 Only the first problem is reported: a key that is not a slot, then each slot in the order breakfast,
 lunch, dinner, and within a slot its minutes before its Hunger level.
 
+### 3.6 Update the Account timezone
+
+- Method: `PUT`
+- Path: `/api/account/timezone`
+- Not capability-gated: an Account whose access has expired can still use it.
+
+The app sends the device's IANA timezone so the Account's "today" follows the User when they travel.
+`account.timezone` in `GET /api/me` is the stored value, `null` until one is saved (the Account's day is
+then the UTC day). Send it only when it differs from the one `me` reported.
+
+Request body, `timezone` required:
+
+```json
+{
+  "timezone": "America/Argentina/Buenos_Aires"
+}
+```
+
+- `timezone`: string, an IANA timezone id known to the server. Missing, `null`, blank, non-string and
+  unknown values are rejected.
+
+Success response (`200`):
+
+```json
+{
+  "account": {
+    "id": "...",
+    "timezone": "America/Argentina/Buenos_Aires"
+  }
+}
+```
+
+Any member of the Account may update it and the last write wins. A rejected request answers
+`422 validation_error` with a `message` that names `timezone`, and the stored value is unchanged. Dates
+already computed are not recomputed: only later requests see the new "today".
+
 ## 4. Planning (REST)
 
 ### 4.1 Weekly planning generation
@@ -529,6 +566,12 @@ Planning chat errors return `422` with:
 
 ## 6. Inventory (REST)
 
+Keys are camelCase on these routes, in requests and in responses (issue #11). snake_case request keys are
+still accepted. Values are not rewritten: `no_perecederos` stays a category and `validation_error` stays a
+code.
+
+Quantities are integers in thousandths of the unit (`quantityMilli: 1500` with `unit: "g"` is 1.5 g).
+
 ### 6.1 Get inventory view
 
 - Method: `GET`
@@ -544,30 +587,47 @@ Success response:
       "warning": [],
       "expired": []
     },
-    "by_category": [],
+    "byCategory": {
+      "no_perecederos": []
+    },
     "extras": [],
     "totals": {
-      "items_count": 12,
-      "warning_count": 2,
-      "expired_count": 1
+      "itemsCount": 12,
+      "warningCount": 2,
+      "expiredCount": 1
     }
   }
 }
 ```
 
+A lot at quantity zero (disposed or fully consumed) is not listed and not counted.
+
 Each inventory item contains:
 
-- `id`
-- `ingredient_id`
-- `ingredient_name`
-- `category`
-- `quantity_milli`
-- `unit`
-- `source_kind`
-- `acquired_at`
-- `expired_at`
-- `inferred_expired_at`
-- `freshness_status`
+```json
+{
+  "id": "<item_uuid>",
+  "ingredientId": "<ingredient_uuid>",
+  "name": "Arroz",
+  "category": "no_perecederos",
+  "quantityMilli": 400,
+  "unit": "g",
+  "sourceKind": "extra",
+  "acquiredAt": null,
+  "expiresAt": "2026-10-28",
+  "freshness": "ok",
+  "isLeftover": false,
+  "notes": null
+}
+```
+
+- `category`: `lacteos`, `frutas`, `verduras`, `carnes`, `granos`, `congelados`, `no_perecederos` or `otros`.
+- `unit`: `g`, `ml` or `unit`.
+- `sourceKind`: `planned` or `extra`.
+- `acquiredAt`: ISO 8601 datetime, or `null`.
+- `expiresAt`: always an ISO date (`YYYY-MM-DD`). It is the explicit expiry when the lot has one, else the
+  one inferred from the acquisition date and the category.
+- `freshness`: `ok`, `warning` or `expired`.
 
 ### 6.2 Add extra item
 
@@ -578,13 +638,49 @@ Request body:
 
 ```json
 {
-  "ingredient_id": "<ingredient_uuid>",
-  "quantity_milli": 500,
-  "unit": "g"
+  "ingredientId": "<ingredient_uuid>",
+  "quantityMilli": 500,
+  "unit": "g",
+  "expiresAt": "2026-10-28",
+  "notes": "Opened bag",
+  "isLeftover": false
 }
 ```
 
-Valid units: `g`, `ml`, `unit`
+- `ingredientId` or `ingredientName` (exact catalogue name) is required; `ingredientId` wins when both are
+  sent.
+- `quantityMilli`: required, an integer above zero.
+- `unit`: required, one of `g`, `ml`, `unit`.
+- `expiresAt`: optional, an ISO date or an ISO datetime with an offset. It is stored and read back as its
+  UTC date.
+- `notes`: optional string, trimmed, of at most 1000 characters. A blank one is stored as `null`.
+- `isLeftover`: optional boolean, `false` when omitted.
+
+An add with `expiresAt`, `notes` or `isLeftover: true` creates a lot of its own. An add with none of them
+accumulates in the anonymous lot of that ingredient and unit, and the response carries the accumulated lot.
+
+Success response:
+
+```json
+{
+  "data": {
+    "item": { "id": "<item_uuid>", "quantityMilli": 500, "...": "the item of 6.1" },
+    "mutationEvent": {
+      "id": "<event_uuid>",
+      "inventoryItemId": "<item_uuid>",
+      "triggerType": "manual",
+      "operation": "add",
+      "quantityBeforeMilli": 0,
+      "quantityDeltaMilli": 500,
+      "quantityAfterMilli": 500,
+      "insertedAt": "2026-10-08T17:02:11.482913Z"
+    }
+  }
+}
+```
+
+`triggerType` is `purchase`, `cooking`, `manual` or `voice`; `operation` is `add`, `subtract`, `set` or
+`delete`.
 
 ### 6.3 Update quantity
 
@@ -595,9 +691,14 @@ Request body:
 
 ```json
 {
-  "quantity_milli": 250
+  "quantityMilli": 250
 }
 ```
+
+`quantityMilli` is the new quantity of the lot: an integer, zero or above. Setting zero empties the lot,
+which then leaves the inventory view.
+
+Success response: `{ "data": { "item": {...}, "mutationEvent": {...} } }` as in 6.2, with operation `set`.
 
 ### 6.4 Dispose item
 
@@ -612,36 +713,132 @@ Request body (optional reason):
 }
 ```
 
-### 6.5 Voice flows
+Success response:
 
-- Preview parse:
+```json
+{
+  "data": {
+    "disposed": true,
+    "mutationEvent": {
+      "id": "<event_uuid>",
+      "inventoryItemId": "<item_uuid>",
+      "triggerType": "manual",
+      "operation": "delete",
+      "quantityBeforeMilli": 500,
+      "quantityDeltaMilli": -500,
+      "quantityAfterMilli": 0,
+      "insertedAt": "2026-10-08T17:05:40.120377Z"
+    }
+  }
+}
+```
+
+The lot is kept at quantity zero, so its mutation events survive, and it leaves the inventory view.
+
+### 6.5 Inventory errors
+
+Every error of the routes in this section uses the envelope of section 10:
+
+```json
+{
+  "error": {
+    "code": "validation_error",
+    "message": "The request is not valid."
+  }
+}
+```
+
+| Status | Code                       | When                                                                                              |
+| ------ | -------------------------- | ------------------------------------------------------------------------------------------------- |
+| `422`  | `validation_error`         | Missing, unknown or malformed ingredient; missing, zero, negative or non-integer quantity; missing or unknown unit; malformed `expiresAt`; `notes` that is not a string or is longer than 1000 characters; `isLeftover` that is not a boolean; a voice payload without a `transcript`, or an apply whose `intent` is missing, not a `subtract`, or has a non-positive `quantityMilli` or a malformed `ingredientId`; a rescue request without ingredients |
+| `404`  | `inventory_item_not_found` | `:item_id` is not a lot of the Account: unknown, owned by another Account, or not a UUID          |
+| `404`  | `not_found`                | No recipe is available for a rescue plan                                                          |
+| `500`  | `unknown_error`            | Unexpected failure                                                                                |
+
+The envelope does not name the field that failed.
+
+### 6.6 Voice flows
+
+A spoken Inventory adjustment is previewed, then applied. Only `subtract` exists.
+
+- Preview parse (writes nothing):
   - `POST /api/inventory/voice/preview`
-- Apply operations:
+- Apply the intent:
   - `POST /api/inventory/voice/apply`
 
 Preview request:
 
 ```json
 {
-  "text": "Use medio tomate y la mitad del kilo de pollo"
+  "transcript": "Me comí la mitad del queso crema"
 }
 ```
 
-Apply request:
+Preview response (`200`):
 
 ```json
 {
-  "raw_text": "Use medio tomate",
-  "operations": [
-    {
-      "inventory_item_id": "...",
-      "quantity_milli": 200
+  "data": {
+    "confirmationRequired": false,
+    "confidence": 0.9,
+    "intent": {
+      "operation": "subtract",
+      "ingredientId": "...",
+      "name": "Queso crema",
+      "quantityMilli": 200000,
+      "unit": "g"
     }
-  ]
+  }
 }
 ```
 
-### 6.6 Rescue planning from expiring ingredients
+`confidence` is from 0 to 1. A named ingredient in stock, a consume verb and a stated amount (a
+fraction, or a quantity in the unit of the stock) is confident; a vague or missing amount takes all
+the stock with low confidence. `confirmationRequired` is `true` when `confidence` is below `0.8`.
+
+Apply request: send back the `transcript` and the `intent` of the preview, with `confirmed: true`
+once the User confirmed it.
+
+```json
+{
+  "transcript": "Me comí la mitad del queso crema",
+  "intent": {
+    "operation": "subtract",
+    "ingredientId": "...",
+    "name": "Queso crema",
+    "quantityMilli": 200000,
+    "unit": "g"
+  },
+  "confirmed": false
+}
+```
+
+Apply response (`200`) lists one mutation event per lot touched, first expiring lot first, each with
+`triggerType` `voice` and the transcript stored in the ledger. The subtraction is capped at the
+stock, so `quantityDeltaMilli` can be smaller in magnitude than the intent.
+
+```json
+{
+  "data": {
+    "ingredientId": "...",
+    "quantityDeltaMilli": -200000,
+    "mutationEvents": [{ "id": "...", "inventoryItemId": "...", "triggerType": "voice", "operation": "subtract", "quantityBeforeMilli": 400000, "quantityDeltaMilli": -200000, "quantityAfterMilli": 200000, "insertedAt": "..." }]
+  }
+}
+```
+
+The server derives the confidence again from the transcript and never reads a client one. An intent
+that is not confident, or that differs from what the transcript says, is refused without
+`confirmed: true`.
+
+| Status | Code                          | When                                                          |
+| ------ | ----------------------------- | ------------------------------------------------------------- |
+| `422`  | `voice_parse_failed`          | The transcript names no ingredient the Account has in stock   |
+| `422`  | `voice_confirmation_required` | Apply of a low-confidence or edited intent without `confirmed: true` |
+| `422`  | `validation_error`            | Missing transcript or malformed intent                        |
+| `404`  | `inventory_item_not_found`    | The intent's ingredient has no usable stock any more          |
+
+### 6.7 Rescue planning from expiring ingredients
 
 - Method: `POST`
 - Path: `/api/planning/rescue`
@@ -723,18 +920,23 @@ Fields:
 - `planned`: the lines to buy for the plan, ordered by the date of their first allocation, then by its slot
   in the order of the day.
   - `id`: `<ingredientId>:<unit>` with `groupBy=ingredient`; the Shopping item id with `groupBy=meal`.
-  - `status`: `needed` or `in_cart`. An ingredient line reads `in_cart` only when every allocation is in a
-    Cart, whoever holds it; otherwise it reads `needed`.
+  - `status`: `needed`, `in_cart` or `removed`. An ingredient line reads `in_cart` only when every
+    allocation is in a Cart, whoever holds it; otherwise it reads `needed`. A line reads `removed` only when
+    every allocation was removed (7.8); its quantity then adds up all of them, so it can be restored.
   - `source`: always `planned_meal`.
   - `supermarketId`: the supermarket every allocation is assigned to, or `null` when there is none or they
     differ.
   - `allocations`: the share of the line each Scheduled meal needs. `itemId` is the Shopping item to send to
     `/api/shopping-items/mark-cart`. With `groupBy=meal` a line has exactly one allocation.
-- `manual`: always `[]` for now.
+- `manual`: the Shopping items the User added by hand (7.6) that are still on the list, oldest first. Each
+  one has the keys of a `planned` line, with `source` `manual`, `allocations` `[]`, `ingredientId` `null`
+  when no ingredient was given and `category` `otros` in that case. They are never merged with each other or
+  with a planned line, `untilDate` does not limit them and `groupBy` does not change them. `id` is the
+  Shopping item id: send it to `/api/shopping-items/mark-cart` or `DELETE /api/shopping-items/:itemId`.
 - `cart`: the caller's own active Cart, `{ "sessionId": "...", "leaseExpiresAt": "<ISO 8601 datetime>" }`, or
   `null`. Reading the list does not renew the lease.
-- `totals`: `needed`, `inCart` and `removed` count the lines of `planned` by status (`removed` is `0` for
-  now); `estimatedCents` adds the estimated price of the needed items.
+- `totals`: `needed`, `inCart` and `removed` count the lines of `planned` by status;
+  `estimatedCents` adds the estimated price of the needed items. Manual items are not counted.
 - `plannedDates`: every date from today on with an uncooked Scheduled meal, sorted. `untilDate` does not
   change it.
 
@@ -882,6 +1084,114 @@ Shopping errors are returned as `422` with:
   "error": "<reason>"
 }
 ```
+
+### 7.6 Add a manual item
+
+- Method: `POST`
+- Path: `/api/shopping-items/manual`
+
+Request body:
+
+```json
+{
+  "name": "Dish soap",
+  "ingredientId": "<ingredient_uuid>",
+  "quantityMilli": 1000,
+  "unit": "unit"
+}
+```
+
+- `name`: required, a string of 1 to 200 characters once trimmed.
+- `ingredientId`: optional, an ingredient of the catalogue.
+- `quantityMilli`: optional, an integer above zero, in thousandths of the unit. `1000` when omitted.
+- `unit`: optional, one of `g`, `ml`, `unit`. `unit` when omitted, so the default is 1 unit.
+
+Success response (`201`): the line of the new item, as it appears in `manual` (7.1).
+
+```json
+{
+  "data": {
+    "id": "<shopping_item_uuid>",
+    "ingredientId": null,
+    "name": "Dish soap",
+    "category": "otros",
+    "quantityMilli": 1000,
+    "unit": "unit",
+    "status": "needed",
+    "source": "manual",
+    "supermarketId": null,
+    "allocations": []
+  }
+}
+```
+
+A manual item belongs to the Account and is for no Scheduled meal or date, so a re-plan (a confirmed plan or a
+calendar range replace) never touches it. Errors use the error envelope of section 10: `422 validation_error`
+for a field that is missing or malformed, or an `ingredientId` that is not in the catalogue.
+
+### 7.7 Delete a manual item
+
+- Method: `DELETE`
+- Path: `/api/shopping-items/:itemId`
+
+Success response (`200`): `{ "data": { "id": "<shopping_item_uuid>" } }`.
+
+Only an item added by hand (7.6) that is still on the list (`needed` or `in_cart`) can be deleted. Errors use
+the error envelope of section 10:
+
+| Status | Code                       | When                                                                                         |
+| ------ | -------------------------- | -------------------------------------------------------------------------------------------- |
+| `422`  | `shopping_item_not_manual` | The item is a planned one. Planned items are removed, not deleted (7.8)                       |
+| `404`  | `shopping_item_not_found`  | `:itemId` is unknown, of another Account, not a UUID, or of an item already bought or closed |
+
+### 7.8 Remove or restore a planned item
+
+- Method: `POST`
+- Path: `/api/shopping-items/set-status`
+
+Request body:
+
+```json
+{
+  "itemIds": ["<shopping_item_uuid>", "<shopping_item_uuid>"],
+  "status": "removed"
+}
+```
+
+- `itemIds`: required, a non-empty list of Shopping item ids without repeats. These are the `itemId` of the
+  `allocations` of a `planned` line (7.1). A single `itemId` string is read in place of the list.
+- `status`: required, `removed` (the User will not buy it) or `needed` (restore it).
+
+Success response (`200`):
+
+```json
+{
+  "data": {
+    "status": "removed",
+    "itemIds": ["<shopping_item_uuid>", "<shopping_item_uuid>"],
+    "updatedRows": 2
+  }
+}
+```
+
+`updatedRows` counts the items whose status changed: setting the status an item already has succeeds and
+changes nothing. The call is all or nothing; if one item is refused none changes.
+
+A removed item stays in `planned` (7.1) so it can be restored: it stops adding to the `quantityMilli` of its
+line, to `estimatedCents` and to the Cart, and a line whose allocations are all removed reads `removed`. A
+re-plan (a confirmed plan or `PUT /api/calendar/meals/range`) keeps it removed while a planned meal on the
+same date and slot still needs that ingredient and unit, with the shortage of the new plan, and drops it when
+none does. Changing the recipe of a single slot starts that meal over, so its removals are dropped too.
+Manual items are never touched by a re-plan.
+
+Errors use the error envelope of section 10:
+
+| Status | Code                        | When                                                                                  |
+| ------ | --------------------------- | ------------------------------------------------------------------------------------- |
+| `422`  | `validation_error`          | `status` is missing or is not `removed` or `needed`, or `itemIds` is empty or repeats |
+| `404`  | `shopping_item_not_found`   | An id is unknown, of another Account, not a UUID, or of an item already bought        |
+| `422`  | `shopping_item_not_planned` | An id is a manual item. Manual items are deleted (7.7), not removed                   |
+| `409`  | `shopping_item_in_cart`     | Removing an item that is in a Cart. Take it out of the Cart first                     |
 
 ## 8. WebSocket Integration (`planning_channel`)
 
@@ -1154,15 +1464,22 @@ Two error body shapes are in use. Which one a request gets depends on the code p
     `/api/auth/signup/request-code`, `/api/auth/signup/verify-code` and `/api/auth/refresh`;
   - `GET /api/me` and its alias `GET /api/auth/me`;
   - `PUT /api/me/profile`: `422 validation_error` and `422 invalid_cooking_skill`;
+  - `PUT /api/account/timezone`: `422 validation_error` (see 3.6);
   - `GET` and `PUT /api/me/slot-cooking-times`: `404 slot_cooking_times_not_found`, `422 validation_error`
     and `422 invalid_hunger_level` (see 3.4 and 3.5);
   - `GET /api/recipes/:id`: `404 recipe_not_found` and `403 forbidden` (section 11);
   - `GET /api/shopping-list`, for a rejected `untilDate` or `groupBy` (7.1): `422 validation_error`. Its
-    other errors still use the flat shape below.
+    other errors still use the flat shape below;
+  - the inventory routes of section 6, for every error: `422 validation_error`,
+    `404 inventory_item_not_found` (see 6.5);
+  - `POST /api/shopping-items/manual`, `DELETE /api/shopping-items/:itemId` and
+    `POST /api/shopping-items/set-status` (7.6 to 7.8): `422 validation_error`,
+    `422 shopping_item_not_manual`, `422 shopping_item_not_planned`, `404 shopping_item_not_found`,
+    `409 shopping_item_in_cart`.
 - **Flat (legacy, not migrated to the envelope):** `{ "error": "<reason>" }`, with the status chosen by each
   endpoint (`422` in most controllers). It is still returned by:
   - the validation and domain errors that the non-auth controllers build themselves: account context,
-    dietary profile, planning, planning chat, calendar, cooking, shopping, inventory, memberships, invites,
+    dietary profile, planning, planning chat, calendar, cooking, shopping, memberships, invites,
     account leave and billing;
   - `/api/auth/switch-account`, for the errors its own controller or plug builds;
   - the account scope check on `/api/accounts/:account_id/*`: `403` with `{ "error": "account_mismatch" }`.
@@ -1201,7 +1518,12 @@ Returns the frozen version of a recipe the Account can see: a catalog recipe or 
     "estimatedCostCents": 385000,
     "tags": [],
     "imageUrl": null,
-    "theme": null
+    "theme": {
+      "colorBlack": "#0D1007", "colorDark": "#15180F", "colorMedium": "#364025", "colorLight": "#8D9373",
+      "primaryAccent": "#EF9432", "appBg": "#BCBFA7", "icon": "#D8D98B", "textBlack": "#0D1007",
+      "textDark": "#1B210E", "textMedium": "#D8D98B", "textLight": "#F5F3D4",
+      "primaryAccentIntense": "#FF8400", "alert": "#C94F3D"
+    }
   }
 }
 ```
@@ -1222,8 +1544,14 @@ Fields:
   read at request time, not frozen with the version.
 - `steps[]`: ordered by `order`. `steps[].durationMinutes` is in minutes, or `null`.
 - `estimatedCostCents`: estimated cost of the recipe in cents; `0` when no cost is known.
-- `tags`, `imageUrl` and `theme` are placeholders: they answer `[]`, `null` and `null` until the backend
-  stores them.
+- `theme`: the palette the app takes while this recipe is in view, or `null` (the client then applies its
+  default theme). Keys are camelCase: `colorBlack`, `colorDark`, `colorMedium`, `colorLight`, `primaryAccent`,
+  `appBg`, `icon`, `textBlack`, `textDark`, `textMedium`, `textLight`, `primaryAccentIntense` and `alert`
+  (hex strings), plus an optional `appBgGradient` of two hex strings. It is frozen with the version. A
+  derived recipe (`ai_generated`, `user_created`) whose version has no theme serves the current theme of its
+  base recipe, read when the request is served; with no base, or a base without a theme, it is `null`.
+  Versions frozen before themes existed read as `null`.
+- `tags` and `imageUrl` are placeholders: they answer `[]` and `null` until the backend stores them.
 
 Errors use the envelope of section 10:
 

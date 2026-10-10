@@ -152,15 +152,21 @@ describe('ShoppingItemRow', () => {
     expect(getTexts(root)).toEqual(['300 g · Queso cremoso', 'Para 2 comidas']);
   });
 
-  it('is a single line for an item that is for no meal', () => {
+  it('is a single line for an item that is for no meal, such as one added by hand', () => {
     const { root } = renderRow({
       id: 'manual:1',
       source: 'manual',
       status: 'needed',
       name: 'Papel de cocina',
+      ingredientId: null,
+      category: 'otros',
+      quantityMilli: 1_000,
+      unit: 'unit',
+      supermarketId: null,
+      allocations: [],
     });
 
-    expect(getTexts(root)).toEqual(['Papel de cocina']);
+    expect(getTexts(root)).toEqual(['1 u · Papel de cocina']);
   });
 
   it('shows a needed item in full ink next to an empty checkbox', () => {
@@ -398,16 +404,6 @@ describe('ShoppingItemRow', () => {
       ]);
     });
 
-    it('stays read-only with only the removal: a row is tickable or it is not pressable', () => {
-      let tree: ReturnType<typeof create>;
-
-      act(() => {
-        tree = create(<ShoppingItemRow item={CHEESE} onRemove={jest.fn()} />);
-      });
-
-      expect(getPressTargets(tree!.root)).toEqual([]);
-    });
-
     it('ticks with only the toggle, with no long press, hint or accessibility action', () => {
       const onToggle = jest.fn();
       let tree: ReturnType<typeof create>;
@@ -423,6 +419,54 @@ describe('ShoppingItemRow', () => {
       expect(target.props.onLongPress).toBeUndefined();
       expect(target.props.accessibilityHint).toBeUndefined();
       expect(target.props.accessibilityActions).toBeUndefined();
+    });
+  });
+
+  describe('removable only, without a toggle', () => {
+    function renderRemovableRow(item: ShoppingListItem) {
+      const onRemove = jest.fn();
+      let tree: ReturnType<typeof create>;
+
+      act(() => {
+        tree = create(<ShoppingItemRow item={item} onRemove={onRemove} />);
+      });
+
+      return { root: tree!.root, onRemove };
+    }
+
+    const getRow = (root: ReactTestInstance) =>
+      root.find((node) => typeof node.props.onLongPress === 'function');
+
+    it('removes on a long press, and has nothing to tap or tick', () => {
+      const { root, onRemove } = renderRemovableRow(CHEESE);
+      const row = getRow(root);
+
+      expect(row.props.onPress).toBeUndefined();
+      expect(row.props.accessibilityRole).toBe('button');
+      expect(root.findAll((node) => node.props.testID === 'shopping-checkbox')).toEqual([]);
+
+      act(() => {
+        row.props.onLongPress();
+      });
+
+      expect(onRemove).toHaveBeenCalledWith('planned:cheese');
+    });
+
+    it('offers the removal as an accessibility action', () => {
+      const { root, onRemove } = renderRemovableRow(CHEESE);
+
+      act(() => {
+        getRow(root).props.onAccessibilityAction({ nativeEvent: { actionName: 'remove' } });
+      });
+
+      expect(onRemove).toHaveBeenCalledWith('planned:cheese');
+    });
+
+    it('says an item in the cart is, as the read-only row does', () => {
+      const { root } = renderRemovableRow({ ...CHEESE, status: 'in_cart' });
+
+      expect(getRow(root).props.accessibilityLabel).toBe('300 g · Queso cremoso, en el carrito');
+      expect(root.findAllByType(Check)).toHaveLength(1);
     });
   });
 });

@@ -978,6 +978,7 @@ defmodule MealPlannerApiWeb.MobileAuthControllerTest do
       assert me["user"]["displayName"] == "signup-me"
       assert me["account"]["type"] == "individual"
       assert me["account"]["subscriptionStatus"] == "none"
+      assert me["account"]["timezone"] == nil
       assert me["account"]["access"] == %{"canUseApp" => true, "reason" => nil}
       assert me["membership"] == %{"role" => "owner"}
       assert me["onboarding"] == %{"isComplete" => false}

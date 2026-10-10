@@ -34,13 +34,13 @@ const { theme } = useRecipeTheme();
 
 ## How it works
 
-| Piece           | What it is                                                               | Where                                                       |
-| --------------- | ------------------------------------------------------------------------ | ----------------------------------------------------------- |
-| Token contract  | `RecipeThemeConfig`: the list of color variables every palette must fill | `src/types/domain.ts`                                       |
-| Palette         | One complete set of values for that contract                             | Sent by the backend; mocks carry it as `MasterRecipe.theme` |
-| Default palette | Used when no meal palette applies                                        | `DEFAULT_THEME` in `src/context/RecipeThemeContext.tsx`     |
-| Active palette  | The single global value all screens read                                 | `RecipeThemeProvider` / `useRecipeTheme()`                  |
-| Switching       | `setRecipeTheme(palette \| null)`; `null` falls back to the default      | `src/features/home/hooks/useHomeRecipeTheme.ts`             |
+| Piece           | What it is                                                               | Where                                                                  |
+| --------------- | ------------------------------------------------------------------------ | ---------------------------------------------------------------------- |
+| Token contract  | `RecipeThemeConfig`: the list of color variables every palette must fill | `src/types/domain.ts`                                                  |
+| Palette         | One complete set of values for that contract                             | Sent with the Recipe payload (`Recipe.theme`, null = none)             |
+| Default palette | Used when no meal palette applies                                        | `DEFAULT_THEME` in `src/context/RecipeThemeContext.tsx`                |
+| Active palette  | The single global value all screens read                                 | `RecipeThemeProvider` / `useRecipeTheme()`                             |
+| Switching       | `setRecipeTheme(palette \| null)`; `null` falls back to the default      | `useHomeRecipeTheme.ts` (Home), `useActivateRecipePalette.ts` (Recipe) |
 
 A palette changes the **value** of each variable, never the set of variables.
 Switching palettes crossfades every color together in 450 ms.
@@ -131,6 +131,13 @@ sends that to the app. The frontend only applies what it receives.
 | Define the token contract (`RecipeThemeConfig`)                 | Define a catalog of palettes                      |
 | Keep one fallback, `DEFAULT_THEME`, for when no palette applies | Decide which palette a meal gets                  |
 | Carry palettes in mocks, as stand-ins for the backend response  | Adjust, derive or "correct" a palette it received |
+
+The palette is stored on the Recipe and served in its payload (`theme`, `null`
+when it has none). A derived Recipe with no theme of its own is served with its
+Base recipe's theme, resolved by the backend. The app's global rules stay
+client-side: today's selected meal recolors the app, every other day uses the
+default palette. Mocks in `src/mocks/` still stand in for the backend on Home
+and the Planner until R7 removes them.
 
 Adding a palette is a backend change. If a palette looks wrong on screen, the
 fix is in the palette data, checked against

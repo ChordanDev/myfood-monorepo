@@ -3,6 +3,8 @@ defmodule MealPlannerApiWeb.CalendarController do
 
   alias MealPlannerApi.AccountClock
   alias MealPlannerApi.Persistence.Calendar
+  alias MealPlannerApi.Services.ShoppingService
+  alias MealPlannerApiWeb.MealSummary
 
   # Phase A — Tenancy Refactor (PR 3c task 3.14): tenancy scope is always
   # resolved from `conn.assigns.current_membership.account_id` (the
@@ -45,7 +47,7 @@ defmodule MealPlannerApiWeb.CalendarController do
          {:ok, to_date} <- parse_date(range_param(params, "to", "end_date")),
          :ok <- validate_date_range(from_date, to_date),
          {:ok, meals} <- parse_replacement_meals(Map.get(params, "meals")) do
-      case Calendar.replace_scheduled_meals_for_range(
+      case ShoppingService.replace_scheduled_meals_for_range(
              membership.account_id,
              {from_date, to_date},
              meals
@@ -187,21 +189,25 @@ defmodule MealPlannerApiWeb.CalendarController do
   end
 
   defp serialize_meal(meal) do
-    %{
+    summary =
+      MealSummary.serialize(%{
+        recipe_id: meal.recipe_id,
+        recipe_name: meal.recipe_name,
+        is_favorite: meal.is_favorite,
+        slot: meal.slot,
+        calories: meal.calories_per_serving,
+        prep_time_minutes: meal.prep_time_minutes
+      })
+
+    Map.merge(summary, %{
       meal_id: meal.id,
       date: Date.to_iso8601(meal.date),
-      slot: Atom.to_string(meal.slot),
       is_cooked: meal.is_cooked,
       is_skipped: meal.is_skipped,
-      recipe_id: meal.recipe_id,
       recipe_version_id: meal.recipe_version_id,
       selected_quantity: meal.selected_quantity,
-      recipe_name: meal.recipe_name,
-      is_favorite: meal.is_favorite,
-      can_create: false,
-      macros: %{calories: meal.calories_per_serving},
-      prep_time_minutes: meal.prep_time_minutes
-    }
+      can_create: false
+    })
   end
 
   defp serialize_selected_meal(nil), do: nil

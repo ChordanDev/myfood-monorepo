@@ -126,12 +126,15 @@ defmodule MealPlannerApi.Data.ShoppingRepo do
   # -------------------------------------------------------------------------
 
   @doc """
-  Deletes all ShoppingItems for the given account whose `planned_date`
-  falls within `[range_from, range_to]` AND whose status is `:pending`
-  or `:in_cart`.
+  Deletes the planned ShoppingItems for the given account whose
+  `planned_date` falls within `[range_from, range_to]` AND whose status is
+  `:pending`, `:in_cart` or `:removed`.
 
   Terminal statuses (`:checked_out`, `:archived`, `:pending_delivery`)
-  are preserved.
+  are preserved, and so are manual items (issue #40): they are for no date
+  or meal, and a rebuild of the plan has no say over them. Take the keys of
+  the removed items first (`Persistence.Shopping.removed_item_keys/3`) and
+  restore them once the items are derived again.
 
   Returns `{deleted_count, nil}`.
   """
@@ -140,8 +143,9 @@ defmodule MealPlannerApi.Data.ShoppingRepo do
   def delete_pending_for_window(account_id, range_from, range_to) do
     from(i in ShoppingItem,
       where: i.account_id == ^account_id,
+      where: i.source == :planned_meal,
       where: i.planned_date >= ^range_from and i.planned_date <= ^range_to,
-      where: i.status in [:pending, :in_cart]
+      where: i.status in [:pending, :in_cart, :removed]
     )
     |> Repo.delete_all()
   end

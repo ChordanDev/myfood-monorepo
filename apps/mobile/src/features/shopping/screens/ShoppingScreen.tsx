@@ -1,4 +1,4 @@
-import { useCallback } from 'react';
+import { useCallback, useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { X } from 'lucide-react-native';
 import Animated from 'react-native-reanimated';
@@ -8,7 +8,14 @@ import { useRecipeTheme } from '@/context/RecipeThemeContext';
 import { CUSTOM_TAB_BAR_CONTENT_HEIGHT } from '@/features/planner/constants';
 import { useAnimatedThemeStyle } from '@/hooks/useAnimatedThemeStyle';
 import { withOpacity } from '@/utils/colors';
-import { ShoppingDatePill, ShoppingGroupCard, ShoppingLoadError } from '../components';
+import {
+  ShoppingAddItemSheet,
+  ShoppingDatePill,
+  ShoppingGroupCard,
+  ShoppingLoadError,
+  ShoppingManualCard,
+  ShoppingRestoreLine,
+} from '../components';
 import { formatCountersLabel } from '../domain';
 import { useCartLease } from '../hooks/useCartLease';
 import { useShoppingList } from '../hooks/useShoppingList';
@@ -22,10 +29,11 @@ const GROUPING_OPTIONS: { value: ShoppingGroupBy; label: string }[] = [
 const HORIZONTAL_PADDING = 14;
 const LIST_GAP = 14;
 
-// The list as the server has it. A row can be ticked into the Cart, which holds a lease the
-// screen keeps alive while it is open; the Cart can be abandoned. Un-ticking a row, removing
-// it, adding one by hand and buying the cart are not on this screen until the server takes
-// them.
+// The list as the server has it. The User can add an item by hand, remove one (a planned item
+// is only taken off the list, a manual one is deleted) and bring the removed ones back. A row
+// can be ticked into the Cart, which holds a lease the screen keeps alive while it is open; the
+// Cart can be abandoned. Un-ticking a row and buying the cart are not on this screen until the
+// server takes them.
 export function ShoppingScreen() {
   const insets = useSafeAreaInsets();
   const { theme } = useRecipeTheme();
@@ -46,7 +54,16 @@ export function ShoppingScreen() {
     retry,
     cart: listCart,
     lines,
+    manualItems,
+    removedCount,
+    addManualItem,
+    removeItem,
+    restoreItems,
+    isChanging,
+    changeErrorMessage,
+    dismissChangeError,
   } = useShoppingList();
+  const [isAddSheetVisible, setIsAddSheetVisible] = useState(false);
   const {
     cart,
     markItems,
@@ -113,6 +130,13 @@ export function ShoppingScreen() {
                 size="small"
               />
             ) : null}
+            {isChanging ? (
+              <ActivityIndicator
+                accessibilityLabel="Guardando los cambios"
+                color={theme.textDark}
+                size="small"
+              />
+            ) : null}
           </View>
           {counters ? (
             <Animated.Text style={[styles.counter, mutedStyle]}>
@@ -144,6 +168,14 @@ export function ShoppingScreen() {
               {cartErrorMessage}
             </Animated.Text>
           ) : null}
+          {/* A change the server did not take: the list below is the last one read. */}
+          {changeErrorMessage ? (
+            <ShoppingLoadError
+              message={changeErrorMessage}
+              onRetry={dismissChangeError}
+              actionLabel="Entendido"
+            />
+          ) : null}
           {isLoading ? (
             <ActivityIndicator
               accessibilityLabel="Cargando la lista de compras"
@@ -156,18 +188,36 @@ export function ShoppingScreen() {
               No hay nada para comprar
             </Animated.Text>
           ) : null}
-          {/* Only the tick is offered: a card without the other handlers has no removal and no
-              "Marcar todos". */}
+          {/* Rows are ticked into the Cart and held to remove them; a card without the other
+              handlers has no "Marcar todos". */}
           {groups.map((group) => (
             <ShoppingGroupCard
               key={group.key}
               group={group}
               metaLines={metaLines}
               onToggleItem={tickLine}
+              onRemoveItem={removeItem}
             />
           ))}
+          {/* Once a list was read: before that, an empty card would say nothing was added. */}
+          {counters ? (
+            <ShoppingManualCard
+              items={manualItems}
+              onRemoveItem={removeItem}
+              onAdd={() => setIsAddSheetVisible(true)}
+            />
+          ) : null}
+          {removedCount > 0 ? (
+            <ShoppingRestoreLine removedCount={removedCount} onRestore={restoreItems} />
+          ) : null}
         </ScrollView>
       </SafeAreaContent>
+
+      <ShoppingAddItemSheet
+        visible={isAddSheetVisible}
+        onAdd={addManualItem}
+        onClose={() => setIsAddSheetVisible(false)}
+      />
     </Animated.View>
   );
 }

@@ -38,6 +38,7 @@ function makeMe(overrides: Partial<CurrentMe> = {}): CurrentMe {
       type: 'individual',
       trialEndsAt: '2099-12-31T00:00:00Z',
       subscriptionStatus: 'none',
+      timezone: null,
       access: { canUseApp: true, reason: null },
     },
     membership: { role: 'owner' },
@@ -156,6 +157,7 @@ describe('useIndexRoute — ping-pong stability (Judgment Day C2 follow-up)', ()
         type: 'individual',
         trialEndsAt: '2020-01-01T00:00:00Z',
         subscriptionStatus: 'none',
+        timezone: null,
         access: { canUseApp: false, reason: 'trial_expired' },
       },
     });
@@ -166,6 +168,7 @@ describe('useIndexRoute — ping-pong stability (Judgment Day C2 follow-up)', ()
         type: 'individual',
         trialEndsAt: '2020-01-01T00:00:00Z',
         subscriptionStatus: 'none',
+        timezone: null,
         access: { canUseApp: false, reason: 'trial_expired' },
       },
     });

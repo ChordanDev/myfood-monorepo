@@ -72,8 +72,50 @@ defmodule MealPlannerApiWeb.MobileCasingContractTest do
              } = body["data"]
 
       assert is_integer(max_planning_days)
-      assert [%{"recipeId" => recipe_id, "caloriesPerServing" => _} | _] = meals
+
+      assert [
+               %{
+                 "recipeId" => recipe_id,
+                 "recipeName" => recipe_name,
+                 "isFavorite" => false,
+                 "slot" => slot,
+                 "macros" => %{"calories" => _},
+                 "prepTimeMinutes" => _
+               } = meal
+               | _
+             ] = meals
+
       assert recipe_id == f.recipe.id
+      assert is_binary(recipe_name)
+      assert slot in ~w(breakfast lunch snack dinner)
+
+      refute Map.has_key?(meal, "caloriesPerServing")
+      refute Map.has_key?(meal, "label")
+    end
+
+    test "weekly and calendar meals share one summary shape", f do
+      today = Date.to_iso8601(Date.utc_today())
+
+      weekly = f |> request(:get, "/api/planning/weekly") |> success()
+
+      calendar =
+        f
+        |> request(:get, "/api/calendar", %{"startDate" => today, "endDate" => today})
+        |> success()
+
+      weekly_meal = weekly["data"]["days"] |> hd() |> Map.fetch!("meals") |> hd()
+      calendar_meal = calendar["data"]["meals"] |> hd()
+
+      summary_keys = ~w(recipeId recipeName isFavorite slot macros prepTimeMinutes)
+
+      assert Map.take(weekly_meal, summary_keys) |> Map.keys() |> Enum.sort() ==
+               Enum.sort(summary_keys)
+
+      assert Map.take(calendar_meal, summary_keys) |> Map.keys() |> Enum.sort() ==
+               Enum.sort(summary_keys)
+
+      assert Map.keys(weekly_meal["macros"]) == Map.keys(calendar_meal["macros"])
+      assert_camel_case_keys(weekly)
     end
 
     test "POST /api/planning/confirm reads camelCase params nested in a list", f do
@@ -148,6 +190,38 @@ defmodule MealPlannerApiWeb.MobileCasingContractTest do
 
       assert id == f.recipe.id
       assert is_binary(version_id)
+    end
+
+    test "GET /api/recipes/:id keeps the camelCase keys of the theme unchanged", f do
+      theme = %{
+        "colorBlack" => "#0D1007",
+        "colorDark" => "#15180F",
+        "colorMedium" => "#364025",
+        "colorLight" => "#8D9373",
+        "primaryAccent" => "#EF9432",
+        "appBg" => "#BCBFA7",
+        "appBgGradient" => ["#BCBFA7", "#8D9373"],
+        "icon" => "#D8D98B",
+        "textBlack" => "#0D1007",
+        "textDark" => "#1B210E",
+        "textMedium" => "#D8D98B",
+        "textLight" => "#F5F3D4",
+        "primaryAccentIntense" => "#FF8400",
+        "alert" => "#C94F3D"
+      }
+
+      {:ok, themed} =
+        Catalog.create_recipe(%{
+          account_id: f.account.id,
+          created_by_user_id: f.owner.id,
+          name: "Casing contract themed recipe",
+          source: :user_created,
+          theme: theme
+        })
+
+      body = f |> request(:get, "/api/recipes/#{themed.id}") |> success()
+
+      assert body["data"]["theme"] == theme
     end
   end
 
@@ -324,13 +398,25 @@ defmodule MealPlannerApiWeb.MobileCasingContractTest do
           fat_g_per_100: Decimal.new("0.3")
         })
 
-      f
-      |> request(:post, "/api/inventory/items/add-extra", %{
-        "ingredientId" => ingredient.id,
-        "quantityMilli" => 250,
-        "unit" => "g"
-      })
-      |> success()
+      added =
+        f
+        |> request(:post, "/api/inventory/items/add-extra", %{
+          "ingredientId" => ingredient.id,
+          "quantityMilli" => 250,
+          "unit" => "g"
+        })
+        |> success()
+
+      assert %{
+               "item" => added_item,
+               "mutationEvent" => %{
+                 "inventoryItemId" => added_item_id,
+                 "triggerType" => "manual",
+                 "quantityAfterMilli" => 250
+               }
+             } = added["data"]
+
+      assert added_item["id"] == added_item_id
 
       body = f |> request(:get, "/api/inventory") |> success()
 
@@ -345,13 +431,19 @@ defmodule MealPlannerApiWeb.MobileCasingContractTest do
 
       assert %{
                "ingredientId" => ingredient_id,
+               "name" => "Casing contract rice",
                "quantityMilli" => 250,
                "sourceKind" => "extra",
-               "freshnessStatus" => "ok"
+               "expiresAt" => expires_at,
+               "freshness" => "ok",
+               "isLeftover" => false,
+               "notes" => nil
              } = item
 
       assert ingredient_id == ingredient.id
+      assert expires_at =~ ~r/^\d{4}-\d{2}-\d{2}$/
       assert body["data"]["extras"] == [item]
+      assert added_item == item
     end
   end
 
@@ -363,6 +455,7 @@ defmodule MealPlannerApiWeb.MobileCasingContractTest do
                "user" => %{"displayName" => _, "householdSize" => nil, "cookingSkill" => nil},
                "account" => %{
                  "trialEndsAt" => trial_ends_at,
+                 "timezone" => nil,
                  "subscriptionStatus" => "none",
                  "access" => %{"canUseApp" => true, "reason" => nil}
                },

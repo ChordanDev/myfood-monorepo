@@ -1,134 +1,132 @@
 import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
+import { ApiError, isApiError } from '@/api/errors';
 import { MOCK_INGREDIENTS } from '@/mocks/domainMocks';
 import type { Ingredient } from '@/types/domain';
 import { safeAsyncStorage } from '@/utils/safeAsyncStorage';
-import { MOCK_INVENTORY } from '../mocks';
-import type { InventoryItem, InventoryItemPatch } from '../types';
+import { addExtraItem, applyVoice, disposeItem, getInventory, setItemQuantity } from '../api';
+import type { AddExtraItemPayload, InventoryItem, VoiceApplyPayload } from '../types';
+
+type InventoryLoadStatus = 'idle' | 'loading' | 'ready' | 'error';
 
 interface InventoryState {
+  // Cache of the last read of the API, patched with the answer of each write since
   items: InventoryItem[];
   ingredients: Ingredient[];
-  addItem: (ingredientId: string, amount: number) => void;
-  consumeIngredient: (ingredientId: string, amount: number) => void;
-  updateItem: (id: string, patch: InventoryItemPatch) => void;
-  removeItem: (id: string) => void;
+  loadStatus: InventoryLoadStatus;
+  loadError: ApiError | null;
+  refresh: () => Promise<void>;
+  addExtra: (payload: AddExtraItemPayload) => Promise<InventoryItem>;
+  setQuantity: (id: string, quantityMilli: number) => Promise<void>;
+  dispose: (id: string) => Promise<void>;
+  applyVoice: (payload: VoiceApplyPayload) => Promise<void>;
+  consumeIngredient: (ingredientId: string, quantityMilli: number) => void;
   getIngredient: (id: string) => Ingredient | undefined;
 }
 
 type PersistedInventoryState = Pick<InventoryState, 'items' | 'ingredients'>;
 
-// Shape persisted before the store was versioned
-interface LegacyInventoryItem {
-  ingredientId: string;
-  amount: number;
-  isLeftover?: boolean;
+// The API does not list a lot at zero, so the cache does not hold one either.
+function replaceLot(items: InventoryItem[], lot: InventoryItem): InventoryItem[] {
+  if (lot.quantityMilli <= 0) return items.filter((item) => item.id !== lot.id);
+  if (!items.some((item) => item.id === lot.id)) return [...items, lot];
+
+  return items.map((item) => (item.id === lot.id ? lot : item));
 }
 
-function applyItemPatch(item: InventoryItem, patch: InventoryItemPatch): InventoryItem {
-  const next: InventoryItem = { ...item };
-
-  const name = patch.name?.trim();
-  if (name) next.name = name;
-
-  // A quantity typed by the user is in the normalized unit, so it is no longer an estimate
-  if (patch.quantity !== undefined && Number.isFinite(patch.quantity) && patch.quantity >= 0) {
-    next.quantity = patch.quantity;
-    next.confidence = 'exact';
-  }
-
-  if (patch.notes !== undefined) {
-    const notes = patch.notes.trim();
-    if (notes) next.notes = notes;
-    else delete next.notes;
-  }
-
-  return next;
+function toApiError(error: unknown): ApiError {
+  return isApiError(error) ? error : new ApiError('unknown_error', 'Request failed');
 }
 
+// Everything persisted before version 2 was local fixture stock in display units, never read
+// from the API, so no device keeps it. The catalog of version 0 used retired categories.
 export function migrateInventoryState(
   persistedState: unknown,
   version: number
 ): PersistedInventoryState {
-  if (version >= 1) return persistedState as PersistedInventoryState;
+  if (version >= 2) return persistedState as PersistedInventoryState;
 
-  // The legacy catalog used retired categories and units, so it is replaced by the current one
-  const legacyItems = (persistedState as { items?: LegacyInventoryItem[] } | null)?.items ?? [];
-  const items = legacyItems.flatMap((legacyItem): InventoryItem[] => {
-    const ingredient = MOCK_INGREDIENTS.find((i) => i.id === legacyItem.ingredientId);
-    if (!ingredient) return [];
-
-    return [
-      {
-        id: `inv-${ingredient.id}`,
-        ingredientId: ingredient.id,
-        name: ingredient.name,
-        category: ingredient.category,
-        quantity: legacyItem.amount,
-        unit: ingredient.unit,
-        confidence: 'estimated',
-        ...(legacyItem.isLeftover !== undefined && { isLeftover: legacyItem.isLeftover }),
-      },
-    ];
-  });
-
-  return { items, ingredients: MOCK_INGREDIENTS };
+  return { items: [], ingredients: MOCK_INGREDIENTS };
 }
+
+// The read that owns the load status, and how many writes the cache has taken. A read that
+// was on its way during a write may have been answered before it.
+let latestRead = 0;
+let writeCount = 0;
 
 export const useInventoryStore = create<InventoryState>()(
   persist(
     (set, get) => ({
-      items: MOCK_INVENTORY,
+      items: [],
       ingredients: MOCK_INGREDIENTS,
-      addItem: (ingredientId, amount) => {
-        set((state) => {
-          const existingItem = state.items.find((i) => i.ingredientId === ingredientId);
-          if (existingItem) {
-            return {
-              items: state.items.map((i) =>
-                i.id === existingItem.id ? { ...i, quantity: i.quantity + amount } : i
-              ),
-            };
-          }
+      loadStatus: 'idle',
+      loadError: null,
+      refresh: async () => {
+        const read = ++latestRead;
+        const writesAtStart = writeCount;
+        set({ loadStatus: 'loading', loadError: null });
 
-          const ingredient = state.ingredients.find((i) => i.id === ingredientId);
-          if (!ingredient) return state;
+        try {
+          const { sections } = await getInventory();
+          if (read !== latestRead) return;
+          if (writesAtStart !== writeCount) return get().refresh();
 
-          const newItem: InventoryItem = {
-            id: `inv-${ingredientId}`,
-            ingredientId,
-            name: ingredient.name,
-            category: ingredient.category,
-            quantity: amount,
-            unit: ingredient.unit,
-            confidence: 'estimated',
-          };
-          return { items: [...state.items, newItem] };
-        });
+          // What to use first comes first
+          set({
+            items: [...sections.expired, ...sections.warning, ...sections.ok],
+            loadStatus: 'ready',
+          });
+        } catch (error) {
+          if (read !== latestRead) return;
+
+          // A failed read leaves the last one in the cache
+          set({ loadStatus: 'error', loadError: toApiError(error) });
+        }
       },
-      consumeIngredient: (ingredientId, amount) => {
-        set((state) => {
-          const existingItem = state.items.find((i) => i.ingredientId === ingredientId);
-          if (!existingItem) return state;
-
-          // Inventory never goes negative and an item that ran out keeps its record
-          return {
-            items: state.items.map((i) =>
-              i.id === existingItem.id ? { ...i, quantity: Math.max(0, i.quantity - amount) } : i
-            ),
-          };
-        });
+      // The writes are online only: the cache changes with the answer of the API, so a
+      // failed one leaves it as it was and rejects with the envelope error.
+      addExtra: async (payload) => {
+        const { item } = await addExtraItem(payload);
+        writeCount += 1;
+        // A plain add accumulates in the lot the API already had, which comes back whole
+        set((state) => ({ items: replaceLot(state.items, item) }));
+        return item;
       },
-      updateItem: (id, patch) => {
+      setQuantity: async (id, quantityMilli) => {
+        const { item } = await setItemQuantity(id, quantityMilli);
+        writeCount += 1;
+        set((state) => ({ items: replaceLot(state.items, item) }));
+      },
+      dispose: async (id) => {
+        await disposeItem(id);
+        writeCount += 1;
+        set((state) => ({ items: state.items.filter((item) => item.id !== id) }));
+      },
+      // Each event of the answer says what its lot holds now, so the cache takes it as is.
+      applyVoice: async (payload) => {
+        const { mutationEvents } = await applyVoice(payload);
+        writeCount += 1;
         set((state) => ({
-          items: state.items.map((i) => (i.id === id ? applyItemPatch(i, patch) : i)),
+          items: mutationEvents.reduce((items, event) => {
+            const lot = items.find((item) => item.id === event.inventoryItemId);
+            return lot
+              ? replaceLot(items, { ...lot, quantityMilli: event.quantityAfterMilli })
+              : items;
+          }, state.items),
         }));
       },
-      removeItem: (id) => {
-        // Deleting only zeroes the visible quantity; the record is kept as history
-        set((state) => ({
-          items: state.items.map((i) => (i.id === id ? { ...i, quantity: 0 } : i)),
-        }));
+      // Temporary: `consumeIngredient` (cooking) only patches the cache, in thousandths, until
+      // the cooking slice calls the API. The API never hears of it, so the next read replaces
+      // what it wrote.
+      consumeIngredient: (ingredientId, quantityMilli) => {
+        set((state) => {
+          const lot = state.items.find((item) => item.ingredientId === ingredientId);
+          if (!lot) return state;
+
+          // Inventory never goes negative
+          const quantity = Math.max(0, lot.quantityMilli - quantityMilli);
+          return { items: replaceLot(state.items, { ...lot, quantityMilli: quantity }) };
+        });
       },
       getIngredient: (id) => {
         return get().ingredients.find((i) => i.id === id);
@@ -136,7 +134,7 @@ export const useInventoryStore = create<InventoryState>()(
     }),
     {
       name: 'inventory-storage',
-      version: 1, // Self-contained items with PRD categories and units
+      version: 2, // Lots as the API serves them, in thousandths; no local fixture stock
       storage: createJSONStorage(() => safeAsyncStorage),
       partialize: ({ items, ingredients }) => ({ items, ingredients }),
       migrate: migrateInventoryState,

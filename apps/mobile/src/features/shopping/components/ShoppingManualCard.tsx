@@ -4,7 +4,7 @@ import { Plus } from 'lucide-react-native';
 import { useRecipeTheme } from '@/context/RecipeThemeContext';
 import { useAnimatedThemeStyle } from '@/hooks/useAnimatedThemeStyle';
 import { withOpacity } from '@/utils/colors';
-import type { ManualShoppingListItem } from '../types';
+import type { ShoppingListLine } from '../types';
 import { getHeaderControlHitSlop, ShoppingCard } from './ShoppingCard';
 import { ShoppingItemRow } from './ShoppingItemRow';
 
@@ -15,8 +15,10 @@ const ADD_HIT_SLOP = getHeaderControlHitSlop(14);
 
 export interface ShoppingManualCardProps {
   // Manual items still on the list; the removed ones are not passed.
-  items: ManualShoppingListItem[];
-  onToggleItem: (itemId: string) => void;
+  items: ShoppingListLine[];
+  // Marking an item is not offered until the Cart takes manual items: without it the rows are
+  // held to be removed and have no checkbox.
+  onToggleItem?: (itemId: string) => void;
   onRemoveItem: (itemId: string) => void;
   onAdd: () => void;
 }
@@ -46,7 +48,7 @@ export function ShoppingManualCard({
       }>
       {items.length > 0 ? (
         items.map((item) => (
-          // A manual item is for no meal: its row is its name.
+          // A manual item is for no meal: its row is its quantity and its name.
           <ShoppingItemRow
             key={item.id}
             item={item}

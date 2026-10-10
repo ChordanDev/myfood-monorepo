@@ -1,7 +1,9 @@
 import { useCallback, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { formatDateKey, selectRangeDate, type CalendarRange } from '@/features/home';
+import { useLoadLivePlan } from '@/features/home/hooks/useLoadLivePlan';
 import { useMealPlanStore } from '@/store';
 import {
+  clampPlanningRange,
   getFirstPlannableDate,
   getPlannedDaysFrom,
   getPlanningMonthBounds,
@@ -11,10 +13,12 @@ import {
 
 /**
  * The range of days the Planner is asked to plan, and what its calendar needs to pick it.
- * The range lives as long as the screen: it is not stored, and nothing but the pill reads it
- * yet.
+ * The range lives as long as the screen: it is not stored. It never spans more days than one
+ * Planning session can plan.
  */
 export function usePlanningRange() {
+  // The plan on screen is a cache of the calendar read: refresh it when the Planner opens.
+  useLoadLivePlan();
   const entries = useMealPlanStore((state) => state.entries);
   const todayKey = formatDateKey(new Date());
   // What the user picked, if anything. The range in use is resolved from it on every render,
@@ -52,7 +56,8 @@ export function usePlanningRange() {
   // One tap of the range gesture. It returns the range the tap leaves, so the caller can tell
   // a finished range from one that still waits for its end.
   const selectDate = useCallback((dateKey: string) => {
-    const nextRange = selectRangeDate(currentRangeRef.current, dateKey);
+    // A longer range is cut to what one session can plan.
+    const nextRange = clampPlanningRange(selectRangeDate(currentRangeRef.current, dateKey));
     currentRangeRef.current = nextRange;
     setPickedRange(nextRange);
 

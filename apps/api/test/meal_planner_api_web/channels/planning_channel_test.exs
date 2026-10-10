@@ -47,6 +47,11 @@ defmodule MealPlannerApiWeb.PlanningChannelTest do
   # demand, and whether `:budget_cents` existed would depend on which test
   # ran first. Naming the atoms of the intents this file sends makes them
   # exist as soon as this module is loaded.
+  # An ISO date `offset` days from today. `start_planning` refuses a range that
+  # starts in the past, so the tests that start a session ask for dates
+  # relative to the day they run.
+  defp in_days(offset), do: Date.utc_today() |> Date.add(offset) |> Date.to_iso8601()
+
   defp intent_atoms, do: [:kind, :payload, :change_constraints, :budget_cents]
 
   # Phase 4 — `revenuecat-access-enforcement` realtime enforcement
@@ -1536,8 +1541,8 @@ defmodule MealPlannerApiWeb.PlanningChannelTest do
 
       ref =
         push(socket, "start_planning", %{
-          "range_from" => "2026-04-01",
-          "range_to" => "2026-04-07"
+          "range_from" => in_days(1),
+          "range_to" => in_days(7)
         })
 
       assert_reply(ref, :ok, %{"sessionId" => session_id, "status" => :active})
@@ -1552,8 +1557,8 @@ defmodule MealPlannerApiWeb.PlanningChannelTest do
       assert reloaded.account_id == account.id
       assert reloaded.lock_owner_user_id == user.id
       assert reloaded.lock_owner_membership_id == owner_membership_id
-      assert reloaded.range_from == ~D[2026-04-01]
-      assert reloaded.range_to == ~D[2026-04-07]
+      assert reloaded.range_from == Date.add(Date.utc_today(), 1)
+      assert reloaded.range_to == Date.add(Date.utc_today(), 7)
     end
 
     test "expired Account (ineligible) returns :subscription_required, no row, no broadcast",
@@ -1567,8 +1572,8 @@ defmodule MealPlannerApiWeb.PlanningChannelTest do
 
       ref =
         push(socket, "start_planning", %{
-          "range_from" => "2026-04-01",
-          "range_to" => "2026-04-07"
+          "range_from" => in_days(1),
+          "range_to" => in_days(7)
         })
 
       assert_error_reply(ref, :subscription_required)
@@ -1590,15 +1595,15 @@ defmodule MealPlannerApiWeb.PlanningChannelTest do
       assert active_count == 0
     end
 
-    test "overlapping active range returns :overlapping_range, only the pre-existing row stays",
+    test "overlapping active range returns :planning_range_locked, only the pre-existing row stays",
          %{account: account, user: owner_user, token: owner_token} do
       _ = persist_trial_window!(account, :eligible)
       owner_membership_id = owner_membership_id(account.id, owner_user.id)
 
       {:ok, existing} =
         PlanningRepo.create_session(account.id, %{
-          range_from: ~D[2026-04-05],
-          range_to: ~D[2026-04-12],
+          range_from: Date.add(Date.utc_today(), 5),
+          range_to: Date.add(Date.utc_today(), 12),
           lock_owner_user_id: owner_user.id,
           lock_owner_membership_id: owner_membership_id,
           lease_expires_at: DateTime.add(DateTime.utc_now(), 120, :second)
@@ -1611,11 +1616,11 @@ defmodule MealPlannerApiWeb.PlanningChannelTest do
 
       ref =
         push(socket, "start_planning", %{
-          "range_from" => "2026-04-10",
-          "range_to" => "2026-04-15"
+          "range_from" => in_days(10),
+          "range_to" => in_days(15)
         })
 
-      assert_error_reply(ref, :overlapping_range)
+      assert_error_reply(ref, :planning_range_locked)
 
       refute_receive %Phoenix.Socket.Broadcast{
                        topic: "planning:" <> _,
@@ -1634,7 +1639,7 @@ defmodule MealPlannerApiWeb.PlanningChannelTest do
       assert hd(active_sessions).id == existing.id
     end
 
-    test "invalid range_from format returns :invalid_range", %{
+    test "invalid range_from format returns :planning_invalid_range", %{
       account: account,
       token: token
     } do
@@ -1651,7 +1656,7 @@ defmodule MealPlannerApiWeb.PlanningChannelTest do
           "range_to" => "2026-04-07"
         })
 
-      assert_error_reply(ref, :invalid_range)
+      assert_error_reply(ref, :planning_invalid_range)
     end
   end
 
@@ -1678,8 +1683,8 @@ defmodule MealPlannerApiWeb.PlanningChannelTest do
       # First start a session so the channel caches `session_pid`.
       ref_start =
         push(socket, "start_planning", %{
-          "range_from" => "2026-05-01",
-          "range_to" => "2026-05-07"
+          "range_from" => in_days(31),
+          "range_to" => in_days(37)
         })
 
       assert_reply(ref_start, :ok, %{"sessionId" => session_id, "status" => :active})
@@ -1716,8 +1721,8 @@ defmodule MealPlannerApiWeb.PlanningChannelTest do
 
       ref_start =
         push(socket, "start_planning", %{
-          "range_from" => "2026-05-08",
-          "range_to" => "2026-05-14"
+          "range_from" => in_days(38),
+          "range_to" => in_days(44)
         })
 
       assert_reply(ref_start, :ok, %{"sessionId" => session_id, "status" => :active})
@@ -1748,8 +1753,8 @@ defmodule MealPlannerApiWeb.PlanningChannelTest do
 
       ref_start =
         push(socket, "start_planning", %{
-          "range_from" => "2026-05-15",
-          "range_to" => "2026-05-21"
+          "range_from" => in_days(45),
+          "range_to" => in_days(51)
         })
 
       assert_reply(ref_start, :ok, %{"sessionId" => session_id, "status" => :active})
@@ -1795,8 +1800,8 @@ defmodule MealPlannerApiWeb.PlanningChannelTest do
 
       ref_start =
         push(socket, "start_planning", %{
-          "range_from" => "2026-05-22",
-          "range_to" => "2026-05-28"
+          "range_from" => in_days(52),
+          "range_to" => in_days(58)
         })
 
       assert_reply(ref_start, :ok, %{"sessionId" => started_id, "status" => :active})
@@ -1824,8 +1829,8 @@ defmodule MealPlannerApiWeb.PlanningChannelTest do
 
       ref_start =
         push(socket, "start_planning", %{
-          "range_from" => "2026-05-29",
-          "range_to" => "2026-06-04"
+          "range_from" => in_days(59),
+          "range_to" => in_days(65)
         })
 
       assert_reply(ref_start, :ok, %{"sessionId" => session_id, "status" => :active})
@@ -1860,8 +1865,8 @@ defmodule MealPlannerApiWeb.PlanningChannelTest do
 
       ref_start =
         push(socket, "start_planning", %{
-          "range_from" => "2026-06-05",
-          "range_to" => "2026-06-11"
+          "range_from" => in_days(66),
+          "range_to" => in_days(72)
         })
 
       assert_reply(ref_start, :ok, %{"sessionId" => session_id, "status" => :active})
@@ -1897,7 +1902,7 @@ defmodule MealPlannerApiWeb.PlanningChannelTest do
   # ==========================================================================
 
   describe "e2e 2-socket on same planning:<account_id> (task 5.2)" do
-    test "A starts, B overlap → :overlapping_range, B non-overlap → :ok, A cancels → both see session_cancelled",
+    test "A starts, B overlap → :planning_range_locked, B non-overlap → :ok, A cancels → both see session_cancelled",
          %{account: account, user: owner_user, token: owner_token} do
       _ = persist_trial_window!(account, :eligible)
       owner_membership_id = owner_membership_id(account.id, owner_user.id)
@@ -1912,8 +1917,8 @@ defmodule MealPlannerApiWeb.PlanningChannelTest do
 
       ref_a_start =
         push(socket_a, "start_planning", %{
-          "range_from" => "2026-06-01",
-          "range_to" => "2026-06-07"
+          "range_from" => in_days(62),
+          "range_to" => in_days(68)
         })
 
       assert_reply(ref_a_start, :ok, %{"sessionId" => a_session_id, "status" => :active})
@@ -1931,18 +1936,22 @@ defmodule MealPlannerApiWeb.PlanningChannelTest do
       # ── B tries an OVERLAPPING range → refused ──
       ref_b_overlap =
         push(socket_b, "start_planning", %{
-          "range_from" => "2026-06-05",
-          "range_to" => "2026-06-12"
+          "range_from" => in_days(66),
+          "range_to" => in_days(72)
         })
 
-      assert_error_reply(ref_b_overlap, :overlapping_range)
+      # B is not the owner of the lock, so the error names who holds it.
+      assert_receive %Phoenix.Socket.Reply{ref: ^ref_b_overlap, status: :error, payload: locked}
+      assert %{"error" => %{"code" => :planning_range_locked, "details" => details}} = locked
+      assert %{"ownerName" => owner_name} = details
+      assert is_binary(owner_name) and owner_name != ""
       refute_receive %Phoenix.Socket.Broadcast{event: "session_started"}, 200
 
       # ── B starts a NON-OVERLAPPING range → ok ──
       ref_b_ok =
         push(socket_b, "start_planning", %{
-          "range_from" => "2026-06-15",
-          "range_to" => "2026-06-21"
+          "range_from" => in_days(76),
+          "range_to" => in_days(82)
         })
 
       assert_reply(ref_b_ok, :ok, %{"sessionId" => b_session_id, "status" => :active})
@@ -2115,8 +2124,8 @@ defmodule MealPlannerApiWeb.PlanningChannelTest do
 
       ref_start =
         push(socket, "start_planning", %{
-          "rangeFrom" => "2026-07-01",
-          "rangeTo" => "2026-07-07"
+          "rangeFrom" => in_days(92),
+          "rangeTo" => in_days(98)
         })
 
       assert_reply(ref_start, :ok, start_reply)
@@ -2128,8 +2137,8 @@ defmodule MealPlannerApiWeb.PlanningChannelTest do
       assert started == %{"sessionId" => session_id}
 
       session = Repo.get!(MealPlannerApi.Persistence.Planning.PlanningSession, session_id)
-      assert session.range_from == ~D[2026-07-01]
-      assert session.range_to == ~D[2026-07-07]
+      assert session.range_from == Date.add(Date.utc_today(), 92)
+      assert session.range_to == Date.add(Date.utc_today(), 98)
 
       # The intent is atomized after the normalization: `budgetCents` is not
       # a key the atomizer knows, `budget_cents` is.
@@ -2249,11 +2258,18 @@ defmodule MealPlannerApiWeb.PlanningChannelTest do
         ]
       }
 
+      # Only keys are rewritten, except in `generation_error`: it has the same
+      # keys whoever broadcast it, so the payload gains the ones it lacked.
       for event <- PlanningChannel.outbound_events() do
         Endpoint.broadcast!("planning:#{account.id}", event, payload)
 
+        expected_for_event =
+          if event == "generation_error",
+            do: Map.merge(expected, %{"details" => %{}, "runId" => nil}),
+            else: expected
+
         assert_push(^event, pushed)
-        assert pushed == expected, "#{event} was pushed as #{inspect(pushed)}"
+        assert pushed == expected_for_event, "#{event} was pushed as #{inspect(pushed)}"
       end
     end
 
@@ -2426,8 +2442,8 @@ defmodule MealPlannerApiWeb.PlanningChannelTest do
 
         ref_start =
           push(socket, "start_planning", %{
-            "range_from" => "2026-06-12",
-            "range_to" => "2026-06-18"
+            "range_from" => in_days(73),
+            "range_to" => in_days(79)
           })
 
         assert_reply(ref_start, :ok, %{"sessionId" => session_id, "status" => :active})
@@ -2534,6 +2550,219 @@ defmodule MealPlannerApiWeb.PlanningChannelTest do
       |> Repo.insert()
 
     issue_access_v2_token(peer_user, membership)
+  end
+
+  # Issue #27 — after a join the channel pushes `session_resumed` when the
+  # Account has an :active PlanningSession, so a reconnecting client recovers
+  # the pending proposal and the recent chat.
+  describe "join/3 session_resumed push" do
+    defp insert_proposal(account, user, proposal_json, status \\ :pending) do
+      {:ok, run} =
+        PlanningRepo.create_generation_run(%{
+          account_id: account.id,
+          user_id: user.id,
+          status: :completed,
+          input_context: %{},
+          started_at: DateTime.utc_now(),
+          completed_at: DateTime.utc_now()
+        })
+
+      {:ok, proposal} =
+        PlanningRepo.create_proposal(%{
+          generation_run_id: run.id,
+          proposal_json: proposal_json,
+          status: status
+        })
+
+      proposal
+    end
+
+    defp backdate!(record, seconds_ago) do
+      record
+      |> Ecto.Changeset.change(%{
+        inserted_at: DateTime.add(DateTime.utc_now(), -seconds_ago, :second)
+      })
+      |> Repo.update!()
+    end
+
+    defp insert_planning_message(account, session, role, content, intent_kind, seconds_ago) do
+      %MealPlannerApi.Persistence.Planning.PlanningMessage{}
+      |> MealPlannerApi.Persistence.Planning.PlanningMessage.changeset(%{
+        account_id: account.id,
+        session_id: session.id,
+        role: role,
+        content: content,
+        intent_kind: intent_kind
+      })
+      |> Repo.insert!()
+      |> backdate!(seconds_ago)
+    end
+
+    defp join_planning(account, token) do
+      {:ok, socket} = connect(UserSocket, %{"token" => token})
+      subscribe_and_join(socket, PlanningChannel, "planning:#{account.id}")
+    end
+
+    test "pushes nothing when the account has no active session", %{
+      account: account,
+      user: user,
+      token: token
+    } do
+      insert_proposal(account, user, %{"meals" => []})
+
+      {:ok, _reply, _socket} = join_planning(account, token)
+
+      refute_push "session_resumed", _payload, 200
+    end
+
+    test "pushes nothing when the only session is terminal", %{
+      account: account,
+      user: user,
+      token: token
+    } do
+      session = insert_active_session(account, user)
+      {:ok, _} = PlanningRepo.expire_session(account.id, session.id)
+
+      {:ok, _reply, _socket} = join_planning(account, token)
+
+      refute_push "session_resumed", _payload, 200
+    end
+
+    test "pushes the session id, latest pending proposal and recent messages in camelCase", %{
+      account: account,
+      user: user,
+      token: token
+    } do
+      session = insert_active_session(account, user)
+
+      %{"old_marker" => true} |> then(&insert_proposal(account, user, &1)) |> backdate!(60)
+      insert_proposal(account, user, %{"rejected_marker" => true}, :rejected)
+      latest = insert_proposal(account, user, %{"meals" => [%{"recipe_id" => 7}]})
+
+      insert_planning_message(account, session, :user, "second", nil, 10)
+      insert_planning_message(account, session, :assistant, "third", "change_constraints", 5)
+      insert_planning_message(account, session, :user, "first", nil, 20)
+
+      {:ok, _reply, _socket} = join_planning(account, token)
+
+      assert_push "session_resumed", payload
+      assert_camel_case_keys(payload)
+
+      assert payload["sessionId"] == session.id
+      assert payload["proposalId"] == latest.id
+      assert payload["proposal"] == %{"meals" => [%{"recipeId" => 7}]}
+
+      assert [
+               %{"role" => "user", "content" => "first", "intentKind" => nil},
+               %{"role" => "user", "content" => "second", "intentKind" => nil},
+               %{
+                 "role" => "assistant",
+                 "content" => "third",
+                 "intentKind" => "change_constraints"
+               }
+             ] = payload["messages"]
+    end
+
+    test "pushes a null proposal when the session has none pending", %{
+      account: account,
+      user: user,
+      token: token
+    } do
+      session = insert_active_session(account, user)
+
+      {:ok, _reply, _socket} = join_planning(account, token)
+
+      assert_push "session_resumed", payload
+      assert payload["sessionId"] == session.id
+      assert payload["proposalId"] == nil
+      assert payload["proposal"] == nil
+      assert payload["messages"] == []
+    end
+
+    test "a pending proposal from before the session started is not pushed", %{
+      account: account,
+      user: user,
+      token: token
+    } do
+      insert_proposal(account, user, %{"stale_marker" => true}) |> backdate!(60)
+      session = insert_active_session(account, user)
+
+      {:ok, _reply, _socket} = join_planning(account, token)
+
+      assert_push "session_resumed", payload
+      assert payload["sessionId"] == session.id
+      assert payload["proposalId"] == nil
+      assert payload["proposal"] == nil
+    end
+
+    test "a pending proposal created after the session started is pushed", %{
+      account: account,
+      user: user,
+      token: token
+    } do
+      insert_proposal(account, user, %{"stale_marker" => true}) |> backdate!(60)
+      session = insert_active_session(account, user)
+      fresh = insert_proposal(account, user, %{"meals" => []})
+
+      {:ok, _reply, _socket} = join_planning(account, token)
+
+      assert_push "session_resumed", payload
+      assert payload["sessionId"] == session.id
+      assert payload["proposalId"] == fresh.id
+    end
+
+    test "keeps only the last 20 messages, oldest first", %{
+      account: account,
+      user: user,
+      token: token
+    } do
+      session = insert_active_session(account, user)
+
+      for n <- 1..25 do
+        insert_planning_message(account, session, :user, "m#{n}", nil, 100 - n)
+      end
+
+      {:ok, _reply, _socket} = join_planning(account, token)
+
+      assert_push "session_resumed", payload
+      contents = Enum.map(payload["messages"], & &1["content"])
+      assert contents == Enum.map(6..25, &"m#{&1}")
+    end
+
+    test "another account's active session is not pushed", %{account: account, token: token} do
+      {:ok, other_user, other_account, _other_token} =
+        issue_identity_and_token("u_plan_other", "acct_plan_other")
+
+      other_session = insert_active_session(other_account, other_user)
+      insert_proposal(other_account, other_user, %{"secret" => true})
+      insert_planning_message(other_account, other_session, :user, "secret chat", nil, 1)
+
+      {:ok, _reply, _socket} = join_planning(account, token)
+
+      refute_push "session_resumed", _payload, 200
+    end
+
+    test "own session never carries another account's proposal or messages", %{
+      account: account,
+      user: user,
+      token: token
+    } do
+      {:ok, other_user, other_account, _other_token} =
+        issue_identity_and_token("u_plan_other2", "acct_plan_other2")
+
+      other_session = insert_active_session(other_account, other_user)
+      insert_proposal(other_account, other_user, %{"secret" => true})
+      insert_planning_message(other_account, other_session, :user, "secret chat", nil, 1)
+
+      session = insert_active_session(account, user)
+
+      {:ok, _reply, _socket} = join_planning(account, token)
+
+      assert_push "session_resumed", payload
+      assert payload["sessionId"] == session.id
+      assert payload["proposal"] == nil
+      assert payload["messages"] == []
+    end
   end
 
   describe "helper functions behavior" do
@@ -2692,15 +2921,18 @@ defmodule MealPlannerApiWeb.PlanningChannelTest do
       {:ok, _reply, socket} =
         subscribe_and_join(socket, PlanningChannel, "planning:#{account.id}")
 
-      # A range that ends before it starts is refused by the session
-      # changeset, which is neither an atom nor a string reason.
-      ref =
-        push(socket, "start_planning", %{
-          "range_from" => "2026-04-07",
-          "range_to" => "2026-04-01"
-        })
+      # A generation server that answers a changeset: neither an atom nor a
+      # string reason.
+      start_generation_server_stub(
+        account.id,
+        {:error, %Ecto.Changeset{valid?: false, errors: [name: {"is invalid", []}]}}
+      )
 
-      assert_error_reply(ref, :invalid_payload)
+      ref =
+        push(socket, "generate_menu", %{"request_id" => "req_changeset", "constraints" => %{}})
+
+      payload = assert_error_reply(ref, :invalid_payload)
+      refute inspect(payload) =~ "is invalid"
     end
   end
 
@@ -2770,6 +3002,11 @@ defmodule MealPlannerApiWeb.PlanningChannelTest do
   # contains `broadcast`, local or remote: `broadcast!(socket, "event", _)`,
   # `broadcast(state, "event", _)`, `Server.broadcast!(pubsub, topic, "event",
   # _)`. A topic is built by interpolation, so it is not a literal.
+  #
+  # In `planning_channel.ex` a literal passed to `push/3` counts too: the
+  # channel derives `planning_message` from the generation's `proposal_ready`
+  # and pushes it to the client without broadcasting it. Other modules push on
+  # their own channels (`AIChannel`), which is not this topic.
   defp broadcast_event_literals(path) do
     {_ast, events} =
       path
@@ -2777,10 +3014,10 @@ defmodule MealPlannerApiWeb.PlanningChannelTest do
       |> Code.string_to_quoted!()
       |> Macro.prewalk([], fn
         {{:., _, [_module, name]}, _meta, args} = node, events when is_atom(name) ->
-          {node, events ++ event_literals(name, args)}
+          {node, events ++ event_literals(name, args, path)}
 
         {name, _meta, args} = node, events when is_atom(name) and is_list(args) ->
-          {node, events ++ event_literals(name, args)}
+          {node, events ++ event_literals(name, args, path)}
 
         node, events ->
           {node, events}
@@ -2789,8 +3026,10 @@ defmodule MealPlannerApiWeb.PlanningChannelTest do
     events
   end
 
-  defp event_literals(name, args) do
-    if name |> Atom.to_string() |> String.contains?("broadcast") do
+  defp event_literals(name, args, path) do
+    pushes? = name == :push and String.ends_with?(path, "channels/planning_channel.ex")
+
+    if pushes? or name |> Atom.to_string() |> String.contains?("broadcast") do
       Enum.filter(args, &is_binary/1)
     else
       []

@@ -11,10 +11,17 @@ import { CUSTOM_TAB_BAR_CONTENT_HEIGHT } from '@/features/planner/constants';
 import { useMealPlanStore } from '@/store';
 import {
   EMPTY_SHOPPING_LIST,
+  MANUAL_DISH_SOAP,
   SHOPPING_LIST_BY_INGREDIENT,
   SHOPPING_LIST_BY_MEAL,
   SHOPPING_LIST_UNTIL_OCT_10,
   SHOPPING_LIST_VALIDATION_ERROR,
+  SHOPPING_LIST_WITH_MANUAL_AND_REMOVED,
+  TOMATO_ITEM_IDS,
+  toDeleteItemResponse,
+  toManualItemResponse,
+  toSetStatusResponse,
+  toShoppingErrorResponse,
   toShoppingListResponse,
 } from '../fixtures';
 import { useShoppingListStore } from '../store';
@@ -357,6 +364,10 @@ const EMPTY_LABEL = 'No hay nada para comprar';
 const NETWORK_ERROR = 'No pudimos conectar con el servidor. Revisá tu conexión.';
 const RETRY = 'Reintentar';
 const READING_AGAIN = 'Actualizando la lista de compras';
+const ADD_LABEL = 'Agregar a la lista';
+
+// The card of the items added by hand: on screen once a list was read, empty or not.
+const MANUAL_CARD = ['Agregados a mano', 'Todavía no agregaste nada.'];
 
 const HEADER = ['Hasta 12 Oct', 'Por ingrediente', 'Por comida', 'COMPRAS'];
 
@@ -378,6 +389,7 @@ const CARDS_BY_INGREDIENT = [
   'Para 3 comidas',
   'No perecederos',
   '30 ml · Aceite de oliva',
+  ...MANUAL_CARD,
 ];
 
 const USER_A = { id: 'user-a' };
@@ -483,23 +495,18 @@ describe('ShoppingScreen', () => {
     });
   });
 
-  describe('a read-only list', () => {
-    it('lets a row be ticked, with no removal and no "Marcar todos"', async () => {
+  describe('a list with a tick', () => {
+    it('lets a row be ticked or held to remove it, with no "Marcar todos"', async () => {
       const root = await renderLoadedScreen();
       const list = root.findByType(ScrollView);
 
-      expect(
-        list.findAll(
-          (node) =>
-            typeof node.props.onLongPress === 'function' ||
-            typeof node.props.onAccessibilityAction === 'function'
-        )
-      ).toEqual([]);
       expect(getTexts(root)).not.toContain('Marcar todos');
       expect(getCheckboxes(root)).toHaveLength(6);
+      // Every planned row can be held, and each one offers the removal to screen readers.
+      expect(list.findAll((node) => typeof node.props.onLongPress === 'function')).toHaveLength(6);
     });
 
-    it('offers the date, the two groupings and the abandoning of the Cart to press', async () => {
+    it('offers the date, the two groupings, the abandoning of the Cart and the add to press', async () => {
       const root = await renderLoadedScreen();
 
       expect(getButtonLabels(root)).toEqual([
@@ -507,6 +514,7 @@ describe('ShoppingScreen', () => {
         'Por ingrediente',
         'Por comida',
         'Cancelar carrito',
+        ADD_LABEL,
       ]);
     });
 
@@ -531,11 +539,10 @@ describe('ShoppingScreen', () => {
       expect(rows).toContainEqual(['1,25 kg · Arroz, Para 3 comidas', false]);
     });
 
-    it('keeps the cart, the items added by hand and the removed rows off the screen', async () => {
+    it('keeps the cart off the screen, and the restore line while nothing is removed', async () => {
       const root = await renderLoadedScreen();
 
-      expect(root.findAll((node) => node.props.testID === 'shopping-cart-button')).toEqual([]);
-      expect(getTexts(root)).not.toContain('Agregados a mano');
+      expect(root.findAll((node) => node.props.testID === 'shopping-cart-button')).toHaveLength(0);
       expect(getTexts(root).some((text) => text.includes('Restaurar'))).toBe(false);
     });
 
@@ -688,6 +695,7 @@ describe('ShoppingScreen', () => {
         'No perecederos',
         '30 ml · Aceite de oliva',
         '8 Oct · Almuerzo',
+        ...MANUAL_CARD,
       ]);
     });
 
@@ -793,6 +801,7 @@ describe('ShoppingScreen', () => {
         'Para 2 comidas',
         'No perecederos',
         '30 ml · Aceite de oliva',
+        ...MANUAL_CARD,
       ]);
       expect(untilCalendar().anchor).toBeNull();
       expect(untilCalendar().rangeEnd).toBe('2026-10-10');
@@ -890,6 +899,7 @@ describe('ShoppingScreen', () => {
         'COMPRAS',
         '0 ítems · 0 en el carrito',
         EMPTY_LABEL,
+        ...MANUAL_CARD,
       ]);
       expect(mockFloatingCalendars).toEqual([]);
       expect(isLoading(root)).toBe(false);
@@ -904,7 +914,12 @@ describe('ShoppingScreen', () => {
 
       const root = await renderLoadedScreen();
 
-      expect(getTexts(root)).toEqual([...HEADER, '0 ítems · 0 en el carrito', EMPTY_LABEL]);
+      expect(getTexts(root)).toEqual([
+        ...HEADER,
+        '0 ítems · 0 en el carrito',
+        EMPTY_LABEL,
+        ...MANUAL_CARD,
+      ]);
       expect(getButtonLabels(root)).toContain(UNTIL_THE_12TH);
     });
   });
@@ -1009,6 +1024,7 @@ describe('ShoppingScreen', () => {
         'COMPRAS',
         '0 ítems · 0 en el carrito',
         EMPTY_LABEL,
+        ...MANUAL_CARD,
       ]);
     });
 
@@ -1084,6 +1100,7 @@ describe('ShoppingScreen', () => {
         'Por ingrediente',
         'Por comida',
         'Cancelar carrito',
+        ADD_LABEL,
       ]);
 
       request.answer(SHOPPING_LIST_BY_INGREDIENT);
@@ -1276,5 +1293,211 @@ describe('ShoppingScreen', () => {
       expect(useShoppingListStore.getState()).toMatchObject({ ownerId: null, list: null });
       expect(fetchMock).toHaveBeenCalledTimes(1);
     });
+  });
+});
+
+describe('ShoppingScreen: items added by hand, removed and restored', () => {
+  const REMOVED_LABEL = '1 quitado · Restaurar';
+  const SOAP_ROW = '1 u · Detergente';
+  const TOMATO_ROW = '5 u · Tomate, Para 2 comidas';
+
+  // The server for these tests: the list it holds now, and the answer to each change. A
+  // change that is accepted moves the list on to the one the test says it leads to.
+  let serverList: ShoppingListRead;
+
+  function serveChanges(
+    changes: Record<string, { response: Response; leadsTo?: ShoppingListRead }>
+  ) {
+    fetchMock.mockImplementation((url: string, init: RequestInit) => {
+      const path = url.replace('https://api.example.test', '').split('?')[0];
+      const change = changes[`${init.method} ${path}`];
+
+      if (change?.leadsTo) serverList = change.leadsTo;
+      return Promise.resolve(change ? change.response : listResponse(serverList));
+    });
+  }
+
+  const sentChanges = () =>
+    fetchMock.mock.calls
+      .filter(([url]) => !(url as string).includes('/api/shopping-list'))
+      .map(([url, init]) => ({
+        request: `${init.method} ${(url as string).replace('https://api.example.test', '')}`,
+        body: init.body ? JSON.parse(init.body) : undefined,
+      }));
+
+  // A row is held to remove it: found by what it reads to a screen reader.
+  async function hold(root: ReactTestInstance, label: string) {
+    const row = root.find(
+      (node) =>
+        typeof node.props.onLongPress === 'function' && node.props.accessibilityLabel === label
+    );
+
+    act(() => {
+      row.props.onLongPress();
+    });
+    await settle();
+  }
+
+  const getInputs = (root: ReactTestInstance) =>
+    root.findAll((node) => node.props.accessibilityLabel === 'Nombre del producto');
+
+  async function addThroughTheSheet(root: ReactTestInstance, name: string, quantity?: string) {
+    await press(root, ADD_LABEL);
+    act(() => {
+      root.findByProps({ accessibilityLabel: 'Nombre del producto' }).props.onChangeText(name);
+      if (quantity)
+        root.findByProps({ accessibilityLabel: 'Cantidad' }).props.onChangeText(quantity);
+    });
+    await pressText(root, 'Agregar');
+  }
+
+  beforeEach(() => {
+    serverList = SHOPPING_LIST_BY_INGREDIENT;
+  });
+
+  it('shows the manual items in their own card and the removed ones behind a restore line', async () => {
+    serverList = SHOPPING_LIST_WITH_MANUAL_AND_REMOVED;
+    serveChanges({});
+
+    const root = await renderLoadedScreen();
+    const texts = getTexts(root);
+
+    expect(texts).toContain('Agregados a mano');
+    expect(texts).toContain(SOAP_ROW);
+    expect(texts).toContain(REMOVED_LABEL);
+    expect(texts).not.toContain('5 u · Tomate');
+    expect(texts).toContain('5 ítems · 1 en el carrito');
+  });
+
+  it('shows no restore line while nothing is removed', async () => {
+    serveChanges({});
+
+    const root = await renderLoadedScreen();
+
+    expect(getTexts(root).some((text) => text.includes('Restaurar'))).toBe(false);
+  });
+
+  it('adds an item: asks for it with its quantity and unit, closes, and lists what the server reads', async () => {
+    serveChanges({
+      'POST /api/shopping-items/manual': {
+        response: jsonResponse(toManualItemResponse(MANUAL_DISH_SOAP), true, 201),
+        leadsTo: SHOPPING_LIST_WITH_MANUAL_AND_REMOVED,
+      },
+    });
+    const root = await renderLoadedScreen();
+
+    await addThroughTheSheet(root, 'Detergente', '2');
+
+    expect(sentChanges()).toEqual([
+      {
+        request: 'POST /api/shopping-items/manual',
+        body: { name: 'Detergente', quantityMilli: 2_000, unit: 'unit' },
+      },
+    ]);
+    expect(getInputs(root)).toHaveLength(0);
+    expect(getTexts(root)).toContain(SOAP_ROW);
+  });
+
+  it('deletes an item added by hand from a long press on its row', async () => {
+    serverList = SHOPPING_LIST_WITH_MANUAL_AND_REMOVED;
+    serveChanges({
+      [`DELETE /api/shopping-items/${MANUAL_DISH_SOAP.id}`]: {
+        response: jsonResponse(toDeleteItemResponse(MANUAL_DISH_SOAP.id)),
+        leadsTo: { ...SHOPPING_LIST_WITH_MANUAL_AND_REMOVED, manual: [] },
+      },
+    });
+    const root = await renderLoadedScreen();
+
+    await hold(root, SOAP_ROW);
+
+    expect(sentChanges().map(({ request }) => request)).toEqual([
+      `DELETE /api/shopping-items/${MANUAL_DISH_SOAP.id}`,
+    ]);
+    expect(getTexts(root)).not.toContain(SOAP_ROW);
+    expect(getTexts(root)).toContain('Todavía no agregaste nada.');
+  });
+
+  it('removes a planned item through every share of its line, and offers to restore it', async () => {
+    serveChanges({
+      'POST /api/shopping-items/set-status': {
+        response: jsonResponse(toSetStatusResponse('removed', TOMATO_ITEM_IDS)),
+        leadsTo: SHOPPING_LIST_WITH_MANUAL_AND_REMOVED,
+      },
+    });
+    const root = await renderLoadedScreen();
+
+    await hold(root, TOMATO_ROW);
+
+    expect(sentChanges()).toEqual([
+      {
+        request: 'POST /api/shopping-items/set-status',
+        body: { itemIds: TOMATO_ITEM_IDS, status: 'removed' },
+      },
+    ]);
+    expect(getTexts(root)).not.toContain('5 u · Tomate');
+    expect(getTexts(root)).toContain(REMOVED_LABEL);
+  });
+
+  it('restores the removed items from the restore line', async () => {
+    serverList = SHOPPING_LIST_WITH_MANUAL_AND_REMOVED;
+    serveChanges({
+      'POST /api/shopping-items/set-status': {
+        response: jsonResponse(toSetStatusResponse('needed', TOMATO_ITEM_IDS)),
+        leadsTo: SHOPPING_LIST_BY_INGREDIENT,
+      },
+    });
+    const root = await renderLoadedScreen();
+
+    await press(root, REMOVED_LABEL);
+
+    expect(sentChanges()).toEqual([
+      {
+        request: 'POST /api/shopping-items/set-status',
+        body: { itemIds: TOMATO_ITEM_IDS, status: 'needed' },
+      },
+    ]);
+    expect(getTexts(root)).toContain('5 u · Tomate');
+    expect(getTexts(root).some((text) => text.includes('Restaurar'))).toBe(false);
+  });
+
+  it('says why an item in a Cart cannot be removed, keeps the list, and lets the message go', async () => {
+    serveChanges({
+      'POST /api/shopping-items/set-status': {
+        response: jsonResponse(
+          toShoppingErrorResponse('shopping_item_in_cart', 'In a Cart.'),
+          false,
+          409
+        ),
+      },
+    });
+    const root = await renderLoadedScreen();
+
+    await hold(root, TOMATO_ROW);
+
+    expect(getTexts(root)).toContain('Sacá el producto del carrito antes de quitarlo de la lista.');
+    expect(getTexts(root)).toContain('5 u · Tomate');
+
+    await pressText(root, 'Entendido');
+
+    expect(getTexts(root)).not.toContain(
+      'Sacá el producto del carrito antes de quitarlo de la lista.'
+    );
+  });
+
+  it('shows that a change is being saved until the server answers', async () => {
+    serveChanges({});
+    const root = await renderLoadedScreen();
+    const request = holdTheNextRequest();
+
+    await hold(root, TOMATO_ROW);
+
+    expect(getIndicators(root, 'Guardando los cambios')).toHaveLength(1);
+
+    serveChanges({});
+    request.answer(SHOPPING_LIST_BY_INGREDIENT);
+    await settle();
+    await settle();
+
+    expect(getIndicators(root, 'Guardando los cambios')).toHaveLength(0);
   });
 });

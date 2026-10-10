@@ -1,13 +1,13 @@
 import { ScrollView, StyleSheet, View, useWindowDimensions } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
-import { Redirect } from 'expo-router';
+import { Redirect, useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { NoisyBackground, SafeAreaContent, TitlePrimary } from '@/components';
 import { MEAL_SLOT_LABEL } from '@/constants/mealSlots';
 import { useRecipeTheme } from '@/context/RecipeThemeContext';
 import { useAuth } from '@/features/auth';
 import { CUSTOM_TAB_BAR_CONTENT_HEIGHT } from '@/features/planner/constants';
-import { MEAL_SLOTS } from '@/features/preferences/constants/preferenceOptions';
+import { COOKING_TIME_SLOTS } from '@/features/preferences/constants/preferenceOptions';
 import { useGradientCrossfade } from '@/hooks/useGradientCrossfade';
 import { getTitleMetrics } from '@/utils/responsive';
 import {
@@ -45,6 +45,7 @@ const CONTENT_BOTTOM_SPACING = 24;
 
 export function SettingsScreen() {
   const { theme } = useRecipeTheme();
+  const router = useRouter();
   const { isLoading, isAuthenticated, isComplete, canUseApp } = useAuth();
   const {
     me,
@@ -183,7 +184,7 @@ export function SettingsScreen() {
           </SettingsGroup>
 
           <SettingsGroup title="Tiempos por comida" testID="settings-group-slot-times">
-            {MEAL_SLOTS.map((slot) => (
+            {COOKING_TIME_SLOTS.map((slot) => (
               <SettingsRow
                 key={slot}
                 testID={`settings-row-slot-${slot}`}
@@ -196,6 +197,11 @@ export function SettingsScreen() {
           </SettingsGroup>
 
           <SettingsGroup title="Cuenta" testID="settings-group-account">
+            <SettingsRow
+              testID="settings-row-favorites"
+              label="Favoritos"
+              onPress={() => router.push('/favorites')}
+            />
             <SettingsRow
               testID="settings-row-plan"
               label="Plan"

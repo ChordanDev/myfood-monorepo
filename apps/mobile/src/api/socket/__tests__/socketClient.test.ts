@@ -1021,6 +1021,74 @@ describe('createSocketClient', () => {
       expect(onJoined).toHaveBeenCalledTimes(2);
     });
 
+    describe('server events', () => {
+      it('hands a pushed event to the handler given at join', async () => {
+        const { socket, client } = await setupConnected();
+        const onSessionResumed = jest.fn();
+        client.joinTopic(TOPIC, { events: { session_resumed: onSessionResumed } });
+        const [channel] = socket.channels;
+
+        channel.replyOk();
+        channel.serverPush('session_resumed', { sessionId: 's-1' });
+
+        expect(onSessionResumed).toHaveBeenCalledWith({ sessionId: 's-1' });
+      });
+
+      it('ignores events it has no handler for', async () => {
+        const { socket, client } = await setupConnected();
+        const handler = jest.fn();
+        client.joinTopic(TOPIC, { events: { session_expired: handler } });
+        const [channel] = socket.channels;
+
+        channel.serverPush('session_lost_lock', {});
+
+        expect(handler).not.toHaveBeenCalled();
+      });
+
+      it('keeps delivering events after the topic rejoins on a new connection', async () => {
+        const { socket, client, announceToken } = await setupConnected();
+        const handler = jest.fn();
+        client.joinTopic(TOPIC, { events: { session_resumed: handler } });
+        const [channel] = socket.channels;
+        channel.replyOk();
+
+        announceToken('access-2');
+        socket.open();
+        channel.replyOk();
+        channel.serverPush('session_resumed', { sessionId: 's-2' });
+
+        expect(socket.channels).toHaveLength(1);
+        expect(handler).toHaveBeenCalledWith({ sessionId: 's-2' });
+      });
+
+      it('lets the subscription add a handler and drop it again', async () => {
+        const { socket, client } = await setupConnected();
+        const subscription = client.joinTopic(TOPIC);
+        const [channel] = socket.channels;
+        const handler = jest.fn();
+
+        const stop = subscription.on('session_expired', handler);
+        channel.serverPush('session_expired', { a: 1 });
+        stop();
+        channel.serverPush('session_expired', { a: 2 });
+
+        expect(handler).toHaveBeenCalledTimes(1);
+        expect(handler).toHaveBeenCalledWith({ a: 1 });
+      });
+
+      it('stops delivering events once the topic is left', async () => {
+        const { socket, client } = await setupConnected();
+        const handler = jest.fn();
+        const subscription = client.joinTopic(TOPIC, { events: { session_expired: handler } });
+        const [channel] = socket.channels;
+
+        subscription.leave();
+        channel.serverPush('session_expired', {});
+
+        expect(handler).not.toHaveBeenCalled();
+      });
+    });
+
     it.each(['forbidden', 'trial_expired'] as const)(
       'hands a %s refusal to onRefused and leaves the channel',
       async (code) => {

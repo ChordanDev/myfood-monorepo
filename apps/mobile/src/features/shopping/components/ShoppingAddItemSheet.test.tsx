@@ -100,7 +100,36 @@ function press(root: ReactTestInstance, name: string) {
 }
 
 function getInput(root: ReactTestInstance) {
-  return root.findByType(TextInput);
+  return root.findByProps({ accessibilityLabel: 'Nombre del producto' });
+}
+
+function getQuantityInput(root: ReactTestInstance) {
+  return root.findByProps({ accessibilityLabel: 'Cantidad' });
+}
+
+function typeQuantity(root: ReactTestInstance, quantity: string) {
+  act(() => {
+    getQuantityInput(root).props.onChangeText(quantity);
+  });
+}
+
+function getUnitChips(root: ReactTestInstance) {
+  return root.findAll(
+    (node) => node.props.accessibilityRole === 'radio' && typeof node.props.onPress === 'function'
+  );
+}
+
+function pickUnit(root: ReactTestInstance, label: string) {
+  const chip = getUnitChips(root).find((candidate) => candidate.props.accessibilityLabel === label);
+
+  act(() => {
+    chip!.props.onPress();
+  });
+}
+
+// What the sheet hands over for a name with the quantity and unit it opens with.
+function itemOf(name: string, quantityMilli = 1_000, unit = 'unit') {
+  return { name, quantityMilli, unit };
 }
 
 function typeName(root: ReactTestInstance, name: string) {
@@ -124,7 +153,7 @@ describe('ShoppingAddItemSheet', () => {
   it('asks for a name, with an add and a cancel action', () => {
     const { root } = renderSheet();
 
-    expect(getTexts(root)).toEqual(['¿Qué querés agregar?', 'Agregar', 'Cancelar']);
+    expect(getTexts(root)).toEqual(['¿Qué querés agregar?', 'u', 'g', 'ml', 'Agregar', 'Cancelar']);
     expect(getInput(root).props).toEqual(
       expect.objectContaining({
         accessibilityLabel: 'Nombre del producto',
@@ -178,9 +207,45 @@ describe('ShoppingAddItemSheet', () => {
     press(root, 'Agregar');
 
     expect(onAdd).toHaveBeenCalledTimes(1);
-    expect(onAdd).toHaveBeenCalledWith('Papel de cocina');
+    expect(onAdd).toHaveBeenCalledWith(itemOf('Papel de cocina'));
     expect(onClose).toHaveBeenCalledTimes(1);
   });
+
+  it('opens with 1 unit, and adds the quantity and the unit that were picked', () => {
+    const { root, onAdd } = renderSheet();
+
+    expect(getQuantityInput(root).props.value).toBe('1');
+    expect(
+      getUnitChips(root).map((chip) => [
+        chip.props.accessibilityLabel,
+        chip.props.accessibilityState,
+      ])
+    ).toEqual([
+      ['Unidades', { selected: true }],
+      ['Gramos', { selected: false }],
+      ['Mililitros', { selected: false }],
+    ]);
+
+    typeName(root, 'Arroz');
+    typeQuantity(root, '1,5');
+    pickUnit(root, 'Gramos');
+    press(root, 'Agregar');
+
+    expect(onAdd).toHaveBeenCalledWith(itemOf('Arroz', 1_500, 'g'));
+  });
+
+  it.each(['', '0', 'abc', '-2'])(
+    'keeps "Agregar" disabled while the quantity is "%s"',
+    (quantity) => {
+      const { root, onAdd } = renderSheet();
+      typeName(root, 'Velas');
+      typeQuantity(root, quantity);
+
+      expect(getButton(root, 'Agregar').props.disabled).toBe(true);
+      submitFromKeyboard(root);
+      expect(onAdd).not.toHaveBeenCalled();
+    }
+  );
 
   it('adds the name from the return key and closes', () => {
     const { root, onAdd, onClose } = renderSheet();
@@ -189,7 +254,7 @@ describe('ShoppingAddItemSheet', () => {
     submitFromKeyboard(root);
 
     expect(onAdd).toHaveBeenCalledTimes(1);
-    expect(onAdd).toHaveBeenCalledWith('Velas');
+    expect(onAdd).toHaveBeenCalledWith(itemOf('Velas'));
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 
@@ -213,6 +278,18 @@ describe('ShoppingAddItemSheet', () => {
 
     expect(getInput(root).props.value).toBe('');
     expect(getButton(root, 'Agregar').props.disabled).toBe(true);
+  });
+
+  it('opens with 1 unit again after a different quantity and unit', () => {
+    const { root, setVisible } = renderSheet();
+    typeQuantity(root, '700');
+    pickUnit(root, 'Mililitros');
+    setVisible(false);
+
+    setVisible(true);
+
+    expect(getQuantityInput(root).props.value).toBe('1');
+    expect(getUnitChips(root)[0].props.accessibilityState).toEqual({ selected: true });
   });
 
   it('lifts the panel above the keyboard only while it is open', () => {
@@ -324,7 +401,7 @@ describe('ShoppingAddItemSheet', () => {
         submitFromKeyboard(root);
         submitFromKeyboard(root);
 
-        expect(onAdd.mock.calls).toEqual([['Velas'], ['Hielo']]);
+        expect(onAdd.mock.calls).toEqual([[itemOf('Velas')], [itemOf('Hielo')]]);
       }
     );
   });

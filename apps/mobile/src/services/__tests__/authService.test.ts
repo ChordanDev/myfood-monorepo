@@ -38,6 +38,7 @@ const me: CurrentMe = {
     type: 'individual',
     trialEndsAt: '2026-06-14T00:00:00Z',
     subscriptionStatus: 'none',
+    timezone: null,
     access: { canUseApp: true, reason: null },
   },
   membership: { role: 'owner' },
@@ -473,10 +474,10 @@ describe('authService', () => {
     it('reads the channel codes from the api allowlist', () => {
       // Guards the table below against an extractor that silently finds
       // nothing, or only part of the rows.
-      expect(channelCodes).toHaveLength(29);
-      expect(new Set(channelCodes).size).toBe(29);
+      expect(channelCodes).toHaveLength(31);
+      expect(new Set(channelCodes).size).toBe(31);
       expect(channelCodes[0]).toBe('generation_in_progress');
-      expect(channelCodes[28]).toBe('optimizer_timeout');
+      expect(channelCodes[30]).toBe('optimizer_timeout');
     });
 
     it.each(channelCodes)(

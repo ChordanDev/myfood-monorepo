@@ -104,15 +104,32 @@ defmodule MealPlannerApi.Services.UserPreferencesService do
     * Soft preferences: stored as given, in the given order.
   """
   @spec replace(Ecto.UUID.t(), preferences()) :: {:ok, preferences()} | {:error, term()}
-  def replace(user_id, %{
-        diet: diet,
-        hard_restrictions: hard_restrictions,
-        soft_preferences: soft_preferences
-      }) do
+  def replace(user_id, preferences) do
     Multi.new()
     # Two saves of one User wait for each other here: side by side, each
     # would delete the Hard restrictions it sees and both sets would stay.
     |> Multi.run(:user, fn _repo, _changes -> {:ok, AccountRepo.lock_user(user_id)} end)
+    |> append_replace(user_id, preferences)
+    |> Repo.transaction()
+    |> case do
+      {:ok, %{preferences: preferences}} -> {:ok, preferences}
+      {:error, _step, reason, _changes} -> {:error, reason}
+    end
+  end
+
+  @doc """
+  Appends the writes of `replace/2` to `multi`, for a caller that saves the
+  preferences together with other data in one transaction (`:diet`,
+  `:hard_restrictions`, `:soft_preferences` and `:preferences`, the last
+  holding the stored result). The caller locks the User row first.
+  """
+  @spec append_replace(Multi.t(), Ecto.UUID.t(), preferences()) :: Multi.t()
+  def append_replace(multi, user_id, %{
+        diet: diet,
+        hard_restrictions: hard_restrictions,
+        soft_preferences: soft_preferences
+      }) do
+    multi
     |> Multi.run(:diet, fn _repo, _changes -> replace_diet(user_id, diet) end)
     |> Multi.run(:hard_restrictions, fn _repo, _changes ->
       with :ok <- UserHardRestrictionRepo.replace_codes(user_id, hard_restrictions) do
@@ -123,11 +140,6 @@ defmodule MealPlannerApi.Services.UserPreferencesService do
       UserPreferenceRepo.put_soft_preferences(user_id, soft_preferences)
     end)
     |> Multi.run(:preferences, fn _repo, _changes -> {:ok, get(user_id)} end)
-    |> Repo.transaction()
-    |> case do
-      {:ok, %{preferences: preferences}} -> {:ok, preferences}
-      {:error, _step, reason, _changes} -> {:error, reason}
-    end
   end
 
   defp replace_diet(user_id, nil) do
