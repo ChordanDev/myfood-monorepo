@@ -357,8 +357,6 @@ defmodule MealPlannerApi.Services.InventoryService do
     else
       true -> {:error, :no_ingredients_selected}
       {:error, _} = error -> error
-      nil -> {:error, :no_rescue_recipe_found}
-      _ -> {:error, :no_available_slot_today}
     end
   end
 

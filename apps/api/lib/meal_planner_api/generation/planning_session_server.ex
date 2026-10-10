@@ -290,9 +290,6 @@ defmodule MealPlannerApi.Generation.PlanningSessionServer do
 
           {:error, %Ecto.Changeset{} = changeset} ->
             {:reply, {:error, changeset}, state}
-
-          {:error, other} ->
-            {:reply, {:error, other}, state}
         end
     end
   end

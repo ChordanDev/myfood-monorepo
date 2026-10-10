@@ -248,7 +248,6 @@ defmodule Mix.Tasks.AiPopulate do
     else
       false -> {:error, :invalid_items_shape}
       {:error, _} = error -> error
-      _ -> {:error, :invalid_json_shape}
     end
   end
 

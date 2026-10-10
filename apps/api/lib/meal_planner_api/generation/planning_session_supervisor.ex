@@ -36,7 +36,7 @@ defmodule MealPlannerApi.Generation.PlanningSessionSupervisor do
       (production). Tests typically pass `name: nil` to keep the
       instance anonymous.
   """
-  @spec start_link(keyword()) :: DynamicSupervisor.on_start()
+  @spec start_link(keyword()) :: Supervisor.on_start()
   def start_link(opts \\ []) do
     name = Keyword.get(opts, :name, __MODULE__)
 

@@ -208,8 +208,6 @@ defmodule MealPlannerApi.Services.PlanningChatService do
     if meals == [], do: {:ok, []}, else: {:ok, meals}
   end
 
-  defp scheduled_meals_from_plan(_plan, _date_from, _date_to), do: {:ok, []}
-
   # -------------------------------------------------------------------------
   # Proposal JSON construction
   # -------------------------------------------------------------------------

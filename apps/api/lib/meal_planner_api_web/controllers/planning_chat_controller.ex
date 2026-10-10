@@ -98,6 +98,5 @@ defmodule MealPlannerApiWeb.PlanningChatController do
   end
 
   defp serialize_reason(reason) when is_atom(reason), do: Atom.to_string(reason)
-  defp serialize_reason(reason) when is_binary(reason), do: reason
   defp serialize_reason(_), do: "invalid_payload"
 end

@@ -54,7 +54,7 @@ defmodule MealPlannerApiWeb.DietaryProfileController do
     |> AccountScopeHelpers.scope_user_to_membership(conn.assigns.current_membership)
   end
 
-  defp render_error(conn, :identity_resolution_failed) do
+  defp render_error(conn, :invalid_identity) do
     conn |> put_status(:unauthorized) |> json(%{error: "identity_resolution_failed"})
   end
 

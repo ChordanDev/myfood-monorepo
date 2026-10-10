@@ -500,9 +500,7 @@ defmodule MealPlannerApi.Services.CookingService do
   defp snapshot_step_context(nil), do: nil
 
   defp snapshot_step_context(snapshot) do
-    (snapshot && snapshot.snapshot_data && snapshot.snapshot_data["current_step_id"]) ||
-      (snapshot && snapshot.snapshot_data && snapshot.snapshot_data["current_step_id"]) ||
-      nil
+    (snapshot.snapshot_data && snapshot.snapshot_data["current_step_id"]) || nil
   end
 
   # -------------------------------------------------------------------------
