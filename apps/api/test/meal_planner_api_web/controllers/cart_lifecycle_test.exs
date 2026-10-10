@@ -35,13 +35,13 @@ defmodule MealPlannerApiWeb.CartLifecycleTest do
 
     assert_push "cart_reserved", %{owner_user_id: owner_id}
     assert owner_id == f.owner.id
-    id = cart["sessionId"]
+    assert %{"sessionId" => id, "leaseExpiresAt" => _, "items" => [_, _]} = cart
 
     assert %{"data" => _} =
              request(f, :post, "/api/cart/#{id}/activity", %{}) |> json_response(200)
 
     assert_push "cart_renewed", _
-    [line | _] = cart["reservations"]
+    [line | _] = cart["items"]
 
     assert %{"data" => _} =
              request(f, :post, "/api/shopping-items/mark-cart", %{
@@ -175,6 +175,104 @@ defmodule MealPlannerApiWeb.CartLifecycleTest do
     Cart.notify(f.account.id, "cart_reserved", %{session_id: "hidden"})
     _ = :sys.get_state(joined.channel_pid)
     refute_push "cart_reserved", _
+  end
+
+  test "another Membership marking items held in a live Cart gets cart_locked in the envelope",
+       f do
+    cart = reserve!(f)
+    other = %{f | token: token(f.member, f.account)}
+
+    assert %{"error" => %{"code" => "cart_locked", "message" => message}} =
+             request(other, :post, "/api/shopping-items/mark-cart", %{
+               "item_ids" => [hd(f.items).id]
+             })
+             |> json_response(409)
+
+    assert is_binary(message)
+    assert Enum.all?(lines(f), &(&1.checkout_session_id == cart.session_id))
+  end
+
+  test "marking by ingredient answers the same envelope and cart_locked as marking by item ids",
+       f do
+    range = %{
+      "ingredient_id" => f.ingredient.id,
+      "in_cart" => true,
+      "start_date" => Date.to_iso8601(Date.utc_today()),
+      "end_date" => Date.to_iso8601(Date.add(Date.utc_today(), 1))
+    }
+
+    other = %{f | token: token(f.member, f.account)}
+
+    assert %{"data" => %{"sessionId" => id, "leaseExpiresAt" => _, "items" => [_, _]} = data} =
+             request(f, :post, "/api/shopping-items/mark-cart", range) |> json_response(200)
+
+    refute Map.has_key?(data, "reservations")
+
+    assert %{"error" => %{"code" => "cart_locked"}} =
+             request(other, :post, "/api/shopping-items/mark-cart", range)
+             |> json_response(409)
+
+    assert Enum.all?(lines(f), &(&1.checkout_session_id == id))
+  end
+
+  test "renew and cancel answer errors in the envelope and keep their success shapes", f do
+    cart = reserve!(f)
+    other = %{f | token: token(f.member, f.account)}
+    missing = Ecto.UUID.generate()
+
+    assert %{"data" => %{"sessionId" => id, "leaseExpiresAt" => _}} =
+             request(f, :post, "/api/cart/#{cart.session_id}/activity", %{})
+             |> json_response(200)
+
+    assert id == cart.session_id
+
+    for {method, path} <- [
+          {:post, "/api/cart/#{cart.session_id}/activity"},
+          {:delete, "/api/cart/#{cart.session_id}"},
+          {:post, "/api/cart/#{missing}/activity"},
+          {:delete, "/api/cart/#{missing}"}
+        ] do
+      assert %{"error" => %{"code" => "cart_not_found"}} =
+               request(other, method, path, %{}) |> json_response(404)
+    end
+
+    expire!(cart)
+
+    for {method, path} <- [
+          {:post, "/api/cart/#{cart.session_id}/activity"},
+          {:delete, "/api/cart/#{cart.session_id}"}
+        ] do
+      assert %{"error" => %{"code" => code}} =
+               request(f, method, path, %{}) |> json_response(409)
+
+      assert code in ["stale_cart", "cart_not_found"]
+    end
+  end
+
+  test "cancel reports the Cart as abandoned", f do
+    cart = reserve!(f)
+
+    assert %{"data" => %{"sessionId" => id, "status" => "abandoned"}} =
+             request(f, :delete, "/api/cart/#{cart.session_id}", %{}) |> json_response(200)
+
+    assert id == cart.session_id
+    assert Enum.all?(lines(f), &(&1.status == :pending))
+  end
+
+  test "an expired lease reads back as cart null on the Shopping list", f do
+    cart = reserve!(f)
+
+    assert request(f, :get, "/api/shopping-list", %{})
+           |> json_response(200)
+           |> get_in(["data", "cart", "sessionId"]) ==
+             cart.session_id
+
+    expire!(cart)
+    assert {:ok, 1} = Cart.expire_account(f.account.id)
+
+    view = request(f, :get, "/api/shopping-list", %{}) |> json_response(200)
+    assert view["data"]["cart"] == nil
+    assert Enum.all?(view["data"]["planned"], &(&1["status"] != "in_cart"))
   end
 
   defp token(user, account) do

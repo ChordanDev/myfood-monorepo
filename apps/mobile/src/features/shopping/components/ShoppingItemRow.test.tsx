@@ -404,14 +404,21 @@ describe('ShoppingItemRow', () => {
       ]);
     });
 
-    it('stays read-only with only the toggle: a row is removable or it is read-only', () => {
+    it('ticks with only the toggle, with no long press, hint or accessibility action', () => {
+      const onToggle = jest.fn();
       let tree: ReturnType<typeof create>;
 
       act(() => {
-        tree = create(<ShoppingItemRow item={CHEESE} onToggle={jest.fn()} />);
+        tree = create(<ShoppingItemRow item={CHEESE} onToggle={onToggle} />);
       });
+      const [target] = tree!.root.findAll((node) => node.props.accessibilityRole === 'checkbox');
 
-      expect(getPressTargets(tree!.root)).toEqual([]);
+      act(() => target.props.onPress());
+
+      expect(onToggle).toHaveBeenCalledWith(CHEESE.id);
+      expect(target.props.onLongPress).toBeUndefined();
+      expect(target.props.accessibilityHint).toBeUndefined();
+      expect(target.props.accessibilityActions).toBeUndefined();
     });
   });
 

@@ -15,8 +15,11 @@ import {
 } from '../fixtures';
 import {
   addManualShoppingItem,
+  cancelCart,
   deleteShoppingItem,
   getShoppingList,
+  markInCart,
+  renewCart,
   setShoppingItemsStatus,
 } from './shoppingApi';
 
@@ -374,6 +377,119 @@ describe('changing the list', () => {
       await expect(setShoppingItemsStatus(['x'], 'removed')).rejects.toMatchObject({
         code: 'unknown_error',
       });
+    });
+  });
+});
+
+describe('the Cart lease', () => {
+  const fetchMock = jest.fn();
+  const originalApiUrl = process.env.EXPO_PUBLIC_API_URL;
+
+  const MARKED = {
+    sessionId: 'session-1',
+    leaseExpiresAt: '2026-10-09T12:15:00Z',
+    items: [{ itemId: 'item-1', reservationToken: 'token-1', quantityMilli: 200000 }],
+  };
+
+  beforeEach(() => {
+    mockSecureStore.clear();
+    mockSecureStore.set('auth_access_token', 'access-1');
+    fetchMock.mockReset();
+    global.fetch = fetchMock;
+    process.env.EXPO_PUBLIC_API_URL = 'https://api.example.test';
+  });
+
+  afterAll(() => {
+    process.env.EXPO_PUBLIC_API_URL = originalApiUrl;
+  });
+
+  describe('markInCart', () => {
+    it('posts the item ids, authenticated, and returns the Cart out of its `data` wrapper', async () => {
+      fetchMock.mockReturnValueOnce(mockJsonResponse({ data: MARKED }));
+
+      await expect(markInCart(['item-1', 'item-2'])).resolves.toEqual(MARKED);
+
+      const [url, init] = fetchMock.mock.calls[0];
+      expect(url).toBe('https://api.example.test/api/shopping-items/mark-cart');
+      expect(init.method).toBe('POST');
+      expect(JSON.parse(init.body)).toEqual({ itemIds: ['item-1', 'item-2'] });
+      expect(init.headers.Authorization ?? init.headers.get?.('Authorization')).toBe(
+        'Bearer access-1'
+      );
+    });
+
+    it.each([
+      ['an empty body', null],
+      ['a body without `data`', MARKED],
+      ['no session id', { data: { ...MARKED, sessionId: undefined } }],
+      ['no lease', { data: { ...MARKED, leaseExpiresAt: undefined } }],
+      ['items that are not a list', { data: { ...MARKED, items: {} } }],
+    ])('rejects %s as unintelligible', async (_name, body) => {
+      fetchMock.mockReturnValueOnce(mockJsonResponse(body));
+
+      await expect(markInCart(['item-1'])).rejects.toMatchObject({
+        code: 'unknown_error',
+        message: 'Malformed cart response',
+      });
+    });
+
+    it('surfaces a Cart held by another Membership as `cart_locked`', async () => {
+      fetchMock.mockReturnValueOnce(
+        mockJsonResponse({ error: { code: 'cart_locked', message: 'held' } }, false, 409)
+      );
+
+      const error = await markInCart(['item-1']).catch((caught) => caught);
+
+      expect(error).toBeInstanceOf(ApiError);
+      expect(error).toMatchObject({ code: 'cart_locked', status: 409 });
+    });
+  });
+
+  describe('renewCart', () => {
+    it('posts the activity of the session and returns the new lease', async () => {
+      const lease = { sessionId: 'session-1', leaseExpiresAt: '2026-10-09T12:30:00Z' };
+      fetchMock.mockReturnValueOnce(mockJsonResponse({ data: lease }));
+
+      await expect(renewCart('session-1')).resolves.toEqual(lease);
+
+      const [url, init] = fetchMock.mock.calls[0];
+      expect(url).toBe('https://api.example.test/api/cart/session-1/activity');
+      expect(init.method).toBe('POST');
+    });
+
+    it('rejects an answer without a lease as unintelligible', async () => {
+      fetchMock.mockReturnValueOnce(mockJsonResponse({ data: { sessionId: 'session-1' } }));
+
+      await expect(renewCart('session-1')).rejects.toMatchObject({ code: 'unknown_error' });
+    });
+
+    it('surfaces an expired lease as `stale_cart`', async () => {
+      fetchMock.mockReturnValueOnce(
+        mockJsonResponse({ error: { code: 'stale_cart', message: 'expired' } }, false, 409)
+      );
+
+      await expect(renewCart('session-1')).rejects.toMatchObject({ code: 'stale_cart' });
+    });
+  });
+
+  describe('cancelCart', () => {
+    it('deletes the session and returns the abandoned Cart', async () => {
+      const cancelled = { sessionId: 'session-1', updatedRows: 2, status: 'abandoned' };
+      fetchMock.mockReturnValueOnce(mockJsonResponse({ data: cancelled }));
+
+      await expect(cancelCart('session-1')).resolves.toEqual(cancelled);
+
+      const [url, init] = fetchMock.mock.calls[0];
+      expect(url).toBe('https://api.example.test/api/cart/session-1');
+      expect(init.method).toBe('DELETE');
+    });
+
+    it('surfaces an unknown session as `cart_not_found`', async () => {
+      fetchMock.mockReturnValueOnce(
+        mockJsonResponse({ error: { code: 'cart_not_found', message: 'gone' } }, false, 404)
+      );
+
+      await expect(cancelCart('session-1')).rejects.toMatchObject({ code: 'cart_not_found' });
     });
   });
 });

@@ -49,7 +49,7 @@ defmodule MealPlannerApi.CartConcurrencyTest do
       concurrent(f, [fn -> Cart.reserve(f.actor, ids) end, fn -> Cart.reserve(f.other, ids) end])
 
     assert Enum.count(results, &match?({:ok, _}, &1)) == 1
-    assert {:error, :already_reserved} in results
+    assert {:error, :cart_locked} in results
     [{:ok, cart}] = Enum.filter(results, &match?({:ok, _}, &1))
     assert Enum.all?(lines(f), &(&1.checkout_session_id == cart.session_id))
   end

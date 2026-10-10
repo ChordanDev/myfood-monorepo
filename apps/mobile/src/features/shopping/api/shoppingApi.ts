@@ -2,7 +2,10 @@ import { apiClient } from '@/api/client';
 import { ApiError } from '@/api/errors';
 import type { RequestOptions } from '@/api/transport';
 import type {
+  CancelledCart,
+  MarkedCart,
   NewManualShoppingItem,
+  ShoppingCart,
   ShoppingItemsStatus,
   ShoppingItemsStatusChange,
   ShoppingListLine,
@@ -62,6 +65,76 @@ function parseShoppingListResponse(response: unknown): ShoppingListRead {
   }
 
   return data as unknown as ShoppingListRead;
+}
+
+const CART_PATH = '/api/cart';
+
+function parseCartData(response: unknown): Record<string, unknown> {
+  const data = isRecord(response) ? response.data : undefined;
+
+  if (!isRecord(data) || typeof data.sessionId !== 'string') {
+    throw new ApiError('unknown_error', 'Malformed cart response');
+  }
+
+  return data;
+}
+
+function parseLease(response: unknown): ShoppingCart {
+  const data = parseCartData(response);
+
+  if (typeof data.leaseExpiresAt !== 'string') {
+    throw new ApiError('unknown_error', 'Malformed cart response');
+  }
+
+  return { sessionId: data.sessionId as string, leaseExpiresAt: data.leaseExpiresAt };
+}
+
+/**
+ * Ticks Shopping items into the Cart of the signed-in Membership, which starts a Cart lease.
+ * Items another Membership holds are refused as `cart_locked`.
+ */
+export async function markInCart(itemIds: string[], options?: RequestOptions): Promise<MarkedCart> {
+  const response = await apiClient.post<unknown>(
+    '/api/shopping-items/mark-cart',
+    { itemIds },
+    { ...options, auth: true }
+  );
+  const lease = parseLease(response);
+  const items = (response as { data: Record<string, unknown> }).data.items;
+
+  if (!Array.isArray(items)) throw new ApiError('unknown_error', 'Malformed cart response');
+
+  return { ...lease, items: items as MarkedCart['items'] };
+}
+
+/** Extends the lease of a Cart. An expired lease is refused as `stale_cart`. */
+export async function renewCart(sessionId: string, options?: RequestOptions) {
+  const response = await apiClient.post<unknown>(
+    `${CART_PATH}/${encodeURIComponent(sessionId)}/activity`,
+    undefined,
+    { ...options, auth: true }
+  );
+
+  return parseLease(response);
+}
+
+/** Abandons a Cart: its items go back to the list. */
+export async function cancelCart(
+  sessionId: string,
+  options?: RequestOptions
+): Promise<CancelledCart> {
+  const response = await apiClient.request<unknown>(
+    `${CART_PATH}/${encodeURIComponent(sessionId)}`,
+    { method: 'DELETE' },
+    { ...options, auth: true }
+  );
+  const data = parseCartData(response);
+
+  return {
+    sessionId: data.sessionId as string,
+    updatedRows: typeof data.updatedRows === 'number' ? data.updatedRows : 0,
+    status: 'abandoned',
+  };
 }
 
 function malformed(what: string) {

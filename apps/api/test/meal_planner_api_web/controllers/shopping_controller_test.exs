@@ -626,8 +626,8 @@ defmodule MealPlannerApiWeb.ShoppingControllerTest do
       })
 
     mark_body = json_response(mark_conn, 200)
-    assert mark_body["data"]["status"] == "in_cart"
-    assert mark_body["data"]["updatedRows"] == 2
+    assert %{"sessionId" => _, "leaseExpiresAt" => _, "items" => [_, _]} = mark_body["data"]
+    refute Map.has_key?(mark_body["data"], "updatedRows")
 
     assign_conn =
       build_conn()
@@ -669,7 +669,7 @@ defmodule MealPlannerApiWeb.ShoppingControllerTest do
       |> post("/api/checkout/confirm", %{
         "checkout_type" => "physical",
         "session_id" => mark_body["data"]["sessionId"],
-        "items" => Enum.map(mark_body["data"]["reservations"], &Map.put(&1, "total_cents", 5000)),
+        "items" => Enum.map(mark_body["data"]["items"], &Map.put(&1, "total_cents", 5000)),
         "start_date" => Date.to_iso8601(start_date),
         "end_date" => Date.to_iso8601(end_date)
       })
@@ -888,7 +888,7 @@ defmodule MealPlannerApiWeb.ShoppingControllerTest do
       |> post("/api/checkout/confirm", %{
         "checkout_type" => "online",
         "session_id" => cart["sessionId"],
-        "items" => Enum.map(cart["reservations"], &Map.put(&1, "total_cents", 2000)),
+        "items" => Enum.map(cart["items"], &Map.put(&1, "total_cents", 2000)),
         "start_date" => Date.to_iso8601(start_date),
         "end_date" => Date.to_iso8601(end_date)
       })
