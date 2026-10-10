@@ -33,3 +33,4 @@ channels and services.
 
 - Baseline: 119 warnings (`/private/tmp/claude-501/dialyzer3.log`).
 - Previous commit: `7cea4af` (added `@type t` to schemas).
+- Follow-up commits `4604718` (planning spec collapse, :invalid_identity -> 401) and the dead-branch cleanup brought Dialyzer to 7. The 7 left are the `Ecto.Multi`/`MapSet` opacity false positive, intentionally not suppressed.
