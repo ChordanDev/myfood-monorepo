@@ -158,6 +158,7 @@ export type AuthErrorCode =
   | 'cooking_already_finished'
   | 'cooking_chat_unavailable'
   | 'inventory_mutation_failed'
+  | 'prepared_leftover_not_found'
   | 'configuration_error'
   | 'network_error'
   | 'timeout'

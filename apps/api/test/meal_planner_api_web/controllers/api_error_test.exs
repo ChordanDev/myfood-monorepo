@@ -307,7 +307,7 @@ defmodule MealPlannerApiWeb.ApiErrorTest do
       assert Enum.sort(ApiError.codes()) ==
                Enum.sort(
                  auth_codes ++
-                   [:recipe_not_found] ++
+                   [:recipe_not_found, :prepared_leftover_not_found] ++
                    profile_codes ++
                    slot_cooking_times_codes ++
                    preferences_codes ++

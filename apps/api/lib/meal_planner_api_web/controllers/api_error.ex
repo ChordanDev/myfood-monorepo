@@ -133,6 +133,7 @@ defmodule MealPlannerApiWeb.ApiError do
           | :cart_not_found
           | :voice_parse_failed
           | :voice_confirmation_required
+          | :prepared_leftover_not_found
 
   @type envelope :: %{
           error:
@@ -203,6 +204,11 @@ defmodule MealPlannerApiWeb.ApiError do
     cart_locked: {409, "These items are held in another member's cart."},
     stale_cart: {409, "This cart has expired."},
     cart_not_found: {404, "The cart was not found."},
+    # Prepared leftovers (issue #45). A missing, closed, malformed-id and
+    # other-Account leftover share the code, so existence is not revealed.
+    # Keep it above the planning channel rows: the mobile allowlist test reads
+    # every row after that header as a channel code.
+    prepared_leftover_not_found: {404, "The prepared leftover was not found."},
     # Planning channel (issue #11): every deliberate reason a join or a
     # command of `PlanningChannel` replies, named as the reason was.
     generation_in_progress: {409, "A menu generation is already in progress for this account."},

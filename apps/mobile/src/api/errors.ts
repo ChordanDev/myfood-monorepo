@@ -87,6 +87,7 @@ export const KNOWN_AUTH_ERROR_CODES = new Set<AuthErrorCode>([
   'cooking_already_finished',
   'cooking_chat_unavailable',
   'inventory_mutation_failed',
+  'prepared_leftover_not_found',
   'configuration_error',
   'network_error',
   'timeout',
@@ -189,6 +190,7 @@ export const AUTH_ERROR_MESSAGES: Partial<Record<AuthErrorCode, string>> = {
   cooking_chat_unavailable: 'Solo podés marcar como cocinada una comida de hoy.',
   inventory_mutation_failed:
     'No pudimos descontar los ingredientes y no se guardó ningún cambio. Probá de nuevo.',
+  prepared_leftover_not_found: 'No encontramos esa sobra.',
   configuration_error: 'Falta configurar EXPO_PUBLIC_API_URL para conectar con la API.',
   network_error: 'No pudimos conectar con el servidor. Revisá tu conexión.',
   timeout: 'La conexión tardó demasiado. Revisá tu señal e intentá nuevamente.',
