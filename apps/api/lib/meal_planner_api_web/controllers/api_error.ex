@@ -195,6 +195,11 @@ defmodule MealPlannerApiWeb.ApiError do
     # Voice adjustment of Inventory (issue #44).
     voice_parse_failed: {422, "The spoken adjustment could not be understood."},
     voice_confirmation_required: {422, "This adjustment needs the User's confirmation first."},
+    # Prepared leftovers (issue #45). A missing, closed, malformed-id and
+    # other-Account leftover share the code, so existence is not revealed.
+    # Keep it above the planning channel rows: the mobile allowlist test reads
+    # every row after that header as a channel code.
+    prepared_leftover_not_found: {404, "The prepared leftover was not found."},
     # Planning channel (issue #11): every deliberate reason a join or a
     # command of `PlanningChannel` replies, named as the reason was.
     generation_in_progress: {409, "A menu generation is already in progress for this account."},
@@ -232,10 +237,7 @@ defmodule MealPlannerApiWeb.ApiError do
     invalid_date_range: {422, "The start date must not be after the end date."},
     optimization_failed: {422, "A menu could not be generated for this request."},
     optimizer_unavailable: {503, "The menu optimizer is not available. Try again later."},
-    optimizer_timeout: {504, "The menu optimizer took too long. Try again later."},
-    # Prepared leftovers (issue #45). A missing, closed, malformed-id and
-    # other-Account leftover share the code, so existence is not revealed.
-    prepared_leftover_not_found: {404, "The prepared leftover was not found."}
+    optimizer_timeout: {504, "The menu optimizer took too long. Try again later."}
   }
 
   @unknown_error_message "An unexpected error occurred."
