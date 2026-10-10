@@ -3,12 +3,15 @@ defmodule MealPlannerApi.Services.PlanningCandidateBuilderTest do
 
   import MealPlannerApi.FactoryHelpers
 
+  alias Ecto.Adapters.SQL.Sandbox
   alias MealPlannerApi.Persistence.Catalog
+  alias MealPlannerApi.Persistence.Inventory.InventoryItem
+  alias MealPlannerApi.Persistence.Shopping
   alias MealPlannerApi.Repo
   alias MealPlannerApi.Services.{PlanningCandidateBuilder, RecipeVersions}
 
   setup do
-    :ok = Ecto.Adapters.SQL.Sandbox.checkout(Repo)
+    :ok = Sandbox.checkout(Repo)
     :ok = MealPlannerApi.SubscriptionPlanFixtures.ensure_plans!()
 
     user =
@@ -37,7 +40,6 @@ defmodule MealPlannerApi.Services.PlanningCandidateBuilderTest do
         {length(ids), cold_queries, warm_queries}
       end)
 
-    IO.inspect(measurements, label: "candidate counts / cold queries / warm queries")
     assert Enum.map(measurements, &elem(&1, 0)) == [1, 5, 20]
     assert Enum.all?(measurements, fn {_, cold, warm} -> cold == 7 and warm == 7 end)
   end
@@ -74,7 +76,7 @@ defmodule MealPlannerApi.Services.PlanningCandidateBuilderTest do
       })
 
     {:ok, market} =
-      MealPlannerApi.Persistence.Shopping.create_supermarket(%{name: "Batch market"})
+      Shopping.create_supermarket(%{name: "Batch market"})
 
     cost =
       Repo.insert!(%Catalog.RecipeDailyCost{
@@ -84,8 +86,8 @@ defmodule MealPlannerApi.Services.PlanningCandidateBuilderTest do
         total_cents_ars: 450
       })
 
-    %MealPlannerApi.Persistence.Inventory.InventoryItem{}
-    |> MealPlannerApi.Persistence.Inventory.InventoryItem.changeset(%{
+    %InventoryItem{}
+    |> InventoryItem.changeset(%{
       account_id: f.account_id,
       ingredient_id: ingredient.id,
       quantity_milli: 200,

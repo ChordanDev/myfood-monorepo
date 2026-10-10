@@ -4,6 +4,7 @@ defmodule MealPlannerApi.InventoryConcurrencyTest do
   import Ecto.Query, warn: false
   import MealPlannerApi.IdentityFixtures
 
+  alias Ecto.Adapters.SQL
   alias Ecto.Adapters.SQL.Sandbox
   alias MealPlannerApi.Persistence.Catalog
   alias MealPlannerApi.Persistence.Identity
@@ -175,7 +176,7 @@ defmodule MealPlannerApi.InventoryConcurrencyTest do
       )
 
     assert %{rows: [[database]]} =
-             Ecto.Adapters.SQL.query!(migration_repo, "SELECT current_database()", [])
+             SQL.query!(migration_repo, "SELECT current_database()", [])
 
     assert database == fixture.database
     migration_opts = [log: false, dynamic_repo: migration_repo]

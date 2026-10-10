@@ -21,15 +21,18 @@ defmodule MealPlannerApi.Auth.GuardianTest do
   import MealPlannerApi.FactoryHelpers
 
   alias MealPlannerApi.Auth.Guardian
+  alias MealPlannerApi.Persistence.Accounts.Account
+  alias MealPlannerApi.Persistence.Accounts.User
   alias MealPlannerApi.Repo
+  alias MealPlannerApiWeb.Controllers.AccountScopeHelpers
 
   describe "access_v1 claim shape (design §3.1)" do
     test "mints a token with the full §3.1 claim set" do
       plan = Repo.get_by!(MealPlannerApi.Subscriptions.Plan, name: "family_4")
 
       {:ok, account} =
-        %MealPlannerApi.Persistence.Accounts.Account{}
-        |> MealPlannerApi.Persistence.Accounts.Account.changeset(%{
+        %Account{}
+        |> Account.changeset(%{
           name: "V1 Claim Family",
           plan: :family_4,
           default_budget_cents: 0,
@@ -38,8 +41,8 @@ defmodule MealPlannerApi.Auth.GuardianTest do
         |> Repo.insert()
 
       {:ok, user} =
-        %MealPlannerApi.Persistence.Accounts.User{}
-        |> MealPlannerApi.Persistence.Accounts.User.changeset(%{
+        %User{}
+        |> User.changeset(%{
           account_id: account.id,
           email: "v1-claim@example.com",
           name: "V1 Claim",
@@ -193,7 +196,7 @@ defmodule MealPlannerApi.Auth.GuardianTest do
       claims = MealPlannerApi.AccountsMembership.claims_for(user, membership)
 
       {:ok, access_token, refresh_token} =
-        MealPlannerApiWeb.Controllers.AccountScopeHelpers.mint_token_pair(user, claims)
+        AccountScopeHelpers.mint_token_pair(user, claims)
 
       {:ok, %{"typ" => "access_v2", "iat" => access_iat, "exp" => access_exp}} =
         Guardian.decode_and_verify(access_token)

@@ -25,6 +25,7 @@ defmodule MealPlannerApiWeb.Plugs.EnforceCapabilityTest do
 
   import Plug.Test
 
+  alias Ecto.Adapters.SQL.Sandbox
   alias MealPlannerApi.Persistence.Accounts, as: AccountsPersistence
   alias MealPlannerApi.Persistence.Accounts.Account, as: PersistenceAccount
   alias MealPlannerApi.Persistence.Accounts.User, as: PersistenceUser
@@ -38,7 +39,7 @@ defmodule MealPlannerApiWeb.Plugs.EnforceCapabilityTest do
     # never restore. Without an explicit checkout, the first
     # `Repo.insert!` in this file raises `DBConnection.OwnershipError`
     # once the suite reaches this point in execution order.
-    :ok = Ecto.Adapters.SQL.Sandbox.checkout(Repo)
+    :ok = Sandbox.checkout(Repo)
 
     previous = Application.get_env(:meal_planner_api, :revenuecat_access_enforcement)
 

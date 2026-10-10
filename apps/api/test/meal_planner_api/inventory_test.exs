@@ -13,6 +13,7 @@ defmodule MealPlannerApi.InventoryTest do
   alias MealPlannerApi.Persistence.Inventory.InventoryMutationEvent
   alias MealPlannerApi.Persistence.Planning
   alias MealPlannerApi.Repo
+  alias MealPlannerApi.Services.InventoryService
 
   setup do
     :ok = Sandbox.checkout(Repo)
@@ -163,7 +164,9 @@ defmodule MealPlannerApi.InventoryTest do
         fat_g_per_100: Decimal.new("5.0")
       })
 
-    Enum.with_index(reservations, fn {date, quantity}, index ->
+    reservations
+    |> Enum.with_index()
+    |> Enum.each(fn {{date, quantity}, index} ->
       {:ok, recipe} =
         Catalog.create_recipe(%{
           account_id: account.id,
@@ -398,7 +401,7 @@ defmodule MealPlannerApi.InventoryTest do
           {name, result.item}
         end)
 
-      assert {:ok, view} = MealPlannerApi.Services.InventoryService.inventory_view(user)
+      assert {:ok, view} = InventoryService.inventory_view(user)
 
       assert view.sections.expired |> Enum.map(& &1.id) |> MapSet.new() ==
                MapSet.new([lots.explicit_expired.id, lots.inferred_expired.id])

@@ -53,9 +53,12 @@ defmodule MealPlannerApi.Services.TenancySweepTest do
   import MealPlannerApi.FactoryHelpers
 
   alias Ecto.Adapters.SQL.Sandbox
+  alias MealPlannerApi.Data.AccountRepo
   alias MealPlannerApi.Persistence.Calendar
   alias MealPlannerApi.Persistence.Catalog
+  alias MealPlannerApi.Persistence.Inventory
   alias MealPlannerApi.Persistence.Planning
+  alias MealPlannerApi.Persistence.Shopping
   alias MealPlannerApi.Repo
   alias MealPlannerApi.Services.BudgetService
   alias MealPlannerApi.Services.CookingService
@@ -92,11 +95,11 @@ defmodule MealPlannerApi.Services.TenancySweepTest do
       membership_a: membership_a,
       membership_b: membership_b
     } do
-      MealPlannerApi.Data.AccountRepo.get_account!(membership_a.account_id)
+      AccountRepo.get_account!(membership_a.account_id)
       |> Ecto.Changeset.change(%{default_budget_cents: 11_111})
       |> Repo.update!()
 
-      MealPlannerApi.Data.AccountRepo.get_account!(membership_b.account_id)
+      AccountRepo.get_account!(membership_b.account_id)
       |> Ecto.Changeset.change(%{default_budget_cents: 99_999})
       |> Repo.update!()
 
@@ -176,7 +179,7 @@ defmodule MealPlannerApi.Services.TenancySweepTest do
         })
 
       {:ok, _seed} =
-        MealPlannerApi.Persistence.Inventory.apply_delta_and_log(%{
+        Inventory.apply_delta_and_log(%{
           account_id: membership_a.account_id,
           ingredient_id: ingredient.id,
           unit: :g,
@@ -264,7 +267,7 @@ defmodule MealPlannerApi.Services.TenancySweepTest do
         })
 
       {:ok, _item} =
-        MealPlannerApi.Persistence.Shopping.create_shopping_item(%{
+        Shopping.create_shopping_item(%{
           account_id: membership_a.account_id,
           scheduled_meal_id: meal.id,
           planned_date: today,
@@ -285,7 +288,7 @@ defmodule MealPlannerApi.Services.TenancySweepTest do
     end
   end
 
-  describe "RecipeService.is_favorite?/2" do
+  describe "RecipeService.favorite?/2" do
     # `RecipeService.list_recipes/1` and `.add_favorite/2` are NOT used
     # for this sub-test: both crash on pre-existing, unrelated bugs
     # (`serialize_recipe/1` reads a `:title` field the `Recipe` schema
@@ -296,7 +299,7 @@ defmodule MealPlannerApi.Services.TenancySweepTest do
     # previously exercised — both are out of scope for this tenancy PR.
     # The favorite row is seeded directly via `Calendar.toggle_favorite/3`
     # (the same helper used elsewhere in this PR's controller tests) so
-    # this sub-test can still exercise `is_favorite?/2`'s
+    # this sub-test can still exercise `favorite?/2`'s
     # `Identity.ensure_persistent_identity/1` + account-scoped
     # `RecipeRepo` read path without hitting either bug.
     test "only sees a favorite that belongs to the scoped Account", %{
@@ -317,8 +320,8 @@ defmodule MealPlannerApi.Services.TenancySweepTest do
 
       {:ok, _fav} = Calendar.toggle_favorite(membership_a.account_id, user.id, recipe.id)
 
-      assert RecipeService.is_favorite?(scoped_user_a, recipe.id)
-      refute RecipeService.is_favorite?(scoped_user_b, recipe.id)
+      assert RecipeService.favorite?(scoped_user_a, recipe.id)
+      refute RecipeService.favorite?(scoped_user_b, recipe.id)
     end
   end
 end

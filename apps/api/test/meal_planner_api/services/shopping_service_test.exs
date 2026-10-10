@@ -1,16 +1,18 @@
 defmodule MealPlannerApi.ShoppingServiceTest do
   use ExUnit.Case, async: true
 
+  alias Ecto.Adapters.SQL.Sandbox
   alias MealPlannerApi.Persistence.Accounts.Account
+  alias MealPlannerApi.Persistence.Accounts.AccountMembership
   alias MealPlannerApi.Persistence.Catalog
   alias MealPlannerApi.Persistence.Identity
   alias MealPlannerApi.Persistence.Planning
   alias MealPlannerApi.Persistence.Shopping
-  alias MealPlannerApi.Services.ShoppingService
   alias MealPlannerApi.Repo
+  alias MealPlannerApi.Services.ShoppingService
 
   setup do
-    :ok = Ecto.Adapters.SQL.Sandbox.checkout(Repo)
+    :ok = Sandbox.checkout(Repo)
     :ok = MealPlannerApi.SubscriptionPlanFixtures.ensure_plans!()
   end
 
@@ -241,8 +243,8 @@ defmodule MealPlannerApi.ShoppingServiceTest do
   end
 
   defp ensure_membership!(user) do
-    %MealPlannerApi.Persistence.Accounts.AccountMembership{}
-    |> MealPlannerApi.Persistence.Accounts.AccountMembership.changeset(%{
+    %AccountMembership{}
+    |> AccountMembership.changeset(%{
       account_id: user.account_id,
       user_id: user.id,
       role: :owner,

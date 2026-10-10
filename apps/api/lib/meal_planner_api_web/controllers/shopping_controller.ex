@@ -79,7 +79,7 @@ defmodule MealPlannerApiWeb.ShoppingController do
       payload["in_cart"] == false ->
         respond(conn, MealPlannerApi.Cart.remove(user, payload["session_id"], payload["items"]))
 
-      is_list(item_ids) and length(item_ids) > 0 ->
+      is_list(item_ids) and item_ids != [] ->
         # Mark specific items by item_ids
         cart_response(conn, ShoppingService.mark_in_cart(user, item_ids))
 

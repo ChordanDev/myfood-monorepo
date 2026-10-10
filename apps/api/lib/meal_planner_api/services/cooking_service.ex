@@ -14,10 +14,10 @@ defmodule MealPlannerApi.Services.CookingService do
   alias MealPlannerApi.AccountClock
   alias MealPlannerApi.AI
   alias MealPlannerApi.Data.{InventoryRepo, PlanningRepo}
-  alias MealPlannerApi.Services.{RecipeAccess, RecipeVersions}
   alias MealPlannerApi.Persistence.Planning
   alias MealPlannerApi.Persistence.Shopping
   alias MealPlannerApi.Repo
+  alias MealPlannerApi.Services.{RecipeAccess, RecipeVersions}
 
   @type step_status :: :started | :paused | :completed | :error
 
@@ -225,29 +225,31 @@ defmodule MealPlannerApi.Services.CookingService do
         context_snapshot: initial_snapshot
       })
 
-    with {:ok, session} <- result do
-      # Capture the initial context snapshot
-      {:ok, _snapshot} =
-        PlanningRepo.add_context_snapshot(%{
-          cooking_session_id: session.id,
-          snapshot_data: initial_snapshot,
-          captured_at: DateTime.utc_now()
-        })
-
-      # Record the first step event if a step exists
-      if first_step_id do
-        {:ok, _event} =
-          PlanningRepo.add_step_event(%{
+    case result do
+      {:ok, session} ->
+        # Capture the initial context snapshot
+        {:ok, _snapshot} =
+          PlanningRepo.add_context_snapshot(%{
             cooking_session_id: session.id,
-            recipe_step_id: first_step_id,
-            event_type: :started,
-            event_at: DateTime.utc_now()
+            snapshot_data: initial_snapshot,
+            captured_at: DateTime.utc_now()
           })
-      end
 
-      {:ok, session}
-    else
-      {:error, _} = error -> error
+        # Record the first step event if a step exists
+        if first_step_id do
+          {:ok, _event} =
+            PlanningRepo.add_step_event(%{
+              cooking_session_id: session.id,
+              recipe_step_id: first_step_id,
+              event_type: :started,
+              event_at: DateTime.utc_now()
+            })
+        end
+
+        {:ok, session}
+
+      {:error, _} = error ->
+        error
     end
   end
 
@@ -437,8 +439,7 @@ defmodule MealPlannerApi.Services.CookingService do
       if recipe && recipe.recipe_steps do
         recipe.recipe_steps
         |> Enum.sort_by(& &1.step_number)
-        |> Enum.map(fn step -> "#{step.step_number}. #{step.instructions}" end)
-        |> Enum.join("\n")
+        |> Enum.map_join("\n", fn step -> "#{step.step_number}. #{step.instructions}" end)
       else
         "Sin pasos disponibles"
       end
@@ -446,11 +447,10 @@ defmodule MealPlannerApi.Services.CookingService do
     ingredients_text =
       if recipe && recipe.recipe_ingredients do
         recipe.recipe_ingredients
-        |> Enum.map(fn ri ->
+        |> Enum.map_join("\n", fn ri ->
           name = (ri.ingredient && ri.ingredient.name) || "ingrediente"
           "- #{name}: #{ri.quantity_milli} #{ri.unit}"
         end)
-        |> Enum.join("\n")
       else
         "Sin ingredientes disponibles"
       end

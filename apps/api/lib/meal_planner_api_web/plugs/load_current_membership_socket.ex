@@ -28,6 +28,7 @@ defmodule MealPlannerApiWeb.Plugs.LoadCurrentMembershipSocket do
 
   require Logger
 
+  alias MealPlannerApi.Auth.Guardian.Plug, as: GuardianPlug
   alias MealPlannerApi.Persistence.Accounts.AccountMembership
   alias MealPlannerApi.Persistence.Accounts.AccountMembershipQueries
 
@@ -59,7 +60,7 @@ defmodule MealPlannerApiWeb.Plugs.LoadCurrentMembershipSocket do
 
     current_user =
       try do
-        MealPlannerApi.Auth.Guardian.Plug.current_resource(conn)
+        GuardianPlug.current_resource(conn)
       rescue
         _ -> nil
       end

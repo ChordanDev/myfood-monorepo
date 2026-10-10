@@ -5,10 +5,15 @@ defmodule MealPlannerApi.Generation.ServerTest do
 
   import Ecto.Query
 
+  alias Ecto.Adapters.SQL
   alias Ecto.Adapters.SQL.Sandbox
   alias MealPlannerApi.Data.PlanningRepo
+  alias MealPlannerApi.Data.RecipeRepo
+  alias MealPlannerApi.Data.ShoppingRepo
   alias MealPlannerApi.Generation.Server
   alias MealPlannerApi.Persistence.Planning.PlanningProposal
+  alias MealPlannerApi.Persistence.Shopping
+  alias MealPlannerApi.Services.RecipeVersions
 
   describe "via/1" do
     test "returns a Registry via tuple" do
@@ -473,7 +478,7 @@ defmodule MealPlannerApi.Generation.ServerTest do
     ingredient = insert_ingredient("Versioned ingredient")
 
     {:ok, _} =
-      MealPlannerApi.Data.RecipeRepo.add_recipe_ingredient(%{
+      RecipeRepo.add_recipe_ingredient(%{
         recipe_id: recipe.id,
         ingredient_id: ingredient.id,
         quantity_milli: 1000,
@@ -484,7 +489,7 @@ defmodule MealPlannerApi.Generation.ServerTest do
       insert_proposal_with_slots(account, user, [slot(~D[2026-08-06], :lunch, recipe.id)])
 
     {:ok, successor} =
-      MealPlannerApi.Services.RecipeVersions.correct(recipe.id, %{
+      RecipeVersions.correct(recipe.id, %{
         name: "Corrected recipe",
         recipe_ingredients: [%{ingredient_id: ingredient.id, quantity_milli: 500, unit: :g}]
       })
@@ -736,7 +741,7 @@ defmodule MealPlannerApi.Generation.ServerTest do
         })
 
       {:ok, manual} =
-        MealPlannerApi.Persistence.Shopping.create_manual_item(%{
+        Shopping.create_manual_item(%{
           account_id: account.id,
           name: "Dish soap",
           quantity_milli: 1_000,
@@ -935,7 +940,7 @@ defmodule MealPlannerApi.Generation.ServerTest do
       # Sanity: exactly one scheduled_meal but zero shopping_items, since the
       # only recipe has no ingredients.
       assert length(list_all_meals(account.id)) == 1
-      assert length(list_all_items(account)) == 0
+      assert list_all_items(account) == []
     end
 
     test "an empty proposal still creates a draft session with zero items" do
@@ -974,7 +979,7 @@ defmodule MealPlannerApi.Generation.ServerTest do
       ingredient = insert_ingredient("Atomicity ingredient")
 
       {:ok, _recipe_ingredient} =
-        MealPlannerApi.Data.RecipeRepo.add_recipe_ingredient(%{
+        RecipeRepo.add_recipe_ingredient(%{
           recipe_id: recipe.id,
           ingredient_id: ingredient.id,
           quantity_milli: 1_000,
@@ -998,7 +1003,7 @@ defmodule MealPlannerApi.Generation.ServerTest do
 
         assert list_all_meals(account.id) == []
         assert list_all_items(account) == []
-        assert length(list_sessions(account)) == 0
+        assert list_sessions(account) == []
 
         rolled_back = get_proposal(proposal.id)
         assert rolled_back.status == :pending
@@ -1053,7 +1058,7 @@ defmodule MealPlannerApi.Generation.ServerTest do
 
       meals_b =
         account_b.id
-        |> MealPlannerApi.Data.PlanningRepo.list_scheduled_meals(~D[2000-01-01], ~D[2100-01-01])
+        |> PlanningRepo.list_scheduled_meals(~D[2000-01-01], ~D[2100-01-01])
 
       assert meals_b == []
     end
@@ -1300,7 +1305,7 @@ defmodule MealPlannerApi.Generation.ServerTest do
       ingredient = insert_ingredient("2-2 rb ingredient")
 
       {:ok, _recipe_ingredient} =
-        MealPlannerApi.Data.RecipeRepo.add_recipe_ingredient(%{
+        RecipeRepo.add_recipe_ingredient(%{
           recipe_id: recipe.id,
           ingredient_id: ingredient.id,
           quantity_milli: 1_000,
@@ -1370,7 +1375,7 @@ defmodule MealPlannerApi.Generation.ServerTest do
   end
 
   defp list_all_meals(account_id) do
-    MealPlannerApi.Data.PlanningRepo.list_scheduled_meals(
+    PlanningRepo.list_scheduled_meals(
       account_id,
       ~D[2000-01-01],
       ~D[2100-01-01]
@@ -1379,9 +1384,9 @@ defmodule MealPlannerApi.Generation.ServerTest do
 
   defp list_all_items(account) do
     account.id
-    |> MealPlannerApi.Data.ShoppingRepo.list_checkout_sessions()
+    |> ShoppingRepo.list_checkout_sessions()
     |> Enum.map(& &1.id)
-    |> Enum.flat_map(&MealPlannerApi.Data.ShoppingRepo.list_shopping_items/1)
+    |> Enum.flat_map(&ShoppingRepo.list_shopping_items/1)
   end
 
   defp start_server!(account, user) do
@@ -1446,11 +1451,11 @@ defmodule MealPlannerApi.Generation.ServerTest do
   end
 
   defp list_sessions(account) do
-    MealPlannerApi.Data.ShoppingRepo.list_checkout_sessions(account.id)
+    ShoppingRepo.list_checkout_sessions(account.id)
   end
 
   defp list_items_for_session(session) do
-    MealPlannerApi.Data.ShoppingRepo.list_shopping_items(session.id)
+    ShoppingRepo.list_shopping_items(session.id)
   end
 
   # Every planned Shopping item of the Account, whatever its status.
@@ -1466,7 +1471,7 @@ defmodule MealPlannerApi.Generation.ServerTest do
 
   # Sandbox-scoped failure injection preserves immutable recipe versions.
   defp reject_shopping_inserts!(account_id) do
-    Ecto.Adapters.SQL.query!(
+    SQL.query!(
       MealPlannerApi.Repo,
       """
       CREATE FUNCTION reject_test_shopping_insert() RETURNS trigger LANGUAGE plpgsql AS $$
@@ -1479,18 +1484,18 @@ defmodule MealPlannerApi.Generation.ServerTest do
       """
     )
 
-    Ecto.Adapters.SQL.query!(
+    SQL.query!(
       MealPlannerApi.Repo,
       "CREATE TRIGGER reject_test_shopping_insert BEFORE INSERT ON shopping_items FOR EACH ROW EXECUTE FUNCTION reject_test_shopping_insert()"
     )
   end
 
   defp restore_shopping_inserts! do
-    Ecto.Adapters.SQL.query!(
+    SQL.query!(
       MealPlannerApi.Repo,
       "DROP TRIGGER reject_test_shopping_insert ON shopping_items"
     )
 
-    Ecto.Adapters.SQL.query!(MealPlannerApi.Repo, "DROP FUNCTION reject_test_shopping_insert()")
+    SQL.query!(MealPlannerApi.Repo, "DROP FUNCTION reject_test_shopping_insert()")
   end
 end

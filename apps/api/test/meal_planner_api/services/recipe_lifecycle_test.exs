@@ -3,10 +3,14 @@ defmodule MealPlannerApi.Services.RecipeLifecycleTest do
 
   import MealPlannerApi.FactoryHelpers
 
-  alias MealPlannerApi.Persistence.{Catalog, Planning}
+  alias MealPlannerApi.Data.PlanningRepo
   alias MealPlannerApi.Persistence.Accounts.Account
+  alias MealPlannerApi.Persistence.Calendar
+  alias MealPlannerApi.Persistence.{Catalog, Planning}
+  alias MealPlannerApi.Persistence.Inventory.InventoryItem
   alias MealPlannerApi.Repo
   alias MealPlannerApi.Services.{CookingService, RecipeService, RecipeVersions, ShoppingRebuilder}
+  alias MealPlannerApi.Services.PlanningService
 
   setup do
     user =
@@ -88,7 +92,7 @@ defmodule MealPlannerApi.Services.RecipeLifecycleTest do
              ShoppingRebuilder.compute_net_shortages([Repo.reload!(meal)], %{})
 
     overview =
-      MealPlannerApi.Persistence.Calendar.monthly_overview(
+      Calendar.monthly_overview(
         f.account.id,
         f.user.id,
         Date.utc_today(),
@@ -235,7 +239,7 @@ defmodule MealPlannerApi.Services.RecipeLifecycleTest do
              f.recipe.id
 
     candidates =
-      MealPlannerApi.Data.PlanningRepo.candidate_recipe_ids_for_slots(f.account.id, [f.user.id], [
+      PlanningRepo.candidate_recipe_ids_for_slots(f.account.id, [f.user.id], [
         "dinner"
       ])
 
@@ -294,8 +298,8 @@ defmodule MealPlannerApi.Services.RecipeLifecycleTest do
     ingredient_id = hd(meal.recipe_snapshot["recipe_ingredients"])["ingredient_id"]
 
     lot =
-      %MealPlannerApi.Persistence.Inventory.InventoryItem{}
-      |> MealPlannerApi.Persistence.Inventory.InventoryItem.changeset(%{
+      %InventoryItem{}
+      |> InventoryItem.changeset(%{
         account_id: f.account.id,
         ingredient_id: ingredient_id,
         quantity_milli: 1000,
@@ -338,7 +342,7 @@ defmodule MealPlannerApi.Services.RecipeLifecycleTest do
     assert [%{quantity_milli: 400}] = ShoppingRebuilder.compute_net_shortages([meal], %{})
 
     slot =
-      MealPlannerApi.Persistence.Calendar.get_slot_meal(
+      Calendar.get_slot_meal(
         f.account.id,
         f.user.id,
         meal.date,
@@ -359,8 +363,8 @@ defmodule MealPlannerApi.Services.RecipeLifecycleTest do
     ingredient_id = hd(meal.recipe_snapshot["recipe_ingredients"])["ingredient_id"]
 
     lot =
-      %MealPlannerApi.Persistence.Inventory.InventoryItem{}
-      |> MealPlannerApi.Persistence.Inventory.InventoryItem.changeset(%{
+      %InventoryItem{}
+      |> InventoryItem.changeset(%{
         account_id: f.account.id,
         ingredient_id: ingredient_id,
         quantity_milli: 1000,
@@ -400,7 +404,7 @@ defmodule MealPlannerApi.Services.RecipeLifecycleTest do
     )
 
     slot =
-      MealPlannerApi.Persistence.Calendar.get_slot_meal(
+      Calendar.get_slot_meal(
         f.account.id,
         f.user.id,
         meal.date,
@@ -408,7 +412,7 @@ defmodule MealPlannerApi.Services.RecipeLifecycleTest do
       )
 
     overview =
-      MealPlannerApi.Persistence.Calendar.monthly_overview(
+      Calendar.monthly_overview(
         f.account.id,
         f.user.id,
         meal.date,
@@ -426,21 +430,21 @@ defmodule MealPlannerApi.Services.RecipeLifecycleTest do
     tomorrow = Date.add(Date.utc_today(), 1)
 
     assert {:ok, %{replaced: 1}} =
-             MealPlannerApi.Persistence.Calendar.replace_scheduled_meals_for_range(
+             Calendar.replace_scheduled_meals_for_range(
                f.account.id,
                {tomorrow, tomorrow},
                [%{date: tomorrow, slot: :dinner, recipe_id: f.recipe.id, selected_quantity: 2}]
              )
 
     [meal] =
-      MealPlannerApi.Data.PlanningRepo.list_scheduled_meals(f.account.id, tomorrow, tomorrow)
+      PlanningRepo.list_scheduled_meals(f.account.id, tomorrow, tomorrow)
 
     assert meal.recipe_version_id
     assert meal.recipe_snapshot["selected_quantity"] == 2
     ingredient_id = hd(meal.recipe_snapshot["recipe_ingredients"])["ingredient_id"]
 
-    %MealPlannerApi.Persistence.Inventory.InventoryItem{}
-    |> MealPlannerApi.Persistence.Inventory.InventoryItem.changeset(%{
+    %InventoryItem{}
+    |> InventoryItem.changeset(%{
       account_id: f.account.id,
       ingredient_id: ingredient_id,
       quantity_milli: 1000,
@@ -562,7 +566,7 @@ defmodule MealPlannerApi.Services.RecipeLifecycleTest do
     expire(f.account)
 
     assert {:error, :subscription_required} =
-             MealPlannerApi.Services.PlanningService.start_cooking_session(
+             PlanningService.start_cooking_session(
                f.account.id,
                f.user.id,
                meal.id

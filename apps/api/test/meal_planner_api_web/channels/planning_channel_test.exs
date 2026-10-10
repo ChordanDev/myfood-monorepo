@@ -9,7 +9,10 @@ defmodule MealPlannerApiWeb.PlanningChannelTest do
   alias MealPlannerApi.Generation.PlanningSession.Sweeper
   alias MealPlannerApi.Generation.Server
   alias MealPlannerApi.Persistence.Accounts.Account, as: PersistenceAccount
+  alias MealPlannerApi.Persistence.Accounts.AccountMembership
+  alias MealPlannerApi.Persistence.Accounts.User
   alias MealPlannerApi.Persistence.Catalog
+  alias MealPlannerApi.Persistence.Planning.PlanningMessage
   alias MealPlannerApi.Repo
   alias MealPlannerApiWeb.{AIChannel, Endpoint, PlanningChannel, UserSocket}
 
@@ -137,7 +140,7 @@ defmodule MealPlannerApiWeb.PlanningChannelTest do
 
       {:ok, invited_membership} =
         membership
-        |> MealPlannerApi.Persistence.Accounts.AccountMembership.changeset(%{status: :invited})
+        |> AccountMembership.changeset(%{status: :invited})
         |> MealPlannerApi.Repo.update()
 
       token = issue_access_v2_token(user, invited_membership)
@@ -1087,8 +1090,8 @@ defmodule MealPlannerApiWeb.PlanningChannelTest do
         |> MealPlannerApi.Repo.insert!()
 
       peer_user =
-        %MealPlannerApi.Persistence.Accounts.User{}
-        |> MealPlannerApi.Persistence.Accounts.User.changeset(%{
+        %User{}
+        |> User.changeset(%{
           email: "pr2-foreign-peer@example.com",
           name: "PR2 Foreign Peer",
           role: :owner
@@ -1097,8 +1100,8 @@ defmodule MealPlannerApiWeb.PlanningChannelTest do
 
       # peer_user needs an :active membership on peer_account so the
       # session row can be created with a valid lock_owner_membership_id.
-      %MealPlannerApi.Persistence.Accounts.AccountMembership{}
-      |> MealPlannerApi.Persistence.Accounts.AccountMembership.changeset(%{
+      %AccountMembership{}
+      |> AccountMembership.changeset(%{
         account_id: peer_account.id,
         user_id: peer_user.id,
         role: :owner,
@@ -1375,8 +1378,8 @@ defmodule MealPlannerApiWeb.PlanningChannelTest do
 
       # Create a separate User + their own session for the same Account.
       peer_user =
-        %MealPlannerApi.Persistence.Accounts.User{}
-        |> MealPlannerApi.Persistence.Accounts.User.changeset(%{
+        %User{}
+        |> User.changeset(%{
           email: "peer-cancel-#{System.unique_integer([:positive])}@example.com",
           name: "Peer Cancel",
           role: :member
@@ -1384,8 +1387,8 @@ defmodule MealPlannerApiWeb.PlanningChannelTest do
         |> Repo.insert!()
 
       peer_membership_id =
-        %MealPlannerApi.Persistence.Accounts.AccountMembership{}
-        |> MealPlannerApi.Persistence.Accounts.AccountMembership.changeset(%{
+        %AccountMembership{}
+        |> AccountMembership.changeset(%{
           account_id: account.id,
           user_id: peer_user.id,
           role: :member,
@@ -1445,8 +1448,8 @@ defmodule MealPlannerApiWeb.PlanningChannelTest do
 
       # Peer user's session.
       peer_user =
-        %MealPlannerApi.Persistence.Accounts.User{}
-        |> MealPlannerApi.Persistence.Accounts.User.changeset(%{
+        %User{}
+        |> User.changeset(%{
           email: "peer-owner-cancel-#{System.unique_integer([:positive])}@example.com",
           name: "Peer Owner Cancel",
           role: :member
@@ -1454,8 +1457,8 @@ defmodule MealPlannerApiWeb.PlanningChannelTest do
         |> Repo.insert!()
 
       peer_membership_id =
-        %MealPlannerApi.Persistence.Accounts.AccountMembership{}
-        |> MealPlannerApi.Persistence.Accounts.AccountMembership.changeset(%{
+        %AccountMembership{}
+        |> AccountMembership.changeset(%{
           account_id: account.id,
           user_id: peer_user.id,
           role: :member,
@@ -2498,7 +2501,7 @@ defmodule MealPlannerApiWeb.PlanningChannelTest do
   # `lock_owner_membership_id` and to drive `cancel_planning` scenarios.
   defp owner_membership_id(account_id, user_id) do
     MealPlannerApi.Repo.one!(
-      from(m in MealPlannerApi.Persistence.Accounts.AccountMembership,
+      from(m in AccountMembership,
         where: m.account_id == ^account_id and m.user_id == ^user_id and m.status == :active
       )
     ).id
@@ -2530,8 +2533,8 @@ defmodule MealPlannerApiWeb.PlanningChannelTest do
   # someone else's session.
   defp non_owner_peer_token(account) do
     peer_user =
-      %MealPlannerApi.Persistence.Accounts.User{}
-      |> MealPlannerApi.Persistence.Accounts.User.changeset(%{
+      %User{}
+      |> User.changeset(%{
         email: "non-owner-peer-#{System.unique_integer([:positive])}@example.com",
         name: "Non Owner Peer",
         role: :member
@@ -2539,8 +2542,8 @@ defmodule MealPlannerApiWeb.PlanningChannelTest do
       |> Repo.insert!()
 
     {:ok, membership} =
-      %MealPlannerApi.Persistence.Accounts.AccountMembership{}
-      |> MealPlannerApi.Persistence.Accounts.AccountMembership.changeset(%{
+      %AccountMembership{}
+      |> AccountMembership.changeset(%{
         account_id: account.id,
         user_id: peer_user.id,
         role: :member,
@@ -2586,8 +2589,8 @@ defmodule MealPlannerApiWeb.PlanningChannelTest do
     end
 
     defp insert_planning_message(account, session, role, content, intent_kind, seconds_ago) do
-      %MealPlannerApi.Persistence.Planning.PlanningMessage{}
-      |> MealPlannerApi.Persistence.Planning.PlanningMessage.changeset(%{
+      %PlanningMessage{}
+      |> PlanningMessage.changeset(%{
         account_id: account.id,
         session_id: session.id,
         role: role,

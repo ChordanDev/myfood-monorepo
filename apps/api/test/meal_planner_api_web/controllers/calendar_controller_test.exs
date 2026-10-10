@@ -5,6 +5,7 @@ defmodule MealPlannerApiWeb.CalendarControllerTest do
   import MealPlannerApi.IdentityFixtures
 
   alias MealPlannerApi.Auth.Guardian
+  alias MealPlannerApi.Data.PlanningRepo
   alias MealPlannerApi.Persistence.Accounts.Account
   alias MealPlannerApi.Persistence.Calendar
   alias MealPlannerApi.Persistence.Catalog
@@ -463,7 +464,7 @@ defmodule MealPlannerApiWeb.CalendarControllerTest do
       assert %{"error" => "cross_account"} = json_response(conn, 422)
 
       assert [meal] =
-               MealPlannerApi.Data.PlanningRepo.list_scheduled_meals(
+               PlanningRepo.list_scheduled_meals(
                  membership_b.account_id,
                  ~D[2026-07-01],
                  ~D[2026-07-07]
@@ -499,7 +500,7 @@ defmodule MealPlannerApiWeb.CalendarControllerTest do
       assert %{"data" => %{"replaced" => 2}} = json_response(conn, 200)
 
       meals =
-        MealPlannerApi.Data.PlanningRepo.list_scheduled_meals(
+        PlanningRepo.list_scheduled_meals(
           membership.account_id,
           ~D[2026-07-01],
           ~D[2026-07-07]
@@ -552,7 +553,7 @@ defmodule MealPlannerApiWeb.CalendarControllerTest do
       assert %{"data" => %{"replaced" => 1}} = json_response(conn, 200)
 
       [meal] =
-        MealPlannerApi.Data.PlanningRepo.list_scheduled_meals(
+        PlanningRepo.list_scheduled_meals(
           membership.account_id,
           ~D[2026-07-01],
           ~D[2026-07-07]

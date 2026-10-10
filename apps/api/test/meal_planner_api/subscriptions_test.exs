@@ -17,6 +17,7 @@ defmodule MealPlannerApi.SubscriptionsTest do
   import ExUnit.CaptureLog
 
   alias Ecto.Adapters.SQL.Sandbox
+  alias MealPlannerApi.Persistence.Accounts
   alias MealPlannerApi.Persistence.Accounts.Account, as: PersistenceAccount
   alias MealPlannerApi.Repo
   alias MealPlannerApi.Subscriptions
@@ -43,7 +44,7 @@ defmodule MealPlannerApi.SubscriptionsTest do
 
   test "max_planning_days resolves from account plan" do
     {:ok, account} =
-      MealPlannerApi.Persistence.Accounts.create_account(%{
+      Accounts.create_account(%{
         name: "Subscription test account",
         plan: :family_4,
         default_budget_cents: 50_000
@@ -143,7 +144,7 @@ defmodule MealPlannerApi.SubscriptionsTest do
     {:ok, plan_row} = Subscriptions.get_plan_by_name(Atom.to_string(plan))
 
     {:ok, account} =
-      MealPlannerApi.Persistence.Accounts.create_account(%{
+      Accounts.create_account(%{
         name: name,
         plan: plan,
         default_budget_cents: 0,

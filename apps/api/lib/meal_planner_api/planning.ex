@@ -5,9 +5,9 @@ defmodule MealPlannerApi.Planning do
   Deprecated: use `MealPlannerApi.Services.PlanningService` directly.
   """
 
-  alias MealPlannerApi.Services.PlanningService
   alias MealPlannerApi.Persistence.Catalog.Recipe, as: CatalogRecipe
   alias MealPlannerApi.Repo
+  alias MealPlannerApi.Services.PlanningService
 
   @doc """
   Generates a weekly plan for the given user.

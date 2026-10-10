@@ -10,13 +10,15 @@ defmodule MealPlannerApi.AI.GeminiAdapter do
 
   @behaviour MealPlannerApi.AI.AIPort
 
+  alias MealPlannerApi.AI.GeminiClient
+
   @impl true
   def generate_text(prompt, opts) do
-    MealPlannerApi.AI.GeminiClient.generate_text(prompt, opts)
+    GeminiClient.generate_text(prompt, opts)
   end
 
   @impl true
   def stream_chat_completion(topic, prompt, opts) do
-    MealPlannerApi.AI.GeminiClient.stream_chat_completion(topic, prompt, opts)
+    GeminiClient.stream_chat_completion(topic, prompt, opts)
   end
 end

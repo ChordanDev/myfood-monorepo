@@ -16,10 +16,11 @@ defmodule MealPlannerApiWeb.PlanningStartTest do
 
   alias MealPlannerApi.Data.PlanningRepo
   alias MealPlannerApi.Generation.Server
+  alias MealPlannerApi.Persistence.Accounts.Account
   alias MealPlannerApi.Persistence.Accounts.{AccountMembership, User}
   alias MealPlannerApi.Persistence.Planning.PlanningSession
-  alias MealPlannerApi.Services.GenerationService
   alias MealPlannerApi.Repo
+  alias MealPlannerApi.Services.GenerationService
   alias MealPlannerApiWeb.{ApiError, Endpoint, PlanningChannel, UserSocket}
 
   @moduletag :capture_log
@@ -593,7 +594,7 @@ defmodule MealPlannerApiWeb.PlanningStartTest do
 
     {:ok, updated} =
       account
-      |> MealPlannerApi.Persistence.Accounts.Account.changeset(%{
+      |> Account.changeset(%{
         trial_started_at: started,
         trial_ends_at: ends
       })

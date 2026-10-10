@@ -3,9 +3,9 @@ defmodule MealPlannerApi.Persistence.Planning do
 
   import Ecto.Query, warn: false
 
-  alias MealPlannerApi.Repo
   alias MealPlannerApi.Persistence.Accounts
   alias MealPlannerApi.Persistence.Catalog.{FavoriteRecipe, Recipe, RecipeIngredient}
+  alias MealPlannerApi.Repo
 
   alias MealPlannerApi.Persistence.Planning.{
     ContextSnapshot,

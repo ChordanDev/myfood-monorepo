@@ -34,6 +34,7 @@ defmodule Mix.Tasks.PriceSync.Run do
 
   alias MealPlannerApi.Data.{PriceRepo, UnitConversionRepo}
   alias MealPlannerApi.Integrations.GoScraperClient
+  alias MealPlannerApi.Persistence.Catalog
 
   @max_retries 1
   @log_every 10
@@ -187,6 +188,6 @@ defmodule Mix.Tasks.PriceSync.Run do
   end
 
   defp list_all_ingredients do
-    MealPlannerApi.Persistence.Catalog.list_ingredients()
+    Catalog.list_ingredients()
   end
 end

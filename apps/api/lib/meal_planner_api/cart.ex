@@ -1,10 +1,11 @@
 defmodule MealPlannerApi.Cart do
   @moduledoc "Account-scoped cart leases and the single atomic purchase authority."
   import Ecto.Query
-  alias MealPlannerApi.Repo
   alias MealPlannerApi.Persistence.{Identity, Inventory, Shopping}
   alias MealPlannerApi.Persistence.Shopping.{CheckoutSession, ShoppingItem}
+  alias MealPlannerApi.Repo
   alias MealPlannerApi.Services.PlanningRequestValidator
+  alias Phoenix.Channel.Server
 
   @lease_seconds 3600
 
@@ -232,7 +233,7 @@ defmodule MealPlannerApi.Cart do
   def notify(account_id, event, payload) do
     if not MealPlannerApiWeb.ChannelCapability.enforcement_enabled?() or
          MealPlannerApi.AccountAccess.eligible?(account_id) do
-      Phoenix.Channel.Server.broadcast!(
+      Server.broadcast!(
         MealPlannerApi.PubSub,
         "shopping:#{account_id}",
         event,

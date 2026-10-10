@@ -7,6 +7,7 @@ defmodule MealPlannerApi.ShoppingCheckout do
   alias MealPlannerApi.Persistence.Identity
   alias MealPlannerApi.Persistence.Planning
   alias MealPlannerApi.Persistence.Shopping
+  alias MealPlannerApi.Services.RecipeVersions
 
   @default_days_window 7
 
@@ -175,7 +176,7 @@ defmodule MealPlannerApi.ShoppingCheckout do
 
       {created, _remaining_pool} =
         Enum.reduce(meals, {0, available_pool}, fn meal, {acc, pool} ->
-          recipe = MealPlannerApi.Services.RecipeVersions.recipe_for_meal(meal)
+          recipe = RecipeVersions.recipe_for_meal(meal)
           recipe_ingredients = (recipe && recipe.recipe_ingredients) || []
 
           Enum.reduce(recipe_ingredients, {acc, pool}, fn ri, {local_acc, local_pool} ->

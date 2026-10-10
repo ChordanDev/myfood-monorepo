@@ -2,9 +2,9 @@ defmodule MealPlannerApi.CartFixtures do
   @moduledoc false
   import Ecto.Query
   alias MealPlannerApi.Generation.ServerTestFixtures, as: Fixtures
-  alias MealPlannerApi.Persistence.{Planning, Shopping}
   alias MealPlannerApi.Persistence.Accounts.Account
   alias MealPlannerApi.Persistence.Inventory.{InventoryItem, InventoryMutationEvent}
+  alias MealPlannerApi.Persistence.{Planning, Shopping}
   alias MealPlannerApi.Persistence.Shopping.{CheckoutSession, ShoppingItem}
   alias MealPlannerApi.Repo
 
@@ -17,7 +17,7 @@ defmodule MealPlannerApi.CartFixtures do
 
         account =
           account
-          |> Account.changeset(%{trial_started_at: now, trial_ends_at: DateTime.add(now, 86400)})
+          |> Account.changeset(%{trial_started_at: now, trial_ends_at: DateTime.add(now, 86_400)})
           |> Repo.update!()
 
         owner = Fixtures.insert_user_with_membership(account, "cart-owner-#{suffix}@example.com")

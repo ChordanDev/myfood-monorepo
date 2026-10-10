@@ -1,4 +1,11 @@
 defmodule MealPlannerApiWeb.CalendarChannel do
+  @moduledoc """
+  Channel for the Account calendar on `calendar:<account_id>`.
+
+  Lets an active member of the Account toggle favorites and upsert, delete or
+  mark scheduled meals as cooked.
+  """
+
   use MealPlannerApiWeb, :channel
 
   alias MealPlannerApi.Persistence.Calendar

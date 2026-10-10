@@ -26,8 +26,8 @@ defmodule MealPlannerApi.Subscriptions do
 
   require Logger
 
-  alias MealPlannerApi.Repo
   alias MealPlannerApi.Persistence.Accounts.Account
+  alias MealPlannerApi.Repo
   alias MealPlannerApi.Subscriptions.Plan
 
   @default_individual_plan "individual"

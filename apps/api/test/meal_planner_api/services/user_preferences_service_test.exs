@@ -10,13 +10,14 @@ defmodule MealPlannerApi.Services.UserPreferencesServiceTest do
 
   import MealPlannerApi.FactoryHelpers
 
+  alias Ecto.Adapters.SQL.Sandbox
   alias MealPlannerApi.Data.UserHardRestrictionRepo
   alias MealPlannerApi.Persistence.Accounts.{UserDietaryProfile, UserPreference}
   alias MealPlannerApi.Repo
   alias MealPlannerApi.Services.UserPreferencesService
 
   setup do
-    :ok = Ecto.Adapters.SQL.Sandbox.checkout(Repo)
+    :ok = Sandbox.checkout(Repo)
     :ok = MealPlannerApi.SubscriptionPlanFixtures.ensure_plans!()
 
     user =

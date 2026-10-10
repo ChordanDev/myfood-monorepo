@@ -16,7 +16,9 @@ defmodule MealPlannerApiWeb.UserSocketTest do
   import MealPlannerApi.FactoryHelpers
 
   alias MealPlannerApi.Auth.Guardian
+  alias MealPlannerApi.Persistence.Accounts.Account
   alias MealPlannerApi.Persistence.Accounts.AccountMembership
+  alias MealPlannerApi.Persistence.Accounts.User
   alias MealPlannerApi.Repo
   alias MealPlannerApiWeb.UserSocket
 
@@ -67,8 +69,8 @@ defmodule MealPlannerApiWeb.UserSocketTest do
       plan = Repo.get_by!(MealPlannerApi.Subscriptions.Plan, name: "family_4")
 
       {:ok, account} =
-        %MealPlannerApi.Persistence.Accounts.Account{}
-        |> MealPlannerApi.Persistence.Accounts.Account.changeset(%{
+        %Account{}
+        |> Account.changeset(%{
           name: "Legacy Socket No-Row Family",
           plan: :family_4,
           default_budget_cents: 0,
@@ -77,8 +79,8 @@ defmodule MealPlannerApiWeb.UserSocketTest do
         |> Repo.insert()
 
       {:ok, user} =
-        %MealPlannerApi.Persistence.Accounts.User{}
-        |> MealPlannerApi.Persistence.Accounts.User.changeset(%{
+        %User{}
+        |> User.changeset(%{
           account_id: account.id,
           email: "socket-v1-no-row@example.com",
           name: "Legacy Socket No Row",
@@ -106,8 +108,8 @@ defmodule MealPlannerApiWeb.UserSocketTest do
       plan = Repo.get_by!(MealPlannerApi.Subscriptions.Plan, name: "family_4")
 
       {:ok, account} =
-        %MealPlannerApi.Persistence.Accounts.Account{}
-        |> MealPlannerApi.Persistence.Accounts.Account.changeset(%{
+        %Account{}
+        |> Account.changeset(%{
           name: "Legacy Socket Real Row Family",
           plan: :family_4,
           default_budget_cents: 0,
@@ -116,8 +118,8 @@ defmodule MealPlannerApiWeb.UserSocketTest do
         |> Repo.insert()
 
       {:ok, user} =
-        %MealPlannerApi.Persistence.Accounts.User{}
-        |> MealPlannerApi.Persistence.Accounts.User.changeset(%{
+        %User{}
+        |> User.changeset(%{
           account_id: account.id,
           email: "socket-v1-real-row@example.com",
           name: "Legacy Socket Real Row",
@@ -126,8 +128,8 @@ defmodule MealPlannerApiWeb.UserSocketTest do
         |> Repo.insert()
 
       {:ok, membership} =
-        %MealPlannerApi.Persistence.Accounts.AccountMembership{}
-        |> MealPlannerApi.Persistence.Accounts.AccountMembership.changeset(%{
+        %AccountMembership{}
+        |> AccountMembership.changeset(%{
           account_id: account.id,
           user_id: user.id,
           role: :owner,
@@ -163,8 +165,8 @@ defmodule MealPlannerApiWeb.UserSocketTest do
       plan = Repo.get_by!(MealPlannerApi.Subscriptions.Plan, name: "family_4")
 
       {:ok, account} =
-        %MealPlannerApi.Persistence.Accounts.Account{}
-        |> MealPlannerApi.Persistence.Accounts.Account.changeset(%{
+        %Account{}
+        |> Account.changeset(%{
           name: "Legacy Socket Removed Family",
           plan: :family_4,
           default_budget_cents: 0,
@@ -173,8 +175,8 @@ defmodule MealPlannerApiWeb.UserSocketTest do
         |> Repo.insert()
 
       {:ok, user} =
-        %MealPlannerApi.Persistence.Accounts.User{}
-        |> MealPlannerApi.Persistence.Accounts.User.changeset(%{
+        %User{}
+        |> User.changeset(%{
           account_id: account.id,
           email: "socket-v1-removed@example.com",
           name: "Legacy Socket Removed",
@@ -183,8 +185,8 @@ defmodule MealPlannerApiWeb.UserSocketTest do
         |> Repo.insert()
 
       {:ok, membership} =
-        %MealPlannerApi.Persistence.Accounts.AccountMembership{}
-        |> MealPlannerApi.Persistence.Accounts.AccountMembership.changeset(%{
+        %AccountMembership{}
+        |> AccountMembership.changeset(%{
           account_id: account.id,
           user_id: user.id,
           role: :member,

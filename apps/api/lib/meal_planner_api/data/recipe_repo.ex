@@ -272,8 +272,8 @@ defmodule MealPlannerApi.Data.RecipeRepo do
     |> Repo.all()
   end
 
-  @spec is_favorite?(identity(), Ecto.UUID.t()) :: boolean()
-  def is_favorite?(%{account_id: account_id, user_id: user_id}, recipe_id) do
+  @spec favorite?(identity(), Ecto.UUID.t()) :: boolean()
+  def favorite?(%{account_id: account_id, user_id: user_id}, recipe_id) do
     Repo.exists?(
       from(f in FavoriteRecipe,
         where: f.account_id == ^account_id and f.user_id == ^user_id and f.recipe_id == ^recipe_id

@@ -156,9 +156,8 @@ defmodule MealPlannerApi.Services.EmailCodeAuth do
 
     SQL.query!(Repo, "SELECT pg_advisory_xact_lock($1)", [ip_lock_key(ip)])
 
-    with :ok <- reserve_email_slot(email),
-         :ok <- reserve_ip_slot(ip) do
-      :ok
+    with :ok <- reserve_email_slot(email) do
+      reserve_ip_slot(ip)
     end
   end
 

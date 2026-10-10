@@ -7,8 +7,8 @@ defmodule MealPlannerApi.Data.UnitConversionRepo do
 
   import Ecto.Query, warn: false
 
-  alias MealPlannerApi.Repo
   alias MealPlannerApi.Persistence.Catalog.{IngredientBaseUnit, UnitConversion}
+  alias MealPlannerApi.Repo
 
   # -------------------------------------------------------------------------
   # IngredientBaseUnit

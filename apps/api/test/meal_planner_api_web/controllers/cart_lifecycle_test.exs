@@ -7,6 +7,7 @@ defmodule MealPlannerApiWeb.CartLifecycleTest do
   alias MealPlannerApi.{Cart, Repo}
   alias MealPlannerApi.Persistence.Accounts.{Account, AccountMembership}
   alias MealPlannerApiWeb.{ShoppingChannel, UserSocket}
+  alias Phoenix.Channel.Server
 
   setup do
     f = fixture()
@@ -121,7 +122,7 @@ defmodule MealPlannerApiWeb.CartLifecycleTest do
              subscribe_and_join(socket, ShoppingChannel, "shopping:#{f.account.id}")
 
     # Exercise recipient-side authorization even if a producer bypasses its eligibility check.
-    Phoenix.Channel.Server.broadcast!(MealPlannerApi.PubSub, joined.topic, "inventory_changed", %{
+    Server.broadcast!(MealPlannerApi.PubSub, joined.topic, "inventory_changed", %{
       refresh: true
     })
 
@@ -286,7 +287,7 @@ defmodule MealPlannerApiWeb.CartLifecycleTest do
   end
 
   defp expire_account!(account) do
-    past = DateTime.add(DateTime.utc_now(), -86400)
+    past = DateTime.add(DateTime.utc_now(), -86_400)
     account |> Account.changeset(%{trial_started_at: past, trial_ends_at: past}) |> Repo.update!()
   end
 end

@@ -15,6 +15,7 @@ defmodule MealPlannerApi.Services.PlanningService do
   alias MealPlannerApi.Data.PlanningRepo
   alias MealPlannerApi.Optimization.OptimizerPort
   alias MealPlannerApi.Persistence.Identity
+  alias MealPlannerApi.Services.CookingService
   alias MealPlannerApi.Services.{PlanningCandidateBuilder, PlanningRequestValidator}
 
   @slots [:breakfast, :lunch, :dinner]
@@ -137,13 +138,14 @@ defmodule MealPlannerApi.Services.PlanningService do
       })
 
     proposal_result =
-      with {:ok, run} <- run_result do
-        PlanningRepo.create_proposal(%{
-          generation_run_id: run.id,
-          proposal_json: %{meals: meals},
-          selected_at: DateTime.utc_now()
-        })
-      else
+      case run_result do
+        {:ok, run} ->
+          PlanningRepo.create_proposal(%{
+            generation_run_id: run.id,
+            proposal_json: %{meals: meals},
+            selected_at: DateTime.utc_now()
+          })
+
         err ->
           err
       end
@@ -239,7 +241,7 @@ defmodule MealPlannerApi.Services.PlanningService do
   @spec start_cooking_session(Ecto.UUID.t(), Ecto.UUID.t(), Ecto.UUID.t()) ::
           {:ok, map()} | {:error, :meal_not_found}
   def start_cooking_session(account_id, user_id, scheduled_meal_id) do
-    case MealPlannerApi.Services.CookingService.start_session(
+    case CookingService.start_session(
            %{id: user_id, account_id: account_id},
            scheduled_meal_id
          ) do

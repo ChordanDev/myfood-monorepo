@@ -4,10 +4,10 @@ defmodule MealPlannerApi.AI do
   Orchestrates requests and delegates provider calls to the configured client.
   """
 
+  alias MealPlannerApi.Messages
   alias MealPlannerApi.Persistence.Accounts.User, as: PersistenceUser
   alias MealPlannerApi.Services.BudgetService
   alias MealPlannerApi.Services.SubscriptionService
-  alias MealPlannerApi.Messages
 
   @spec stream_response(String.t(), String.t(), PersistenceUser.t(), map()) ::
           :ok | {:error, term()}

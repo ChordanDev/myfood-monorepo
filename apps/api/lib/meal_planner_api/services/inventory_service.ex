@@ -14,14 +14,14 @@ defmodule MealPlannerApi.Services.InventoryService do
   Delegates to data repos for persistence.
   """
 
-  alias MealPlannerApi.Inventory.LotFreshness
-  alias MealPlannerApi.Persistence.Inventory, as: InventoryPersistence
-  alias MealPlannerApi.Data.PlanningRepo
-  alias MealPlannerApi.Voice.InventoryIntentParser
   alias MealPlannerApi.AccountClock
-  alias MealPlannerApi.Repo
-  alias MealPlannerApi.Persistence.Identity
+  alias MealPlannerApi.Data.PlanningRepo
+  alias MealPlannerApi.Inventory.LotFreshness
   alias MealPlannerApi.Persistence.Catalog.Ingredient
+  alias MealPlannerApi.Persistence.Identity
+  alias MealPlannerApi.Persistence.Inventory, as: InventoryPersistence
+  alias MealPlannerApi.Repo
+  alias MealPlannerApi.Voice.InventoryIntentParser
 
   @warning_days 2
   # The longest note a lot keeps, counted once trimmed. `InventoryItem` holds
@@ -479,16 +479,14 @@ defmodule MealPlannerApi.Services.InventoryService do
   defp pick_rescue_recipe(_account_id, _ingredient_ids) do
     # Find ANY recipe from the database for rescue
     # This is a fallback for when no account-specific recipe exists
-    try do
-      recipes = MealPlannerApi.Repo.all(MealPlannerApi.Persistence.Catalog.Recipe)
+    recipes = MealPlannerApi.Repo.all(MealPlannerApi.Persistence.Catalog.Recipe)
 
-      case recipes do
-        [] -> {:error, :no_rescue_recipe_found}
-        [first | _] -> {:ok, first}
-      end
-    rescue
-      _ -> {:error, :no_rescue_recipe_found}
+    case recipes do
+      [] -> {:error, :no_rescue_recipe_found}
+      [first | _] -> {:ok, first}
     end
+  rescue
+    _ -> {:error, :no_rescue_recipe_found}
   end
 
   defp first_available_slot(_account_id, _date) do

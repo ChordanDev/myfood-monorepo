@@ -6,10 +6,10 @@ defmodule MealPlannerApi.Persistence.Calendar do
   alias Ecto.Multi
   alias MealPlannerApi.AccountClock
   alias MealPlannerApi.Data.PlanningRepo
-  alias MealPlannerApi.Repo
-  alias MealPlannerApi.Persistence.Shopping
   alias MealPlannerApi.Persistence.Catalog.{FavoriteRecipe, SlotFavorite}
   alias MealPlannerApi.Persistence.Planning.ScheduledMeal
+  alias MealPlannerApi.Persistence.Shopping
+  alias MealPlannerApi.Repo
 
   @default_slot :lunch
 

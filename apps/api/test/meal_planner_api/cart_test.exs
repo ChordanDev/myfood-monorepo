@@ -1,12 +1,13 @@
 defmodule MealPlannerApi.CartTest do
   use ExUnit.Case, async: false
   import MealPlannerApi.CartFixtures
+  alias Ecto.Adapters.SQL.Sandbox
   alias MealPlannerApi.{Cart, Repo, ShoppingCheckout}
   alias MealPlannerApi.Persistence.Shopping.CheckoutSession
   alias MealPlannerApi.Services.ShoppingService
 
   setup do
-    :ok = Ecto.Adapters.SQL.Sandbox.checkout(Repo)
+    :ok = Sandbox.checkout(Repo)
     :ok = MealPlannerApi.SubscriptionPlanFixtures.ensure_plans!()
     {:ok, fixture()}
   end
@@ -89,7 +90,7 @@ defmodule MealPlannerApi.CartTest do
     cart = reserve!(f)
     expire!(cart)
     sweeper = start_supervised!({MealPlannerApi.CartSweeper, name: nil, interval: 600_000})
-    Ecto.Adapters.SQL.Sandbox.allow(Repo, self(), sweeper)
+    Sandbox.allow(Repo, self(), sweeper)
     Phoenix.PubSub.subscribe(MealPlannerApi.PubSub, "shopping:#{f.account.id}")
     send(sweeper, :tick)
     _ = :sys.get_state(sweeper)

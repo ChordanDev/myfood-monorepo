@@ -409,15 +409,13 @@ defmodule MealPlannerApi.Optimization.OptimizerServer do
     combined = state.buffer <> raw
     cap = frame_max_bytes()
 
-    cond do
-      not String.contains?(combined, "\n") and byte_size(combined) > cap ->
-        overflow_reply(state)
+    if not String.contains?(combined, "\n") and byte_size(combined) > cap do
+      overflow_reply(state)
+    else
+      {frames, rest} = split_newlines(combined)
+      state = %{state | buffer: rest}
 
-      true ->
-        {frames, rest} = split_newlines(combined)
-        state = %{state | buffer: rest}
-
-        Enum.reduce(frames, state, &dispatch_frame/2)
+      Enum.reduce(frames, state, &dispatch_frame/2)
     end
   end
 

@@ -6,6 +6,7 @@ defmodule MealPlannerApiWeb.CookingControllerTest do
 
   alias MealPlannerApi.Auth.Guardian
   alias MealPlannerApi.Persistence.Catalog
+  alias MealPlannerApi.Persistence.Inventory.InventoryItem
   alias MealPlannerApi.Persistence.Planning
 
   # ─── Phase A — Tenancy Refactor (PR 3c task 3.16) ───────────────────────────
@@ -216,8 +217,8 @@ defmodule MealPlannerApiWeb.CookingControllerTest do
       })
 
     lot =
-      %MealPlannerApi.Persistence.Inventory.InventoryItem{}
-      |> MealPlannerApi.Persistence.Inventory.InventoryItem.changeset(%{
+      %InventoryItem{}
+      |> InventoryItem.changeset(%{
         account_id: account_id,
         ingredient_id: ingredient.id,
         quantity_milli: 1000,

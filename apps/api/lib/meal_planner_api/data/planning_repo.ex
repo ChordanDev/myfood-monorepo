@@ -653,8 +653,8 @@ defmodule MealPlannerApi.Data.PlanningRepo do
     end
   end
 
-  @spec is_slot_favorite?(Ecto.UUID.t(), Ecto.UUID.t(), Date.t(), String.t()) :: boolean()
-  def is_slot_favorite?(account_id, user_id, date, slot) do
+  @spec slot_favorite?(Ecto.UUID.t(), Ecto.UUID.t(), Date.t(), String.t()) :: boolean()
+  def slot_favorite?(account_id, user_id, date, slot) do
     Repo.exists?(
       from(sf in SlotFavorite,
         where:

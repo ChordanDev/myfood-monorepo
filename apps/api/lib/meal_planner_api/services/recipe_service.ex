@@ -7,6 +7,9 @@ defmodule MealPlannerApi.Services.RecipeService do
 
   alias MealPlannerApi.Data.RecipeRepo
   alias MealPlannerApi.Persistence.Identity
+  alias MealPlannerApi.Services.RecipeAccess
+  alias MealPlannerApi.Services.RecipeDetail
+  alias MealPlannerApi.Services.RecipeVersions
 
   # -------------------------------------------------------------------------
   # Recipe CRUD
@@ -31,13 +34,13 @@ defmodule MealPlannerApi.Services.RecipeService do
   @spec get_recipe(map(), String.t()) ::
           {:ok, map()} | {:error, :not_found | :subscription_required}
   def get_recipe(user, recipe_id) do
-    with {:ok, ids} <- MealPlannerApi.Services.RecipeAccess.authorize(user),
+    with {:ok, ids} <- RecipeAccess.authorize(user),
          {:ok, _} <- Ecto.UUID.cast(recipe_id),
          recipe when not is_nil(recipe) <-
            RecipeRepo.get_visible_recipe(ids.account_id, recipe_id),
          version when not is_nil(version) <-
-           MealPlannerApi.Services.RecipeVersions.freeze(recipe.id) do
-      {:ok, MealPlannerApi.Services.RecipeDetail.project(recipe, version)}
+           RecipeVersions.freeze(recipe.id) do
+      {:ok, RecipeDetail.project(recipe, version)}
     else
       {:error, reason} -> {:error, reason}
       _ -> {:error, :not_found}
@@ -115,10 +118,10 @@ defmodule MealPlannerApi.Services.RecipeService do
     end
   end
 
-  @spec is_favorite?(map(), String.t()) :: boolean()
-  def is_favorite?(user, recipe_id) do
+  @spec favorite?(map(), String.t()) :: boolean()
+  def favorite?(user, recipe_id) do
     case Identity.ensure_persistent_identity(user) do
-      {:ok, identity} -> RecipeRepo.is_favorite?(identity, recipe_id)
+      {:ok, identity} -> RecipeRepo.favorite?(identity, recipe_id)
       {:error, _} -> false
     end
   end

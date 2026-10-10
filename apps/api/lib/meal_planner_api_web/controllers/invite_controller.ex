@@ -11,6 +11,7 @@ defmodule MealPlannerApiWeb.InviteController do
   alias MealPlannerApi.AccountsMembership
   alias MealPlannerApi.Auth.Guardian
   alias MealPlannerApiWeb.Controllers.AccountScopeHelpers
+  alias MealPlannerApiWeb.Plugs.VerifyTokenType
 
   @doc """
   `POST /api/accounts/:account_id/invites` — owner-only. Body:
@@ -119,7 +120,7 @@ defmodule MealPlannerApiWeb.InviteController do
          "Bearer " <> raw_token <- header,
          {:ok, claims} <- Guardian.decode_and_verify(raw_token),
          true <-
-           Map.get(claims, "typ") in MealPlannerApiWeb.Plugs.VerifyTokenType.supported_typs(),
+           Map.get(claims, "typ") in VerifyTokenType.supported_typs(),
          {:ok, user} <- Guardian.resource_from_claims(claims) do
       {:ok, user}
     else
