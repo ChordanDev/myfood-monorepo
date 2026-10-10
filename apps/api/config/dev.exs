@@ -27,6 +27,12 @@ config :meal_planner_api, MealPlannerApiWeb.Endpoint,
       "dn65eHJgfhuUbcC/fmebcPK2uTb1QYEaDBc8rC9uhD6BZe7OMCGfy2BX4fnboii1",
   watchers: []
 
+# Development-only signing key for Guardian tokens. `config/test.exs` sets its
+# own and `config/runtime.exs` requires `GUARDIAN_SECRET_KEY` in production, so
+# no environment inherits a key from the shared config.
+config :meal_planner_api, MealPlannerApi.Auth.Guardian,
+  secret_key: "change_this_for_dev_only_guardian_secret"
+
 # OR-Tools optimizer (stdio Port) and v2 planning service URLs.
 # These are read with `Application.get_env(:meal_planner_api, key)`, so they
 # must live at the top level of the app config, not inside the Endpoint block.

@@ -119,7 +119,7 @@ defmodule MealPlannerApi.Integrations.PythonClient do
         {:ok, Enum.map(optimized_slots, &cast_optimized_slot/1)}
 
       {:ok, %{status: 200, body: %{"error" => reason}}} ->
-        {:error, String.to_atom(reason)}
+        {:error, error_reason(reason)}
 
       {:ok, %{status: 200, body: %{"status" => "no_valid_plan"}}} ->
         {:error, :no_valid_plan}
@@ -134,6 +134,13 @@ defmodule MealPlannerApi.Integrations.PythonClient do
         {:error, :unreachable}
     end
   end
+
+  # The optimizer reports errors as free-form strings. Only the reasons in the
+  # spec become atoms; anything else is treated as an unusable response, so a
+  # remote service can never grow the atom table.
+  defp error_reason("no_valid_plan"), do: :no_valid_plan
+  defp error_reason("timeout"), do: :timeout
+  defp error_reason(_), do: :unreachable
 
   @doc """
   Re-optimizes a single slot (after user modification).

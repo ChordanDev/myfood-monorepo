@@ -1,0 +1,16 @@
+[
+  verbose: false,
+  private: false,
+  skip: false,
+  router: "",
+  exit: "low",
+  format: "txt",
+  out: "",
+  threshold: "low",
+  # Config.HTTPS expects an `https:` endpoint key. TLS terminates at the Fly
+  # proxy and `config/prod.exs` enforces it with `force_ssl`, so the check is a
+  # false positive for this deployment.
+  ignore: ["Config.HTTPS"],
+  ignore_files: [],
+  version: false
+]
