@@ -111,41 +111,52 @@ defmodule MealPlannerApi.AI.GeminiClient do
   defp process_sse_buffer(topic, request_id, account_id, buffer) do
     case String.split(buffer, "\n\n", parts: 2) do
       [event, rest] ->
-        if String.starts_with?(event, "data: ") do
-          data_json = String.replace_prefix(event, "data: ", "")
-
-          if data_json != "[DONE]" do
-            case Jason.decode(data_json) do
-              {:ok, decoded} ->
-                case Map.fetch(decoded, "candidates") do
-                  {:ok, [first | _]} ->
-                    case get_in(first, ["content", "parts"]) do
-                      [%{"text" => text} | _] ->
-                        Endpoint.broadcast(topic, "ai_response_chunk", %{
-                          request_id: request_id,
-                          account_id: account_id,
-                          chunk: text,
-                          done: false
-                        })
-
-                      _ ->
-                        :ok
-                    end
-
-                  _ ->
-                    :ok
-                end
-
-              _ ->
-                :ok
-            end
-          end
-        end
-
+        broadcast_sse_event(topic, request_id, account_id, event)
         process_sse_buffer(topic, request_id, account_id, rest)
 
       [incomplete] ->
         incomplete
+    end
+  end
+
+  defp broadcast_sse_event(topic, request_id, account_id, event) do
+    if String.starts_with?(event, "data: ") do
+      data_json = String.replace_prefix(event, "data: ", "")
+
+      if data_json != "[DONE]" do
+        broadcast_sse_data(topic, request_id, account_id, data_json)
+      end
+    end
+  end
+
+  defp broadcast_sse_data(topic, request_id, account_id, data_json) do
+    case Jason.decode(data_json) do
+      {:ok, decoded} ->
+        broadcast_first_candidate(topic, request_id, account_id, decoded)
+
+      _ ->
+        :ok
+    end
+  end
+
+  defp broadcast_first_candidate(topic, request_id, account_id, decoded) do
+    case Map.fetch(decoded, "candidates") do
+      {:ok, [first | _]} ->
+        case get_in(first, ["content", "parts"]) do
+          [%{"text" => text} | _] ->
+            Endpoint.broadcast(topic, "ai_response_chunk", %{
+              request_id: request_id,
+              account_id: account_id,
+              chunk: text,
+              done: false
+            })
+
+          _ ->
+            :ok
+        end
+
+      _ ->
+        :ok
     end
   end
 

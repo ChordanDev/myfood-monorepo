@@ -187,16 +187,7 @@ defmodule MealPlannerApi.Persistence.Calendar do
              :ok <- validate_meal_account(account_id, meal_value(meal, :account_id)),
              :ok <- validate_meal_date(date, from_date, to_date),
              :ok <- validate_unique_slot(seen, date, slot) do
-          normalized_meal =
-            [:recipe_id, :is_cooked, :ai_generation_id, :selected_quantity]
-            |> Enum.reduce(%{}, fn key, acc ->
-              case meal_value(meal, key) do
-                nil -> acc
-                value -> Map.put(acc, key, value)
-              end
-            end)
-            |> Map.put(:date, date)
-            |> Map.put(:slot, slot)
+          normalized_meal = replacement_meal_attrs(meal, date, slot)
 
           {:cont, {:ok, MapSet.put(seen, {date, slot}), [normalized_meal | normalized]}}
         else
@@ -210,6 +201,18 @@ defmodule MealPlannerApi.Persistence.Calendar do
       {:ok, _seen, normalized} -> {:ok, Enum.reverse(normalized)}
       error -> error
     end
+  end
+
+  defp replacement_meal_attrs(meal, date, slot) do
+    [:recipe_id, :is_cooked, :ai_generation_id, :selected_quantity]
+    |> Enum.reduce(%{}, fn key, acc ->
+      case meal_value(meal, key) do
+        nil -> acc
+        value -> Map.put(acc, key, value)
+      end
+    end)
+    |> Map.put(:date, date)
+    |> Map.put(:slot, slot)
   end
 
   defp meal_value(meal, key), do: Map.get(meal, key, Map.get(meal, Atom.to_string(key)))

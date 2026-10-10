@@ -724,9 +724,13 @@ defmodule MealPlannerApiWeb.PlanningChannel do
         parse_iso_date(range_to)
 
       {range_to, count} ->
-        with {:ok, date_to} <- parse_iso_date(range_to) do
-          if date_to == day_count_end(date_from, count), do: {:ok, date_to}, else: invalid_range()
-        end
+        range_end_matching_count(date_from, range_to, count)
+    end
+  end
+
+  defp range_end_matching_count(date_from, range_to, count) do
+    with {:ok, date_to} <- parse_iso_date(range_to) do
+      if date_to == day_count_end(date_from, count), do: {:ok, date_to}, else: invalid_range()
     end
   end
 
@@ -765,19 +769,19 @@ defmodule MealPlannerApiWeb.PlanningChannel do
         {:ok, nil}
 
       text when is_binary(text) ->
-        case String.trim(text) do
-          "" ->
-            {:ok, nil}
-
-          trimmed ->
-            if String.length(trimmed) > @max_request_chars,
-              do: {:error, :invalid_payload},
-              else: {:ok, trimmed}
-        end
+        text |> String.trim() |> check_request_text()
 
       _not_text ->
         {:error, :invalid_payload}
     end
+  end
+
+  defp check_request_text(""), do: {:ok, nil}
+
+  defp check_request_text(trimmed) do
+    if String.length(trimmed) > @max_request_chars,
+      do: {:error, :invalid_payload},
+      else: {:ok, trimmed}
   end
 
   # What `Server.start_generation/4` is given: the dates of the session and,

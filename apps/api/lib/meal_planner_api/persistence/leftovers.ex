@@ -69,29 +69,34 @@ defmodule MealPlannerApi.Persistence.Leftovers do
   end
 
   defp mutate_open(account_id, id, changeset_fun) do
-    with {:ok, uuid} <- Ecto.UUID.cast(id) do
-      Repo.transaction(fn ->
-        query =
-          from(l in PreparedLeftover,
-            where:
-              l.id == ^uuid and l.account_id == ^account_id and is_nil(l.consumed_at) and
-                is_nil(l.discarded_at),
-            lock: "FOR UPDATE"
-          )
+    case Ecto.UUID.cast(id) do
+      {:ok, uuid} ->
+        Repo.transaction(fn -> update_open_leftover!(account_id, uuid, changeset_fun) end)
 
-        case Repo.one(query) do
-          nil ->
-            Repo.rollback(:not_found)
+      :error ->
+        {:error, :not_found}
+    end
+  end
 
-          leftover ->
-            case leftover |> changeset_fun.() |> Repo.update() do
-              {:ok, updated} -> updated
-              {:error, changeset} -> Repo.rollback(changeset)
-            end
+  # Runs inside the caller's transaction: it locks the row and rolls back.
+  defp update_open_leftover!(account_id, uuid, changeset_fun) do
+    query =
+      from(l in PreparedLeftover,
+        where:
+          l.id == ^uuid and l.account_id == ^account_id and is_nil(l.consumed_at) and
+            is_nil(l.discarded_at),
+        lock: "FOR UPDATE"
+      )
+
+    case Repo.one(query) do
+      nil ->
+        Repo.rollback(:not_found)
+
+      leftover ->
+        case leftover |> changeset_fun.() |> Repo.update() do
+          {:ok, updated} -> updated
+          {:error, changeset} -> Repo.rollback(changeset)
         end
-      end)
-    else
-      :error -> {:error, :not_found}
     end
   end
 end

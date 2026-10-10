@@ -352,28 +352,32 @@ defmodule MealPlannerApi.Generation.PlanningSessionServer do
 
       _ ->
         # Abnormal exit — owner crashed. Transition row + broadcast.
-        if state.status == :active do
-          case PlanningRepo.mark_lost_lock(state.account_id, state.session_id) do
-            {:ok, _lost} ->
-              broadcast(
-                state.account_id,
-                "session_lost_lock",
-                %{"session_id" => state.session_id}
-              )
-
-              {:noreply, %{state | status: :lost_lock}}
-
-            {:error, _} ->
-              {:noreply, state}
-          end
-        else
-          {:noreply, state}
-        end
+        handle_owner_crash(state)
     end
   end
 
   @impl true
   def handle_info(_msg, state), do: {:noreply, state}
+
+  defp handle_owner_crash(state) do
+    if state.status == :active do
+      case PlanningRepo.mark_lost_lock(state.account_id, state.session_id) do
+        {:ok, _lost} ->
+          broadcast(
+            state.account_id,
+            "session_lost_lock",
+            %{"session_id" => state.session_id}
+          )
+
+          {:noreply, %{state | status: :lost_lock}}
+
+        {:error, _} ->
+          {:noreply, state}
+      end
+    else
+      {:noreply, state}
+    end
+  end
 
   @impl true
   def terminate(_reason, _state), do: :ok

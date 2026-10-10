@@ -122,26 +122,30 @@ defmodule MealPlannerApi.Services.EmailCodeLogin do
           | {:error, :rate_limited, pos_integer()}
   def issue_code(email, client_ip, flow, admit) do
     Repo.transaction(
-      fn ->
-        lock_email(email)
-        now = DateTime.utc_now()
-
-        with {:ok, user} <- admit.(email, client_ip),
-             :ok <- check_resend_cooldown(email, now),
-             :ok <- EmailCodeAuth.reserve_request_slots(email, client_ip) do
-          code = EmailCodeAuth.mint_code()
-          consume_pending_codes(email, flow, now)
-          insert_code!(user, email, code, now)
-
-          case deliver(code_email(user, email, code), flow) do
-            :ok -> {:ok, code_sent()}
-            :error -> Repo.rollback(:code_send_failed)
-          end
-        end
-      end,
+      fn -> issue_code_under_lock(email, client_ip, flow, admit) end,
       timeout: :timer.seconds(5)
     )
     |> unwrap_transaction()
+  end
+
+  # Runs inside the caller's transaction: it takes the email lock and may
+  # roll back.
+  defp issue_code_under_lock(email, client_ip, flow, admit) do
+    lock_email(email)
+    now = DateTime.utc_now()
+
+    with {:ok, user} <- admit.(email, client_ip),
+         :ok <- check_resend_cooldown(email, now),
+         :ok <- EmailCodeAuth.reserve_request_slots(email, client_ip) do
+      code = EmailCodeAuth.mint_code()
+      consume_pending_codes(email, flow, now)
+      insert_code!(user, email, code, now)
+
+      case deliver(code_email(user, email, code), flow) do
+        :ok -> {:ok, code_sent()}
+        :error -> Repo.rollback(:code_send_failed)
+      end
+    end
   end
 
   defp code_sent do

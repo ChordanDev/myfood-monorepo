@@ -435,25 +435,8 @@ defmodule MealPlannerApi.Services.CookingService do
     voice_mode = if content_type == "speech_transcript", do: "si", else: "no"
     recipe_name = (recipe && recipe.name) || "receta sin nombre"
 
-    steps_text =
-      if recipe && recipe.recipe_steps do
-        recipe.recipe_steps
-        |> Enum.sort_by(& &1.step_number)
-        |> Enum.map_join("\n", fn step -> "#{step.step_number}. #{step.instructions}" end)
-      else
-        "Sin pasos disponibles"
-      end
-
-    ingredients_text =
-      if recipe && recipe.recipe_ingredients do
-        recipe.recipe_ingredients
-        |> Enum.map_join("\n", fn ri ->
-          name = (ri.ingredient && ri.ingredient.name) || "ingrediente"
-          "- #{name}: #{ri.quantity_milli} #{ri.unit}"
-        end)
-      else
-        "Sin ingredientes disponibles"
-      end
+    steps_text = prompt_steps_text(recipe)
+    ingredients_text = prompt_ingredients_text(recipe)
 
     """
     Eres el asistente culinario de MyFood.
@@ -471,6 +454,28 @@ defmodule MealPlannerApi.Services.CookingService do
     Da una respuesta breve, accionable y segura para cocina.
     Si falta informacion, dilo sin inventar.
     """
+  end
+
+  defp prompt_steps_text(recipe) do
+    if recipe && recipe.recipe_steps do
+      recipe.recipe_steps
+      |> Enum.sort_by(& &1.step_number)
+      |> Enum.map_join("\n", fn step -> "#{step.step_number}. #{step.instructions}" end)
+    else
+      "Sin pasos disponibles"
+    end
+  end
+
+  defp prompt_ingredients_text(recipe) do
+    if recipe && recipe.recipe_ingredients do
+      recipe.recipe_ingredients
+      |> Enum.map_join("\n", fn ri ->
+        name = (ri.ingredient && ri.ingredient.name) || "ingrediente"
+        "- #{name}: #{ri.quantity_milli} #{ri.unit}"
+      end)
+    else
+      "Sin ingredientes disponibles"
+    end
   end
 
   defp fallback_answer(question, content_type, recipe_name, step_text) do
@@ -509,18 +514,8 @@ defmodule MealPlannerApi.Services.CookingService do
   # -------------------------------------------------------------------------
 
   defp serialize_session_payload(session, latest_snapshot) do
-    scheduled_meal =
-      case session.scheduled_meal do
-        %Ecto.Association.NotLoaded{} -> nil
-        sm -> sm
-      end
-
-    recipe =
-      scheduled_meal &&
-        case RecipeVersions.recipe_for_meal(scheduled_meal) do
-          %Ecto.Association.NotLoaded{} -> nil
-          r -> r
-        end
+    scheduled_meal = loaded_scheduled_meal(session)
+    recipe = loaded_recipe(scheduled_meal)
 
     %{
       session_id: session.id,
@@ -528,31 +523,52 @@ defmodule MealPlannerApi.Services.CookingService do
       recipe_version_id: scheduled_meal && scheduled_meal.recipe_version_id,
       selected_quantity: scheduled_meal && scheduled_meal.selected_quantity,
       status: Atom.to_string(session.status),
-      slot:
-        (scheduled_meal &&
-           case scheduled_meal.slot do
-             nil -> "unknown"
-             atom when is_atom(atom) -> Atom.to_string(atom)
-             string when is_binary(string) -> string
-             _ -> "unknown"
-           end) || "unknown",
-      recipe:
-        if recipe do
-          %{
-            id: recipe.id,
-            name: recipe.name,
-            steps: serialize_steps(recipe.recipe_steps),
-            ingredients: serialize_ingredients(recipe.recipe_ingredients)
-          }
-        else
-          %{id: nil, name: nil, steps: [], ingredients: []}
-        end,
+      slot: serialize_slot(scheduled_meal),
+      recipe: serialize_recipe(recipe),
       snapshot:
         (latest_snapshot && latest_snapshot.snapshot_data) ||
           session.context_snapshot ||
           %{},
       chat_messages: []
     }
+  end
+
+  defp loaded_scheduled_meal(session) do
+    case session.scheduled_meal do
+      %Ecto.Association.NotLoaded{} -> nil
+      sm -> sm
+    end
+  end
+
+  defp loaded_recipe(scheduled_meal) do
+    scheduled_meal &&
+      case RecipeVersions.recipe_for_meal(scheduled_meal) do
+        %Ecto.Association.NotLoaded{} -> nil
+        r -> r
+      end
+  end
+
+  defp serialize_slot(scheduled_meal) do
+    (scheduled_meal &&
+       case scheduled_meal.slot do
+         nil -> "unknown"
+         atom when is_atom(atom) -> Atom.to_string(atom)
+         string when is_binary(string) -> string
+         _ -> "unknown"
+       end) || "unknown"
+  end
+
+  defp serialize_recipe(recipe) do
+    if recipe do
+      %{
+        id: recipe.id,
+        name: recipe.name,
+        steps: serialize_steps(recipe.recipe_steps),
+        ingredients: serialize_ingredients(recipe.recipe_ingredients)
+      }
+    else
+      %{id: nil, name: nil, steps: [], ingredients: []}
+    end
   end
 
   defp serialize_steps(nil), do: []

@@ -76,22 +76,24 @@ defmodule MealPlannerApi.Inventory do
     query
     |> exclude_scheduled_meals_in_range(exclude_range)
     |> Repo.all()
-    |> Enum.reduce(%{}, fn meal, acc ->
-      case RecipeVersions.recipe_for_meal(meal) do
-        %{recipe_ingredients: ingredients} ->
-          Enum.reduce(ingredients, acc, fn item, totals ->
-            Map.update(
-              totals,
-              {item.ingredient_id, item.unit},
-              item.quantity_milli,
-              &(&1 + item.quantity_milli)
-            )
-          end)
+    |> Enum.reduce(%{}, &add_meal_reservations/2)
+  end
 
-        _ ->
-          acc
-      end
-    end)
+  defp add_meal_reservations(meal, acc) do
+    case RecipeVersions.recipe_for_meal(meal) do
+      %{recipe_ingredients: ingredients} ->
+        Enum.reduce(ingredients, acc, fn item, totals ->
+          Map.update(
+            totals,
+            {item.ingredient_id, item.unit},
+            item.quantity_milli,
+            &(&1 + item.quantity_milli)
+          )
+        end)
+
+      _ ->
+        acc
+    end
   end
 
   defp exclude_scheduled_meals_in_range(query, {%Date{} = range_from, %Date{} = range_to}) do

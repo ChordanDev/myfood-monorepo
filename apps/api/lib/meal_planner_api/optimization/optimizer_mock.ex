@@ -34,54 +34,42 @@ defmodule MealPlannerApi.Optimization.OptimizerMock do
 
   defp build_mock_meals(days, candidates_by_slot, slots) do
     Enum.flat_map(days, fn day ->
-      Enum.map(slots, fn slot ->
-        slot_str = to_string(slot)
-
-        first =
-          candidates_by_slot |> candidates_for_slot(slot_str) |> List.first() |> stringify_keys()
-
-        Map.merge(first || %{}, %{
-          "day" => day,
-          "slot" => slot_str,
-          "recipe_id" => (first && first["recipe_id"]) || "mock-recipe-#{slot_str}"
-        })
-        |> Map.put_new(
-          "estimated_cost_cents",
-          if first && is_map(first) do
-            # Use price_per_serving_cents if available, else generate mock
-            # based on slot (breakfast = 3200 to match test expectations)
-            case first["price_per_serving_cents"] do
-              nil ->
-                case slot_str do
-                  "breakfast" -> 3200
-                  "lunch" -> 2200
-                  "dinner" -> 2800
-                  _ -> 0
-                end
-
-              0 ->
-                case slot_str do
-                  "breakfast" -> 3200
-                  "lunch" -> 2200
-                  "dinner" -> 2800
-                  _ -> 0
-                end
-
-              val ->
-                val
-            end
-          else
-            case slot_str do
-              "breakfast" -> 3200
-              "lunch" -> 2200
-              "dinner" -> 2800
-              _ -> 0
-            end
-          end
-        )
-      end)
+      Enum.map(slots, &build_mock_meal(day, &1, candidates_by_slot))
     end)
   end
+
+  defp build_mock_meal(day, slot, candidates_by_slot) do
+    slot_str = to_string(slot)
+
+    first =
+      candidates_by_slot |> candidates_for_slot(slot_str) |> List.first() |> stringify_keys()
+
+    Map.merge(first || %{}, %{
+      "day" => day,
+      "slot" => slot_str,
+      "recipe_id" => (first && first["recipe_id"]) || "mock-recipe-#{slot_str}"
+    })
+    |> Map.put_new("estimated_cost_cents", mock_cost_cents(first, slot_str))
+  end
+
+  # Use price_per_serving_cents if available, else generate mock
+  # based on slot (breakfast = 3200 to match test expectations)
+  defp mock_cost_cents(first, slot_str) do
+    if first && is_map(first) do
+      case first["price_per_serving_cents"] do
+        nil -> default_slot_cost_cents(slot_str)
+        0 -> default_slot_cost_cents(slot_str)
+        val -> val
+      end
+    else
+      default_slot_cost_cents(slot_str)
+    end
+  end
+
+  defp default_slot_cost_cents("breakfast"), do: 3200
+  defp default_slot_cost_cents("lunch"), do: 2200
+  defp default_slot_cost_cents("dinner"), do: 2800
+  defp default_slot_cost_cents(_slot), do: 0
 
   defp candidates_for_slot(candidates_by_slot, slot_name) do
     Map.get(candidates_by_slot, slot_name) ||

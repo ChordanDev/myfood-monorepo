@@ -182,30 +182,32 @@ defmodule MealPlannerApi.Services.PlanningChatService do
           |> Enum.uniq()
 
         day_meals
-        |> Enum.map(fn meal ->
-          # Handle both string-keyed ("slot") and atom-keyed (:slot) maps
-          slot = Map.get(meal, "slot") || Map.get(meal, :slot)
-          recipe_id = Map.get(meal, "recipe_id") || Map.get(meal, :recipe_id)
-
-          cond do
-            not is_binary(slot) ->
-              nil
-
-            not is_binary(recipe_id) ->
-              nil
-
-            true ->
-              %{
-                date: Date.to_iso8601(date),
-                slot: slot,
-                recipe_id: recipe_id
-              }
-          end
-        end)
+        |> Enum.map(&scheduled_meal_entry(&1, date))
         |> Enum.reject(&is_nil/1)
       end)
 
     if meals == [], do: {:ok, []}, else: {:ok, meals}
+  end
+
+  defp scheduled_meal_entry(meal, date) do
+    # Handle both string-keyed ("slot") and atom-keyed (:slot) maps
+    slot = Map.get(meal, "slot") || Map.get(meal, :slot)
+    recipe_id = Map.get(meal, "recipe_id") || Map.get(meal, :recipe_id)
+
+    cond do
+      not is_binary(slot) ->
+        nil
+
+      not is_binary(recipe_id) ->
+        nil
+
+      true ->
+        %{
+          date: Date.to_iso8601(date),
+          slot: slot,
+          recipe_id: recipe_id
+        }
+    end
   end
 
   # -------------------------------------------------------------------------

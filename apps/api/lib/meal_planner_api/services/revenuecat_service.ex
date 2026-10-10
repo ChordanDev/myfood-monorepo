@@ -228,23 +228,27 @@ defmodule MealPlannerApi.Services.RevenuecatService do
 
     case Repo.get_by(RevenuecatWebhookEvent, event_id: event.event_id) do
       nil ->
-        case Accounts.create_revenuecat_webhook_event(attrs) do
-          {:ok, entry} ->
-            {:ok, entry}
-
-          {:error, %Ecto.Changeset{} = changeset} ->
-            if unique_violation?(changeset) do
-              recover_racing_insert(event)
-            else
-              {:error, changeset}
-            end
-        end
+        insert_ledger_entry(event, attrs)
 
       %RevenuecatWebhookEvent{status: status} when status in [:processed, :ignored] ->
         {:duplicate, status}
 
       existing ->
         Accounts.update_revenuecat_webhook_event(existing, attrs)
+    end
+  end
+
+  defp insert_ledger_entry(event, attrs) do
+    case Accounts.create_revenuecat_webhook_event(attrs) do
+      {:ok, entry} ->
+        {:ok, entry}
+
+      {:error, %Ecto.Changeset{} = changeset} ->
+        if unique_violation?(changeset) do
+          recover_racing_insert(event)
+        else
+          {:error, changeset}
+        end
     end
   end
 

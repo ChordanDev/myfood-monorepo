@@ -111,15 +111,17 @@ defmodule MealPlannerApi.Persistence.Accounts do
   """
   def replace_user_slot_cooking_times(user_id, times) when is_map(times) do
     Repo.transaction(fn ->
-      Enum.map(UserSlotCookingTime.slots(), fn slot ->
-        attrs = times |> Map.get(slot, %{}) |> Map.merge(%{user_id: user_id, slot: slot})
-
-        case upsert_user_slot_cooking_time(attrs) do
-          {:ok, slot_cooking_time} -> slot_cooking_time
-          {:error, changeset} -> Repo.rollback(changeset)
-        end
-      end)
+      Enum.map(UserSlotCookingTime.slots(), &replace_slot_cooking_time!(user_id, times, &1))
     end)
+  end
+
+  defp replace_slot_cooking_time!(user_id, times, slot) do
+    attrs = times |> Map.get(slot, %{}) |> Map.merge(%{user_id: user_id, slot: slot})
+
+    case upsert_user_slot_cooking_time(attrs) do
+      {:ok, slot_cooking_time} -> slot_cooking_time
+      {:error, changeset} -> Repo.rollback(changeset)
+    end
   end
 
   # `returning: true` reads the row back, so a replaced row keeps the id and

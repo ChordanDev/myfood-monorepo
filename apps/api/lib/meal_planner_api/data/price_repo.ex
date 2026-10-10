@@ -116,23 +116,7 @@ defmodule MealPlannerApi.Data.PriceRepo do
   defp compute_single_recipe_price(recipe) do
     ingredient_entries = recipe.recipe_ingredients
 
-    prices =
-      Enum.map(ingredient_entries, fn ri ->
-        case ri.ingredient do
-          %{id: ingredient_id, quantity: quantity, unit: unit} when not is_nil(ingredient_id) ->
-            price =
-              get_ingredient_price_for_quantity(ingredient_id, quantity, unit)
-              |> case do
-                nil -> :missing
-                p -> p
-              end
-
-            {ri.id, price}
-
-          _ ->
-            {ri.id, :missing}
-        end
-      end)
+    prices = Enum.map(ingredient_entries, &ingredient_price_entry/1)
 
     if Enum.any?(prices, fn {_, p} -> p == :missing end) do
       {:error, :missing_ingredient_price}
@@ -155,6 +139,23 @@ defmodule MealPlannerApi.Data.PriceRepo do
         on_conflict: {:replace, [:price_per_serving_cents, :last_calculated_at]},
         conflict_target: :recipe_id
       )
+    end
+  end
+
+  defp ingredient_price_entry(ri) do
+    case ri.ingredient do
+      %{id: ingredient_id, quantity: quantity, unit: unit} when not is_nil(ingredient_id) ->
+        price =
+          get_ingredient_price_for_quantity(ingredient_id, quantity, unit)
+          |> case do
+            nil -> :missing
+            p -> p
+          end
+
+        {ri.id, price}
+
+      _ ->
+        {ri.id, :missing}
     end
   end
 

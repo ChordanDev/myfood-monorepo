@@ -449,29 +449,33 @@ defmodule MealPlannerApi.Services.EmailCodeAuth do
 
     with :ok <- assert_exchange_principal(principal) do
       Repo.transaction(
-        fn ->
-          SQL.query!(Repo, "SELECT pg_advisory_xact_lock($1)", [
-            continuation_lock_key(hash)
-          ])
-
-          with {:ok, row} <- lookup_continuation_for_exchange(hash),
-               :ok <- assert_continuation_unconsumed(row),
-               :ok <- assert_continuation_unexpired(row),
-               :ok <- assert_continuation_bearer(principal, row),
-               :ok <- assert_continuation_set(row, target_membership_id),
-               {:ok, switch_payload} <- delegate_to_switch(row.user_id, target_membership_id),
-               {:ok, access_token} <- mint_exchange_token(switch_payload) do
-            consume_continuation(row)
-
-            {:ok,
-             Map.merge(switch_payload, %{
-               access_token: access_token
-             })}
-          end
-        end,
+        fn -> exchange_under_lock(hash, principal, target_membership_id) end,
         timeout: :timer.seconds(5)
       )
       |> normalize_exchange_tx_result()
+    end
+  end
+
+  # Runs inside the caller's transaction: the advisory lock is held until it
+  # ends.
+  defp exchange_under_lock(hash, principal, target_membership_id) do
+    SQL.query!(Repo, "SELECT pg_advisory_xact_lock($1)", [
+      continuation_lock_key(hash)
+    ])
+
+    with {:ok, row} <- lookup_continuation_for_exchange(hash),
+         :ok <- assert_continuation_unconsumed(row),
+         :ok <- assert_continuation_unexpired(row),
+         :ok <- assert_continuation_bearer(principal, row),
+         :ok <- assert_continuation_set(row, target_membership_id),
+         {:ok, switch_payload} <- delegate_to_switch(row.user_id, target_membership_id),
+         {:ok, access_token} <- mint_exchange_token(switch_payload) do
+      consume_continuation(row)
+
+      {:ok,
+       Map.merge(switch_payload, %{
+         access_token: access_token
+       })}
     end
   end
 

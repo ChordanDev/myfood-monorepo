@@ -270,20 +270,7 @@ defmodule MealPlannerApi.CartConcurrencyTest do
 
     tasks =
       Enum.map(commands, fn command ->
-        Task.Supervisor.async_nolink(supervisor, fn ->
-          Repo.put_dynamic_repo(f.repo)
-
-          Repo.checkout(fn ->
-            %{rows: [[pid]]} = Repo.query!("SELECT pg_backend_pid()")
-            send(parent, {:ready, self(), pid})
-
-            receive do
-              :go -> command.()
-            after
-              5000 -> raise "cart concurrency barrier timed out"
-            end
-          end)
-        end)
+        Task.Supervisor.async_nolink(supervisor, fn -> run_behind_barrier(f, parent, command) end)
       end)
 
     ready =
@@ -295,6 +282,22 @@ defmodule MealPlannerApi.CartConcurrencyTest do
     assert length(Enum.uniq(Enum.map(ready, &elem(&1, 1)))) == 2
     Enum.each(ready, fn {worker, _} -> send(worker, :go) end)
     Enum.map(tasks, &Task.await(&1, 12_000))
+  end
+
+  # Runs in the worker task: it reports its connection, then waits for `:go`.
+  defp run_behind_barrier(f, parent, command) do
+    Repo.put_dynamic_repo(f.repo)
+
+    Repo.checkout(fn ->
+      %{rows: [[pid]]} = Repo.query!("SELECT pg_backend_pid()")
+      send(parent, {:ready, self(), pid})
+
+      receive do
+        :go -> command.()
+      after
+        5000 -> raise "cart concurrency barrier timed out"
+      end
+    end)
   end
 
   defp migration_snapshot do

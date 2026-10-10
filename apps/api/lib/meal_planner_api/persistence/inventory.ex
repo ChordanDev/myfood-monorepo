@@ -152,25 +152,7 @@ defmodule MealPlannerApi.Persistence.Inventory do
       lots = lock_usable_lots(Repo, mutation, today)
 
       {states, events, remaining} =
-        Enum.reduce_while(lots, {[], [], requested}, fn lot, {states, events, remaining} ->
-          if remaining == 0 do
-            {:halt, {states, events, remaining}}
-          else
-            applied = min(lot.quantity_milli, remaining)
-            after_qty = lot.quantity_milli - applied
-            updated = update_quantity!(Repo, lot, after_qty)
-
-            state = %{
-              item: updated,
-              before_qty: lot.quantity_milli,
-              after_qty: after_qty,
-              delta: -applied
-            }
-
-            event = insert_event!(Repo, state, mutation, :subtract)
-            {:cont, {[state | states], [event | events], remaining - applied}}
-          end
-        end)
+        Enum.reduce_while(lots, {[], [], requested}, &subtract_from_lot(&1, &2, mutation))
 
       states = Enum.reverse(states)
       events = Enum.reverse(events)
@@ -187,6 +169,27 @@ defmodule MealPlannerApi.Persistence.Inventory do
       }
     end)
     |> unwrap_transaction()
+  end
+
+  # Runs inside the caller's transaction, once per locked lot.
+  defp subtract_from_lot(lot, {states, events, remaining}, mutation) do
+    if remaining == 0 do
+      {:halt, {states, events, remaining}}
+    else
+      applied = min(lot.quantity_milli, remaining)
+      after_qty = lot.quantity_milli - applied
+      updated = update_quantity!(Repo, lot, after_qty)
+
+      state = %{
+        item: updated,
+        before_qty: lot.quantity_milli,
+        after_qty: after_qty,
+        delta: -applied
+      }
+
+      event = insert_event!(Repo, state, mutation, :subtract)
+      {:cont, {[state | states], [event | events], remaining - applied}}
+    end
   end
 
   defp apply_single_lot_and_log(mutation) do

@@ -63,11 +63,11 @@ defmodule MealPlannerApiWeb.PlanningController do
   # shared `MealSummary`. Candidates know neither favorites nor prep time, so
   # `is_favorite` is false and `prep_time_minutes` is nil here.
   defp serialize_weekly(plan) do
-    Map.update!(plan, :days, fn days ->
-      Enum.map(days, fn day ->
-        Map.update!(day, :meals, &Enum.map(&1, fn m -> weekly_meal(m) end))
-      end)
-    end)
+    Map.update!(plan, :days, fn days -> Enum.map(days, &serialize_weekly_day/1) end)
+  end
+
+  defp serialize_weekly_day(day) do
+    Map.update!(day, :meals, &Enum.map(&1, fn m -> weekly_meal(m) end))
   end
 
   defp weekly_meal(meal) do

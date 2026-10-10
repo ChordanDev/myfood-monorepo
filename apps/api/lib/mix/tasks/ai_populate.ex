@@ -122,59 +122,18 @@ defmodule Mix.Tasks.AiPopulate do
       Mix.raise("No hay categorias para procesar. Revisa --only-category")
     end
 
+    settings = %{
+      dry_run: dry_run,
+      sleep_ms: sleep_ms,
+      per_topic: per_topic,
+      max_topics: max_topics
+    }
+
     stats =
       selected_categories
       |> Enum.reduce(
         %{topics: 0, requested: 0, upserts_ok: 0, upserts_error: 0, ai_errors: 0},
-        fn {db_cat, topics}, acc ->
-          Logger.info("\\n[AI Populate] Categoria: #{db_cat}")
-
-          topics
-          |> maybe_take(max_topics)
-          |> Enum.reduce(acc, fn topic, local_acc ->
-            Logger.info("[AI Populate] Topic: #{topic}")
-
-            case ask_ai_for_ingredients(db_cat, topic, per_topic) do
-              {:ok, raw_text} ->
-                case decode_ingredients(raw_text) do
-                  {:ok, items} ->
-                    {ok_count, err_count} = save_to_db(items, db_cat, dry_run)
-
-                    Process.sleep(sleep_ms)
-
-                    %{
-                      local_acc
-                      | topics: local_acc.topics + 1,
-                        requested: local_acc.requested + length(items),
-                        upserts_ok: local_acc.upserts_ok + ok_count,
-                        upserts_error: local_acc.upserts_error + err_count
-                    }
-
-                  {:error, reason} ->
-                    Logger.error(
-                      "[AI Populate] JSON invalido para topic='#{topic}' error=#{inspect(reason)}"
-                    )
-
-                    %{
-                      local_acc
-                      | topics: local_acc.topics + 1,
-                        ai_errors: local_acc.ai_errors + 1
-                    }
-                end
-
-              {:error, reason} ->
-                Logger.error(
-                  "[AI Populate] Error IA en topic='#{topic}' error=#{inspect(reason)}"
-                )
-
-                %{
-                  local_acc
-                  | topics: local_acc.topics + 1,
-                    ai_errors: local_acc.ai_errors + 1
-                }
-            end
-          end)
-        end
+        &populate_category(&1, &2, settings)
       )
 
     Logger.info("\\n[AI Populate] Finalizado")
@@ -184,6 +143,58 @@ defmodule Mix.Tasks.AiPopulate do
     Logger.info("  Upserts error: #{stats.upserts_error}")
     Logger.info("  Errores IA/JSON: #{stats.ai_errors}")
     Logger.info("  Modo dry-run: #{dry_run}")
+  end
+
+  defp populate_category({db_cat, topics}, acc, settings) do
+    Logger.info("\\n[AI Populate] Categoria: #{db_cat}")
+
+    topics
+    |> maybe_take(settings.max_topics)
+    |> Enum.reduce(acc, &populate_topic(&1, &2, db_cat, settings))
+  end
+
+  defp populate_topic(topic, local_acc, db_cat, settings) do
+    Logger.info("[AI Populate] Topic: #{topic}")
+
+    case ask_ai_for_ingredients(db_cat, topic, settings.per_topic) do
+      {:ok, raw_text} ->
+        save_topic_ingredients(raw_text, topic, local_acc, db_cat, settings)
+
+      {:error, reason} ->
+        Logger.error("[AI Populate] Error IA en topic='#{topic}' error=#{inspect(reason)}")
+
+        %{
+          local_acc
+          | topics: local_acc.topics + 1,
+            ai_errors: local_acc.ai_errors + 1
+        }
+    end
+  end
+
+  defp save_topic_ingredients(raw_text, topic, local_acc, db_cat, settings) do
+    case decode_ingredients(raw_text) do
+      {:ok, items} ->
+        {ok_count, err_count} = save_to_db(items, db_cat, settings.dry_run)
+
+        Process.sleep(settings.sleep_ms)
+
+        %{
+          local_acc
+          | topics: local_acc.topics + 1,
+            requested: local_acc.requested + length(items),
+            upserts_ok: local_acc.upserts_ok + ok_count,
+            upserts_error: local_acc.upserts_error + err_count
+        }
+
+      {:error, reason} ->
+        Logger.error("[AI Populate] JSON invalido para topic='#{topic}' error=#{inspect(reason)}")
+
+        %{
+          local_acc
+          | topics: local_acc.topics + 1,
+            ai_errors: local_acc.ai_errors + 1
+        }
+    end
   end
 
   defp save_to_db(items, db_category, true) do
@@ -292,12 +303,13 @@ defmodule Mix.Tasks.AiPopulate do
          "fat_g_per_100" => fat
        }) do
     is_binary(name) and name != "" and is_integer(cals) and cals >= 0 and
-      is_number(protein) and protein >= 0 and
-      is_number(carbs) and carbs >= 0 and
-      is_number(fat) and fat >= 0
+      non_negative_number?(protein) and non_negative_number?(carbs) and
+      non_negative_number?(fat)
   end
 
   defp valid_item?(_), do: false
+
+  defp non_negative_number?(value), do: is_number(value) and value >= 0
 
   defp sanitize_name(value) when is_binary(value),
     do: value |> String.trim() |> String.slice(0, 120)

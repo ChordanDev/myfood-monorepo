@@ -196,30 +196,7 @@ defmodule MealPlannerApi.Services.CookingAtomicityTest do
     workers =
       Enum.map(session_ids, fn session_id ->
         Task.Supervisor.async_nolink(supervisor, fn ->
-          Repo.put_dynamic_repo(f.repo)
-
-          Repo.transaction(fn ->
-            %{rows: [[pid]]} = Repo.query!("SELECT pg_backend_pid()")
-            send(parent, {:ready, self(), pid})
-
-            receive do
-              :finish ->
-                result = CookingService.finish_session(f.actor, session_id)
-                send(parent, {:finished, self(), result})
-
-                if match?({:ok, %{inventory_mutations: [_, _]}}, result) do
-                  assert %{rows: [[2]]} =
-                           Repo.query!("""
-                           SELECT count(*) FROM pg_locks
-                           WHERE pid = pg_backend_pid() AND locktype = 'advisory' AND granted
-                           """)
-                end
-
-                result
-            after
-              5_000 -> Repo.rollback(:barrier_timeout)
-            end
-          end)
+          finish_behind_barrier(f, parent, session_id)
         end)
       end)
 
@@ -242,6 +219,38 @@ defmodule MealPlannerApi.Services.CookingAtomicityTest do
 
     Enum.each(workers, &Task.await(&1, 12_000))
     results
+  end
+
+  # Runs in the worker task: it reports its connection, then waits for
+  # `:finish` inside the barrier transaction.
+  defp finish_behind_barrier(f, parent, session_id) do
+    Repo.put_dynamic_repo(f.repo)
+
+    Repo.transaction(fn ->
+      %{rows: [[pid]]} = Repo.query!("SELECT pg_backend_pid()")
+      send(parent, {:ready, self(), pid})
+
+      receive do
+        :finish -> finish_and_report(f, parent, session_id)
+      after
+        5_000 -> Repo.rollback(:barrier_timeout)
+      end
+    end)
+  end
+
+  defp finish_and_report(f, parent, session_id) do
+    result = CookingService.finish_session(f.actor, session_id)
+    send(parent, {:finished, self(), result})
+
+    if match?({:ok, %{inventory_mutations: [_, _]}}, result) do
+      assert %{rows: [[2]]} =
+               Repo.query!("""
+               SELECT count(*) FROM pg_locks
+               WHERE pid = pg_backend_pid() AND locktype = 'advisory' AND granted
+               """)
+    end
+
+    result
   end
 
   defp finish(f), do: CookingService.finish_session(f.actor, f.session.id)

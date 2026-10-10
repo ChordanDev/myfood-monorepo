@@ -66,22 +66,28 @@ defmodule MealPlannerApi.Optimization.OptimizerFallback do
   end
 
   defp choose_meals(days, slots, candidates_by_slot) do
-    Enum.reduce_while(for(day <- days, slot <- slots, do: {day, slot}), {:ok, []}, fn {day, slot},
-                                                                                      {:ok, meals} ->
-      case candidates_by_slot
-           |> Map.get(slot, [])
-           |> reject_invalid()
-           |> Enum.min_by(& &1["estimated_cost_cents"], fn -> nil end) do
-        nil ->
-          {:halt, {:error, :no_recipe_for_slot}}
+    pairs = for day <- days, slot <- slots, do: {day, slot}
 
-        candidate ->
-          {:cont, {:ok, [candidate |> Map.put("day", day) |> Map.put("slot", slot) | meals]}}
-      end
+    pairs
+    |> Enum.reduce_while({:ok, []}, fn {day, slot}, {:ok, meals} ->
+      choose_meal(day, slot, candidates_by_slot, meals)
     end)
     |> case do
       {:ok, meals} -> {:ok, Enum.reverse(meals)}
       error -> error
+    end
+  end
+
+  defp choose_meal(day, slot, candidates_by_slot, meals) do
+    case candidates_by_slot
+         |> Map.get(slot, [])
+         |> reject_invalid()
+         |> Enum.min_by(& &1["estimated_cost_cents"], fn -> nil end) do
+      nil ->
+        {:halt, {:error, :no_recipe_for_slot}}
+
+      candidate ->
+        {:cont, {:ok, [candidate |> Map.put("day", day) |> Map.put("slot", slot) | meals]}}
     end
   end
 end
