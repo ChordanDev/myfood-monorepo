@@ -128,6 +128,9 @@ defmodule MealPlannerApiWeb.ApiError do
           | :cooking_already_finished
           | :cooking_chat_unavailable
           | :inventory_mutation_failed
+          | :cart_locked
+          | :stale_cart
+          | :cart_not_found
           | :voice_parse_failed
           | :voice_confirmation_required
           | :prepared_leftover_not_found
@@ -195,6 +198,12 @@ defmodule MealPlannerApiWeb.ApiError do
     # Voice adjustment of Inventory (issue #44).
     voice_parse_failed: {422, "The spoken adjustment could not be understood."},
     voice_confirmation_required: {422, "This adjustment needs the User's confirmation first."},
+    # Cart lease (issue #41). `cart_locked`: the items are held in another
+    # Membership's live Cart. `stale_cart`: the lease ran out. A Cart of
+    # another Membership or an unknown one share `cart_not_found`.
+    cart_locked: {409, "These items are held in another member's cart."},
+    stale_cart: {409, "This cart has expired."},
+    cart_not_found: {404, "The cart was not found."},
     # Prepared leftovers (issue #45). A missing, closed, malformed-id and
     # other-Account leftover share the code, so existence is not revealed.
     # Keep it above the planning channel rows: the mobile allowlist test reads

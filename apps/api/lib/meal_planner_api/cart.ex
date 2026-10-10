@@ -17,11 +17,14 @@ defmodule MealPlannerApi.Cart do
         require!(length(items) == length(Enum.uniq(item_ids)), :item_not_found)
 
         Enum.each(items, fn item ->
+          # An item in another Membership's live Cart is locked; any other
+          # state (purchased, removed) is not available to reserve at all.
           require!(
-            item.status == :pending or
-              (item.status == :in_cart and item.checkout_session_id == cart.id),
-            :already_reserved
+            not (item.status == :in_cart and item.checkout_session_id != cart.id),
+            :cart_locked
           )
+
+          require!(item.status in [:pending, :in_cart], :already_reserved)
         end)
 
         reserved =

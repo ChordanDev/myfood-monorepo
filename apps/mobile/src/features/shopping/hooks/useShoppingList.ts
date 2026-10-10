@@ -148,6 +148,10 @@ export function useShoppingList() {
     // Set while the last read failed. The list of the read before it, if any, stays.
     errorMessage: status === 'error' ? getAuthErrorMessage(error) : undefined,
     retry,
+    // The caller's own active Cart as the last read reported it.
+    cart: list?.cart ?? null,
+    // Whole lines, to find the items behind a row.
+    lines: list?.planned ?? [],
     manualItems,
     // The planned lines the User removed, as the server counted them.
     removedCount: list?.totals.removed ?? 0,

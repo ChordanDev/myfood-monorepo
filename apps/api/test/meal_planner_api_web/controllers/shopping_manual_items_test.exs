@@ -212,7 +212,7 @@ defmodule MealPlannerApiWeb.ShoppingManualItemsTest do
         |> put_req_header("authorization", "Bearer " <> c.token)
         |> post("/api/shopping-items/mark-cart", %{"item_ids" => [id]})
 
-      assert %{"data" => %{"status" => "in_cart"}} = json_response(conn, 200)
+      assert %{"data" => %{"items" => [%{"itemId" => ^id}]}} = json_response(conn, 200)
       assert [%{"id" => ^id, "status" => "in_cart"}] = shopping_list(c.token)["manual"]
     end
   end
@@ -233,7 +233,7 @@ defmodule MealPlannerApiWeb.ShoppingManualItemsTest do
         |> post("/api/checkout/confirm", %{
           "checkout_type" => "physical",
           "session_id" => mark["data"]["sessionId"],
-          "items" => Enum.map(mark["data"]["reservations"], &Map.put(&1, "total_cents", 100))
+          "items" => Enum.map(mark["data"]["items"], &Map.put(&1, "total_cents", 100))
         })
 
       assert %{"data" => %{"status" => "completed", "movedToInventoryCount" => 0}} =

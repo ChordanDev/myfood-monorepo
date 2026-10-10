@@ -78,6 +78,25 @@ export interface ShoppingListQuery {
   groupBy?: ShoppingGroupBy;
 }
 
+// What a Shopping item reserved by a Cart is paid with: checkout needs the token.
+export interface CartReservation {
+  itemId: string;
+  reservationToken: string;
+  quantityMilli: number;
+}
+
+// What `POST /api/shopping-items/mark-cart` answers: the Cart lease and the items it holds.
+export interface MarkedCart extends ShoppingCart {
+  items: CartReservation[];
+}
+
+// What `DELETE /api/cart/:sessionId` answers.
+export interface CancelledCart {
+  sessionId: string;
+  updatedRows: number;
+  status: 'abandoned';
+}
+
 // What `POST /api/shopping-items/manual` takes (section 7.6). Only the name is required: the
 // server reads 1 unit when the quantity and the unit are left out.
 export interface NewManualShoppingItem {

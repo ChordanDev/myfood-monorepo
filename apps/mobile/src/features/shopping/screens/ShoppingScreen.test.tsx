@@ -65,13 +65,26 @@ let mockFocusEffect: (() => void) | undefined;
 let mockIsFocused = true;
 
 jest.mock('expo-router', () => {
-  const { useEffect } = require('react');
+  const { useEffect, useRef } = require('react');
+
+  // The screen has more than one such effect: the read of the list and the Cart lease. Coming
+  // back to the screen runs each one's latest effect.
+  const latestEffects = new Set<{ current: () => void | (() => void) }>();
 
   return {
-    useFocusEffect: (effect: () => void) => {
+    useFocusEffect: (effect: () => void | (() => void)) => {
+      const latest = useRef(effect);
+      latest.current = effect;
+
       useEffect(() => {
-        mockFocusEffect = effect;
-        if (mockIsFocused) effect();
+        latestEffects.add(latest);
+        mockFocusEffect = () => latestEffects.forEach((registered) => registered.current());
+        const cleanup = mockIsFocused ? effect() : undefined;
+
+        return () => {
+          latestEffects.delete(latest);
+          cleanup?.();
+        };
       }, [effect]);
     },
   };
@@ -269,6 +282,13 @@ function getTexts(root: ReactTestInstance): string[] {
 function getButtons(root: ReactTestInstance) {
   return root.findAll(
     (node) => node.props.accessibilityRole === 'button' && typeof node.props.onPress === 'function'
+  );
+}
+
+function getCheckboxes(root: ReactTestInstance) {
+  return root.findAll(
+    (node) =>
+      node.props.accessibilityRole === 'checkbox' && typeof node.props.onPress === 'function'
   );
 }
 
@@ -475,55 +495,48 @@ describe('ShoppingScreen', () => {
     });
   });
 
-  describe('a list without a tick', () => {
-    it('has no checkbox and no "Marcar todos": a row is held to remove it, not marked', async () => {
+  describe('a list with a tick', () => {
+    it('lets a row be ticked or held to remove it, with no "Marcar todos"', async () => {
       const root = await renderLoadedScreen();
       const list = root.findByType(ScrollView);
 
-      expect(root.findAll((node) => node.props.accessibilityRole === 'checkbox')).toHaveLength(0);
       expect(getTexts(root)).not.toContain('Marcar todos');
-      // Only the plus of the card of the items added by hand can be pressed.
-      expect(
-        list
-          .findAll((node) => typeof node.props.onPress === 'function')
-          .map((node) => node.props.accessibilityLabel)
-      ).toEqual([ADD_LABEL]);
+      expect(getCheckboxes(root)).toHaveLength(6);
       // Every planned row can be held, and each one offers the removal to screen readers.
       expect(list.findAll((node) => typeof node.props.onLongPress === 'function')).toHaveLength(6);
     });
 
-    it('offers only the date, the two groupings and the add to press', async () => {
+    it('offers the date, the two groupings, the abandoning of the Cart and the add to press', async () => {
       const root = await renderLoadedScreen();
 
       expect(getButtonLabels(root)).toEqual([
         UNTIL_THE_12TH,
         'Por ingrediente',
         'Por comida',
+        'Cancelar carrito',
         ADD_LABEL,
       ]);
     });
 
-    it('shows a line in the cart struck through and ticked, and no box on the others', async () => {
+    it('shows a line in the cart struck through and ticked, and the others as boxes to tick', async () => {
       const root = await renderLoadedScreen();
 
       expect(getStruckNames(root)).toEqual(['30 ml · Aceite de oliva']);
       expect(root.findAllByType(Check)).toHaveLength(1);
       expect(
-        root.findAll(
-          (node) => typeof node.type === 'string' && node.props.testID === 'shopping-checkbox'
-        )
+        getCheckboxes(root).filter((row) => row.props.accessibilityState.checked)
       ).toHaveLength(1);
     });
 
-    it('reads a line in the cart as such to a screen reader', async () => {
+    it('reads a line in the cart as a checked box to a screen reader', async () => {
       const root = await renderLoadedScreen();
-      const labels = root
-        .findByType(ScrollView)
-        .findAll((node) => typeof node.type === 'string' && node.props.accessible === true)
-        .map((node) => node.props.accessibilityLabel);
+      const rows = getCheckboxes(root).map((row) => [
+        row.props.accessibilityLabel,
+        row.props.accessibilityState.checked,
+      ]);
 
-      expect(labels).toContain('30 ml · Aceite de oliva, en el carrito');
-      expect(labels).toContain('1,25 kg · Arroz, Para 3 comidas');
+      expect(rows).toContainEqual(['30 ml · Aceite de oliva', true]);
+      expect(rows).toContainEqual(['1,25 kg · Arroz, Para 3 comidas', false]);
     });
 
     it('keeps the cart off the screen, and the restore line while nothing is removed', async () => {
@@ -542,6 +555,93 @@ describe('ShoppingScreen', () => {
       expect(StyleSheet.flatten(list.props.contentContainerStyle).paddingBottom).toBe(
         34 + CUSTOM_TAB_BAR_CONTENT_HEIGHT + 14
       );
+    });
+  });
+
+  describe('shopping with a Cart lease', () => {
+    const RICE_ITEM_IDS = [
+      'ec18bfeb-0d2c-4e11-b772-e6e2fa3d9473',
+      '7eabbc7a-4d46-49a2-a44a-4a06b663d25f',
+      '92d4f57b-380a-4fec-a6c7-d0b3e48fa1cf',
+    ];
+    const MARK_CART_URL = 'https://api.example.test/api/shopping-items/mark-cart';
+    const CART_URL = 'https://api.example.test/api/cart/36d3abb6-dd68-4728-a33a-ab33b02ecdfe';
+
+    function serveCartRoutes(markAnswer: Response) {
+      fetchMock.mockImplementation((url: string) => {
+        if (url === MARK_CART_URL) return Promise.resolve(markAnswer);
+        if (url === CART_URL) {
+          return Promise.resolve(
+            jsonResponse({ data: { sessionId: 'x', updatedRows: 1, status: 'abandoned' } })
+          );
+        }
+        return Promise.resolve(listResponse(readFor(url)));
+      });
+    }
+
+    const markedCart = () =>
+      jsonResponse({
+        data: {
+          sessionId: '36d3abb6-dd68-4728-a33a-ab33b02ecdfe',
+          leaseExpiresAt: '2026-10-08T18:30:00Z',
+          items: [],
+        },
+      });
+
+    async function tick(root: ReactTestInstance, label: string) {
+      const row = getCheckboxes(root).find((node) =>
+        String(node.props.accessibilityLabel).includes(label)
+      );
+      if (!row) throw new Error(`No row labelled "${label}"`);
+
+      act(() => {
+        row.props.onPress();
+      });
+      await settle();
+    }
+
+    it('ticks all the items behind a line into the Cart and reads the list again', async () => {
+      serveCartRoutes(markedCart());
+      const root = await renderLoadedScreen();
+
+      await tick(root, 'Arroz');
+
+      const markCall = fetchMock.mock.calls.find(([url]) => url === MARK_CART_URL);
+      expect(JSON.parse(markCall![1].body)).toEqual({ itemIds: RICE_ITEM_IDS });
+      expect(requestedUrls().filter((url) => url.startsWith(LIST_URL))).toHaveLength(2);
+    });
+
+    it('asks nothing for a line that is already in the Cart', async () => {
+      serveCartRoutes(markedCart());
+      const root = await renderLoadedScreen();
+
+      await tick(root, 'Aceite de oliva');
+
+      expect(requestedUrls()).not.toContain(MARK_CART_URL);
+    });
+
+    it('says the Cart is held by another member when the server answers `cart_locked`', async () => {
+      serveCartRoutes(
+        jsonResponse({ error: { code: 'cart_locked', message: 'held' } }, false, 409)
+      );
+      const root = await renderLoadedScreen();
+
+      await tick(root, 'Arroz');
+
+      expect(getTexts(root)).toContain(
+        'Otro integrante del hogar ya tiene esos productos en su carrito.'
+      );
+    });
+
+    it('abandons the Cart and reads the list again', async () => {
+      serveCartRoutes(markedCart());
+      const root = await renderLoadedScreen();
+
+      await press(root, 'Cancelar carrito');
+
+      const cancelCall = fetchMock.mock.calls.find(([url]) => url === CART_URL);
+      expect(cancelCall![1].method).toBe('DELETE');
+      expect(requestedUrls().filter((url) => url.startsWith(LIST_URL))).toHaveLength(2);
     });
   });
 
@@ -999,6 +1099,7 @@ describe('ShoppingScreen', () => {
         UNTIL_THE_12TH,
         'Por ingrediente',
         'Por comida',
+        'Cancelar carrito',
         ADD_LABEL,
       ]);
 
