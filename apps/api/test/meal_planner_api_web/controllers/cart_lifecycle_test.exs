@@ -192,6 +192,29 @@ defmodule MealPlannerApiWeb.CartLifecycleTest do
     assert Enum.all?(lines(f), &(&1.checkout_session_id == cart.session_id))
   end
 
+  test "marking by ingredient answers the same envelope and cart_locked as marking by item ids",
+       f do
+    range = %{
+      "ingredient_id" => f.ingredient.id,
+      "in_cart" => true,
+      "start_date" => Date.to_iso8601(Date.utc_today()),
+      "end_date" => Date.to_iso8601(Date.add(Date.utc_today(), 1))
+    }
+
+    other = %{f | token: token(f.member, f.account)}
+
+    assert %{"data" => %{"sessionId" => id, "leaseExpiresAt" => _, "items" => [_, _]} = data} =
+             request(f, :post, "/api/shopping-items/mark-cart", range) |> json_response(200)
+
+    refute Map.has_key?(data, "reservations")
+
+    assert %{"error" => %{"code" => "cart_locked"}} =
+             request(other, :post, "/api/shopping-items/mark-cart", range)
+             |> json_response(409)
+
+    assert Enum.all?(lines(f), &(&1.checkout_session_id == id))
+  end
+
   test "renew and cancel answer errors in the envelope and keep their success shapes", f do
     cart = reserve!(f)
     other = %{f | token: token(f.member, f.account)}
