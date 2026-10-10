@@ -6,9 +6,9 @@ defmodule MealPlannerApi.Inventory do
   import Ecto.Query, warn: false
 
   alias MealPlannerApi.Inventory.LotFreshness
-  alias MealPlannerApi.Repo
   alias MealPlannerApi.Persistence.Inventory.InventoryItem
   alias MealPlannerApi.Persistence.Planning.ScheduledMeal
+  alias MealPlannerApi.Repo
   alias MealPlannerApi.Services.RecipeVersions
 
   @spec available_for(map(), map()) :: [map()]

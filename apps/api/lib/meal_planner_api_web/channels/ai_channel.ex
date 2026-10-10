@@ -1,4 +1,11 @@
 defmodule MealPlannerApiWeb.AIChannel do
+  @moduledoc """
+  Channel for the AI chat on `ai_chat:<room_id>`.
+
+  Requires an active membership, validates an optional typed intent and starts
+  the streamed AI response for each `new_message`.
+  """
+
   use MealPlannerApiWeb, :channel
 
   alias MealPlannerApi.AI
@@ -7,6 +14,7 @@ defmodule MealPlannerApiWeb.AIChannel do
   alias MealPlannerApiWeb.Channels.IntentAtomizer
   alias MealPlannerApiWeb.Controllers.AccountScopeHelpers
   alias MealPlannerApiWeb.Plugs.LoadCurrentMembershipSocket
+  alias Phoenix.Channel.Server
 
   # Note (task 3.12): unlike planning/cooking/calendar, this channel's topic
   # is `ai_chat:<room_id>` — an opaque chat/session identifier, NOT
@@ -71,29 +79,30 @@ defmodule MealPlannerApiWeb.AIChannel do
     # caller gets the matching atom reason. A missing or
     # non-map intent is treated as "no intent supplied" — the AI
     # stream still runs (backward compat for plain text messages).
-    with :ok <- maybe_validate_intent(Map.get(payload, "intent")) do
-      broadcast_validated_intent(membership.account_id, Map.get(payload, "intent"))
+    case maybe_validate_intent(Map.get(payload, "intent")) do
+      :ok ->
+        broadcast_validated_intent(membership.account_id, Map.get(payload, "intent"))
 
-      case AI.stream_response(socket.assigns.room_id, message, user, %{
-             "messages" => Map.get(payload, "messages", []),
-             "weekly_budget_cents" => Map.get(payload, "weekly_budget_cents"),
-             "currency" => Map.get(payload, "currency"),
-             "inventory_items" => Map.get(payload, "inventory_items"),
-             "request_id" => request_id
-           }) do
-        :ok ->
-          {:noreply, socket}
+        case AI.stream_response(socket.assigns.room_id, message, user, %{
+               "messages" => Map.get(payload, "messages", []),
+               "weekly_budget_cents" => Map.get(payload, "weekly_budget_cents"),
+               "currency" => Map.get(payload, "currency"),
+               "inventory_items" => Map.get(payload, "inventory_items"),
+               "request_id" => request_id
+             }) do
+          :ok ->
+            {:noreply, socket}
 
-        {:error, reason} ->
-          push(socket, "ai_response_error", %{
-            request_id: request_id,
-            account_id: membership.account_id,
-            error: inspect(reason)
-          })
+          {:error, reason} ->
+            push(socket, "ai_response_error", %{
+              request_id: request_id,
+              account_id: membership.account_id,
+              error: inspect(reason)
+            })
 
-          {:reply, {:error, %{reason: "ai_stream_start_failed"}}, socket}
-      end
-    else
+            {:reply, {:error, %{reason: "ai_stream_start_failed"}}, socket}
+        end
+
       {:error, :forbidden_intent} ->
         push(socket, "ai_response_error", %{
           request_id: request_id,
@@ -125,13 +134,15 @@ defmodule MealPlannerApiWeb.AIChannel do
   defp maybe_validate_intent(nil), do: :ok
 
   defp maybe_validate_intent(%{} = intent) do
-    with {:ok, atom_intent} <- IntentAtomizer.atomize(intent) do
-      case GenerationService.validate_ai_intent(atom_intent) do
-        {:ok, _validated} -> :ok
-        {:error, _} = err -> err
-      end
-    else
-      :error -> {:error, :invalid_payload}
+    case IntentAtomizer.atomize(intent) do
+      {:ok, atom_intent} ->
+        case GenerationService.validate_ai_intent(atom_intent) do
+          {:ok, _validated} -> :ok
+          {:error, _} = err -> err
+        end
+
+      :error ->
+        {:error, :invalid_payload}
     end
   end
 
@@ -148,7 +159,7 @@ defmodule MealPlannerApiWeb.AIChannel do
   defp broadcast_validated_intent(account_id, %{} = intent) do
     case IntentAtomizer.atomize(intent) do
       {:ok, atom_intent} ->
-        Phoenix.Channel.Server.broadcast!(
+        Server.broadcast!(
           MealPlannerApi.PubSub,
           "planning:#{account_id}",
           "send_intent",

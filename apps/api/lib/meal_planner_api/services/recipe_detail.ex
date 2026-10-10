@@ -18,7 +18,7 @@ defmodule MealPlannerApi.Services.RecipeDetail do
   alias MealPlannerApi.Data.RecipeRepo
   alias MealPlannerApi.Persistence.Catalog.{Recipe, RecipeVersion}
 
-  @spec project(%Recipe{}, %RecipeVersion{}) :: map()
+  @spec project(Recipe.t(), RecipeVersion.t()) :: map()
   def project(%Recipe{} = recipe, %RecipeVersion{snapshot: snapshot} = version) do
     %{
       id: recipe.id,

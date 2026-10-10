@@ -3,6 +3,7 @@ defmodule MealPlannerApiWeb.CalendarChannelTest do
 
   import MealPlannerApi.FactoryHelpers
 
+  alias MealPlannerApi.Persistence.Accounts.AccountMembership
   alias MealPlannerApi.{Persistence.Catalog, Persistence.Planning}
   alias MealPlannerApiWeb.{CalendarChannel, UserSocket}
 
@@ -84,7 +85,7 @@ defmodule MealPlannerApiWeb.CalendarChannelTest do
 
       {:ok, invited_membership} =
         membership
-        |> MealPlannerApi.Persistence.Accounts.AccountMembership.changeset(%{status: :invited})
+        |> AccountMembership.changeset(%{status: :invited})
         |> MealPlannerApi.Repo.update()
 
       token = issue_access_v2_token(user, invited_membership)

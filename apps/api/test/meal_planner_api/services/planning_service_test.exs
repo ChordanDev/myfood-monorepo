@@ -1,8 +1,8 @@
 defmodule MealPlannerApi.Services.PlanningServiceTest do
   use ExUnit.Case, async: true
 
-  alias MealPlannerApi.Services.PlanningService
   alias MealPlannerApi.Optimization.OptimizerPort
+  alias MealPlannerApi.Services.PlanningService
 
   describe "generate_weekly_plan/3" do
     test "accepts user map, params map, and optimizer module" do
@@ -47,7 +47,7 @@ defmodule MealPlannerApi.Services.PlanningServiceTest do
 
       user = %{
         kcal_target: 2100,
-        weekly_budget_cents: 50000,
+        weekly_budget_cents: 50_000,
         account_type: "individual",
         subscription_tier: "free"
       }
@@ -57,7 +57,7 @@ defmodule MealPlannerApi.Services.PlanningServiceTest do
       assert payload["days"] == days
       assert payload["slots"] == ["breakfast", "lunch", "dinner"]
       assert payload["constraints"]["kcal_target"] == 2100
-      assert payload["constraints"]["weekly_budget_cents"] == 50000
+      assert payload["constraints"]["weekly_budget_cents"] == 50_000
       assert payload["constraints"]["account_type"] == "individual"
     end
 

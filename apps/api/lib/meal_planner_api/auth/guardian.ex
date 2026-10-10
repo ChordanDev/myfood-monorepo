@@ -29,8 +29,8 @@ defmodule MealPlannerApi.Auth.Guardian do
 
   use Guardian, otp_app: :meal_planner_api
 
-  alias MealPlannerApi.Repo
   alias MealPlannerApi.Persistence.Accounts.User
+  alias MealPlannerApi.Repo
 
   @impl true
   def subject_for_token(%User{id: id}, _claims), do: {:ok, id}

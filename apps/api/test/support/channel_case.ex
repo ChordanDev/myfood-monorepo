@@ -5,6 +5,8 @@ defmodule MealPlannerApiWeb.ChannelCase do
 
   use ExUnit.CaseTemplate
 
+  alias Ecto.Adapters.SQL.Sandbox
+
   using do
     quote do
       import Phoenix.ChannelTest
@@ -14,11 +16,11 @@ defmodule MealPlannerApiWeb.ChannelCase do
   end
 
   setup tags do
-    :ok = Ecto.Adapters.SQL.Sandbox.checkout(MealPlannerApi.Repo)
+    :ok = Sandbox.checkout(MealPlannerApi.Repo)
     :ok = MealPlannerApi.SubscriptionPlanFixtures.ensure_plans!()
 
     unless tags[:async] do
-      Ecto.Adapters.SQL.Sandbox.mode(MealPlannerApi.Repo, {:shared, self()})
+      Sandbox.mode(MealPlannerApi.Repo, {:shared, self()})
     end
 
     :ok

@@ -4,8 +4,10 @@ defmodule MealPlannerApiWeb.CookingChannelTest do
   import MealPlannerApi.FactoryHelpers
 
   alias MealPlannerApi.Persistence.Accounts.Account, as: PersistenceAccount
+  alias MealPlannerApi.Persistence.Accounts.AccountMembership
   alias MealPlannerApi.Persistence.{Catalog, Planning}
   alias MealPlannerApi.Repo
+  alias MealPlannerApi.Services.CookingService
   alias MealPlannerApiWeb.{CookingChannel, UserSocket}
 
   import MealPlannerApiWeb.ChannelHelpers, only: [issue_identity_and_token: 2]
@@ -78,7 +80,7 @@ defmodule MealPlannerApiWeb.CookingChannelTest do
         slot: :dinner
       })
 
-    {:ok, session} = MealPlannerApi.Services.CookingService.start_session(user, meal.id)
+    {:ok, session} = CookingService.start_session(user, meal.id)
     previous = Application.get_env(:meal_planner_api, :ai_client)
     Application.put_env(:meal_planner_api, :ai_client, MealPlannerApi.CookingBarrierClient)
     Application.put_env(:meal_planner_api, :cooking_test_owner, self())
@@ -148,7 +150,7 @@ defmodule MealPlannerApiWeb.CookingChannelTest do
 
       {:ok, invited_membership} =
         membership
-        |> MealPlannerApi.Persistence.Accounts.AccountMembership.changeset(%{status: :invited})
+        |> AccountMembership.changeset(%{status: :invited})
         |> MealPlannerApi.Repo.update()
 
       token = issue_access_v2_token(user, invited_membership)
@@ -340,7 +342,7 @@ defmodule MealPlannerApiWeb.CookingChannelTest do
       {:ok, _reply, socket} = subscribe_and_join(socket, CookingChannel, topic)
 
       # Non-binary triggers the else clause which returns "missing_scheduled_meal_id"
-      ref = push(socket, "start_session", %{"scheduled_meal_id" => 12345})
+      ref = push(socket, "start_session", %{"scheduled_meal_id" => 12_345})
 
       assert_reply(ref, :error, %{reason: "missing_scheduled_meal_id"})
     end
@@ -432,7 +434,7 @@ defmodule MealPlannerApiWeb.CookingChannelTest do
           is_cooked: false
         })
 
-      {:ok, start_result} = MealPlannerApi.Services.CookingService.start_session(user, meal.id)
+      {:ok, start_result} = CookingService.start_session(user, meal.id)
       session_id = start_result.session_id
 
       {:ok, socket} = connect(UserSocket, %{"token" => token})
@@ -498,7 +500,7 @@ defmodule MealPlannerApiWeb.CookingChannelTest do
           is_cooked: false
         })
 
-      {:ok, start_result} = MealPlannerApi.Services.CookingService.start_session(user, meal.id)
+      {:ok, start_result} = CookingService.start_session(user, meal.id)
       session_id = start_result.session_id
 
       {:ok, socket} = connect(UserSocket, %{"token" => token})
@@ -551,7 +553,7 @@ defmodule MealPlannerApiWeb.CookingChannelTest do
           is_cooked: false
         })
 
-      {:ok, start_result} = MealPlannerApi.Services.CookingService.start_session(user, meal.id)
+      {:ok, start_result} = CookingService.start_session(user, meal.id)
       session_id = start_result.session_id
 
       {:ok, socket} = connect(UserSocket, %{"token" => token})
@@ -603,7 +605,7 @@ defmodule MealPlannerApiWeb.CookingChannelTest do
           is_cooked: false
         })
 
-      {:ok, start_result} = MealPlannerApi.Services.CookingService.start_session(user, meal.id)
+      {:ok, start_result} = CookingService.start_session(user, meal.id)
       session_id = start_result.session_id
 
       {:ok, socket} = connect(UserSocket, %{"token" => token})
@@ -675,7 +677,7 @@ defmodule MealPlannerApiWeb.CookingChannelTest do
           is_cooked: false
         })
 
-      {:ok, start_result} = MealPlannerApi.Services.CookingService.start_session(user, meal.id)
+      {:ok, start_result} = CookingService.start_session(user, meal.id)
       session_id = start_result.session_id
 
       {:ok, socket} = connect(UserSocket, %{"token" => token})
@@ -771,7 +773,7 @@ defmodule MealPlannerApiWeb.CookingChannelTest do
           is_cooked: false
         })
 
-      {:ok, start_result} = MealPlannerApi.Services.CookingService.start_session(user, meal.id)
+      {:ok, start_result} = CookingService.start_session(user, meal.id)
       session_id = start_result.session_id
 
       {:ok, socket} = connect(UserSocket, %{"token" => token})

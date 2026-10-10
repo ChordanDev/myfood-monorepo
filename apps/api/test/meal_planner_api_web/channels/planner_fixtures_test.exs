@@ -14,9 +14,10 @@ defmodule MealPlannerApiWeb.PlannerFixturesTest do
   import MealPlannerApiWeb.ChannelHelpers, only: [issue_identity_and_token: 2]
 
   alias MealPlannerApi.Data.PlanningRepo
+  alias MealPlannerApi.Persistence.Accounts.Account
   alias MealPlannerApi.Persistence.Accounts.{AccountMembership, User}
-  alias MealPlannerApi.Services.GenerationService
   alias MealPlannerApi.Repo
+  alias MealPlannerApi.Services.GenerationService
   alias MealPlannerApiWeb.{Endpoint, PlannerFixtures, PlanningChannel, UserSocket}
 
   @moduletag :capture_log
@@ -144,7 +145,7 @@ defmodule MealPlannerApiWeb.PlannerFixturesTest do
 
     {:ok, updated} =
       account
-      |> MealPlannerApi.Persistence.Accounts.Account.changeset(%{
+      |> Account.changeset(%{
         trial_started_at: started,
         trial_ends_at: DateTime.add(started, 7 * 86_400, :second)
       })

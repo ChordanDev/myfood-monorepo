@@ -1,4 +1,12 @@
 defmodule Mix.Tasks.AiPopulate do
+  @moduledoc """
+  Populates the ingredient catalog in batches by asking the AI for ingredients
+  of each supermarket category topic.
+
+  Options: `--dry-run`, `--sleep-ms`, `--per-topic`, `--max-topics` and
+  `--only-category`.
+  """
+
   use Mix.Task
   require Logger
 

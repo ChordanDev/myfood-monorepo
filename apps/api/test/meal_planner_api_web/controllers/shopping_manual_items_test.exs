@@ -14,6 +14,7 @@ defmodule MealPlannerApiWeb.ShoppingManualItemsTest do
   alias MealPlannerApi.Persistence.Shopping
   alias MealPlannerApi.Persistence.Shopping.ShoppingItem
   alias MealPlannerApi.Repo
+  alias MealPlannerApi.Services.ShoppingService
 
   import MealPlannerApi.FactoryHelpers
 
@@ -574,7 +575,7 @@ defmodule MealPlannerApiWeb.ShoppingManualItemsTest do
     range = {c.today, Date.add(c.today, 2)}
 
     assert {:ok, %{replaced: _}} =
-             MealPlannerApi.Services.ShoppingService.replace_scheduled_meals_for_range(
+             ShoppingService.replace_scheduled_meals_for_range(
                account_id,
                range,
                meals

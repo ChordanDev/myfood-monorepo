@@ -103,7 +103,7 @@ defmodule MealPlannerApi.Optimization.PayloadAdapterTest do
 
       result = PayloadAdapter.build_optimizer_payload(slots, %{}, %{})
 
-      assert result["constraints"]["weekly_budget_cents"] == 11000
+      assert result["constraints"]["weekly_budget_cents"] == 11_000
     end
 
     test "computes macro_bounds from constraints with buffer" do

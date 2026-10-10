@@ -5,8 +5,8 @@ defmodule MealPlannerApi.Data.UserPreferenceRepo do
   No business logic. Creates on first access (upsert pattern).
   """
 
-  alias MealPlannerApi.Repo
   alias MealPlannerApi.Persistence.Accounts.UserPreference
+  alias MealPlannerApi.Repo
 
   @spec get(Ecto.UUID.t()) :: UserPreference.t() | nil
   def get(user_id) do

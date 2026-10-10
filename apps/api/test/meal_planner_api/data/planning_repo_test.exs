@@ -15,7 +15,7 @@ defmodule MealPlannerApi.Data.PlanningRepoTest do
     * `get_scheduled_meal_for_account/2` rejects a `meal_id` that
       belongs to another account even when the caller has access to
       both.
-    * `toggle_slot_favorite/1`, `is_slot_favorite?/4`, and
+    * `toggle_slot_favorite/1`, `slot_favorite?/4`, and
       `list_slot_favorites/2` — create/remove round-trip plus
       account_id scoping (PR 2b post-review fix pass item 7). This
       surfaced and fixed two real pre-existing production bugs: (1)
@@ -43,10 +43,10 @@ defmodule MealPlannerApi.Data.PlanningRepoTest do
   alias MealPlannerApi.Persistence.Accounts.Account, as: PersistenceAccount
   alias MealPlannerApi.Persistence.Accounts.AccountMembership
   alias MealPlannerApi.Persistence.Accounts.User, as: PersistenceUser
+  alias MealPlannerApi.Persistence.Accounts.UserExcludedIngredient
   alias MealPlannerApi.Persistence.Catalog.Ingredient
   alias MealPlannerApi.Persistence.Catalog.Recipe
   alias MealPlannerApi.Persistence.Catalog.RecipeIngredient
-  alias MealPlannerApi.Persistence.Accounts.UserExcludedIngredient
   alias MealPlannerApi.Persistence.Planning.PlanningException
   alias MealPlannerApi.Persistence.Planning.PlanningMessage
   alias MealPlannerApi.Persistence.Planning.PlanningSession
@@ -321,7 +321,7 @@ defmodule MealPlannerApi.Data.PlanningRepoTest do
     end
   end
 
-  describe "toggle_slot_favorite/1, is_slot_favorite?/4, list_slot_favorites/2 — account_id scoping" do
+  describe "toggle_slot_favorite/1, slot_favorite?/4, list_slot_favorites/2 — account_id scoping" do
     test "toggling a slot favorite creates it, toggling again removes it" do
       account = insert_account("Favorite Toggle")
       user = insert_user_with_active_membership(account.id, "toggle@example.com", :owner)
@@ -346,16 +346,16 @@ defmodule MealPlannerApi.Data.PlanningRepoTest do
         recipe_id: recipe.id
       }
 
-      refute PlanningRepo.is_slot_favorite?(account.id, user.id, ~D[2026-07-01], "lunch")
+      refute PlanningRepo.slot_favorite?(account.id, user.id, ~D[2026-07-01], "lunch")
 
       assert {:ok, %{}} = PlanningRepo.toggle_slot_favorite(attrs)
-      assert PlanningRepo.is_slot_favorite?(account.id, user.id, ~D[2026-07-01], "lunch")
+      assert PlanningRepo.slot_favorite?(account.id, user.id, ~D[2026-07-01], "lunch")
 
       assert {:ok, %{status: :removed}} = PlanningRepo.toggle_slot_favorite(attrs)
-      refute PlanningRepo.is_slot_favorite?(account.id, user.id, ~D[2026-07-01], "lunch")
+      refute PlanningRepo.slot_favorite?(account.id, user.id, ~D[2026-07-01], "lunch")
     end
 
-    test "is_slot_favorite?/4 does not leak a favorite across accounts" do
+    test "slot_favorite?/4 does not leak a favorite across accounts" do
       account_a = insert_account("Slot Fav A")
       account_b = insert_account("Slot Fav B")
 
@@ -384,8 +384,8 @@ defmodule MealPlannerApi.Data.PlanningRepoTest do
                  recipe_id: recipe.id
                })
 
-      assert PlanningRepo.is_slot_favorite?(account_a.id, user.id, ~D[2026-07-01], "dinner")
-      refute PlanningRepo.is_slot_favorite?(account_b.id, user.id, ~D[2026-07-01], "dinner")
+      assert PlanningRepo.slot_favorite?(account_a.id, user.id, ~D[2026-07-01], "dinner")
+      refute PlanningRepo.slot_favorite?(account_b.id, user.id, ~D[2026-07-01], "dinner")
     end
 
     test "list_slot_favorites/2 does not leak another account's favorites" do

@@ -1,8 +1,8 @@
 defmodule MealPlannerApiWeb.InventoryController do
   use MealPlannerApiWeb, :controller
 
-  alias MealPlannerApi.Services.InventoryService
   alias MealPlannerApi.Services.BudgetService
+  alias MealPlannerApi.Services.InventoryService
   alias MealPlannerApiWeb.ApiError
   alias MealPlannerApiWeb.Controllers.AccountScopeHelpers
 

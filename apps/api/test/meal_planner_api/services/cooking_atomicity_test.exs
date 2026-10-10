@@ -4,6 +4,7 @@ defmodule MealPlannerApi.Services.CookingAtomicityTest do
   import Ecto.Query
   import MealPlannerApi.IdentityFixtures
 
+  alias Ecto.Adapters.SQL
   alias MealPlannerApi.Persistence.Catalog
   alias MealPlannerApi.Persistence.Inventory.{InventoryItem, InventoryMutationEvent}
   alias MealPlannerApi.Persistence.Planning
@@ -31,7 +32,7 @@ defmodule MealPlannerApi.Services.CookingAtomicityTest do
       )
 
     assert %{rows: [[^database]]} =
-             Ecto.Adapters.SQL.query!(repo, "SELECT current_database()", [])
+             SQL.query!(repo, "SELECT current_database()", [])
 
     {:ok, repo: repo}
   end

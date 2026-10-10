@@ -8,6 +8,8 @@ defmodule MealPlannerApi.Voice.AIVoiceParser do
 
   @behaviour MealPlannerApi.Voice.VoiceParserPort
 
+  alias MealPlannerApi.Voice.RuleBasedVoiceParser
+
   @ai_parser_system_prompt """
   You are a kitchen inventory parser. Given a natural-language command and a list
   of inventory items, respond ONLY with a JSON array of quantity operations.
@@ -27,7 +29,7 @@ defmodule MealPlannerApi.Voice.AIVoiceParser do
         parse_ai_response(json_string, text, items)
 
       {:error, _reason} ->
-        MealPlannerApi.Voice.RuleBasedVoiceParser.parse(text, items)
+        RuleBasedVoiceParser.parse(text, items)
     end
   end
 
@@ -36,10 +38,9 @@ defmodule MealPlannerApi.Voice.AIVoiceParser do
   defp build_prompt(text, items) do
     items_text =
       items
-      |> Enum.map(fn %{id: id, name: name, quantity_milli: qty} ->
+      |> Enum.map_join("\n", fn %{id: id, name: name, quantity_milli: qty} ->
         "  - id: #{id}, name: #{name}, current qty: #{qty}ml"
       end)
-      |> Enum.join("\n")
 
     """
     User said: "#{text}"
@@ -64,10 +65,10 @@ defmodule MealPlannerApi.Voice.AIVoiceParser do
         {:ok, ops}
 
       {:ok, _other} ->
-        MealPlannerApi.Voice.RuleBasedVoiceParser.parse(text, items)
+        RuleBasedVoiceParser.parse(text, items)
 
       {:error, _parse_error} ->
-        MealPlannerApi.Voice.RuleBasedVoiceParser.parse(text, items)
+        RuleBasedVoiceParser.parse(text, items)
     end
   end
 end

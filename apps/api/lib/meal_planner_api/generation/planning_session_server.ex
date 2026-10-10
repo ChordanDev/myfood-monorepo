@@ -40,6 +40,8 @@ defmodule MealPlannerApi.Generation.PlanningSessionServer do
   alias MealPlannerApi.Data.PlanningRepo
   alias MealPlannerApi.Persistence.Planning.PlanningSession
   alias MealPlannerApi.Repo
+  alias MealPlannerApi.Services.GenerationService
+  alias Phoenix.Channel.Server
 
   @lease_seconds 120
 
@@ -313,7 +315,7 @@ defmodule MealPlannerApi.Generation.PlanningSessionServer do
 
   @impl true
   def handle_call({:apply_intent, _session_id, intent}, _from, state) do
-    case MealPlannerApi.Services.GenerationService.validate_ai_intent(intent) do
+    case GenerationService.validate_ai_intent(intent) do
       {:ok, validated} ->
         new_state = %{state | pending_intent: validated}
         {:reply, {:ok, validated}, new_state}
@@ -381,7 +383,7 @@ defmodule MealPlannerApi.Generation.PlanningSessionServer do
   # ===========================================================================
 
   defp broadcast(account_id, event, payload) do
-    Phoenix.Channel.Server.broadcast!(
+    Server.broadcast!(
       MealPlannerApi.PubSub,
       "planning:#{account_id}",
       event,

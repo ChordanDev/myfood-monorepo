@@ -16,8 +16,9 @@ defmodule MealPlannerApi.Persistence.Accounts.UserTest do
   use ExUnit.Case, async: false
 
   alias Ecto.Adapters.SQL.Sandbox
-  alias MealPlannerApi.Persistence.Accounts.User
+  alias MealPlannerApi.Persistence.Accounts.Account
   alias MealPlannerApi.Persistence.Accounts.AccountMembership
+  alias MealPlannerApi.Persistence.Accounts.User
   alias MealPlannerApi.Repo
 
   setup do
@@ -287,8 +288,8 @@ defmodule MealPlannerApi.Persistence.Accounts.UserTest do
     plan = Repo.get_by!(MealPlannerApi.Subscriptions.Plan, name: plan_name)
 
     {:ok, account} =
-      %MealPlannerApi.Persistence.Accounts.Account{}
-      |> MealPlannerApi.Persistence.Accounts.Account.changeset(%{
+      %Account{}
+      |> Account.changeset(%{
         name: name,
         plan: String.to_atom(plan_name),
         default_budget_cents: 0,

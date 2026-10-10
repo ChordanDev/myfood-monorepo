@@ -41,6 +41,7 @@ defmodule MealPlannerApiWeb.Plugs.MobileCasing do
   import Plug.Conn
 
   alias MealPlannerApiWeb.Casing
+  alias Plug.Conn.Utils
 
   @impl true
   def init(opts), do: opts
@@ -104,7 +105,7 @@ defmodule MealPlannerApiWeb.Plugs.MobileCasing do
 
   defp json_response?(conn) do
     with [content_type | _] <- get_resp_header(conn, "content-type"),
-         {:ok, "application", subtype, _params} <- Plug.Conn.Utils.media_type(content_type) do
+         {:ok, "application", subtype, _params} <- Utils.media_type(content_type) do
       subtype == "json" or String.ends_with?(subtype, "+json")
     else
       _missing_or_invalid -> false

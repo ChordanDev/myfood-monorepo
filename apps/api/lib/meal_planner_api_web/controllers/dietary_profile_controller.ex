@@ -5,37 +5,44 @@ defmodule MealPlannerApiWeb.DietaryProfileController do
   alias MealPlannerApiWeb.Controllers.AccountScopeHelpers
 
   def show(conn, _params) do
-    with {:ok, profile} <- AccountService.dietary_profile(scoped_user(conn)) do
-      json(conn, %{data: profile})
-    else
-      {:error, reason} -> render_error(conn, reason)
+    case AccountService.dietary_profile(scoped_user(conn)) do
+      {:ok, profile} ->
+        json(conn, %{data: profile})
+
+      {:error, reason} ->
+        render_error(conn, reason)
     end
   end
 
   def update(conn, attrs) do
-    with {:ok, profile} <- AccountService.update_dietary_profile(scoped_user(conn), attrs) do
-      json(conn, %{data: profile})
-    else
-      {:error, reason} -> render_error(conn, reason)
+    case AccountService.update_dietary_profile(scoped_user(conn), attrs) do
+      {:ok, profile} ->
+        json(conn, %{data: profile})
+
+      {:error, reason} ->
+        render_error(conn, reason)
     end
   end
 
   def index_exclusions(conn, _params) do
-    with {:ok, exclusions} <- AccountService.list_excluded_ingredients(scoped_user(conn)) do
-      json(conn, %{data: exclusions})
-    else
-      {:error, reason} -> render_error(conn, reason)
+    case AccountService.list_excluded_ingredients(scoped_user(conn)) do
+      {:ok, exclusions} ->
+        json(conn, %{data: exclusions})
+
+      {:error, reason} ->
+        render_error(conn, reason)
     end
   end
 
   def create_exclusion(conn, %{"ingredient_id" => ingredient_id, "reason" => reason}) do
-    with {:ok, exclusion} <-
-           AccountService.add_excluded_ingredient(scoped_user(conn), ingredient_id, reason) do
-      conn
-      |> put_status(:created)
-      |> json(%{data: exclusion})
-    else
-      {:error, error} -> render_error(conn, error)
+    case AccountService.add_excluded_ingredient(scoped_user(conn), ingredient_id, reason) do
+      {:ok, exclusion} ->
+        conn
+        |> put_status(:created)
+        |> json(%{data: exclusion})
+
+      {:error, error} ->
+        render_error(conn, error)
     end
   end
 

@@ -25,12 +25,14 @@ defmodule MealPlannerApi.Generation.Server do
 
   alias MealPlannerApi.Optimization.OptimizerServer
   alias MealPlannerApi.Optimization.PayloadAdapter
+  alias MealPlannerApi.Persistence.Accounts
   alias MealPlannerApi.Persistence.Planning.PlanningSession
   alias MealPlannerApi.Persistence.Shopping
-  alias MealPlannerApi.Services.GenerationService
-  alias MealPlannerApi.Services.ShoppingRebuilder
-  alias MealPlannerApi.Services.{PlanningCandidateBuilder, PlanningRequestValidator}
   alias MealPlannerApi.Repo
+  alias MealPlannerApi.Services.GenerationService
+  alias MealPlannerApi.Services.{PlanningCandidateBuilder, PlanningRequestValidator}
+  alias MealPlannerApi.Services.ShoppingRebuilder
+  alias Phoenix.Channel.Server, as: ChannelServer
 
   # -------------------------------------------------------------------------
   # Types
@@ -280,38 +282,39 @@ defmodule MealPlannerApi.Generation.Server do
     descriptors = build_slot_descriptors(constraints)
     participant_ids = constraints["participant_ids"] || constraints[:participant_ids] || [user_id]
 
-    with {:ok, %{slots: canonical_slots}} <-
-           PlanningCandidateBuilder.build_candidate_set(account_id, descriptors, participant_ids) do
-      optimizer_payload = build_canonical_optimizer_payload(canonical_slots, account_id)
-      recipe_data = recipe_data_from_candidates(canonical_slots)
+    case PlanningCandidateBuilder.build_candidate_set(account_id, descriptors, participant_ids) do
+      {:ok, %{slots: canonical_slots}} ->
+        optimizer_payload = build_canonical_optimizer_payload(canonical_slots, account_id)
+        recipe_data = recipe_data_from_candidates(canonical_slots)
 
-      case OptimizerServer.select_weekly_menu(optimizer_payload) do
-        {:ok, optimizer_result} ->
-          validation_context = %{
-            slots: canonical_slots,
-            account_id: account_id,
-            constraints: optimizer_payload["constraints"]
-          }
+        case OptimizerServer.select_weekly_menu(optimizer_payload) do
+          {:ok, optimizer_result} ->
+            validation_context = %{
+              slots: canonical_slots,
+              account_id: account_id,
+              constraints: optimizer_payload["constraints"]
+            }
 
-          with :ok <-
-                 GenerationService.validate_optimizer_response(
-                   optimizer_result,
-                   validation_context
-                 ),
-               {:ok, optimized_slots} <-
-                 PayloadAdapter.translate_response({:ok, optimizer_result}, recipe_data) do
-            proposal_json = GenerationService.build_proposal_json(optimized_slots)
-            persist_proposal_result(proposal_id, run_id, proposal_json, state)
-          else
-            {:error, reason, _details} -> handle_optimization_error(run_id, reason, state)
-            {:error, reason} -> handle_optimization_error(run_id, reason, state)
-          end
+            with :ok <-
+                   GenerationService.validate_optimizer_response(
+                     optimizer_result,
+                     validation_context
+                   ),
+                 {:ok, optimized_slots} <-
+                   PayloadAdapter.translate_response({:ok, optimizer_result}, recipe_data) do
+              proposal_json = GenerationService.build_proposal_json(optimized_slots)
+              persist_proposal_result(proposal_id, run_id, proposal_json, state)
+            else
+              {:error, reason, _details} -> handle_optimization_error(run_id, reason, state)
+              {:error, reason} -> handle_optimization_error(run_id, reason, state)
+            end
 
-        {:error, reason} ->
-          handle_optimization_error(run_id, reason, state)
-      end
-    else
-      {:error, reason, _details} -> handle_optimization_error(run_id, reason, state)
+          {:error, reason} ->
+            handle_optimization_error(run_id, reason, state)
+        end
+
+      {:error, reason, _details} ->
+        handle_optimization_error(run_id, reason, state)
     end
   rescue
     _ ->
@@ -352,9 +355,9 @@ defmodule MealPlannerApi.Generation.Server do
   # the meals + cart writes, via `PlanningRepo.mark_committed/3`.
   defp verify_session_lock(account_id, session_id) do
     with {:ok, uuid} <- cast_session_id(session_id),
-         {:ok, session} <- fetch_session_for_confirm(account_id, uuid),
-         :ok <- classify_session_for_confirm(session),
-         do: :ok
+         {:ok, session} <- fetch_session_for_confirm(account_id, uuid) do
+      classify_session_for_confirm(session)
+    end
   end
 
   defp cast_session_id(session_id) when is_binary(session_id) do
@@ -681,7 +684,7 @@ defmodule MealPlannerApi.Generation.Server do
   end
 
   defp server_owned_budget(account_id) do
-    case MealPlannerApi.Persistence.Accounts.get_account(account_id) do
+    case Accounts.get_account(account_id) do
       %{default_budget_cents: budget} when is_integer(budget) and budget >= 0 -> budget
       _ -> 10_000
     end
@@ -751,7 +754,7 @@ defmodule MealPlannerApi.Generation.Server do
     # channel pid at all.
     with true <- state.account_id != nil,
          :ok <-
-           Phoenix.Channel.Server.broadcast!(
+           ChannelServer.broadcast!(
              MealPlannerApi.PubSub,
              "planning:#{state.account_id}",
              event,

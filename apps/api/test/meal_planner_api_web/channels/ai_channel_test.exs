@@ -4,6 +4,7 @@ defmodule MealPlannerApiWeb.AIChannelTest do
   import MealPlannerApi.FactoryHelpers
 
   alias MealPlannerApi.Auth.Guardian
+  alias MealPlannerApi.Persistence.Accounts.AccountMembership
   alias MealPlannerApiWeb.{AIChannel, UserSocket}
 
   setup do
@@ -43,7 +44,7 @@ defmodule MealPlannerApiWeb.AIChannelTest do
 
       {:ok, invited_membership} =
         membership
-        |> MealPlannerApi.Persistence.Accounts.AccountMembership.changeset(%{status: :invited})
+        |> AccountMembership.changeset(%{status: :invited})
         |> MealPlannerApi.Repo.update()
 
       token = issue_access_v2_token(user, invited_membership)

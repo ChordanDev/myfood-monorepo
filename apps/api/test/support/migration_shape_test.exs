@@ -22,6 +22,7 @@ defmodule MealPlannerApi.MigrationShapeTest do
   import Ecto.Query, warn: false
 
   alias Ecto.Adapters.SQL.Sandbox
+  alias MealPlannerApi.Persistence.Accounts.AccountMembership
   alias MealPlannerApi.Repo
 
   setup do
@@ -101,8 +102,8 @@ defmodule MealPlannerApi.MigrationShapeTest do
       }
 
       assert {:ok, _} =
-               %MealPlannerApi.Persistence.Accounts.AccountMembership{}
-               |> MealPlannerApi.Persistence.Accounts.AccountMembership.changeset(attrs)
+               %AccountMembership{}
+               |> AccountMembership.changeset(attrs)
                |> Repo.insert()
 
       duplicate = %{
@@ -115,8 +116,8 @@ defmodule MealPlannerApi.MigrationShapeTest do
       }
 
       assert {:error, changeset} =
-               %MealPlannerApi.Persistence.Accounts.AccountMembership{}
-               |> MealPlannerApi.Persistence.Accounts.AccountMembership.changeset(duplicate)
+               %AccountMembership{}
+               |> AccountMembership.changeset(duplicate)
                |> Repo.insert()
 
       assert %{account_id: ["has already been taken"]} = errors_on(changeset)
@@ -299,21 +300,19 @@ defmodule MealPlannerApi.MigrationShapeTest do
   end
 
   defp assert_raises_postgres(expected_sqlstate, fun) do
-    try do
-      result = fun.()
+    result = fun.()
 
-      case result do
-        {:ok, _} ->
-          flunk("expected PostgreSQL exception #{expected_sqlstate}, got :ok")
+    case result do
+      {:ok, _} ->
+        flunk("expected PostgreSQL exception #{expected_sqlstate}, got :ok")
 
-        other ->
-          flunk("expected PostgreSQL exception #{expected_sqlstate}, got #{inspect(other)}")
-      end
-    rescue
-      ex in Postgrex.Error ->
-        assert ex.postgres.pg_code == expected_sqlstate,
-               "expected sqlstate #{expected_sqlstate}, got pg_code=#{ex.postgres.pg_code} code=#{ex.postgres.code}"
+      other ->
+        flunk("expected PostgreSQL exception #{expected_sqlstate}, got #{inspect(other)}")
     end
+  rescue
+    ex in Postgrex.Error ->
+      assert ex.postgres.pg_code == expected_sqlstate,
+             "expected sqlstate #{expected_sqlstate}, got pg_code=#{ex.postgres.pg_code} code=#{ex.postgres.code}"
   end
 
   defp errors_on(changeset) do

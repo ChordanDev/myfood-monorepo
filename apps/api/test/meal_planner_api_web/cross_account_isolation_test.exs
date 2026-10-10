@@ -39,7 +39,10 @@ defmodule MealPlannerApiWeb.CrossAccountIsolationTest do
 
   import MealPlannerApi.FactoryHelpers
 
+  alias MealPlannerApi.Persistence.Calendar
   alias MealPlannerApi.Persistence.Catalog
+  alias MealPlannerApi.Persistence.Inventory
+  alias MealPlannerApi.Persistence.Leftovers
   alias MealPlannerApi.Persistence.Planning
   alias MealPlannerApi.Persistence.Shopping
 
@@ -154,7 +157,7 @@ defmodule MealPlannerApiWeb.CrossAccountIsolationTest do
       })
 
     {:ok, _calendar_meal} =
-      MealPlannerApi.Persistence.Calendar.upsert_scheduled_meal(account_id, %{
+      Calendar.upsert_scheduled_meal(account_id, %{
         date: today,
         slot: :breakfast,
         recipe_id: breakfast_recipe.id
@@ -179,7 +182,7 @@ defmodule MealPlannerApiWeb.CrossAccountIsolationTest do
       })
 
     {:ok, _inventory_seed} =
-      MealPlannerApi.Persistence.Inventory.apply_delta_and_log(%{
+      Inventory.apply_delta_and_log(%{
         account_id: account_id,
         ingredient_id: ingredient.id,
         unit: :g,
@@ -202,7 +205,7 @@ defmodule MealPlannerApiWeb.CrossAccountIsolationTest do
       })
 
     {:ok, prepared_leftover} =
-      MealPlannerApi.Persistence.Leftovers.create(account_id, %{
+      Leftovers.create(account_id, %{
         title: "Cross-Account Leftover #{label}",
         portions: 2
       })

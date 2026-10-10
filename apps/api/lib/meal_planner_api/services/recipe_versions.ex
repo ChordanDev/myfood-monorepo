@@ -7,8 +7,8 @@ defmodule MealPlannerApi.Services.RecipeVersions do
   nutrition-review workflow. Callers must supply validated operational authority.
   """
   import Ecto.Query
+  alias MealPlannerApi.Persistence.Catalog.{Recipe, RecipeIngredient, RecipeStep, RecipeVersion}
   alias MealPlannerApi.Repo
-  alias MealPlannerApi.Persistence.Catalog.{Recipe, RecipeVersion, RecipeIngredient, RecipeStep}
 
   @recipe_fields ~w(name description prep_time_minutes cook_time_minutes servings source calories_per_serving protein_g_per_serving carbs_g_per_serving fat_g_per_serving suitable_for_slots theme)a
 

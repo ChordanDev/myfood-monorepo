@@ -22,7 +22,9 @@ defmodule MealPlannerApiWeb.Plugs.LoadCurrentMembershipTest do
   import MealPlannerApi.FactoryHelpers
 
   alias MealPlannerApi.Auth.Guardian
+  alias MealPlannerApi.Persistence.Accounts.Account
   alias MealPlannerApi.Persistence.Accounts.AccountMembership
+  alias MealPlannerApi.Persistence.Accounts.User
   alias MealPlannerApi.Repo
   alias MealPlannerApiWeb.Plugs.LoadCurrentMembership
   alias MealPlannerApiWeb.Plugs.LoadCurrentMembershipSocket
@@ -80,8 +82,8 @@ defmodule MealPlannerApiWeb.Plugs.LoadCurrentMembershipTest do
       plan = Repo.get_by!(MealPlannerApi.Subscriptions.Plan, name: "family_4")
 
       {:ok, account} =
-        %MealPlannerApi.Persistence.Accounts.Account{}
-        |> MealPlannerApi.Persistence.Accounts.Account.changeset(%{
+        %Account{}
+        |> Account.changeset(%{
           name: "Legacy No-Row Family",
           plan: :family_4,
           default_budget_cents: 0,
@@ -90,8 +92,8 @@ defmodule MealPlannerApiWeb.Plugs.LoadCurrentMembershipTest do
         |> Repo.insert()
 
       {:ok, user} =
-        %MealPlannerApi.Persistence.Accounts.User{}
-        |> MealPlannerApi.Persistence.Accounts.User.changeset(%{
+        %User{}
+        |> User.changeset(%{
           account_id: account.id,
           email: "legacy-no-row@example.com",
           name: "Legacy No Row User",
@@ -137,8 +139,8 @@ defmodule MealPlannerApiWeb.Plugs.LoadCurrentMembershipTest do
       plan = Repo.get_by!(MealPlannerApi.Subscriptions.Plan, name: "family_4")
 
       {:ok, account} =
-        %MealPlannerApi.Persistence.Accounts.Account{}
-        |> MealPlannerApi.Persistence.Accounts.Account.changeset(%{
+        %Account{}
+        |> Account.changeset(%{
           name: "Legacy Real Row Family",
           plan: :family_4,
           default_budget_cents: 0,
@@ -147,8 +149,8 @@ defmodule MealPlannerApiWeb.Plugs.LoadCurrentMembershipTest do
         |> Repo.insert()
 
       {:ok, user} =
-        %MealPlannerApi.Persistence.Accounts.User{}
-        |> MealPlannerApi.Persistence.Accounts.User.changeset(%{
+        %User{}
+        |> User.changeset(%{
           account_id: account.id,
           email: "legacy-real-row@example.com",
           name: "Legacy Real Row User",
@@ -196,8 +198,8 @@ defmodule MealPlannerApiWeb.Plugs.LoadCurrentMembershipTest do
       plan = Repo.get_by!(MealPlannerApi.Subscriptions.Plan, name: "family_4")
 
       {:ok, account} =
-        %MealPlannerApi.Persistence.Accounts.Account{}
-        |> MealPlannerApi.Persistence.Accounts.Account.changeset(%{
+        %Account{}
+        |> Account.changeset(%{
           name: "Legacy Removed Family",
           plan: :family_4,
           default_budget_cents: 0,
@@ -206,8 +208,8 @@ defmodule MealPlannerApiWeb.Plugs.LoadCurrentMembershipTest do
         |> Repo.insert()
 
       {:ok, user} =
-        %MealPlannerApi.Persistence.Accounts.User{}
-        |> MealPlannerApi.Persistence.Accounts.User.changeset(%{
+        %User{}
+        |> User.changeset(%{
           account_id: account.id,
           email: "legacy-removed@example.com",
           name: "Legacy Removed User",
@@ -257,8 +259,8 @@ defmodule MealPlannerApiWeb.Plugs.LoadCurrentMembershipTest do
       plan = Repo.get_by!(MealPlannerApi.Subscriptions.Plan, name: "individual")
 
       {:ok, account} =
-        %MealPlannerApi.Persistence.Accounts.Account{}
-        |> MealPlannerApi.Persistence.Accounts.Account.changeset(%{
+        %Account{}
+        |> Account.changeset(%{
           name: "Partial V2 Account",
           plan: :individual,
           default_budget_cents: 0,
@@ -267,8 +269,8 @@ defmodule MealPlannerApiWeb.Plugs.LoadCurrentMembershipTest do
         |> Repo.insert()
 
       {:ok, user} =
-        %MealPlannerApi.Persistence.Accounts.User{}
-        |> MealPlannerApi.Persistence.Accounts.User.changeset(%{
+        %User{}
+        |> User.changeset(%{
           account_id: account.id,
           email: "partial-v2@example.com",
           name: "Partial V2",
@@ -327,8 +329,8 @@ defmodule MealPlannerApiWeb.Plugs.LoadCurrentMembershipTest do
       plan = Repo.get_by!(MealPlannerApi.Subscriptions.Plan, name: "individual")
 
       {:ok, account} =
-        %MealPlannerApi.Persistence.Accounts.Account{}
-        |> MealPlannerApi.Persistence.Accounts.Account.changeset(%{
+        %Account{}
+        |> Account.changeset(%{
           name: "Legacy Sock No-Row Account",
           plan: :individual,
           default_budget_cents: 0,
@@ -337,8 +339,8 @@ defmodule MealPlannerApiWeb.Plugs.LoadCurrentMembershipTest do
         |> Repo.insert()
 
       {:ok, user} =
-        %MealPlannerApi.Persistence.Accounts.User{}
-        |> MealPlannerApi.Persistence.Accounts.User.changeset(%{
+        %User{}
+        |> User.changeset(%{
           account_id: account.id,
           email: "v1-socket-no-row@example.com",
           name: "V1 Socket No Row User",
@@ -367,8 +369,8 @@ defmodule MealPlannerApiWeb.Plugs.LoadCurrentMembershipTest do
       plan = Repo.get_by!(MealPlannerApi.Subscriptions.Plan, name: "individual")
 
       {:ok, account} =
-        %MealPlannerApi.Persistence.Accounts.Account{}
-        |> MealPlannerApi.Persistence.Accounts.Account.changeset(%{
+        %Account{}
+        |> Account.changeset(%{
           name: "Legacy Sock Real Row Account",
           plan: :individual,
           default_budget_cents: 0,
@@ -377,8 +379,8 @@ defmodule MealPlannerApiWeb.Plugs.LoadCurrentMembershipTest do
         |> Repo.insert()
 
       {:ok, user} =
-        %MealPlannerApi.Persistence.Accounts.User{}
-        |> MealPlannerApi.Persistence.Accounts.User.changeset(%{
+        %User{}
+        |> User.changeset(%{
           account_id: account.id,
           email: "v1-socket-real-row@example.com",
           name: "V1 Socket Real Row User",
@@ -416,8 +418,8 @@ defmodule MealPlannerApiWeb.Plugs.LoadCurrentMembershipTest do
       plan = Repo.get_by!(MealPlannerApi.Subscriptions.Plan, name: "individual")
 
       {:ok, account} =
-        %MealPlannerApi.Persistence.Accounts.Account{}
-        |> MealPlannerApi.Persistence.Accounts.Account.changeset(%{
+        %Account{}
+        |> Account.changeset(%{
           name: "Legacy Sock Removed Account",
           plan: :individual,
           default_budget_cents: 0,
@@ -426,8 +428,8 @@ defmodule MealPlannerApiWeb.Plugs.LoadCurrentMembershipTest do
         |> Repo.insert()
 
       {:ok, user} =
-        %MealPlannerApi.Persistence.Accounts.User{}
-        |> MealPlannerApi.Persistence.Accounts.User.changeset(%{
+        %User{}
+        |> User.changeset(%{
           account_id: account.id,
           email: "v1-socket-removed@example.com",
           name: "V1 Socket Removed User",

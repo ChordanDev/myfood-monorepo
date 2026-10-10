@@ -168,7 +168,7 @@ defmodule MealPlannerApi.Services.RevenuecatServiceTest do
 
       statuses = Enum.map(results, fn {:ok, %{status: s}} -> s end)
 
-      assert Enum.count(statuses, &(&1 == "processed")) >= 1,
+      assert Enum.any?(statuses, &(&1 == "processed")),
              "expected at least one processed, got: #{inspect(statuses)}"
 
       assert Enum.all?(statuses, &(&1 in ["processed", "duplicate", "stale"])),

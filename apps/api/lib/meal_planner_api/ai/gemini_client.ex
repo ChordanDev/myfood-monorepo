@@ -40,9 +40,8 @@ defmodule MealPlannerApi.AI.GeminiClient do
   @impl true
   def generate_text(prompt, opts) when is_binary(prompt) and is_list(opts) do
     with {:ok, api_key} <- fetch_api_key(),
-         {:ok, response_body} <- do_generate(prompt, opts, api_key),
-         {:ok, text} <- parse_text(response_body) do
-      {:ok, text}
+         {:ok, response_body} <- do_generate(prompt, opts, api_key) do
+      parse_text(response_body)
     end
   end
 
@@ -218,8 +217,7 @@ defmodule MealPlannerApi.AI.GeminiClient do
          %{"content" => %{"parts" => parts}} <- first do
       text =
         parts
-        |> Enum.map(&Map.get(&1, "text", ""))
-        |> Enum.join("\n")
+        |> Enum.map_join("\n", &Map.get(&1, "text", ""))
         |> String.trim()
 
       if text == "" do

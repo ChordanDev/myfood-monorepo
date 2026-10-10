@@ -1,4 +1,6 @@
 defmodule MealPlannerApi.SubscriptionPlanFixtures do
+  @moduledoc false
+
   alias Ecto.Adapters.SQL.Sandbox
   alias MealPlannerApi.Repo
   alias MealPlannerApi.Subscriptions.Plan

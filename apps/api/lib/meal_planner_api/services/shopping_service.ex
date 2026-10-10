@@ -10,12 +10,13 @@ defmodule MealPlannerApi.Services.ShoppingService do
   require Logger
   alias MealPlannerApi.AccountClock
   alias MealPlannerApi.Cart
-  alias MealPlannerApi.Data.ShoppingRepo
   alias MealPlannerApi.Data.RecipeRepo
+  alias MealPlannerApi.Data.ShoppingRepo
   alias MealPlannerApi.Persistence.Calendar, as: CalendarPersistence
   alias MealPlannerApi.Persistence.Identity
   alias MealPlannerApi.Persistence.Shopping
   alias MealPlannerApi.Repo
+  alias MealPlannerApi.Services.InventoryService
   alias MealPlannerApi.Services.ShoppingRebuilder
 
   # -------------------------------------------------------------------------
@@ -242,7 +243,7 @@ defmodule MealPlannerApi.Services.ShoppingService do
     scheduled_meals = Repo.preload(scheduled_meals, recipe: :recipe_ingredients)
 
     pool =
-      MealPlannerApi.Services.InventoryService.list_for_account(account_id)
+      InventoryService.list_for_account(account_id)
       |> Enum.reduce(%{}, fn item, pool ->
         Map.update(
           pool,

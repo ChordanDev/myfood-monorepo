@@ -8,8 +8,8 @@ defmodule MealPlannerApi.Services.PlanningCandidateBuilder do
   """
 
   alias MealPlannerApi.Data.PlanningRepo
-  alias MealPlannerApi.Services.RecipeVersions
   alias MealPlannerApi.Services.InventoryService
+  alias MealPlannerApi.Services.RecipeVersions
 
   @type dated_slot :: %{required(:date) => Date.t(), required(:slot) => atom() | String.t()}
 

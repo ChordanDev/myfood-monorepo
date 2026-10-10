@@ -5,8 +5,8 @@ defmodule MealPlannerApi.Services.BudgetService do
   Resolves weekly budget limits based on account type and subscription tier.
   """
 
-  alias MealPlannerApi.Data.AccountRepo
   alias MealPlannerApi.Budgets.Budget
+  alias MealPlannerApi.Data.AccountRepo
 
   @spec resolve(map()) :: Budget.t()
   def resolve(user) do

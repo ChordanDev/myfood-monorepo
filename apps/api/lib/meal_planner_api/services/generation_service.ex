@@ -6,6 +6,8 @@ defmodule MealPlannerApi.Services.GenerationService do
   caller (GenerationServer). This separation makes GenerationServer testable.
   """
 
+  alias MealPlannerApi.Services.RecipeVersions
+
   # -------------------------------------------------------------------------
   # Constraints
   # -------------------------------------------------------------------------
@@ -176,9 +178,8 @@ defmodule MealPlannerApi.Services.GenerationService do
     expected = MapSet.new(Enum.map(slots, &{&1.date, &1.slot}))
 
     with :ok <- validate_assignments(meals, slots, account_id),
-         :ok <- validate_coverage(meals, expected),
-         :ok <- validate_hard_constraints(meals, slots, Map.get(context, :constraints, %{})) do
-      :ok
+         :ok <- validate_coverage(meals, expected) do
+      validate_hard_constraints(meals, slots, Map.get(context, :constraints, %{}))
     end
   end
 
@@ -254,7 +255,7 @@ defmodule MealPlannerApi.Services.GenerationService do
           ingredients =
             case Map.get(meal, :recipe_snapshot) do
               snapshot when is_map(snapshot) ->
-                MealPlannerApi.Services.RecipeVersions.decode(snapshot).recipe_ingredients
+                RecipeVersions.decode(snapshot).recipe_ingredients
 
               _ ->
                 Map.get(by_recipe, recipe_id, [])
@@ -332,15 +333,13 @@ defmodule MealPlannerApi.Services.GenerationService do
   # is detected at any depth.
   defp walk_forbidden_keys(%{} = map) do
     Enum.reduce_while(Map.keys(map), :ok, fn key, :ok ->
-      cond do
-        key in @forbidden_intent_keys ->
-          {:halt, {:error, :forbidden_intent}}
-
-        true ->
-          case walk_forbidden_keys(Map.fetch!(map, key)) do
-            :ok -> {:cont, :ok}
-            {:error, _} = err -> {:halt, err}
-          end
+      if key in @forbidden_intent_keys do
+        {:halt, {:error, :forbidden_intent}}
+      else
+        case walk_forbidden_keys(Map.fetch!(map, key)) do
+          :ok -> {:cont, :ok}
+          {:error, _} = err -> {:halt, err}
+        end
       end
     end)
   end

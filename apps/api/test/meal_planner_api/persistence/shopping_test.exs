@@ -3,6 +3,7 @@ defmodule MealPlannerApi.Persistence.ShoppingTest do
 
   import ExUnit.CaptureLog
 
+  alias Ecto.Adapters.SQL.Sandbox
   alias MealPlannerApi.Persistence.Catalog
   alias MealPlannerApi.Persistence.Identity
   alias MealPlannerApi.Persistence.Planning
@@ -10,7 +11,7 @@ defmodule MealPlannerApi.Persistence.ShoppingTest do
   alias MealPlannerApi.Repo
 
   setup do
-    :ok = Ecto.Adapters.SQL.Sandbox.checkout(Repo)
+    :ok = Sandbox.checkout(Repo)
     :ok = MealPlannerApi.SubscriptionPlanFixtures.ensure_plans!()
   end
 
@@ -217,7 +218,7 @@ defmodule MealPlannerApi.Persistence.ShoppingTest do
       items_session2 = Shopping.list_items_by_session(account_id, session2.id)
 
       assert length(items_session1) == 1
-      assert length(items_session2) == 0
+      assert items_session2 == []
     end
   end
 

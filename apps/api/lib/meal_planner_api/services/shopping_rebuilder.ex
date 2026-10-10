@@ -25,6 +25,7 @@ defmodule MealPlannerApi.Services.ShoppingRebuilder do
   """
 
   alias MealPlannerApi.Persistence.Planning.ScheduledMeal
+  alias MealPlannerApi.Services.RecipeVersions
 
   # Slots in the order of the day, as the Scheduled meal schema declares
   # them. A slot outside this list sorts after the known ones. Read through
@@ -214,7 +215,7 @@ defmodule MealPlannerApi.Services.ShoppingRebuilder do
   end
 
   defp get_recipe_ingredients(meal) do
-    case MealPlannerApi.Services.RecipeVersions.recipe_for_meal(meal) do
+    case RecipeVersions.recipe_for_meal(meal) do
       %{recipe_ingredients: ingredients} when is_list(ingredients) -> ingredients
       _ -> []
     end

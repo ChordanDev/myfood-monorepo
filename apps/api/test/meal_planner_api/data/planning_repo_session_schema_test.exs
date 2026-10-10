@@ -108,7 +108,7 @@ defmodule MealPlannerApi.Data.PlanningRepoSessionSchemaTest do
       assert condef =~ ~r/btree_gist/i or condef =~ ~r/gist/i
       assert condef =~ ~r/account_id.*=/i
       assert condef =~ ~r/daterange/i
-      assert condef =~ ~r/range_from.*range_to/i or condef =~ ~r/range_from.*range_to/i
+      assert condef =~ ~r/range_from.*range_to/i
       assert condef =~ ~r/status/i
       assert condef =~ ~r/'active'/i
     end
@@ -186,15 +186,13 @@ defmodule MealPlannerApi.Data.PlanningRepoSessionSchemaTest do
   end
 
   defp assert_raises_postgres(expected_sqlstate, fun) do
-    try do
-      result = fun.()
+    result = fun.()
 
-      flunk("expected PostgreSQL exception #{expected_sqlstate}, got #{inspect(result)}")
-    rescue
-      ex in Postgrex.Error ->
-        assert ex.postgres.pg_code == expected_sqlstate,
-               "expected sqlstate #{expected_sqlstate}, got pg_code=#{ex.postgres.pg_code}"
-    end
+    flunk("expected PostgreSQL exception #{expected_sqlstate}, got #{inspect(result)}")
+  rescue
+    ex in Postgrex.Error ->
+      assert ex.postgres.pg_code == expected_sqlstate,
+             "expected sqlstate #{expected_sqlstate}, got pg_code=#{ex.postgres.pg_code}"
   end
 
   defp insert_account! do

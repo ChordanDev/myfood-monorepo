@@ -3,6 +3,7 @@ defmodule MealPlannerApiWeb.DietaryProfileControllerTest do
 
   import MealPlannerApi.FactoryHelpers
 
+  alias MealPlannerApi.Persistence.Accounts.AccountMembership
   alias MealPlannerApi.Persistence.Accounts.UserDietaryProfile
   alias MealPlannerApi.Persistence.Catalog.Ingredient
   alias MealPlannerApi.Repo
@@ -19,8 +20,8 @@ defmodule MealPlannerApiWeb.DietaryProfileControllerTest do
       member =
         user_with_memberships(%{email: "dietary-member@example.com"}, [])
 
-      MealPlannerApi.Persistence.Accounts.AccountMembership.changeset(
-        %MealPlannerApi.Persistence.Accounts.AccountMembership{},
+      AccountMembership.changeset(
+        %AccountMembership{},
         %{
           account_id: owner_membership.account_id,
           user_id: member.id,

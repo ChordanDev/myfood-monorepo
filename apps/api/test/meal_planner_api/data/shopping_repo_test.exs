@@ -24,6 +24,7 @@ defmodule MealPlannerApi.Data.ShoppingRepoTest do
   alias MealPlannerApi.Persistence.Accounts.AccountMembership
   alias MealPlannerApi.Persistence.Accounts.User, as: PersistenceUser
   alias MealPlannerApi.Persistence.Catalog.Ingredient
+  alias MealPlannerApi.Persistence.Catalog.Recipe
   alias MealPlannerApi.Persistence.Shopping.CheckoutSession
   alias MealPlannerApi.Repo
 
@@ -273,8 +274,8 @@ defmodule MealPlannerApi.Data.ShoppingRepoTest do
   end
 
   defp insert_recipe(name) do
-    %MealPlannerApi.Persistence.Catalog.Recipe{}
-    |> MealPlannerApi.Persistence.Catalog.Recipe.changeset(%{
+    %Recipe{}
+    |> Recipe.changeset(%{
       name: name,
       description: "Test recipe",
       servings: 2,

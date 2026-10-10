@@ -7,8 +7,8 @@ defmodule MealPlannerApi.Data.PriceRepo do
 
   import Ecto.Query, warn: false
 
-  alias MealPlannerApi.Repo
   alias MealPlannerApi.Persistence.Shopping.{IngredientPrice, RecipePrice}
+  alias MealPlannerApi.Repo
 
   # -------------------------------------------------------------------------
   # Ingredient prices

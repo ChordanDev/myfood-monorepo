@@ -1,4 +1,11 @@
 defmodule MealPlannerApiWeb.CookingChannel do
+  @moduledoc """
+  Channel for a cooking session on `cooking:<account_id>:<session>`.
+
+  Lets an active member with recipe access start a session, read its state,
+  track steps, finish it and ask the cooking assistant.
+  """
+
   use MealPlannerApiWeb, :channel
 
   alias MealPlannerApi.Data.PlanningRepo

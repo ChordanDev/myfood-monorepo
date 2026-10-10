@@ -30,6 +30,7 @@ defmodule MealPlannerApi.Generation.PlanningSession.Sweeper do
   alias MealPlannerApi.Persistence.Planning.PlanningMessage
   alias MealPlannerApi.Persistence.Planning.PlanningSession
   alias MealPlannerApi.Repo
+  alias Phoenix.Channel.Server
 
   @default_interval 30_000
 
@@ -152,7 +153,7 @@ defmodule MealPlannerApi.Generation.PlanningSession.Sweeper do
   end
 
   defp broadcast_expired(account_id, session_id) do
-    Phoenix.Channel.Server.broadcast!(
+    Server.broadcast!(
       MealPlannerApi.PubSub,
       "planning:#{account_id}",
       "session_expired",

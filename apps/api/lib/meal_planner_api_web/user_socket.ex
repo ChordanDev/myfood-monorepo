@@ -67,6 +67,9 @@ defmodule MealPlannerApiWeb.UserSocket do
   """
   use Phoenix.Socket
 
+  alias MealPlannerApi.Auth.Guardian
+  alias MealPlannerApiWeb.Plugs.LoadCurrentMembershipSocket
+
   channel("ai_chat:*", MealPlannerApiWeb.AIChannel)
   channel("shopping:*", MealPlannerApiWeb.ShoppingChannel)
   channel("calendar:*", MealPlannerApiWeb.CalendarChannel)
@@ -75,7 +78,7 @@ defmodule MealPlannerApiWeb.UserSocket do
 
   @impl true
   def connect(%{"token" => token}, socket, _connect_info) do
-    with {:ok, user, claims} <- MealPlannerApi.Auth.Guardian.resource_from_token(token),
+    with {:ok, user, claims} <- Guardian.resource_from_token(token),
          {:ok, membership} <- load_membership_for_socket(socket, user, claims) do
       socket =
         socket
@@ -112,9 +115,7 @@ defmodule MealPlannerApiWeb.UserSocket do
       |> assign(:current_user, user)
       |> assign(:claims, claims)
 
-    case MealPlannerApiWeb.Plugs.LoadCurrentMembershipSocket.membership_from_socket(
-           socket_with_context
-         ) do
+    case LoadCurrentMembershipSocket.membership_from_socket(socket_with_context) do
       %MealPlannerApi.Persistence.Accounts.AccountMembership{} = m -> {:ok, m}
       _ -> {:error, :membership_id_required}
     end

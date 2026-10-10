@@ -1,6 +1,7 @@
 defmodule MealPlannerApi.CartConcurrencyTest do
   use ExUnit.Case, async: false
   import MealPlannerApi.CartFixtures
+  alias Ecto.Adapters.SQL
   alias MealPlannerApi.{Cart, Repo}
   alias MealPlannerApi.Persistence.Shopping.CheckoutSession
 
@@ -24,7 +25,7 @@ defmodule MealPlannerApi.CartConcurrencyTest do
       )
 
     assert %{rows: [[^database]]} =
-             Ecto.Adapters.SQL.query!(repo, "SELECT current_database()", [])
+             SQL.query!(repo, "SELECT current_database()", [])
 
     {:ok, repo: repo}
   end

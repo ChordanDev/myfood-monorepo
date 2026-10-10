@@ -72,8 +72,9 @@ defmodule MealPlannerApiWeb.PlanningChannel do
   require Logger
 
   alias MealPlannerApi.AccountAccess
-  alias MealPlannerApi.Persistence.Planning
+  alias MealPlannerApi.Data.PlanningRepo
   alias MealPlannerApi.Generation.{PlanningSessionServer, PlanningSessionSupervisor, Server}
+  alias MealPlannerApi.Persistence.Planning
   alias MealPlannerApi.Planning.LockOwner
   alias MealPlannerApi.Services.PlanningChatService
   alias MealPlannerApiWeb.ApiError
@@ -554,7 +555,7 @@ defmodule MealPlannerApiWeb.PlanningChannel do
 
     with {:ok, session_id} <- require_uuid(Map.get(payload, "session_id")),
          {:ok, _cancelled} <-
-           MealPlannerApi.Data.PlanningRepo.cancel_session(
+           PlanningRepo.cancel_session(
              account_id,
              session_id,
              actor_membership_id,
@@ -818,7 +819,7 @@ defmodule MealPlannerApiWeb.PlanningChannel do
   # session process is stopped so nothing keeps the row's account busy.
   defp cancel_unstarted_session(membership, session_id, session_pid) do
     _ =
-      MealPlannerApi.Data.PlanningRepo.cancel_session(
+      PlanningRepo.cancel_session(
         membership.account_id,
         session_id,
         membership.id,

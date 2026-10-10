@@ -15,16 +15,18 @@ defmodule MealPlannerApiWeb.PreparedLeftoverController do
   end
 
   def create(conn, params) do
-    with {:ok, attrs} <- parse_create(params) do
-      case Leftovers.create(account_id(conn), attrs) do
-        {:ok, leftover} ->
-          conn |> put_status(201) |> json(%{data: render_leftover(leftover)})
+    case parse_create(params) do
+      {:ok, attrs} ->
+        case Leftovers.create(account_id(conn), attrs) do
+          {:ok, leftover} ->
+            conn |> put_status(201) |> json(%{data: render_leftover(leftover)})
 
-        {:error, %Ecto.Changeset{} = changeset} ->
-          ApiError.validation_error(conn, wire_field(changeset))
-      end
-    else
-      {:error, field} -> ApiError.validation_error(conn, field)
+          {:error, %Ecto.Changeset{} = changeset} ->
+            ApiError.validation_error(conn, wire_field(changeset))
+        end
+
+      {:error, field} ->
+        ApiError.validation_error(conn, field)
     end
   end
 

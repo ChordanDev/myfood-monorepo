@@ -27,6 +27,7 @@ defmodule MealPlannerApiWeb.AuthPipelineTest do
   import MealPlannerApi.FactoryHelpers
 
   alias MealPlannerApi.Auth.Guardian
+  alias MealPlannerApiWeb.Controllers.AccountScopeHelpers
 
   describe "AuthPipeline module" do
     test "compiles as a Guardian.Plug.Pipeline module" do
@@ -149,7 +150,7 @@ defmodule MealPlannerApiWeb.AuthPipelineTest do
       claims = MealPlannerApi.AccountsMembership.claims_for(user, membership)
 
       {:ok, _access, refresh_token} =
-        MealPlannerApiWeb.Controllers.AccountScopeHelpers.mint_token_pair(user, claims)
+        AccountScopeHelpers.mint_token_pair(user, claims)
 
       conn =
         conn

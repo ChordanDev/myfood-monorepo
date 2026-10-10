@@ -30,8 +30,8 @@ defmodule MealPlannerApi.Generation.ServerTestFixtures do
   alias MealPlannerApi.Persistence.Catalog
   alias MealPlannerApi.Persistence.Catalog.Ingredient
   alias MealPlannerApi.Persistence.Catalog.Recipe
-  alias MealPlannerApi.Persistence.Planning.PlanningProposal
   alias MealPlannerApi.Persistence.Planning.PlanningGenerationRun
+  alias MealPlannerApi.Persistence.Planning.PlanningProposal
   alias MealPlannerApi.Persistence.Shopping.CheckoutSession
   alias MealPlannerApi.Persistence.Shopping.ShoppingItem
   alias MealPlannerApi.Repo

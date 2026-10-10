@@ -6,6 +6,8 @@ defmodule MealPlannerApi.PlanningCaptureOptimizerClient do
 
   @behaviour MealPlannerApi.Optimization.OptimizerPort
 
+  alias MealPlannerApi.Optimization.OptimizerMock
+
   @impl true
   def select_weekly_menu(payload) when is_map(payload) do
     capture_pid = Application.get_env(:meal_planner_api, :planning_optimizer_capture_pid)
@@ -14,7 +16,7 @@ defmodule MealPlannerApi.PlanningCaptureOptimizerClient do
       send(capture_pid, {:optimizer_payload, deep_stringify_keys(payload)})
     end
 
-    MealPlannerApi.Optimization.OptimizerMock.select_weekly_menu(payload)
+    OptimizerMock.select_weekly_menu(payload)
   end
 
   defp deep_stringify_keys(map) when is_map(map) do

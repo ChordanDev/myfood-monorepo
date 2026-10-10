@@ -3,6 +3,7 @@ defmodule MealPlannerApi.Persistence.CalendarTest do
 
   alias Ecto.Adapters.SQL.Sandbox
   alias MealPlannerApi.Data.PlanningRepo
+  alias MealPlannerApi.Persistence.Accounts.Account
   alias MealPlannerApi.Persistence.Calendar
   alias MealPlannerApi.Repo
 
@@ -179,8 +180,8 @@ defmodule MealPlannerApi.Persistence.CalendarTest do
     test "today and skipped follow the Account's timezone, not UTC" do
       account_id = account_id("calendar-skipped-tz@example.com")
 
-      Repo.get!(MealPlannerApi.Persistence.Accounts.Account, account_id)
-      |> MealPlannerApi.Persistence.Accounts.Account.changeset(%{timezone: "Pacific/Auckland"})
+      Repo.get!(Account, account_id)
+      |> Account.changeset(%{timezone: "Pacific/Auckland"})
       |> Repo.update!()
 
       meal = schedule(account_id, ~D[2026-10-08], :lunch)
