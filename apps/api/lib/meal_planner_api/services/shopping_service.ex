@@ -12,6 +12,7 @@ defmodule MealPlannerApi.Services.ShoppingService do
   alias MealPlannerApi.Cart
   alias MealPlannerApi.Data.ShoppingRepo
   alias MealPlannerApi.Data.RecipeRepo
+  alias MealPlannerApi.Persistence.Calendar, as: CalendarPersistence
   alias MealPlannerApi.Persistence.Identity
   alias MealPlannerApi.Persistence.Shopping
   alias MealPlannerApi.Repo
@@ -44,7 +45,10 @@ defmodule MealPlannerApi.Services.ShoppingService do
     * `planned` — the lines `ShoppingRebuilder.group_lines/2` builds from
       the pending and in-cart Shopping items planned from today on, with
       `status` `"needed"` or `"in_cart"` and `source` `"planned_meal"`.
-    * `manual` — always `[]` until manual items exist.
+    * `manual` — the Shopping items the User added by hand that are still
+      on the list, oldest first, one line each in the shape of a `planned`
+      line (`source` `"manual"`, no allocations). They are never merged with
+      each other or with a planned line, and no date limit applies to them.
     * `cart` — `%{session_id, lease_expires_at}` for the caller's own
       active Cart, otherwise `nil`. A line held in another member's Cart
       still reads `"in_cart"`.
@@ -98,7 +102,7 @@ defmodule MealPlannerApi.Services.ShoppingService do
 
     %{
       planned: Enum.map(planned, &serialize_line/1),
-      manual: [],
+      manual: account_id |> Shopping.list_open_manual_items() |> Enum.map(&manual_line/1),
       cart: serialize_cart(Cart.active_for(account_id, identity.user_id, now)),
       totals: %{
         needed: Enum.count(planned, &(&1.status == :needed)),
@@ -162,6 +166,24 @@ defmodule MealPlannerApi.Services.ShoppingService do
 
   defp list_status(:pending), do: :needed
   defp list_status(:in_cart), do: :in_cart
+  defp list_status(:removed), do: :removed
+
+  # The line of a manual item: the shape of a planned line, for no meal. The
+  # Ingredient is optional; without one the category is `otros`.
+  defp manual_line(item) do
+    %{
+      id: item.id,
+      ingredient_id: item.ingredient_id,
+      name: item.name,
+      category: Atom.to_string(if(item.ingredient, do: item.ingredient.category, else: :otros)),
+      quantity_milli: item.quantity_milli,
+      unit: Atom.to_string(item.unit),
+      status: Atom.to_string(list_status(item.status)),
+      source: Atom.to_string(item.source),
+      supermarket_id: item.assigned_supermarket_id,
+      allocations: []
+    }
+  end
 
   # Enum values leave as strings, like the rest of this service. Dates stay
   # `Date` structs, which the JSON encoder writes as ISO 8601.
@@ -253,6 +275,278 @@ defmodule MealPlannerApi.Services.ShoppingService do
       )
 
       :ok
+  end
+
+  # -------------------------------------------------------------------------
+  # Manual items (issue #40)
+  # -------------------------------------------------------------------------
+
+  @manual_units %{"g" => :g, "ml" => :ml, "unit" => :unit}
+  @default_manual_quantity_milli 1_000
+
+  @doc """
+  Adds a Shopping item by hand to the caller's Account.
+
+  ## Parameters
+
+    * `params` — snake_case request params: `"name"` (required, a string
+      that is not blank once trimmed, at most 200 characters),
+      `"ingredient_id"` (optional, an Ingredient of the catalogue),
+      `"quantity_milli"` (optional integer above zero, `1000` when omitted)
+      and `"unit"` (optional, `"g"`, `"ml"` or `"unit"`, `"unit"` when
+      omitted). So the default is 1 unit.
+
+  ## Returns
+
+  `{:ok, line}` with the line of the new item, the shape of a `manual`
+  entry of `get_shopping_list/3`, or `{:error, :validation_error}`.
+  """
+  @spec create_manual_item(map(), map()) :: {:ok, map()} | {:error, term()}
+  def create_manual_item(user, params) when is_map(params) do
+    with {:ok, identity} <- Identity.ensure_persistent_identity(user),
+         {:ok, attrs} <- manual_attrs(params),
+         {:ok, item} <-
+           Shopping.create_manual_item(Map.put(attrs, :account_id, identity.account_id)) do
+      {:ok, item |> Repo.preload(:ingredient) |> manual_line()}
+    else
+      {:error, %Ecto.Changeset{}} -> {:error, :validation_error}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp manual_attrs(params) do
+    with {:ok, name} <- manual_name(Map.get(params, "name")),
+         {:ok, ingredient_id} <- manual_ingredient_id(Map.get(params, "ingredient_id")),
+         {:ok, quantity_milli} <- manual_quantity(Map.get(params, "quantity_milli")),
+         {:ok, unit} <- manual_unit(Map.get(params, "unit")) do
+      {:ok,
+       %{name: name, ingredient_id: ingredient_id, quantity_milli: quantity_milli, unit: unit}}
+    end
+  end
+
+  defp manual_name(name) when is_binary(name), do: {:ok, name}
+  defp manual_name(_name), do: {:error, :validation_error}
+
+  defp manual_ingredient_id(nil), do: {:ok, nil}
+
+  defp manual_ingredient_id(id) do
+    with {:ok, uuid} <- Ecto.UUID.cast(id),
+         %{} <- Repo.get(MealPlannerApi.Persistence.Catalog.Ingredient, uuid) do
+      {:ok, uuid}
+    else
+      _unknown_or_malformed -> {:error, :validation_error}
+    end
+  end
+
+  defp manual_quantity(nil), do: {:ok, @default_manual_quantity_milli}
+  defp manual_quantity(quantity) when is_integer(quantity) and quantity > 0, do: {:ok, quantity}
+  defp manual_quantity(_quantity), do: {:error, :validation_error}
+
+  defp manual_unit(nil), do: {:ok, :unit}
+
+  defp manual_unit(unit) do
+    case Map.fetch(@manual_units, unit) do
+      {:ok, unit} -> {:ok, unit}
+      :error -> {:error, :validation_error}
+    end
+  end
+
+  @doc """
+  Deletes a manual Shopping item of the caller's Account that is still on
+  the list (`pending` or `in_cart`).
+
+  `{:ok, %{id: id}}`, `{:error, :shopping_item_not_manual}` for a planned
+  item (which is removed with `set_item_status/3`, never deleted) and
+  `{:error, :shopping_item_not_found}` for an id that is unknown, of another
+  Account, malformed, or of an item already bought or archived.
+  """
+  @spec delete_manual_item(map(), term()) :: {:ok, map()} | {:error, term()}
+  def delete_manual_item(user, item_id) do
+    with {:ok, identity} <- Identity.ensure_persistent_identity(user),
+         %Shopping.ShoppingItem{} = item <-
+           Shopping.get_item_for_account(identity.account_id, item_id) || :not_found,
+         :ok <- deletable(item),
+         {:ok, _deleted} <- Repo.delete(item) do
+      {:ok, %{id: item.id}}
+    else
+      :not_found -> {:error, :shopping_item_not_found}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp deletable(%{source: :planned_meal}), do: {:error, :shopping_item_not_manual}
+  defp deletable(%{status: status}) when status in [:pending, :in_cart], do: :ok
+  defp deletable(_closed), do: {:error, :shopping_item_not_found}
+
+  # -------------------------------------------------------------------------
+  # Removed and restored planned items (issue #40)
+  # -------------------------------------------------------------------------
+
+  @item_statuses %{"removed" => :removed, "needed" => :pending}
+
+  @doc """
+  Removes planned Shopping items from the list, or restores them.
+
+  A removed item is one the User will not buy: its line stops counting
+  toward the quantity to buy, the estimate and the Cart, and the list
+  still returns it with status `removed` so it can be restored. A rebuild
+  of the plan keeps it removed while the meal still needs the Ingredient.
+
+  ## Parameters
+
+    * `params` — snake_case request params: `"status"` (`"removed"` or
+      `"needed"`) and the items, `"item_ids"` (a list of ids without
+      repeats) or a single `"item_id"`.
+
+  ## Returns
+
+  `{:ok, %{status, item_ids, updated_rows}}`. Setting the status an item
+  already has changes nothing and succeeds. All items are checked before
+  any is changed; one failure changes none.
+
+    * `{:error, :validation_error}` — a missing or unknown `status`, or
+      no items, a repeated item or an id that is not a string.
+    * `{:error, :shopping_item_not_found}` — an id that is unknown, of
+      another Account, malformed, or of an item already bought or closed.
+    * `{:error, :shopping_item_not_planned}` — a manual item. It is
+      deleted, not removed.
+    * `{:error, :shopping_item_in_cart}` — removing an item that is in a
+      Cart. Take it out of the Cart first.
+  """
+  @spec set_item_status(map(), map()) :: {:ok, map()} | {:error, term()}
+  def set_item_status(user, params) when is_map(params) do
+    with {:ok, identity} <- Identity.ensure_persistent_identity(user),
+         {:ok, status} <- item_status(Map.get(params, "status")),
+         {:ok, item_ids} <- item_ids(params) do
+      Repo.transaction(fn -> change_item_status(identity.account_id, item_ids, status) end)
+    end
+  end
+
+  defp item_status(value) do
+    case is_binary(value) && Map.fetch(@item_statuses, value) do
+      {:ok, status} -> {:ok, status}
+      _unknown -> {:error, :validation_error}
+    end
+  end
+
+  defp item_ids(%{"item_ids" => ids}) when is_list(ids) and ids != [] do
+    if Enum.all?(ids, &is_binary/1) and length(Enum.uniq(ids)) == length(ids),
+      do: {:ok, ids},
+      else: {:error, :validation_error}
+  end
+
+  defp item_ids(%{"item_id" => id}) when is_binary(id), do: {:ok, [id]}
+  defp item_ids(_params), do: {:error, :validation_error}
+
+  # Locks the items the way the Cart does, so a reservation cannot slip in
+  # between the check and the write. The transaction rolls back on the first
+  # failure, so a request changes every item or none.
+  defp change_item_status(account_id, item_ids, status) do
+    with {:ok, uuids} <- cast_item_ids(item_ids),
+         items = Shopping.lock_items_for_account(account_id, uuids),
+         true <- length(items) == length(uuids) || {:error, :shopping_item_not_found},
+         :ok <- check_status_change(items, status) do
+      to_change = Enum.reject(items, &(&1.status == status))
+      Shopping.set_items_status(Enum.map(to_change, & &1.id), status)
+
+      %{
+        status: Atom.to_string(list_status(status)),
+        item_ids: Enum.map(items, & &1.id),
+        updated_rows: length(to_change)
+      }
+    else
+      {:error, reason} -> Repo.rollback(reason)
+    end
+  end
+
+  defp cast_item_ids(item_ids) do
+    casts = Enum.map(item_ids, &Ecto.UUID.cast/1)
+
+    if Enum.all?(casts, &match?({:ok, _}, &1)),
+      do: {:ok, Enum.map(casts, fn {:ok, uuid} -> uuid end)},
+      else: {:error, :shopping_item_not_found}
+  end
+
+  defp check_status_change(items, status) do
+    Enum.find_value(items, :ok, fn item ->
+      cond do
+        item.source == :manual -> {:error, :shopping_item_not_planned}
+        item.status == :in_cart and status == :removed -> {:error, :shopping_item_in_cart}
+        item.status in [:pending, :removed, :in_cart] -> nil
+        true -> {:error, :shopping_item_not_found}
+      end
+    end)
+  end
+
+  # -------------------------------------------------------------------------
+  # Re-planning (issue #40)
+  # -------------------------------------------------------------------------
+
+  @doc """
+  Replaces the Scheduled meals of `[from_date, to_date]`
+  (`Persistence.Calendar.replace_scheduled_meals_for_range/3`) and carries
+  the Shopping list across the replacement.
+
+  The meals come back with new ids, which deletes their planned Shopping
+  items. What the User decided about them survives:
+
+    * manual items are for no meal, so the replacement never touches them;
+    * a planned item the User removed is removed again once the new meals
+      have their items, as long as a meal on the same date and slot still
+      needs the same Ingredient and unit. The quantity is the Shortage of
+      the new plan. A removal no meal needs any more is dropped.
+
+  The removed items are read before the replacement and restored after the
+  items of the new meals are derived, the way a Shopping list read derives
+  them (so the Shortage subtracts the Inventory from every upcoming meal,
+  not only these). With nothing removed this is the plain replacement and
+  the items are derived by the next read.
+
+  Returns what the replacement returns.
+  """
+  @spec replace_scheduled_meals_for_range(
+          Ecto.UUID.t(),
+          {Date.t(), Date.t()},
+          [map()],
+          DateTime.t()
+        ) :: {:ok, %{replaced: non_neg_integer()}} | {:error, atom()}
+  def replace_scheduled_meals_for_range(
+        account_id,
+        {from_date, to_date} = range,
+        meals,
+        now \\ DateTime.utc_now()
+      ) do
+    removed =
+      if valid_range?(from_date, to_date),
+        do: Shopping.removed_item_keys(account_id, from_date, to_date),
+        else: MapSet.new()
+
+    with {:ok, _result} = replaced <-
+           CalendarPersistence.replace_scheduled_meals_for_range(account_id, range, meals) do
+      carry_removed_items(account_id, removed, range, now)
+      replaced
+    end
+  end
+
+  defp valid_range?(%Date{} = from_date, %Date{} = to_date),
+    do: Date.compare(from_date, to_date) != :gt
+
+  defp valid_range?(_from_date, _to_date), do: false
+
+  defp carry_removed_items(account_id, removed, {from_date, to_date}, now) do
+    if MapSet.size(removed) > 0 do
+      today = AccountClock.today(account_id, now)
+
+      _ =
+        ensure_shopping_items_from_schedule(
+          account_id,
+          upcoming_uncooked_meals(account_id, today)
+        )
+
+      Shopping.restore_removed_items(account_id, removed, from_date, to_date)
+    end
+
+    :ok
   end
 
   @spec build_shopping_list_from_schedule(map(), map()) :: {:ok, map()} | {:error, term()}

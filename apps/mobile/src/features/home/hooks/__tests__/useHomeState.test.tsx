@@ -14,7 +14,7 @@ const YESTERDAY = '2026-08-24';
 const TODAY = '2026-08-25';
 const TOMORROW = '2026-08-26';
 
-// No ingredients, so cooking a meal does not depend on the inventory store.
+// Marking a meal as cooked in the store is only local: the server consumes the stock.
 const recipes: MasterRecipe[] = [
   { ...MOCK_MASTER_RECIPES[0], id: 'recipe-salad', name: 'Ensalada de tomate', ingredients: [] },
   { ...MOCK_MASTER_RECIPES[0], id: 'recipe-soup', name: 'Sopa de pollo', ingredients: [] },

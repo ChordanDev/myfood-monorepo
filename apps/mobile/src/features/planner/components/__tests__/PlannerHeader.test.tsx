@@ -7,6 +7,7 @@ import type { MealPlanEntry } from '@/types/domain';
 import type { FloatingCalendarProps } from '@/features/home';
 import { useAnimatedThemeStyle } from '@/hooks/useAnimatedThemeStyle';
 import { useMealPlanStore } from '@/store';
+import { usePlanningRange } from '../../hooks/usePlanningRange';
 import { PlannerHeader } from '../PlannerHeader';
 
 jest.mock('@react-native-async-storage/async-storage', () =>
@@ -38,6 +39,8 @@ const mockAnchor = { x: 14, y: 60, width: 190, height: 42 };
 // The calendar itself is the Home feature's: the header is tested for what it hands it, with
 // the pure modules of that feature as they are. The anchor opens with a fixed frame, since a
 // Jest view measures nothing.
+jest.mock('@/features/home/hooks/useLoadLivePlan', () => ({ useLoadLivePlan: jest.fn() }));
+
 jest.mock('@/features/home', () => {
   const { useState } = require('react');
 
@@ -86,9 +89,14 @@ const PILL_ACTION = 'Elegir los días a planificar';
 
 let tree: ReturnType<typeof create> | undefined;
 
+// The screen owns the range and hands it to the header.
+function HeaderWithRange() {
+  return <PlannerHeader planningRange={usePlanningRange()} />;
+}
+
 function renderHeader(): ReactTestInstance {
   act(() => {
-    tree = create(<PlannerHeader />);
+    tree = create(<HeaderWithRange />);
   });
 
   return tree!.root;
@@ -271,13 +279,24 @@ describe('PlannerHeader', () => {
       pressPill(root);
       tapDay('2026-09-20');
 
-      tapDay('2026-09-28');
+      tapDay('2026-09-26');
 
       expect(calendar().anchor).toBeNull();
-      expect(getPillText(root)).toBe('20 - 28 Septiembre');
+      expect(getPillText(root)).toBe('20 - 26 Septiembre');
       expect(getPill(root).props.accessibilityLabel).toBe(
-        `${PILL_ACTION}, ahora 20 - 28 Septiembre`
+        `${PILL_ACTION}, ahora 20 - 26 Septiembre`
       );
+    });
+
+    it('cuts a range longer than a week to its seventh day', () => {
+      const root = renderHeader();
+      pressPill(root);
+      tapDay('2026-09-20');
+
+      tapDay('2026-10-12');
+
+      expect(calendar().anchor).toBeNull();
+      expect(getPillText(root)).toBe('20 - 26 Septiembre');
     });
 
     it('shortens the months of a range that crosses into the next one', () => {

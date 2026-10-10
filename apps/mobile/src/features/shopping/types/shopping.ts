@@ -4,16 +4,8 @@ import type { ShoppingLineStatus, ShoppingListLine } from './shoppingApi';
 // `in_cart` is a row marked and not bought yet.
 export type ShoppingItemStatus = ShoppingLineStatus;
 
-// Added by hand: a name only, with no ingredient, quantity, unit or category.
-export interface ManualShoppingListItem {
-  id: string;
-  source: 'manual';
-  status: ShoppingItemStatus;
-  name: string;
-}
-
-// A row of the list: a planned line as the API serves it, or an item added by hand.
-export type ShoppingListItem = ShoppingListLine | ManualShoppingListItem;
+// A row of the list: a planned line or an item added by hand, both as the API serves them.
+export type ShoppingListItem = ShoppingListLine;
 
 // Where the list is in its last read: `idle` until one is asked for, `ready` once one landed.
 export type ShoppingListLoadStatus = 'idle' | 'loading' | 'ready' | 'error';

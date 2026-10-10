@@ -34,9 +34,6 @@ export function formatUntilButtonLabel(dateKey: string) {
 }
 
 export function formatItemNameLine(item: ShoppingListItem) {
-  // An item added by hand is a name only.
-  if (!('quantityMilli' in item)) return item.name;
-
   const quantity = formatQuantity(item.quantityMilli / MILLI_PER_UNIT, item.unit);
   return `${quantity}${SEPARATOR}${item.name}`;
 }
@@ -90,4 +87,17 @@ export function formatCartButtonLabel(cartCount: number) {
 // Line under the cards that brings the removed items back.
 export function formatRemovedLabel(removed: number) {
   return `${pluralize(removed, 'quitado')}${SEPARATOR}Restaurar`;
+}
+
+/**
+ * Reads what the User typed as a quantity, in thousandths of the unit. Comma and dot both
+ * mark the decimals, as people write them here. Anything that is not a number above zero
+ * is `undefined`: the server only takes a whole count of thousandths above zero.
+ */
+export function parseQuantityMilli(text: string): number | undefined {
+  const normalized = text.trim().replace(',', '.');
+  if (!/^\d*\.?\d+$|^\d+\.$/.test(normalized)) return undefined;
+
+  const milli = Math.round(Number(normalized) * MILLI_PER_UNIT);
+  return Number.isSafeInteger(milli) && milli > 0 ? milli : undefined;
 }

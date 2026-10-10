@@ -107,4 +107,21 @@ describe('ShoppingLoadError', () => {
       { color: mockTheme.textLight },
     ]);
   });
+
+  it('names the button as the caller says, and still calls the same handler', () => {
+    const onRetry = jest.fn();
+    let tree: ReturnType<typeof create>;
+
+    act(() => {
+      tree = create(
+        <ShoppingLoadError message={MESSAGE} onRetry={onRetry} actionLabel="Entendido" />
+      );
+    });
+
+    expect(getTexts(tree!.root)).toEqual([MESSAGE, 'Entendido']);
+    act(() => {
+      getButton(tree!.root).props.onPress();
+    });
+    expect(onRetry).toHaveBeenCalledTimes(1);
+  });
 });

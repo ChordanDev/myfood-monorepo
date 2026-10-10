@@ -17,10 +17,15 @@ export function normalizeProfileFields<T extends Partial<ProfileFields>>(
   };
 }
 
-// Sessions stored by earlier builds lack the profile fields. /api/me always
+// Sessions stored by earlier builds lack the profile fields and the
+// account timezone. /api/me always
 // sends them, as null until the server has stored a value.
 export function normalizeCurrentMe(me: CurrentMe): CurrentMe {
-  return { ...me, user: normalizeProfileFields(me.user) };
+  return {
+    ...me,
+    user: normalizeProfileFields(me.user),
+    account: { ...me.account, timezone: me.account.timezone ?? null },
+  };
 }
 
 // GET /api/me serves householdSize and cookingSkill as null until the
@@ -55,4 +60,10 @@ export function withUpdatedProfile(me: CurrentMe, user: ProfileUpdateUser): Curr
       cookingSkill: user.cookingSkill,
     },
   };
+}
+
+// Copies the timezone the server just stored into `me`, leaving the rest
+// of the snapshot untouched.
+export function withAccountTimezone(me: CurrentMe, timezone: string): CurrentMe {
+  return { ...me, account: { ...me.account, timezone } };
 }

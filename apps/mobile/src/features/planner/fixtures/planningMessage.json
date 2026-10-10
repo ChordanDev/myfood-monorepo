@@ -1,0 +1,11 @@
+{
+  "proposalId": "00000000-0000-4000-8000-000000000003",
+  "role": "assistant",
+  "runId": "00000000-0000-4000-8000-000000000002",
+  "summary": {
+    "dayCount": 2,
+    "estimatedCostCents": 1950,
+    "mealCount": 3
+  },
+  "text": "Here is your plan for 2 days: 3 meals, estimated cost 19.50."
+}

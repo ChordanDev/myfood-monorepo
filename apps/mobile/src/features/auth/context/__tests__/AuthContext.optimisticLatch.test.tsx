@@ -96,6 +96,7 @@ function makeMe(overrides: Partial<CurrentMe> = {}): CurrentMe {
       type: 'individual',
       trialEndsAt: '2099-12-31T00:00:00Z',
       subscriptionStatus: 'none',
+      timezone: null,
       access: { canUseApp: true, reason: null },
     },
     membership: { role: 'owner' },
@@ -246,6 +247,7 @@ describe('AuthContext — optimisticComplete is a one-way latch (Judgment Day C2
       lunch: { cookingTimeMinutes: 0, hungerLevel: 'normal' as const },
       dinner: { cookingTimeMinutes: 0, hungerLevel: 'normal' as const },
     },
+    timezone: 'UTC',
   };
 
   it('isComplete stays true even if a subsequent /me returns a stale snapshot with me.onboarding.isComplete=false (the latch holds)', async () => {

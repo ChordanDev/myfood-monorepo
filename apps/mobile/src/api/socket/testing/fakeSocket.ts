@@ -41,40 +41,96 @@ export interface FakeSocket extends PhoenixSocket {
   failNextConnect(error: Error): void;
 }
 
+/** A message the client pushed on a channel, waiting for the server's answer. */
+export interface FakePush {
+  readonly event: string;
+  readonly payload: unknown;
+  /** The server answers the push with `response`. */
+  replyOk(response?: unknown): void;
+  /** The server answers the push with an error, usually an envelope. */
+  replyError(response: unknown): void;
+  /** The server does not answer in time. */
+  timeout(): void;
+}
+
 export interface FakeChannel extends PhoenixChannel {
   readonly topic: string;
+  /** Every message pushed on this channel, oldest first. */
+  readonly pushes: readonly FakePush[];
+  /** Same as `serverPush`. Dropped once the channel has left. */
+  emit(event: string, payload: unknown): void;
   hasLeft(): boolean;
   /** The server accepts the join, or the rejoin that follows a reconnect. */
   replyOk(response?: unknown): void;
   /** The server refuses the join with `response`. */
   replyError(response: unknown): void;
+  /** The server pushes `event` on the topic, as it does for `session_resumed`. */
+  serverPush(event: string, payload: unknown): void;
 }
 
 type Connection = 'none' | 'connecting' | 'open' | 'lost';
-type JoinStatus = 'ok' | 'error';
+type JoinStatus = 'ok' | 'error' | 'timeout';
 
 function createFakeChannel(topic: string): FakeChannel {
-  const hooks: { status: JoinStatus; callback: (response: unknown) => void }[] = [];
+  const pushes: FakePush[] = [];
+  const bindings: { event: string; callback: (payload: unknown) => void }[] = [];
   let joined = false;
   let left = false;
 
-  const push: PhoenixPush = {
-    receive(status, callback) {
-      hooks.push({ status, callback });
-      return push;
-    },
-  };
+  function createPush(): { push: PhoenixPush; deliver: (status: JoinStatus, r: unknown) => void } {
+    const pushHooks: { status: JoinStatus; callback: (response: unknown) => void }[] = [];
+    const push: PhoenixPush = {
+      receive(status, callback) {
+        pushHooks.push({ status, callback });
+        return push;
+      },
+    };
+    return {
+      push,
+      deliver: (status, response) =>
+        pushHooks
+          .filter((hook) => hook.status === status)
+          .forEach((hook) => hook.callback(response)),
+    };
+  }
+
+  const joinPush = createPush();
+  const push = joinPush.push;
 
   function reply(status: JoinStatus, response: unknown): void {
     if (!joined) throw new Error(`FakeChannel ${topic}: replied before join()`);
     // The real channel is removed from its socket once it leaves.
     if (left) return;
-    hooks.filter((hook) => hook.status === status).forEach((hook) => hook.callback(response));
+    joinPush.deliver(status, response);
+  }
+
+  function serverPush(event: string, payload: unknown): void {
+    // A left channel is removed from its socket and gets no more pushes.
+    if (left) return;
+    bindings.filter((binding) => binding.event === event).forEach((b) => b.callback(payload));
   }
 
   return {
     topic,
+    pushes,
+    push(event, payload) {
+      if (!joined) throw new Error(`FakeChannel ${topic}: push() before join()`);
+      const { push: pushed, deliver } = createPush();
+      pushes.push({
+        event,
+        payload,
+        replyOk: (response = {}) => deliver('ok', response),
+        replyError: (response) => deliver('error', response),
+        timeout: () => deliver('timeout', {}),
+      });
+      return pushed;
+    },
     hasLeft: () => left,
+    on(event, callback) {
+      bindings.push({ event, callback });
+    },
+    serverPush,
+    emit: serverPush,
     join() {
       if (joined) throw new Error(`FakeChannel ${topic}: join() called twice`);
       joined = true;

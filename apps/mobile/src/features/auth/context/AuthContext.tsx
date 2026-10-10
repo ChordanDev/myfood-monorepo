@@ -18,8 +18,14 @@ import type {
 } from '../types/auth';
 import * as authService from '@/services/authService';
 import { isTransientAuthError } from '@/services/authService';
-import { normalizeProfileFields, withUpdatedProfile } from '../utils/currentMe';
+import { useAccountTimezoneSync } from '../hooks/useAccountTimezoneSync';
+import {
+  normalizeProfileFields,
+  withAccountTimezone,
+  withUpdatedProfile,
+} from '../utils/currentMe';
 import { reconcileAfterCompletion } from '../utils/postCompletion';
+import { resetAccountData } from '../utils/accountDataReset';
 
 export const AuthContext = createContext<AuthContextValue | null>(null);
 
@@ -91,6 +97,7 @@ function areCurrentMeEquivalent(a: CurrentMe | null, b: CurrentMe | null): boole
   if (a.account.type !== b.account.type) return false;
   if (a.account.trialEndsAt !== b.account.trialEndsAt) return false;
   if (a.account.subscriptionStatus !== b.account.subscriptionStatus) return false;
+  if (a.account.timezone !== b.account.timezone) return false;
   if (a.account.access.canUseApp !== b.account.access.canUseApp) return false;
   if (a.account.access.reason !== b.account.access.reason) return false;
   if (a.membership.role !== b.membership.role) return false;
@@ -140,6 +147,12 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
   const applySession = useCallback((session: AuthSession | null) => {
     const nextMe = session?.me ?? null;
+    // Stores that cache the signed-in account's data (the meal plan) are dropped when the session
+    // ends or another account signs in, so the next account never sees or writes the previous one.
+    const previousAccountId = meRef.current?.account.id ?? null;
+    if (!nextMe || (previousAccountId !== null && previousAccountId !== nextMe.account.id)) {
+      resetAccountData();
+    }
     // Skip setMe entirely when the snapshot is content-equal to the
     // current value. We use a ref (not a functional setState updater)
     // so we never schedule a re-render at all when the snapshot is
@@ -371,6 +384,16 @@ export function AuthProvider({ children }: AuthProviderProps) {
     },
     []
   );
+
+  const applyAccountTimezone = useCallback((timezone: string) => {
+    const currentMe = meRef.current;
+    if (!currentMe || currentMe.account.timezone === timezone) return;
+    const nextMe = withAccountTimezone(currentMe, timezone);
+    meRef.current = nextMe;
+    setMe(nextMe);
+  }, []);
+
+  useAccountTimezoneSync(accessToken ? me : null, applyAccountTimezone);
 
   const handleRevalidationError = useCallback(
     async (error: unknown) => {

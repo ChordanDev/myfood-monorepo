@@ -34,6 +34,8 @@ jobs:
           filters: |
             api:
               - 'apps/api/**'
+              # The api channel tests assert against these committed fixtures.
+              - 'apps/mobile/src/features/planner/fixtures/**'
               - '.github/workflows/ci.yml'
             # `apps/api/lib/**` is here because the mobile contract test
             # (`authErrorCodeContract.test.ts`) scans the api source for the

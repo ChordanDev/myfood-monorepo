@@ -2,6 +2,9 @@ defmodule MealPlannerApi.Services.RecipeDetail do
   @moduledoc """
   Projection of a frozen Recipe version, as `GET /api/recipes/:id` serves it.
 
+  The theme comes from the version. A version without one serves the theme
+  of the Recipe's base recipe, when it has a base.
+
   It reads the stored snapshot itself instead of going through
   `RecipeVersions.decode/1`, whose shape cooking and the calendar depend on.
   Quantities are those of the Recipe's own `servings`: no selected quantity
@@ -33,8 +36,18 @@ defmodule MealPlannerApi.Services.RecipeDetail do
       # tickets that fill them do not change it.
       tags: [],
       image_url: nil,
-      theme: nil
+      theme: snapshot["theme"] || base_theme(recipe)
     }
+  end
+
+  # The theme of a derived Recipe without one of its own is the base recipe's
+  # current one, read live. The base counts only when it is visible to the
+  # derived recipe's Account (a catalog recipe, or one of that Account); a
+  # missing or hidden base, or one without a theme, gives nil.
+  defp base_theme(%Recipe{base_recipe_id: nil}), do: nil
+
+  defp base_theme(%Recipe{base_recipe_id: base_id, account_id: account_id}) do
+    RecipeRepo.get_visible_recipe_theme(account_id, base_id)
   end
 
   # Prep plus cook, counting a missing one as 0; nil when the Recipe has neither.

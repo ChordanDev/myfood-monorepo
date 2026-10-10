@@ -1,0 +1,252 @@
+import React from 'react';
+import { act, create } from 'react-test-renderer';
+import { createSocketClient, type SocketClient } from '@/api/socket/socketClient';
+import {
+  createFakeSocket,
+  type FakeChannel,
+  type FakeSocket,
+} from '@/api/socket/testing/fakeSocket';
+import generationStarted from '../../fixtures/generationStarted.json';
+import planningMessage from '../../fixtures/planningMessage.json';
+import proposalReady from '../../fixtures/proposalReady.json';
+import startPlanningReply from '../../fixtures/startPlanningReply.json';
+import { MAX_PLANNING_REQUEST_CHARS } from '../../domain/startPlanning';
+import { usePlanningDraft, type PlanningDraftController } from '../usePlanningDraft';
+import { usePlanningTopic } from '../usePlanningTopic';
+
+let mockSocketClient: SocketClient;
+let mockRequestCount = 0;
+
+jest.mock('@/api/requestId', () => ({
+  newRequestId: () => {
+    mockRequestCount += 1;
+    // The first request is the one the generationStarted fixture answers.
+    return mockRequestCount === 1 ? 'req_fixture_1' : `req_${mockRequestCount}`;
+  },
+}));
+
+jest.mock('@/api/socket', () => ({
+  ...jest.requireActual('@/api/socket/topics'),
+  getSocketClient: () => mockSocketClient,
+}));
+
+jest.mock('@/features/auth/hooks/useAuth', () => ({
+  useAuth: () => ({ me: { account: { id: 'account-1' } } }),
+}));
+
+// The pure modules behind the Home barrel: the barrel itself loads its screens.
+jest.mock('@/features/home', () => ({}));
+
+const RANGE = { start: '2030-01-01', end: '2030-01-02' };
+const SESSION_ID = generationStarted.sessionId;
+
+let socket: FakeSocket;
+let tree: ReturnType<typeof create>;
+let controller: PlanningDraftController;
+
+function Harness() {
+  const topic = usePlanningTopic();
+  // eslint-disable-next-line react-hooks/globals -- Test harness captures the hook result for assertions.
+  controller = usePlanningDraft(topic);
+  return null;
+}
+
+function channel(): FakeChannel {
+  return socket.channels[0];
+}
+
+function pushedEvents(): string[] {
+  return channel().pushes.map((push) => push.event);
+}
+
+function lastPush() {
+  return channel().pushes[channel().pushes.length - 1];
+}
+
+function emit(event: string, payload: unknown): void {
+  act(() => channel().emit(event, payload));
+}
+
+async function replyOk(): Promise<void> {
+  await act(async () => lastPush().replyOk(startPlanningReply));
+}
+
+beforeEach(() => {
+  mockRequestCount = 0;
+  mockSocketClient = createSocketClient({
+    url: 'wss://api.example.test/socket',
+    createSocket: (url, options) => {
+      socket = createFakeSocket(url, options);
+      return socket;
+    },
+    getAccessToken: async () => 'access-1',
+    refreshTokens: jest.fn(),
+    subscribeToAccessToken: () => () => {},
+  });
+  act(() => {
+    tree = create(<Harness />);
+  });
+  act(() => channel().replyOk());
+});
+
+afterEach(() => {
+  act(() => tree.unmount());
+});
+
+describe('usePlanningDraft', () => {
+  describe('a start push that times out', () => {
+    it('keeps generating and is resolved by the events that follow', async () => {
+      act(() => controller.start(RANGE, ''));
+
+      await act(async () => lastPush().timeout());
+      expect(controller.draft.status).toBe('generating');
+
+      emit('generation_started', generationStarted);
+      emit('proposal_ready', proposalReady);
+      emit('planning_message', planningMessage);
+
+      expect(controller.draft.status).toBe('ready');
+    });
+
+    it('still fails on an error reply', async () => {
+      act(() => controller.start(RANGE, ''));
+
+      await act(async () =>
+        lastPush().replyError({ error: { code: 'planning_invalid_range', message: 'bad' } })
+      );
+
+      expect(controller.draft.status).toBe('failed');
+    });
+  });
+
+  describe('the request text', () => {
+    it('refuses a text over the cap without pushing, as invalid data', () => {
+      act(() => controller.start(RANGE, 'x'.repeat(MAX_PLANNING_REQUEST_CHARS + 1)));
+
+      expect(channel().pushes).toHaveLength(0);
+      expect(controller.draft).toMatchObject({
+        status: 'failed',
+        failure: { kind: 'request', error: { code: 'invalid_payload' } },
+      });
+    });
+
+    it('counts the trimmed text, so a text at the cap goes through', () => {
+      act(() => controller.start(RANGE, ` ${'x'.repeat(MAX_PLANNING_REQUEST_CHARS)} `));
+
+      expect(pushedEvents()).toEqual(['start_planning']);
+    });
+
+    it('tells the caller once the start is accepted, not before', async () => {
+      const accepted = jest.fn();
+      act(() => controller.start(RANGE, 'sin carne', accepted));
+      expect(accepted).not.toHaveBeenCalled();
+
+      await replyOk();
+
+      expect(accepted).toHaveBeenCalledTimes(1);
+    });
+
+    it('does not tell the caller about a start the server refuses', async () => {
+      const accepted = jest.fn();
+      act(() => controller.start(RANGE, 'sin carne', accepted));
+
+      await act(async () =>
+        lastPush().replyError({ error: { code: 'planning_range_locked', message: 'locked' } })
+      );
+
+      expect(accepted).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('the end of the session', () => {
+    it.each(['session_cancelled', 'session_expired', 'session_lost_lock'])(
+      'fails the draft on %s of the session it learned',
+      async (event) => {
+        act(() => controller.start(RANGE, ''));
+        await replyOk();
+        emit('generation_started', generationStarted);
+
+        emit(event, { sessionId: 'a-session-of-another-member' });
+        expect(controller.draft.status).toBe('generating');
+
+        emit(event, { sessionId: SESSION_ID });
+        expect(controller.draft).toMatchObject({
+          status: 'failed',
+          failure: { kind: 'generation', reason: event },
+        });
+      }
+    );
+
+    it('ignores a payload that does not parse', () => {
+      const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+      act(() => controller.start(RANGE, ''));
+      emit('generation_started', generationStarted);
+
+      emit('session_cancelled', { session_id: SESSION_ID });
+
+      expect(controller.draft.status).toBe('generating');
+      warn.mockRestore();
+    });
+  });
+
+  describe('a retry after the generation failed', () => {
+    async function failGeneration(): Promise<void> {
+      act(() => controller.start(RANGE, 'sin carne'));
+      await replyOk();
+      emit('generation_started', generationStarted);
+      emit('generation_error', {
+        reason: 'pipeline_error',
+        details: {},
+        runId: null,
+        requestId: null,
+      });
+      expect(controller.draft.status).toBe('failed');
+    }
+
+    it('cancels the session it learned before it starts again', async () => {
+      await failGeneration();
+
+      act(() => controller.retry());
+
+      expect(pushedEvents()).toEqual(['start_planning', 'cancel_planning']);
+      expect(lastPush().payload).toEqual({ sessionId: SESSION_ID });
+      expect(controller.draft.status).toBe('generating');
+
+      await act(async () => lastPush().replyOk({ sessionId: SESSION_ID, status: 'cancelled' }));
+
+      expect(pushedEvents()).toEqual(['start_planning', 'cancel_planning', 'start_planning']);
+      expect(lastPush().payload).toMatchObject({ request: 'sin carne' });
+    });
+
+    it('starts anyway when the session is already over', async () => {
+      await failGeneration();
+
+      act(() => controller.retry());
+      await act(async () =>
+        lastPush().replyError({ error: { code: 'not_found', message: 'not active' } })
+      );
+
+      expect(pushedEvents()).toEqual(['start_planning', 'cancel_planning', 'start_planning']);
+    });
+
+    it('starts anyway when the cancel gets no answer', async () => {
+      await failGeneration();
+
+      act(() => controller.retry());
+      await act(async () => lastPush().timeout());
+
+      expect(pushedEvents()).toEqual(['start_planning', 'cancel_planning', 'start_planning']);
+    });
+
+    it('does not cancel anything after a start the server refused', async () => {
+      act(() => controller.start(RANGE, ''));
+      await act(async () =>
+        lastPush().replyError({ error: { code: 'planning_range_locked', message: 'locked' } })
+      );
+
+      act(() => controller.retry());
+
+      expect(pushedEvents()).toEqual(['start_planning', 'start_planning']);
+    });
+  });
+});
