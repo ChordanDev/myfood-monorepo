@@ -173,7 +173,8 @@ defmodule MealPlannerApi.Services.CookingService do
          %{account_id: account_id, recipe_version_id: version_id, recipe_snapshot: snapshot},
          account_id
        )
-       when is_binary(version_id) and is_map(snapshot), do: :ok
+       when is_binary(version_id) and is_map(snapshot),
+       do: :ok
 
   defp planned_meal(_, _), do: {:error, :scheduled_meal_not_found}
 
