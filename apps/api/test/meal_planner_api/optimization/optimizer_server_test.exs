@@ -488,21 +488,23 @@ defmodule MealPlannerApi.Optimization.OptimizerServerTest do
   end
 
   defp do_await(predicate, pid, attempts \\ 100) do
-    Enum.reduce_while(1..attempts, :timeout, fn _, _ ->
-      case :sys.get_state(pid) do
-        state when is_struct(state, MealPlannerApi.Optimization.OptimizerServer) ->
-          if predicate.(state) do
-            {:halt, :ok}
-          else
-            Process.sleep(5)
-            {:cont, :timeout}
-          end
+    Enum.reduce_while(1..attempts, :timeout, fn _, _ -> poll_state(predicate, pid) end)
+  end
 
-        _other ->
+  defp poll_state(predicate, pid) do
+    case :sys.get_state(pid) do
+      state when is_struct(state, MealPlannerApi.Optimization.OptimizerServer) ->
+        if predicate.(state) do
+          {:halt, :ok}
+        else
           Process.sleep(5)
           {:cont, :timeout}
-      end
-    end)
+        end
+
+      _other ->
+        Process.sleep(5)
+        {:cont, :timeout}
+    end
   end
 
   defp unique_name do

@@ -597,10 +597,7 @@ defmodule MealPlannerApi.Services.ShoppingService do
       {:ok, identity} ->
         case Shopping.list_items_by_ids(identity.account_id, [item_id]) do
           [item] ->
-            case Shopping.update_shopping_item(item, %{assigned_supermarket_id: supermarket_id}) do
-              {:ok, final_item} -> {:ok, serialize_shopping_item(final_item)}
-              {:error, reason} -> {:error, reason}
-            end
+            update_item_supermarket(item, supermarket_id)
 
           [] ->
             {:error, :item_not_found}
@@ -608,6 +605,13 @@ defmodule MealPlannerApi.Services.ShoppingService do
 
       {:error, reason} ->
         {:error, reason}
+    end
+  end
+
+  defp update_item_supermarket(item, supermarket_id) do
+    case Shopping.update_shopping_item(item, %{assigned_supermarket_id: supermarket_id}) do
+      {:ok, final_item} -> {:ok, serialize_shopping_item(final_item)}
+      {:error, reason} -> {:error, reason}
     end
   end
 
@@ -628,12 +632,7 @@ defmodule MealPlannerApi.Services.ShoppingService do
 
         # Update each item and collect the updated ones
         updated_items =
-          Enum.map(items_to_update, fn item ->
-            case Shopping.update_shopping_item(item, %{assigned_supermarket_id: supermarket_id}) do
-              {:ok, updated_item} -> updated_item
-              {:error, _} -> nil
-            end
-          end)
+          Enum.map(items_to_update, &try_assign_supermarket(&1, supermarket_id))
           |> Enum.reject(&is_nil/1)
 
         serialized =
@@ -657,6 +656,13 @@ defmodule MealPlannerApi.Services.ShoppingService do
     end
   rescue
     _ -> {:ok, %{assigned_supermarket_id: supermarket_id, updated_rows: 0}}
+  end
+
+  defp try_assign_supermarket(item, supermarket_id) do
+    case Shopping.update_shopping_item(item, %{assigned_supermarket_id: supermarket_id}) do
+      {:ok, updated_item} -> updated_item
+      {:error, _} -> nil
+    end
   end
 
   # -------------------------------------------------------------------------
@@ -758,58 +764,14 @@ defmodule MealPlannerApi.Services.ShoppingService do
 
   defp serialize_shopping_item(i) do
     # Handle Ecto.Association.NotLoaded case
-    ingredient = i.ingredient
-
-    ingredient_map =
-      cond do
-        is_nil(ingredient) ->
-          nil
-
-        Map.has_key?(ingredient, :__struct__) and
-            String.contains?(inspect(ingredient.__struct__), "NotLoaded") ->
-          nil
-
-        true ->
-          ingredient
-      end
-
-    assigned_supermarket = i.assigned_supermarket
-
-    supermarket_map =
-      cond do
-        is_nil(assigned_supermarket) ->
-          nil
-
-        Map.has_key?(assigned_supermarket, :__struct__) and
-            String.contains?(inspect(assigned_supermarket.__struct__), "NotLoaded") ->
-          nil
-
-        true ->
-          assigned_supermarket
-      end
-
-    category =
-      case ingredient_map do
-        %{category: cat} when cat != nil -> Atom.to_string(cat)
-        _ -> nil
-      end
-
-    # Look up price options from supermarket catalog
-    price_options =
-      if i.ingredient_id do
-        ShoppingRepo.list_prices_for_ingredient(i.ingredient_id)
-        |> Enum.map(fn p ->
-          %{supermarket_id: p.supermarket_id, price_cents: p.price_cents_ars}
-        end)
-      else
-        []
-      end
+    ingredient_map = loaded_association(i.ingredient)
+    supermarket_map = loaded_association(i.assigned_supermarket)
 
     %{
       id: i.id,
       ingredient_id: i.ingredient_id,
       ingredient_name: ingredient_map && ingredient_map.name,
-      category: category,
+      category: ingredient_category(ingredient_map),
       quantity_milli: i.quantity_milli,
       unit: Atom.to_string(i.unit),
       status: Atom.to_string(i.status),
@@ -820,8 +782,41 @@ defmodule MealPlannerApi.Services.ShoppingService do
       estimated_price_cents: i.estimated_price_cents,
       supermarket_id: i.assigned_supermarket_id,
       supermarket_name: supermarket_map && supermarket_map.name,
-      price_options: price_options
+      price_options: price_options(i)
     }
+  end
+
+  defp loaded_association(association) do
+    cond do
+      is_nil(association) ->
+        nil
+
+      Map.has_key?(association, :__struct__) and
+          String.contains?(inspect(association.__struct__), "NotLoaded") ->
+        nil
+
+      true ->
+        association
+    end
+  end
+
+  defp ingredient_category(ingredient_map) do
+    case ingredient_map do
+      %{category: cat} when cat != nil -> Atom.to_string(cat)
+      _ -> nil
+    end
+  end
+
+  # Look up price options from supermarket catalog
+  defp price_options(i) do
+    if i.ingredient_id do
+      ShoppingRepo.list_prices_for_ingredient(i.ingredient_id)
+      |> Enum.map(fn p ->
+        %{supermarket_id: p.supermarket_id, price_cents: p.price_cents_ars}
+      end)
+    else
+      []
+    end
   end
 
   defp reservation_field(

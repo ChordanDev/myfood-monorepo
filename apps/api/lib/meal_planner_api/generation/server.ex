@@ -273,7 +273,6 @@ defmodule MealPlannerApi.Generation.Server do
       account_id: account_id,
       user_id: user_id,
       current_run_id: run_id,
-      current_proposal_id: proposal_id,
       constraints: constraints
     } = state
 
@@ -295,19 +294,12 @@ defmodule MealPlannerApi.Generation.Server do
               constraints: optimizer_payload["constraints"]
             }
 
-            with :ok <-
-                   GenerationService.validate_optimizer_response(
-                     optimizer_result,
-                     validation_context
-                   ),
-                 {:ok, optimized_slots} <-
-                   PayloadAdapter.translate_response({:ok, optimizer_result}, recipe_data) do
-              proposal_json = GenerationService.build_proposal_json(optimized_slots)
-              persist_proposal_result(proposal_id, run_id, proposal_json, state)
-            else
-              {:error, reason, _details} -> handle_optimization_error(run_id, reason, state)
-              {:error, reason} -> handle_optimization_error(run_id, reason, state)
-            end
+            validate_and_persist_proposal(
+              optimizer_result,
+              validation_context,
+              recipe_data,
+              state
+            )
 
           {:error, reason} ->
             handle_optimization_error(run_id, reason, state)
@@ -320,6 +312,24 @@ defmodule MealPlannerApi.Generation.Server do
     _ ->
       broadcast(state, "generation_error", %{reason: "pipeline_error"})
       %{state | phase: :error}
+  end
+
+  defp validate_and_persist_proposal(optimizer_result, validation_context, recipe_data, state) do
+    %{current_run_id: run_id, current_proposal_id: proposal_id} = state
+
+    with :ok <-
+           GenerationService.validate_optimizer_response(
+             optimizer_result,
+             validation_context
+           ),
+         {:ok, optimized_slots} <-
+           PayloadAdapter.translate_response({:ok, optimizer_result}, recipe_data) do
+      proposal_json = GenerationService.build_proposal_json(optimized_slots)
+      persist_proposal_result(proposal_id, run_id, proposal_json, state)
+    else
+      {:error, reason, _details} -> handle_optimization_error(run_id, reason, state)
+      {:error, reason} -> handle_optimization_error(run_id, reason, state)
+    end
   end
 
   # -------------------------------------------------------------------------

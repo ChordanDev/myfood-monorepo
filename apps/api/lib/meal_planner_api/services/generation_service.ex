@@ -33,22 +33,37 @@ defmodule MealPlannerApi.Services.GenerationService do
   def build_constraints(user_profile, payload) do
     resolved = build_constraints(user_profile, nil)
 
-    payload_exclusions = payload["excluded_ingredients"] || payload[:excluded_ingredients] || []
+    payload_exclusions = payload_value(payload, "excluded_ingredients", :excluded_ingredients, [])
 
     %{
       resolved
       | protein_g_per_meal:
-          payload["protein_g"] || payload[:protein_g] || resolved.protein_g_per_meal,
-        budget_cents: payload["budget_cents"] || payload[:budget_cents] || resolved.budget_cents,
-        max_calories: payload["max_calories"] || payload[:max_calories] || resolved.max_calories,
+          payload_value(payload, "protein_g", :protein_g, resolved.protein_g_per_meal),
+        budget_cents:
+          payload_value(payload, "budget_cents", :budget_cents, resolved.budget_cents),
+        max_calories:
+          payload_value(payload, "max_calories", :max_calories, resolved.max_calories),
         excluded_recipe_ids:
-          payload["excluded_recipe_ids"] || payload[:excluded_recipe_ids] ||
-            resolved.excluded_recipe_ids,
+          payload_value(
+            payload,
+            "excluded_recipe_ids",
+            :excluded_recipe_ids,
+            resolved.excluded_recipe_ids
+          ),
         excluded_ingredients: payload_exclusions ++ resolved.excluded_ingredients,
         favorite_recipe_ids:
-          payload["favorite_recipe_ids"] || payload[:favorite_recipe_ids] ||
+          payload_value(
+            payload,
+            "favorite_recipe_ids",
+            :favorite_recipe_ids,
             resolved.favorite_recipe_ids
+          )
     }
+  end
+
+  # The string key wins over the atom key; a nil or false value falls through.
+  defp payload_value(payload, string_key, atom_key, default) do
+    payload[string_key] || payload[atom_key] || default
   end
 
   @doc """
@@ -149,22 +164,26 @@ defmodule MealPlannerApi.Services.GenerationService do
     %{
       slots:
         resolved_slots
-        |> Enum.sort_by(fn slot ->
-          {slot["date"] || slot[:date], to_string(slot["slot"] || slot[:slot]),
-           slot["recipe_id"] || slot[:recipe_id]}
-        end)
-        |> Enum.map(fn slot ->
-          %{
-            slot_key: slot_key(slot["date"] || slot[:date], slot["slot"] || slot[:slot]),
-            recipe_id: slot["recipe_id"] || slot[:recipe_id],
-            recipe_name: slot["recipe_name"] || slot[:recipe_name],
-            price_cents: slot["price_cents"] || slot[:price_cents],
-            macros:
-              (slot["macros"] || slot[:macros] || %{})
-              |> Enum.into(%{}, fn {k, v} -> {to_string(k), v} end)
-          }
-        end),
+        |> Enum.sort_by(&proposal_slot_sort_key/1)
+        |> Enum.map(&proposal_slot_entry/1),
       fingerprint: proposal_fingerprint(resolved_slots)
+    }
+  end
+
+  defp proposal_slot_sort_key(slot) do
+    {slot["date"] || slot[:date], to_string(slot["slot"] || slot[:slot]),
+     slot["recipe_id"] || slot[:recipe_id]}
+  end
+
+  defp proposal_slot_entry(slot) do
+    %{
+      slot_key: slot_key(slot["date"] || slot[:date], slot["slot"] || slot[:slot]),
+      recipe_id: slot["recipe_id"] || slot[:recipe_id],
+      recipe_name: slot["recipe_name"] || slot[:recipe_name],
+      price_cents: slot["price_cents"] || slot[:price_cents],
+      macros:
+        (slot["macros"] || slot[:macros] || %{})
+        |> Enum.into(%{}, fn {k, v} -> {to_string(k), v} end)
     }
   end
 
@@ -246,33 +265,37 @@ defmodule MealPlannerApi.Services.GenerationService do
   @spec build_cart_lines([map()], %{term() => [map()]}) :: [map()]
   def build_cart_lines(scheduled_meals, by_recipe)
       when is_list(scheduled_meals) and is_map(by_recipe) do
-    Enum.flat_map(scheduled_meals, fn meal ->
-      case meal.recipe_id do
-        nil ->
-          []
+    Enum.flat_map(scheduled_meals, &meal_cart_lines(&1, by_recipe))
+  end
 
-        recipe_id ->
-          ingredients =
-            case Map.get(meal, :recipe_snapshot) do
-              snapshot when is_map(snapshot) ->
-                RecipeVersions.decode(snapshot).recipe_ingredients
+  defp meal_cart_lines(meal, by_recipe) do
+    case meal.recipe_id do
+      nil ->
+        []
 
-              _ ->
-                Map.get(by_recipe, recipe_id, [])
-            end
+      recipe_id ->
+        meal
+        |> meal_ingredients(recipe_id, by_recipe)
+        |> Enum.map(fn recipe_ingredient ->
+          %{
+            scheduled_meal_id: meal.id,
+            planned_date: meal.date,
+            ingredient_id: recipe_ingredient.ingredient_id,
+            unit: recipe_ingredient.unit,
+            quantity_milli: recipe_ingredient.quantity_milli
+          }
+        end)
+    end
+  end
 
-          ingredients
-          |> Enum.map(fn recipe_ingredient ->
-            %{
-              scheduled_meal_id: meal.id,
-              planned_date: meal.date,
-              ingredient_id: recipe_ingredient.ingredient_id,
-              unit: recipe_ingredient.unit,
-              quantity_milli: recipe_ingredient.quantity_milli
-            }
-          end)
-      end
-    end)
+  defp meal_ingredients(meal, recipe_id, by_recipe) do
+    case Map.get(meal, :recipe_snapshot) do
+      snapshot when is_map(snapshot) ->
+        RecipeVersions.decode(snapshot).recipe_ingredients
+
+      _ ->
+        Map.get(by_recipe, recipe_id, [])
+    end
   end
 
   # -------------------------------------------------------------------------
@@ -336,15 +359,19 @@ defmodule MealPlannerApi.Services.GenerationService do
       if key in @forbidden_intent_keys do
         {:halt, {:error, :forbidden_intent}}
       else
-        case walk_forbidden_keys(Map.fetch!(map, key)) do
-          :ok -> {:cont, :ok}
-          {:error, _} = err -> {:halt, err}
-        end
+        map |> Map.fetch!(key) |> walk_nested_value()
       end
     end)
   end
 
   defp walk_forbidden_keys(_), do: :ok
+
+  defp walk_nested_value(value) do
+    case walk_forbidden_keys(value) do
+      :ok -> {:cont, :ok}
+      {:error, _} = err -> {:halt, err}
+    end
+  end
 
   # -------------------------------------------------------------------------
   # Shopping cart aggregation
@@ -475,16 +502,20 @@ defmodule MealPlannerApi.Services.GenerationService do
     |> Enum.group_by(& &1["day"])
     |> Enum.any?(fn {_day, meals} ->
       Enum.any?(fields, fn {bound_key, candidate_key} ->
-        case Map.get(bounds, bound_key) do
-          %{"min" => min, "max" => max} when is_number(min) and is_number(max) ->
-            total = Enum.sum(Enum.map(meals, &(Map.get(&1, candidate_key, 0) || 0)))
-            total < min or total > max
-
-          _ ->
-            false
-        end
+        macro_out_of_bounds?(meals, bounds, bound_key, candidate_key)
       end)
     end)
+  end
+
+  defp macro_out_of_bounds?(meals, bounds, bound_key, candidate_key) do
+    case Map.get(bounds, bound_key) do
+      %{"min" => min, "max" => max} when is_number(min) and is_number(max) ->
+        total = Enum.sum(Enum.map(meals, &(Map.get(&1, candidate_key, 0) || 0)))
+        total < min or total > max
+
+      _ ->
+        false
+    end
   end
 
   defp parse_slot_change(msg) do

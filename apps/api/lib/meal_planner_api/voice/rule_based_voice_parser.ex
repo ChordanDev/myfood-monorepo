@@ -30,20 +30,19 @@ defmodule MealPlannerApi.Voice.RuleBasedVoiceParser do
 
     cond do
       # "mitad del kilo de [name]" → 500ml (predefined amount)
-      String.contains?(text, "mitad del kilo") && String.contains?(text, name_lowered) ->
+      phrase_with_name?(text, "mitad del kilo", name_lowered) ->
         %{inventory_item_id: id, quantity_milli: 500_000}
 
       # "terminé" / "terminé de usar" [name] → 0
-      (String.contains?(text, "termin") || String.contains?(text, "terminé")) &&
-          String.contains?(text, name_lowered) ->
+      finished?(text) && String.contains?(text, name_lowered) ->
         %{inventory_item_id: id, quantity_milli: 0}
 
       # "mitad" [name] → half current
-      String.contains?(text, "mitad") && String.contains?(text, name_lowered) ->
+      phrase_with_name?(text, "mitad", name_lowered) ->
         %{inventory_item_id: id, quantity_milli: div(current_qty, 2)}
 
       # "medio" [name] → half current
-      String.contains?(text, "medio") && String.contains?(text, name_lowered) ->
+      phrase_with_name?(text, "medio", name_lowered) ->
         %{inventory_item_id: id, quantity_milli: div(current_qty, 2)}
 
       # [name] mentioned anywhere → quarter current
@@ -53,5 +52,13 @@ defmodule MealPlannerApi.Voice.RuleBasedVoiceParser do
       true ->
         nil
     end
+  end
+
+  defp phrase_with_name?(text, phrase, name_lowered) do
+    String.contains?(text, phrase) && String.contains?(text, name_lowered)
+  end
+
+  defp finished?(text) do
+    String.contains?(text, "termin") || String.contains?(text, "terminé")
   end
 end

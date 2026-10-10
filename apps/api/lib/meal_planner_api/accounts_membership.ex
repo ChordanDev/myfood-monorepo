@@ -167,23 +167,7 @@ defmodule MealPlannerApi.AccountsMembership do
           | {:error, atom()}
   def invite(%Account{} = account, %AccountMembership{role: role} = actor, email)
       when role == :owner and is_binary(email) do
-    case Repo.transaction(fn ->
-           with :ok <- lock_account_for_invite(account),
-                :ok <- enforce_seat_cap(account, 1),
-                :ok <- check_existing_membership(account, email),
-                {:ok, %{membership: m, token: token}} <-
-                  InviteService.create_invite_row(actor, email) do
-             {:ok,
-              %{
-                token: token,
-                expires_at: m.invite_expires_at,
-                membership_id: to_string(m.id),
-                email: email
-              }}
-           else
-             {:error, _} = err -> err
-           end
-         end) do
+    case Repo.transaction(fn -> create_invite(account, actor, email) end) do
       {:ok, {:ok, result}} -> {:ok, result}
       {:ok, {:error, reason}} -> {:error, reason}
       {:error, _} -> {:error, :unable_to_invite}
@@ -191,6 +175,24 @@ defmodule MealPlannerApi.AccountsMembership do
   end
 
   def invite(_account, %AccountMembership{}, _email), do: {:error, :not_owner}
+
+  defp create_invite(account, actor, email) do
+    with :ok <- lock_account_for_invite(account),
+         :ok <- enforce_seat_cap(account, 1),
+         :ok <- check_existing_membership(account, email),
+         {:ok, %{membership: m, token: token}} <-
+           InviteService.create_invite_row(actor, email) do
+      {:ok,
+       %{
+         token: token,
+         expires_at: m.invite_expires_at,
+         membership_id: to_string(m.id),
+         email: email
+       }}
+    else
+      {:error, _} = err -> err
+    end
+  end
 
   @doc """
   Resolves the `current_membership` from a JWT claim map. Delegates to
@@ -443,30 +445,34 @@ defmodule MealPlannerApi.AccountsMembership do
             {:error, :invite_token_expired}
 
           true ->
-            with {:ok, stub_user} <- fetch_membership_user(membership),
-                 {:ok, invitee} <- resolve_user.(stub_user),
-                 {:ok, consumed} <-
-                   Repo.update(
-                     AccountMembership.changeset(membership, %{
-                       status: :active,
-                       joined_at: DateTime.utc_now(),
-                       user_id: invitee.id
-                     })
-                   ),
-                 {:ok, account} <- load_account(consumed.account_id) do
-              consumed = Repo.preload(consumed, :account)
-
-              {:ok,
-               %{
-                 user: invitee,
-                 account: account,
-                 membership: consumed,
-                 claims: build_response_claims(invitee, account, consumed)
-               }}
-            else
-              {:error, reason} -> {:error, reason}
-            end
+            consume_invite(membership, resolve_user)
         end
+    end
+  end
+
+  defp consume_invite(membership, resolve_user) do
+    with {:ok, stub_user} <- fetch_membership_user(membership),
+         {:ok, invitee} <- resolve_user.(stub_user),
+         {:ok, consumed} <-
+           Repo.update(
+             AccountMembership.changeset(membership, %{
+               status: :active,
+               joined_at: DateTime.utc_now(),
+               user_id: invitee.id
+             })
+           ),
+         {:ok, account} <- load_account(consumed.account_id) do
+      consumed = Repo.preload(consumed, :account)
+
+      {:ok,
+       %{
+         user: invitee,
+         account: account,
+         membership: consumed,
+         claims: build_response_claims(invitee, account, consumed)
+       }}
+    else
+      {:error, reason} -> {:error, reason}
     end
   end
 
@@ -561,15 +567,19 @@ defmodule MealPlannerApi.AccountsMembership do
           {:error, :membership_not_found}
 
         %AccountMembership{id: id} ->
-          case Repo.delete_all(from(m in AccountMembership, where: m.id == ^id)) do
-            {1, _} -> :ok
-            _ -> {:error, :membership_not_found}
-          end
+          delete_membership_row(id)
       end
     end
   end
 
   def remove_member(_account, _target_user_id, _actor), do: {:error, :not_owner}
+
+  defp delete_membership_row(id) do
+    case Repo.delete_all(from(m in AccountMembership, where: m.id == ^id)) do
+      {1, _} -> :ok
+      _ -> {:error, :membership_not_found}
+    end
+  end
 
   @doc """
   Self-removal for a `:member`. Owners cannot leave — return

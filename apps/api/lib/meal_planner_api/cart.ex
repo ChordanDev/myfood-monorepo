@@ -11,47 +11,49 @@ defmodule MealPlannerApi.Cart do
 
   def reserve(user, item_ids) when is_list(item_ids) and item_ids != [] do
     with {:ok, ids} <- identity(user) do
-      transact(ids, "cart_reserved", fn now ->
-        require!(Enum.all?(item_ids, &valid_id?/1), :invalid_payload)
-        cart = active_cart(ids, now)
-        items = lock_items(ids.account_id, item_ids)
-        require!(length(items) == length(Enum.uniq(item_ids)), :item_not_found)
-
-        Enum.each(items, fn item ->
-          # An item in another Membership's live Cart is locked; any other
-          # state (purchased, removed) is not available to reserve at all.
-          require!(
-            not (item.status == :in_cart and item.checkout_session_id != cart.id),
-            :cart_locked
-          )
-
-          require!(item.status in [:pending, :in_cart], :already_reserved)
-        end)
-
-        reserved =
-          Enum.map(items, fn item ->
-            update!(item, %{
-              status: :in_cart,
-              checkout_session_id: cart.id,
-              reservation_token: item.reservation_token || Ecto.UUID.generate()
-            })
-          end)
-
-        cart = renew!(cart, now)
-
-        %{
-          session_id: cart.id,
-          status: "in_cart",
-          updated_rows: length(items),
-          owner_user_id: ids.user_id,
-          lease_expires_at: cart.lease_expires_at,
-          reservations: Enum.map(reserved, &reservation/1)
-        }
-      end)
+      transact(ids, "cart_reserved", fn now -> reserve_items!(ids, item_ids, now) end)
     end
   end
 
   def reserve(_, _), do: {:error, :invalid_payload}
+
+  defp reserve_items!(ids, item_ids, now) do
+    require!(Enum.all?(item_ids, &valid_id?/1), :invalid_payload)
+    cart = active_cart(ids, now)
+    items = lock_items(ids.account_id, item_ids)
+    require!(length(items) == length(Enum.uniq(item_ids)), :item_not_found)
+
+    Enum.each(items, fn item ->
+      # An item in another Membership's live Cart is locked; any other
+      # state (purchased, removed) is not available to reserve at all.
+      require!(
+        not (item.status == :in_cart and item.checkout_session_id != cart.id),
+        :cart_locked
+      )
+
+      require!(item.status in [:pending, :in_cart], :already_reserved)
+    end)
+
+    reserved =
+      Enum.map(items, fn item ->
+        update!(item, %{
+          status: :in_cart,
+          checkout_session_id: cart.id,
+          reservation_token: item.reservation_token || Ecto.UUID.generate()
+        })
+      end)
+
+    cart = renew!(cart, now)
+
+    %{
+      session_id: cart.id,
+      status: "in_cart",
+      updated_rows: length(items),
+      owner_user_id: ids.user_id,
+      lease_expires_at: cart.lease_expires_at,
+      reservations: Enum.map(reserved, &reservation/1)
+    }
+  end
 
   def reserve_ingredient(user, ingredient_id, from_date, to_date) do
     with {:ok, ids} <- identity(user) do
@@ -73,16 +75,20 @@ defmodule MealPlannerApi.Cart do
   def remove(user, session_id, reservations) when is_list(reservations) and reservations != [] do
     with {:ok, ids} <- identity(user) do
       transact(ids, "cart_released", fn now ->
-        cart = owned_cart!(ids, session_id, now)
-        items = validate_lines!(ids, cart, reservations)
-        Enum.each(items, fn {item, _line} -> release!(item) end)
-        renew!(cart, now)
-        %{session_id: cart.id, updated_rows: length(items), status: "pending"}
+        remove_lines!(ids, session_id, reservations, now)
       end)
     end
   end
 
   def remove(_, _, _), do: {:error, :invalid_payload}
+
+  defp remove_lines!(ids, session_id, reservations, now) do
+    cart = owned_cart!(ids, session_id, now)
+    items = validate_lines!(ids, cart, reservations)
+    Enum.each(items, fn {item, _line} -> release!(item) end)
+    renew!(cart, now)
+    %{session_id: cart.id, updated_rows: length(items), status: "pending"}
+  end
 
   def renew(user, session_id) do
     with {:ok, ids} <- identity(user) do
@@ -108,66 +114,70 @@ defmodule MealPlannerApi.Cart do
   def purchase(user, session_id, payload) when is_map(payload) do
     with {:ok, ids} <- identity(user) do
       transact(ids, "purchase_confirmed", fn now ->
-        cart = get_owned!(ids, session_id)
-        require!(cart.status != :completed, :already_purchased)
-        require_active!(cart, now)
-        type = payload["checkout_type"]
-        require!(type in ["physical", "online"], :invalid_checkout_type)
-        lines = payload["items"]
-        require!(is_list(lines) and lines != [], :invalid_purchase_items)
-        pairs = validate_lines!(ids, cart, lines)
-        current = cart_items(cart)
-        require!(length(pairs) == length(current), :incomplete_cart)
-
-        Enum.each(pairs, fn {_item, line} ->
-          require!(
-            is_integer(line["quantity_milli"]) and line["quantity_milli"] >= 0,
-            :invalid_quantity
-          )
-
-          require!(
-            is_integer(line["total_cents"]) and line["total_cents"] >= 0,
-            :invalid_price
-          )
-
-          require!(line["quantity_milli"] > 0 or line["total_cents"] == 0, :invalid_price)
-        end)
-
-        # Match inventory's canonical lock order across multi-ingredient purchases.
-        pairs = Enum.sort_by(pairs, fn {item, _} -> {item.ingredient_id, item.unit, item.id} end)
-        Enum.each(pairs, fn {item, line} -> purchase_line!(ids, cart, item, line, now) end)
-
-        moved =
-          Enum.count(pairs, fn {item, line} ->
-            line["quantity_milli"] > 0 and not is_nil(item.ingredient_id)
-          end)
-
-        total = Enum.sum(Enum.map(pairs, fn {_, line} -> line["total_cents"] end))
-
-        result = %{
-          checkout_session_id: cart.id,
-          status: "completed",
-          checkout_type: type,
-          moved_to_inventory_count: moved,
-          checked_out_items_count: moved,
-          actual_total_cents: total
-        }
-
-        update!(cart, %{
-          status: :completed,
-          checkout_type: type,
-          total_cents: total,
-          confirmed_by_user_id: ids.user_id,
-          confirmed_at: now,
-          purchase_result: result
-        })
-
-        result
+        confirm_purchase!(ids, session_id, payload, now)
       end)
     end
   end
 
   def purchase(_, _, _), do: {:error, :invalid_payload}
+
+  defp confirm_purchase!(ids, session_id, payload, now) do
+    cart = get_owned!(ids, session_id)
+    require!(cart.status != :completed, :already_purchased)
+    require_active!(cart, now)
+    type = payload["checkout_type"]
+    require!(type in ["physical", "online"], :invalid_checkout_type)
+    lines = payload["items"]
+    require!(is_list(lines) and lines != [], :invalid_purchase_items)
+    pairs = validate_lines!(ids, cart, lines)
+    current = cart_items(cart)
+    require!(length(pairs) == length(current), :incomplete_cart)
+
+    Enum.each(pairs, fn {_item, line} ->
+      require!(
+        is_integer(line["quantity_milli"]) and line["quantity_milli"] >= 0,
+        :invalid_quantity
+      )
+
+      require!(
+        is_integer(line["total_cents"]) and line["total_cents"] >= 0,
+        :invalid_price
+      )
+
+      require!(line["quantity_milli"] > 0 or line["total_cents"] == 0, :invalid_price)
+    end)
+
+    # Match inventory's canonical lock order across multi-ingredient purchases.
+    pairs = Enum.sort_by(pairs, fn {item, _} -> {item.ingredient_id, item.unit, item.id} end)
+    Enum.each(pairs, fn {item, line} -> purchase_line!(ids, cart, item, line, now) end)
+
+    moved =
+      Enum.count(pairs, fn {item, line} ->
+        line["quantity_milli"] > 0 and not is_nil(item.ingredient_id)
+      end)
+
+    total = Enum.sum(Enum.map(pairs, fn {_, line} -> line["total_cents"] end))
+
+    result = %{
+      checkout_session_id: cart.id,
+      status: "completed",
+      checkout_type: type,
+      moved_to_inventory_count: moved,
+      checked_out_items_count: moved,
+      actual_total_cents: total
+    }
+
+    update!(cart, %{
+      status: :completed,
+      checkout_type: type,
+      total_cents: total,
+      confirmed_by_user_id: ids.user_id,
+      confirmed_at: now,
+      purchase_result: result
+    })
+
+    result
+  end
 
   def delivery(user, session_id) do
     with {:ok, ids} <- identity(user) do
@@ -260,30 +270,33 @@ defmodule MealPlannerApi.Cart do
       result =
         Repo.transaction(fn ->
           lock_account!(ids.account_id)
-
-          case identity(%{id: ids.user_id, account_id: ids.account_id}) do
-            {:ok, _} -> :ok
-            {:error, reason} -> Repo.rollback(reason)
-          end
-
+          recheck_identity!(ids)
           fun.(DateTime.utc_now())
         end)
 
-      case result do
-        {:ok, response} ->
-          notify(ids.account_id, event, response)
-
-          if event == "purchase_confirmed" and response.moved_to_inventory_count > 0,
-            do: notify(ids.account_id, "inventory_changed", %{refresh: true})
-
-        _ ->
-          :ok
-      end
+      notify_committed(ids.account_id, event, result)
 
       result
     end
   rescue
     Ecto.Query.CastError -> {:error, :invalid_payload}
+  end
+
+  defp notify_committed(account_id, event, {:ok, response}) do
+    notify(account_id, event, response)
+
+    if event == "purchase_confirmed" and response.moved_to_inventory_count > 0,
+      do: notify(account_id, "inventory_changed", %{refresh: true})
+  end
+
+  defp notify_committed(_account_id, _event, _result), do: :ok
+
+  # Runs inside the transaction, under the account lock.
+  defp recheck_identity!(ids) do
+    case identity(%{id: ids.user_id, account_id: ids.account_id}) do
+      {:ok, _} -> :ok
+      {:error, reason} -> Repo.rollback(reason)
+    end
   end
 
   defp lock_account!(account_id) do
@@ -423,28 +436,7 @@ defmodule MealPlannerApi.Cart do
     if quantity == 0 do
       release!(item)
     else
-      # A manual item with no Ingredient (issue #40) has no stock to add to:
-      # it is closed as bought. What a manual purchase moves into Inventory
-      # is left to issue #48.
-      unless is_nil(item.ingredient_id) do
-        case Inventory.apply_delta_and_log(%{
-               account_id: ids.account_id,
-               ingredient_id: item.ingredient_id,
-               unit: item.unit,
-               source_kind: :planned,
-               delta: quantity,
-               source_user_id: ids.user_id,
-               trigger_type: :purchase,
-               operation: :add,
-               acquired_at: now,
-               acquired_price_cents: line["total_cents"],
-               source_checkout_session_id: cart.id,
-               metadata: %{shopping_item_id: item.id}
-             }) do
-          {:ok, _} -> :ok
-          {:error, reason} -> Repo.rollback(reason)
-        end
-      end
+      add_purchased_stock!(ids, cart, item, line, now)
 
       # Close the purchased item before storing its remainder: both share the
       # planned key, and only one open Shopping item is allowed per key. The
@@ -473,6 +465,33 @@ defmodule MealPlannerApi.Cart do
         |> then(&ShoppingItem.changeset(%ShoppingItem{}, &1))
         |> insert!()
       end
+    end
+  end
+
+  # A manual item with no Ingredient (issue #40) has no stock to add to:
+  # it is closed as bought. What a manual purchase moves into Inventory
+  # is left to issue #48.
+  defp add_purchased_stock!(_ids, _cart, %{ingredient_id: nil}, _line, _now), do: :ok
+
+  defp add_purchased_stock!(ids, cart, item, line, now) do
+    quantity = line["quantity_milli"]
+
+    case Inventory.apply_delta_and_log(%{
+           account_id: ids.account_id,
+           ingredient_id: item.ingredient_id,
+           unit: item.unit,
+           source_kind: :planned,
+           delta: quantity,
+           source_user_id: ids.user_id,
+           trigger_type: :purchase,
+           operation: :add,
+           acquired_at: now,
+           acquired_price_cents: line["total_cents"],
+           source_checkout_session_id: cart.id,
+           metadata: %{shopping_item_id: item.id}
+         }) do
+      {:ok, _} -> :ok
+      {:error, reason} -> Repo.rollback(reason)
     end
   end
 

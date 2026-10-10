@@ -152,28 +152,29 @@ defmodule MealPlannerApi.Services.PlanningService do
 
     with {:ok, run} <- run_result,
          {:ok, proposal} <- proposal_result do
-      meal_ids =
-        Enum.flat_map(meals, fn meal ->
-          case PlanningRepo.schedule_meal(%{
-                 account_id: account_id,
-                 generation_run_id: run.id,
-                 planning_proposal_id: proposal.id,
-                 date: parse_date(meal["day"]),
-                 slot: String.to_existing_atom(meal["slot"]),
-                 recipe_id: meal["recipe_id"],
-                 selected_quantity: Map.get(meal, "selected_quantity", 1),
-                 is_cooked: false
-               }) do
-            {:ok, scheduled_meal} -> [scheduled_meal.id]
-            {:error, _} -> []
-          end
-        end)
+      meal_ids = Enum.flat_map(meals, &schedule_plan_meal(&1, account_id, run, proposal))
 
       {:ok, %{proposal_id: proposal.id, meal_ids: meal_ids}}
     else
       {:error, reason} ->
         IO.puts("DEBUG save_plan final error: #{inspect(reason)}")
         {:error, reason}
+    end
+  end
+
+  defp schedule_plan_meal(meal, account_id, run, proposal) do
+    case PlanningRepo.schedule_meal(%{
+           account_id: account_id,
+           generation_run_id: run.id,
+           planning_proposal_id: proposal.id,
+           date: parse_date(meal["day"]),
+           slot: String.to_existing_atom(meal["slot"]),
+           recipe_id: meal["recipe_id"],
+           selected_quantity: Map.get(meal, "selected_quantity", 1),
+           is_cooked: false
+         }) do
+      {:ok, scheduled_meal} -> [scheduled_meal.id]
+      {:error, _} -> []
     end
   end
 
@@ -321,29 +322,32 @@ defmodule MealPlannerApi.Services.PlanningService do
     if is_nil(requested) do
       true
     else
-      count =
-        cond do
-          is_list(requested) ->
-            length(requested)
-
-          is_binary(requested) ->
-            case Integer.parse(requested) do
-              {n, ""} -> n
-              :error -> length(@default_days)
-            end
-
-          is_integer(requested) ->
-            requested
-
-          true ->
-            length(@default_days)
-        end
+      count = requested_days_count(requested)
 
       if count > max_days do
         {:error, :exceeds_max_planning_days}
       else
         true
       end
+    end
+  end
+
+  defp requested_days_count(requested) do
+    cond do
+      is_list(requested) ->
+        length(requested)
+
+      is_binary(requested) ->
+        case Integer.parse(requested) do
+          {n, ""} -> n
+          :error -> length(@default_days)
+        end
+
+      is_integer(requested) ->
+        requested
+
+      true ->
+        length(@default_days)
     end
   end
 

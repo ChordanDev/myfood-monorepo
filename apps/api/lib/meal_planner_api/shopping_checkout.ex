@@ -175,38 +175,46 @@ defmodule MealPlannerApi.ShoppingCheckout do
         )
 
       {created, _remaining_pool} =
-        Enum.reduce(meals, {0, available_pool}, fn meal, {acc, pool} ->
-          recipe = RecipeVersions.recipe_for_meal(meal)
-          recipe_ingredients = (recipe && recipe.recipe_ingredients) || []
-
-          Enum.reduce(recipe_ingredients, {acc, pool}, fn ri, {local_acc, local_pool} ->
-            key = {ri.ingredient_id, ri.unit}
-            available = Map.get(local_pool, key, 0)
-            needed = ri.quantity_milli
-            consumed = min(available, needed)
-            missing = needed - consumed
-            updated_pool = Map.put(local_pool, key, max(available - consumed, 0))
-
-            if missing > 0 do
-              {:ok, _item} =
-                Shopping.create_shopping_item(%{
-                  account_id: account_id,
-                  scheduled_meal_id: meal.id,
-                  planned_date: meal.date,
-                  ingredient_id: ri.ingredient_id,
-                  quantity_milli: missing,
-                  unit: ri.unit,
-                  status: :pending
-                })
-
-              {local_acc + 1, updated_pool}
-            else
-              {local_acc, updated_pool}
-            end
-          end)
-        end)
+        Enum.reduce(
+          meals,
+          {0, available_pool},
+          &create_missing_items_for_meal(&1, &2, account_id)
+        )
 
       {:ok, created}
+    end
+  end
+
+  defp create_missing_items_for_meal(meal, {acc, pool}, account_id) do
+    recipe = RecipeVersions.recipe_for_meal(meal)
+    recipe_ingredients = (recipe && recipe.recipe_ingredients) || []
+
+    Enum.reduce(recipe_ingredients, {acc, pool}, &create_missing_item(&1, &2, account_id, meal))
+  end
+
+  defp create_missing_item(ri, {local_acc, local_pool}, account_id, meal) do
+    key = {ri.ingredient_id, ri.unit}
+    available = Map.get(local_pool, key, 0)
+    needed = ri.quantity_milli
+    consumed = min(available, needed)
+    missing = needed - consumed
+    updated_pool = Map.put(local_pool, key, max(available - consumed, 0))
+
+    if missing > 0 do
+      {:ok, _item} =
+        Shopping.create_shopping_item(%{
+          account_id: account_id,
+          scheduled_meal_id: meal.id,
+          planned_date: meal.date,
+          ingredient_id: ri.ingredient_id,
+          quantity_milli: missing,
+          unit: ri.unit,
+          status: :pending
+        })
+
+      {local_acc + 1, updated_pool}
+    else
+      {local_acc, updated_pool}
     end
   end
 
