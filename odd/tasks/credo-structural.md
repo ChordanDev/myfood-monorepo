@@ -31,7 +31,7 @@ shopping and membership code.
 
 - [x] T1 — Refactor the 49 flagged functions (delegated writer; 30+ files). Checks: `mix format --check-formatted`, `mix compile --warnings-as-errors`, `mix credo --strict` (target 0), full `mix test`, `mix dialyzer` (must not go up from 9 locally).
 - [x] T2 — Commit `266f1a2`, stacked PR opened.
-- [ ] T3 — Make Credo blocking in CI once it reports 0.
+- [x] T3 — Credo is a blocking CI gate (CI run on Elixir 1.17 reported no issues).
 
 ## Evidence
 

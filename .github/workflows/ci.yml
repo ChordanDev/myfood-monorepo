@@ -106,12 +106,10 @@ jobs:
       - name: Check formatting
         run: mix format --check-formatted
 
-      # Credo and Sobelow report without failing the job: both still have a
-      # backlog of findings.
       - name: Credo
-        continue-on-error: true
         run: mix credo --strict
 
+      # Sobelow reports without failing the job: it still has open findings.
       - name: Sobelow
         continue-on-error: true
         run: mix sobelow --config
