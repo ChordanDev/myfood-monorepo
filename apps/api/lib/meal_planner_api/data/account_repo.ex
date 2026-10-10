@@ -25,13 +25,13 @@ defmodule MealPlannerApi.Data.AccountRepo do
   def create_account(attrs),
     do: %Account{} |> Account.changeset(attrs) |> Repo.insert()
 
-  @spec get_account!(pos_integer()) :: Account.t()
+  @spec get_account!(Ecto.UUID.t()) :: Account.t()
   def get_account!(id), do: Repo.get!(Account, id)
 
-  @spec get_account(pos_integer()) :: Account.t() | nil
+  @spec get_account(Ecto.UUID.t()) :: Account.t() | nil
   def get_account(id), do: Repo.get(Account, id)
 
-  @spec get_account_with_users!(pos_integer()) :: Account.t()
+  @spec get_account_with_users!(Ecto.UUID.t()) :: Account.t()
   def get_account_with_users!(id) do
     Account
     |> Repo.get!(id)
@@ -81,13 +81,13 @@ defmodule MealPlannerApi.Data.AccountRepo do
   @spec create_user(map()) :: {:ok, User.t()} | {:error, Ecto.Changeset.t()}
   def create_user(attrs), do: %User{} |> User.changeset(attrs) |> Repo.insert()
 
-  @spec get_user!(pos_integer()) :: User.t()
+  @spec get_user!(Ecto.UUID.t()) :: User.t()
   def get_user!(id), do: Repo.get!(User, id)
 
-  @spec get_user(pos_integer()) :: User.t() | nil
+  @spec get_user(Ecto.UUID.t()) :: User.t() | nil
   def get_user(id), do: Repo.get(User, id)
 
-  @spec get_user_with_account!(pos_integer()) :: User.t()
+  @spec get_user_with_account!(Ecto.UUID.t()) :: User.t()
   def get_user_with_account!(id) do
     User
     |> Repo.get!(id)
@@ -104,7 +104,7 @@ defmodule MealPlannerApi.Data.AccountRepo do
   @spec update_user(User.t(), map()) :: {:ok, User.t()} | {:error, Ecto.Changeset.t()}
   def update_user(user, attrs), do: user |> User.changeset(attrs) |> Repo.update()
 
-  @spec find_users_by_ids([pos_integer()]) :: [User.t()]
+  @spec find_users_by_ids([Ecto.UUID.t()]) :: [User.t()]
   def find_users_by_ids(ids) when is_list(ids), do: Repo.all(from(u in User, where: u.id in ^ids))
 
   @doc """
@@ -123,7 +123,7 @@ defmodule MealPlannerApi.Data.AccountRepo do
   # Dietary profile
   # -------------------------------------------------------------------------
 
-  @spec upsert_dietary_profile(pos_integer(), map()) ::
+  @spec upsert_dietary_profile(Ecto.UUID.t(), map()) ::
           {:ok, UserDietaryProfile.t()} | {:error, Ecto.Changeset.t()}
   def upsert_dietary_profile(user_id, attrs) do
     attrs = Map.put(attrs, :user_id, user_id)
@@ -149,10 +149,10 @@ defmodule MealPlannerApi.Data.AccountRepo do
     |> Repo.insert_or_update()
   end
 
-  @spec get_dietary_profile!(pos_integer()) :: UserDietaryProfile.t()
+  @spec get_dietary_profile!(Ecto.UUID.t()) :: UserDietaryProfile.t()
   def get_dietary_profile!(user_id), do: Repo.get_by!(UserDietaryProfile, user_id: user_id)
 
-  @spec get_dietary_profile(pos_integer()) :: UserDietaryProfile.t() | nil
+  @spec get_dietary_profile(Ecto.UUID.t()) :: UserDietaryProfile.t() | nil
   def get_dietary_profile(user_id), do: Repo.get_by(UserDietaryProfile, user_id: user_id)
 
   # -------------------------------------------------------------------------
@@ -174,14 +174,14 @@ defmodule MealPlannerApi.Data.AccountRepo do
   # Excluded ingredients
   # -------------------------------------------------------------------------
 
-  @spec add_excluded_ingredient(pos_integer(), pos_integer(), String.t()) ::
+  @spec add_excluded_ingredient(Ecto.UUID.t(), Ecto.UUID.t(), String.t()) ::
           {:ok, UserExcludedIngredient.t()} | {:error, Ecto.Changeset.t()}
   def add_excluded_ingredient(user_id, ingredient_id, reason) do
     attrs = %{user_id: user_id, ingredient_id: ingredient_id, reason: reason}
     %UserExcludedIngredient{} |> UserExcludedIngredient.changeset(attrs) |> Repo.insert()
   end
 
-  @spec remove_excluded_ingredient(pos_integer(), pos_integer()) :: :ok
+  @spec remove_excluded_ingredient(Ecto.UUID.t(), Ecto.UUID.t()) :: :ok
   def remove_excluded_ingredient(user_id, ingredient_id) do
     from(e in UserExcludedIngredient,
       where: e.user_id == ^user_id and e.ingredient_id == ^ingredient_id
@@ -191,7 +191,7 @@ defmodule MealPlannerApi.Data.AccountRepo do
     :ok
   end
 
-  @spec list_excluded_ingredients(pos_integer()) :: [UserExcludedIngredient.t()]
+  @spec list_excluded_ingredients(Ecto.UUID.t()) :: [UserExcludedIngredient.t()]
   def list_excluded_ingredients(user_id) do
     from(e in UserExcludedIngredient,
       where: e.user_id == ^user_id,
@@ -200,7 +200,7 @@ defmodule MealPlannerApi.Data.AccountRepo do
     |> Repo.all()
   end
 
-  @spec list_excluded_ingredient_ids([pos_integer()]) :: MapSet.t(pos_integer())
+  @spec list_excluded_ingredient_ids([Ecto.UUID.t()]) :: MapSet.t(Ecto.UUID.t())
   def list_excluded_ingredient_ids(user_ids) do
     from(e in UserExcludedIngredient,
       where: e.user_id in ^user_ids,

@@ -3,6 +3,8 @@ defmodule MealPlannerApi.Persistence.Catalog.RecipeVersion do
 
   @primary_key {:id, :binary_id, autogenerate: true}
   @foreign_key_type :binary_id
+  @type t :: %__MODULE__{}
+
   schema "recipe_versions" do
     belongs_to(:recipe, MealPlannerApi.Persistence.Catalog.Recipe)
     belongs_to(:predecessor, __MODULE__)

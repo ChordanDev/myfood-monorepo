@@ -36,7 +36,7 @@ defmodule MealPlannerApi.Data.ShoppingRepo do
   @spec list_supermarkets() :: [Supermarket.t()]
   def list_supermarkets, do: Repo.all(Supermarket)
 
-  @spec get_supermarket!(pos_integer()) :: Supermarket.t()
+  @spec get_supermarket!(Ecto.UUID.t()) :: Supermarket.t()
   def get_supermarket!(id), do: Repo.get!(Supermarket, id)
 
   # -------------------------------------------------------------------------
@@ -54,7 +54,7 @@ defmodule MealPlannerApi.Data.ShoppingRepo do
     )
   end
 
-  @spec get_latest_price(pos_integer(), pos_integer(), Date.t()) ::
+  @spec get_latest_price(Ecto.UUID.t(), Ecto.UUID.t(), Date.t()) ::
           SupermarketCatalog.t() | nil
   def get_latest_price(supermarket_id, ingredient_id, date) do
     from(c in SupermarketCatalog,
@@ -66,7 +66,7 @@ defmodule MealPlannerApi.Data.ShoppingRepo do
     |> Repo.one()
   end
 
-  @spec list_prices_for_ingredient(pos_integer()) :: [SupermarketCatalog.t()]
+  @spec list_prices_for_ingredient(Ecto.UUID.t()) :: [SupermarketCatalog.t()]
   def list_prices_for_ingredient(ingredient_id) do
     from(c in SupermarketCatalog,
       where: c.ingredient_id == ^ingredient_id,
@@ -90,10 +90,10 @@ defmodule MealPlannerApi.Data.ShoppingRepo do
   def update_checkout_session(session, attrs),
     do: session |> CheckoutSession.changeset(attrs) |> Repo.update()
 
-  @spec get_checkout_session!(pos_integer()) :: CheckoutSession.t()
+  @spec get_checkout_session!(Ecto.UUID.t()) :: CheckoutSession.t()
   def get_checkout_session!(id), do: Repo.get!(CheckoutSession, id)
 
-  @spec get_checkout_session_for_account(pos_integer(), pos_integer()) ::
+  @spec get_checkout_session_for_account(Ecto.UUID.t(), Ecto.UUID.t()) ::
           CheckoutSession.t() | nil
   def get_checkout_session_for_account(account_id, checkout_session_id) do
     from(s in CheckoutSession,
@@ -103,7 +103,7 @@ defmodule MealPlannerApi.Data.ShoppingRepo do
     |> Repo.one()
   end
 
-  @spec list_checkout_sessions(pos_integer()) :: [CheckoutSession.t()]
+  @spec list_checkout_sessions(Ecto.UUID.t()) :: [CheckoutSession.t()]
   def list_checkout_sessions(account_id) do
     from(s in CheckoutSession,
       where: s.account_id == ^account_id,
@@ -112,7 +112,7 @@ defmodule MealPlannerApi.Data.ShoppingRepo do
     |> Repo.all()
   end
 
-  @spec list_pending_delivery_sessions(pos_integer()) :: [CheckoutSession.t()]
+  @spec list_pending_delivery_sessions(Ecto.UUID.t()) :: [CheckoutSession.t()]
   def list_pending_delivery_sessions(account_id) do
     from(s in CheckoutSession,
       where: s.account_id == ^account_id and s.status == :pending_delivery,
@@ -202,7 +202,7 @@ defmodule MealPlannerApi.Data.ShoppingRepo do
     )
   end
 
-  @spec list_shopping_items(pos_integer()) :: [ShoppingItem.t()]
+  @spec list_shopping_items(Ecto.UUID.t()) :: [ShoppingItem.t()]
   def list_shopping_items(checkout_session_id) do
     from(i in ShoppingItem,
       where: i.checkout_session_id == ^checkout_session_id,
@@ -217,13 +217,13 @@ defmodule MealPlannerApi.Data.ShoppingRepo do
   def update_shopping_item(item, attrs),
     do: item |> ShoppingItem.changeset(attrs) |> Repo.update()
 
-  @spec delete_shopping_item(pos_integer()) :: :ok
+  @spec delete_shopping_item(Ecto.UUID.t()) :: :ok
   def delete_shopping_item(id) do
     Repo.delete!(Repo.get!(ShoppingItem, id))
     :ok
   end
 
-  @spec toggle_shopping_item_checked(pos_integer()) ::
+  @spec toggle_shopping_item_checked(Ecto.UUID.t()) ::
           {:ok, ShoppingItem.t()} | {:error, Ecto.Changeset.t()}
   def toggle_shopping_item_checked(id) do
     item = Repo.get!(ShoppingItem, id)

@@ -5,6 +5,8 @@ defmodule MealPlannerApi.Persistence.Catalog.FavoriteRecipe do
   @primary_key {:id, :binary_id, autogenerate: true}
   @foreign_key_type :binary_id
 
+  @type t :: %__MODULE__{}
+
   schema "favorite_recipes" do
     belongs_to(:account, MealPlannerApi.Persistence.Accounts.Account)
     belongs_to(:user, MealPlannerApi.Persistence.Accounts.User)

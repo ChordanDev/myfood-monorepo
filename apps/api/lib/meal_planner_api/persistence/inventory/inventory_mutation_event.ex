@@ -5,6 +5,8 @@ defmodule MealPlannerApi.Persistence.Inventory.InventoryMutationEvent do
   @primary_key {:id, :binary_id, autogenerate: true}
   @foreign_key_type :binary_id
 
+  @type t :: %__MODULE__{}
+
   schema "inventory_mutation_events" do
     field(:trigger_type, Ecto.Enum, values: [:purchase, :cooking, :manual, :voice])
     field(:operation, Ecto.Enum, values: [:add, :subtract, :set, :delete])

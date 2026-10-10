@@ -5,6 +5,8 @@ defmodule MealPlannerApi.Persistence.Accounts.RevenuecatWebhookEvent do
   @primary_key {:id, :binary_id, autogenerate: true}
   @foreign_key_type :binary_id
 
+  @type t :: %__MODULE__{}
+
   schema "revenuecat_webhook_events" do
     field(:event_id, :string)
     field(:event_type, :string)

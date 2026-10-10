@@ -24,6 +24,8 @@ defmodule MealPlannerApi.Persistence.Auth.AccountSelectionContinuation do
   @primary_key {:id, :binary_id, autogenerate: true}
   @foreign_key_type :binary_id
 
+  @type t :: %__MODULE__{}
+
   schema "account_selection_continuations" do
     belongs_to(:user, MealPlannerApi.Persistence.Accounts.User)
 

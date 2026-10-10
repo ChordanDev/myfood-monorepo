@@ -5,6 +5,8 @@ defmodule MealPlannerApi.Persistence.Planning.PlanningGenerationRun do
   @primary_key {:id, :binary_id, autogenerate: true}
   @foreign_key_type :binary_id
 
+  @type t :: %__MODULE__{}
+
   schema "planning_generation_runs" do
     field(:status, Ecto.Enum,
       values: [:pending, :processing, :completed, :error],

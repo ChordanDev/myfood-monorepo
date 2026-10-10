@@ -19,9 +19,9 @@ defmodule MealPlannerApi.Planning do
   Returns `{:ok, %{days: [...], max_planning_days: integer()}}`
   """
   @spec weekly_plan_for(map(), map()) ::
-          {:ok, %{days: [map()], max_planning_days: pos_integer()}}
-          | {:error,
-             :exceeds_max_planning_days | :identity_resolution_failed | :optimization_failed}
+          {:ok,
+           %{:days => [map()], :max_planning_days => pos_integer(), optional(atom()) => term()}}
+          | {:error, :exceeds_max_planning_days | :optimization_failed}
   def weekly_plan_for(user, params) do
     max_days =
       case user do

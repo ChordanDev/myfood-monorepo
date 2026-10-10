@@ -12,6 +12,8 @@ defmodule MealPlannerApi.Persistence.Catalog.Recipe do
   @theme_required_keys ~w(colorBlack colorDark colorMedium colorLight primaryAccent appBg icon textBlack textDark textMedium textLight primaryAccentIntense alert)
   @theme_optional_keys ~w(appBgGradient)
 
+  @type t :: %__MODULE__{}
+
   schema "recipes" do
     field(:superseded_by_id, :binary_id)
     field(:name, :string)

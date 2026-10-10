@@ -5,6 +5,8 @@ defmodule MealPlannerApi.Persistence.Planning.PlanningProposal do
   @primary_key {:id, :binary_id, autogenerate: true}
   @foreign_key_type :binary_id
 
+  @type t :: %__MODULE__{}
+
   schema "planning_proposals" do
     field(:proposal_json, :map)
     field(:status, Ecto.Enum, values: [:pending, :accepted, :rejected], default: :pending)

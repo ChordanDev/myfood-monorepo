@@ -14,7 +14,7 @@ defmodule MealPlannerApi.Data.UnitConversionRepo do
   # IngredientBaseUnit
   # -------------------------------------------------------------------------
 
-  @spec get_base_unit(pos_integer()) :: String.t() | nil
+  @spec get_base_unit(Ecto.UUID.t()) :: String.t() | nil
   def get_base_unit(ingredient_id) do
     Repo.get_by(IngredientBaseUnit, ingredient_id: ingredient_id)
     |> case do
@@ -23,7 +23,7 @@ defmodule MealPlannerApi.Data.UnitConversionRepo do
     end
   end
 
-  @spec get_base_units([pos_integer()]) :: %{pos_integer() => String.t()}
+  @spec get_base_units([Ecto.UUID.t()]) :: %{Ecto.UUID.t() => String.t()}
   def get_base_units(ingredient_ids) when is_list(ingredient_ids) do
     from(bu in IngredientBaseUnit,
       where: bu.ingredient_id in ^ingredient_ids,
@@ -33,7 +33,7 @@ defmodule MealPlannerApi.Data.UnitConversionRepo do
     |> Enum.into(%{})
   end
 
-  @spec upsert_base_unit(pos_integer(), String.t()) :: {:ok, IngredientBaseUnit.t()}
+  @spec upsert_base_unit(Ecto.UUID.t(), String.t()) :: {:ok, IngredientBaseUnit.t()}
   def upsert_base_unit(ingredient_id, base_unit) do
     case Repo.get_by(IngredientBaseUnit, ingredient_id: ingredient_id) do
       nil ->
@@ -52,7 +52,7 @@ defmodule MealPlannerApi.Data.UnitConversionRepo do
   # UnitConversion
   # -------------------------------------------------------------------------
 
-  @spec get_conversion_factor(pos_integer(), String.t()) :: float() | nil
+  @spec get_conversion_factor(Ecto.UUID.t(), String.t()) :: float() | nil
   def get_conversion_factor(ingredient_id, from_unit) do
     Repo.get_by(UnitConversion, ingredient_id: ingredient_id, from_unit: from_unit)
     |> case do
@@ -61,7 +61,7 @@ defmodule MealPlannerApi.Data.UnitConversionRepo do
     end
   end
 
-  @spec get_conversions_for_ingredient(pos_integer()) :: %{String.t() => float()}
+  @spec get_conversions_for_ingredient(Ecto.UUID.t()) :: %{String.t() => float()}
   def get_conversions_for_ingredient(ingredient_id) do
     from(uc in UnitConversion,
       where: uc.ingredient_id == ^ingredient_id,
@@ -71,7 +71,7 @@ defmodule MealPlannerApi.Data.UnitConversionRepo do
     |> Enum.into(%{})
   end
 
-  @spec upsert_conversion(pos_integer(), String.t(), float()) :: {:ok, UnitConversion.t()}
+  @spec upsert_conversion(Ecto.UUID.t(), String.t(), float()) :: {:ok, UnitConversion.t()}
   def upsert_conversion(ingredient_id, from_unit, factor_to_base) do
     case Repo.get_by(UnitConversion, ingredient_id: ingredient_id, from_unit: from_unit) do
       nil ->

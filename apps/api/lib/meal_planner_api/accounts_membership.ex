@@ -301,7 +301,7 @@ defmodule MealPlannerApi.AccountsMembership do
              membership: AccountMembership.t(),
              claims: map()
            }}
-          | {:error, atom()}
+          | {:error, atom() | Ecto.Changeset.t()}
   def accept_invite(plaintext, %PersistenceUser{} = invitee) when is_binary(plaintext) do
     accept_invite_with_lookup(plaintext, fn _existing ->
       {:ok, invitee}

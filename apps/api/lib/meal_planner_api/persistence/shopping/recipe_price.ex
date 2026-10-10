@@ -11,6 +11,8 @@ defmodule MealPlannerApi.Persistence.Shopping.RecipePrice do
   @primary_key {:id, :binary_id, autogenerate: true}
   @foreign_key_type :binary_id
 
+  @type t :: %__MODULE__{}
+
   schema "recipe_prices" do
     field(:price_per_serving_cents, :integer)
     field(:last_calculated_at, :utc_datetime_usec)

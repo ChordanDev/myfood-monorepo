@@ -5,6 +5,8 @@ defmodule MealPlannerApi.Persistence.Planning.ContextSnapshot do
   @primary_key {:id, :binary_id, autogenerate: true}
   @foreign_key_type :binary_id
 
+  @type t :: %__MODULE__{}
+
   schema "context_snapshots" do
     field(:snapshot_data, :map)
     field(:captured_at, :utc_datetime_usec)

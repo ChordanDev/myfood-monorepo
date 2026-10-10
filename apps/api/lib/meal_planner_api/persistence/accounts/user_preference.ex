@@ -12,6 +12,8 @@ defmodule MealPlannerApi.Persistence.Accounts.UserPreference do
   @primary_key {:id, :binary_id, autogenerate: true}
   @foreign_key_type :binary_id
 
+  @type t :: %__MODULE__{}
+
   schema "user_preferences" do
     field(:protein_g_per_meal, :integer)
     field(:default_exclusions, {:array, :string}, default: [])

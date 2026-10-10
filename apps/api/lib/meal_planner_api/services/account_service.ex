@@ -18,18 +18,14 @@ defmodule MealPlannerApi.Services.AccountService do
   def context(user) do
     case Identity.ensure_persistent_identity(user) do
       {:ok, identity} ->
-        case AccountRepo.get_account_with_users!(identity.account_id) do
-          account when not is_nil(account) ->
-            {:ok,
-             %{
-               account: serialize_account(account),
-               subscription: serialize_subscription(identity),
-               active_users: active_users_from_memberships(account)
-             }}
+        account = AccountRepo.get_account_with_users!(identity.account_id)
 
-          nil ->
-            {:error, :account_not_found}
-        end
+        {:ok,
+         %{
+           account: serialize_account(account),
+           subscription: serialize_subscription(identity),
+           active_users: active_users_from_memberships(account)
+         }}
 
       {:error, reason} ->
         {:error, reason}

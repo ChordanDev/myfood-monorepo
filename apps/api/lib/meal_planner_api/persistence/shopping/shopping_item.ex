@@ -5,6 +5,8 @@ defmodule MealPlannerApi.Persistence.Shopping.ShoppingItem do
   @primary_key {:id, :binary_id, autogenerate: true}
   @foreign_key_type :binary_id
 
+  @type t :: %__MODULE__{}
+
   schema "shopping_items" do
     field(:planned_date, :date)
     field(:quantity_milli, :integer)

@@ -579,7 +579,7 @@ defmodule MealPlannerApi.Services.ShoppingService do
     end
   end
 
-  @spec mark_in_cart(map(), [pos_integer()]) :: {:ok, map()} | {:error, term()}
+  @spec mark_in_cart(map(), [Ecto.UUID.t()]) :: {:ok, map()} | {:error, term()}
   def mark_in_cart(user, item_ids) do
     MealPlannerApi.Cart.reserve(user, item_ids)
   end
@@ -590,7 +590,7 @@ defmodule MealPlannerApi.Services.ShoppingService do
     MealPlannerApi.Cart.reserve_ingredient(user, ingredient_id, from_date, end_date)
   end
 
-  @spec assign_supermarket(map(), pos_integer(), pos_integer()) :: {:ok, map()} | {:error, term()}
+  @spec assign_supermarket(map(), Ecto.UUID.t(), Ecto.UUID.t()) :: {:ok, map()} | {:error, term()}
   def assign_supermarket(user, item_id, supermarket_id) do
     case Identity.ensure_persistent_identity(user) do
       {:ok, identity} ->
@@ -610,7 +610,7 @@ defmodule MealPlannerApi.Services.ShoppingService do
     end
   end
 
-  @spec assign_ingredient_supermarket(map(), binary(), pos_integer(), Date.t(), Date.t()) ::
+  @spec assign_ingredient_supermarket(map(), binary(), Ecto.UUID.t(), Date.t(), Date.t()) ::
           {:ok, map()} | {:error, term()}
   def assign_ingredient_supermarket(user, ingredient_id, supermarket_id, from_date, end_date) do
     case Identity.ensure_persistent_identity(user) do
@@ -680,18 +680,18 @@ defmodule MealPlannerApi.Services.ShoppingService do
     end
   end
 
-  @spec confirm_checkout(map(), pos_integer(), map()) :: {:ok, map()} | {:error, term()}
+  @spec confirm_checkout(map(), Ecto.UUID.t(), map()) :: {:ok, map()} | {:error, term()}
   def confirm_checkout(user, session_id, payload) do
     MealPlannerApi.Cart.purchase(user, session_id, payload)
   end
 
   # Date-range based checkout: create session from items in range
   @spec create_checkout_from_range(map(), Date.t(), Date.t(), String.t()) ::
-          {:ok, map()} | {:error, term()}
+          {:error, :reservation_required}
   def create_checkout_from_range(_user, _start_date, _end_date, _checkout_type),
     do: {:error, :reservation_required}
 
-  @spec confirm_delivery(map(), pos_integer()) :: {:ok, map()} | {:error, term()}
+  @spec confirm_delivery(map(), Ecto.UUID.t()) :: {:ok, map()} | {:error, term()}
   def confirm_delivery(user, checkout_session_id) do
     MealPlannerApi.Cart.delivery(user, checkout_session_id)
   end

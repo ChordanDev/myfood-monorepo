@@ -524,9 +524,6 @@ defmodule MealPlannerApiWeb.PlanningChannel do
           {:error, :unknown_intent} ->
             {:reply, {:error, error_payload(:unknown_intent)}, socket}
 
-          {:error, :invalid_payload} ->
-            {:reply, {:error, error_payload(:invalid_payload)}, socket}
-
           {:error, :session_mismatch} ->
             {:reply, {:error, error_payload(:session_mismatch)}, socket}
 

@@ -14,7 +14,7 @@ defmodule MealPlannerApi.Data.PriceRepo do
   # Ingredient prices
   # -------------------------------------------------------------------------
 
-  @spec latest_prices([pos_integer()]) :: %{pos_integer() => pos_integer()}
+  @spec latest_prices([Ecto.UUID.t()]) :: %{Ecto.UUID.t() => pos_integer()}
   def latest_prices(ingredient_ids) when is_list(ingredient_ids) do
     from(ip in IngredientPrice,
       where: ip.ingredient_id in ^ingredient_ids,
@@ -26,8 +26,8 @@ defmodule MealPlannerApi.Data.PriceRepo do
     |> Enum.into(%{})
   end
 
-  @spec latest_prices_map([pos_integer()]) :: %{
-          pos_integer() => %{String.t() => pos_integer()}
+  @spec latest_prices_map([Ecto.UUID.t()]) :: %{
+          Ecto.UUID.t() => %{String.t() => pos_integer()}
         }
   def latest_prices_map(ingredient_ids) when is_list(ingredient_ids) do
     rows =
@@ -46,7 +46,7 @@ defmodule MealPlannerApi.Data.PriceRepo do
     |> Enum.into(%{})
   end
 
-  @spec best_price_per_ingredient([pos_integer()]) :: %{pos_integer() => pos_integer()}
+  @spec best_price_per_ingredient([Ecto.UUID.t()]) :: %{Ecto.UUID.t() => pos_integer()}
   def best_price_per_ingredient(ingredient_ids) when is_list(ingredient_ids) do
     latest_prices(ingredient_ids)
   end
@@ -68,12 +68,12 @@ defmodule MealPlannerApi.Data.PriceRepo do
     {successes, inserted}
   end
 
-  @spec get_recipe_price(pos_integer()) :: RecipePrice.t() | nil
+  @spec get_recipe_price(Ecto.UUID.t()) :: RecipePrice.t() | nil
   def get_recipe_price(recipe_id) do
     Repo.get_by(RecipePrice, recipe_id: recipe_id)
   end
 
-  @spec get_recipe_prices([pos_integer()]) :: [RecipePrice.t()]
+  @spec get_recipe_prices([Ecto.UUID.t()]) :: [RecipePrice.t()]
   def get_recipe_prices(recipe_ids) when is_list(recipe_ids) do
     from(rp in RecipePrice, where: rp.recipe_id in ^recipe_ids)
     |> Repo.all()

@@ -12,6 +12,8 @@ defmodule MealPlannerApi.Persistence.Auth.EmailVerificationCode do
   @primary_key {:id, :binary_id, autogenerate: true}
   @foreign_key_type :binary_id
 
+  @type t :: %__MODULE__{}
+
   schema "email_verification_codes" do
     # Empty on a sign-up code, which is issued before its User exists
     # (`MealPlannerApi.Services.EmailCodeSignup`). Login only reads rows

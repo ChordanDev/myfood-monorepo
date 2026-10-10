@@ -173,7 +173,7 @@ defmodule MealPlannerApi.Services.InventoryService do
     end
   end
 
-  @spec get_inventory_item(map(), pos_integer() | String.t()) ::
+  @spec get_inventory_item(map(), Ecto.UUID.t()) ::
           {:ok, map()} | {:error, :not_found}
   def get_inventory_item(user, item_id) do
     with {:ok, identity} <- Identity.ensure_persistent_identity(user),
@@ -433,7 +433,8 @@ defmodule MealPlannerApi.Services.InventoryService do
     }
   end
 
-  @spec rescue_plan(map(), map(), BudgetService.t()) :: {:ok, map()} | {:error, term()}
+  @spec rescue_plan(map(), map(), MealPlannerApi.Budgets.Budget.t()) ::
+          {:ok, map()} | {:error, term()}
   def rescue_plan(user, payload, _budget) do
     with {:ok, identity} <- Identity.ensure_persistent_identity(user),
          ingredient_ids <- normalize_rescue_ingredient_ids(payload),
@@ -461,8 +462,6 @@ defmodule MealPlannerApi.Services.InventoryService do
     else
       true -> {:error, :no_ingredients_selected}
       {:error, _} = error -> error
-      nil -> {:error, :no_rescue_recipe_found}
-      _ -> {:error, :no_available_slot_today}
     end
   end
 

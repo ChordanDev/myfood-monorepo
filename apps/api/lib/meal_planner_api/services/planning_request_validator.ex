@@ -24,7 +24,6 @@ defmodule MealPlannerApi.Services.PlanningRequestValidator do
        %{account_id: account_id, actor_id: actor_id, participant_ids: participants}}
     else
       :error -> {:error, :forbidden}
-      nil -> {:error, :not_a_member}
       false -> {:error, :forbidden}
       {:error, _} -> {:error, :forbidden}
     end

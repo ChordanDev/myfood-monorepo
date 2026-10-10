@@ -5,6 +5,8 @@ defmodule MealPlannerApi.Persistence.Shopping.CheckoutSession do
   @primary_key {:id, :binary_id, autogenerate: true}
   @foreign_key_type :binary_id
 
+  @type t :: %__MODULE__{}
+
   schema "checkout_sessions" do
     field(:status, Ecto.Enum,
       values: [:draft, :processing, :pending_delivery, :completed, :abandoned],

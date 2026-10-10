@@ -25,6 +25,8 @@ defmodule MealPlannerApi.Persistence.Planning.PlanningSession do
   @primary_key {:id, :binary_id, autogenerate: true}
   @foreign_key_type :binary_id
 
+  @type t :: %__MODULE__{}
+
   schema "planning_sessions" do
     field(:range_from, :date)
     field(:range_to, :date)

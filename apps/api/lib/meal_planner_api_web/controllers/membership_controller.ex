@@ -62,7 +62,6 @@ defmodule MealPlannerApiWeb.MembershipController do
   defp error_status(:not_owner), do: :forbidden
   defp error_status(:cannot_remove_owner), do: :forbidden
   defp error_status(:membership_not_found), do: :not_found
-  defp error_status(_), do: :unprocessable_entity
 
   defp serialize(%{user: user} = membership) do
     %{

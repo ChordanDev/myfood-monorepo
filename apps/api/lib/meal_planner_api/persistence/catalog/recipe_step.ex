@@ -5,6 +5,8 @@ defmodule MealPlannerApi.Persistence.Catalog.RecipeStep do
   @primary_key {:id, :binary_id, autogenerate: true}
   @foreign_key_type :binary_id
 
+  @type t :: %__MODULE__{}
+
   schema "recipe_steps" do
     field(:step_number, :integer)
     field(:instructions, :string)

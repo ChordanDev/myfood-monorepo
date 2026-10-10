@@ -5,6 +5,8 @@ defmodule MealPlannerApi.Persistence.Accounts.RevenuecatSubscriptionSnapshot do
   @primary_key {:id, :binary_id, autogenerate: true}
   @foreign_key_type :binary_id
 
+  @type t :: %__MODULE__{}
+
   schema "revenuecat_subscription_snapshots" do
     field(:rc_app_user_id, :string)
     field(:product_identifier, :string)

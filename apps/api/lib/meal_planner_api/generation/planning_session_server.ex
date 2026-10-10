@@ -47,7 +47,7 @@ defmodule MealPlannerApi.Generation.PlanningSessionServer do
           account_id: Ecto.UUID.t(),
           session_id: Ecto.UUID.t(),
           status: :initializing | :active | :cancelled | :committed | :lost_lock | :expired,
-          owner_user_id: pos_integer() | nil,
+          owner_user_id: Ecto.UUID.t() | nil,
           owner_membership_id: Ecto.UUID.t() | nil,
           owner_channel_pid: pid() | nil,
           monitor_ref: reference() | nil,
@@ -131,7 +131,7 @@ defmodule MealPlannerApi.Generation.PlanningSessionServer do
   @spec start_session(
           GenServer.server(),
           Ecto.UUID.t(),
-          pos_integer(),
+          Ecto.UUID.t(),
           Ecto.UUID.t(),
           {Date.t(), Date.t()}
         ) ::
@@ -290,9 +290,6 @@ defmodule MealPlannerApi.Generation.PlanningSessionServer do
 
           {:error, %Ecto.Changeset{} = changeset} ->
             {:reply, {:error, changeset}, state}
-
-          {:error, other} ->
-            {:reply, {:error, other}, state}
         end
     end
   end

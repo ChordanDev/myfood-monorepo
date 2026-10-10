@@ -25,25 +25,32 @@ defmodule MealPlannerApi.Services.PlanningService do
   # -------------------------------------------------------------------------
 
   @type planning_user :: %{
-          optional(:user_id) => pos_integer(),
-          optional(:account_id) => pos_integer(),
+          optional(:user_id) => Ecto.UUID.t(),
+          optional(:account_id) => Ecto.UUID.t(),
           optional(:account_type) => atom() | String.t(),
           optional(:subscription_tier) => atom() | String.t(),
           optional(:kcal_target) => integer(),
           optional(:weekly_budget_cents) => integer(),
-          optional(:user_ids) => [pos_integer()]
+          optional(:user_ids) => [Ecto.UUID.t()]
         }
 
   @type planning_params :: %{
           optional(:days) => [String.t()],
           optional(:kcal_target) => integer() | String.t(),
           optional(:weekly_budget_cents) => integer() | String.t(),
-          optional(:user_ids) => [pos_integer()]
+          optional(:user_ids) => [Ecto.UUID.t()]
         }
 
   @spec generate_weekly_plan(planning_user(), planning_params(), module()) ::
-          {:ok, %{plan: [map()], estimated_cost_cents: integer(), optimizer_used: boolean()}}
-          | {:error, :identity_resolution_failed | :optimization_failed | :persistence_failed}
+          {:ok,
+           %{
+             days: [map()],
+             estimated_cost_cents: non_neg_integer(),
+             optimizer_used: boolean(),
+             max_planning_days: pos_integer(),
+             subscription_tier: String.t()
+           }}
+          | {:error, term()}
   def generate_weekly_plan(user, params \\ %{}, optimizer \\ client_module()) do
     with {:ok, identity} <- resolve_identity(user),
          {:ok, max_days} <- resolve_max_days(user),
@@ -67,9 +74,6 @@ defmodule MealPlannerApi.Services.PlanningService do
          subscription_tier: to_string(Map.get(user, :subscription_tier, :free))
        }}
     else
-      {:error, :no_candidates_for_slot, _details} ->
-        {:error, :optimization_failed}
-
       {:error, reason} ->
         {:error, reason}
     end
@@ -118,8 +122,8 @@ defmodule MealPlannerApi.Services.PlanningService do
   # Plan persistence
   # -------------------------------------------------------------------------
 
-  @spec save_plan(pos_integer(), pos_integer(), [map()], map()) ::
-          {:ok, %{proposal_id: pos_integer(), meal_ids: [pos_integer()]}}
+  @spec save_plan(Ecto.UUID.t(), Ecto.UUID.t(), [map()], map()) ::
+          {:ok, %{proposal_id: Ecto.UUID.t(), meal_ids: [Ecto.UUID.t()]}}
           | {:error, term()}
   def save_plan(account_id, user_id, meals, _metadata \\ %{}) do
     run_result =
@@ -171,7 +175,7 @@ defmodule MealPlannerApi.Services.PlanningService do
     end
   end
 
-  @spec get_scheduled_meals(pos_integer(), Date.t(), Date.t()) :: [map()]
+  @spec get_scheduled_meals(Ecto.UUID.t(), Date.t(), Date.t()) :: [map()]
   def get_scheduled_meals(
         account_id,
         from_date \\ Date.utc_today(),
@@ -181,19 +185,14 @@ defmodule MealPlannerApi.Services.PlanningService do
     Enum.map(meals, &serialize_scheduled_meal/1)
   end
 
-  @spec mark_meal_cooked(pos_integer()) :: {:ok, map()} | {:error, :not_found}
+  @spec mark_meal_cooked(Ecto.UUID.t()) :: {:ok, map()}
   def mark_meal_cooked(meal_id) do
-    case PlanningRepo.get_scheduled_meal!(meal_id) do
-      nil ->
-        {:error, :not_found}
-
-      meal ->
-        {:ok, updated} = PlanningRepo.update_scheduled_meal(meal, %{is_cooked: true})
-        {:ok, serialize_scheduled_meal(updated)}
-    end
+    meal = PlanningRepo.get_scheduled_meal!(meal_id)
+    {:ok, updated} = PlanningRepo.update_scheduled_meal(meal, %{is_cooked: true})
+    {:ok, serialize_scheduled_meal(updated)}
   end
 
-  @spec delete_scheduled_meal(pos_integer()) :: :ok | {:error, term()}
+  @spec delete_scheduled_meal(Ecto.UUID.t()) :: :ok | {:error, term()}
   def delete_scheduled_meal(meal_id) do
     PlanningRepo.delete_scheduled_meal(meal_id)
     :ok
@@ -206,7 +205,7 @@ defmodule MealPlannerApi.Services.PlanningService do
   # -------------------------------------------------------------------------
 
   @spec build_candidates(planning_user(), map()) ::
-          {:ok, %{String.t() => [map()]}} | {:error, :no_candidates_for_slot, map()}
+          {:ok, %{String.t() => [map()]}} | {:error, :not_a_member | :forbidden}
   def build_candidates(user, identity) do
     participants = Map.get(user, :participant_ids, Map.get(user, :user_ids, [identity.user_id]))
     descriptors = Enum.map(@slots, &%{date: Date.utc_today(), slot: &1})
@@ -237,7 +236,7 @@ defmodule MealPlannerApi.Services.PlanningService do
   # Cooking sessions
   # -------------------------------------------------------------------------
 
-  @spec start_cooking_session(pos_integer(), pos_integer(), pos_integer()) ::
+  @spec start_cooking_session(Ecto.UUID.t(), Ecto.UUID.t(), Ecto.UUID.t()) ::
           {:ok, map()} | {:error, :meal_not_found}
   def start_cooking_session(account_id, user_id, scheduled_meal_id) do
     case MealPlannerApi.Services.CookingService.start_session(
@@ -256,8 +255,7 @@ defmodule MealPlannerApi.Services.PlanningService do
     end
   end
 
-  @spec add_chat_message(pos_integer(), String.t()) ::
-          {:ok, map()} | {:error, term()}
+  @spec add_chat_message(Ecto.UUID.t(), String.t()) :: {:error, :ephemeral_chat_only}
   def add_chat_message(_session_id, _content), do: {:error, :ephemeral_chat_only}
 
   # -------------------------------------------------------------------------

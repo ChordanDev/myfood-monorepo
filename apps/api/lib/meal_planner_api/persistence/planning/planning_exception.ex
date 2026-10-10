@@ -15,6 +15,8 @@ defmodule MealPlannerApi.Persistence.Planning.PlanningException do
   @primary_key {:id, :binary_id, autogenerate: true}
   @foreign_key_type :binary_id
 
+  @type t :: %__MODULE__{}
+
   schema "planning_exceptions" do
     field(:kind, :string)
     field(:note, :string)
