@@ -109,9 +109,9 @@ jobs:
       - name: Credo
         run: mix credo --strict
 
-      # Sobelow reports without failing the job: it still has open findings.
+      # Fails on any finding (`exit: "low"` in `.sobelow-conf`, which also lists
+      # the checks ignored for this deployment and why).
       - name: Sobelow
-        continue-on-error: true
         run: mix sobelow --config
 
       - name: Cache Dialyzer PLT

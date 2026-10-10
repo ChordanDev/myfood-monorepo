@@ -20,7 +20,6 @@ config :meal_planner_api,
 # `MealPlannerApiWeb.Controllers.AccountScopeHelpers.mint_token_pair/2`.
 config :meal_planner_api, MealPlannerApi.Auth.Guardian,
   issuer: "meal_planner_api",
-  secret_key: "change_this_for_dev_only_guardian_secret",
   token_ttl: %{
     "access" => {1, :hour},
     "access_v2" => {1, :hour},
