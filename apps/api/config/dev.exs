@@ -46,7 +46,6 @@ config :meal_planner_api,
       Path.expand("../optimizer/optimizador.py", __DIR__)
     ),
   optimizer_timeout_ms: String.to_integer(System.get_env("OPTIMIZER_TIMEOUT_MS", "60000")),
-  python_optimizer_url: System.get_env("PYTHON_OPTIMIZER_URL", "http://localhost:8000"),
   go_scraper_url: System.get_env("GO_SCRAPER_URL", "http://localhost:4001"),
   optimize_timeout_ms: 60_000
 
