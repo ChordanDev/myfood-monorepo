@@ -7,6 +7,9 @@ import type { FavoriteSummary } from '../types/favorites';
 interface FavoritesState {
   // Ordered by name, like the API lists them.
   favorites: FavoriteSummary[];
+  // The User the cached favorites were read for; stored with them so another User never sees them.
+  ownerUserId: string | null;
+  setOwnerUserId: (userId: string | null) => void;
   isFavorite: (recipeId: string) => boolean;
   /** Replaces the favorites with the server's. Rejects when the request fails. */
   load: () => Promise<void>;
@@ -52,6 +55,8 @@ export const useFavoritesStore = create<FavoritesState>()(
   persist(
     (set, get) => ({
       favorites: [],
+      ownerUserId: null,
+      setOwnerUserId: (ownerUserId) => set({ ownerUserId }),
       isFavorite: (recipeId) => get().favorites.some((f) => f.recipeId === recipeId),
       load: () => {
         if (inFlightLoad) return inFlightLoad;
@@ -104,6 +109,9 @@ export const useFavoritesStore = create<FavoritesState>()(
         }));
 
         const execute = async (): Promise<boolean> => {
+          // Cleared while this request was queued behind another one: it is not the User's now.
+          if (generation !== storeGeneration) return true;
+
           try {
             const saved = wasFavorite ? null : await addFavorite(recipeId);
             if (wasFavorite) await removeFavorite(recipeId);
@@ -149,10 +157,19 @@ export const useFavoritesStore = create<FavoritesState>()(
     {
       name: 'favorites-storage',
       storage: createJSONStorage(() => safeAsyncStorage),
-      partialize: ({ favorites }) => ({ favorites }),
+      partialize: ({ favorites, ownerUserId }) => ({ favorites, ownerUserId }),
     }
   )
 );
+
+/** Runs `callback` once the persisted favorites were read (at once when they already were). */
+export function whenFavoritesHydrated(callback: () => void): () => void {
+  if (useFavoritesStore.persist.hasHydrated()) {
+    callback();
+    return () => {};
+  }
+  return useFavoritesStore.persist.onFinishHydration(() => callback());
+}
 
 /** Selector for a component: re-renders only when this recipe's favorite state flips. */
 export const selectIsFavorite = (recipeId: string) => (state: FavoritesState) =>

@@ -16,7 +16,9 @@ import {
   InventoryEditSheet,
   InventorySection,
   InventoryVoiceButton,
+  InventoryVoiceSheet,
 } from '../components';
+import { previewVoice } from '../api';
 import { INVENTORY_FRESHNESS_LABELS } from '../constants/freshness';
 import {
   INVENTORY_HORIZONTAL_PADDING,
@@ -43,7 +45,9 @@ export function InventoryScreen() {
   const addExtra = useInventoryStore((state) => state.addExtra);
   const setQuantity = useInventoryStore((state) => state.setQuantity);
   const dispose = useInventoryStore((state) => state.dispose);
+  const applyVoice = useInventoryStore((state) => state.applyVoice);
   const [isAddSheetVisible, setIsAddSheetVisible] = useState(false);
+  const [isVoiceSheetVisible, setIsVoiceSheetVisible] = useState(false);
   // The item is kept after closing so the fields do not empty while the sheet fades out.
   const [editSheet, setEditSheet] = useState<{ visible: boolean; item: InventoryItem | null }>({
     visible: false,
@@ -172,7 +176,7 @@ export function InventoryScreen() {
           ) : null}
         </ScrollView>
       </SafeAreaContent>
-      <InventoryVoiceButton />
+      <InventoryVoiceButton onPress={() => setIsVoiceSheetVisible(true)} />
       <InventoryAddSheet
         visible={isAddSheetVisible}
         onAdd={addExtra}
@@ -184,6 +188,12 @@ export function InventoryScreen() {
         onSetQuantity={setQuantity}
         onDispose={dispose}
         onClose={handleCloseEditSheet}
+      />
+      <InventoryVoiceSheet
+        visible={isVoiceSheetVisible}
+        onPreview={previewVoice}
+        onApply={applyVoice}
+        onClose={() => setIsVoiceSheetVisible(false)}
       />
     </View>
   );

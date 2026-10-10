@@ -120,6 +120,33 @@ defmodule MealPlannerApi.Data.ShoppingRepo.DeletePendingForWindowTest do
   end
 
   # -------------------------------------------------------------------------
+  # Scenario: removed planned items go, manual items stay (#40)
+  # -------------------------------------------------------------------------
+
+  describe "delete_pending_for_window/3 — removed and manual items" do
+    test "deletes a removed planned item and keeps a manual one", ctx do
+      removed = insert_item(ctx, :removed, ~D[2026-09-25])
+
+      manual =
+        Repo.insert!(%ShoppingItem{
+          account_id: ctx.account.id,
+          source: :manual,
+          name: "Dish soap",
+          quantity_milli: 1_000,
+          unit: :unit,
+          status: :pending
+        })
+
+      {deleted, _} =
+        ShoppingRepo.delete_pending_for_window(ctx.account.id, ctx.range_from, ctx.range_to)
+
+      assert deleted == 1
+      assert Repo.get(ShoppingItem, removed.id) == nil
+      assert Repo.get(ShoppingItem, manual.id) != nil
+    end
+  end
+
+  # -------------------------------------------------------------------------
   # Helpers
   # -------------------------------------------------------------------------
 

@@ -27,7 +27,8 @@ export interface ShoppingLineAllocation {
 export interface ShoppingListLine {
   // `<ingredientId>:<unit>` when grouped by ingredient, the Shopping item id when grouped by meal.
   id: string;
-  ingredientId: string;
+  // `null` on a manual line added without an Ingredient.
+  ingredientId: string | null;
   name: string;
   // One of the server's Ingredient categories. That list is the server's to grow, so a value
   // this app has no title for is expected.
@@ -59,7 +60,8 @@ export interface ShoppingListTotals {
 
 export interface ShoppingListRead {
   planned: ShoppingListLine[];
-  // Always empty for now: the server does not serve the lines added by hand yet.
+  // The lines the User added by hand that are still on the list, oldest first. Never merged
+  // with each other or with a planned line.
   manual: ShoppingListLine[];
   cart: ShoppingCart | null;
   totals: ShoppingListTotals;
@@ -74,4 +76,24 @@ export interface ShoppingListQuery {
   untilDate?: string;
   // The server groups by ingredient when it is not sent.
   groupBy?: ShoppingGroupBy;
+}
+
+// What `POST /api/shopping-items/manual` takes (section 7.6). Only the name is required: the
+// server reads 1 unit when the quantity and the unit are left out.
+export interface NewManualShoppingItem {
+  name: string;
+  ingredientId?: string;
+  quantityMilli?: number;
+  unit?: UnitType;
+}
+
+// `removed` is the User not buying a planned item, `needed` is bringing it back.
+export type ShoppingItemsStatus = 'removed' | 'needed';
+
+// What `POST /api/shopping-items/set-status` answers (section 7.8).
+export interface ShoppingItemsStatusChange {
+  status: ShoppingItemsStatus;
+  itemIds: string[];
+  // The items whose status changed: setting the one an item already has changes nothing.
+  updatedRows: number;
 }

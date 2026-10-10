@@ -702,6 +702,114 @@ defmodule MealPlannerApi.Generation.ServerTest do
     end
   end
 
+  describe "confirm/2 — manual and removed Shopping items (#40)" do
+    setup do
+      account = insert_account("manual-removed acct")
+      user = insert_user_with_membership(account, "manual-removed@example.com")
+
+      prior_recipe = insert_recipe("Prior recipe")
+      new_recipe = insert_recipe("New recipe")
+      prior_ingredient = insert_ingredient("Prior removed ingredient")
+      new_ingredient = insert_ingredient("New removed ingredient")
+
+      attach_recipe_ingredient(prior_recipe, prior_ingredient, 100_000, :g)
+      attach_recipe_ingredient(new_recipe, new_ingredient, 200_000, :g)
+
+      prior_meal =
+        MealPlannerApi.Repo.insert!(%MealPlannerApi.Persistence.Planning.ScheduledMeal{
+          account_id: account.id,
+          recipe_id: prior_recipe.id,
+          date: ~D[2026-08-02],
+          slot: :breakfast,
+          is_cooked: false
+        })
+
+      removed =
+        MealPlannerApi.Repo.insert!(%MealPlannerApi.Persistence.Shopping.ShoppingItem{
+          account_id: account.id,
+          scheduled_meal_id: prior_meal.id,
+          planned_date: prior_meal.date,
+          ingredient_id: prior_ingredient.id,
+          quantity_milli: 100_000,
+          unit: :g,
+          status: :removed
+        })
+
+      {:ok, manual} =
+        MealPlannerApi.Persistence.Shopping.create_manual_item(%{
+          account_id: account.id,
+          name: "Dish soap",
+          quantity_milli: 1_000,
+          unit: :unit
+        })
+
+      {_run, proposal} =
+        insert_proposal_with_slots(account, user, [slot(~D[2026-08-03], :lunch, new_recipe.id)])
+
+      session = insert_active_session(account, user)
+      start_server!(account, user)
+
+      %{
+        account: account,
+        pid: pid_for_account(account),
+        proposal: proposal,
+        session: session,
+        prior_ingredient: prior_ingredient,
+        new_ingredient: new_ingredient,
+        prior_meal: prior_meal,
+        removed: removed,
+        manual: manual
+      }
+    end
+
+    test "keeps a removed item while its meal still needs the Ingredient", c do
+      assert {:ok, _reply} = Server.confirm(c.pid, c.proposal.id, c.session.id)
+
+      items = account_items(c.account)
+
+      assert [prior] = Enum.filter(items, &(&1.ingredient_id == c.prior_ingredient.id))
+      assert prior.status == :removed
+      assert prior.scheduled_meal_id == c.prior_meal.id
+      assert prior.quantity_milli == 100_000
+
+      assert [new] = Enum.filter(items, &(&1.ingredient_id == c.new_ingredient.id))
+      assert new.status == :pending
+    end
+
+    test "leaves a manual item untouched", c do
+      assert {:ok, _reply} = Server.confirm(c.pid, c.proposal.id, c.session.id)
+
+      manual =
+        MealPlannerApi.Repo.get!(MealPlannerApi.Persistence.Shopping.ShoppingItem, c.manual.id)
+
+      assert manual.source == :manual
+      assert manual.name == "Dish soap"
+      assert manual.status == :pending
+      assert manual.updated_at == c.manual.updated_at
+    end
+
+    test "drops a removed item the meals no longer need", c do
+      # Stock now covers the prior meal, so it has no Shortage left.
+      MealPlannerApi.Repo.insert!(%MealPlannerApi.Persistence.Inventory.InventoryItem{
+        account_id: c.account.id,
+        ingredient_id: c.prior_ingredient.id,
+        quantity_milli: 100_000,
+        unit: :g,
+        source_kind: :extra,
+        last_mutation_at: DateTime.utc_now()
+      })
+
+      assert {:ok, _reply} = Server.confirm(c.pid, c.proposal.id, c.session.id)
+
+      items = account_items(c.account)
+
+      assert Enum.filter(items, &(&1.ingredient_id == c.prior_ingredient.id)) == []
+
+      assert [%{status: :pending}] =
+               Enum.filter(items, &(&1.ingredient_id == c.new_ingredient.id))
+    end
+  end
+
   describe "confirm — provenance against proposal_json (#36 AC 4)" do
     test "unrelated proposal_json fields cannot influence the confirmed cart" do
       account_a = insert_account("36 provenance account A")
@@ -1343,6 +1451,15 @@ defmodule MealPlannerApi.Generation.ServerTest do
 
   defp list_items_for_session(session) do
     MealPlannerApi.Data.ShoppingRepo.list_shopping_items(session.id)
+  end
+
+  # Every planned Shopping item of the Account, whatever its status.
+  defp account_items(account) do
+    MealPlannerApi.Repo.all(
+      from(i in MealPlannerApi.Persistence.Shopping.ShoppingItem,
+        where: i.account_id == ^account.id and i.source == :planned_meal
+      )
+    )
   end
 
   defp get_proposal(id), do: MealPlannerApi.Repo.get!(PlanningProposal, id)

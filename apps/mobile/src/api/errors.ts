@@ -4,8 +4,12 @@ interface ErrorEnvelope {
   error?: {
     code?: string;
     message?: string;
+    details?: unknown;
   };
 }
+
+/** Extra facts an error envelope may carry, such as `ownerName` of `planning_range_locked`. */
+export type ApiErrorDetails = Record<string, unknown>;
 
 export const KNOWN_AUTH_ERROR_CODES = new Set<AuthErrorCode>([
   'invalid_email',
@@ -37,6 +41,12 @@ export const KNOWN_AUTH_ERROR_CODES = new Set<AuthErrorCode>([
   'invalid_diet',
   'invalid_hard_restriction',
   'inventory_item_not_found',
+  'shopping_item_not_manual',
+  'shopping_item_not_found',
+  'shopping_item_not_planned',
+  'shopping_item_in_cart',
+  'voice_parse_failed',
+  'voice_confirmation_required',
   'generation_in_progress',
   'no_active_generation',
   'missing_session_id',
@@ -46,6 +56,8 @@ export const KNOWN_AUTH_ERROR_CODES = new Set<AuthErrorCode>([
   'subscription_required',
   'invalid_range',
   'overlapping_range',
+  'planning_invalid_range',
+  'planning_range_locked',
   'forbidden_intent',
   'unknown_intent',
   'invalid_payload',
@@ -125,6 +137,12 @@ export const AUTH_ERROR_MESSAGES: Partial<Record<AuthErrorCode, string>> = {
   invalid_diet: 'La dieta elegida no es válida.',
   invalid_hard_restriction: 'Una de las restricciones elegidas no es válida.',
   inventory_item_not_found: 'No encontramos ese producto en tu inventario.',
+  shopping_item_not_manual: 'Solo podés borrar un producto que agregaste vos.',
+  shopping_item_not_found: 'No encontramos ese producto en tu lista de compras.',
+  shopping_item_not_planned: 'Solo podés sacar o volver a poner productos del menú.',
+  shopping_item_in_cart: 'Sacá el producto del carrito antes de quitarlo de la lista.',
+  voice_parse_failed: 'No pudimos entender lo que dijiste. Probá de nuevo o ajustalo a mano.',
+  voice_confirmation_required: 'Confirmá el ajuste antes de aplicarlo.',
   generation_in_progress: 'Ya estamos generando un menú. Esperá a que termine.',
   no_active_generation: 'No hay un menú en generación. Generá uno nuevo para continuar.',
   missing_session_id: 'No encontramos tu sesión de planificación. Empezá una nueva para continuar.',
@@ -134,6 +152,8 @@ export const AUTH_ERROR_MESSAGES: Partial<Record<AuthErrorCode, string>> = {
   subscription_required: 'Necesitás una suscripción activa para continuar.',
   invalid_range: 'El rango de fechas no es válido.',
   overlapping_range: 'Esas fechas se superponen con una planificación en curso.',
+  planning_invalid_range: 'Elegí entre 1 y 7 días, empezando hoy o más adelante.',
+  planning_range_locked: 'Esas fechas ya están en una planificación en curso.',
   forbidden_intent: 'Ese cambio no está permitido.',
   unknown_intent: 'No pudimos entender ese cambio. Probá de nuevo.',
   invalid_payload: 'Los datos enviados no son válidos.',
@@ -173,7 +193,8 @@ export class ApiError extends Error {
   constructor(
     public readonly code: AuthErrorCode,
     message: string,
-    public readonly status: number = 0
+    public readonly status: number = 0,
+    public readonly details?: ApiErrorDetails
   ) {
     super(message);
     this.name = 'AuthApiError';
@@ -210,7 +231,15 @@ export function errorFromEnvelope(payload: unknown, status: number): ApiError {
     : 'unknown_error';
   const message =
     code === 'unknown_error' ? 'Request failed' : (envelope?.error?.message ?? 'Request failed');
-  return new ApiError(code, message, status);
+  const rawDetails = envelope?.error?.details;
+  const details =
+    code !== 'unknown_error' &&
+    typeof rawDetails === 'object' &&
+    rawDetails !== null &&
+    !Array.isArray(rawDetails)
+      ? (rawDetails as ApiErrorDetails)
+      : undefined;
+  return new ApiError(code, message, status, details);
 }
 
 export function isRefreshableAuthError(error: unknown): boolean {

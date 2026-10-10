@@ -72,8 +72,50 @@ defmodule MealPlannerApiWeb.MobileCasingContractTest do
              } = body["data"]
 
       assert is_integer(max_planning_days)
-      assert [%{"recipeId" => recipe_id, "caloriesPerServing" => _} | _] = meals
+
+      assert [
+               %{
+                 "recipeId" => recipe_id,
+                 "recipeName" => recipe_name,
+                 "isFavorite" => false,
+                 "slot" => slot,
+                 "macros" => %{"calories" => _},
+                 "prepTimeMinutes" => _
+               } = meal
+               | _
+             ] = meals
+
       assert recipe_id == f.recipe.id
+      assert is_binary(recipe_name)
+      assert slot in ~w(breakfast lunch snack dinner)
+
+      refute Map.has_key?(meal, "caloriesPerServing")
+      refute Map.has_key?(meal, "label")
+    end
+
+    test "weekly and calendar meals share one summary shape", f do
+      today = Date.to_iso8601(Date.utc_today())
+
+      weekly = f |> request(:get, "/api/planning/weekly") |> success()
+
+      calendar =
+        f
+        |> request(:get, "/api/calendar", %{"startDate" => today, "endDate" => today})
+        |> success()
+
+      weekly_meal = weekly["data"]["days"] |> hd() |> Map.fetch!("meals") |> hd()
+      calendar_meal = calendar["data"]["meals"] |> hd()
+
+      summary_keys = ~w(recipeId recipeName isFavorite slot macros prepTimeMinutes)
+
+      assert Map.take(weekly_meal, summary_keys) |> Map.keys() |> Enum.sort() ==
+               Enum.sort(summary_keys)
+
+      assert Map.take(calendar_meal, summary_keys) |> Map.keys() |> Enum.sort() ==
+               Enum.sort(summary_keys)
+
+      assert Map.keys(weekly_meal["macros"]) == Map.keys(calendar_meal["macros"])
+      assert_camel_case_keys(weekly)
     end
 
     test "POST /api/planning/confirm reads camelCase params nested in a list", f do

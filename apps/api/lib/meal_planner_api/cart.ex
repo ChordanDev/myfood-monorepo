@@ -132,7 +132,12 @@ defmodule MealPlannerApi.Cart do
         # Match inventory's canonical lock order across multi-ingredient purchases.
         pairs = Enum.sort_by(pairs, fn {item, _} -> {item.ingredient_id, item.unit, item.id} end)
         Enum.each(pairs, fn {item, line} -> purchase_line!(ids, cart, item, line, now) end)
-        moved = Enum.count(pairs, fn {_, line} -> line["quantity_milli"] > 0 end)
+
+        moved =
+          Enum.count(pairs, fn {item, line} ->
+            line["quantity_milli"] > 0 and not is_nil(item.ingredient_id)
+          end)
+
         total = Enum.sum(Enum.map(pairs, fn {_, line} -> line["total_cents"] end))
 
         result = %{
@@ -414,22 +419,27 @@ defmodule MealPlannerApi.Cart do
     if quantity == 0 do
       release!(item)
     else
-      case Inventory.apply_delta_and_log(%{
-             account_id: ids.account_id,
-             ingredient_id: item.ingredient_id,
-             unit: item.unit,
-             source_kind: :planned,
-             delta: quantity,
-             source_user_id: ids.user_id,
-             trigger_type: :purchase,
-             operation: :add,
-             acquired_at: now,
-             acquired_price_cents: line["total_cents"],
-             source_checkout_session_id: cart.id,
-             metadata: %{shopping_item_id: item.id}
-           }) do
-        {:ok, _} -> :ok
-        {:error, reason} -> Repo.rollback(reason)
+      # A manual item with no Ingredient (issue #40) has no stock to add to:
+      # it is closed as bought. What a manual purchase moves into Inventory
+      # is left to issue #48.
+      unless is_nil(item.ingredient_id) do
+        case Inventory.apply_delta_and_log(%{
+               account_id: ids.account_id,
+               ingredient_id: item.ingredient_id,
+               unit: item.unit,
+               source_kind: :planned,
+               delta: quantity,
+               source_user_id: ids.user_id,
+               trigger_type: :purchase,
+               operation: :add,
+               acquired_at: now,
+               acquired_price_cents: line["total_cents"],
+               source_checkout_session_id: cart.id,
+               metadata: %{shopping_item_id: item.id}
+             }) do
+          {:ok, _} -> :ok
+          {:error, reason} -> Repo.rollback(reason)
+        end
       end
 
       # Close the purchased item before storing its remainder: both share the
@@ -451,7 +461,9 @@ defmodule MealPlannerApi.Cart do
           :planned_date,
           :ingredient_id,
           :unit,
-          :assigned_supermarket_id
+          :assigned_supermarket_id,
+          :source,
+          :name
         ])
         |> Map.merge(%{quantity_milli: item.quantity_milli - quantity, status: :pending})
         |> then(&ShoppingItem.changeset(%ShoppingItem{}, &1))

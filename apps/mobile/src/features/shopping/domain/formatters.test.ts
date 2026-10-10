@@ -1,9 +1,4 @@
-import type {
-  ManualShoppingListItem,
-  ShoppingLineAllocation,
-  ShoppingListLine,
-  ShoppingMealSlot,
-} from '../types';
+import type { ShoppingLineAllocation, ShoppingListLine, ShoppingMealSlot } from '../types';
 import {
   formatCartButtonLabel,
   formatCountersLabel,
@@ -12,6 +7,7 @@ import {
   formatItemNameLine,
   formatPrice,
   formatRemovedLabel,
+  parseQuantityMilli,
   formatUntilButtonLabel,
   formatUntilLabel,
 } from './formatters';
@@ -75,11 +71,17 @@ describe('row lines', () => {
     allocations: [],
   };
 
-  const paper: ManualShoppingListItem = {
+  const paper: ShoppingListLine = {
     id: 'manual-1',
     source: 'manual',
     status: 'needed',
     name: 'Papel de cocina',
+    ingredientId: null,
+    quantityMilli: 1_000,
+    unit: 'unit',
+    category: 'otros',
+    supermarketId: null,
+    allocations: [],
   };
 
   it('writes the quantity before the name of a planned item', () => {
@@ -96,8 +98,8 @@ describe('row lines', () => {
     expect(formatItemNameLine({ ...milk, quantityMilli, unit })).toBe(line);
   });
 
-  it('writes just the name of a manual item', () => {
-    expect(formatItemNameLine(paper)).toBe('Papel de cocina');
+  it('writes the quantity before the name of a manual item too', () => {
+    expect(formatItemNameLine(paper)).toBe('1 u · Papel de cocina');
   });
 
   it('writes the supermarket and the price of the best offer', () => {
@@ -226,4 +228,24 @@ describe('formatRemovedLabel', () => {
     expect(formatRemovedLabel(2)).toBe('2 quitados · Restaurar');
     expect(formatRemovedLabel(11)).toBe('11 quitados · Restaurar');
   });
+});
+
+describe('parseQuantityMilli', () => {
+  it.each([
+    ['1', 1_000],
+    ['2,5', 2_500],
+    ['2.5', 2_500],
+    [' 0,001 ', 1],
+    ['500', 500_000],
+    ['3.', 3_000],
+  ])('reads "%s" as %d thousandths', (text, milli) => {
+    expect(parseQuantityMilli(text)).toBe(milli);
+  });
+
+  it.each(['', ' ', '0', '0,0', '-1', 'abc', '1,2,3', '1e3', '0,0004', '1 2'])(
+    'refuses "%s"',
+    (text) => {
+      expect(parseQuantityMilli(text)).toBeUndefined();
+    }
+  );
 });

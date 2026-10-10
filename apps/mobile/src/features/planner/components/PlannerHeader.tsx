@@ -7,13 +7,18 @@ import { FloatingCalendar, isRangeComplete, useFloatingCalendarAnchor } from '@/
 import { useAnimatedThemeStyle } from '@/hooks/useAnimatedThemeStyle';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { formatPlanningRangeButtonLabel, formatPlanningRangeLabel } from '../domain/planningRange';
-import { usePlanningRange } from '../hooks/usePlanningRange';
+import type { usePlanningRange } from '../hooks/usePlanningRange';
 
-export function PlannerHeader() {
+interface PlannerHeaderProps {
+  /** The range the pill shows and its calendar picks; the screen reads it to start planning. */
+  planningRange: ReturnType<typeof usePlanningRange>;
+}
+
+export function PlannerHeader({ planningRange }: PlannerHeaderProps) {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { theme } = useRecipeTheme();
-  const { range, planByDate, isDateSelectable, monthBounds, selectDate } = usePlanningRange();
+  const { range, planByDate, isDateSelectable, monthBounds, selectDate } = planningRange;
   const { anchorRef, anchor, open, close } = useFloatingCalendarAnchor();
   const pillBackgroundStyle = useAnimatedThemeStyle({ backgroundColor: theme.colorBlack });
   const pillLabelStyle = useAnimatedThemeStyle({ color: theme.primaryAccent });

@@ -11,8 +11,11 @@ import {
   ChatComposer,
   ChatTypingIndicator,
 } from '@/features/assistant-chat';
-import { PlannerHeader, PlanningJoinNotice } from '../components';
+import { PlannerHeader, PlanningDraftPanel, PlanningJoinNotice } from '../components';
 import { CUSTOM_TAB_BAR_CONTENT_HEIGHT } from '../constants';
+import { formatPlanningStartLabel } from '../domain/planningRange';
+import { usePlanningDraft } from '../hooks/usePlanningDraft';
+import { usePlanningRange } from '../hooks/usePlanningRange';
 import { usePlanningTopic } from '../hooks/usePlanningTopic';
 import { resolveTurnTrailingSpace } from './turnAnchor';
 
@@ -42,6 +45,10 @@ const INITIAL_MESSAGES: PlannerMessage[] = [
   { id: 'confirmation', author: 'user', text: 'Si, me parece perfecto' },
 ];
 
+// Shown on `session_expired` and `session_lost_lock` alike: the user only needs to know that the
+// conversation cannot continue and a new one is needed.
+const SESSION_OVER_MESSAGE = 'Esta sesión de planificación terminó. Empezá una nueva para seguir.';
+
 const MOCK_ASSISTANT_RESPONSE_DELAY_MS = 10000;
 const PLANNER_TURN_ANCHOR_TOP_INSET = 16;
 // The trailing space makes the content exactly as tall as the anchor needs, so pixel rounding
@@ -53,6 +60,8 @@ export const PlannerScreen = () => {
   const insets = useSafeAreaInsets();
   const reduceMotion = useReducedMotion();
   const planningTopic = usePlanningTopic();
+  const planningRange = usePlanningRange();
+  const { draft, start: startPlanning, retry: retryPlanning } = usePlanningDraft(planningTopic);
   const scrollViewRef = useRef<ScrollView>(null);
   const responseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const initialScrollFrameRef = useRef<number | null>(null);
@@ -179,6 +188,16 @@ export const PlannerScreen = () => {
     }, MOCK_ASSISTANT_RESPONSE_DELAY_MS);
   }, [cancelPendingScrollFrames, input, isThinking, messages]);
 
+  // What is typed in the composer is the free-text request of the plan, sent with the start. It
+  // is dropped once the server accepts the start, so a refused one leaves it to be fixed, unless
+  // the User has typed something else in the meantime.
+  const handleStartPlanning = useCallback(() => {
+    const sent = input;
+    startPlanning(planningRange.range, sent, () =>
+      setInput((current) => (current === sent ? '' : current))
+    );
+  }, [input, planningRange.range, startPlanning]);
+
   const handleActiveTurnLayout = useCallback(
     (messageId: string, event: LayoutChangeEvent) => {
       const { y } = event.nativeEvent.layout;
@@ -248,10 +267,14 @@ export const PlannerScreen = () => {
     <View style={[styles.screen, { backgroundColor: theme.appBg }]}>
       <NoisyBackground opacity={0.3} />
 
-      <PlannerHeader />
+      <PlannerHeader planningRange={planningRange} />
 
       {planningTopic.status === 'refused' ? (
         <PlanningJoinNotice message={getAuthErrorMessage(planningTopic.error)} />
+      ) : null}
+
+      {planningTopic.status === 'joined' && planningTopic.sessionOver ? (
+        <PlanningJoinNotice message={SESSION_OVER_MESSAGE} />
       ) : null}
 
       <ScrollView
@@ -300,6 +323,13 @@ export const PlannerScreen = () => {
           )
         )}
         {isThinking ? <ChatTypingIndicator /> : null}
+        <PlanningDraftPanel
+          draft={draft}
+          startLabel={formatPlanningStartLabel(planningRange.range)}
+          canStart={planningTopic.status === 'joined'}
+          onStart={handleStartPlanning}
+          onRetry={retryPlanning}
+        />
         <View
           testID="planner-turn-trailing-space"
           pointerEvents="none"

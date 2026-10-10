@@ -7,17 +7,19 @@ defmodule MealPlannerApi.Services.InventoryService do
   Coordinates:
   - Inventory view (grouped by freshness and category)
   - Adding/removing inventory items
-  - Voice parsing for natural language quantity updates
+  - Voice adjustment: a spoken subtract, previewed then applied
   - Delta application with mutation logging
 
-  Delegates to VoiceParserPort for natural language parsing.
+  Delegates to InventoryIntentParser for natural language parsing.
   Delegates to data repos for persistence.
   """
 
   alias MealPlannerApi.Inventory.LotFreshness
   alias MealPlannerApi.Persistence.Inventory, as: InventoryPersistence
   alias MealPlannerApi.Data.PlanningRepo
-  alias MealPlannerApi.Voice.VoiceParserPort
+  alias MealPlannerApi.Voice.InventoryIntentParser
+  alias MealPlannerApi.AccountClock
+  alias MealPlannerApi.Repo
   alias MealPlannerApi.Persistence.Identity
   alias MealPlannerApi.Persistence.Catalog.Ingredient
 
@@ -171,47 +173,6 @@ defmodule MealPlannerApi.Services.InventoryService do
     end
   end
 
-  # -------------------------------------------------------------------------
-  # Voice parsing
-  # -------------------------------------------------------------------------
-
-  @spec parse_voice_and_apply(map(), String.t(), module()) :: {:ok, [map()]} | {:error, term()}
-  def parse_voice_and_apply(user, text, parser \\ VoiceParserPort) do
-    with {:ok, identity} <- Identity.ensure_persistent_identity(user),
-         items <- InventoryPersistence.list_inventory_with_ingredient(identity.account_id),
-         {:ok, deltas} <- parser.parse(text, items) do
-      results =
-        Enum.map(deltas, fn delta ->
-          InventoryPersistence.apply_delta_and_log(%{
-            account_id: identity.account_id,
-            ingredient_id: delta.inventory_item_id,
-            unit: :g,
-            source_kind: :extra,
-            delta: delta.quantity_milli,
-            source_user_id: identity.user_id,
-            trigger_type: :voice,
-            operation: if(delta.quantity_milli >= 0, do: :add, else: :subtract),
-            raw_voice_text: text
-          })
-        end)
-
-      ok_results =
-        Enum.filter(results, fn
-          {:ok, _} -> true
-          _ -> false
-        end)
-
-      {:ok,
-       Enum.map(ok_results, fn {:ok, r} ->
-         %{
-           ingredient_id: r.item.ingredient_id,
-           quantity_delta_milli: r.delta,
-           operation: r.mutation_event && Atom.to_string(r.mutation_event.operation)
-         }
-       end)}
-    end
-  end
-
   @spec get_inventory_item(map(), Ecto.UUID.t()) ::
           {:ok, map()} | {:error, :not_found}
   def get_inventory_item(user, item_id) do
@@ -272,60 +233,204 @@ defmodule MealPlannerApi.Services.InventoryService do
     end
   end
 
+  # -------------------------------------------------------------------------
+  # Voice adjustment
+  # -------------------------------------------------------------------------
+
+  @doc """
+  Reads a spoken transcript into one subtract intent against the Account's
+  usable stock, with a confidence and whether the User must confirm it
+  before it is applied. Writes nothing.
+  """
   @spec voice_preview(map(), map()) :: {:ok, map()} | {:error, term()}
   def voice_preview(user, payload) do
     with {:ok, identity} <- Identity.ensure_persistent_identity(user),
-         text when is_binary(text) <- Map.get(payload, "text"),
-         items <- InventoryPersistence.list_inventory_with_ingredient(identity.account_id) do
-      ops = parse_voice_operations_internally(text, items)
-
+         {:ok, transcript} <- voice_transcript(payload),
+         {:ok, parsed} <-
+           InventoryIntentParser.parse(transcript, usable_stock(identity.account_id)) do
       {:ok,
        %{
-         raw_text: text,
-         operations: ops,
-         confirmation_required: true
+         confirmation_required: InventoryIntentParser.confirmation_required?(parsed.confidence),
+         intent: view_voice_intent(parsed.intent),
+         confidence: parsed.confidence
+       }}
+    end
+  end
+
+  @doc """
+  Subtracts a previewed intent from inventory, FEFO across the ingredient's
+  lots, and logs each lot's mutation as a voice event carrying the transcript.
+
+  The confidence is derived again from the transcript here; a client value is
+  never read. An intent that is not confident, or that differs from what the
+  transcript says, needs `confirmed: true`. The subtraction is capped at the
+  stock, so inventory never goes negative.
+  """
+  @spec voice_apply(map(), map()) :: {:ok, map()} | {:error, term()}
+  def voice_apply(user, payload) do
+    with {:ok, identity} <- Identity.ensure_persistent_identity(user),
+         {:ok, transcript} <- voice_transcript(payload),
+         {:ok, intent} <- voice_intent(param(payload, :intent)),
+         stock = usable_stock(identity.account_id),
+         {:ok, parsed} <- InventoryIntentParser.parse(transcript, stock),
+         :ok <- check_voice_confirmation(parsed, intent, param(payload, :confirmed)),
+         {:ok, entry} <- voice_stock_entry(stock, intent) do
+      subtract_voice(identity, entry, min(intent.quantity_milli, entry.total_milli), transcript)
+    end
+  end
+
+  defp voice_transcript(payload) do
+    case param(payload, :transcript) do
+      transcript when is_binary(transcript) ->
+        if String.trim(transcript) == "",
+          do: {:error, :invalid_voice_payload},
+          else: {:ok, transcript}
+
+      _ ->
+        {:error, :invalid_voice_payload}
+    end
+  end
+
+  defp voice_intent(%{} = intent) do
+    with "subtract" <- stringify_operation(param(intent, :operation)),
+         quantity when is_integer(quantity) and quantity > 0 <- param(intent, :quantity_milli),
+         {:ok, ingredient_id} <- Ecto.UUID.cast(param(intent, :ingredient_id) || :error) do
+      {:ok,
+       %{
+         ingredient_id: ingredient_id,
+         quantity_milli: quantity,
+         unit: param(intent, :unit)
        }}
     else
       _ -> {:error, :invalid_voice_payload}
     end
   end
 
-  @spec voice_apply(map(), map()) :: {:ok, map()} | {:error, term()}
-  def voice_apply(user, payload) do
-    with {:ok, identity} <- Identity.ensure_persistent_identity(user),
-         operations when is_list(operations) <-
-           Map.get(payload, "operations") || Map.get(payload, :operations) do
-      moved =
-        Enum.reduce_while(operations, 0, fn op, acc ->
-          item_id = Map.get(op, "inventory_item_id") || Map.get(op, :inventory_item_id)
-          qty = Map.get(op, "quantity_milli") || Map.get(op, :quantity_milli)
+  defp voice_intent(_), do: {:error, :invalid_voice_payload}
+
+  defp stringify_operation(operation) when is_atom(operation) and not is_nil(operation),
+    do: Atom.to_string(operation)
+
+  defp stringify_operation(operation), do: operation
+
+  # Only an explicit `true` confirms; "true" and 1 do not.
+  defp check_voice_confirmation(parsed, intent, confirmed) do
+    edited? =
+      parsed.intent.ingredient_id != intent.ingredient_id or
+        parsed.intent.quantity_milli != intent.quantity_milli or
+        unit_edited?(parsed.intent.unit, intent.unit)
+
+    if (InventoryIntentParser.confirmation_required?(parsed.confidence) or edited?) and
+         confirmed != true,
+       do: {:error, :voice_confirmation_required},
+       else: :ok
+  end
+
+  # A missing client unit means "use the parsed unit"; any other must match it.
+  defp unit_edited?(_parsed_unit, nil), do: false
+  defp unit_edited?(parsed_unit, unit), do: Atom.to_string(parsed_unit) != unit
+
+  # The unit the intent names, else the unit the transcript would use.
+  defp voice_stock_entry(stock, intent) do
+    candidates = Enum.filter(stock, &(&1.ingredient_id == intent.ingredient_id))
+
+    entry =
+      Enum.find(candidates, &(Atom.to_string(&1.unit) == intent.unit)) ||
+        if(is_nil(intent.unit), do: Enum.max_by(candidates, & &1.total_milli, fn -> nil end))
+
+    if entry, do: {:ok, entry}, else: {:error, :inventory_item_not_found}
+  end
+
+  defp subtract_voice(identity, entry, quantity_milli, transcript) do
+    today = AccountClock.today(identity.account_id)
+
+    Repo.transaction(fn ->
+      {remaining, events} =
+        Enum.reduce_while([:planned, :extra], {quantity_milli, []}, fn source_kind,
+                                                                       {remaining, events} ->
+          available = source_total(identity.account_id, entry, source_kind, today)
+          take = min(remaining, available)
 
           cond do
-            is_nil(item_id) or not is_integer(qty) or qty <= 0 ->
-              {:cont, acc}
+            remaining == 0 ->
+              {:halt, {remaining, events}}
+
+            take == 0 ->
+              {:cont, {remaining, events}}
 
             true ->
-              case InventoryPersistence.apply_delta_and_log(%{
+              case InventoryPersistence.subtract_usable_lots_and_log(%{
                      account_id: identity.account_id,
-                     inventory_item_id: item_id,
-                     delta: -qty,
+                     ingredient_id: entry.ingredient_id,
+                     unit: entry.unit,
+                     source_kind: source_kind,
+                     delta: -take,
+                     today: today,
                      source_user_id: identity.user_id,
                      trigger_type: :voice,
                      operation: :subtract,
-                     raw_voice_text: Map.get(payload, "raw_text") || Map.get(payload, :raw_text),
-                     metadata: %{inventory_item_id: item_id}
+                     raw_voice_text: transcript,
+                     metadata: %{reason: "voice_adjust"}
                    }) do
-                {:ok, _} -> {:cont, acc + 1}
-                {:error, :item_not_found} -> {:cont, acc}
-                {:error, _} -> {:halt, acc}
+                {:ok, result} ->
+                  {:cont, {remaining + result.delta, events ++ result.mutation_events}}
+
+                {:error, reason} ->
+                  Repo.rollback(reason)
               end
           end
         end)
 
-      {:ok, %{status: "ok", applied_operations: moved}}
-    else
-      _ -> {:error, :invalid_voice_payload}
-    end
+      %{
+        ingredient_id: entry.ingredient_id,
+        quantity_delta_milli: remaining - quantity_milli,
+        mutation_events: Enum.map(events, &view_mutation_event/1)
+      }
+    end)
+  end
+
+  defp source_total(account_id, entry, source_kind, today) do
+    account_id
+    |> usable_lots()
+    |> Enum.filter(
+      &(&1.ingredient_id == entry.ingredient_id and &1.unit == entry.unit and
+          &1.source_kind == source_kind and LotFreshness.usable?(&1, today))
+    )
+    |> Enum.map(& &1.quantity_milli)
+    |> Enum.sum()
+  end
+
+  # What the User can still use, per ingredient and unit.
+  defp usable_stock(account_id) do
+    account_id
+    |> usable_lots()
+    |> Enum.group_by(&{&1.ingredient_id, &1.unit})
+    |> Enum.map(fn {{ingredient_id, unit}, lots} ->
+      %{
+        ingredient_id: ingredient_id,
+        name: hd(lots).ingredient.name,
+        unit: unit,
+        total_milli: lots |> Enum.map(& &1.quantity_milli) |> Enum.sum()
+      }
+    end)
+  end
+
+  defp usable_lots(account_id) do
+    today = AccountClock.today(account_id)
+
+    account_id
+    |> InventoryPersistence.list_inventory_with_ingredient()
+    |> Enum.filter(&(&1.quantity_milli > 0 and LotFreshness.usable?(&1, today)))
+  end
+
+  defp view_voice_intent(intent) do
+    %{
+      operation: Atom.to_string(intent.operation),
+      ingredient_id: intent.ingredient_id,
+      name: intent.name,
+      quantity_milli: intent.quantity_milli,
+      unit: Atom.to_string(intent.unit)
+    }
   end
 
   @spec rescue_plan(map(), map(), MealPlannerApi.Budgets.Budget.t()) ::
@@ -363,84 +468,6 @@ defmodule MealPlannerApi.Services.InventoryService do
   # -------------------------------------------------------------------------
   # Private helpers
   # -------------------------------------------------------------------------
-
-  defp parse_voice_operations_internally(text, items) do
-    # Simple rule-based fallback parsing for voice operations
-    fallback_parse_voice_operations(text, items)
-  end
-
-  defp fallback_parse_voice_operations(text, items) do
-    lowered = String.downcase(text)
-
-    # Spanish eating patterns
-    spanish_eat_patterns = [
-      "me comi",
-      "me com\xED",
-      "me comiera",
-      "me comer\xED",
-      "com\xED",
-      "com\xED",
-      "comiendo",
-      "me terminé",
-      "me termine",
-      "me acabé",
-      "consum\xed",
-      "consumi",
-      "consumiendo",
-      "us\xe9",
-      "use",
-      "usando",
-      "gast\xe9",
-      "gaste",
-      "gastando"
-    ]
-
-    # English patterns
-    english_eat_patterns = [
-      "use",
-      "consume",
-      "ate",
-      "eaten",
-      "finished",
-      "used up",
-      "consumed",
-      "finished eating"
-    ]
-
-    all_patterns = spanish_eat_patterns ++ english_eat_patterns
-
-    has_eating = Enum.any?(all_patterns, &String.contains?(lowered, &1))
-
-    items
-    |> Enum.map(fn item ->
-      name = item.ingredient.name |> String.downcase()
-      qty = item.quantity_milli
-
-      # Check if item name is mentioned near eating pattern
-      name_mentioned = String.contains?(lowered, name)
-
-      # Check if any generic quantity is mentioned
-      half_patterns = ["medio", "half", "la mitad", "mitad"]
-      quarter_patterns = ["cuarto", "quarter", "un cuarto"]
-
-      quantity_multiplier =
-        cond do
-          Enum.any?(half_patterns, &String.contains?(lowered, &1)) -> 0.5
-          Enum.any?(quarter_patterns, &String.contains?(lowered, &1)) -> 0.25
-          true -> 1.0
-        end
-
-      if has_eating and name_mentioned do
-        %{
-          "inventory_item_id" => item.id,
-          "quantity_milli" => floor(qty * quantity_multiplier)
-        }
-      else
-        nil
-      end
-    end)
-    |> Enum.reject(&is_nil/1)
-  end
 
   defp normalize_rescue_ingredient_ids(payload) do
     case Map.get(payload, "ingredient_ids") do

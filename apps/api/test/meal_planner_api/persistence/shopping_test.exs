@@ -422,6 +422,80 @@ defmodule MealPlannerApi.Persistence.ShoppingTest do
     }
   end
 
+  describe "ShoppingItem source validations (#40)" do
+    alias MealPlannerApi.Persistence.Shopping.ShoppingItem
+
+    test "a planned item still needs its Scheduled meal, date and Ingredient" do
+      changeset =
+        ShoppingItem.changeset(%ShoppingItem{}, %{
+          account_id: Ecto.UUID.generate(),
+          quantity_milli: 100,
+          unit: :g,
+          status: :pending
+        })
+
+      assert %{
+               scheduled_meal_id: ["can't be blank"],
+               planned_date: ["can't be blank"],
+               ingredient_id: ["can't be blank"]
+             } = errors_on(changeset)
+    end
+
+    test "a manual item needs a name, not a Scheduled meal, date or Ingredient" do
+      attrs = %{account_id: Ecto.UUID.generate(), quantity_milli: 1_000, unit: :unit}
+
+      assert ShoppingItem.manual_changeset(%ShoppingItem{}, Map.put(attrs, :name, " Soap ")).valid?
+
+      changeset = ShoppingItem.manual_changeset(%ShoppingItem{}, Map.put(attrs, :name, "   "))
+      assert %{name: ["can't be blank"]} = errors_on(changeset)
+
+      changeset = ShoppingItem.manual_changeset(%ShoppingItem{}, attrs)
+      assert %{name: ["can't be blank"]} = errors_on(changeset)
+    end
+
+    test "a manual changeset is always manual, pending and for no meal" do
+      changeset =
+        ShoppingItem.manual_changeset(%ShoppingItem{}, %{
+          account_id: Ecto.UUID.generate(),
+          name: "Soap",
+          quantity_milli: 1_000,
+          unit: :unit,
+          source: :planned_meal,
+          status: :checked_out,
+          scheduled_meal_id: Ecto.UUID.generate(),
+          planned_date: ~D[2026-10-10]
+        })
+
+      assert Ecto.Changeset.get_field(changeset, :source) == :manual
+      assert Ecto.Changeset.get_field(changeset, :status) == :pending
+      assert Ecto.Changeset.get_field(changeset, :scheduled_meal_id) == nil
+      assert Ecto.Changeset.get_field(changeset, :planned_date) == nil
+    end
+
+    test "the database refuses a row that is neither planned nor named" do
+      {:ok, identity} =
+        Identity.ensure_persistent_identity(%{
+          id: "u_shape_#{:rand.uniform(1_000_000)}",
+          account_id: "acct_shape_#{:rand.uniform(1_000_000)}",
+          plan: :family_4
+        })
+
+      assert_raise Postgrex.Error, ~r/shopping_items_source_shape_check/, fn ->
+        Repo.insert_all(ShoppingItem, [
+          %{
+            account_id: identity.account_id,
+            source: :manual,
+            quantity_milli: 1_000,
+            unit: :unit,
+            status: :pending,
+            inserted_at: DateTime.utc_now(),
+            updated_at: DateTime.utc_now()
+          }
+        ])
+      end
+    end
+  end
+
   defp errors_on(changeset) do
     Ecto.Changeset.traverse_errors(changeset, fn {message, _opts} -> message end)
   end
