@@ -106,10 +106,8 @@ jobs:
       - name: Check formatting
         run: mix format --check-formatted
 
-      # The three static-analysis steps below report without failing the job.
-      # Credo still has a backlog, and Dialyzer has only been measured on a
-      # newer OTP than the one pinned here, so they stay informational until
-      # a clean run on this toolchain is confirmed.
+      # Credo and Sobelow report without failing the job: both still have a
+      # backlog of findings.
       - name: Credo
         continue-on-error: true
         run: mix credo --strict
@@ -126,8 +124,10 @@ jobs:
           restore-keys: |
             plt-${{ runner.os }}-${{ steps.beam.outputs.elixir-version }}-${{ steps.beam.outputs.otp-version }}-
 
+      # Dialyzer is a blocking gate. It is clean on the OTP pinned above; newer
+      # OTP releases report `call_without_opaque` false positives on
+      # `Ecto.Multi`, so expect those when bumping the toolchain.
       - name: Dialyzer
-        continue-on-error: true
         run: mix dialyzer --format github
 
       - name: Prepare database
