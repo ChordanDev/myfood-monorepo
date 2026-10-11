@@ -70,6 +70,29 @@ defmodule MealPlannerApi.CartConcurrencyTest do
     refute_receive %Phoenix.Socket.Broadcast{event: "purchase_confirmed"}
   end
 
+  test "concurrent delivery acknowledgements commit one set of lots and movements", f do
+    cart = reserve!(f)
+    assert {:ok, _} = Cart.purchase(f.actor, cart.session_id, payload(cart, 300, "online"))
+    assert stock(f) == []
+    Phoenix.PubSub.subscribe(MealPlannerApi.PubSub, "shopping:#{f.account.id}")
+
+    results =
+      concurrent(f, [
+        fn -> Cart.delivery(f.actor, cart.session_id) end,
+        fn -> Cart.delivery(f.other, cart.session_id) end
+      ])
+
+    # The second acknowledgement replays the result of the first.
+    assert [{:ok, result}, {:ok, result}] = results
+    assert result.status == "completed"
+    assert length(stock(f)) == 1
+    assert length(events(f)) == 1
+    assert Repo.get!(CheckoutSession, cart.session_id).status == :completed
+    assert_receive %Phoenix.Socket.Broadcast{event: "purchase_confirmed"}
+    assert_receive %Phoenix.Socket.Broadcast{event: "inventory_changed"}
+    refute_receive %Phoenix.Socket.Broadcast{event: "purchase_confirmed"}
+  end
+
   test "different members purchasing separate reservations accumulate stock and separate audits",
        f do
     [first, second] = f.items

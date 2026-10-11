@@ -162,11 +162,23 @@ defmodule MealPlannerApiWeb.ShoppingController do
 
   # Checkout confirm (issue #43): `{ sessionId, checkoutType, lines? }`. Every
   # error leaves through the `ApiError` envelope, and a repeated confirm of a
-  # completed session answers 200 with the first result.
+  # session that is completed or pending delivery answers 200 with its result.
   def confirm_checkout(conn, payload) do
     user = scoped_user(conn)
 
     case ShoppingService.confirm_checkout(user, payload["session_id"], payload) do
+      {:ok, response} -> json(conn, %{data: response})
+      {:error, reason} -> render_checkout_error(conn, reason)
+    end
+  end
+
+  # Delivery of an online purchase (issue #43). It answers the result of the
+  # completed session, the first time and every time after, and its errors
+  # leave through the `ApiError` envelope like the confirm's.
+  def confirm_delivery(conn, %{"checkout_session_id" => checkout_session_id}) do
+    user = scoped_user(conn)
+
+    case ShoppingService.confirm_delivery(user, checkout_session_id) do
       {:ok, response} -> json(conn, %{data: response})
       {:error, reason} -> render_checkout_error(conn, reason)
     end
@@ -202,15 +214,6 @@ defmodule MealPlannerApiWeb.ShoppingController do
   end
 
   defp parse_date_param(d), do: d
-
-  def confirm_delivery(conn, %{"checkout_session_id" => checkout_session_id}) do
-    user = scoped_user(conn)
-
-    case ShoppingService.confirm_delivery(user, checkout_session_id) do
-      {:ok, response} -> json(conn, %{data: response})
-      {:error, reason} -> render_error(conn, reason)
-    end
-  end
 
   defp scoped_user(conn) do
     conn
