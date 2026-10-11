@@ -750,7 +750,7 @@ Every error of the routes in this section uses the envelope of section 10:
 
 | Status | Code                       | When                                                                                              |
 | ------ | -------------------------- | ------------------------------------------------------------------------------------------------- |
-| `422`  | `validation_error`         | Missing, unknown or malformed ingredient; missing, zero, negative or non-integer quantity; missing or unknown unit; malformed `expiresAt`; `notes` that is not a string or is longer than 1000 characters; `isLeftover` that is not a boolean; a voice payload without a `transcript` or with one longer than 500 characters, or an apply whose `intent` is missing, not a `subtract`, or has a non-positive `quantityMilli` or a malformed `ingredientId`; a rescue request without ingredients |
+| `422`  | `validation_error`         | Missing, unknown or malformed ingredient; missing, zero, negative or non-integer quantity; missing or unknown unit; malformed `expiresAt`; `notes` that is not a string or is longer than 1000 characters; `isLeftover` that is not a boolean; a voice payload without a `transcript` or with one longer than 500 Unicode codepoints, or an apply whose `intent` is missing, not a `subtract`, or has a non-positive `quantityMilli` or a malformed `ingredientId`; a rescue request without ingredients |
 | `404`  | `inventory_item_not_found` | `:item_id` is not a lot of the Account: unknown, owned by another Account, or not a UUID          |
 | `404`  | `not_found`                | No recipe is available for a rescue plan                                                          |
 | `500`  | `unknown_error`            | Unexpected failure                                                                                |
@@ -835,7 +835,7 @@ that is not confident, or that differs from what the transcript says, is refused
 | ------ | ----------------------------- | ------------------------------------------------------------- |
 | `422`  | `voice_parse_failed`          | The transcript names no ingredient the Account has in stock   |
 | `422`  | `voice_confirmation_required` | Apply of a low-confidence or edited intent without `confirmed: true` |
-| `422`  | `validation_error`            | Missing transcript, a transcript longer than 500 characters, or malformed intent |
+| `422`  | `validation_error`            | Missing transcript, a transcript longer than 500 Unicode codepoints, or malformed intent |
 | `404`  | `inventory_item_not_found`    | The intent's ingredient has no usable stock any more          |
 
 ### 6.7 Rescue planning from expiring ingredients
