@@ -749,6 +749,70 @@ defmodule MealPlannerApi.Services.InventoryServiceTest do
                InventoryService.voice_preview(ctx.scoped_user, %{"transcript" => "  "})
     end
 
+    test "a transcript of 500 characters is accepted and a longer one refused", ctx do
+      lot = seed_lot(ctx.account, ctx.user, ctx.cheese, %{delta: 400_000})
+
+      # Padded, so the two transcripts differ in length alone. The "í" makes
+      # the accepted one longer than 500 bytes: the cap counts characters.
+      at_cap = String.pad_trailing("me comí la mitad del queso crema", 500)
+      over_cap = at_cap <> " "
+      assert String.length(at_cap) == 500
+      assert byte_size(at_cap) > 500
+
+      assert {:ok, %{intent: intent}} = preview(ctx, at_cap)
+      assert {:error, :invalid_voice_payload} = preview(ctx, over_cap)
+
+      assert {:error, :invalid_voice_payload} =
+               InventoryService.voice_apply(ctx.scoped_user, %{
+                 "transcript" => over_cap,
+                 "intent" => stringify(intent),
+                 "confirmed" => true
+               })
+
+      assert InventoryPersistence.get_inventory_item_for_account(ctx.account.id, lot.id).quantity_milli ==
+               400_000
+
+      assert {:ok, %{mutation_events: [event]}} =
+               InventoryService.voice_apply(ctx.scoped_user, %{
+                 "transcript" => at_cap,
+                 "intent" => stringify(intent)
+               })
+
+      assert Repo.get!(InventoryMutationEvent, event.id).raw_voice_text == at_cap
+    end
+
+    test "combining marks do not hide a transcript longer than 500 characters", ctx do
+      seed_lot(ctx.account, ctx.user, ctx.cheese, %{delta: 400_000})
+
+      # One "a" under 480 combining accents reads as a single character.
+      transcript = "me comí la mitad del queso crema a" <> String.duplicate("́", 480)
+      assert String.length(transcript) < 500
+      assert length(String.codepoints(transcript)) > 500
+
+      assert {:error, :invalid_voice_payload} = preview(ctx, transcript)
+    end
+
+    test "a very long transcript is refused and writes nothing", ctx do
+      lot = seed_lot(ctx.account, ctx.user, ctx.cheese, %{delta: 400_000})
+      {:ok, %{intent: intent}} = preview(ctx, "me comí la mitad del queso crema")
+      transcript = String.duplicate("me comí la mitad del queso crema ", 300)
+
+      assert {:error, :invalid_voice_payload} = preview(ctx, transcript)
+
+      assert {:error, :invalid_voice_payload} =
+               InventoryService.voice_apply(ctx.scoped_user, %{
+                 "transcript" => transcript,
+                 "intent" => stringify(intent),
+                 "confirmed" => true
+               })
+
+      assert InventoryPersistence.get_inventory_item_for_account(ctx.account.id, lot.id).quantity_milli ==
+               400_000
+
+      assert [%{operation: :add}] =
+               Repo.all(from(e in InventoryMutationEvent, where: e.inventory_item_id == ^lot.id))
+    end
+
     test "apply subtracts a confident intent and logs the voice event with the transcript", ctx do
       lot = seed_lot(ctx.account, ctx.user, ctx.cheese, %{delta: 400_000})
       transcript = "me comí la mitad del queso crema"
@@ -919,6 +983,86 @@ defmodule MealPlannerApi.Services.InventoryServiceTest do
                150_000
     end
 
+    test "apply takes the planned lots first and the rest from the extra ones", ctx do
+      planned = seed_lot(ctx.account, ctx.user, ctx.cheese, %{delta: 100_000})
+
+      extra =
+        seed_lot(ctx.account, ctx.user, ctx.cheese, %{source_kind: :extra, delta: 300_000})
+
+      transcript = "usé 250 gramos de queso crema"
+      {:ok, %{intent: intent}} = preview(ctx, transcript)
+
+      assert {:ok, result} =
+               InventoryService.voice_apply(ctx.scoped_user, %{
+                 "transcript" => transcript,
+                 "intent" => stringify(intent)
+               })
+
+      assert result.quantity_delta_milli == -250_000
+
+      assert Enum.map(result.mutation_events, &{&1.inventory_item_id, &1.quantity_delta_milli}) ==
+               [{planned.id, -100_000}, {extra.id, -150_000}]
+
+      assert InventoryPersistence.get_inventory_item_for_account(ctx.account.id, extra.id).quantity_milli ==
+               150_000
+    end
+
+    test "apply reads the Account's lots once", ctx do
+      seed_lot(ctx.account, ctx.user, ctx.cheese, %{delta: 100_000})
+      seed_lot(ctx.account, ctx.user, ctx.cheese, %{source_kind: :extra, delta: 300_000})
+      transcript = "usé 250 gramos de queso crema"
+      {:ok, %{intent: intent}} = preview(ctx, transcript)
+
+      test_pid = self()
+      on_lot_read(fn -> send(test_pid, :lot_read) end)
+
+      assert {:ok, %{quantity_delta_milli: -250_000}} =
+               InventoryService.voice_apply(ctx.scoped_user, %{
+                 "transcript" => transcript,
+                 "intent" => stringify(intent)
+               })
+
+      assert_received :lot_read
+      refute_received :lot_read
+    end
+
+    test "apply takes no more than the lots hold when stock falls after it read them", ctx do
+      lot = seed_lot(ctx.account, ctx.user, ctx.cheese, %{delta: 400_000})
+      transcript = "usé 250 gramos de queso crema"
+      {:ok, %{intent: intent}} = preview(ctx, transcript)
+
+      # Another write lands between the apply's read of the lots and its
+      # subtraction, so the stock the apply read is stale.
+      on_lot_read(fn ->
+        unless Process.put(:stock_fell, true) do
+          {:ok, _} =
+            InventoryPersistence.apply_delta_and_log(%{
+              account_id: ctx.account.id,
+              inventory_item_id: lot.id,
+              target_quantity_milli: 50_000,
+              source_user_id: ctx.user.id,
+              trigger_type: :manual,
+              operation: :set
+            })
+        end
+      end)
+
+      assert {:ok, result} =
+               InventoryService.voice_apply(ctx.scoped_user, %{
+                 "transcript" => transcript,
+                 "intent" => stringify(intent)
+               })
+
+      assert Process.get(:stock_fell)
+      assert result.quantity_delta_milli == -50_000
+
+      assert [%{quantity_before_milli: 50_000, quantity_after_milli: 0}] =
+               result.mutation_events
+
+      assert InventoryPersistence.get_inventory_item_for_account(ctx.account.id, lot.id).quantity_milli ==
+               0
+    end
+
     test "apply refuses a transcript that parses to nothing", ctx do
       seed_lot(ctx.account, ctx.user, ctx.cheese, %{delta: 400_000})
 
@@ -977,6 +1121,27 @@ defmodule MealPlannerApi.Services.InventoryServiceTest do
       do: InventoryService.voice_preview(ctx.scoped_user, %{"transcript" => transcript})
 
     defp stringify(intent), do: Map.new(intent, fn {k, v} -> {Atom.to_string(k), v} end)
+
+    # Runs `fun` in this process after each plain read of the lots it makes.
+    # The locking read of a subtraction is the write path and is left out.
+    defp on_lot_read(fun) do
+      test_pid = self()
+      handler_id = "voice-lot-read-#{System.unique_integer([:positive])}"
+
+      :telemetry.attach(
+        handler_id,
+        [:meal_planner_api, :repo, :query],
+        fn _event, _measurements, metadata, _config ->
+          if self() == test_pid and metadata[:source] == "inventory_items" and
+               String.starts_with?(metadata.query, "SELECT") and
+               not String.contains?(metadata.query, "FOR UPDATE"),
+             do: fun.()
+        end,
+        nil
+      )
+
+      on_exit(fn -> :telemetry.detach(handler_id) end)
+    end
   end
 
   describe "concurrency & lost update prevention" do
