@@ -5,7 +5,8 @@ defmodule MealPlannerApi.Services.CookingService do
   Coordinates:
   - Session lifecycle (start, state, finish)
   - Step tracking with snapshot persistence
-  - Ephemeral questions with contextual AI answers (no transcript storage)
+  - Cooking chat: AI answers built from the frozen Context snapshot and the
+    session's prior turns, with both turns of every question stored
   - Inventory deduction on session completion
 
   Stateless service — all DB via PlanningRepo and InventoryRepo.
@@ -14,12 +15,22 @@ defmodule MealPlannerApi.Services.CookingService do
   alias MealPlannerApi.AccountClock
   alias MealPlannerApi.AI
   alias MealPlannerApi.Data.{InventoryRepo, PlanningRepo}
+  alias MealPlannerApi.Inventory.LotFreshness
   alias MealPlannerApi.Persistence.Planning
   alias MealPlannerApi.Persistence.Shopping
   alias MealPlannerApi.Repo
   alias MealPlannerApi.Services.{RecipeAccess, RecipeVersions}
 
   @type step_status :: :started | :paused | :completed | :error
+
+  # Key of the frozen recipe-and-inventory state inside
+  # `cooking_sessions.context_snapshot`. It is written once at session creation
+  # and never serialized: the step state around it is what clients read.
+  @frozen_key "frozen"
+
+  @max_question_length 2000
+  # Prior turns replayed to the model, newest last.
+  @prompt_history_turns 20
 
   # -------------------------------------------------------------------------
   # Session lifecycle
@@ -31,6 +42,9 @@ defmodule MealPlannerApi.Services.CookingService do
   A meal is eligible only on the Account's today (`AccountClock`), judged at
   `now`, so moving a meal to today makes it eligible. Any other day is
   `{:error, :cooking_chat_unavailable}`.
+
+  A meal has one active session: starting it again returns that session, with
+  its chat history, instead of creating another.
   """
   @spec start_session(map(), binary(), DateTime.t()) :: {:ok, map()} | {:error, term()}
   def start_session(current_user, scheduled_meal_id, now \\ DateTime.utc_now())
@@ -41,7 +55,7 @@ defmodule MealPlannerApi.Services.CookingService do
            PlanningRepo.get_scheduled_meal_for_account(ids.account_id, meal_id),
          :ok <- planned_meal(meal, ids.account_id),
          :ok <- meal_is_today(meal, ids.account_id, now),
-         {:ok, session} <- create_session(ids, meal) do
+         {:ok, session} <- find_or_create_session(ids, meal, now) do
       snapshot = PlanningRepo.latest_context_snapshot(session.id)
       # Preload scheduled_meal on session for serialization
       session = PlanningRepo.get_cooking_session_for_account(ids.account_id, session.id)
@@ -135,32 +149,102 @@ defmodule MealPlannerApi.Services.CookingService do
   # Chat / AI answers
   # -------------------------------------------------------------------------
 
-  @spec answer_question(map(), binary(), binary(), String.t()) :: {:ok, map()} | {:error, term()}
-  def answer_question(current_user, session_id, message, content_type \\ "text")
+  @doc """
+  Answers a Cooking chat question and stores both turns.
+
+  Refusals, in order: an unknown session is `:session_not_found`, a finished
+  one `:cooking_already_finished`, and a meal that is not on the Account's
+  today at `now` `:cooking_chat_unavailable`. The answer is built from the
+  frozen Context snapshot and the prior turns; the provider is called outside
+  any transaction, and nothing is stored when the session finished meanwhile.
+  """
+  @spec answer_question(map(), binary(), binary(), String.t(), DateTime.t()) ::
+          {:ok, map()} | {:error, term()}
+  def answer_question(
+        current_user,
+        session_id,
+        message,
+        content_type \\ "text",
+        now \\ DateTime.utc_now()
+      )
       when is_binary(session_id) and is_binary(message) and is_binary(content_type) do
     with {:ok, ids} <- RecipeAccess.authorize(current_user),
-         {:ok, session_id} <- cast_id(session_id, :session_not_found),
-         session when not is_nil(session) <-
-           PlanningRepo.get_cooking_session_for_account(ids.account_id, session_id),
-         :ok <- active_session(session),
+         {:ok, question} <- chat_question(message),
+         {:ok, session} <- chat_session(ids, session_id, now),
          current_snapshot <- PlanningRepo.latest_context_snapshot(session.id),
          assistant_text <-
-           build_contextual_answer(session, current_snapshot, message, content_type),
+           build_contextual_answer(session, current_snapshot, question, content_type),
          {:ok, _ids} <- RecipeAccess.authorize(current_user),
-         :ok <-
-           active_session(
-             PlanningRepo.get_cooking_session_for_account(ids.account_id, session_id)
-           ) do
+         {:ok, _session} <- chat_session(ids, session.id, now),
+         {:ok, turns} <- persist_turns(ids, session.id, question, assistant_text) do
       {:ok,
        %{
          session_id: session.id,
          message: assistant_text,
          content_type: "text",
-         step_context: snapshot_step_context(current_snapshot)
+         step_context: snapshot_step_context(current_snapshot),
+         turns: Enum.map(turns, &serialize_turn/1)
        }}
+    end
+  end
+
+  defp chat_question(message) do
+    question = String.trim(message)
+
+    if question == "" or String.length(question) > @max_question_length,
+      do: {:error, :validation_error},
+      else: {:ok, question}
+  end
+
+  defp chat_session(ids, session_id, now) do
+    with {:ok, session_id} <- cast_id(session_id, :session_not_found),
+         session when not is_nil(session) <-
+           PlanningRepo.get_cooking_session_for_account(ids.account_id, session_id),
+         :ok <- chat_available(session, now) do
+      {:ok, session}
     else
       nil -> {:error, :session_not_found}
       {:error, _} = error -> error
+    end
+  end
+
+  defp chat_available(%{status: :completed}, _now), do: {:error, :cooking_already_finished}
+
+  defp chat_available(%{status: :active} = session, now) do
+    with :ok <- planned_meal(session.scheduled_meal, session.account_id),
+         do: meal_is_today(session.scheduled_meal, session.account_id, now)
+  end
+
+  defp chat_available(_session, _now), do: {:error, :cooking_session_not_active}
+
+  # The session lock orders this write against a concurrent finish, so a
+  # finished session never gains turns. The user turn is stamped first.
+  defp persist_turns(ids, session_id, question, answer) do
+    Repo.transaction(fn ->
+      session =
+        PlanningRepo.lock_cooking_session_for_account(ids.account_id, session_id) ||
+          Repo.rollback(:session_not_found)
+
+      case session.status do
+        :active -> :ok
+        :completed -> Repo.rollback(:cooking_already_finished)
+        _ -> Repo.rollback(:cooking_session_not_active)
+      end
+
+      asked_at = DateTime.utc_now()
+
+      [
+        %{role: :user, content: question, user_id: ids.user_id, inserted_at: asked_at},
+        %{role: :assistant, content: answer, inserted_at: DateTime.add(asked_at, 1, :microsecond)}
+      ]
+      |> Enum.map(&insert_turn!(&1, session.id))
+    end)
+  end
+
+  defp insert_turn!(turn, session_id) do
+    case PlanningRepo.add_chat_message(Map.put(turn, :cooking_session_id, session_id)) do
+      {:ok, stored} -> stored
+      {:error, _changeset} -> Repo.rollback(:validation_error)
     end
   end
 
@@ -196,7 +280,24 @@ defmodule MealPlannerApi.Services.CookingService do
   # Private helpers
   # -------------------------------------------------------------------------
 
-  defp create_session(ids, meal) do
+  # The meal row lock serializes concurrent starts of one meal, so the lookup
+  # and the insert cannot interleave into two active sessions.
+  defp find_or_create_session(ids, meal, now) do
+    Repo.transaction(fn ->
+      PlanningRepo.lock_cooking_meal_for_account(ids.account_id, meal.id) ||
+        Repo.rollback(:scheduled_meal_not_found)
+
+      with nil <- PlanningRepo.active_cooking_session_for_meal(ids.account_id, meal.id),
+           {:ok, session} <- create_session(ids, meal, now) do
+        session
+      else
+        {:error, reason} -> Repo.rollback(reason)
+        session -> session
+      end
+    end)
+  end
+
+  defp create_session(ids, meal, now) do
     recipe = RecipeVersions.recipe_for_meal(meal)
 
     first_step_id =
@@ -222,7 +323,8 @@ defmodule MealPlannerApi.Services.CookingService do
         scheduled_meal_id: meal.id,
         status: :active,
         started_at: DateTime.utc_now(),
-        context_snapshot: initial_snapshot
+        context_snapshot:
+          Map.put(initial_snapshot, @frozen_key, frozen_context(ids.account_id, recipe, now))
       })
 
     case result do
@@ -251,6 +353,47 @@ defmodule MealPlannerApi.Services.CookingService do
       {:error, _} = error ->
         error
     end
+  end
+
+  # The Context snapshot: the recipe as planned and the usable stock on the
+  # Account's today, captured once. The chat answers from this, never from
+  # live reads, so later Inventory changes do not rewrite earlier advice.
+  defp frozen_context(account_id, recipe, now) do
+    %{
+      "captured_at" => DateTime.to_iso8601(now),
+      "recipe" => %{
+        "name" => recipe && recipe.name,
+        "ingredients" =>
+          for item <- (recipe && recipe.recipe_ingredients) || [] do
+            %{
+              "name" => item.ingredient && item.ingredient.name,
+              "quantity_milli" => item.quantity_milli,
+              "unit" => Atom.to_string(item.unit)
+            }
+          end,
+        "steps" =>
+          for step <- Enum.sort_by((recipe && recipe.recipe_steps) || [], & &1.step_number) do
+            %{
+              "id" => step.id,
+              "step_number" => step.step_number,
+              "instructions" => step.instructions
+            }
+          end
+      },
+      "inventory" => frozen_inventory(account_id, AccountClock.today(account_id, now))
+    }
+  end
+
+  # One line per ingredient and unit, summing its usable lots.
+  defp frozen_inventory(account_id, today) do
+    account_id
+    |> InventoryRepo.list_inventory_with_ingredient()
+    |> Enum.filter(&(&1.quantity_milli > 0 and LotFreshness.usable?(&1, today)))
+    |> Enum.group_by(&{&1.ingredient && &1.ingredient.name, &1.unit}, & &1.quantity_milli)
+    |> Enum.sort()
+    |> Enum.map(fn {{name, unit}, quantities} ->
+      %{"name" => name, "quantity_milli" => Enum.sum(quantities), "unit" => Atom.to_string(unit)}
+    end)
   end
 
   defp persist_finish(ids, session_id, today) do
@@ -388,9 +531,8 @@ defmodule MealPlannerApi.Services.CookingService do
   end
 
   defp build_snapshot_data(session, recipe_step_id, status, extra) do
-    previous = session.context_snapshot || %{}
-
-    previous
+    session.context_snapshot
+    |> step_state()
     |> Map.merge(%{
       "current_step_id" => recipe_step_id,
       "step_status" => Atom.to_string(status),
@@ -404,39 +546,31 @@ defmodule MealPlannerApi.Services.CookingService do
   defp maybe_put(map, key, value), do: Map.put(map, key, value)
 
   defp build_contextual_answer(session, snapshot, question, content_type) do
-    recipe = session.scheduled_meal && RecipeVersions.recipe_for_meal(session.scheduled_meal)
+    frozen = (session.context_snapshot || %{})[@frozen_key] || %{}
+    recipe = frozen["recipe"] || %{}
+    step = Enum.find(recipe["steps"] || [], &(&1["id"] == snapshot_step_context(snapshot)))
 
     step_text =
-      if recipe do
-        current_step_id = snapshot_step_context(snapshot)
-        step = Enum.find(recipe.recipe_steps, &(&1.id == current_step_id))
+      if step,
+        do: "Paso actual #{step["step_number"]}: #{step["instructions"]}.",
+        else: "No tengo paso activo, te guio con la receta completa."
 
-        if step do
-          "Paso actual #{step.step_number}: #{step.instructions}."
-        else
-          "No tengo paso activo, te guio con la receta completa."
-        end
-      else
-        "Tenes una sesion de cocina activa."
-      end
-
-    system_prompt = build_system_prompt(recipe, step_text, content_type)
+    system_prompt =
+      build_system_prompt(frozen, step_text, prior_turns_text(session.id), content_type)
 
     case AI.generate_text(question, system_prompt: system_prompt) do
       {:ok, text} ->
         text
 
       {:error, _reason} ->
-        fallback_answer(question, content_type, recipe && recipe.name, step_text)
+        fallback_answer(question, content_type, recipe["name"], step_text)
     end
   end
 
-  defp build_system_prompt(recipe, step_text, content_type) do
+  defp build_system_prompt(frozen, step_text, history_text, content_type) do
     voice_mode = if content_type == "speech_transcript", do: "si", else: "no"
-    recipe_name = (recipe && recipe.name) || "receta sin nombre"
-
-    steps_text = prompt_steps_text(recipe)
-    ingredients_text = prompt_ingredients_text(recipe)
+    recipe = frozen["recipe"] || %{}
+    recipe_name = recipe["name"] || "receta sin nombre"
 
     """
     Eres el asistente culinario de MyFood.
@@ -445,38 +579,48 @@ defmodule MealPlannerApi.Services.CookingService do
     #{step_text}
 
     Ingredientes de la receta:
-    #{ingredients_text}
+    #{quantity_lines(recipe["ingredients"], "Sin ingredientes disponibles")}
 
     Pasos oficiales de la receta:
-    #{steps_text}
+    #{prompt_steps_text(recipe["steps"])}
 
-    Responde basandote estrictamente en esta receta.
+    Inventario disponible al empezar a cocinar:
+    #{quantity_lines(frozen["inventory"], "Sin inventario registrado")}
+
+    Conversacion previa:
+    #{history_text}
+
+    Responde basandote estrictamente en esta receta y este inventario.
     Da una respuesta breve, accionable y segura para cocina.
     Si falta informacion, dilo sin inventar.
     """
   end
 
-  defp prompt_steps_text(recipe) do
-    if recipe && recipe.recipe_steps do
-      recipe.recipe_steps
-      |> Enum.sort_by(& &1.step_number)
-      |> Enum.map_join("\n", fn step -> "#{step.step_number}. #{step.instructions}" end)
-    else
-      "Sin pasos disponibles"
+  defp prompt_steps_text(steps) when steps in [nil, []], do: "Sin pasos disponibles"
+
+  defp prompt_steps_text(steps),
+    do: Enum.map_join(steps, "\n", &"#{&1["step_number"]}. #{&1["instructions"]}")
+
+  defp quantity_lines(items, empty_text) when items in [nil, []], do: empty_text
+
+  defp quantity_lines(items, _empty_text) do
+    Enum.map_join(items, "\n", fn item ->
+      "- #{item["name"] || "ingrediente"}: #{item["quantity_milli"]} #{item["unit"]}"
+    end)
+  end
+
+  defp prior_turns_text(session_id) do
+    case session_id |> PlanningRepo.list_chat_messages() |> Enum.take(-@prompt_history_turns) do
+      [] ->
+        "Sin mensajes previos"
+
+      turns ->
+        Enum.map_join(turns, "\n", &"#{speaker(&1.role)}: #{&1.content}")
     end
   end
 
-  defp prompt_ingredients_text(recipe) do
-    if recipe && recipe.recipe_ingredients do
-      recipe.recipe_ingredients
-      |> Enum.map_join("\n", fn ri ->
-        name = (ri.ingredient && ri.ingredient.name) || "ingrediente"
-        "- #{name}: #{ri.quantity_milli} #{ri.unit}"
-      end)
-    else
-      "Sin ingredientes disponibles"
-    end
-  end
+  defp speaker(:user), do: "Usuario"
+  defp speaker(_role), do: "Asistente"
 
   defp fallback_answer(question, content_type, recipe_name, step_text) do
     prefix = if content_type == "speech_transcript", do: "Entendido por voz", else: "Entendido"
@@ -526,10 +670,21 @@ defmodule MealPlannerApi.Services.CookingService do
       slot: serialize_slot(scheduled_meal),
       recipe: serialize_recipe(recipe),
       snapshot:
-        (latest_snapshot && latest_snapshot.snapshot_data) ||
-          session.context_snapshot ||
-          %{},
-      chat_messages: []
+        step_state((latest_snapshot && latest_snapshot.snapshot_data) || session.context_snapshot),
+      chat_messages:
+        session.id |> PlanningRepo.list_chat_messages() |> Enum.map(&serialize_turn/1)
+    }
+  end
+
+  # The step state clients read; the frozen Context snapshot stays server-side.
+  defp step_state(snapshot), do: Map.delete(snapshot || %{}, @frozen_key)
+
+  defp serialize_turn(turn) do
+    %{
+      id: turn.id,
+      role: Atom.to_string(turn.role),
+      content: turn.content,
+      inserted_at: turn.inserted_at
     }
   end
 

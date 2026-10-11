@@ -17,9 +17,10 @@ defmodule MealPlannerApi.Persistence.Planning.CookingChatMessage do
     timestamps(type: :utc_datetime_usec)
   end
 
+  # `inserted_at` may be given so the two turns of one question keep a strict order.
   def changeset(message, attrs) do
     message
-    |> cast(attrs, [:cooking_session_id, :user_id, :role, :content])
+    |> cast(attrs, [:cooking_session_id, :user_id, :role, :content, :inserted_at])
     |> validate_required([:cooking_session_id, :role, :content])
     |> foreign_key_constraint(:cooking_session_id)
     |> foreign_key_constraint(:user_id)

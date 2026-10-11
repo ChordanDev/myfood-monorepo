@@ -139,10 +139,4 @@ defmodule MealPlannerApi.Services.PlanningServiceTest do
       assert is_function(&PlanningService.start_cooking_session/3)
     end
   end
-
-  describe "add_chat_message/2" do
-    test "accepts session_id and content" do
-      assert is_function(&PlanningService.add_chat_message/2)
-    end
-  end
 end

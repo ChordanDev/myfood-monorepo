@@ -151,8 +151,6 @@ defmodule MealPlannerApi.Persistence.Planning do
   def update_cooking_session(session, attrs),
     do: session |> CookingSession.changeset(attrs) |> Repo.update()
 
-  def add_cooking_message(_attrs), do: {:error, :ephemeral_chat_only}
-
   def add_step_event(attrs),
     do: %CookingStepEvent{} |> CookingStepEvent.changeset(attrs) |> Repo.insert()
 
