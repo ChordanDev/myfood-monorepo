@@ -20,6 +20,8 @@ import {
   COOKING_START,
 } from '@/features/cooking/fixtures';
 import { useInventoryStore, type InventoryItem } from '@/features/inventory';
+import { createPreparedLeftover } from '@/features/leftovers';
+import { LEFTOVER_LENTILS } from '@/features/leftovers/fixtures';
 import { useShoppingListStore } from '@/features/shopping/store';
 import { useMealPlanStore } from '@/store';
 import type { MealPlanEntry } from '@/types/domain';
@@ -116,6 +118,9 @@ jest.mock('@/features/assistant-chat', () => ({
 jest.mock('@/features/inventory', () => ({
   useInventoryStore: jest.requireActual('@/features/inventory/store').useInventoryStore,
 }));
+
+// The leftovers barrel exports its screen too; the recipe only hands over the create call.
+jest.mock('@/features/leftovers', () => ({ createPreparedLeftover: jest.fn() }));
 
 jest.mock('@/context/RecipeThemeContext', () => ({
   useRecipeTheme: () => ({
@@ -465,6 +470,10 @@ describe('RecipeScreen', () => {
       return tree.root.findAllByProps({ testID: 'recipe-cooked-confirm-sheet' }).length > 0;
     }
 
+    function isLeftoverPromptOpen(tree: ReactTestRenderer) {
+      return tree.root.findAllByProps({ testID: 'leftover-prompt-sheet' }).length > 0;
+    }
+
     it('asks for confirmation instead of marking the meal right away', async () => {
       const tree = await renderSettledScreen();
 
@@ -480,7 +489,7 @@ describe('RecipeScreen', () => {
       expect(mockBack).not.toHaveBeenCalled();
     });
 
-    it('cooks through the server, shows what was consumed and goes back when it is closed', async () => {
+    it('cooks through the server, shows what was consumed and then asks about leftovers', async () => {
       const tree = renderScreen();
 
       press(tree, 'recipe-header-cooked');
@@ -493,11 +502,121 @@ describe('RecipeScreen', () => {
       expect(renderedTexts(tree)).toEqual(
         expect.arrayContaining(['Esto se descontó de tu inventario', 'Arroz', '200 g', 'Sal'])
       );
+      expect(isLeftoverPromptOpen(tree)).toBe(false);
       expect(mockBack).not.toHaveBeenCalled();
 
       press(tree, 'cooking-result-close');
 
-      expect(mockBack).toHaveBeenCalledTimes(1);
+      // The prompt takes the place of the summary, over the recipe.
+      expect(isLeftoverPromptOpen(tree)).toBe(true);
+      expect(renderedTexts(tree)).toEqual(
+        expect.arrayContaining([
+          '¿Sobró algo?',
+          'No sobró nada',
+          'Ingredientes',
+          'Comida preparada',
+        ])
+      );
+      expect(renderedTexts(tree)).not.toContain('Esto se descontó de tu inventario');
+      expect(mockBack).not.toHaveBeenCalled();
+    });
+
+    describe('answering the leftover prompt', () => {
+      const storeAddExtra = useInventoryStore.getState().addExtra;
+      const addExtra = jest.fn();
+
+      beforeEach(() => {
+        addExtra.mockReset().mockResolvedValue(inventoryItem({ isLeftover: true }));
+        useInventoryStore.setState({ addExtra });
+        jest.mocked(createPreparedLeftover).mockReset().mockResolvedValue(LEFTOVER_LENTILS);
+      });
+
+      // Unmounted first: the screen reads the store, and would re-render outside `act`.
+      afterEach(() => {
+        unmountScreen();
+        useInventoryStore.setState({ addExtra: storeAddExtra });
+      });
+
+      async function cookAndCloseResult() {
+        const tree = renderScreen();
+        press(tree, 'recipe-header-cooked');
+        await pressAndSettle(tree, 'recipe-cooked-confirm-yes');
+        press(tree, 'cooking-result-close');
+
+        return tree;
+      }
+
+      function leftoverInput(tree: ReactTestRenderer, label: string) {
+        return tree.root.findByProps({ accessibilityLabel: label, keyboardType: 'decimal-pad' });
+      }
+
+      it('goes back once the user says nothing was left, and sends nothing', async () => {
+        const tree = await cookAndCloseResult();
+
+        press(tree, 'leftover-choice-none');
+
+        expect(isLeftoverPromptOpen(tree)).toBe(false);
+        expect(mockBack).toHaveBeenCalledTimes(1);
+        expect(addExtra).not.toHaveBeenCalled();
+        expect(createPreparedLeftover).not.toHaveBeenCalled();
+      });
+
+      it('puts a leftover ingredient back through the Inventory store, then goes back', async () => {
+        const [rice] = COOKING_FINISH_WITH_SHORTAGE.inventoryMutations;
+        const tree = await cookAndCloseResult();
+
+        press(tree, 'leftover-choice-ingredients');
+        act(() => {
+          leftoverInput(tree, 'Arroz').props.onChangeText('50');
+        });
+        expect(mockBack).not.toHaveBeenCalled();
+        await pressAndSettle(tree, 'leftover-prompt-save');
+
+        expect(addExtra.mock.calls).toEqual([
+          [
+            {
+              ingredientId: rice.ingredientId,
+              quantityMilli: 50_000,
+              unit: 'g',
+              isLeftover: true,
+            },
+          ],
+        ]);
+        expect(isLeftoverPromptOpen(tree)).toBe(false);
+        expect(mockBack).toHaveBeenCalledTimes(1);
+      });
+
+      it('keeps the cooked portions as a Prepared leftover of the meal, then goes back', async () => {
+        const tree = await cookAndCloseResult();
+
+        press(tree, 'leftover-choice-prepared');
+        await pressAndSettle(tree, 'leftover-prompt-save');
+
+        expect(jest.mocked(createPreparedLeftover).mock.calls).toEqual([
+          [
+            {
+              title: 'Arroz con aceite',
+              portions: 1,
+              scheduledMealId: COOKING_FINISH_WITH_SHORTAGE.scheduledMeal.id,
+            },
+          ],
+        ]);
+        expect(mockBack).toHaveBeenCalledTimes(1);
+      });
+
+      it('stays on the recipe with the prompt open when the save fails', async () => {
+        jest
+          .mocked(createPreparedLeftover)
+          .mockRejectedValue(new ApiError('validation_error', 'no', 422));
+        const tree = await cookAndCloseResult();
+
+        press(tree, 'leftover-choice-prepared');
+        await pressAndSettle(tree, 'leftover-prompt-save');
+
+        expect(renderedTexts(tree)).toContain('Los datos ingresados no son válidos.');
+        expect(isLeftoverPromptOpen(tree)).toBe(true);
+        expect(mockBack).not.toHaveBeenCalled();
+      });
     });
 
     it('does not subtract anything from the local inventory', async () => {
@@ -541,6 +660,7 @@ describe('RecipeScreen', () => {
 
       press(tree, 'cooking-result-close');
 
+      expect(isLeftoverPromptOpen(tree)).toBe(false);
       expect(mockBack).not.toHaveBeenCalled();
     });
 

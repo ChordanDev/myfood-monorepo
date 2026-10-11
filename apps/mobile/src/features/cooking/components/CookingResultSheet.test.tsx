@@ -35,7 +35,16 @@ function render(props: Partial<React.ComponentProps<typeof CookingResultSheet>>)
   let tree: ReactTestRenderer;
   act(() => {
     tree = create(
-      <CookingResultSheet summary={null} errorMessage={null} onClose={onClose} {...props} />
+      <CookingResultSheet
+        summary={null}
+        errorMessage={null}
+        onClose={onClose}
+        leftoverPrompt={null}
+        onAddLeftoverIngredient={jest.fn()}
+        onCreatePreparedLeftover={jest.fn()}
+        onCloseLeftoverPrompt={jest.fn()}
+        {...props}
+      />
     );
   });
   const texts = () =>
@@ -103,6 +112,15 @@ describe('CookingResultSheet', () => {
     });
 
     expect(texts()).toContain('Solo podés marcar como cocinada una comida de hoy.');
+  });
+
+  it('closes from the backdrop and the back button too', () => {
+    const { tree, onClose } = render({ summary: SUMMARY });
+
+    act(() => tree.root.findByProps({ accessibilityLabel: 'Cerrar' }).props.onPress());
+    act(() => tree.root.findByType(Modal).props.onRequestClose());
+
+    expect(onClose).toHaveBeenCalledTimes(2);
   });
 
   it('closes from the button', () => {

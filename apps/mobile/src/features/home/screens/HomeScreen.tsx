@@ -22,6 +22,8 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useHomeRecipeTheme } from '../hooks/useHomeRecipeTheme';
 import { formatDateKey } from '../utils/calendarDate';
 import { CookingResultSheet, useMarkAsCooked } from '@/features/cooking';
+import { useInventoryStore } from '@/features/inventory';
+import { createPreparedLeftover } from '@/features/leftovers';
 import { useMealPlanStore } from '@/store';
 import { useGradientCrossfade } from '@/hooks/useGradientCrossfade';
 import { favoriteSummaryFromRecipe } from '@/features/favorites/domain/favoriteFormat';
@@ -39,6 +41,7 @@ export function HomeScreen() {
   useLoadLivePlan();
   const recipeSummaries = useMealPlanStore((state) => state.recipeSummaries);
   const cooking = useMarkAsCooked();
+  const addInventoryExtra = useInventoryStore((state) => state.addExtra);
   const markAsSkipped = useMealPlanStore((state) => state.markAsSkipped);
   // Destinations are captured when the sheet opens so the options cannot change while it is shown.
   const [eatTodaySheet, setEatTodaySheet] = useState<{
@@ -265,6 +268,12 @@ export function HomeScreen() {
         summary={cooking.summary}
         errorMessage={cooking.errorMessage}
         onClose={cooking.dismiss}
+        // Asked once the summary of a finish is closed. A leftover Ingredient goes through the
+        // Inventory store, so the Inventory screen shows the lot the server answered with.
+        leftoverPrompt={cooking.leftoverPrompt}
+        onAddLeftoverIngredient={addInventoryExtra}
+        onCreatePreparedLeftover={createPreparedLeftover}
+        onCloseLeftoverPrompt={cooking.closeLeftoverPrompt}
       />
       <EatTodaySheet
         visible={eatTodaySheet.visible}
