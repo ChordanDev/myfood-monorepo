@@ -9,6 +9,15 @@ defmodule MealPlannerApi.Voice.InventoryIntentParserTest do
   @milk %{ingredient_id: "milk", name: "Leche", unit: :ml, total_milli: 2_000_000}
   @stock [@cheese, @plain_cheese, @eggs, @milk]
 
+  @field_eggs %{
+    ingredient_id: "field_eggs",
+    name: "Huevo de campo",
+    unit: :unit,
+    total_milli: 12_000
+  }
+  @lemons %{ingredient_id: "lemons", name: "Limón", unit: :unit, total_milli: 5_000}
+  @walnuts %{ingredient_id: "walnuts", name: "Nuez", unit: :unit, total_milli: 8_000}
+
   defp parse(transcript), do: InventoryIntentParser.parse(transcript, @stock)
 
   test "a consume verb, a name and a fraction is a confident subtract of that share" do
@@ -40,6 +49,33 @@ defmodule MealPlannerApi.Voice.InventoryIntentParserTest do
 
     assert {:ok, %{intent: %{ingredient_id: "milk", quantity_milli: 1_500_000}}} =
              parse("usé 1.5 litros de leche")
+  end
+
+  test "a quantity and a half adds half of the stated unit" do
+    stock = [@cheese, %{@plain_cheese | total_milli: 2_000_000}, @eggs, @milk]
+
+    assert {:ok, %{intent: %{ingredient_id: "plain", quantity_milli: 1_500_000}, confidence: 0.9}} =
+             InventoryIntentParser.parse("me comí 1 kilo y medio de queso", stock)
+
+    assert {:ok, %{intent: %{ingredient_id: "milk", quantity_milli: 1_500_000}, confidence: 0.9}} =
+             InventoryIntentParser.parse("usé 1 litro y medio de leche", stock)
+
+    assert {:ok, %{intent: %{ingredient_id: "eggs", quantity_milli: 1_500}, confidence: 0.9}} =
+             InventoryIntentParser.parse("usé 1 unidad y media de huevo", stock)
+  end
+
+  test "the decimal form of a quantity and a half still reads the same amount" do
+    stock = [%{@plain_cheese | total_milli: 2_000_000}]
+
+    assert {:ok, %{intent: %{quantity_milli: 1_500_000}, confidence: 0.9}} =
+             InventoryIntentParser.parse("me comí 1,5 kilos de queso", stock)
+  end
+
+  test "a quantity and a half larger than the stock is capped and not confident" do
+    assert {:ok, %{intent: %{ingredient_id: "plain", quantity_milli: 900_000}, confidence: c}} =
+             parse("me comí 1 kilo y medio de queso")
+
+    assert c < 0.8
   end
 
   test "medio kilo is 500 g whatever the stock holds" do
@@ -140,6 +176,58 @@ defmodule MealPlannerApi.Voice.InventoryIntentParserTest do
   test "a name inside another word is not a mention" do
     assert {:error, :voice_parse_failed} =
              InventoryIntentParser.parse("usé quesos", [%{@cheese | name: "queso crema"}])
+  end
+
+  test "a plural inside a longer name matches the singular stock name" do
+    assert {:ok, %{intent: intent, confidence: c}} =
+             InventoryIntentParser.parse("me comí 2 huevos de campo", [@eggs, @field_eggs])
+
+    assert %{ingredient_id: "field_eggs", name: "Huevo de campo", quantity_milli: 2_000} = intent
+    assert c >= 0.8
+
+    assert {:ok, %{intent: %{ingredient_id: "eggs", quantity_milli: 2_000}}} =
+             InventoryIntentParser.parse("me comí 2 huevos", [@eggs, @field_eggs])
+  end
+
+  test "a plural that adds es or turns z into ces matches the singular stock name" do
+    assert {:ok, %{intent: %{ingredient_id: "lemons", quantity_milli: 2_000}, confidence: c}} =
+             InventoryIntentParser.parse("usé 2 limones", [@lemons, @walnuts])
+
+    assert c >= 0.8
+
+    assert {:ok, %{intent: %{ingredient_id: "walnuts", quantity_milli: 3_000}}} =
+             InventoryIntentParser.parse("me comí 3 nueces", [@lemons, @walnuts])
+
+    assert {:ok, %{intent: %{ingredient_id: "lemons", quantity_milli: 5_000}, confidence: 0.5}} =
+             InventoryIntentParser.parse("terminé los limones", [@lemons, @walnuts])
+  end
+
+  test "a bare s still matches a name that ends in a consonant" do
+    egg = %{@eggs | name: "Egg"}
+
+    assert {:ok, %{intent: %{ingredient_id: "eggs", quantity_milli: 2_000}}} =
+             InventoryIntentParser.parse("ate 2 eggs", [egg])
+  end
+
+  test "a longer word that only contains a stock name is not a mention" do
+    assert {:error, :voice_parse_failed} =
+             InventoryIntentParser.parse("me tomé una limonada", [@lemons])
+
+    assert {:error, :voice_parse_failed} =
+             InventoryIntentParser.parse("usé 2 limonadas", [@lemons])
+  end
+
+  test "a count before a longer word is not the count of the stock name" do
+    assert {:ok, %{intent: %{ingredient_id: "lemons", quantity_milli: 1_000}}} =
+             InventoryIntentParser.parse("usé 2 limonadas y 1 limón", [@lemons])
+  end
+
+  test "a plural of a name that is not in stock still fails" do
+    assert {:error, :voice_parse_failed} =
+             InventoryIntentParser.parse("me comí 2 huevos de codorniz", [@field_eggs, @lemons])
+
+    assert {:error, :voice_parse_failed} =
+             InventoryIntentParser.parse("usé 2 pomelos", [@field_eggs, @lemons])
   end
 
   test "the threshold is 0.8" do
