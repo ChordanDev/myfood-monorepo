@@ -8,6 +8,7 @@ defmodule MealPlannerApiWeb.PlanningChannelTest do
   alias MealPlannerApi.Data.{PlanningRepo, RecipeRepo, ShoppingRepo}
   alias MealPlannerApi.Generation.PlanningSession.Sweeper
   alias MealPlannerApi.Generation.Server
+  alias MealPlannerApi.IdentityFixtures
   alias MealPlannerApi.Persistence.Accounts.Account, as: PersistenceAccount
   alias MealPlannerApi.Persistence.Accounts.AccountMembership
   alias MealPlannerApi.Persistence.Accounts.User
@@ -644,6 +645,35 @@ defmodule MealPlannerApiWeb.PlanningChannelTest do
 
       assert Repo.aggregate(generation_runs, :count) == 0
       assert Repo.aggregate(proposals, :count) == 0
+    end
+
+    # The limit is read from the User of the socket, whose tier comes from the
+    # token: a premium User still gets the seven days of their plan.
+    test "accepts a base_payload range of the plan maximum for a premium User" do
+      %{account: account, token: token} =
+        IdentityFixtures.insert_identity_with_token!(subscription_tier: :premium)
+
+      {:ok, socket} = connect(UserSocket, %{"token" => token})
+
+      {:ok, _reply, socket} =
+        subscribe_and_join(socket, PlanningChannel, "planning:#{account.id}")
+
+      ref =
+        push(socket, "swap_constraints", %{
+          "request_id" => "swap_req_premium_week",
+          "base_payload" => %{"date_from" => "2026-06-15", "date_to" => "2026-06-21"},
+          "constraints" => %{"budget_cents" => 5000}
+        })
+
+      assert_reply(ref, :ok, reply)
+
+      assert %{
+               "requestId" => "swap_req_premium_week",
+               "dateFrom" => "2026-06-15",
+               "dateTo" => "2026-06-21"
+             } = reply
+
+      assert_push("proposal_ready", %{"requestId" => "swap_req_premium_week"})
     end
 
     test "a malformed date replies invalid_date and is not logged as a fault", %{
