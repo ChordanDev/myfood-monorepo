@@ -19,6 +19,8 @@ export interface ShortageLine {
 }
 
 export interface CookingSummary {
+  /** The Scheduled meal that was cooked: what a Prepared leftover names as its source. */
+  scheduledMealId: string;
   recipeName: string;
   consumed: ConsumedLine[];
   shortages: ShortageLine[];
@@ -59,6 +61,7 @@ export function summarizeCookingFinish(finish: CookingFinish): CookingSummary {
   }
 
   return {
+    scheduledMealId: finish.scheduledMeal.id,
     recipeName: finish.scheduledMeal.recipeName,
     consumed: [...byIngredientUnit.values()].map(({ line }) => line),
     shortages: finish.shortages.map((shortage) => ({

@@ -21,6 +21,7 @@ jest.mock('@/context/RecipeThemeContext', () => ({
 }));
 
 const SUMMARY: CookingSummary = {
+  scheduledMealId: 'meal-1',
   recipeName: 'Arroz con aceite',
   consumed: [
     { ingredientId: 'i1', name: 'Arroz', unit: 'g', quantity: '200 g', lots: 2 },
@@ -71,6 +72,7 @@ describe('CookingResultSheet', () => {
     const consoleError = jest.spyOn(console, 'error').mockImplementation(() => undefined);
     const { texts } = render({
       summary: {
+        scheduledMealId: 'meal-1',
         recipeName: 'Arroz con aceite',
         consumed: [
           { ingredientId: 'i1', name: 'Arroz', unit: 'g', quantity: '100 g', lots: 1 },

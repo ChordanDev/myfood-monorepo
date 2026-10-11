@@ -145,4 +145,66 @@ describe('useMarkAsCooked', () => {
     expect(hook.summary).toBeNull();
     expect(hook.errorMessage).toBeNull();
   });
+
+  describe('the leftover prompt', () => {
+    async function cook() {
+      startMock.mockResolvedValue(COOKING_START);
+      finishMock.mockResolvedValue(COOKING_FINISH_WITH_SHORTAGE);
+      await act(async () => {
+        await hook.markAsCooked(ENTRY.id);
+      });
+    }
+
+    it('stays closed while the result of the finish is on screen', async () => {
+      await cook();
+
+      expect(hook.leftoverPrompt).toBeNull();
+    });
+
+    it('opens for the cooked meal when a successful result is closed', async () => {
+      await cook();
+
+      act(() => hook.dismiss());
+
+      expect(hook.leftoverPrompt).toMatchObject({
+        scheduledMealId: COOKING_SCHEDULED_MEAL_ID,
+        recipeName: 'Arroz con aceite',
+        consumed: [
+          { name: 'Arroz', unit: 'g' },
+          { name: 'Aceite de oliva', unit: 'ml' },
+        ],
+      });
+    });
+
+    it('does not open when the result that is closed is an error', async () => {
+      startMock.mockRejectedValue(new ApiError('cooking_chat_unavailable', 'no', 422));
+      await act(async () => {
+        await hook.markAsCooked(ENTRY.id);
+      });
+
+      act(() => hook.dismiss());
+
+      expect(hook.leftoverPrompt).toBeNull();
+    });
+
+    it('clears when it is closed and does not open again for the same finish', async () => {
+      await cook();
+      act(() => hook.dismiss());
+
+      act(() => hook.closeLeftoverPrompt());
+      expect(hook.leftoverPrompt).toBeNull();
+
+      act(() => hook.dismiss());
+      expect(hook.leftoverPrompt).toBeNull();
+    });
+
+    it('stays open when the result is dismissed a second time', async () => {
+      await cook();
+      act(() => hook.dismiss());
+
+      act(() => hook.dismiss());
+
+      expect(hook.leftoverPrompt?.scheduledMealId).toBe(COOKING_SCHEDULED_MEAL_ID);
+    });
+  });
 });

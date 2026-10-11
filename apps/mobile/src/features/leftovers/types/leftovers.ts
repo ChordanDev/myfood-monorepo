@@ -18,4 +18,6 @@ export interface CreatePreparedLeftoverInput {
   // Not sent when unset: the server then defaults to the Account's today plus three days.
   consumeByDate?: string;
   notes?: string;
+  // The Scheduled meal the portions were cooked for; the answer names it as `sourceMealId`.
+  scheduledMealId?: string;
 }

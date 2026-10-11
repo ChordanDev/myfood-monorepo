@@ -1,4 +1,8 @@
-import { COOKING_FINISH_COVERED, COOKING_FINISH_WITH_SHORTAGE } from '../fixtures';
+import {
+  COOKING_FINISH_COVERED,
+  COOKING_FINISH_WITH_SHORTAGE,
+  COOKING_SCHEDULED_MEAL_ID,
+} from '../fixtures';
 import { formatMilliQuantity, summarizeCookingFinish } from './cookingSummary';
 
 describe('formatMilliQuantity', () => {
@@ -14,6 +18,12 @@ describe('formatMilliQuantity', () => {
 });
 
 describe('summarizeCookingFinish', () => {
+  it('carries the Scheduled meal the finish belongs to', () => {
+    const summary = summarizeCookingFinish(COOKING_FINISH_WITH_SHORTAGE);
+
+    expect(summary.scheduledMealId).toBe(COOKING_SCHEDULED_MEAL_ID);
+  });
+
   it('adds the lots of one ingredient into a single consumed line', () => {
     const summary = summarizeCookingFinish(COOKING_FINISH_WITH_SHORTAGE);
 
