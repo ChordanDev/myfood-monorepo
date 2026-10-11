@@ -123,6 +123,29 @@ export const COOKING_FINISH_COVERED: CookingFinish = {
   shortages: [],
 };
 
+// For the leftover prompt: a finish that took from three Ingredients, the last one in units.
+export const COOKING_FINISH_THREE_INGREDIENTS: CookingFinish = {
+  ...COOKING_FINISH_COVERED,
+  inventoryMutations: [
+    ...COOKING_FINISH_COVERED.inventoryMutations,
+    {
+      inventoryItemId: 'a1000000-0000-4000-8000-000000000004',
+      ingredientId: '3f7b1c9a-2d4e-4f6a-8b0c-1d2e3f4a5b09',
+      ingredientName: 'Cebolla',
+      unit: 'unit',
+      quantityBeforeMilli: 3000,
+      quantityDeltaMilli: -1000,
+      quantityAfterMilli: 2000,
+    },
+  ],
+};
+
+// The stock had none of the Ingredients of the recipe, so nothing was deducted.
+export const COOKING_FINISH_NOTHING_CONSUMED: CookingFinish = {
+  ...COOKING_FINISH_WITH_SHORTAGE,
+  inventoryMutations: [],
+};
+
 // Start and the session read answer with the same payload.
 export function toCookingSessionResponse(session: CookingSession = COOKING_START) {
   return { data: { ...session, slot: 'lunch', snapshot: {} } };

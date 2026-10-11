@@ -79,6 +79,15 @@ describe('prepared leftovers api', () => {
     expect(JSON.parse(init.body)).toEqual(input);
   });
 
+  it('names the Scheduled meal a leftover comes from', async () => {
+    fetchMock.mockReturnValueOnce(jsonResponse(toLeftoverResponse(LEFTOVER_LENTILS), true, 201));
+    const input = { title: 'Lentil stew', portions: 3, scheduledMealId: 'meal-1' };
+
+    await expect(createPreparedLeftover(input)).resolves.toEqual(LEFTOVER_LENTILS);
+
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual(input);
+  });
+
   it('consumes a leftover with a POST to its consume path', async () => {
     const updated = { ...LEFTOVER_LENTILS, portions: 2 };
     fetchMock.mockReturnValueOnce(jsonResponse(toLeftoverResponse(updated)));
