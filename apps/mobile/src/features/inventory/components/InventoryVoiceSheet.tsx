@@ -1,8 +1,9 @@
 import { useState } from 'react';
 import { StyleSheet, Text } from 'react-native';
+import { isApiError } from '@/api/errors';
 import { useRecipeTheme } from '@/context/RecipeThemeContext';
 import { formatQuantityMilli } from '../domain';
-import type { VoiceApplyPayload, VoiceIntent, VoicePreview } from '../types';
+import type { VoiceApplyPayload, VoiceApplyResult, VoiceIntent, VoicePreview } from '../types';
 import {
   InventorySheet,
   InventorySheetField,
@@ -13,7 +14,7 @@ import {
 interface InventoryVoiceSheetProps {
   visible: boolean;
   onPreview: (transcript: string) => Promise<VoicePreview>;
-  onApply: (payload: VoiceApplyPayload) => Promise<unknown>;
+  onApply: (payload: VoiceApplyPayload) => Promise<VoiceApplyResult>;
   onClose: () => void;
 }
 
@@ -21,7 +22,8 @@ interface InventoryVoiceSheetProps {
 // recognition is wired, and a speech source plugs into the same `transcript` input later.
 //
 // The sheet never applies an intent the API flags as low confidence (`confirmationRequired`)
-// until the User taps Confirm, and only then sends `confirmed: true`.
+// until the User taps Confirm, and only then sends `confirmed: true`. The same goes for an
+// intent the API refuses to apply unconfirmed after all: it is previewed again and confirmed.
 export function InventoryVoiceSheet({
   visible,
   onPreview,
@@ -45,22 +47,30 @@ export function InventoryVoiceSheet({
   );
 }
 
+// An amount of an ingredient, as a step words it.
+type VoiceAmount = Pick<VoiceIntent, 'name' | 'unit' | 'quantityMilli'>;
+
 type Step =
   | { name: 'entry' }
   | { name: 'confirm'; transcript: string; intent: VoiceIntent }
-  | { name: 'done'; intent: VoiceIntent };
+  // What the API subtracted, which is less than the intent asked for when the stock ran short.
+  | { name: 'done'; subtracted: VoiceAmount };
 
 interface InventoryVoiceFormProps {
   pending: 'submit' | 'secondary' | null;
   errorMessage: string | null;
   onPreview: (transcript: string) => Promise<VoicePreview>;
-  onApply: (payload: VoiceApplyPayload) => Promise<unknown>;
+  onApply: (payload: VoiceApplyPayload) => Promise<VoiceApplyResult>;
   run: ReturnType<typeof useInventorySheetWrite>['run'];
   onClose: () => void;
 }
 
-function describeIntent(intent: VoiceIntent): string {
-  return `${formatQuantityMilli(intent.quantityMilli, intent.unit)} de ${intent.name}`;
+function describeAmount({ quantityMilli, unit, name }: VoiceAmount): string {
+  return `${formatQuantityMilli(quantityMilli, unit)} de ${name}`;
+}
+
+function isConfirmationRequired(error: unknown): boolean {
+  return isApiError(error) && error.code === 'voice_confirmation_required';
 }
 
 function InventoryVoiceForm({
@@ -79,6 +89,13 @@ function InventoryVoiceForm({
   // Every step stays open on success: the next step, or the result, is drawn in the sheet.
   const stayOpen = () => false;
 
+  const apply = async (payload: VoiceApplyPayload) => {
+    const { quantityDeltaMilli } = await onApply(payload);
+    const { name, unit } = payload.intent;
+
+    setStep({ name: 'done', subtracted: { name, unit, quantityMilli: -quantityDeltaMilli } });
+  };
+
   const handlePreview = () => {
     if (!trimmed) return;
 
@@ -92,26 +109,23 @@ function InventoryVoiceForm({
           return;
         }
 
-        await onApply({ transcript: trimmed, intent: preview.intent, confirmed: false });
-        setStep({ name: 'done', intent: preview.intent });
+        try {
+          await apply({ transcript: trimmed, intent: preview.intent, confirmed: false });
+        } catch (error) {
+          if (!isConfirmationRequired(error)) throw error;
+
+          // The stock changed since the preview, so its intent is stale. The User confirms a
+          // fresh one, whatever its confidence: nothing is applied unconfirmed a second time.
+          const fresh = await onPreview(trimmed);
+          setStep({ name: 'confirm', transcript: trimmed, intent: fresh.intent });
+        }
       },
       stayOpen
     );
   };
 
-  const handleConfirm = (confirming: Extract<Step, { name: 'confirm' }>) => {
-    run(
-      'submit',
-      async () => {
-        await onApply({
-          transcript: confirming.transcript,
-          intent: confirming.intent,
-          confirmed: true,
-        });
-        setStep({ name: 'done', intent: confirming.intent });
-      },
-      stayOpen
-    );
+  const handleConfirm = ({ transcript, intent }: Extract<Step, { name: 'confirm' }>) => {
+    run('submit', () => apply({ transcript, intent, confirmed: true }), stayOpen);
   };
 
   if (step.name === 'done') {
@@ -124,7 +138,7 @@ function InventoryVoiceForm({
         submit={{ label: 'Cerrar', pendingLabel: 'Cerrar', onPress: onClose }}
         onClose={onClose}>
         <Text style={[styles.message, { color: theme.textLight }]}>
-          {`Descontamos ${describeIntent(step.intent)} de tu inventario.`}
+          {`Descontamos ${describeAmount(step.subtracted)} de tu inventario.`}
         </Text>
       </InventorySheetForm>
     );
@@ -144,7 +158,7 @@ function InventoryVoiceForm({
         }}
         onClose={onClose}>
         <Text style={[styles.message, { color: theme.textLight }]}>
-          {`Entendimos: descontar ${describeIntent(step.intent)}.`}
+          {`Entendimos: descontar ${describeAmount(step.intent)}.`}
         </Text>
       </InventorySheetForm>
     );

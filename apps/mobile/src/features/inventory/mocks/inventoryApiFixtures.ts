@@ -160,6 +160,28 @@ export const VOICE_APPLY_RESULT: VoiceApplyResult = Object.freeze({
   ],
 });
 
+// A stock that drifted under the sheet: the preview asked again reads another quantity, and the
+// apply is capped at the 300 g the lot still holds.
+export const VOICE_PREVIEW_AFTER_DRIFT: VoicePreview = Object.freeze({
+  confirmationRequired: false,
+  confidence: 0.95,
+  intent: Object.freeze({ ...VOICE_RICE_INTENT, quantityMilli: 400_000 }),
+});
+
+export const VOICE_APPLY_RESULT_CAPPED: VoiceApplyResult = Object.freeze({
+  ingredientId: RICE.ingredientId,
+  quantityDeltaMilli: -300_000,
+  mutationEvents: [
+    mutationEvent(RICE, {
+      triggerType: 'voice',
+      operation: 'subtract',
+      quantityBeforeMilli: 300_000,
+      quantityDeltaMilli: -300_000,
+      quantityAfterMilli: 0,
+    }),
+  ],
+});
+
 // What `fetch` resolves to, as far as the transport reads a response.
 function jsonResponse(payload: unknown, status: number): Promise<Response> {
   return Promise.resolve({
