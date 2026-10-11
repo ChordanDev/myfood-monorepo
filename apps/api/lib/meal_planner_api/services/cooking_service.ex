@@ -706,9 +706,28 @@ defmodule MealPlannerApi.Services.CookingService do
 
   defp quantity_lines(items, _empty_text) do
     Enum.map_join(items, "\n", fn item ->
-      "- #{item["name"] || "ingrediente"}: #{item["quantity_milli"]} #{item["unit"]}"
+      "- #{item["name"] || "ingrediente"}: #{units_text(item["quantity_milli"])} #{item["unit"]}"
     end)
   end
+
+  # Quantities are stored in thousandths of the unit; the model reads whole units.
+  defp units_text(milli) when is_integer(milli) and milli >= 0 do
+    case {div(milli, 1000), rem(milli, 1000)} do
+      {whole, 0} ->
+        Integer.to_string(whole)
+
+      {whole, thousandths} ->
+        fraction =
+          thousandths
+          |> Integer.to_string()
+          |> String.pad_leading(3, "0")
+          |> String.trim_trailing("0")
+
+        "#{whole}.#{fraction}"
+    end
+  end
+
+  defp units_text(other), do: to_string(other)
 
   defp prior_turns_text(session_id) do
     case session_id |> PlanningRepo.list_chat_messages() |> Enum.take(-@prompt_history_turns) do

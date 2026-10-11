@@ -431,12 +431,24 @@ defmodule MealPlannerApi.Services.CookingChatTest do
       first = ask_observing_prompt(f, session, "How hot?")
       assert first =~ "Chat stew"
       assert first =~ "Brown the onions"
-      assert first =~ "#{f.ingredient.name}: 750 g"
+      assert first =~ "#{f.ingredient.name}: 0.75 g"
       refute first =~ "How hot?"
 
       second = ask_observing_prompt(f, session, "And then?")
       assert second =~ "How hot?"
       assert second =~ "Use the frozen instructions."
+    end
+
+    test "the prompt states quantities in units, not in thousandths", f do
+      lot = lot!(f, f.ingredient)
+      lot |> InventoryItem.changeset(%{quantity_milli: 500_000}) |> Repo.update!()
+      session = start!(f, meal!(f, @utc_day))
+
+      prompt = ask_observing_prompt(f, session, "How much?")
+      # Inventory holds 500 g; the recipe asks for 0.2 g of the same ingredient.
+      assert prompt =~ "#{f.ingredient.name}: 500 g"
+      assert prompt =~ "#{f.ingredient.name}: 0.2 g"
+      refute prompt =~ "500000"
     end
 
     test "the inventory is frozen on the first question, not when the session starts", f do
@@ -448,7 +460,7 @@ defmodule MealPlannerApi.Services.CookingChatTest do
       lot |> InventoryItem.changeset(%{quantity_milli: 400}) |> Repo.update!()
 
       first = ask_observing_prompt(f, session, "What do I have?")
-      assert first =~ "#{f.ingredient.name}: 400 g"
+      assert first =~ "#{f.ingredient.name}: 0.4 g"
       assert first =~ "Inventario disponible al hacer la primera pregunta del dia:"
       refute first =~ "al empezar a cocinar"
       assert %{"captured_on" => "2026-10-08", "inventory" => [_]} = frozen_part(session)
@@ -464,7 +476,7 @@ defmodule MealPlannerApi.Services.CookingChatTest do
       lot!(f, late)
 
       second = ask_observing_prompt(f, session, "And now?")
-      assert second =~ "#{f.ingredient.name}: 400 g"
+      assert second =~ "#{f.ingredient.name}: 0.4 g"
       refute second =~ late.name
     end
 
@@ -472,18 +484,18 @@ defmodule MealPlannerApi.Services.CookingChatTest do
       lot = lot!(f, f.ingredient)
       meal = meal!(f, @utc_day)
       session = start!(f, meal)
-      assert ask_observing_prompt(f, session, "Today?") =~ "#{f.ingredient.name}: 750 g"
+      assert ask_observing_prompt(f, session, "Today?") =~ "#{f.ingredient.name}: 0.75 g"
 
       next_day = DateTime.add(@instant, 86_400)
       meal |> Planning.ScheduledMeal.changeset(%{date: Date.add(@utc_day, 1)}) |> Repo.update!()
       lot |> InventoryItem.changeset(%{quantity_milli: 300}) |> Repo.update!()
 
       moved = ask_observing_prompt(f, session, "Tomorrow?", next_day)
-      assert moved =~ "#{f.ingredient.name}: 300 g"
+      assert moved =~ "#{f.ingredient.name}: 0.3 g"
       assert %{"captured_on" => "2026-10-09"} = frozen_part(session)
 
       lot |> InventoryItem.changeset(%{quantity_milli: 5}) |> Repo.update!()
-      assert ask_observing_prompt(f, session, "Again?", next_day) =~ "#{f.ingredient.name}: 300 g"
+      assert ask_observing_prompt(f, session, "Again?", next_day) =~ "#{f.ingredient.name}: 0.3 g"
     end
 
     test "the frozen snapshot survives step updates and stays out of the payloads", f do
@@ -492,7 +504,7 @@ defmodule MealPlannerApi.Services.CookingChatTest do
       session = start!(f, meal)
       refute Map.has_key?(session.snapshot, "frozen")
 
-      assert ask_observing_prompt(f, session, "Frozen now?") =~ "#{f.ingredient.name}: 750 g"
+      assert ask_observing_prompt(f, session, "Frozen now?") =~ "#{f.ingredient.name}: 0.75 g"
       assert start!(f, meal).snapshot |> Map.has_key?("frozen") == false
 
       [%{id: step_id}] = session.recipe.steps
@@ -513,7 +525,7 @@ defmodule MealPlannerApi.Services.CookingChatTest do
       lot |> InventoryItem.changeset(%{quantity_milli: 10}) |> Repo.update!()
 
       prompt = ask_observing_prompt(f, session, "Still frozen?")
-      assert prompt =~ "#{f.ingredient.name}: 750 g"
+      assert prompt =~ "#{f.ingredient.name}: 0.75 g"
       assert prompt =~ "Paso actual 1: Brown the onions."
     end
 
