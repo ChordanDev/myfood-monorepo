@@ -34,12 +34,11 @@ jobs:
           filters: |
             api:
               - 'apps/api/**'
-              # The api channel tests assert against these committed fixtures.
-              - 'apps/mobile/src/features/planner/fixtures/**'
-              # The api controller tests pin these frozen response bodies by key set.
-              - 'apps/mobile/src/features/auth/fixtures/**'
-              - 'apps/mobile/src/features/onboarding/fixtures/**'
-              - 'apps/mobile/src/features/preferences/fixtures/**'
+              # The api channel and controller tests read the committed mobile
+              # fixtures (`test/support/planner_fixtures.ex`,
+              # `test/support/mobile_fixtures.ex`). One glob over every feature,
+              # so a new pin cannot be left out of this list.
+              - 'apps/mobile/src/features/*/fixtures/**'
               - '.github/workflows/ci.yml'
             # `apps/api/lib/**` is here because the mobile contract test
             # (`authErrorCodeContract.test.ts`) scans the api source for the
