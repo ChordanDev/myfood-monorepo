@@ -102,23 +102,6 @@ export interface RecipeSummary {
 
 export type BudgetLevel = 'muy barato' | 'estándar' | 'premium';
 
-export interface UserPreferences {
-  budgetMode: 'level' | 'total';
-  budgetLevel?: BudgetLevel;
-  totalBudget?: number;
-  restrictions: string[]; // ['sin-gluten', 'vegano', etc.]
-  preferences: string[]; // ['mediterranea', 'picante', etc.]
-}
-
-export interface UserProfile {
-  id: string;
-  email: string;
-  name?: string;
-  preferences: UserPreferences;
-  createdAt: string;
-  updatedAt: string;
-}
-
 export interface MealPlan {
   id: string;
   userId: string;

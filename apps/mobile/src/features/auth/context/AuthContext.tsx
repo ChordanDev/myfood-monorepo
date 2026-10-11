@@ -264,11 +264,11 @@ export function AuthProvider({ children }: AuthProviderProps) {
       // policy is unit-tested in `postCompletion.test.ts`.
       const result = await authService.completeOnboarding(payload);
 
-      // The completion answer carries householdSize and cookingSkill,
-      // which GET /api/me serves as null until the server stores them,
-      // and onboarding completion does not yet. They go to the stored
-      // snapshot before the refresh below, so neither the refreshed nor a
-      // later restored /me drops them, and into `me` after it.
+      // The completion answer carries displayName, householdSize and
+      // cookingSkill. The server stores them with the completion and
+      // GET /api/me serves them afterwards. They still go to the stored
+      // snapshot before the refresh below, so a failed refresh or a later
+      // restored snapshot does not drop them, and into `me` after it.
       const email = meRef.current?.user.email;
       const completedProfile: ProfileUpdateUser | null =
         email === undefined

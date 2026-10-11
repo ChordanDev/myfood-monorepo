@@ -180,20 +180,6 @@ function renderOnboardingWithValue(value: AuthContextValue) {
   return { tree: tree! };
 }
 
-function renderOnboardingPreviewWithValue(value: AuthContextValue) {
-  let tree: ReturnType<typeof create> | null = null;
-  act(() => {
-    tree = create(
-      React.createElement(
-        AuthContext.Provider,
-        { value },
-        React.createElement(OnboardingScreen, { previewMode: true })
-      )
-    );
-  });
-  return { tree: tree! };
-}
-
 function updateOnboardingWithValue(tree: ReturnType<typeof create>, value: AuthContextValue) {
   act(() => {
     tree.update(
@@ -252,24 +238,24 @@ describe('OnboardingScreen — post-completion redirect stabilization (Judgment 
     jest.restoreAllMocks();
   });
 
-  it('renders in preview mode without redirecting when unauthenticated', () => {
-    const { tree } = renderOnboardingPreviewWithValue(buildContext(null));
-    expect(findRedirectHref(tree.root)).toBeNull();
+  it('redirects to "/" when unauthenticated', () => {
+    const { tree } = renderOnboardingWithValue(buildContext(null));
+    expect(findRedirectHref(tree.root)).toBe('/');
     unmountTree(tree);
   });
 
-  it('does not complete onboarding or replace navigation when preview submit is pressed', async () => {
-    const completeOnboarding = jest.fn();
+  it('completes onboarding and replaces navigation when the last step is submitted', async () => {
+    const completeOnboarding = jest.fn().mockResolvedValue(undefined);
     const me = makeMe({
       user: {
         id: 'user-1',
         email: 'user@example.com',
-        displayName: 'Preview User',
+        displayName: 'Test User',
         householdSize: null,
         cookingSkill: null,
       },
     });
-    const { tree } = renderOnboardingPreviewWithValue(buildContext(me, { completeOnboarding }));
+    const { tree } = renderOnboardingWithValue(buildContext(me, { completeOnboarding }));
 
     // The submit action lives on the last of the three steps.
     for (const label of ['CONTINUAR', 'CONTINUAR', 'FINALIZAR']) {
@@ -278,21 +264,21 @@ describe('OnboardingScreen — post-completion redirect stabilization (Judgment 
       });
     }
 
-    expect(Alert.alert).toHaveBeenCalledWith('Modo preview', expect.any(String));
-    expect(completeOnboarding).not.toHaveBeenCalled();
-    expect(mockRouterReplace).not.toHaveBeenCalled();
+    expect(completeOnboarding).toHaveBeenCalledTimes(1);
+    expect(mockRouterReplace).toHaveBeenCalledWith('/');
+    expect(Alert.alert).not.toHaveBeenCalled();
     unmountTree(tree);
   });
 
-  it('does not sign out when preview close-session action is pressed', () => {
+  it('signs out when the close-session action is pressed', () => {
     const signOut = jest.fn();
-    const { tree } = renderOnboardingPreviewWithValue(buildContext(makeMe(), { signOut }));
+    const { tree } = renderOnboardingWithValue(buildContext(makeMe(), { signOut }));
 
     act(() => {
-      findButtonByText(tree.root, 'Cerrar sesión').props.onPress?.();
+      findButtonByText(tree.root, 'Cerrar sesión').props.onPress();
     });
 
-    expect(signOut).not.toHaveBeenCalled();
+    expect(signOut).toHaveBeenCalledTimes(1);
     unmountTree(tree);
   });
 
