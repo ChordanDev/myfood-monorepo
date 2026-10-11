@@ -41,13 +41,13 @@ About 550 authored changed lines over four PRs, each under 400.
 
 ## Tasks
 - [x] T1 #125 web tests on the Account's clock. Route: delegated writer (three test files).
-- [ ] T2 #126 remove `paused` from the Cooking session status. Route: delegated writer (schema, migration, service, tests, glossary).
+- [x] T2 #126 remove `paused` from the Cooking session status. Route: delegated writer (schema, migration, service, tests, glossary).
 - [ ] T3 #147 Shopping rows before the Inventory key in finish. Route: delegated writer (service plus a two-connection test).
 - [ ] T4 #148 start refuses a cooked meal that has no finished session. Route: delegated writer (service, service and web tests, glossary).
 
 ## Progress / evidence
 
-### T1 (#125), 2026-10-11, uncommitted (the parent commits)
+### T1 (#125), 2026-10-11, committed as `aa28e00`, PR #221
 - New `apps/api/test/support/account_clock_fixtures.ex`: `MealPlannerApi.AccountClockFixtures.pin_account_to_midday!/2` stores on the Account the fixed-offset zone (`Etc/GMT`, `Etc/GMT-N`, `Etc/GMT+N`) that is `12 - UTC hour` hours ahead of UTC, through `Account.timezone_changeset/2`, and returns `AccountClock.today/2` at the instant. The instant is then in the Account's 12:00 hour, the returned date equals the UTC date, and it stays the Account's today for eleven hours on each side. `Tz.TimeZoneDatabase` and the changeset validation accept all 24 zone names (`Etc/GMT-12` to `Etc/GMT+11`).
 - New `apps/api/test/meal_planner_api/account_clock_fixtures_test.exs`: 6 tests over the first and the last second of every UTC hour of a fixed day (returned date, stored zone gives hour 12, same today at 11 hours before and after, struct or id, instant given in another zone, default instant).
 - `cooking_controller_test.exs`: every meal date and every "not today" date comes from the pinned Account's today (the tenancy test pins `membership_a`'s Account; the two `describe` setups pin and pass `today` in the context). No `Date.utc_today()` and no direct `AccountClock.today/1` left.
@@ -62,5 +62,25 @@ About 550 authored changed lines over four PRs, each under 400.
   - `mix test`: 1825 passed, 22 skipped, exit 0.
 - Not checked: a run at a real day boundary. The tests cannot move the server's clock, so the guarantee rests on the helper's unit test.
 
+### T2 (#126), 2026-10-11, uncommitted (the parent commits)
+- `CookingSession`: `status` is `Ecto.Enum` over `[:active, :completed]`. The file had no doc or typespec listing the statuses.
+- New migration `20261011150531_drop_paused_from_cooking_session_status.exs`: explicit `up` and `down` that drop and recreate `cooking_sessions_status_check` (`status IN ('active', 'completed')`; `down` restores the three values). No row is rewritten; a `paused` row would make `up` fail. The original migration is unchanged.
+- `CookingService`: `persist_finish/3` rolls back with `:cooking_already_finished` on a completed session and otherwise proceeds; the catch-all clause of `chat_available/2` and the `_` branch of `lock_active_session!/2` are gone. `active_session/1`, `@type step_status`, the `track_step` guard, `cooking_step_event.ex` and the controller's step mapping are unchanged. `:cooking_session_not_active` is still answered by `active_session/1` (a step on a completed session).
+- `docs/GLOSSARY.md`, Cooking session: "`active` or `completed`".
+- New `apps/api/test/meal_planner_api/persistence/planning/cooking_session_test.exs`, 6 tests: the enum values, the default, `completed` accepted and `paused` (atom and string) refused by the changeset; the table accepts `active` and `completed` and refuses `paused` with a check violation on `cooking_sessions_status_check` (raw `UPDATE` inside a savepoint).
+- `migration_shape_test.exs` and `migration_sanity_test.exs` hold no rule for new migrations; neither was edited.
+- Route: delegated writer.
+- RED, before the schema, migration and service changed (3 of 6 failed): `Ecto.Enum.values(CookingSession, :status)` was `[:active, :paused, :completed]`; `refute changeset.valid?` got `true` for `paused`; `Expected exception Postgrex.Error but nothing was raised` on the raw `UPDATE`. GREEN after: 6 passed.
+- Checks (`apps/api`, `MIX_ENV=test`, lane database):
+  - `mix ecto.migrate --quiet`: exit 0; constraint `CHECK (status = ANY (ARRAY['active', 'completed']))`.
+  - `Ecto.Migrator.down(Repo, 20261011150531, DropPausedFromCookingSessionStatus)`: `:ok`; `schema_migrations` went from 48 to 47 rows (only this version); constraint back to `ARRAY['active', 'paused', 'completed']`. `mix ecto.migrate --quiet` again: exit 0, 48 rows, constraint `ARRAY['active', 'completed']`.
+  - `mix test test/meal_planner_api/services test/meal_planner_api/persistence/planning test/meal_planner_api_web/controllers/cooking_controller_test.exs test/support`: 407 passed, 9 skipped.
+  - `mix compile --warnings-as-errors` (also with `--force`): exit 0, no warnings.
+  - `mix format --check-formatted`: exit 0.
+  - `mix credo --strict`: 345 files, no issues.
+  - `mix test`: 1831 passed, 22 skipped, exit 0 (1825 before, plus the 6 new).
+  - `mix dialyzer --format short`: exit 2 with the 9 known `call_without_opaque` warnings and nothing else; none in `cooking_service.ex`.
+- Left alone, outside the edit surface: `apps/mobile/src/features/cooking/types/cookingApi.ts:21` still types the session status as `'active' | 'paused' | 'completed'`; `odd/tasks/calendar-meal-move.md:51` mentions an "`active` or `paused` Cooking session" in a record of earlier work.
+
 ## Next step
-T2.
+T3.
