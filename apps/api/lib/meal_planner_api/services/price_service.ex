@@ -2,12 +2,11 @@ defmodule MealPlannerApi.Services.PriceService do
   @moduledoc """
   Business logic layer for price data.
 
-  Bridges the data layer (PriceRepo, UnitConversionRepo) with the generation
-  pipeline. Handles the transformation from raw DB prices → optimizer input.
+  Reads recipe prices from the data layer (PriceRepo) in the shape the
+  optimizer takes, and holds the constraint and slot-suitability helpers.
   """
 
-  alias MealPlannerApi.Data.{PriceRepo, UserPreferenceRepo}
-  alias MealPlannerApi.Persistence.Catalog
+  alias MealPlannerApi.Data.PriceRepo
 
   # -------------------------------------------------------------------------
   # Price lookups
@@ -41,65 +40,6 @@ defmodule MealPlannerApi.Services.PriceService do
     |> Enum.into(%{}, fn rp ->
       {rp.recipe_id, rp.price_per_serving_cents / 100.0}
     end)
-  end
-
-  # -------------------------------------------------------------------------
-  # Slot list for optimization
-  # -------------------------------------------------------------------------
-
-  @doc """
-  Builds the list of slots to optimize for a date range.
-
-  Returns a list of slot maps with `available_recipe_ids` filtered by:
-  - Excluded ingredients (from user preferences)
-  - Excluded recipes (user override)
-  - Recipe suitability (breakfast/lunch/dinner/snack)
-  """
-  @spec build_slot_list(map()) :: {:ok, [map()]} | {:error, :no_slots}
-  def build_slot_list(%{
-        account_id: _account_id,
-        user_id: user_id,
-        date_from: date_from,
-        date_to: date_to,
-        slot_types: slot_types,
-        constraints: constraints
-      }) do
-    # Load user preferences (exclusions, protein target)
-    user_prefs =
-      case UserPreferenceRepo.get(user_id) do
-        nil ->
-          %{protein_g_per_meal: 25, default_exclusions: []}
-
-        prefs ->
-          %{
-            protein_g_per_meal: prefs.protein_g_per_meal,
-            default_exclusions: prefs.default_exclusions
-          }
-      end
-
-    # Merge profile defaults with payload overrides
-    resolved = merge_constraints(user_prefs, constraints)
-
-    # Load all recipes with their prices
-    all_recipes =
-      Catalog.list_recipes_with_prices_and_ingredients()
-      |> Enum.reject(fn recipe ->
-        is_nil(Map.get(recipe, :recipe_price)) or
-          Map.get(recipe.recipe_price, :price_per_serving_cents, 0) == 0
-      end)
-
-    # Filter by exclusions
-    filtered =
-      all_recipes
-      |> filter_by_excluded_recipes(resolved.excluded_recipe_ids)
-      |> filter_by_excluded_ingredients(resolved.excluded_ingredients)
-
-    # Build slot list
-    slots = generate_slots(date_from, date_to, slot_types, filtered, resolved)
-
-    if slots == [], do: {:error, :no_slots}, else: {:ok, slots}
-  rescue
-    _ -> {:error, :no_slots}
   end
 
   # -------------------------------------------------------------------------
@@ -141,52 +81,6 @@ defmodule MealPlannerApi.Services.PriceService do
   # -------------------------------------------------------------------------
   # Private
   # -------------------------------------------------------------------------
-
-  defp generate_slots(date_from, date_to, slot_types, recipes, constraints) do
-    date_from = Date.from_iso8601!(date_from)
-    date_to = Date.from_iso8601!(date_to)
-
-    slot_types
-    |> Enum.flat_map(fn slot_name ->
-      Enum.map(Date.range(date_from, date_to), fn date ->
-        %{
-          date: Date.to_iso8601(date),
-          slot: slot_name,
-          available_recipe_ids: available_recipe_ids_for_slot(recipes, slot_name),
-          constraints: %{
-            budget_cents: constraints.max_budget_per_meal_cents,
-            protein_g: constraints.protein_g_per_meal,
-            max_calories: constraints.max_calories,
-            excluded_recipe_ids: constraints.excluded_recipe_ids,
-            excluded_ingredients: constraints.excluded_ingredients
-          }
-        }
-      end)
-    end)
-  end
-
-  defp filter_by_excluded_recipes(recipes, excluded_ids) when is_list(excluded_ids) do
-    Enum.reject(recipes, fn r -> r.id in excluded_ids end)
-  end
-
-  defp filter_by_excluded_ingredients(recipes, exclusions) when is_list(exclusions) do
-    Enum.reject(recipes, fn recipe ->
-      has_excluded_ingredient?(recipe, exclusions)
-    end)
-  end
-
-  defp has_excluded_ingredient?(recipe, exclusions) do
-    recipe_ingredients = Map.get(recipe, :recipe_ingredients, [])
-
-    Enum.any?(recipe_ingredients, fn ri ->
-      ingredient = Map.get(ri, :ingredient)
-
-      Enum.any?(exclusions, fn excluded ->
-        ingredient &&
-          String.downcase(ingredient.name) |> String.contains?(String.downcase(excluded))
-      end)
-    end)
-  end
 
   defp suitable_for_slot?(recipe, slot) do
     suitable_slots = Map.get(recipe, :suitable_for_slots, []) |> Enum.map(&to_string/1)
