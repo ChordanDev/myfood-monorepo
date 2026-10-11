@@ -353,21 +353,23 @@ defmodule MealPlannerApiWeb.ShoppingControllerTest do
       assert line["supermarketId"] == nil
 
       assert [first, second] = line["allocations"]
-      assert sorted_keys(first) == ~w(date itemId quantityMilli scheduledMealId slot)
+      assert sorted_keys(first) == ~w(date itemId quantityMilli scheduledMealId slot status)
       assert is_binary(first["itemId"])
 
       assert Map.delete(first, "itemId") == %{
                "scheduledMealId" => c.first_meal.id,
                "date" => c.today,
                "slot" => "lunch",
-               "quantityMilli" => 400
+               "quantityMilli" => 400,
+               "status" => "needed"
              }
 
       assert Map.delete(second, "itemId") == %{
                "scheduledMealId" => c.second_meal.id,
                "date" => c.later,
                "slot" => "dinner",
-               "quantityMilli" => 400
+               "quantityMilli" => 400,
+               "status" => "needed"
              }
 
       assert data["manual"] == []

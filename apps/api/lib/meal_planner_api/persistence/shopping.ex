@@ -304,28 +304,49 @@ defmodule MealPlannerApi.Persistence.Shopping do
           ShoppingItem.t()
         ]
   def list_open_items_with_context(account_id, from_date, until_date \\ nil) do
+    from([i, _ingredient, _meal] in planned_items_with_context(account_id, from_date, until_date),
+      where: i.status in [:pending, :in_cart, :removed]
+    )
+    |> Repo.all()
+  end
+
+  @doc """
+  The planned Shopping items of an Account that were bought (`:checked_out`,
+  or `:pending_delivery` while an online purchase is on its way) for a
+  Scheduled meal that is not cooked yet, in the same range and with the same
+  associations as `list_open_items_with_context/3`.
+
+  A purchased item answers for its meal until the meal is cooked or leaves
+  the range. Purchased manual items are for no meal and are never returned.
+  """
+  @spec list_purchased_items_with_context(Ecto.UUID.t(), Date.t(), Date.t() | nil) :: [
+          ShoppingItem.t()
+        ]
+  def list_purchased_items_with_context(account_id, from_date, until_date \\ nil) do
+    from([i, _ingredient, meal] in planned_items_with_context(account_id, from_date, until_date),
+      where: i.status in [:checked_out, :pending_delivery] and meal.is_cooked == false
+    )
+    |> Repo.all()
+  end
+
+  defp planned_items_with_context(account_id, from_date, until_date) do
     # Joined, so an item is only listed together with both of them.
     query =
       from(i in ShoppingItem,
         join: ingredient in assoc(i, :ingredient),
         join: meal in assoc(i, :scheduled_meal),
-        where:
-          i.account_id == ^account_id and i.status in [:pending, :in_cart, :removed] and
-            i.planned_date >= ^from_date,
+        where: i.account_id == ^account_id and i.planned_date >= ^from_date,
         # A stable order for any caller. The Shopping list read re-sorts by
         # the slot's place in the day, which SQL cannot express on a string.
         order_by: [asc: i.planned_date, asc: i.id],
         preload: [ingredient: ingredient, scheduled_meal: meal]
       )
 
-    query =
-      if until_date do
-        from(i in query, where: i.planned_date <= ^until_date)
-      else
-        query
-      end
-
-    Repo.all(query)
+    if until_date do
+      from(i in query, where: i.planned_date <= ^until_date)
+    else
+      query
+    end
   end
 
   @spec list_items_for_account(pos_integer(), keyword()) :: [ShoppingItem.t()]

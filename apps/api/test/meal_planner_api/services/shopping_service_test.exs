@@ -291,7 +291,7 @@ defmodule MealPlannerApi.ShoppingServiceTest do
       assert response.planned_dates == []
     end
 
-    test "lists only pending and in cart items, as needed and in_cart" do
+    test "lists pending, in cart and purchased items, and never archived ones" do
       {account_id, user} = identity!("statuses")
       date = Date.add(Date.utc_today(), 1)
 
@@ -312,11 +312,12 @@ defmodule MealPlannerApi.ShoppingServiceTest do
 
       assert Enum.map(response.planned, &{&1.ingredient_id, &1.status, &1.source}) == [
                {pending, "needed", "planned_meal"},
-               {in_cart, "in_cart", "planned_meal"}
+               {in_cart, "in_cart", "planned_meal"},
+               # Bought for a meal that is not cooked yet (issue #43).
+               {checked_out, "purchased", "planned_meal"}
              ]
 
       refute archived in Enum.map(response.planned, & &1.ingredient_id)
-      refute checked_out in Enum.map(response.planned, & &1.ingredient_id)
       assert response.manual == []
       assert response.totals.needed == 1
       assert response.totals.in_cart == 1

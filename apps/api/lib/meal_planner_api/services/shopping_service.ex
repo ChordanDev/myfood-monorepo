@@ -44,8 +44,14 @@ defmodule MealPlannerApi.Services.ShoppingService do
   `{:ok, payload}` with:
 
     * `planned` — the lines `ShoppingRebuilder.group_lines/2` builds from
-      the pending and in-cart Shopping items planned from today on, with
-      `status` `"needed"` or `"in_cart"` and `source` `"planned_meal"`.
+      the Shopping items planned from today on, with `status` `"needed"`,
+      `"in_cart"`, `"removed"` or `"purchased"` and `source`
+      `"planned_meal"`. Each allocation carries the `status` of its own
+      Shopping item. A purchased item stays listed until its Scheduled meal
+      is cooked or falls outside the range of the read; it is never to buy
+      again, so only the allocations that read `"needed"` can go into a
+      Cart, and the quantity of a line that was bought in part is its
+      remainder.
     * `manual` — the Shopping items the User added by hand that are still
       on the list, oldest first, one line each in the shape of a `planned`
       line (`source` `"manual"`, no allocations). They are never merged with
@@ -55,7 +61,8 @@ defmodule MealPlannerApi.Services.ShoppingService do
       still reads `"in_cart"`.
     * `totals` — `needed`, `in_cart` and `removed` count the planned
       lines by status; `estimated_cents` adds the estimated price of the
-      needed items.
+      needed items. Purchased lines and quantities are in none of them:
+      the totals are what is still to buy.
     * `planned_dates` — the sorted dates with an uncooked Scheduled meal
       from today on, whatever `until_date` is.
 
@@ -91,18 +98,19 @@ defmodule MealPlannerApi.Services.ShoppingService do
         ShoppingRebuilder.limit_to_date(upcoming_meals, until_date)
       )
 
+    # What is still on the list, and what was bought for a meal that is yet
+    # to be cooked.
     items =
-      account_id
-      |> Shopping.list_open_items_with_context(today, until_date)
+      (Shopping.list_open_items_with_context(account_id, today, until_date) ++
+         Shopping.list_purchased_items_with_context(account_id, today, until_date))
       |> Enum.sort_by(&list_position/1)
 
-    planned =
-      items
-      |> Enum.map(&planned_row/1)
-      |> ShoppingRebuilder.group_lines(group_by)
+    rows = Enum.map(items, &planned_row/1)
+    planned = ShoppingRebuilder.group_lines(rows, group_by)
+    statuses = Map.new(rows, &{&1.item_id, &1.status})
 
     %{
-      planned: Enum.map(planned, &serialize_line/1),
+      planned: Enum.map(planned, &serialize_line(&1, statuses)),
       manual: account_id |> Shopping.list_open_manual_items() |> Enum.map(&manual_line/1),
       cart: serialize_cart(Cart.active_for(account_id, identity.user_id, now)),
       totals: %{
@@ -168,6 +176,9 @@ defmodule MealPlannerApi.Services.ShoppingService do
   defp list_status(:pending), do: :needed
   defp list_status(:in_cart), do: :in_cart
   defp list_status(:removed), do: :removed
+  # Bought: stocked already, or on its way with an online purchase.
+  defp list_status(:checked_out), do: :purchased
+  defp list_status(:pending_delivery), do: :purchased
 
   # The line of a manual item: the shape of a planned line, for no meal. The
   # Ingredient is optional; without one the category is `otros`.
@@ -187,15 +198,21 @@ defmodule MealPlannerApi.Services.ShoppingService do
   end
 
   # Enum values leave as strings, like the rest of this service. Dates stay
-  # `Date` structs, which the JSON encoder writes as ISO 8601.
-  defp serialize_line(line) do
+  # `Date` structs, which the JSON encoder writes as ISO 8601. Each allocation
+  # leaves with the status of its own Shopping item, from `statuses`: a line
+  # can mix what was bought with what is still to buy.
+  defp serialize_line(line, statuses) do
     %{
       line
       | category: Atom.to_string(line.category),
         unit: Atom.to_string(line.unit),
         status: Atom.to_string(line.status),
         source: Atom.to_string(line.source),
-        allocations: Enum.map(line.allocations, &%{&1 | slot: Atom.to_string(&1.slot)})
+        allocations:
+          Enum.map(line.allocations, fn allocation ->
+            %{allocation | slot: Atom.to_string(allocation.slot)}
+            |> Map.put(:status, Atom.to_string(Map.fetch!(statuses, allocation.item_id)))
+          end)
     }
   end
 
