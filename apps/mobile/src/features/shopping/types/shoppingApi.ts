@@ -116,9 +116,11 @@ export interface MarkedCart extends CartLease {
   items: CartReservation[];
 }
 
-// What `DELETE /api/cart/:sessionId` answers.
+// What `DELETE /api/cart/:sessionId` answers. An answer that does not say `abandoned` is not
+// read as one.
 export interface CancelledCart {
   sessionId: string;
+  // The Shopping items the Cart released back to the list.
   updatedRows: number;
   status: 'abandoned';
 }

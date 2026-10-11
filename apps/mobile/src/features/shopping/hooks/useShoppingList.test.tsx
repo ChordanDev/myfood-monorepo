@@ -258,3 +258,87 @@ describe('useShoppingList: items added by hand and removed ones', () => {
     expect(hook.current.changeErrorMessage).toBeUndefined();
   });
 });
+
+describe('useShoppingList: the planned lines', () => {
+  it('serves the planned lines of the read, whole, and no manual one', async () => {
+    const hook = await renderHook(SHOPPING_LIST_WITH_MANUAL_AND_REMOVED);
+
+    expect(hook.current.plannedLines).toBe(useShoppingListStore.getState().list!.planned);
+    expect(hook.current.plannedLines).toEqual(SHOPPING_LIST_WITH_MANUAL_AND_REMOVED.planned);
+    expect(hook.current.plannedLines).not.toContainEqual(MANUAL_DISH_SOAP);
+  });
+
+  it('serves the same empty list on every render while no read has landed', async () => {
+    const result = { current: undefined as unknown as ShoppingListHook };
+    let renderer: ReturnType<typeof create> | undefined;
+
+    function Probe() {
+      result.current = useShoppingList();
+      return null;
+    }
+
+    // The first read has not answered yet: there is no list.
+    let answer!: (response: Response) => void;
+    fetchMock.mockReturnValueOnce(new Promise<Response>((resolve) => (answer = resolve)));
+    await act(async () => {
+      renderer = create(<Probe />);
+    });
+    const first = result.current.plannedLines;
+
+    await act(async () => {
+      renderer!.update(<Probe />);
+    });
+
+    expect(first).toEqual([]);
+    expect(result.current.plannedLines).toBe(first);
+
+    // The read lands before the test ends, so the request and its timeout do not outlive it.
+    await act(async () => {
+      answer(jsonResponse(toShoppingListResponse(SHOPPING_LIST_BY_INGREDIENT)));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+  });
+});
+
+describe('useShoppingList: reading the list again', () => {
+  it.each(['refresh', 'retry'] as const)(
+    'reads the list again from `%s` after a read that landed',
+    async (name) => {
+      const hook = await renderHook(SHOPPING_LIST_BY_INGREDIENT);
+      answerWithList(SHOPPING_LIST_WITH_MANUAL_AND_REMOVED);
+
+      await act(async () => {
+        hook.current[name]();
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      });
+
+      expect(requests().map(({ method, path }) => `${method} ${path}`)).toEqual([
+        'GET /api/shopping-list',
+      ]);
+      expect(hook.current.removedCount).toBe(1);
+    }
+  );
+
+  it('reads the list again from `refresh` after a read that failed', async () => {
+    const hook = await renderHook(SHOPPING_LIST_BY_INGREDIENT);
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse(toShoppingErrorResponse('unknown_error', 'Failed.'), false, 500)
+    );
+    await act(async () => {
+      hook.current.refresh();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(hook.current.errorMessage).toBeDefined();
+    fetchMock.mockClear();
+    answerWithList(SHOPPING_LIST_WITH_MANUAL_AND_REMOVED);
+
+    await act(async () => {
+      hook.current.refresh();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(requests()).toHaveLength(1);
+    expect(hook.current.errorMessage).toBeUndefined();
+    expect(hook.current.removedCount).toBe(1);
+  });
+});

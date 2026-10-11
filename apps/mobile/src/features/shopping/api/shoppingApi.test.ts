@@ -440,6 +440,16 @@ describe('the Cart lease', () => {
     items: [{ itemId: 'item-1', reservationToken: 'token-1', quantityMilli: 200000 }],
   };
 
+  // The marked Cart with other `items`, valid or not.
+  function withMarkedItems(items: unknown) {
+    return { ...MARKED, items };
+  }
+
+  // The same Cart with its one item, with these members instead of its own.
+  function withMarkedItem(members: Record<string, unknown>) {
+    return withMarkedItems([{ ...MARKED.items[0], ...members }]);
+  }
+
   beforeEach(() => {
     mockSecureStore.clear();
     mockSecureStore.set('auth_access_token', 'access-1');
@@ -473,6 +483,28 @@ describe('the Cart lease', () => {
       ['no session id', { data: { ...MARKED, sessionId: undefined } }],
       ['no lease', { data: { ...MARKED, leaseExpiresAt: undefined } }],
       ['items that are not a list', { data: { ...MARKED, items: {} } }],
+      ['no items', { data: { ...MARKED, items: undefined } }],
+      ['an item that is not an object', { data: withMarkedItems(['item-1']) }],
+      ['an item without an id', { data: withMarkedItem({ itemId: undefined }) }],
+      ['an item with an empty id', { data: withMarkedItem({ itemId: '' }) }],
+      [
+        'an item without a reservation token',
+        { data: withMarkedItem({ reservationToken: undefined }) },
+      ],
+      [
+        'an item with an empty reservation token',
+        { data: withMarkedItem({ reservationToken: '' }) },
+      ],
+      ['an item with a negative quantity', { data: withMarkedItem({ quantityMilli: -1 }) }],
+      [
+        'an item whose quantity is not a number',
+        { data: withMarkedItem({ quantityMilli: '200000' }) },
+      ],
+      ['an item whose quantity is not whole', { data: withMarkedItem({ quantityMilli: 1.5 }) }],
+      [
+        'a malformed item after a valid one',
+        { data: withMarkedItems([...MARKED.items, { itemId: 'item-2' }]) },
+      ],
     ])('rejects %s as unintelligible', async (_name, body) => {
       fetchMock.mockReturnValueOnce(mockJsonResponse(body));
 
@@ -480,6 +512,26 @@ describe('the Cart lease', () => {
         code: 'unknown_error',
         message: 'Malformed cart response',
       });
+    });
+
+    it('accepts a Cart that reserved no item', async () => {
+      const marked = withMarkedItems([]);
+      fetchMock.mockReturnValueOnce(mockJsonResponse({ data: marked }));
+
+      await expect(markInCart(['item-1'])).resolves.toEqual(marked);
+    });
+
+    it('accepts an item reserved at a quantity of zero', async () => {
+      const marked = withMarkedItem({ quantityMilli: 0 });
+      fetchMock.mockReturnValueOnce(mockJsonResponse({ data: marked }));
+
+      await expect(markInCart(['item-1'])).resolves.toEqual(marked);
+    });
+
+    it('answers the lease and the items, and no other member of the answer', async () => {
+      fetchMock.mockReturnValueOnce(mockJsonResponse({ data: { ...MARKED, status: 'active' } }));
+
+      await expect(markInCart(['item-1'])).resolves.toEqual(MARKED);
     });
 
     it('surfaces a Cart held by another Membership as `cart_locked`', async () => {
@@ -522,15 +574,41 @@ describe('the Cart lease', () => {
   });
 
   describe('cancelCart', () => {
-    it('deletes the session and returns the abandoned Cart', async () => {
-      const cancelled = { sessionId: 'session-1', updatedRows: 2, status: 'abandoned' };
-      fetchMock.mockReturnValueOnce(mockJsonResponse({ data: cancelled }));
+    const CANCELLED = { sessionId: 'session-1', updatedRows: 2, status: 'abandoned' };
 
-      await expect(cancelCart('session-1')).resolves.toEqual(cancelled);
+    it('deletes the session and returns the abandoned Cart', async () => {
+      fetchMock.mockReturnValueOnce(mockJsonResponse({ data: CANCELLED }));
+
+      await expect(cancelCart('session-1')).resolves.toEqual(CANCELLED);
 
       const [url, init] = fetchMock.mock.calls[0];
       expect(url).toBe('https://api.example.test/api/cart/session-1');
       expect(init.method).toBe('DELETE');
+    });
+
+    it('accepts a Cart that held no item', async () => {
+      const empty = { ...CANCELLED, updatedRows: 0 };
+      fetchMock.mockReturnValueOnce(mockJsonResponse({ data: empty }));
+
+      await expect(cancelCart('session-1')).resolves.toEqual(empty);
+    });
+
+    it.each([
+      ['an empty body', null],
+      ['a body without `data`', CANCELLED],
+      ['no session id', { data: { ...CANCELLED, sessionId: undefined } }],
+      ['no status', { data: { ...CANCELLED, status: undefined } }],
+      ['a status other than abandoned', { data: { ...CANCELLED, status: 'active' } }],
+      ['no count of the items it released', { data: { ...CANCELLED, updatedRows: undefined } }],
+      ['a count that is not a number', { data: { ...CANCELLED, updatedRows: '2' } }],
+      ['a count that is not whole', { data: { ...CANCELLED, updatedRows: 1.5 } }],
+    ])('rejects %s as unintelligible', async (_name, body) => {
+      fetchMock.mockReturnValueOnce(mockJsonResponse(body));
+
+      await expect(cancelCart('session-1')).rejects.toMatchObject({
+        code: 'unknown_error',
+        message: 'Malformed cart response',
+      });
     });
 
     it('surfaces an unknown session as `cart_not_found`', async () => {

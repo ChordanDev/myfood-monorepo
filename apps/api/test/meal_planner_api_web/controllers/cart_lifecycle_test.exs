@@ -245,20 +245,19 @@ defmodule MealPlannerApiWeb.CartLifecycleTest do
           {:post, "/api/cart/#{cart.session_id}/activity"},
           {:delete, "/api/cart/#{cart.session_id}"}
         ] do
-      assert %{"error" => %{"code" => code}} =
+      assert %{"error" => %{"code" => "stale_cart"}} =
                request(f, method, path, %{}) |> json_response(409)
-
-      assert code in ["stale_cart", "cart_not_found"]
     end
   end
 
   test "cancel reports the Cart as abandoned", f do
     cart = reserve!(f)
 
-    assert %{"data" => %{"sessionId" => id, "status" => "abandoned"}} =
+    assert %{"data" => %{"sessionId" => id, "status" => "abandoned", "updatedRows" => rows}} =
              request(f, :delete, "/api/cart/#{cart.session_id}", %{}) |> json_response(200)
 
     assert id == cart.session_id
+    assert rows == length(f.items)
     assert Enum.all?(lines(f), &(&1.status == :pending))
   end
 

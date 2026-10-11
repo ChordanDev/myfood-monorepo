@@ -49,15 +49,25 @@ export function useCartLease({ listCart, refreshList }: UseCartLeaseOptions) {
   const isConfirmingRef = useRef(false);
   const [isFocused, setIsFocused] = useState(false);
   const [isAppActive, setIsAppActive] = useState(AppState.currentState === 'active');
-  const [readCart, setReadCart] = useState(listCart);
+  // The `listCart` of the render before this one: what tells a read that just landed apart.
+  const [lastSeenListCart, setLastSeenListCart] = useState(listCart);
+  // The session this device ended, by abandoning the Cart or by buying it. A read of the list
+  // asked before that can land after it and still report the Cart. It is state and not a ref
+  // because it is read while rendering. A lease the server reported gone is not kept here:
+  // for that one the read of the list decides.
+  const [endedSessionId, setEndedSessionId] = useState<string | null>(null);
   // When the lease was last known to be extended: the last tick or the last renewal. Zero
   // until one happened in this session, so a Cart found on opening the screen is due.
   const lastActivityAt = useRef(0);
 
-  // What the server reports is the truth: a read that lands replaces the local Cart.
-  if (listCart !== readCart) {
-    setReadCart(listCart);
-    setCart(listCart);
+  // What the server reports is the truth: a read that lands replaces the local Cart, unless
+  // it still reports the Cart this device ended. This is React's "derive state from props"
+  // pattern: the state is adjusted while rendering, when the prop changed, and React renders
+  // again before it draws anything. It is deliberately not an effect, which would first draw
+  // a render that still holds the Cart of the read before.
+  if (listCart !== lastSeenListCart) {
+    setLastSeenListCart(listCart);
+    setCart(listCart?.sessionId === endedSessionId ? null : listCart);
   }
 
   useFocusEffect(
@@ -116,6 +126,8 @@ export function useCartLease({ listCart, refreshList }: UseCartLeaseOptions) {
 
         lastActivityAt.current = Date.now();
         setIsHeldByAnother(false);
+        // A Cart started again: whatever session the server gave it is one to take from a read.
+        setEndedSessionId(null);
         setCart({ sessionId: marked.sessionId, leaseExpiresAt: marked.leaseExpiresAt });
         refreshList();
       } catch (caught) {
@@ -123,6 +135,8 @@ export function useCartLease({ listCart, refreshList }: UseCartLeaseOptions) {
           setIsHeldByAnother(true);
           setError(caught);
         } else if (isApiError(caught) && caught.code === 'stale_cart') {
+          // The Cart ran out: the row goes back to how it was, so the error says why.
+          setError(caught);
           dropCart();
         } else {
           // The row may be stale (gone or reserved meanwhile): read the list so it heals.
@@ -141,6 +155,7 @@ export function useCartLease({ listCart, refreshList }: UseCartLeaseOptions) {
 
     try {
       await cancelCart(sessionId);
+      setEndedSessionId(sessionId);
       dropCart();
     } catch (caught) {
       if (isLeaseGone(caught)) dropCart();
@@ -162,6 +177,7 @@ export function useCartLease({ listCart, refreshList }: UseCartLeaseOptions) {
 
       try {
         await confirmCheckout({ sessionId, checkoutType: 'physical', lines });
+        setEndedSessionId(sessionId);
         dropCart();
         return 'purchased';
       } catch (caught) {

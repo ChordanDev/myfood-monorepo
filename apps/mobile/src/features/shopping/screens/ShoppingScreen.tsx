@@ -58,9 +58,10 @@ export function ShoppingScreen() {
     isEmpty,
     errorMessage,
     retry,
+    refresh,
     cart: listCart,
     cartLines,
-    lines,
+    plannedLines,
     manualItems,
     removedCount,
     addManualItem,
@@ -84,19 +85,20 @@ export function ShoppingScreen() {
     errorMessage: cartErrorMessage,
   } = useCartLease({
     listCart,
-    refreshList: retry,
+    refreshList: refresh,
   });
 
-  // A row stands for one line: ticking it ticks the items behind it that are still to buy. A
-  // line already in the Cart has nothing to tick, and neither has a bought one.
+  // A row stands for one planned line: ticking it ticks the items behind it that are still to
+  // buy. A line already in the Cart has nothing to tick, and neither has a bought one. Only
+  // the planned lines are looked up: an item added by hand has no row to tick on this screen.
   const tickLine = useCallback(
     (lineId: string) => {
-      const line = lines.find((candidate) => candidate.id === lineId);
+      const line = plannedLines.find((candidate) => candidate.id === lineId);
       const itemIds = line && line.status === 'needed' ? getItemIdsToBuy(line) : [];
 
       if (itemIds.length > 0) markItems(itemIds);
     },
-    [lines, markItems]
+    [plannedLines, markItems]
   );
 
   // A Cart that ran out while it was open has nothing left to confirm, and the next Cart does

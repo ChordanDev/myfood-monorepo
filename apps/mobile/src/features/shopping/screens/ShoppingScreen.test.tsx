@@ -659,6 +659,18 @@ describe('ShoppingScreen', () => {
       );
     });
 
+    it('says the Cart expired and reads the list again when the server answers `stale_cart`', async () => {
+      serveCartRoutes(
+        jsonResponse({ error: { code: 'stale_cart', message: 'expired' } }, false, 409)
+      );
+      const root = await renderLoadedScreen();
+
+      await tick(root, 'Arroz');
+
+      expect(getTexts(root)).toContain('Tu carrito venció. Volvé a marcar los productos.');
+      expect(requestedUrls().filter((url) => url.startsWith(LIST_URL))).toHaveLength(2);
+    });
+
     it('abandons the Cart and reads the list again', async () => {
       serveCartRoutes(markedCart());
       const root = await renderLoadedScreen();
