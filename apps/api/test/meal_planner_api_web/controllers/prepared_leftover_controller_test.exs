@@ -4,7 +4,10 @@ defmodule MealPlannerApiWeb.PreparedLeftoverControllerTest do
   import MealPlannerApi.IdentityFixtures
 
   alias MealPlannerApi.AccountClock
+  alias MealPlannerApi.Persistence.Calendar
   alias MealPlannerApi.Persistence.Leftovers
+  alias MealPlannerApi.Persistence.Leftovers.PreparedLeftover
+  alias MealPlannerApi.Repo
 
   @path "/api/leftovers/prepared"
 
@@ -82,6 +85,54 @@ defmodule MealPlannerApiWeb.PreparedLeftoverControllerTest do
       assert %{"data" => %{"portions" => 1_000}} =
                conn |> post(@path, params) |> json_response(201)
     end
+
+    test "stores a Scheduled meal of the Account as the source",
+         %{conn: conn, account_id: account_id} do
+      meal_id = scheduled_meal_id!(account_id)
+      params = %{"title" => "Lentils", "portions" => 2, "scheduledMealId" => meal_id}
+
+      data = conn |> post(@path, params) |> json_response(201) |> Map.fetch!("data")
+
+      assert data["sourceMealId"] == meal_id
+      assert [%{scheduled_meal_id: ^meal_id}] = Leftovers.list_open(account_id)
+    end
+
+    test "leaves the source empty when scheduledMealId is omitted or null", %{conn: conn} do
+      for params <- [
+            %{"title" => "Lentils", "portions" => 2},
+            %{"title" => "Lentils", "portions" => 2, "scheduledMealId" => nil}
+          ] do
+        data = conn |> post(@path, params) |> json_response(201) |> Map.fetch!("data")
+        assert is_nil(data["sourceMealId"])
+      end
+    end
+
+    test "a malformed, unknown or other Account's scheduledMealId is not found", %{conn: conn} do
+      %{account: other} = insert_identity!(plan: :family_4)
+
+      for meal_id <- ["nope", "", Ecto.UUID.generate(), scheduled_meal_id!(other.id)] do
+        params = %{"title" => "Lentils", "portions" => 2, "scheduledMealId" => meal_id}
+
+        assert %{"error" => %{"code" => "scheduled_meal_not_found"}} =
+                 conn |> post(@path, params) |> json_response(404)
+      end
+
+      assert Repo.aggregate(PreparedLeftover, :count) == 0
+    end
+
+    test "rejects a scheduledMealId that is not a string", %{conn: conn, account_id: account_id} do
+      meal_id = scheduled_meal_id!(account_id)
+
+      for value <- [7, true, %{"id" => meal_id}, [meal_id]] do
+        params = %{"title" => "Lentils", "portions" => 2, "scheduledMealId" => value}
+
+        body = conn |> post(@path, params) |> json_response(422)
+        assert body["error"]["code"] == "validation_error"
+        assert body["error"]["message"] =~ "scheduledMealId"
+      end
+
+      assert Repo.aggregate(PreparedLeftover, :count) == 0
+    end
   end
 
   describe "GET /api/leftovers/prepared" do
@@ -154,5 +205,12 @@ defmodule MealPlannerApiWeb.PreparedLeftoverControllerTest do
         assert body["error"]["code"] == "prepared_leftover_not_found"
       end
     end
+  end
+
+  defp scheduled_meal_id!(account_id) do
+    {:ok, meal} =
+      Calendar.upsert_scheduled_meal(account_id, %{date: ~D[2030-01-05], slot: :dinner})
+
+    meal.id
   end
 end

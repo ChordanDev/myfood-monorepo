@@ -16,6 +16,7 @@ defmodule MealPlannerApi.Persistence.Leftovers do
 
   alias MealPlannerApi.AccountClock
   alias MealPlannerApi.Persistence.Leftovers.PreparedLeftover
+  alias MealPlannerApi.Persistence.Planning.ScheduledMeal
   alias MealPlannerApi.Repo
 
   @default_days_to_consume 3
@@ -32,9 +33,19 @@ defmodule MealPlannerApi.Persistence.Leftovers do
   @doc """
   Stores a leftover. `attrs` uses atom keys: `:title`, `:portions`, and
   optionally `:consume_by_date`, `:notes`, `:scheduled_meal_id`.
+
+  `:scheduled_meal_id` is the source of the leftover and has to be a Scheduled
+  meal of the Account: a malformed id, an unknown one and another Account's
+  all answer `:scheduled_meal_not_found`, and nothing is stored. An invalid
+  field is reported first, before the meal is looked up.
   """
+  @spec create(Ecto.UUID.t(), map(), map()) ::
+          {:ok, Ecto.Schema.t()}
+          | {:error, Ecto.Changeset.t()}
+          | {:error, :scheduled_meal_not_found}
   def create(account_id, attrs, opts \\ %{}) when is_map(attrs) do
     now = Map.get(opts, :now, DateTime.utc_now())
+    {source_meal_id, attrs} = Map.pop(attrs, :scheduled_meal_id)
 
     attrs =
       attrs
@@ -44,7 +55,40 @@ defmodule MealPlannerApi.Persistence.Leftovers do
         account_id |> AccountClock.today(now) |> Date.add(@default_days_to_consume)
       end)
 
-    %PreparedLeftover{} |> PreparedLeftover.create_changeset(attrs) |> Repo.insert()
+    changeset = PreparedLeftover.create_changeset(%PreparedLeftover{}, attrs)
+
+    with {:ok, _valid} <- Ecto.Changeset.apply_action(changeset, :insert),
+         {:ok, meal_id} <- own_scheduled_meal_id(account_id, source_meal_id) do
+      changeset |> Ecto.Changeset.put_change(:scheduled_meal_id, meal_id) |> insert_with_source()
+    end
+  end
+
+  defp own_scheduled_meal_id(_account_id, nil), do: {:ok, nil}
+
+  defp own_scheduled_meal_id(account_id, meal_id) do
+    with {:ok, uuid} <- Ecto.UUID.cast(meal_id),
+         true <-
+           Repo.exists?(
+             from(m in ScheduledMeal, where: m.id == ^uuid and m.account_id == ^account_id)
+           ) do
+      {:ok, uuid}
+    else
+      _ -> {:error, :scheduled_meal_not_found}
+    end
+  end
+
+  # The meal can be deleted between the lookup and the insert: the foreign key
+  # then answers what the lookup would have.
+  defp insert_with_source(changeset) do
+    case Repo.insert(changeset) do
+      {:error, %Ecto.Changeset{errors: errors}} = error ->
+        if Keyword.has_key?(errors, :scheduled_meal_id),
+          do: {:error, :scheduled_meal_not_found},
+          else: error
+
+      {:ok, leftover} ->
+        {:ok, leftover}
+    end
   end
 
   @doc "Eats one portion; closes the leftover when none remain."
