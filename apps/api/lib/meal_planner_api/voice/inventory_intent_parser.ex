@@ -64,9 +64,18 @@ defmodule MealPlannerApi.Voice.InventoryIntentParser do
   @unit_labels "kilogramos?|kilos?|kgs?|gramos?|grs?|g|mililitros?|ml|litros?|lts?|l|unidades|unidad|u"
 
   # A number not glued to another digit, a dot, a comma or a slash, so the
-  # denominator of "1/2" is never read as an amount of its own.
-  @quantity_regex Regex.compile!("(?<![\\d.,/])(\\d+(?:[.,]\\d+)?)\\s*(#{@unit_labels})\\b")
+  # denominator of "1/2" is never read as an amount of its own. The last group
+  # is the "y medio" of "1 kilo y medio", empty when the quantity has none.
+  @quantity_regex Regex.compile!(
+                    "(?<![\\d.,/])(\\d+(?:[.,]\\d+)?)\\s*(#{@unit_labels})\\b((?:\\s+y\\s+medi[oa]\\b)?)"
+                  )
   @fraction_regex Regex.compile!("(?<![\\d.,/])(\\d+)/(\\d+)\\s*(#{@unit_labels})\\b")
+
+  # "un" and "una" as whole words, so "algún" and "atún" hold no number.
+  @one_regex ~r/(?<![\p{L}\p{N}])una?(?![\p{L}\p{N}])/u
+
+  # A unit label as a word of its own or glued to its number, as in "1kg".
+  @unit_word_regex Regex.compile!("^\\d*(?:#{@unit_labels})$")
 
   # Spoken words that start with a consume stem but are not the verb.
   @not_verbs ~w(comida comidas)
@@ -130,19 +139,33 @@ defmodule MealPlannerApi.Voice.InventoryIntentParser do
     |> Enum.max_by(&{String.length(&1.name), &1.total_milli}, fn -> nil end)
   end
 
+  # Whole words only, each one as the name has it or in its plural, so
+  # "huevos de campo" mentions "Huevo de campo" and "limonada" does not
+  # mention "Limón".
   defp mentioned?(words, name) do
     name_words = words(name)
 
     name_words != [] and
-      Enum.any?(
-        [name_words, plural(name_words)],
-        &contains_phrase?(words, &1)
-      )
+      words
+      |> Enum.chunk_every(length(name_words), 1, :discard)
+      |> Enum.any?(&spoken_as?(&1, name_words))
   end
 
-  defp plural(name_words) do
-    {init, [last]} = Enum.split(name_words, -1)
-    init ++ [last <> "s"]
+  defp spoken_as?(spoken_words, name_words) do
+    spoken_words
+    |> Enum.zip(name_words)
+    |> Enum.all?(fn {spoken, name_word} -> spoken in forms(name_word) end)
+  end
+
+  # A word of a name and its plurals, already folded: the accent "limón"
+  # loses in "limones" is gone before the ending is added. Every word keeps
+  # the bare "s", so "yogurts" and English names still match.
+  defp forms(word) do
+    cond do
+      String.ends_with?(word, ~w(a e i o u)) -> [word, word <> "s"]
+      String.ends_with?(word, "z") -> [word, word <> "s", String.replace_suffix(word, "z", "ces")]
+      true -> [word, word <> "s", word <> "es"]
+    end
   end
 
   defp contains_phrase?(words, phrase) do
@@ -173,19 +196,29 @@ defmodule MealPlannerApi.Voice.InventoryIntentParser do
   defp quantity_amount(text, stock) do
     @quantity_regex
     |> Regex.scan(text)
-    |> Enum.find_value(fn [_whole, number, label] ->
+    |> Enum.find_value(fn [_whole, number, label, and_a_half] ->
       {unit, factor} = unit_of(label)
-      if unit == stock.unit, do: round(parse_number(number) * factor)
+      if unit == stock.unit, do: round(parse_number(number) * factor) + half(and_a_half, factor)
     end)
   end
 
-  # "me comí 2 huevos": a bare number before the name counts units.
+  # "1 kilo y medio" adds half a kilo, half of the stated unit.
+  defp half("", _factor), do: 0
+  defp half(_and_a_half, factor), do: div(factor, 2)
+
+  # "me comí 2 huevos": a bare number before the name counts units. The name
+  # is read as it is mentioned: whole words, each in any of its forms.
   defp count_amount(_text, %{unit: unit}) when unit != :unit, do: nil
 
   defp count_amount(text, stock) do
-    name = stock.name |> words() |> Enum.join(" ") |> Regex.escape()
+    name =
+      stock.name
+      |> words()
+      |> Enum.map_join(" ", fn word ->
+        "(?:" <> Enum.map_join(forms(word), "|", &Regex.escape/1) <> ")"
+      end)
 
-    case Regex.run(~r/(?<![\d.,\/])(\d+(?:[.,]\d+)?)\s+#{name}/, text) do
+    case Regex.run(~r/(?<![\d.,\/])(\d+(?:[.,]\d+)?)\s+#{name}(?=[ .,\/]|$)/, text) do
       [_whole, number] -> round(parse_number(number) * 1_000)
       nil -> nil
     end
@@ -199,11 +232,24 @@ defmodule MealPlannerApi.Voice.InventoryIntentParser do
   end
 
   defp fraction_amount(words, stock) do
+    words = without_unit_halves(words)
+
     Enum.find_value(@fractions, fn {phrases, {numerator, denominator}} ->
       if Enum.any?(phrases, &contains_phrase?(words, words(&1))),
         do: div(stock.total_milli * numerator, denominator)
     end)
   end
+
+  # "1 litro y medio" is a litre and a half whatever the stock is counted in,
+  # so the "medio" right after a unit label is never half of the stock.
+  defp without_unit_halves([label, "y", half | rest] = words) when half in ~w(medio media) do
+    if Regex.match?(@unit_word_regex, label),
+      do: [label | without_unit_halves(rest)],
+      else: [label | without_unit_halves(tl(words))]
+  end
+
+  defp without_unit_halves([word | rest]), do: [word | without_unit_halves(rest)]
+  defp without_unit_halves([]), do: []
 
   defp unit_of(label) when label in ~w(g gr grs gramo gramos), do: {:g, 1_000}
 
@@ -229,12 +275,15 @@ defmodule MealPlannerApi.Voice.InventoryIntentParser do
   end
 
   # The same fold, keeping the decimal separators of a quantity and the slash
-  # of a fraction. "1/2 kg" becomes "0.500000 kg"; a slash fraction with no
-  # unit stays "1/2", which no amount pattern reads.
+  # of a fraction. "un" and "una" become the digit 1, so "un kilo" and "un
+  # huevo" are read as "1 kilo" and "1 huevo" are. "1/2 kg" becomes
+  # "0.500000 kg"; a slash fraction with no unit stays "1/2", which no amount
+  # pattern reads.
   defp decimal_text(text) do
     text
     |> fold()
     |> String.replace(~r/[^\p{L}\p{N}.,\/]+/u, " ")
+    |> String.replace(@one_regex, "1")
     |> then(
       &Regex.replace(@fraction_regex, &1, fn whole, n, d, label ->
         fraction_text(whole, n, d, label)
