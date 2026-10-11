@@ -288,20 +288,11 @@ defmodule MealPlannerApi.Services.TenancySweepTest do
     end
   end
 
-  describe "RecipeService.favorite?/2" do
-    # `RecipeService.list_recipes/1` and `.add_favorite/2` are NOT used
-    # for this sub-test: both crash on pre-existing, unrelated bugs
-    # (`serialize_recipe/1` reads a `:title` field the `Recipe` schema
-    # doesn't have; `RecipeRepo.add_favorite/2`'s `FavoriteRecipe`
-    # changeset requires `:user_id` but the call site never supplies
-    # one). `RecipeService` has no production callers anywhere in
-    # `lib/` per the task 3.21 grep audit, so neither bug was
-    # previously exercised — both are out of scope for this tenancy PR.
+  describe "RecipeService.list_favorites/1" do
     # The favorite row is seeded directly via `Calendar.toggle_favorite/3`
-    # (the same helper used elsewhere in this PR's controller tests) so
-    # this sub-test can still exercise `favorite?/2`'s
-    # `Identity.ensure_persistent_identity/1` + account-scoped
-    # `RecipeRepo` read path without hitting either bug.
+    # (the same helper used elsewhere in this PR's controller tests), so the
+    # sub-test exercises only the `Identity.ensure_persistent_identity/1` +
+    # account-scoped `RecipeRepo` read path.
     test "only sees a favorite that belongs to the scoped Account", %{
       user: user,
       membership_a: membership_a,
@@ -320,8 +311,9 @@ defmodule MealPlannerApi.Services.TenancySweepTest do
 
       {:ok, _fav} = Calendar.toggle_favorite(membership_a.account_id, user.id, recipe.id)
 
-      assert RecipeService.favorite?(scoped_user_a, recipe.id)
-      refute RecipeService.favorite?(scoped_user_b, recipe.id)
+      assert {:ok, [%{recipe_id: recipe_id}]} = RecipeService.list_favorites(scoped_user_a)
+      assert recipe_id == recipe.id
+      assert {:ok, []} = RecipeService.list_favorites(scoped_user_b)
     end
   end
 end

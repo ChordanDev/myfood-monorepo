@@ -202,6 +202,44 @@ defmodule MealPlannerApiWeb.PlanningChatControllerTest do
     assert Enum.any?(body["data"], &(&1["recipeId"] == recipe.id))
   end
 
+  test "favorites endpoint follows the favorites added and removed over HTTP", %{conn: conn} do
+    %{token: token, user: %{id: user_id}, account: %{id: account_id}} =
+      insert_identity_with_token!(plan: :family_4)
+
+    {:ok, recipe} =
+      Catalog.create_recipe(%{
+        account_id: account_id,
+        created_by_user_id: user_id,
+        name: "Tarta de zapallitos",
+        source: :user_created,
+        servings: 4,
+        suitable_for_slots: [:lunch]
+      })
+
+    authed = put_req_header(conn, "authorization", "Bearer " <> token)
+
+    planner_favorite_ids = fn ->
+      authed
+      |> get("/api/planning/favorites")
+      |> json_response(200)
+      |> Map.fetch!("data")
+      |> Enum.map(& &1["recipeId"])
+    end
+
+    assert planner_favorite_ids.() == []
+
+    authed
+    |> put_req_header("content-type", "application/json")
+    |> post("/api/me/favorites", %{recipeId: recipe.id})
+    |> json_response(200)
+
+    assert planner_favorite_ids.() == [recipe.id]
+
+    authed |> delete("/api/me/favorites/#{recipe.id}") |> response(204)
+
+    assert planner_favorite_ids.() == []
+  end
+
   # The generation runs of the Account and the proposals made from them.
   defp planning_row_counts(account_id) do
     runs = from(r in PlanningGenerationRun, where: r.account_id == ^account_id)

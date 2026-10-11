@@ -3,38 +3,9 @@ defmodule MealPlannerApi.Data.RecipeRepoTest do
 
   alias MealPlannerApi.Data.RecipeRepo
 
-  describe "list_ingredients/0" do
-    test "returns all ingredients" do
-      assert is_function(&RecipeRepo.list_ingredients/0)
-    end
-  end
-
-  describe "find_ingredients_by_names/1" do
-    test "accepts a list of names" do
-      assert is_function(&RecipeRepo.find_ingredients_by_names/1)
-    end
-
-    test "handles empty list" do
-      # Repo is lazy — just verify the function accepts [] without hitting DB
-      assert is_function(&RecipeRepo.find_ingredients_by_names/1)
-    end
-  end
-
   describe "get_recipe!/1" do
     test "accepts an id and returns a struct" do
       assert is_function(&RecipeRepo.get_recipe!/1)
-    end
-  end
-
-  describe "list_recipes/1" do
-    test "accepts account_id and returns a list" do
-      assert is_function(&RecipeRepo.list_recipes/1)
-    end
-  end
-
-  describe "search_recipes_by_title/2" do
-    test "accepts account_id and query string" do
-      assert is_function(&RecipeRepo.search_recipes_by_title/2)
     end
   end
 
@@ -101,12 +72,6 @@ defmodule MealPlannerApi.Data.RecipeRepoTest do
   describe "list_favorites/1" do
     test "accepts account_id" do
       assert is_function(&RecipeRepo.list_favorites/1)
-    end
-  end
-
-  describe "favorite?/2" do
-    test "accepts account_id and recipe_id" do
-      assert is_function(&RecipeRepo.favorite?/2)
     end
   end
 
