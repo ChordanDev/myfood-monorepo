@@ -354,57 +354,6 @@ Then update `planningEvents.ts`, run `npm test` in `apps/mobile`, and commit the
 
 ---
 
-### cooking:* — Cooking Mode
-
-Real-time cooking guidance and timer synchronization.
-
-**Topic Pattern:** `cooking:<recipe_id>`
-
-#### Incoming Events
-
-| Event | Payload | Description |
-|-------|---------|-------------|
-| `start_cooking` | `{"recipe_id": "uuid", "servings": number}` | Start cooking mode for a recipe |
-| `step_complete` | `{"step_index": number, "notes": "string"}` | Mark a step as completed |
-| `timer_start` | `{"duration_seconds": number, "label": "string"}` | Start a cooking timer |
-| `timer_pause` | `{"timer_id": "uuid"}` | Pause a running timer |
-| `timer_resume` | `{"timer_id": "uuid"}` | Resume a paused timer |
-| `timer_cancel` | `{"timer_id": "uuid"}` | Cancel a timer |
-| `update_servings` | `{"servings": number}` | Update serving size |
-| `end_cooking` | `{"rating": number, "notes": "string"}` | End cooking session |
-
-**Example Payload (start_cooking):**
-```json
-{
-  "recipe_id": "789",
-  "servings": 4
-}
-```
-
-#### Outgoing Events
-
-| Event | Payload | Description |
-|-------|---------|-------------|
-| `cooking_started` | `{"session_id": "uuid", "recipe": {...}, "steps": [...]}` | Cooking session initialized |
-| `step_update` | `{"current_step": number, "total_steps": number}` | Current step changed |
-| `step_complete` | `{"step_index": number, "next_step": {...}}` | Step marked complete |
-| `timer_tick` | `{"timer_id": "uuid", "remaining_seconds": number}` | Timer countdown update |
-| `timer_done` | `{"timer_id": "uuid", "label": "string"}` | Timer finished |
-| `scaled_ingredients` | `{"original_servings": number, "new_servings": number, "ingredients": [...]}` | Ingredients rescaled |
-| `cooking_complete` | `{"session_id": "uuid", "duration_minutes": number}` | Cooking session ended |
-
-**Example Response (timer_done):**
-```json
-{
-  "timer_id": "550e8400-e29b-41d4-a716-446655440003",
-  "label": "Boil pasta",
-  "remaining_seconds": 0,
-  "next_action": "drain_pasta"
-}
-```
-
----
-
 ## Reconnection Strategy
 
 Implement exponential backoff with jitter for WebSocket reconnection:
@@ -496,4 +445,4 @@ class MealPlannerSocket {
 2. **Handle disconnections**: Implement reconnection with exponential backoff
 3. **Batch updates**: For bulk operations, use batch events to reduce overhead
 4. **Timeout handling**: Set reasonable timeouts for requests expecting responses
-5. **Presence tracking**: Use Phoenix Presence for showing active users in cooking mode
+5. **Presence tracking**: Use Phoenix Presence for showing active users

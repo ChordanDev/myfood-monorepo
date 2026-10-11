@@ -126,6 +126,16 @@ defmodule MealPlannerApiWeb.CookingControllerTest do
     assert start_body["data"]["slot"] == "dinner"
     assert length(start_body["data"]["recipe"]["steps"]) == 1
 
+    started_conn =
+      build_conn()
+      |> put_req_header("authorization", "Bearer " <> token)
+      |> post("/api/cooking/sessions/#{session_id}/step", %{
+        "recipe_step_id" => step.id,
+        "status" => "started"
+      })
+
+    assert json_response(started_conn, 200)["data"]["status"] == "started"
+
     step_conn =
       build_conn()
       |> put_req_header("authorization", "Bearer " <> token)
