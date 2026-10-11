@@ -1,4 +1,5 @@
 import { formatQuantity } from '@/utils/formatQuantity';
+import type { UnitType } from '@/types/domain';
 import { NO_PRICE_LABEL, SHOPPING_SLOT_LABELS, SHORT_MONTHS } from '../constants';
 import type {
   BestOffer,
@@ -46,20 +47,33 @@ function formatMeal({ date, slot }: ShoppingLineAllocation) {
   return slotLabel ? `${formatShortDate(date)}${SEPARATOR}${slotLabel}` : formatShortDate(date);
 }
 
+// The shares the quantity of a line adds up: the ones still to buy, or, with nothing left to
+// buy, the ones that were bought or the ones that were removed.
+function getSharesOfStatus({ status, allocations }: ShoppingListLine) {
+  if (status === 'purchased' || status === 'removed') {
+    return allocations.filter((share) => share.status === status);
+  }
+
+  return allocations.filter((share) => share.status === 'needed' || share.status === 'in_cart');
+}
+
 /**
  * Second line of a planned row: the meals it is for. A line that adds up several meals says
  * how many, and the line of one meal says which one while the list is read per meal. Per
- * ingredient, a line for a single meal has no second line.
+ * ingredient, a line for a single meal has no second line. A meal whose share was bought or
+ * removed is not counted while the line has something left to buy.
  *
  * The count is read from the line and not from the grouping, so a list read per ingredient
  * never passes for one meal while the read per meal is still in flight.
  */
 export function formatItemMealsLine(
-  { allocations }: ShoppingListLine,
+  line: ShoppingListLine,
   groupBy: ShoppingGroupBy
 ): string | undefined {
-  if (allocations.length > 1) return `Para ${allocations.length} comidas`;
-  if (groupBy === 'meal' && allocations.length === 1) return formatMeal(allocations[0]);
+  const shares = getSharesOfStatus(line);
+
+  if (shares.length > 1) return `Para ${shares.length} comidas`;
+  if (groupBy === 'meal' && shares.length === 1) return formatMeal(shares[0]);
 
   return undefined;
 }
@@ -68,6 +82,16 @@ export function formatItemMealsLine(
 export function formatItemMetaLine(offer: BestOffer | undefined) {
   if (!offer) return NO_PRICE_LABEL;
   return `${offer.supermarket}${SEPARATOR}${formatPrice(offer.price)}`;
+}
+
+// Second line of a row of the cart sheet: what the Cart holds of the line.
+export function formatSuggestedQuantity(quantityMilli: number, unit: UnitType) {
+  return `Sugerido: ${formatQuantity(quantityMilli / MILLI_PER_UNIT, unit)}`;
+}
+
+// A quantity as the field of the cart sheet starts with it: in the unit, decimals after a comma.
+export function formatQuantityInput(quantityMilli: number) {
+  return String(quantityMilli / MILLI_PER_UNIT).replace('.', ',');
 }
 
 function pluralize(count: number, singular: string) {
@@ -89,15 +113,29 @@ export function formatRemovedLabel(removed: number) {
   return `${pluralize(removed, 'quitado')}${SEPARATOR}Restaurar`;
 }
 
+// Reads what the User typed as a count of thousandths of the unit, zero included. Comma and
+// dot both mark the decimals, as people write them here.
+function parseMilli(text: string): number | undefined {
+  const normalized = text.trim().replace(',', '.');
+  if (!/^\d*\.?\d+$|^\d+\.$/.test(normalized)) return undefined;
+
+  const milli = Math.round(Number(normalized) * MILLI_PER_UNIT);
+  return Number.isSafeInteger(milli) ? milli : undefined;
+}
+
 /**
  * Reads what the User typed as a quantity, in thousandths of the unit. Comma and dot both
  * mark the decimals, as people write them here. Anything that is not a number above zero
  * is `undefined`: the server only takes a whole count of thousandths above zero.
  */
 export function parseQuantityMilli(text: string): number | undefined {
-  const normalized = text.trim().replace(',', '.');
-  if (!/^\d*\.?\d+$|^\d+\.$/.test(normalized)) return undefined;
+  const milli = parseMilli(text);
 
-  const milli = Math.round(Number(normalized) * MILLI_PER_UNIT);
-  return Number.isSafeInteger(milli) && milli > 0 ? milli : undefined;
+  return milli !== undefined && milli > 0 ? milli : undefined;
+}
+
+// Reads what the User typed as the quantity bought of a line of the Cart. Zero is a quantity
+// here: the line was not bought.
+export function parseBoughtQuantityMilli(text: string): number | undefined {
+  return parseMilli(text);
 }

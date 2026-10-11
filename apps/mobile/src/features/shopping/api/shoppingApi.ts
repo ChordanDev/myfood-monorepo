@@ -3,6 +3,8 @@ import { ApiError } from '@/api/errors';
 import type { RequestOptions } from '@/api/transport';
 import type {
   CancelledCart,
+  CheckoutConfirmation,
+  CheckoutResult,
   MarkedCart,
   NewManualShoppingItem,
   ShoppingCart,
@@ -135,6 +137,41 @@ export async function cancelCart(
     updatedRows: typeof data.updatedRows === 'number' ? data.updatedRows : 0,
     status: 'abandoned',
   };
+}
+
+const CHECKOUT_STATUSES: unknown[] = ['completed', 'pending_delivery'];
+const CHECKOUT_TYPES: unknown[] = ['physical', 'online'];
+
+/**
+ * Confirms a Cart as purchased (section 7.4). Only the lines bought at another quantity than
+ * the one the Cart holds are sent: the server buys the rest as they are. Confirming a session
+ * again answers the result of the first time and buys nothing twice, so the transport asks
+ * again when the network fails.
+ */
+export async function confirmCheckout(
+  { sessionId, checkoutType, lines }: CheckoutConfirmation,
+  options?: RequestOptions
+): Promise<CheckoutResult> {
+  const response = await apiClient.post<unknown>(
+    '/api/checkout/confirm',
+    { sessionId, checkoutType, ...(lines && lines.length > 0 ? { lines } : {}) },
+    { ...options, auth: true, retry: options?.retry ?? true }
+  );
+  const data = isRecord(response) ? response.data : undefined;
+
+  if (
+    !isRecord(data) ||
+    typeof data.checkoutSessionId !== 'string' ||
+    !CHECKOUT_STATUSES.includes(data.status) ||
+    !CHECKOUT_TYPES.includes(data.checkoutType) ||
+    typeof data.movedToInventoryCount !== 'number' ||
+    typeof data.checkedOutItemsCount !== 'number' ||
+    typeof data.actualTotalCents !== 'number'
+  ) {
+    throw malformed('checkout');
+  }
+
+  return data as unknown as CheckoutResult;
 }
 
 function malformed(what: string) {

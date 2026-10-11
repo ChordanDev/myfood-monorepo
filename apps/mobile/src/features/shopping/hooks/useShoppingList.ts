@@ -5,6 +5,7 @@ import { useAuth } from '@/features/auth';
 import {
   formatItemMealsLine,
   formatUntilLabel,
+  getCartLines,
   getDefaultUntilDate,
   getShoppingCounters,
   getUntilCalendar,
@@ -26,9 +27,11 @@ function getMetaLines(lines: ShoppingListLine[], groupBy: ShoppingGroupBy) {
   return metaLines;
 }
 
-// The Shopping items a line stands for: what the server takes to remove or restore it.
+// The Shopping items a line stands for: what the server takes to remove or restore it. One
+// that was bought is not on the list to be removed, and the server refuses the whole change
+// for it.
 function getItemIds({ allocations }: ShoppingListLine) {
-  return allocations.map(({ itemId }) => itemId);
+  return allocations.filter(({ status }) => status !== 'purchased').map(({ itemId }) => itemId);
 }
 
 // The Shopping list as the screen shows it: the last read of the server, and how the user
@@ -82,6 +85,7 @@ export function useShoppingList() {
   const groups = useMemo(() => groupItemsByCategory(list?.planned ?? []), [list]);
   const metaLines = useMemo(() => getMetaLines(list?.planned ?? [], groupBy), [list, groupBy]);
   const counters = useMemo(() => (list ? getShoppingCounters(list.totals) : undefined), [list]);
+  const cartLines = useMemo(() => getCartLines(list), [list]);
 
   // Picking the last planned day asks for the whole plan, so nothing is kept as chosen: the
   // list keeps reaching the last planned date as the plan grows.
@@ -102,16 +106,19 @@ export function useShoppingList() {
   );
 
   // A manual item is deleted. A planned one is only removed, so it can be restored, with every
-  // share of it: the id of a line is not the id of a Shopping item.
+  // share of it: the id of a line is not the id of a Shopping item. A purchased line is neither.
   const removeItem = useCallback(
     (lineId: string) => {
       const manualLine = list?.manual.find((line) => line.id === lineId);
       if (manualLine) return deleteItem(manualLine.id);
 
       const plannedLine = list?.planned.find((line) => line.id === lineId);
-      if (!plannedLine || plannedLine.status === 'removed') return Promise.resolve(false);
+      const itemIds = plannedLine ? getItemIds(plannedLine) : [];
+      if (!plannedLine || plannedLine.status === 'removed' || itemIds.length === 0) {
+        return Promise.resolve(false);
+      }
 
-      return setItemsStatus(getItemIds(plannedLine), 'removed');
+      return setItemsStatus(itemIds, 'removed');
     },
     [list, deleteItem, setItemsStatus]
   );
@@ -150,6 +157,8 @@ export function useShoppingList() {
     retry,
     // The caller's own active Cart as the last read reported it.
     cart: list?.cart ?? null,
+    // What that read shows as in a Cart, as a confirm names it.
+    cartLines,
     // Whole lines, to find the items behind a row.
     lines: list?.planned ?? [],
     manualItems,

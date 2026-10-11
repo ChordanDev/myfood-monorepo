@@ -6,9 +6,12 @@ import type { UnitType } from '@/types/domain';
 // One line per ingredient and unit, adding up its meals, or one line per meal.
 export type ShoppingGroupBy = 'ingredient' | 'meal';
 
-// `in_cart` is a line marked and not bought yet. An ingredient line reads `in_cart` only when
-// every one of its allocations is in a Cart.
-export type ShoppingLineStatus = 'needed' | 'in_cart' | 'removed';
+// `in_cart` is a line marked and not bought yet, `purchased` one bought for a meal that is not
+// cooked yet. The status of a line is decided by its allocations that are still to buy, the
+// ones neither removed nor purchased: an ingredient line reads `in_cart` only when every one of
+// them is in a Cart. With nothing left to buy it reads `purchased` when any allocation was
+// bought, and `removed` only when all of them were removed.
+export type ShoppingLineStatus = 'needed' | 'in_cart' | 'removed' | 'purchased';
 
 export type ShoppingLineSource = 'planned_meal' | 'manual';
 
@@ -22,6 +25,8 @@ export interface ShoppingLineAllocation {
   date: string;
   slot: ShoppingMealSlot;
   quantityMilli: number;
+  // The status of that Shopping item. Only a `needed` one can go into a Cart.
+  status: ShoppingLineStatus;
 }
 
 export interface ShoppingListLine {
@@ -33,6 +38,7 @@ export interface ShoppingListLine {
   // One of the server's Ingredient categories. That list is the server's to grow, so a value
   // this app has no title for is expected.
   category: string;
+  // What is still to buy. On a `purchased` line, what was bought.
   quantityMilli: number;
   unit: UnitType;
   status: ShoppingLineStatus;
@@ -78,7 +84,7 @@ export interface ShoppingListQuery {
   groupBy?: ShoppingGroupBy;
 }
 
-// What a Shopping item reserved by a Cart is paid with: checkout needs the token.
+// A Shopping item a Cart reserved, as marking it answers.
 export interface CartReservation {
   itemId: string;
   reservationToken: string;
@@ -95,6 +101,36 @@ export interface CancelledCart {
   sessionId: string;
   updatedRows: number;
   status: 'abandoned';
+}
+
+// What was actually bought of a line of the Cart (section 7.4).
+export interface CheckoutLine {
+  // `<ingredientId>:<unit>` for the planned items of an ingredient, the Shopping item id for a
+  // manual item. Never the `itemId` of an allocation.
+  itemId: string;
+  // `0` puts the line back on the list and buys nothing.
+  quantityMilli: number;
+  totalCents?: number;
+}
+
+// What `POST /api/checkout/confirm` takes. A line of the Cart that is not listed is bought at
+// the quantity the Cart holds.
+export interface CheckoutConfirmation {
+  sessionId: string;
+  checkoutType: 'physical' | 'online';
+  lines?: CheckoutLine[];
+}
+
+// What `POST /api/checkout/confirm` answers. Confirming the same session again answers the
+// same result.
+export interface CheckoutResult {
+  checkoutSessionId: string;
+  // `pending_delivery` is an online purchase that has not arrived yet.
+  status: 'completed' | 'pending_delivery';
+  checkoutType: 'physical' | 'online';
+  movedToInventoryCount: number;
+  checkedOutItemsCount: number;
+  actualTotalCents: number;
 }
 
 // What `POST /api/shopping-items/manual` takes (section 7.6). Only the name is required: the
