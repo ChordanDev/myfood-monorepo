@@ -9,10 +9,19 @@ defmodule MealPlannerApi.Services.DeviceSessions do
   itself is never stored. The refresh JWT names its row in the `sid`
   claim and carries none of the access claims.
 
-  A refresh token is good for one rotation. Rotating it revokes its row
-  and points the row at its successor, so the same token showing up a
-  second time is known to be a replay: someone other than the app may
-  hold it, and every session of that User on that device is revoked.
+  Rotating a refresh token revokes its row and points the row at its
+  successor, so the same token showing up a second time is recognised.
+  That is a replay: someone other than the app may hold the token, and
+  every session of that User on that device is revoked.
+
+  One case is not a replay. A rotation is committed before its answer
+  reaches the phone, and when that answer is lost the app is left with
+  the token that was just rotated. For `refresh_retry_window_seconds`
+  after the rotation (issue #57) that token is accepted again as a
+  retry, as long as the session that replaced it has not been used or
+  ended since: the pair nobody received is revoked and a new one takes
+  its place. The cost is that a stolen token presented inside the window
+  is accepted too, without ending the session.
 
   A User has at most one session that is not revoked per device. Logins
   and refreshes of the same User on the same device take turns, so each
@@ -115,6 +124,24 @@ defmodule MealPlannerApi.Services.DeviceSessions do
   The access token of the new pair is built from the User and the
   Membership as they are now.
 
+  A token that was already rotated is rotated again when it is a retry,
+  which takes all of this:
+
+    * `refresh_retry_window_seconds` is greater than zero;
+    * `now` is no later than that many seconds after the token was
+      rotated;
+    * the session that replaced it is still the active one: it was not
+      used, logged out or taken over by a login.
+
+  A retry revokes the session that replaced the token, whose pair the
+  app never received, and answers with a new pair. The window counts
+  from the first rotation, so retrying does not extend it. The session
+  a retry revokes is a rotated token like any other and follows the
+  same rule.
+
+  `now` is the time the request is judged at, and the time written on
+  the sessions it revokes.
+
   Errors, in the order they are checked:
 
     * `{:error, :refresh_token_invalid}` — not a string, or a token with
@@ -122,8 +149,9 @@ defmodule MealPlannerApi.Services.DeviceSessions do
       route that opens no Device session, or swept. A stored token that
       does not verify as a refresh token gets this answer too.
     * `{:error, :refresh_token_replayed}` — the token was already
-      rotated. Every active session of that User on that device is
-      revoked, the one that replaced this token included.
+      rotated and this is not a retry. Every active session of that
+      User on that device is revoked, the one that replaced this token
+      included.
     * `{:error, :refresh_token_revoked}` — the session was ended by a
       logout, by a later login on the same device, or by a replay.
     * `{:error, :refresh_token_expired}` — the JWT or its row is past
@@ -135,23 +163,29 @@ defmodule MealPlannerApi.Services.DeviceSessions do
     * `{:error, :session_issue_failed}` — the new pair could not be
       signed or stored. Nothing changes.
 
-  There is no grace window: of two requests carrying the same token, the
-  first rotates it and the second is a replay.
+  A retry is verified like a first rotation and can be refused like
+  one; the token and the session that replaced it are then left as they
+  were.
+
+  Of two requests carrying the same token, the first rotates it and the
+  second waits for the first to finish. It is then judged by the rule
+  above: a retry inside the window, a replay otherwise.
   """
-  @spec rotate(term()) :: {:ok, token_pair()} | {:error, rotation_error()}
-  def rotate(refresh_token) when is_binary(refresh_token) do
+  @spec rotate(term(), DateTime.t()) :: {:ok, token_pair()} | {:error, rotation_error()}
+  def rotate(refresh_token, now \\ DateTime.utc_now())
+
+  def rotate(refresh_token, %DateTime{} = now) when is_binary(refresh_token) do
     Repo.transaction(fn ->
       with {:ok, session} <- lock_session(refresh_token),
-           now = DateTime.utc_now(),
-           :ok <- check_session(session, refresh_token, now),
+           {:ok, active} <- check_session(session, refresh_token, now),
            {:ok, user, membership} <- load_scope(session) do
-        replace(session, user, membership, now)
+        replace(session, active, user, membership, now)
       end
     end)
     |> unwrap_transaction()
   end
 
-  def rotate(_refresh_token), do: {:error, :refresh_token_invalid}
+  def rotate(_refresh_token, %DateTime{}), do: {:error, :refresh_token_invalid}
 
   @doc """
   Revokes the Device session of `refresh_token`, if it has an active one.
@@ -214,10 +248,10 @@ defmodule MealPlannerApi.Services.DeviceSessions do
   # waited for the device lock, a login or another refresh on the same
   # device may have revoked or replaced the row.
   #
-  # That makes rotation single-use: a second request with the same token
-  # waits here and then finds the row already replaced. The row lock
-  # also keeps a logout, which takes no device lock, from landing in the
-  # middle of a rotation.
+  # A second request with the same token waits here and then finds the
+  # row already replaced, which makes it a retry or a replay and never a
+  # second first rotation. The row lock also keeps a logout, which takes
+  # no device lock, from landing in the middle of a rotation.
   defp lock_session(refresh_token) do
     by_token = from(s in DeviceSession, where: s.token_hash == ^hash_token(refresh_token))
 
@@ -230,14 +264,40 @@ defmodule MealPlannerApi.Services.DeviceSessions do
     end
   end
 
-  # What the row says is checked before the token is verified: a rotated
+  # What the row says is checked before the token is verified: a replayed
   # or revoked token is reported as such even once its JWT has expired,
   # and a replay revokes the chain whatever state the JWT is in. A token
   # that reaches this point hashes to a stored digest, so it is one this
   # module minted.
+  #
+  # The answer for a token that may be rotated is the row holding the
+  # one place a User has on a device, which the rotation has to revoke
+  # before it stores a new row: the presented row itself, or on a retry
+  # the row that replaced it.
   defp check_session(%DeviceSession{} = session, refresh_token, now) do
     cond do
       not is_nil(session.replaced_by_id) ->
+        check_rotated(session, refresh_token, now)
+
+      not is_nil(session.revoked_at) ->
+        {:error, :refresh_token_revoked}
+
+      true ->
+        with :ok <- check_token(session, refresh_token, now), do: {:ok, session}
+    end
+  end
+
+  # A token that was already rotated is a retry or a replay, and the row
+  # decides which before the token is looked at. A retry is then verified
+  # like a first rotation; a token that fails there is refused without
+  # revoking anything, because inside the window it is taken to be the
+  # app's own.
+  defp check_rotated(%DeviceSession{} = session, refresh_token, now) do
+    case lock_retried_successor(session, now) do
+      %DeviceSession{} = successor ->
+        with :ok <- check_token(session, refresh_token, now), do: {:ok, successor}
+
+      nil ->
         revoke_device(session.user_id, session.device_id, now)
 
         Logger.warning(
@@ -245,14 +305,52 @@ defmodule MealPlannerApi.Services.DeviceSessions do
         )
 
         {:error, :refresh_token_replayed}
-
-      not is_nil(session.revoked_at) ->
-        {:error, :refresh_token_revoked}
-
-      true ->
-        check_token(session, refresh_token, now)
     end
   end
+
+  # The row that replaced `session`, when presenting `session` again is a
+  # retry: inside the window, and with that row still active. A successor
+  # that was rotated, logged out or taken over by a login is revoked, and
+  # then nothing is found.
+  #
+  # The successor is locked. A logout takes no device lock, and without
+  # the row lock one could revoke the successor after it was found active
+  # here; the retry would then open a session for someone who had just
+  # logged out. It is looked up on the User and device of `session`,
+  # which are the ones the device lock held here covers.
+  defp lock_retried_successor(%DeviceSession{} = session, now) do
+    if within_retry_window?(session, now) do
+      from(s in DeviceSession,
+        where: s.id == ^session.replaced_by_id,
+        where: s.user_id == ^session.user_id and s.device_id == ^session.device_id,
+        where: is_nil(s.revoked_at),
+        lock: "FOR UPDATE"
+      )
+      |> Repo.one()
+    end
+  end
+
+  # Whether `now` is no later than the retry window after `session` was
+  # rotated, the last second included. A rotated row keeps the
+  # `revoked_at` of its first rotation, so the window is not extended by
+  # the retries themselves.
+  #
+  # The window is read on every request. Anything but a positive whole
+  # number of seconds means there is no window, so a setting that is
+  # missing or wrong refuses retries instead of accepting them.
+  defp within_retry_window?(%DeviceSession{revoked_at: %DateTime{} = rotated_at}, now) do
+    case Application.get_env(:meal_planner_api, :refresh_retry_window_seconds, 0) do
+      seconds when is_integer(seconds) and seconds > 0 ->
+        DateTime.compare(now, DateTime.add(rotated_at, seconds, :second)) != :gt
+
+      _off_or_invalid ->
+        false
+    end
+  end
+
+  # A row that points at a successor without being revoked is not one a
+  # rotation wrote, and has no rotation to count from.
+  defp within_retry_window?(%DeviceSession{revoked_at: nil}, _now), do: false
 
   # Guardian does not check `token_type:` on decode, so `typ` is matched
   # here: only a refresh token may be rotated.
@@ -291,22 +389,42 @@ defmodule MealPlannerApi.Services.DeviceSessions do
     end
   end
 
-  # The old row is revoked before its successor is stored, because the
-  # database allows a User one row that is not revoked per device, and
-  # only then pointed at the successor. A pair that cannot be issued
+  # Issues the pair that takes the place of `presented`. `active` is the
+  # row `check_session/3` answered with: `presented` itself on a first
+  # rotation, the row that replaced it on a retry.
+  #
+  # The active row is revoked before its successor is stored, because
+  # the database allows a User one row that is not revoked per device.
+  # Only then is it pointed at the successor, and on a retry the
+  # presented row with it, so both lead to the new row. The presented
+  # row of a retry keeps its `revoked_at`. A pair that cannot be issued
   # rolls the revocation back with everything else.
-  defp replace(%DeviceSession{} = session, user, membership, now) do
-    revoked = session |> Ecto.Changeset.change(revoked_at: now) |> Repo.update!()
+  defp replace(%DeviceSession{} = presented, %DeviceSession{} = active, user, membership, now) do
+    revoked = active |> Ecto.Changeset.change(revoked_at: now) |> Repo.update!()
 
-    case issue(user, membership, session.device_id) do
+    case issue(user, membership, presented.device_id) do
       {:ok, successor, token_pair} ->
-        revoked |> Ecto.Changeset.change(replaced_by_id: successor.id) |> Repo.update!()
+        [revoked, presented]
+        |> Enum.uniq_by(& &1.id)
+        |> Enum.each(fn replaced ->
+          replaced |> Ecto.Changeset.change(replaced_by_id: successor.id) |> Repo.update!()
+        end)
+
+        log_retry(presented, active)
 
         {:ok, token_pair}
 
       {:error, reason} ->
         Repo.rollback(reason)
     end
+  end
+
+  # A retry is logged with the User alone. A first rotation, where the
+  # presented row is the active one, is not logged.
+  defp log_retry(%DeviceSession{id: id}, %DeviceSession{id: id}), do: :ok
+
+  defp log_retry(%DeviceSession{user_id: user_id}, %DeviceSession{}) do
+    Logger.info("refresh retried inside the retry window, successor replaced user_id=#{user_id}")
   end
 
   # ---------------------------------------------------------------------------
@@ -349,7 +467,7 @@ defmodule MealPlannerApi.Services.DeviceSessions do
   # that revokes the device's session while a refresh is replacing that
   # session does not see the successor, and both end up with a row.
   #
-  # `open/3` and `rotate/1` take this lock before they lock any row, so
+  # `open/3` and `rotate/2` take this lock before they lock any row, so
   # neither can hold a row the other needs while waiting for it.
   defp lock_device(user_id, device_id) do
     SQL.query!(Repo, "SELECT pg_advisory_xact_lock($1, $2)", [

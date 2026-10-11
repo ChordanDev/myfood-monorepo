@@ -1,6 +1,7 @@
 defmodule MealPlannerApiWeb.AuthControllerTest do
   use MealPlannerApiWeb.ConnCase, async: false
 
+  import Ecto.Query
   import MealPlannerApi.FactoryHelpers
 
   alias Guardian.Token.Jwt, as: GuardianJwt
@@ -154,13 +155,41 @@ defmodule MealPlannerApiWeb.AuthControllerTest do
       assert %DeviceSession{revoked_at: nil} = device_session(session["refreshToken"])
     end
 
+    test "the same token sent again right away gets a new pair and the session goes on", %{
+      conn: conn
+    } do
+      user = insert_owner!("refresh-retry@example.com")
+      first = login!(conn, user)
+      lost = refresh!(conn, first["refreshToken"])
+
+      conn_retry = post(conn, @refresh_path, %{"refreshToken" => first["refreshToken"]})
+
+      retried = json_response(conn_retry, 200)
+      assert Map.keys(retried) == ["accessToken", "refreshToken", "tokenType"]
+      assert retried["refreshToken"] not in [first["refreshToken"], lost["refreshToken"]]
+      assert retried["accessToken"] != lost["accessToken"]
+
+      # The pair of the response that was lost is replaced by the new one.
+      assert %DeviceSession{id: retried_id, revoked_at: nil} =
+               device_session(retried["refreshToken"])
+
+      assert %DeviceSession{revoked_at: %DateTime{}, replaced_by_id: ^retried_id} =
+               device_session(lost["refreshToken"])
+
+      next = refresh!(conn, retried["refreshToken"])
+      assert %DeviceSession{revoked_at: nil} = device_session(next["refreshToken"])
+
+      assert [_only_one] = Enum.filter(Repo.all(DeviceSession), &is_nil(&1.revoked_at))
+    end
+
     @tag :capture_log
-    test "a rotated token presented again is a replay and ends the session on that device", %{
+    test "a rotated token presented after the retry window is a replay and ends the session", %{
       conn: conn
     } do
       user = insert_owner!("refresh-replay@example.com")
       first = login!(conn, user)
       second = refresh!(conn, first["refreshToken"])
+      leave_retry_window!(first["refreshToken"])
 
       conn_replay = post(conn, @refresh_path, %{"refreshToken" => first["refreshToken"]})
       assert_error(conn_replay, 401, "refresh_token_replayed")
@@ -313,6 +342,7 @@ defmodule MealPlannerApiWeb.AuthControllerTest do
       tablet = login!(conn, user, "tablet")
 
       rotated_phone = refresh!(conn, phone["refreshToken"])
+      leave_retry_window!(phone["refreshToken"])
 
       conn_replay = post(conn, @refresh_path, %{"refreshToken" => phone["refreshToken"]})
       assert_error(conn_replay, 401, "refresh_token_replayed")
@@ -331,6 +361,8 @@ defmodule MealPlannerApiWeb.AuthControllerTest do
       theirs = login!(conn, other_user)
 
       refresh!(conn, mine["refreshToken"])
+      leave_retry_window!(mine["refreshToken"])
+
       conn_replay = post(conn, @refresh_path, %{"refreshToken" => mine["refreshToken"]})
       assert_error(conn_replay, 401, "refresh_token_replayed")
 
@@ -374,6 +406,21 @@ defmodule MealPlannerApiWeb.AuthControllerTest do
   defp device_session(refresh_token) do
     hash = :sha256 |> :crypto.hash(refresh_token) |> Base.encode16(case: :lower)
     Repo.get_by(DeviceSession, token_hash: hash)
+  end
+
+  # HTTP has no clock to move, so the rotation of `refresh_token` is moved
+  # into the past instead: a minute ago, well outside the retry window.
+  defp leave_retry_window!(refresh_token) do
+    hash = :sha256 |> :crypto.hash(refresh_token) |> Base.encode16(case: :lower)
+    rotated_at = DateTime.add(DateTime.utc_now(), -60, :second)
+
+    assert {1, nil} =
+             Repo.update_all(
+               from(s in DeviceSession,
+                 where: s.token_hash == ^hash and not is_nil(s.replaced_by_id)
+               ),
+               set: [revoked_at: rotated_at]
+             )
   end
 
   defp assert_error(conn, status, code) do

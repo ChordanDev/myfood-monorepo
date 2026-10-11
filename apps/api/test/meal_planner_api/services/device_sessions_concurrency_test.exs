@@ -150,9 +150,41 @@ defmodule MealPlannerApi.Services.DeviceSessionsConcurrencyTest do
       assert active.token_hash == token_hash(opened.refresh_token)
     end
 
-    @tag :capture_log
-    test "a second refresh with the same token waits for the first and is a replay",
+    test "a second refresh with the same token waits for the first and is a retry",
          %{user: user, membership: membership} do
+      {:ok, current} = DeviceSessions.open(user, membership, @device_id)
+
+      first = start_request(fn -> DeviceSessions.rotate(current.refresh_token) end)
+      second = start_request(fn -> DeviceSessions.rotate(current.refresh_token) end)
+
+      one_after_the_other(membership, first, second)
+
+      assert {:returned, {:ok, rotated}} = outcome(first)
+      assert {:returned, {:ok, retried}} = outcome(second)
+      assert retried.refresh_token != rotated.refresh_token
+
+      # The retry replaces the pair the first request answered with.
+      assert [active] = active_sessions_on(user, @device_id)
+      assert active.token_hash == token_hash(retried.refresh_token)
+
+      assert %DeviceSession{revoked_at: %DateTime{}, replaced_by_id: replaced_by_id} =
+               session_of(rotated.refresh_token)
+
+      assert replaced_by_id == active.id
+      assert session_of(current.refresh_token).replaced_by_id == active.id
+      assert length(sessions_on(user, @device_id)) == 3
+    end
+
+    @tag :capture_log
+    test "with the retry window off, the second refresh with the same token is a replay",
+         %{user: user, membership: membership} do
+      window = Application.fetch_env!(:meal_planner_api, :refresh_retry_window_seconds)
+      Application.put_env(:meal_planner_api, :refresh_retry_window_seconds, 0)
+
+      on_exit(fn ->
+        Application.put_env(:meal_planner_api, :refresh_retry_window_seconds, window)
+      end)
+
       {:ok, current} = DeviceSessions.open(user, membership, @device_id)
 
       first = start_request(fn -> DeviceSessions.rotate(current.refresh_token) end)
@@ -166,6 +198,26 @@ defmodule MealPlannerApi.Services.DeviceSessionsConcurrencyTest do
       # The replay ends the session on that device, the rotated one included.
       assert active_sessions_on(user, @device_id) == []
       assert length(sessions_on(user, @device_id)) == 2
+    end
+
+    test "a logout of the lost pair that lands during the retry does not end the new session",
+         %{user: user, membership: membership} do
+      {:ok, current} = DeviceSessions.open(user, membership, @device_id)
+      {:ok, lost} = DeviceSessions.rotate(current.refresh_token)
+
+      retry = start_request(fn -> DeviceSessions.rotate(current.refresh_token) end)
+      logout = start_request(fn -> DeviceSessions.revoke(lost.refresh_token) end)
+
+      one_after_the_other(membership, retry, logout)
+
+      assert {:returned, {:ok, retried}} = outcome(retry)
+      assert outcome(logout) == {:returned, :ok}
+
+      # The logout waited for the row the retry had locked and found it
+      # already replaced, so one session is left: the one the retry opened.
+      assert [active] = active_sessions_on(user, @device_id)
+      assert active.token_hash == token_hash(retried.refresh_token)
+      assert session_of(lost.refresh_token).replaced_by_id == active.id
     end
   end
 

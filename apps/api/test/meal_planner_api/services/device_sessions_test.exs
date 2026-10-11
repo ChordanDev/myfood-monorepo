@@ -5,7 +5,8 @@ defmodule MealPlannerApi.Services.DeviceSessionsTest do
   not reach: the `deviceId` rule case by case, what the database itself
   refuses to store, refresh tokens that disagree with their row, a
   refresh JWT past its own expiry, a Membership that stopped being
-  active, and the sweep.
+  active, the retry window of a rotated token second by second, and the
+  sweep.
 
   A token that disagrees with its row cannot come out of `open/3`, so
   those cases store a row by hand for a token minted here.
@@ -15,6 +16,8 @@ defmodule MealPlannerApi.Services.DeviceSessionsTest do
   """
   use ExUnit.Case, async: false
 
+  import Ecto.Query
+  import ExUnit.CaptureLog
   import MealPlannerApi.FactoryHelpers
 
   alias Ecto.Adapters.SQL.Sandbox
@@ -24,6 +27,9 @@ defmodule MealPlannerApi.Services.DeviceSessionsTest do
   alias MealPlannerApi.Services.DeviceSessions
 
   @device_id "9c1d7f6a-2b8e-4f0e-8a51-6d3b1e0c4f77"
+
+  # The retry window the application ships with, in seconds.
+  @window 10
 
   setup do
     :ok = Sandbox.checkout(Repo)
@@ -177,16 +183,22 @@ defmodule MealPlannerApi.Services.DeviceSessionsTest do
       {user, membership} = insert_owner!("sessions-replay-expired@example.com")
       {:ok, current} = DeviceSessions.open(user, membership, @device_id)
 
+      rotated_at = DateTime.utc_now()
+
       session_id = Ecto.UUID.generate()
       token = refresh_token!(user, session_id, ttl: {-1, :minute})
 
       insert_session!(user, membership, token,
         id: session_id,
-        revoked_at: DateTime.utc_now(),
+        revoked_at: rotated_at,
         replaced_by_id: session_of(current.refresh_token).id
       )
 
-      assert DeviceSessions.rotate(token) == {:error, :refresh_token_replayed}
+      # Past the retry window; inside it the same token is checked like a
+      # first rotation, which the retry tests below cover.
+      assert DeviceSessions.rotate(token, DateTime.add(rotated_at, @window + 1, :second)) ==
+               {:error, :refresh_token_replayed}
+
       assert %DeviceSession{revoked_at: %DateTime{}} = session_of(current.refresh_token)
     end
 
@@ -197,6 +209,288 @@ defmodule MealPlannerApi.Services.DeviceSessionsTest do
       insert_session!(user, membership, token, id: session_id, revoked_at: DateTime.utc_now())
 
       assert DeviceSessions.rotate(token) == {:error, :refresh_token_revoked}
+    end
+  end
+
+  # Every test below rotates token A into B at `t0` and presents A again
+  # at a time it chooses. Only the clock handed to `rotate/2` moves: the
+  # tokens are signed with the real time and live for thirty days.
+  describe "rotate/2 — a rotated token presented again inside the retry window" do
+    test "the window shipped in the configuration is ten seconds" do
+      assert Application.fetch_env!(:meal_planner_api, :refresh_retry_window_seconds) == @window
+    end
+
+    test "gets a new pair, replaces the pair that was lost and keeps the session usable" do
+      {user, membership} = insert_owner!("sessions-retry@example.com")
+      {a, b, t0} = open_and_rotate!(user, membership)
+      retried_at = DateTime.add(t0, @window - 1, :second)
+
+      assert {:ok, c} = DeviceSessions.rotate(a.refresh_token, retried_at)
+      assert c.refresh_token not in [a.refresh_token, b.refresh_token]
+      assert {:ok, %{"typ" => "access_v2"}} = Guardian.decode_and_verify(c.access_token)
+
+      %DeviceSession{id: new_id} = new = session_of(c.refresh_token)
+      assert %DeviceSession{revoked_at: nil, replaced_by_id: nil} = new
+      assert new.membership_id == membership.id
+
+      # The pair of the lost response is revoked and points at the new one.
+      assert %DeviceSession{replaced_by_id: ^new_id} = lost = session_of(b.refresh_token)
+      assert DateTime.compare(lost.revoked_at, retried_at) == :eq
+
+      # The presented row points at the new one and keeps the time of its
+      # first rotation.
+      assert %DeviceSession{replaced_by_id: ^new_id} = presented = session_of(a.refresh_token)
+      assert DateTime.compare(presented.revoked_at, t0) == :eq
+
+      assert [%DeviceSession{id: ^new_id}] = active_sessions(user)
+
+      assert {:ok, d} = DeviceSessions.rotate(c.refresh_token, DateTime.add(t0, 3_600, :second))
+      assert [active] = active_sessions(user)
+      assert active.id == session_of(d.refresh_token).id
+    end
+
+    test "is tolerated at exactly the last second of the window" do
+      {user, membership} = insert_owner!("sessions-retry-edge@example.com")
+      {a, _b, t0} = open_and_rotate!(user, membership)
+
+      assert {:ok, c} = DeviceSessions.rotate(a.refresh_token, DateTime.add(t0, @window, :second))
+      assert [active] = active_sessions(user)
+      assert active.id == session_of(c.refresh_token).id
+    end
+
+    @tag :capture_log
+    test "one second after the window it is a replay and ends the session on that device" do
+      {user, membership} = insert_owner!("sessions-retry-late@example.com")
+      {a, b, t0} = open_and_rotate!(user, membership)
+
+      assert DeviceSessions.rotate(a.refresh_token, DateTime.add(t0, @window + 1, :second)) ==
+               {:error, :refresh_token_replayed}
+
+      assert %DeviceSession{revoked_at: %DateTime{}} = session_of(b.refresh_token)
+      assert active_sessions(user) == []
+      assert Repo.aggregate(DeviceSession, :count) == 2
+    end
+
+    @tag :capture_log
+    test "retrying twice works, and the window still counts from the first rotation" do
+      {user, membership} = insert_owner!("sessions-retry-twice@example.com")
+      {a, _b, t0} = open_and_rotate!(user, membership)
+
+      assert {:ok, c} = DeviceSessions.rotate(a.refresh_token, DateTime.add(t0, 3, :second))
+      assert {:ok, d} = DeviceSessions.rotate(a.refresh_token, DateTime.add(t0, 6, :second))
+
+      new_id = session_of(d.refresh_token).id
+      assert [%DeviceSession{id: ^new_id}] = active_sessions(user)
+
+      assert %DeviceSession{revoked_at: %DateTime{}, replaced_by_id: ^new_id} =
+               session_of(c.refresh_token)
+
+      assert %DeviceSession{replaced_by_id: ^new_id} = presented = session_of(a.refresh_token)
+      assert DateTime.compare(presented.revoked_at, t0) == :eq
+
+      assert DeviceSessions.rotate(a.refresh_token, DateTime.add(t0, @window + 1, :second)) ==
+               {:error, :refresh_token_replayed}
+
+      assert active_sessions(user) == []
+    end
+
+    @tag :capture_log
+    test "is a replay once the token that replaced it was used" do
+      {user, membership} = insert_owner!("sessions-retry-used@example.com")
+      {a, b, t0} = open_and_rotate!(user, membership)
+      {:ok, c} = DeviceSessions.rotate(b.refresh_token, DateTime.add(t0, 2, :second))
+
+      assert DeviceSessions.rotate(a.refresh_token, DateTime.add(t0, 4, :second)) ==
+               {:error, :refresh_token_replayed}
+
+      assert %DeviceSession{revoked_at: %DateTime{}} = session_of(c.refresh_token)
+      assert active_sessions(user) == []
+      assert Repo.aggregate(DeviceSession, :count) == 3
+    end
+
+    @tag :capture_log
+    test "is a replay once the token that replaced it was logged out, not a new session" do
+      {user, membership} = insert_owner!("sessions-retry-logout@example.com")
+      {a, b, t0} = open_and_rotate!(user, membership)
+      :ok = DeviceSessions.revoke(b.refresh_token)
+
+      assert DeviceSessions.rotate(a.refresh_token, DateTime.add(t0, 4, :second)) ==
+               {:error, :refresh_token_replayed}
+
+      assert active_sessions(user) == []
+      assert Repo.aggregate(DeviceSession, :count) == 2
+    end
+
+    @tag :capture_log
+    test "is a replay after a later login on the device, and ends that login's session" do
+      {user, membership} = insert_owner!("sessions-retry-login@example.com")
+      {a, _b, t0} = open_and_rotate!(user, membership)
+      {:ok, login} = DeviceSessions.open(user, membership, @device_id)
+
+      assert DeviceSessions.rotate(a.refresh_token, DateTime.add(t0, 4, :second)) ==
+               {:error, :refresh_token_replayed}
+
+      assert %DeviceSession{revoked_at: %DateTime{}} = session_of(login.refresh_token)
+      assert active_sessions(user) == []
+    end
+
+    test "the pair a retry replaced is a rotated token too: a retry inside its own window" do
+      {user, membership} = insert_owner!("sessions-retry-superseded@example.com")
+      {a, b, t0} = open_and_rotate!(user, membership)
+      {:ok, c} = DeviceSessions.rotate(a.refresh_token, DateTime.add(t0, 3, :second))
+
+      assert {:ok, d} = DeviceSessions.rotate(b.refresh_token, DateTime.add(t0, 5, :second))
+
+      new_id = session_of(d.refresh_token).id
+      assert [%DeviceSession{id: ^new_id}] = active_sessions(user)
+
+      assert %DeviceSession{revoked_at: %DateTime{}, replaced_by_id: ^new_id} =
+               session_of(c.refresh_token)
+    end
+
+    @tag :capture_log
+    test "the pair a retry replaced is a rotated token too: a replay after its own window" do
+      {user, membership} = insert_owner!("sessions-retry-superseded-late@example.com")
+      {a, b, t0} = open_and_rotate!(user, membership)
+      {:ok, c} = DeviceSessions.rotate(a.refresh_token, DateTime.add(t0, 3, :second))
+
+      assert DeviceSessions.rotate(b.refresh_token, DateTime.add(t0, 60, :second)) ==
+               {:error, :refresh_token_replayed}
+
+      assert %DeviceSession{revoked_at: %DateTime{}} = session_of(c.refresh_token)
+      assert active_sessions(user) == []
+    end
+
+    test "a Membership that is no longer active gets account_not_found and nothing changes" do
+      {user, membership} = insert_owner!("sessions-retry-suspended@example.com")
+      {a, b, t0} = open_and_rotate!(user, membership)
+      successor_id = session_of(b.refresh_token).id
+
+      membership |> Ecto.Changeset.change(status: :suspended) |> Repo.update!()
+
+      assert DeviceSessions.rotate(a.refresh_token, DateTime.add(t0, 4, :second)) ==
+               {:error, :account_not_found}
+
+      assert [%DeviceSession{id: ^successor_id}] = active_sessions(user)
+      assert %DeviceSession{replaced_by_id: ^successor_id} = session_of(a.refresh_token)
+      assert Repo.aggregate(DeviceSession, :count) == 2
+    end
+
+    test "a rotated token whose JWT has expired gets refresh_token_expired and revokes nothing" do
+      {user, membership} = insert_owner!("sessions-retry-expired@example.com")
+      {:ok, current} = DeviceSessions.open(user, membership, @device_id)
+      rotated_at = DateTime.utc_now()
+
+      session_id = Ecto.UUID.generate()
+      token = refresh_token!(user, session_id, ttl: {-1, :minute})
+
+      insert_session!(user, membership, token,
+        id: session_id,
+        revoked_at: rotated_at,
+        replaced_by_id: session_of(current.refresh_token).id
+      )
+
+      assert DeviceSessions.rotate(token, DateTime.add(rotated_at, 4, :second)) ==
+               {:error, :refresh_token_expired}
+
+      assert %DeviceSession{revoked_at: nil} = session_of(current.refresh_token)
+      assert Repo.aggregate(DeviceSession, :count) == 2
+    end
+
+    test "a pair that cannot be issued gets session_issue_failed and nothing changes" do
+      {user, membership} = insert_owner!("sessions-retry-unissuable@example.com")
+      rotated_at = DateTime.utc_now()
+
+      # A device_id the column holds and a new row is refused for, so the
+      # retry gets as far as storing its pair and fails there.
+      wide = String.duplicate("😀", 100)
+      [presented_id, successor_id] = [Ecto.UUID.generate(), Ecto.UUID.generate()]
+      token = refresh_token!(user, presented_id)
+
+      insert_session!(user, membership, "successor", id: successor_id, device_id: wide)
+
+      insert_session!(user, membership, token,
+        id: presented_id,
+        device_id: wide,
+        revoked_at: rotated_at,
+        replaced_by_id: successor_id
+      )
+
+      assert DeviceSessions.rotate(token, DateTime.add(rotated_at, 4, :second)) ==
+               {:error, :session_issue_failed}
+
+      assert %DeviceSession{revoked_at: nil, replaced_by_id: nil} =
+               Repo.get!(DeviceSession, successor_id)
+
+      assert %DeviceSession{replaced_by_id: ^successor_id} =
+               Repo.get!(DeviceSession, presented_id)
+
+      assert Repo.aggregate(DeviceSession, :count) == 2
+    end
+
+    test "is logged with the User and nothing that names the token or the phone" do
+      level = Logger.level()
+      Logger.configure(level: :info)
+      on_exit(fn -> Logger.configure(level: level) end)
+
+      {user, membership} = insert_owner!("sessions-retry-log@example.com")
+      {a, b, t0} = open_and_rotate!(user, membership)
+
+      log =
+        capture_log(fn ->
+          assert {:ok, _c} = DeviceSessions.rotate(a.refresh_token, DateTime.add(t0, 4, :second))
+        end)
+
+      assert log =~ "[info]"
+      assert log =~ "user_id=#{user.id}"
+
+      for secret <- [a.refresh_token, b.refresh_token, @device_id] ++ token_hashes([a, b]) do
+        refute log =~ secret
+      end
+    end
+  end
+
+  describe "rotate/2 — a retry window that is off" do
+    setup do
+      window = Application.fetch_env!(:meal_planner_api, :refresh_retry_window_seconds)
+
+      on_exit(fn ->
+        Application.put_env(:meal_planner_api, :refresh_retry_window_seconds, window)
+      end)
+    end
+
+    @tag :capture_log
+    test "zero means a rotated token is a replay at once" do
+      Application.put_env(:meal_planner_api, :refresh_retry_window_seconds, 0)
+
+      {user, membership} = insert_owner!("sessions-window-zero@example.com")
+      {a, _b, t0} = open_and_rotate!(user, membership)
+
+      assert DeviceSessions.rotate(a.refresh_token, t0) == {:error, :refresh_token_replayed}
+      assert active_sessions(user) == []
+    end
+
+    @tag :capture_log
+    test "a value that is not a positive number of seconds counts as zero" do
+      for {invalid, index} <- Enum.with_index([-5, "10", 10.0, nil, :unset]) do
+        case invalid do
+          :unset -> Application.delete_env(:meal_planner_api, :refresh_retry_window_seconds)
+          value -> Application.put_env(:meal_planner_api, :refresh_retry_window_seconds, value)
+        end
+
+        {user, membership} = insert_owner!("sessions-window-invalid-#{index}@example.com")
+        {a, _b, t0} = open_and_rotate!(user, membership)
+
+        assert DeviceSessions.rotate(a.refresh_token, t0) == {:error, :refresh_token_replayed}
+        assert active_sessions(user) == []
+      end
+    end
+  end
+
+  describe "rotate/2 — arguments" do
+    test "a token that is not a string is invalid, with or without a clock" do
+      assert DeviceSessions.rotate(nil) == {:error, :refresh_token_invalid}
+      assert DeviceSessions.rotate(42, DateTime.utc_now()) == {:error, :refresh_token_invalid}
     end
   end
 
@@ -306,7 +600,10 @@ defmodule MealPlannerApi.Services.DeviceSessionsTest do
       now = DateTime.utc_now()
 
       assert DeviceSessions.sweep(DateTime.add(now, 6 * 86_400, :second)) == 0
-      assert DeviceSessions.rotate(first.refresh_token) == {:error, :refresh_token_replayed}
+
+      # A minute later, well past the retry window.
+      assert DeviceSessions.rotate(first.refresh_token, DateTime.add(now, 60, :second)) ==
+               {:error, :refresh_token_replayed}
 
       # The replay revoked the rest of the chain, so both rows are now
       # past the retention window.
@@ -395,6 +692,25 @@ defmodule MealPlannerApi.Services.DeviceSessionsTest do
   defp session_of(refresh_token) do
     Repo.get_by!(DeviceSession, token_hash: token_hash(refresh_token))
   end
+
+  # Opens a session, rotates its token A into B at `t0` and returns both
+  # pairs with `t0`.
+  defp open_and_rotate!(user, membership) do
+    t0 = DateTime.utc_now()
+    {:ok, a} = DeviceSessions.open(user, membership, @device_id)
+    {:ok, b} = DeviceSessions.rotate(a.refresh_token, t0)
+    {a, b, t0}
+  end
+
+  defp active_sessions(user) do
+    Repo.all(
+      from(s in DeviceSession,
+        where: s.user_id == ^user.id and s.device_id == @device_id and is_nil(s.revoked_at)
+      )
+    )
+  end
+
+  defp token_hashes(pairs), do: Enum.map(pairs, &token_hash(&1.refresh_token))
 
   defp token_hash(token), do: :sha256 |> :crypto.hash(token) |> Base.encode16(case: :lower)
 end
