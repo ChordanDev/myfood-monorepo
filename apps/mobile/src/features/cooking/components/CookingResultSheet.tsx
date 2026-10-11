@@ -52,7 +52,7 @@ export function CookingResultSheet({ summary, errorMessage, onClose }: CookingRe
                 </Text>
               ) : (
                 summary.consumed.map((line) => (
-                  <View key={line.ingredientId} style={styles.row}>
+                  <View key={`${line.ingredientId}:${line.unit}`} style={styles.row}>
                     <Text style={[styles.name, { color: theme.textLight }]}>{line.name}</Text>
                     <Text style={[styles.quantity, { color: theme.textLight }]}>
                       {line.quantity}
@@ -64,7 +64,7 @@ export function CookingResultSheet({ summary, errorMessage, onClose }: CookingRe
                 <View style={styles.shortages}>
                   <Text style={[styles.subtitle, { color: theme.primaryAccent }]}>Te faltó</Text>
                   {summary.shortages.map((line) => (
-                    <View key={line.ingredientId} style={styles.row}>
+                    <View key={`${line.ingredientId}:${line.unit}`} style={styles.row}>
                       <Text style={[styles.name, { color: theme.textLight }]}>{line.name}</Text>
                       <Text style={[styles.quantity, { color: theme.primaryAccent }]}>
                         {line.missing}

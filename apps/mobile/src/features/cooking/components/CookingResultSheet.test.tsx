@@ -23,10 +23,10 @@ jest.mock('@/context/RecipeThemeContext', () => ({
 const SUMMARY: CookingSummary = {
   recipeName: 'Arroz con aceite',
   consumed: [
-    { ingredientId: 'i1', name: 'Arroz', quantity: '200 g', lots: 2 },
-    { ingredientId: 'i2', name: 'Aceite', quantity: '15 ml', lots: 1 },
+    { ingredientId: 'i1', name: 'Arroz', unit: 'g', quantity: '200 g', lots: 2 },
+    { ingredientId: 'i2', name: 'Aceite', unit: 'ml', quantity: '15 ml', lots: 1 },
   ],
-  shortages: [{ ingredientId: 'i3', name: 'Sal', missing: '5 g' }],
+  shortages: [{ ingredientId: 'i3', name: 'Sal', unit: 'g', missing: '5 g' }],
 };
 
 function render(props: Partial<React.ComponentProps<typeof CookingResultSheet>>) {
@@ -65,6 +65,28 @@ describe('CookingResultSheet', () => {
         '5 g',
       ])
     );
+  });
+
+  it('gives one ingredient in two units a row of its own per unit', () => {
+    const consoleError = jest.spyOn(console, 'error').mockImplementation(() => undefined);
+    const { texts } = render({
+      summary: {
+        recipeName: 'Arroz con aceite',
+        consumed: [
+          { ingredientId: 'i1', name: 'Arroz', unit: 'g', quantity: '100 g', lots: 1 },
+          { ingredientId: 'i1', name: 'Arroz', unit: 'unit', quantity: '2 u', lots: 1 },
+        ],
+        shortages: [
+          { ingredientId: 'i3', name: 'Sal', unit: 'g', missing: '5 g' },
+          { ingredientId: 'i3', name: 'Sal', unit: 'unit', missing: '1 u' },
+        ],
+      },
+    });
+
+    expect(texts()).toEqual(expect.arrayContaining(['100 g', '2 u', '5 g', '1 u']));
+    // React reports rows that share a key through console.error.
+    expect(consoleError).not.toHaveBeenCalled();
+    consoleError.mockRestore();
   });
 
   it('does not show the shortfall block when everything was covered', () => {
