@@ -4,6 +4,7 @@ import type { RequestOptions } from '@/api/transport';
 import type {
   CancelledCart,
   CartLease,
+  CartReservation,
   CheckoutConfirmation,
   CheckoutResult,
   MarkedCart,
@@ -49,6 +50,11 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
+// A 2xx answer this client cannot read is an error like any other unintelligible answer.
+function malformed(what: string) {
+  return new ApiError('unknown_error', `Malformed ${what} response`);
+}
+
 // A line of the Cart of a read: the sheet draws it and a confirm names it by its id.
 function isShoppingCartLine(line: unknown) {
   return (
@@ -89,24 +95,33 @@ function parseShoppingListResponse(response: unknown): ShoppingListRead {
 
 const CART_PATH = '/api/cart';
 
-function parseCartData(response: unknown): Record<string, unknown> {
+// What every answer about a Cart carries: the session it is about.
+type CartData = Record<string, unknown> & { sessionId: string };
+
+function parseCartData(response: unknown): CartData {
   const data = isRecord(response) ? response.data : undefined;
 
-  if (!isRecord(data) || typeof data.sessionId !== 'string') {
-    throw new ApiError('unknown_error', 'Malformed cart response');
-  }
+  if (!isRecord(data) || typeof data.sessionId !== 'string') throw malformed('cart');
 
-  return data;
+  return data as CartData;
 }
 
-function parseLease(response: unknown): CartLease {
-  const data = parseCartData(response);
+// The lease out of the `data` of an answer that carries one.
+function toLease(data: CartData): CartLease {
+  if (typeof data.leaseExpiresAt !== 'string') throw malformed('cart');
 
-  if (typeof data.leaseExpiresAt !== 'string') {
-    throw new ApiError('unknown_error', 'Malformed cart response');
-  }
+  return { sessionId: data.sessionId, leaseExpiresAt: data.leaseExpiresAt };
+}
 
-  return { sessionId: data.sessionId as string, leaseExpiresAt: data.leaseExpiresAt };
+// A Shopping item a Cart reserved. The server gives every item it marks a reservation token.
+function isCartReservation(item: unknown): item is CartReservation {
+  return (
+    isRecord(item) &&
+    typeof item.itemId === 'string' &&
+    item.itemId !== '' &&
+    typeof item.reservationToken === 'string' &&
+    Number.isInteger(item.quantityMilli)
+  );
 }
 
 /**
@@ -119,12 +134,15 @@ export async function markInCart(itemIds: string[], options?: RequestOptions): P
     { itemIds },
     { ...options, auth: true }
   );
-  const lease = parseLease(response);
-  const items = (response as { data: Record<string, unknown> }).data.items;
+  const data = parseCartData(response);
+  const lease = toLease(data);
+  const { items } = data;
 
-  if (!Array.isArray(items)) throw new ApiError('unknown_error', 'Malformed cart response');
+  // One item that cannot be read makes the whole answer unreadable: the Cart would hold
+  // something this client cannot name.
+  if (!Array.isArray(items) || !items.every(isCartReservation)) throw malformed('cart');
 
-  return { ...lease, items: items as MarkedCart['items'] };
+  return { ...lease, items };
 }
 
 /** Extends the lease of a Cart. An expired lease is refused as `stale_cart`. */
@@ -135,10 +153,13 @@ export async function renewCart(sessionId: string, options?: RequestOptions) {
     { ...options, auth: true }
   );
 
-  return parseLease(response);
+  return toLease(parseCartData(response));
 }
 
-/** Abandons a Cart: its items go back to the list. */
+/**
+ * Abandons a Cart: its items go back to the list. The answer is the server's word that the
+ * Cart was abandoned, so one that does not say it is not read as a cancel that worked.
+ */
 export async function cancelCart(
   sessionId: string,
   options?: RequestOptions
@@ -149,12 +170,11 @@ export async function cancelCart(
     { ...options, auth: true }
   );
   const data = parseCartData(response);
+  const { status, updatedRows } = data;
 
-  return {
-    sessionId: data.sessionId as string,
-    updatedRows: typeof data.updatedRows === 'number' ? data.updatedRows : 0,
-    status: 'abandoned',
-  };
+  if (status !== 'abandoned' || !Number.isInteger(updatedRows)) throw malformed('cart');
+
+  return { sessionId: data.sessionId, updatedRows: updatedRows as number, status };
 }
 
 const CHECKOUT_STATUSES: unknown[] = ['completed', 'pending_delivery'];
@@ -190,10 +210,6 @@ export async function confirmCheckout(
   }
 
   return data as unknown as CheckoutResult;
-}
-
-function malformed(what: string) {
-  return new ApiError('unknown_error', `Malformed ${what} response`);
 }
 
 // The changes below are not repeated by the transport when the network fails: an add whose
