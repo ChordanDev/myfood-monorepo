@@ -40,10 +40,6 @@ defmodule MealPlannerApi.Services.UserPreferencesService do
   @soft_preference_max_code_points 255
   @soft_preferences_max_count 20
 
-  @doc "The Diet codes of the mobile app."
-  @spec diet_codes() :: [String.t()]
-  def diet_codes, do: @diet_codes
-
   @doc """
   Returns the preferences of a User.
 

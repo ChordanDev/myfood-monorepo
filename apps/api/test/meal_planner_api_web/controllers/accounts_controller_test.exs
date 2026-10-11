@@ -6,6 +6,13 @@ defmodule MealPlannerApiWeb.AccountsControllerTest do
   alias MealPlannerApi.Auth.Guardian
   alias MealPlannerApi.Persistence.Accounts.Account
   alias MealPlannerApi.Repo
+  alias MealPlannerApiWeb.MobileFixtures
+
+  # The frozen `CurrentMe` bodies the mobile app is tested against: a User
+  # who has not finished Onboarding and one who has. The tests below keep
+  # them from drifting away from the route.
+  @before_onboarding_fixture "auth/fixtures/currentMeBeforeOnboarding.json"
+  @fixture "auth/fixtures/currentMe.json"
 
   # ─── Phase A — Tenancy Refactor (PR 3c task 3.22) ───────────────────────────
   # See calendar_controller_test.exs (task 3.14) for why a tampered
@@ -116,12 +123,82 @@ defmodule MealPlannerApiWeb.AccountsControllerTest do
       assert body["onboarding"] == %{"isComplete" => true}
     end
 
+    test "has exactly the key sets of the frozen mobile fixture before Onboarding", %{
+      conn: conn,
+      user: user,
+      membership: membership,
+      token: token
+    } do
+      fixture = MobileFixtures.read!(@before_onboarding_fixture)
+
+      assert Enum.sort(Map.keys(fixture)) == ["account", "membership", "onboarding", "user"]
+      assert fixture["onboarding"] == %{"isComplete" => false}
+
+      # Sign-up names a User after the local part of the email, so the
+      # display name is never null, even before Onboarding.
+      [local_part, _domain] = String.split(fixture["user"]["email"], "@", parts: 2)
+      assert fixture["user"]["displayName"] == local_part
+
+      put_trial!(membership.account_id, 7 * 86_400)
+      user |> Ecto.Changeset.change(name: local_part) |> Repo.update!()
+
+      body = conn |> get_me(token, "/api/me") |> json_response(200)
+
+      assert MobileFixtures.key_shape(body) == MobileFixtures.key_shape(fixture)
+      # Everything but the identifiers and the trial date is the fixture's:
+      # no Household size, Cooking skill or timezone before Onboarding.
+      assert Map.drop(body["user"], ["id", "email"]) == Map.drop(fixture["user"], ["id", "email"])
+      assert body["membership"] == fixture["membership"]
+      assert body["onboarding"] == fixture["onboarding"]
+
+      assert Map.drop(body["account"], ["id", "trialEndsAt"]) ==
+               Map.drop(fixture["account"], ["id", "trialEndsAt"])
+    end
+
+    test "has exactly the key sets of the frozen mobile fixture after Onboarding", %{
+      conn: conn,
+      user: user,
+      membership: membership,
+      token: token
+    } do
+      fixture = MobileFixtures.read!(@fixture)
+
+      assert Enum.sort(Map.keys(fixture)) == ["account", "membership", "onboarding", "user"]
+
+      put_trial!(membership.account_id, 7 * 86_400)
+
+      Account
+      |> Repo.get!(membership.account_id)
+      |> Ecto.Changeset.change(timezone: fixture["account"]["timezone"])
+      |> Repo.update!()
+
+      user
+      |> Ecto.Changeset.change(
+        name: fixture["user"]["displayName"],
+        household_size: fixture["user"]["householdSize"],
+        cooking_skill: fixture["user"]["cookingSkill"],
+        onboarding_completed_at: DateTime.utc_now()
+      )
+      |> Repo.update!()
+
+      body = conn |> get_me(token, "/api/me") |> json_response(200)
+
+      assert MobileFixtures.key_shape(body) == MobileFixtures.key_shape(fixture)
+      # Everything but the identifiers and the trial date is the fixture's.
+      assert Map.drop(body["user"], ["id", "email"]) == Map.drop(fixture["user"], ["id", "email"])
+      assert body["membership"] == fixture["membership"]
+      assert body["onboarding"] == fixture["onboarding"]
+
+      assert Map.drop(body["account"], ["id", "trialEndsAt"]) ==
+               Map.drop(fixture["account"], ["id", "trialEndsAt"])
+    end
+
     test "GET /api/auth/me returns the same body", %{conn: conn, token: token} do
       me = conn |> get_me(token, "/api/me") |> json_response(200)
       alias_body = conn |> get_me(token, "/api/auth/me") |> json_response(200)
 
       assert alias_body == me
-      assert Map.keys(alias_body) == ["account", "membership", "onboarding", "user"]
+      assert Enum.sort(Map.keys(alias_body)) == ["account", "membership", "onboarding", "user"]
     end
   end
 

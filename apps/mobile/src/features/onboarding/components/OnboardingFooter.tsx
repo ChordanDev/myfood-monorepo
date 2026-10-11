@@ -11,7 +11,7 @@ interface OnboardingFooterProps {
   isLastStep: boolean;
   isSubmitting: boolean;
   onPrimaryPress: () => void;
-  onSignOut?: () => void;
+  onSignOut: () => void;
   primaryDisabled: boolean;
   theme: RecipeThemeConfig;
 }

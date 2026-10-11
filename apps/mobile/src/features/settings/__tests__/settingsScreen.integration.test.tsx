@@ -11,6 +11,7 @@ import { StyleSheet, Text } from 'react-native';
 import { act, create, type ReactTestInstance } from 'react-test-renderer';
 import { ApiError } from '@/api/errors';
 import { AuthContext } from '@/features/auth/context/AuthContext';
+import { fixtureCurrentMe } from '@/features/auth/fixtures/currentMe';
 import type {
   AuthContextValue,
   CurrentMe,
@@ -20,6 +21,11 @@ import type {
   UserPreferences,
   UserPreferencesPayload,
 } from '@/features/auth/types/auth';
+import { fixturePreferences } from '@/features/preferences/fixtures/preferences';
+import {
+  fixtureSlotCookingTimes,
+  fixtureSlotCookingTimesNotFoundError,
+} from '@/features/preferences/fixtures/slotCookingTimes';
 import type { RecipeThemeConfig } from '@/types/domain';
 import { withOpacity } from '@/utils/colors';
 import { SettingsScreen } from '../screens/SettingsScreen';
@@ -116,41 +122,22 @@ const TRIAL_ENDS_AT = new Date(2026, 9, 12, 12, 0).toISOString();
 const RAW_CODES =
   /\b(light|normal|strong|beginner|intermediate|advanced|breakfast|lunch|dinner|omnivore|vegetarian|vegan|pescatarian|peanut|tree_nut|shellfish|gluten|dairy|egg|soy|individual|family|none)\b/;
 
-const savedPreferences: UserPreferences = {
-  diet: 'vegetarian',
-  hardRestrictions: ['gluten', 'peanut'],
-  softPreferences: ['picante', 'comidas rápidas'],
-};
+// What the api answers for this User: the frozen bodies its controller tests pin.
+const savedPreferences: UserPreferences = fixturePreferences();
 
-const savedSlotTimes: SlotCookingTimes = {
-  breakfast: { cookingTimeMinutes: 0, hungerLevel: 'light' },
-  lunch: { cookingTimeMinutes: 30, hungerLevel: 'normal' },
-  dinner: { cookingTimeMinutes: 45, hungerLevel: 'strong' },
-};
+const savedSlotTimes: SlotCookingTimes = fixtureSlotCookingTimes();
 
+// The frozen `GET /api/me` body. The trial date is the only field replaced by default: it
+// is relative to the clock these tests fake.
 function makeMe(
   overrides: { user?: Partial<CurrentMe['user']>; account?: Partial<CurrentMe['account']> } = {}
 ): CurrentMe {
+  const me = fixtureCurrentMe();
+
   return {
-    user: {
-      id: 'user-1',
-      email: 'lucca@correo.com',
-      displayName: 'Lucca Giordana',
-      householdSize: 2,
-      cookingSkill: 'intermediate',
-      ...overrides.user,
-    },
-    account: {
-      id: 'account-1',
-      type: 'individual',
-      trialEndsAt: TRIAL_ENDS_AT,
-      subscriptionStatus: 'none',
-      timezone: null,
-      access: { canUseApp: true, reason: null },
-      ...overrides.account,
-    },
-    membership: { role: 'owner' },
-    onboarding: { isComplete: true },
+    ...me,
+    user: { ...me.user, ...overrides.user },
+    account: { ...me.account, trialEndsAt: TRIAL_ENDS_AT, ...overrides.account },
   };
 }
 
@@ -407,7 +394,7 @@ describe('SettingsScreen', () => {
       expect(getTexts(card)).toEqual([
         'LG',
         'Lucca Giordana',
-        'lucca@correo.com',
+        'lucca@example.com',
         'Prueba · 6 días',
       ]);
     });
@@ -421,7 +408,7 @@ describe('SettingsScreen', () => {
       expect(getTexts(getHost(root, 'settings-account-card'))).toEqual([
         'LG',
         'Lucca Giordana',
-        'lucca@correo.com',
+        'lucca@example.com',
       ]);
     });
 
@@ -430,7 +417,7 @@ describe('SettingsScreen', () => {
 
       expect(getTexts(getHost(root, 'settings-account-card'))).toEqual([
         'L',
-        'lucca@correo.com',
+        'lucca@example.com',
         'Prueba · 6 días',
       ]);
     });
@@ -449,7 +436,7 @@ describe('SettingsScreen', () => {
 
       expect(colorOf(findText(root, 'LG'))).toBe(mockTheme.primaryAccent);
       expect(colorOf(findText(root, 'Lucca Giordana'))).toBe(mockTheme.textLight);
-      expect(colorOf(findText(root, 'lucca@correo.com'))).toBe(mockTheme.textMedium);
+      expect(colorOf(findText(root, 'lucca@example.com'))).toBe(mockTheme.textMedium);
       expect(colorOf(findText(root, 'Prueba · 6 días'))).toBe(mockTheme.primaryAccent);
     });
   });
@@ -470,10 +457,10 @@ describe('SettingsScreen', () => {
       );
       expect(rowLabel(root, 'settings-row-diet')).toBe('Dieta, Vegetariano');
       expect(rowLabel(root, 'settings-row-hard-restrictions')).toBe(
-        'Restricciones duras, Gluten, Maní'
+        'Restricciones duras, Maní, Gluten'
       );
       expect(rowLabel(root, 'settings-row-soft-preferences')).toBe(
-        'Preferencias suaves, picante, comidas rápidas'
+        'Preferencias suaves, spicy food, quick meals'
       );
       expect(rowLabel(root, 'settings-row-slot-breakfast')).toBe('Desayuno, No cocino · Liviano');
       expect(rowLabel(root, 'settings-row-slot-lunch')).toBe('Almuerzo, 30 min · Normal');
@@ -598,7 +585,7 @@ describe('SettingsScreen', () => {
       expect(queryHost(root, 'settings-load-retry')).toBeNull();
     });
 
-    const noneSaved = () => new ApiError('slot_cooking_times_not_found', 'none saved', 404);
+    const noneSaved = fixtureSlotCookingTimesNotFoundError;
 
     it('starts from the default slot times when the user never saved any', async () => {
       const { root } = await renderScreen({
@@ -924,14 +911,14 @@ describe('SettingsScreen', () => {
       expect(context.saveUserPreferences).toHaveBeenCalledTimes(1);
       expect(context.saveUserPreferences).toHaveBeenCalledWith({
         diet: 'vegan',
-        hardRestrictions: ['gluten', 'peanut'],
-        softPreferences: ['picante', 'comidas rápidas'],
+        hardRestrictions: ['peanut', 'gluten'],
+        softPreferences: ['spicy food', 'quick meals'],
       });
       expect(context.saveSlotCookingTimes).not.toHaveBeenCalled();
       expect(isSheetOpen(root)).toBe(false);
       expect(rowLabel(root, 'settings-row-diet')).toBe('Dieta, Vegano');
       expect(rowLabel(root, 'settings-row-hard-restrictions')).toBe(
-        'Restricciones duras, Gluten, Maní'
+        'Restricciones duras, Maní, Gluten'
       );
     });
 
@@ -1000,7 +987,7 @@ describe('SettingsScreen', () => {
 
       await press(root, 'settings-row-soft-preferences');
       expect(getInput(root, 'settings-input-soft-preferences').props.value).toBe(
-        'picante, comidas rápidas'
+        'spicy food, quick meals'
       );
 
       await typeInto(root, 'settings-input-soft-preferences', 'cilantro,  picante, ');

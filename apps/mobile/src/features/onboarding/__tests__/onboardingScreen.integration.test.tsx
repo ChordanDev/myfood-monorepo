@@ -26,6 +26,8 @@ import { Alert } from 'react-native';
 import { act, create } from 'react-test-renderer';
 import type { CurrentMe, AuthContextValue } from '@/features/auth/types/auth';
 import { AuthContext } from '@/features/auth/context/AuthContext';
+import { fixtureCurrentMeBeforeOnboarding } from '@/features/auth/fixtures/currentMe';
+import { fixtureOnboardingCompletion } from '@/features/onboarding/fixtures/onboardingCompletion';
 import { OnboardingScreen } from '@/features/onboarding/screens/OnboardingScreen';
 
 const mockRouterReplace = jest.fn();
@@ -115,27 +117,9 @@ jest.mock('react-native-safe-area-context', () => ({
   useSafeAreaInsets: () => ({ top: 0, bottom: 0, left: 0, right: 0 }),
 }));
 
+// The frozen `GET /api/me` body of a User who has not finished Onboarding.
 function makeMe(overrides: Partial<CurrentMe> = {}): CurrentMe {
-  return {
-    user: {
-      id: 'user-1',
-      email: 'user@example.com',
-      displayName: null,
-      householdSize: null,
-      cookingSkill: null,
-    },
-    account: {
-      id: 'account-1',
-      type: 'individual',
-      trialEndsAt: '2099-12-31T00:00:00Z',
-      subscriptionStatus: 'none',
-      timezone: null,
-      access: { canUseApp: true, reason: null },
-    },
-    membership: { role: 'owner' },
-    onboarding: { isComplete: false },
-    ...overrides,
-  };
+  return { ...fixtureCurrentMeBeforeOnboarding(), ...overrides };
 }
 
 function buildContext(
@@ -175,20 +159,6 @@ function renderOnboardingWithValue(value: AuthContextValue) {
   act(() => {
     tree = create(
       React.createElement(AuthContext.Provider, { value }, React.createElement(OnboardingScreen))
-    );
-  });
-  return { tree: tree! };
-}
-
-function renderOnboardingPreviewWithValue(value: AuthContextValue) {
-  let tree: ReturnType<typeof create> | null = null;
-  act(() => {
-    tree = create(
-      React.createElement(
-        AuthContext.Provider,
-        { value },
-        React.createElement(OnboardingScreen, { previewMode: true })
-      )
     );
   });
   return { tree: tree! };
@@ -252,24 +222,16 @@ describe('OnboardingScreen — post-completion redirect stabilization (Judgment 
     jest.restoreAllMocks();
   });
 
-  it('renders in preview mode without redirecting when unauthenticated', () => {
-    const { tree } = renderOnboardingPreviewWithValue(buildContext(null));
-    expect(findRedirectHref(tree.root)).toBeNull();
+  it('redirects to "/" when unauthenticated', () => {
+    const { tree } = renderOnboardingWithValue(buildContext(null));
+    expect(findRedirectHref(tree.root)).toBe('/');
     unmountTree(tree);
   });
 
-  it('does not complete onboarding or replace navigation when preview submit is pressed', async () => {
-    const completeOnboarding = jest.fn();
-    const me = makeMe({
-      user: {
-        id: 'user-1',
-        email: 'user@example.com',
-        displayName: 'Preview User',
-        householdSize: null,
-        cookingSkill: null,
-      },
-    });
-    const { tree } = renderOnboardingPreviewWithValue(buildContext(me, { completeOnboarding }));
+  it('completes onboarding and replaces navigation when the last step is submitted', async () => {
+    const completeOnboarding = jest.fn().mockResolvedValue(fixtureOnboardingCompletion());
+    const me = makeMe({ user: { ...makeMe().user, displayName: 'Test User' } });
+    const { tree } = renderOnboardingWithValue(buildContext(me, { completeOnboarding }));
 
     // The submit action lives on the last of the three steps.
     for (const label of ['CONTINUAR', 'CONTINUAR', 'FINALIZAR']) {
@@ -278,21 +240,21 @@ describe('OnboardingScreen — post-completion redirect stabilization (Judgment 
       });
     }
 
-    expect(Alert.alert).toHaveBeenCalledWith('Modo preview', expect.any(String));
-    expect(completeOnboarding).not.toHaveBeenCalled();
-    expect(mockRouterReplace).not.toHaveBeenCalled();
+    expect(completeOnboarding).toHaveBeenCalledTimes(1);
+    expect(mockRouterReplace).toHaveBeenCalledWith('/');
+    expect(Alert.alert).not.toHaveBeenCalled();
     unmountTree(tree);
   });
 
-  it('does not sign out when preview close-session action is pressed', () => {
+  it('signs out when the close-session action is pressed', () => {
     const signOut = jest.fn();
-    const { tree } = renderOnboardingPreviewWithValue(buildContext(makeMe(), { signOut }));
+    const { tree } = renderOnboardingWithValue(buildContext(makeMe(), { signOut }));
 
     act(() => {
-      findButtonByText(tree.root, 'Cerrar sesión').props.onPress?.();
+      findButtonByText(tree.root, 'Cerrar sesión').props.onPress();
     });
 
-    expect(signOut).not.toHaveBeenCalled();
+    expect(signOut).toHaveBeenCalledTimes(1);
     unmountTree(tree);
   });
 

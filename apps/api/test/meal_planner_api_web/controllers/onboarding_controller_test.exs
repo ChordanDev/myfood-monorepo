@@ -16,8 +16,13 @@ defmodule MealPlannerApiWeb.OnboardingControllerTest do
   alias MealPlannerApi.Persistence.Accounts.User
   alias MealPlannerApi.Repo
   alias MealPlannerApi.Services.{OnboardingService, UserPreferencesService}
+  alias MealPlannerApiWeb.MobileFixtures
 
   @path "/api/onboarding/complete"
+
+  # The frozen body the mobile onboarding code is tested against. The test
+  # below keeps it from drifting away from the route.
+  @fixture "onboarding/fixtures/onboardingCompletion.json"
 
   @body %{
     "profile" => %{
@@ -91,6 +96,33 @@ defmodule MealPlannerApiWeb.OnboardingControllerTest do
              }
 
       assert length(Accounts.list_user_slot_cooking_times(user.id)) == 3
+    end
+
+    test "has exactly the key sets of the frozen mobile payload fixture", %{token: token} do
+      fixture = MobileFixtures.read!(@fixture)
+
+      assert fixture |> Map.keys() |> Enum.sort() == ["preferences", "slotCookingTimes", "user"]
+
+      # The request carries the groups of the fixture, so the two saved
+      # groups come back as the fixture has them.
+      request =
+        @body
+        |> Map.put("preferences", fixture["preferences"])
+        |> Map.put("slotCookingTimes", fixture["slotCookingTimes"])
+        |> Map.put(
+          "profile",
+          Map.take(fixture["user"], ["displayName", "householdSize", "cookingSkill"])
+        )
+
+      body = token |> complete(request) |> json_response(200)
+
+      assert MobileFixtures.key_shape(body) == MobileFixtures.key_shape(fixture)
+
+      assert Map.drop(body["user"], ["id", "onboardingCompletedAt"]) ==
+               Map.drop(fixture["user"], ["id", "onboardingCompletedAt"])
+
+      assert body["preferences"] == fixture["preferences"]
+      assert body["slotCookingTimes"] == fixture["slotCookingTimes"]
     end
 
     test "a second call replaces the data and keeps the original timestamp", %{

@@ -40,10 +40,6 @@ import {
   type OnboardingStep,
 } from '@/features/onboarding/utils/onboardingSteps';
 
-interface OnboardingScreenProps {
-  previewMode?: boolean;
-}
-
 const STEP_COPY: Record<OnboardingStep, { title: string; subtitle: string }> = {
   household: {
     title: 'Tu hogar',
@@ -61,7 +57,7 @@ const STEP_COPY: Record<OnboardingStep, { title: string; subtitle: string }> = {
   },
 };
 
-export function OnboardingScreen({ previewMode = false }: OnboardingScreenProps) {
+export function OnboardingScreen() {
   const router = useRouter();
   const { theme } = useRecipeTheme();
   const { isAuthenticated, isLoading, isComplete, accessToken, completeOnboarding, user, signOut } =
@@ -171,7 +167,7 @@ export function OnboardingScreen({ previewMode = false }: OnboardingScreenProps)
     );
   }, []);
 
-  const hasAccessToken = previewMode || accessToken !== null;
+  const hasAccessToken = accessToken !== null;
 
   const handleSubmit = useCallback(async () => {
     // Block submit until we have a token. The POST /api/onboarding/complete
@@ -180,11 +176,6 @@ export function OnboardingScreen({ previewMode = false }: OnboardingScreenProps)
     // with 401 or leave the user wedged on this screen. The rule is
     // unit-tested in `onboardingSubmitGate.test.ts`.
     if (!canSubmitOnboarding({ isLoading, isSubmitting: submitting, hasAccessToken, isValid })) {
-      return;
-    }
-
-    if (previewMode) {
-      Alert.alert('Modo preview', 'El formulario se renderiza sin guardar cambios.');
       return;
     }
 
@@ -236,7 +227,6 @@ export function OnboardingScreen({ previewMode = false }: OnboardingScreenProps)
     householdSize,
     isLoading,
     isValid,
-    previewMode,
     router,
     slots,
     softPreferences,
@@ -263,11 +253,11 @@ export function OnboardingScreen({ previewMode = false }: OnboardingScreenProps)
     await handleSubmit();
   }, [draft, handleSubmit, step, submitting]);
 
-  if (!previewMode && !isLoading && !isAuthenticated) {
+  if (!isLoading && !isAuthenticated) {
     return <Redirect href="/" />;
   }
 
-  if (!previewMode && !isLoading && isComplete) {
+  if (!isLoading && isComplete) {
     return <Redirect href="/" />;
   }
 
@@ -364,7 +354,7 @@ export function OnboardingScreen({ previewMode = false }: OnboardingScreenProps)
           isLastStep={isLastStep}
           isSubmitting={submitting}
           onPrimaryPress={handlePrimaryPress}
-          onSignOut={previewMode ? undefined : signOut}
+          onSignOut={signOut}
           primaryDisabled={primaryDisabled}
           theme={theme}
         />

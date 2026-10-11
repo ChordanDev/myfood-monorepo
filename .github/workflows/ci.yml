@@ -36,6 +36,10 @@ jobs:
               - 'apps/api/**'
               # The api channel tests assert against these committed fixtures.
               - 'apps/mobile/src/features/planner/fixtures/**'
+              # The api controller tests pin these frozen response bodies by key set.
+              - 'apps/mobile/src/features/auth/fixtures/**'
+              - 'apps/mobile/src/features/onboarding/fixtures/**'
+              - 'apps/mobile/src/features/preferences/fixtures/**'
               - '.github/workflows/ci.yml'
             # `apps/api/lib/**` is here because the mobile contract test
             # (`authErrorCodeContract.test.ts`) scans the api source for the

@@ -1,14 +1,18 @@
 /// <reference types="node" />
+import { fixtureProfileUpdate } from '@/features/auth/fixtures/profileUpdate';
+import profileUpdateFixture from '@/features/auth/fixtures/profileUpdate.json';
 import type {
   OnboardingCompletionRequest,
-  OnboardingCompletionResponse,
   ProfileUpdatePayload,
-  ProfileUpdateResponse,
-  UserPreferences,
   UserPreferencesPayload,
-  SlotCookingTimes,
   SlotCookingTimesPayload,
 } from '@/features/auth/types/auth';
+import { fixtureOnboardingCompletion } from '@/features/onboarding/fixtures/onboardingCompletion';
+import onboardingCompletionFixture from '@/features/onboarding/fixtures/onboardingCompletion.json';
+import { fixturePreferences } from '@/features/preferences/fixtures/preferences';
+import preferencesFixture from '@/features/preferences/fixtures/preferences.json';
+import { fixtureSlotCookingTimes } from '@/features/preferences/fixtures/slotCookingTimes';
+import slotCookingTimesFixture from '@/features/preferences/fixtures/slotCookingTimes.json';
 import * as authService from '../authService';
 
 const mockSecureStore = new Map<string, string>();
@@ -44,31 +48,15 @@ const validPayload: OnboardingCompletionRequest = {
   timezone: 'America/Argentina/Buenos_Aires',
 };
 
-const completionResponse: OnboardingCompletionResponse = {
-  user: {
-    id: 'user-1',
-    displayName: 'Lucca',
-    householdSize: 1,
-    cookingSkill: 'beginner',
-    onboardingCompletedAt: '2026-06-09T00:00:00Z',
-  },
-  preferences: { diet: 'omnivore', hardRestrictions: [], softPreferences: [] },
-  slotCookingTimes: {
-    breakfast: { cookingTimeMinutes: 0, hungerLevel: 'light' },
-    lunch: { cookingTimeMinutes: 30, hungerLevel: 'normal' },
-    dinner: { cookingTimeMinutes: 45, hungerLevel: 'strong' },
-  },
-};
-
 const profilePayload: ProfileUpdatePayload = {
   displayName: 'Lucca Giordana',
   householdSize: 2,
   cookingSkill: 'intermediate',
 };
 
-const profileResponse: ProfileUpdateResponse = {
-  user: { id: 'user-1', email: 'user@example.com', ...profilePayload },
-};
+// The response bodies are the frozen fixtures the api pins; the request bodies above are
+// what the app builds, so they stay inline.
+const profileResponse = fixtureProfileUpdate();
 
 describe('authService onboarding/preferences/slot-cooking-times endpoints', () => {
   const fetchMock = jest.fn();
@@ -86,7 +74,7 @@ describe('authService onboarding/preferences/slot-cooking-times endpoints', () =
   });
 
   it('POSTs the full onboarding payload to /api/onboarding/complete with bearer token', async () => {
-    fetchMock.mockReturnValueOnce(mockJsonResponse(completionResponse));
+    fetchMock.mockReturnValueOnce(mockJsonResponse(onboardingCompletionFixture));
 
     const result = await authService.completeOnboarding('access-1', validPayload);
 
@@ -102,7 +90,7 @@ describe('authService onboarding/preferences/slot-cooking-times endpoints', () =
         body: JSON.stringify(validPayload),
       })
     );
-    expect(result).toEqual(completionResponse);
+    expect(result).toEqual(fixtureOnboardingCompletion());
   });
 
   it('maps onboarding_invalid and onboarding_already_complete to typed errors', async () => {
@@ -130,12 +118,7 @@ describe('authService onboarding/preferences/slot-cooking-times endpoints', () =
   });
 
   it('GETs /api/me/preferences with bearer token', async () => {
-    const prefs: UserPreferences = {
-      diet: 'vegetarian',
-      hardRestrictions: ['gluten'],
-      softPreferences: ['mushrooms'],
-    };
-    fetchMock.mockReturnValueOnce(mockJsonResponse(prefs));
+    fetchMock.mockReturnValueOnce(mockJsonResponse(preferencesFixture));
 
     const result = await authService.getUserPreferences('access-1');
 
@@ -146,16 +129,16 @@ describe('authService onboarding/preferences/slot-cooking-times endpoints', () =
         headers: expect.objectContaining({ Authorization: 'Bearer access-1' }),
       })
     );
-    expect(result).toEqual(prefs);
+    expect(result).toEqual(fixturePreferences());
   });
 
-  it('PUTs /api/me/preferences with bearer token and returns updated payload', async () => {
+  it('PUTs /api/me/preferences with bearer token and returns the stored preferences', async () => {
     const payload: UserPreferencesPayload = {
       diet: 'pescatarian',
       hardRestrictions: ['shellfish'],
       softPreferences: ['cilantro'],
     };
-    fetchMock.mockReturnValueOnce(mockJsonResponse(payload));
+    fetchMock.mockReturnValueOnce(mockJsonResponse(preferencesFixture));
 
     const result = await authService.updateUserPreferences('access-1', payload);
 
@@ -167,7 +150,7 @@ describe('authService onboarding/preferences/slot-cooking-times endpoints', () =
         body: JSON.stringify(payload),
       })
     );
-    expect(result).toEqual(payload);
+    expect(result).toEqual(fixturePreferences());
   });
 
   it('maps preferences_invalid to a typed error', async () => {
@@ -185,12 +168,7 @@ describe('authService onboarding/preferences/slot-cooking-times endpoints', () =
   });
 
   it('GETs /api/me/slot-cooking-times with bearer token', async () => {
-    const slots: SlotCookingTimes = {
-      breakfast: { cookingTimeMinutes: 0, hungerLevel: 'normal' },
-      lunch: { cookingTimeMinutes: 0, hungerLevel: 'normal' },
-      dinner: { cookingTimeMinutes: 0, hungerLevel: 'normal' },
-    };
-    fetchMock.mockReturnValueOnce(mockJsonResponse(slots));
+    fetchMock.mockReturnValueOnce(mockJsonResponse(slotCookingTimesFixture));
 
     const result = await authService.getSlotCookingTimes('access-1');
 
@@ -201,16 +179,16 @@ describe('authService onboarding/preferences/slot-cooking-times endpoints', () =
         headers: expect.objectContaining({ Authorization: 'Bearer access-1' }),
       })
     );
-    expect(result).toEqual(slots);
+    expect(result).toEqual(fixtureSlotCookingTimes());
   });
 
-  it('PUTs /api/me/slot-cooking-times with bearer token and returns updated slots', async () => {
+  it('PUTs /api/me/slot-cooking-times with bearer token and returns the stored slot cooking times', async () => {
     const payload: SlotCookingTimesPayload = {
       breakfast: { cookingTimeMinutes: 10, hungerLevel: 'light' },
       lunch: { cookingTimeMinutes: 30, hungerLevel: 'normal' },
       dinner: { cookingTimeMinutes: 45, hungerLevel: 'strong' },
     };
-    fetchMock.mockReturnValueOnce(mockJsonResponse(payload));
+    fetchMock.mockReturnValueOnce(mockJsonResponse(slotCookingTimesFixture));
 
     const result = await authService.updateSlotCookingTimes('access-1', payload);
 
@@ -222,7 +200,7 @@ describe('authService onboarding/preferences/slot-cooking-times endpoints', () =
         body: JSON.stringify(payload),
       })
     );
-    expect(result).toEqual(payload);
+    expect(result).toEqual(fixtureSlotCookingTimes());
   });
 
   it('maps slot_cooking_times_invalid to a typed error', async () => {
@@ -244,7 +222,7 @@ describe('authService onboarding/preferences/slot-cooking-times endpoints', () =
   });
 
   it('PUTs /api/me/profile with bearer token and returns the updated user', async () => {
-    fetchMock.mockReturnValueOnce(mockJsonResponse(profileResponse));
+    fetchMock.mockReturnValueOnce(mockJsonResponse(profileUpdateFixture));
 
     const result = await authService.updateProfile('access-1', profilePayload);
 
@@ -261,7 +239,7 @@ describe('authService onboarding/preferences/slot-cooking-times endpoints', () =
 
   it('PUTs /api/me/profile with the stored access token when none is passed', async () => {
     mockSecureStore.set('auth_access_token', 'stored-access');
-    fetchMock.mockReturnValueOnce(mockJsonResponse(profileResponse));
+    fetchMock.mockReturnValueOnce(mockJsonResponse(profileUpdateFixture));
 
     await authService.updateProfile(profilePayload);
 
@@ -298,8 +276,8 @@ describe('authService onboarding/preferences/slot-cooking-times endpoints', () =
   });
 
   it.each([
-    ['is not wrapped in a user', { id: 'user-1', email: 'user@example.com', ...profilePayload }],
-    ['has a user without an id', { user: { email: 'user@example.com', ...profilePayload } }],
+    ['is not wrapped in a user', profileResponse.user],
+    ['has a user without an id', { user: { ...profileResponse.user, id: undefined } }],
     ['has a user with an empty id', { user: { ...profileResponse.user, id: '' } }],
     ['has a user that is not an object', { user: 'user-1' }],
   ])('rejects a profile update response that %s', async (_case, body) => {
@@ -312,16 +290,15 @@ describe('authService onboarding/preferences/slot-cooking-times endpoints', () =
   });
 
   it('fills the profile fields the update response omits with null', async () => {
-    fetchMock.mockReturnValueOnce(
-      mockJsonResponse({ user: { id: 'user-1', email: 'user@example.com' } })
-    );
+    const { id, email } = profileResponse.user;
+    fetchMock.mockReturnValueOnce(mockJsonResponse({ user: { id, email } }));
 
     const result = await authService.updateProfile('access-1', profilePayload);
 
     expect(result).toEqual({
       user: {
-        id: 'user-1',
-        email: 'user@example.com',
+        id,
+        email,
         displayName: null,
         householdSize: null,
         cookingSkill: null,

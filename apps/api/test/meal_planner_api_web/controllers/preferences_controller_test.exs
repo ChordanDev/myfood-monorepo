@@ -15,6 +15,11 @@ defmodule MealPlannerApiWeb.PreferencesControllerTest do
   }
 
   alias MealPlannerApi.Repo
+  alias MealPlannerApiWeb.MobileFixtures
+
+  # The frozen body the mobile preferences code is tested against. The test
+  # below keeps it from drifting away from the two routes.
+  @fixture "preferences/fixtures/preferences.json"
 
   describe "GET /api/me/preferences" do
     setup do
@@ -55,6 +60,23 @@ defmodule MealPlannerApiWeb.PreferencesControllerTest do
                "hardRestrictions" => ["peanut", "tree_nut", "soy"],
                "softPreferences" => ["no cilantro", "extra spicy", "batch cooking"]
              }
+    end
+
+    test "PUT and GET answer the frozen mobile payload fixture, key for key", %{
+      conn: conn,
+      token: token
+    } do
+      fixture = MobileFixtures.read!(@fixture)
+
+      assert fixture |> Map.keys() |> Enum.sort() ==
+               ["diet", "hardRestrictions", "softPreferences"]
+
+      saved = conn |> put_preferences(token, fixture) |> json_response(200)
+      read = build_conn() |> get_preferences(token) |> json_response(200)
+
+      assert MobileFixtures.key_shape(saved) == MobileFixtures.key_shape(fixture)
+      assert saved == fixture
+      assert read == fixture
     end
 
     test "Hard restrictions come back in catalog order whatever the insertion order", %{

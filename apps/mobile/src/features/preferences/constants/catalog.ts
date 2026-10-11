@@ -1,9 +1,13 @@
 // Catalog codes for diet and hard_restrictions.
 //
-// Source of truth is the backend `MyFoodBack.Accounts.Catalog` module
-// (`my_food_back/lib/my_food_back/accounts/catalog.ex`). If the backend
-// catalog ever changes, update this file in the same commit and add a
-// regression test that fails when the UI allows an unknown code.
+// Source of truth is the backend: the Diet codes are `@diet_codes` in
+// `MealPlannerApi.Services.UserPreferencesService`
+// (`apps/api/lib/meal_planner_api/services/user_preferences_service.ex`)
+// and the Hard restriction codes are
+// `MealPlannerApi.Persistence.Accounts.UserHardRestriction.codes/0`
+// (`apps/api/lib/meal_planner_api/persistence/accounts/user_hard_restriction.ex`).
+// If either backend list ever changes, update this file in the same commit
+// and add a regression test that fails when the UI allows an unknown code.
 //
 // soft_preferences is intentionally NOT catalog-restricted; the spec keeps
 // it as a free-form string list.

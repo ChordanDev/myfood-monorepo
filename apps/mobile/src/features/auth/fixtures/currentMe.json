@@ -1,0 +1,19 @@
+{
+  "user": {
+    "id": "7c9e6679-7425-40de-944b-e07fc1f90ae7",
+    "email": "lucca@example.com",
+    "displayName": "Lucca Giordana",
+    "householdSize": 2,
+    "cookingSkill": "intermediate"
+  },
+  "account": {
+    "id": "2f1d4c8a-5b3e-4f6a-9d7c-0a1b2c3d4e5f",
+    "type": "individual",
+    "trialEndsAt": "2099-01-01T15:00:00.000000Z",
+    "timezone": "America/Argentina/Buenos_Aires",
+    "subscriptionStatus": "none",
+    "access": { "canUseApp": true, "reason": null }
+  },
+  "membership": { "role": "owner" },
+  "onboarding": { "isComplete": true }
+}

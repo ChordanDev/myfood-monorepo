@@ -2,7 +2,8 @@ defmodule MealPlannerApi.Data.UserPreferenceRepo do
   @moduledoc """
   Pure data access for user_preferences.
 
-  No business logic. Creates on first access (upsert pattern).
+  No business logic. The row of a User is created by the first save of
+  their Soft preferences.
   """
 
   alias MealPlannerApi.Persistence.Accounts.UserPreference
@@ -11,26 +12,6 @@ defmodule MealPlannerApi.Data.UserPreferenceRepo do
   @spec get(Ecto.UUID.t()) :: UserPreference.t() | nil
   def get(user_id) do
     Repo.get_by(UserPreference, user_id: user_id)
-  end
-
-  @spec get!(Ecto.UUID.t()) :: UserPreference.t()
-  def get!(user_id) do
-    Repo.get_by!(UserPreference, user_id: user_id)
-  end
-
-  @spec upsert(Ecto.UUID.t(), map()) :: {:ok, UserPreference.t()} | {:error, Ecto.Changeset.t()}
-  def upsert(user_id, attrs) when is_map(attrs) do
-    case Repo.get_by(UserPreference, user_id: user_id) do
-      nil ->
-        %UserPreference{user_id: user_id}
-        |> UserPreference.changeset(attrs)
-        |> Repo.insert()
-
-      existing ->
-        existing
-        |> UserPreference.changeset(attrs)
-        |> Repo.update()
-    end
   end
 
   @doc """
@@ -46,13 +27,5 @@ defmodule MealPlannerApi.Data.UserPreferenceRepo do
     preference
     |> UserPreference.soft_preferences_changeset(%{soft_preferences: soft_preferences})
     |> Repo.insert_or_update()
-  end
-
-  @spec delete(Ecto.UUID.t()) :: {:ok, UserPreference.t()} | {:error, term()}
-  def delete(user_id) do
-    case Repo.get_by(UserPreference, user_id: user_id) do
-      nil -> {:error, :not_found}
-      pref -> Repo.delete(pref)
-    end
   end
 end
