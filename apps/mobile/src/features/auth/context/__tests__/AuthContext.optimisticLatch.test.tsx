@@ -302,27 +302,74 @@ describe('AuthContext — optimisticComplete is a one-way latch (Judgment Day C2
     });
   });
 
-  it('keeps the profile fields from the completion response when the follow-up /me is stale', async () => {
-    // The server stores householdSize and cookingSkill with the completion
-    // and GET /api/me serves them. The completion response still wins over
-    // the refresh that follows it, so a snapshot read without them does not
-    // overwrite the values the POST had just confirmed.
+  // The profile fields the completion POST answers with in the tests below.
+  const completedUser: CurrentMe['user'] = {
+    id: 'user-1',
+    email: 'user@example.com',
+    displayName: 'Lucca',
+    householdSize: 3,
+    cookingSkill: 'advanced',
+  };
+
+  it('takes the profile fields from the follow-up /me, not from the completion answer', async () => {
+    // A successful GET /api/me is the only source of displayName,
+    // householdSize and cookingSkill. The two answers differ here on
+    // purpose: the completion answer must reach neither `me` nor the stored
+    // snapshot.
     const handle = setupStaleHydration(makeMe());
     await waitForSinkAuth(handle.sink, (a) => a.accessToken !== null);
 
-    const completedUser: CurrentMe['user'] = {
-      id: 'user-1',
-      email: 'user@example.com',
-      displayName: 'Lucca',
-      householdSize: 3,
-      cookingSkill: 'advanced',
-    };
     stubSuccessfulCompleteOnboarding(completedUser);
-    const meWithoutProfile = makeMe({
-      user: { ...completedUser, householdSize: null, cookingSkill: null },
-      onboarding: { isComplete: true },
+    const freshUser: CurrentMe['user'] = {
+      ...completedUser,
+      displayName: 'Lucca G.',
+      householdSize: 5,
+      cookingSkill: 'beginner',
+    };
+    mockAuthService.refreshCurrentSession.mockResolvedValue(
+      makeSession(makeMe({ user: freshUser, onboarding: { isComplete: true } }))
+    );
+    mockAuthService.persistProfileForStoredSession.mockResolvedValue(null);
+
+    await act(async () => {
+      await handle.sink.v!.completeOnboarding(onboardingPayload);
     });
-    mockAuthService.refreshCurrentSession.mockResolvedValue(makeSession(meWithoutProfile));
+    await waitForSinkAuth(handle.sink, (a) => a.me?.onboarding.isComplete === true);
+
+    expect(handle.sink.v!.me?.user).toEqual(freshUser);
+    expect(handle.sink.v!.isComplete).toBe(true);
+    expect(mockAuthService.persistProfileForStoredSession).not.toHaveBeenCalled();
+
+    await act(async () => {
+      handle.tree.unmount();
+    });
+  });
+
+  it.each([
+    {
+      when: 'the follow-up /me fails',
+      stubRefresh: () =>
+        mockAuthService.refreshCurrentSession.mockRejectedValue(new Error('network down')),
+    },
+    {
+      when: 'the follow-up refresh finds no session to read',
+      stubRefresh: () => mockAuthService.refreshCurrentSession.mockResolvedValue(null),
+    },
+    {
+      when: 'there is no stored session to refresh',
+      stubRefresh: () =>
+        mockAuthService.persistOnboardingCompletionForStoredSession.mockResolvedValue(null),
+    },
+  ])('falls back to the completion answer when $when', async ({ stubRefresh }) => {
+    // Without a fresh /me the completion answer is all there is: it goes to
+    // `me` and to the stored snapshot, so the User is not sent back to
+    // Onboarding with empty fields.
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const handle = setupStaleHydration(makeMe());
+    await waitForSinkAuth(handle.sink, (a) => a.accessToken !== null);
+
+    stubSuccessfulCompleteOnboarding(completedUser);
+    stubRefresh();
     mockAuthService.persistProfileForStoredSession.mockResolvedValue(null);
 
     await act(async () => {
@@ -332,12 +379,10 @@ describe('AuthContext — optimisticComplete is a one-way latch (Judgment Day C2
 
     expect(handle.sink.v!.me?.user).toEqual(completedUser);
     expect(handle.sink.v!.isComplete).toBe(true);
-    // Stored first, so a failed refresh falls back to a snapshot that has them.
+    expect(mockAuthService.persistProfileForStoredSession).toHaveBeenCalledTimes(1);
     expect(mockAuthService.persistProfileForStoredSession).toHaveBeenCalledWith(completedUser);
-    expect(mockAuthService.persistProfileForStoredSession.mock.invocationCallOrder[0]).toBeLessThan(
-      mockAuthService.refreshCurrentSession.mock.invocationCallOrder[0]
-    );
 
+    warn.mockRestore();
     await act(async () => {
       handle.tree.unmount();
     });

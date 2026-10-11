@@ -257,52 +257,35 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
   const completeOnboarding = useCallback(
     async (payload: OnboardingCompletionRequest): Promise<OnboardingCompletionResponse> => {
-      // Judgment Day C2: the POST result is the source of truth. The
-      // follow-up refreshMe() is a soft read; if it fails the gate
-      // must not flip the user back to the Onboarding screen because
-      // the server already accepted the completion. The reconciliation
-      // policy is unit-tested in `postCompletion.test.ts`.
+      // Judgment Day C2: the POST result is the source of truth for the
+      // completion gate. The follow-up refreshMe() is a soft read; if it
+      // fails the gate must not flip the user back to the Onboarding
+      // screen because the server already accepted the completion. The
+      // reconciliation policy is unit-tested in `postCompletion.test.ts`.
       const result = await authService.completeOnboarding(payload);
 
-      // The completion answer carries displayName, householdSize and
-      // cookingSkill. The server stores them with the completion and
-      // GET /api/me serves them afterwards. They still go to the stored
-      // snapshot before the refresh below, so a failed refresh or a later
-      // restored snapshot does not drop them, and into `me` after it.
-      const email = meRef.current?.user.email;
-      const completedProfile: ProfileUpdateUser | null =
-        email === undefined
-          ? null
-          : normalizeProfileFields({
-              id: result.user.id,
-              email,
-              displayName: result.user.displayName,
-              householdSize: result.user.householdSize,
-              cookingSkill: result.user.cookingSkill,
-            });
-      if (completedProfile) {
-        try {
-          await authService.persistProfileForStoredSession(completedProfile);
-        } catch (error) {
-          console.warn('[AuthProvider] Error guardando el perfil del onboarding:', error);
-        }
-      }
-
       const session = await authService.persistOnboardingCompletionForStoredSession();
+      let receivedFreshMe = false;
       if (session?.accessToken) {
         const reconcile = await reconcileAfterCompletion({
           wasComplete: optimisticCompleteRef.current,
           persisted: true,
-          refresh: () => authService.refreshCurrentSession().then((next) => next ?? session),
+          // `refreshCurrentSession` resolves null when it finds no stored
+          // session, so no GET /api/me ran.
+          refresh: async () => {
+            const next = await authService.refreshCurrentSession();
+            return { session: next ?? session, isFreshMe: next !== null };
+          },
           onOptimistic: (next) => {
             setOptimisticComplete(next);
             optimisticCompleteRef.current = next;
           },
           onRefreshed: (value) => {
-            applySession(value);
+            applySession(value.session);
           },
           shouldRetry: (error) => isTransientAuthError(error),
         });
+        receivedFreshMe = reconcile.refreshed?.isFreshMe === true;
         if (reconcile.outcome === 'refresh-failed') {
           console.warn(
             '[AuthProvider] Background /me refresh after onboarding failed; relying on next session restore.'
@@ -315,14 +298,33 @@ export function AuthProvider({ children }: AuthProviderProps) {
         optimisticCompleteRef.current = true;
       }
 
-      // Same patch as `updateProfile`: the POST answer is the source of
-      // truth for the profile fields, whatever the refresh returned.
+      // A successful GET /api/me is the only source of displayName,
+      // householdSize and cookingSkill: the refresh above already applied
+      // and stored what it returned. The completion answer is used only
+      // when no fresh /me arrived (the refresh failed, or there was no
+      // stored session to refresh), so the User is not sent back to
+      // Onboarding with empty fields. It then goes into `me`, with the
+      // same patch as `updateProfile`, and into the stored snapshot.
       const currentMe = meRef.current;
-      if (completedProfile && currentMe && currentMe.user.id === completedProfile.id) {
-        const nextMe = withUpdatedProfile(currentMe, completedProfile);
-        if (!areCurrentMeEquivalent(currentMe, nextMe)) {
-          meRef.current = nextMe;
-          setMe(nextMe);
+      if (!receivedFreshMe && currentMe) {
+        const completedProfile: ProfileUpdateUser = normalizeProfileFields({
+          id: result.user.id,
+          email: currentMe.user.email,
+          displayName: result.user.displayName,
+          householdSize: result.user.householdSize,
+          cookingSkill: result.user.cookingSkill,
+        });
+        if (currentMe.user.id === completedProfile.id) {
+          const nextMe = withUpdatedProfile(currentMe, completedProfile);
+          if (!areCurrentMeEquivalent(currentMe, nextMe)) {
+            meRef.current = nextMe;
+            setMe(nextMe);
+          }
+        }
+        try {
+          await authService.persistProfileForStoredSession(completedProfile);
+        } catch (error) {
+          console.warn('[AuthProvider] Error guardando el perfil del onboarding:', error);
         }
       }
 

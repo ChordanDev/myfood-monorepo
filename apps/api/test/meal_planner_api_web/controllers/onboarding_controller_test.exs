@@ -173,6 +173,30 @@ defmodule MealPlannerApiWeb.OnboardingControllerTest do
       assert %{"onboarding" => %{"isComplete" => true}} = token |> me() |> json_response(200)
     end
 
+    # The mobile app takes the profile fields from this read after it
+    # completes Onboarding (issue #169).
+    test "GET /api/me serves the saved profile fields afterwards", %{user: user, token: token} do
+      assert %{
+               "user" => %{
+                 "displayName" => "Stored Name",
+                 "householdSize" => nil,
+                 "cookingSkill" => nil
+               }
+             } = token |> me() |> json_response(200)
+
+      token |> complete(@body) |> json_response(200)
+
+      assert %{"user" => me_user} = token |> me() |> json_response(200)
+
+      assert me_user == %{
+               "id" => user.id,
+               "email" => user.email,
+               "displayName" => "Ana María",
+               "householdSize" => 4,
+               "cookingSkill" => "intermediate"
+             }
+    end
+
     test "requires authentication", %{conn: conn} do
       assert %{"error" => %{"code" => "unauthenticated"}} =
                conn
