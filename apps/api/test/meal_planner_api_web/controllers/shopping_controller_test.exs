@@ -460,7 +460,8 @@ defmodule MealPlannerApiWeb.ShoppingControllerTest do
       # Reading the list does not renew the lease.
       assert own["cart"] == %{
                "sessionId" => marked["sessionId"],
-               "leaseExpiresAt" => marked["leaseExpiresAt"]
+               "leaseExpiresAt" => marked["leaseExpiresAt"],
+               "itemsCount" => 2
              }
 
       assert [%{"status" => "in_cart"}] = own["planned"]
@@ -477,6 +478,52 @@ defmodule MealPlannerApiWeb.ShoppingControllerTest do
 
       assert [%{"status" => "in_cart"}] = theirs["planned"]
       assert theirs["cart"] == nil
+    end
+
+    test "cart.itemsCount counts every item in the Cart, also the ones untilDate hides", c do
+      [first, second] = shopping_list(c.owner_token, %{"groupBy" => "meal"})["planned"]
+
+      # Only the item of the later meal goes into the Cart.
+      build_conn()
+      |> put_req_header("authorization", "Bearer " <> c.owner_token)
+      |> post("/api/shopping-items/mark-cart", %{"itemIds" => [second["id"]]})
+      |> json_response(200)
+
+      assert shopping_list(c.owner_token)["cart"]["itemsCount"] == 1
+
+      limited = shopping_list(c.owner_token, %{"untilDate" => c.today})
+
+      assert [%{"status" => "needed", "allocations" => [%{"status" => "needed"}]}] =
+               limited["planned"]
+
+      assert limited["totals"]["inCart"] == 0
+      assert limited["cart"]["itemsCount"] == 1
+
+      build_conn()
+      |> put_req_header("authorization", "Bearer " <> c.owner_token)
+      |> post("/api/shopping-items/mark-cart", %{"itemIds" => [first["id"]]})
+      |> json_response(200)
+
+      assert shopping_list(c.owner_token, %{"untilDate" => c.today})["cart"]["itemsCount"] == 2
+
+      # The count is of the caller's own Cart: another member has none.
+      assert shopping_list(c.member_token)["cart"] == nil
+    end
+
+    test "cart.itemsCount counts the items added by hand that are in the Cart", c do
+      manual =
+        build_conn()
+        |> put_req_header("authorization", "Bearer " <> c.owner_token)
+        |> post("/api/shopping-items/manual", %{"name" => "Dish soap"})
+        |> json_response(201)
+        |> get_in(["data", "id"])
+
+      build_conn()
+      |> put_req_header("authorization", "Bearer " <> c.owner_token)
+      |> post("/api/shopping-items/mark-cart", %{"itemIds" => [manual]})
+      |> json_response(200)
+
+      assert shopping_list(c.owner_token)["cart"]["itemsCount"] == 1
     end
 
     test "a malformed untilDate is rejected with the error envelope", c do

@@ -537,6 +537,24 @@ defmodule MealPlannerApi.Cart do
     )
   end
 
+  @doc """
+  How many Shopping items a Cart holds: the ones reserved in it that are
+  still `:in_cart`, whatever their planned date.
+
+  This is a plain read: it takes no lock.
+  """
+  @spec items_count(Ecto.Schema.t()) :: non_neg_integer()
+  def items_count(%CheckoutSession{} = cart) do
+    Repo.aggregate(
+      from(i in ShoppingItem,
+        where:
+          i.account_id == ^cart.account_id and
+            i.checkout_session_id == ^cart.id and i.status == :in_cart
+      ),
+      :count
+    )
+  end
+
   def expire_account(account_id, now \\ DateTime.utc_now()) do
     result =
       Repo.transaction(fn ->
