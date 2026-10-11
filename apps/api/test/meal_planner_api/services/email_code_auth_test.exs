@@ -1,8 +1,8 @@
 defmodule MealPlannerApi.Services.EmailCodeAuthTest do
   @moduledoc """
   Tests for what `MealPlannerApi.Services.EmailCodeAuth` owns: code
-  minting and hashing, the hourly request counters and the
-  account-selection continuation exchange.
+  minting and hashing, the verification-code email and the hourly
+  request counters.
 
   The request and verify paths built on top of them are covered by
   `email_code_login_test.exs`, `email_code_signup_test.exs` and
@@ -11,19 +11,14 @@ defmodule MealPlannerApi.Services.EmailCodeAuthTest do
   use ExUnit.Case, async: false
 
   import Ecto.Query
-  import MealPlannerApi.FactoryHelpers
 
   alias Ecto.Adapters.SQL.Sandbox
-  alias MealPlannerApi.Persistence.Accounts.Account
-  alias MealPlannerApi.Persistence.Accounts.AccountMembership, as: PersistenceAccountMembership
   alias MealPlannerApi.Persistence.Accounts.User, as: PersistenceUser
   alias MealPlannerApi.Repo
   alias MealPlannerApi.Services.EmailCodeAuth
 
   setup do
     :ok = Sandbox.checkout(Repo)
-    :ok = MealPlannerApi.SubscriptionPlanFixtures.ensure_plans!()
-    :ok
   end
 
   # Nothing in `lib` subscribes to these two telemetry events; the tests
@@ -197,258 +192,7 @@ defmodule MealPlannerApi.Services.EmailCodeAuthTest do
     end
   end
 
-  # ---------------------------------------------------------------------------
-  # Phase 3 — Continuations (issue #31 task 3.3)
-  # ---------------------------------------------------------------------------
-  #
-  # Coverage (`design.md` §"Interfaces / Contracts"):
-  #
-  #   * bearerless first exchange returns a scoped `access_v2` JWT
-  #     and consumes the continuation row.
-  #   * replay/concurrent exchange (same continuation) fails exactly
-  #     once with `:consumed_continuation`; subsequent attempts cannot
-  #     mint.
-  #   * expired continuation fails with `:expired_continuation`.
-  #   * membership outside the continuation's set fails with
-  #     `:not_in_continuation_set`; the continuation is NOT consumed.
-  #   * foreign bearer (User B's JWT) with User A's continuation fails
-  #     with `:foreign_bearer`; the continuation is NOT consumed.
-  #   * `switch_account/2` failure (membership inactive) leaves the
-  #     continuation UNCONSUMED.
-  #
-  # Each test calls `EmailCodeAuth.exchange_continuation/3` on a
-  # continuation minted by `EmailCodeAuth.mint_test_continuation/3`.
-  describe "exchange_continuation/3 (Phase 3 task 3.3)" do
-    setup do
-      # The exchange MUST mint `access_v2` claims (with `membership_id`)
-      # — continuation selection is a v2-only flow. `AccountsMembership.
-      # switch_account/2` gates claim shape on `:tenancy_v2_only`; flip
-      # the flag for this describe block and restore via `on_exit`.
-      previous = Application.get_env(:meal_planner_api, :tenancy_v2_only)
-      Application.put_env(:meal_planner_api, :tenancy_v2_only, true)
-      on_exit(fn -> Application.put_env(:meal_planner_api, :tenancy_v2_only, previous) end)
-      :ok
-    end
-
-    test "bearerless first exchange mints a scoped access_v2 JWT and consumes the continuation" do
-      user = insert_user_with_two_memberships!("exchange-first@example.com")
-      [m1, m2] = user.memberships
-
-      plaintext = EmailCodeAuth.mint_test_continuation(user.id, [m1.id, m2.id])
-
-      assert {:ok, %{membership: membership, claims: claims, access_token: token}} =
-               EmailCodeAuth.exchange_continuation(plaintext, to_string(m1.id), principal: nil)
-
-      assert membership.id == m1.id
-      assert claims["membership_id"] == Ecto.UUID.cast!(m1.id)
-      assert is_binary(token)
-
-      consumed =
-        Repo.get_by(MealPlannerApi.Persistence.Auth.AccountSelectionContinuation,
-          user_id: user.id
-        )
-
-      refute is_nil(consumed.consumed_at)
-    end
-
-    test "replay / concurrent exchange fails with :consumed_continuation and mints zero JWTs" do
-      user = insert_user_with_two_memberships!("exchange-replay@example.com")
-      [m1, m2] = user.memberships
-
-      plaintext = EmailCodeAuth.mint_test_continuation(user.id, [m1.id, m2.id])
-
-      assert {:ok, _} =
-               EmailCodeAuth.exchange_continuation(plaintext, to_string(m1.id), principal: nil)
-
-      assert {:error, :consumed_continuation} =
-               EmailCodeAuth.exchange_continuation(plaintext, to_string(m1.id), principal: nil)
-    end
-
-    # Phase 1+2+verify-report follow-up — the serial first/second
-    # exchange above exercises the consume path but cannot race it. The
-    # continuation's `SELECT … FOR UPDATE` + advisory lock must serialize
-    # N concurrent exchange attempts into exactly one success and N-1
-    # :consumed_continuation outcomes (spec §"Selection Continuation
-    # Security" / Scenario "Reusing the continuation fails" + design.md
-    # §"Interfaces / Contracts" — "concurrent/replayed exchange has one
-    # success; pre-mint failures do not consume").
-    test "concurrent exchange of the same continuation yields exactly one success and N-1 :consumed_continuation" do
-      user = insert_user_with_two_memberships!("exchange-concurrent@example.com")
-      [m1, m2] = user.memberships
-
-      plaintext = EmailCodeAuth.mint_test_continuation(user.id, [m1.id, m2.id])
-
-      Sandbox.mode(Repo, {:shared, self()})
-      on_exit(fn -> Sandbox.mode(Repo, :auto) end)
-
-      concurrency = 6
-
-      results =
-        1..concurrency
-        |> Task.async_stream(
-          fn _idx ->
-            EmailCodeAuth.exchange_continuation(plaintext, to_string(m1.id), principal: nil)
-          end,
-          max_concurrency: concurrency,
-          timeout: 10_000,
-          on_timeout: :kill_task
-        )
-        |> Enum.map(fn {:ok, value} -> value end)
-
-      successes = Enum.count(results, &match?({:ok, _}, &1))
-      consumed = Enum.count(results, &match?({:error, :consumed_continuation}, &1))
-
-      assert successes == 1,
-             "expected exactly one success among #{concurrency} concurrent exchanges, " <>
-               "got #{successes}. results=#{inspect(results)}"
-
-      assert consumed == concurrency - 1,
-             "expected #{concurrency - 1} :consumed_continuation, got #{consumed}. " <>
-               "results=#{inspect(results)}"
-
-      # Continuation row consumed exactly once.
-      consumed_row =
-        Repo.get_by(MealPlannerApi.Persistence.Auth.AccountSelectionContinuation,
-          user_id: user.id
-        )
-
-      refute is_nil(consumed_row.consumed_at)
-    end
-
-    test "expired continuation fails with :expired_continuation" do
-      user = insert_user_with_two_memberships!("exchange-expired@example.com")
-      [m1, m2] = user.memberships
-
-      past = DateTime.add(DateTime.utc_now(), -60, :second)
-      plaintext = EmailCodeAuth.mint_test_continuation(user.id, [m1.id, m2.id], expires_at: past)
-
-      assert {:error, :expired_continuation} =
-               EmailCodeAuth.exchange_continuation(plaintext, to_string(m1.id), principal: nil)
-    end
-
-    test "membership outside the continuation's set fails with :not_in_continuation_set and does NOT consume" do
-      user = insert_user_with_two_memberships!("exchange-foreign-set@example.com")
-      [m1, m2] = user.memberships
-
-      third_user = insert_user!("exchange-third@example.com", "Third")
-      foreign_membership = insert_membership!(third_user)
-      plaintext = EmailCodeAuth.mint_test_continuation(user.id, [m1.id, m2.id])
-
-      assert {:error, :not_in_continuation_set} =
-               EmailCodeAuth.exchange_continuation(plaintext, to_string(foreign_membership.id),
-                 principal: nil
-               )
-
-      consumed =
-        Repo.get_by(MealPlannerApi.Persistence.Auth.AccountSelectionContinuation,
-          user_id: user.id
-        )
-
-      assert is_nil(consumed.consumed_at),
-             "continuation must NOT be consumed when the membership is outside its set"
-    end
-
-    test "foreign bearer (User B's principal for User A's continuation) fails with :foreign_bearer" do
-      user_a = insert_user_with_two_memberships!("exchange-a@example.com")
-      user_b = insert_user!("exchange-b@example.com", "B Exchange")
-      [m1, m2] = user_a.memberships
-
-      plaintext = EmailCodeAuth.mint_test_continuation(user_a.id, [m1.id, m2.id])
-
-      assert {:error, :foreign_bearer} =
-               EmailCodeAuth.exchange_continuation(
-                 plaintext,
-                 to_string(m1.id),
-                 principal: user_b.id
-               )
-
-      consumed =
-        Repo.get_by(MealPlannerApi.Persistence.Auth.AccountSelectionContinuation,
-          user_id: user_a.id
-        )
-
-      assert is_nil(consumed.consumed_at),
-             "continuation must NOT be consumed when the bearer is foreign"
-    end
-
-    test "switch_account/2 failure (membership not active) leaves the continuation UNCONSUMED" do
-      user = insert_user_with_two_memberships!("exchange-premint@example.com")
-      [m1, m2] = user.memberships
-
-      # Flip m2 to :invited (non-active) so switch_account/2 will reject
-      # it. The continuation still binds m1+m2, but the switch fails.
-      Repo.update_all(
-        from(am in MealPlannerApi.Persistence.Accounts.AccountMembership,
-          where: am.id == ^m2.id
-        ),
-        set: [status: :invited]
-      )
-
-      plaintext = EmailCodeAuth.mint_test_continuation(user.id, [m1.id, m2.id])
-
-      assert {:error, :membership_not_active} =
-               EmailCodeAuth.exchange_continuation(plaintext, to_string(m2.id), principal: nil)
-
-      consumed =
-        Repo.get_by(MealPlannerApi.Persistence.Auth.AccountSelectionContinuation,
-          user_id: user.id
-        )
-
-      assert is_nil(consumed.consumed_at),
-             "pre-mint failure must NOT consume the continuation"
-    end
-  end
-
   # ---- Helpers ----------------------------------------------------------------
-  #
-  # The fixtures insert rows through the standard Ecto changesets so the
-  # assertions observe the production schema.
-
-  defp insert_user!(email, name) do
-    %PersistenceUser{}
-    |> PersistenceUser.changeset(%{email: email, name: name, role: :member})
-    |> Repo.insert!()
-  end
-
-  defp insert_user_with_two_memberships!(email) do
-    user =
-      user_with_memberships(
-        %{email: email, name: "Multi #{email}"},
-        [
-          {%{plan: :individual, name: "Solo #{email}"}, :owner},
-          {%{plan: :family_4, name: "Family #{email}"}, :member}
-        ]
-      )
-
-    user
-  end
-
-  defp insert_membership!(user) do
-    plan_row =
-      case MealPlannerApi.Subscriptions.get_plan_by_name("individual") do
-        {:ok, p} -> p
-      end
-
-    account =
-      %Account{}
-      |> Ecto.Changeset.change(%{
-        name: "Factory Account #{Ecto.UUID.generate()}",
-        plan: :individual,
-        default_budget_cents: 0,
-        subscription_plan_id: plan_row.id
-      })
-      |> Repo.insert!()
-
-    %PersistenceAccountMembership{}
-    |> Ecto.Changeset.change(%{
-      account_id: account.id,
-      user_id: user.id,
-      role: :member,
-      status: :active,
-      joined_at: DateTime.utc_now()
-    })
-    |> Repo.insert!()
-  end
 
   defp in_transaction(fun) do
     {:ok, result} = Repo.transaction(fun)

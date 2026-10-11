@@ -36,17 +36,6 @@ defmodule MealPlannerApiWeb.Router do
     plug(MealPlannerApiWeb.Plugs.EnforceCapability)
   end
 
-  # Phase 4 — Conditional authentication for `/api/auth/switch-account`
-  # (task 4.2). When the request body lacks `continuation_token` the
-  # plug delegates to the standard `:auth` pipeline (legacy
-  # bearer-authenticated switch). When the body carries a
-  # `continuation_token` the plug validates it as the sole credential:
-  # hash → row lookup → unconsumed / unexpired / optional bearer match.
-  # See `Plugs.SwitchAccountAuth` for the full matrix.
-  pipeline :switch_account_auth do
-    plug(MealPlannerApiWeb.Plugs.SwitchAccountAuth)
-  end
-
   scope "/api", MealPlannerApiWeb do
     pipe_through(:api)
 
@@ -100,7 +89,7 @@ defmodule MealPlannerApiWeb.Router do
 
   # Phase 3 — `revenuecat-access-enforcement` (PR 3) design-exempt
   # auth/context pipeline: authenticated (`current_membership` populated),
-  # capability-exempt. The routes in this scope and in the two below it
+  # capability-exempt. The routes in this scope and in the one below it
   # (`/auth/me`, `/account/context`, `/account/dietary-profile`,
   # `/account/excluded-ingredients`, `/auth/switch-account` and the `/me`
   # routes) MUST remain reachable for an expired Account so the React Native
@@ -129,31 +118,9 @@ defmodule MealPlannerApiWeb.Router do
       :delete_exclusion
     )
 
-    # Phase A — Tenancy Refactor (PR 3a task 3.5) + Phase 4 (task 4.2):
-    # no `:account_id` in the URL, so `:enforce_account_scope` does not
-    # apply (design §5.2). The route is re-declared below on the
-    # `:switch_account_auth` pipeline so the conditional auth plug can
-    # dispatch on the body — the duplicate declaration here would
-    # raise `Phoenix.Router.NoRouteError`, so this scope intentionally
-    # leaves the route empty.
-    # post("/auth/switch-account", AccountLifecycleController, :switch_account)
-  end
-
-  # Phase 4 (task 4.2) — Conditional authentication for
-  # `/api/auth/switch-account`. The `:switch_account_auth` pipeline:
-  #
-  #   * delegates to `MealPlannerApiWeb.AuthPipeline` when the request
-  #     body lacks `continuation_token` (legacy bearer-authenticated
-  #     switch — existing behaviour);
-  #   * validates the opaque continuation token as the sole credential
-  #     when the body carries one (task 3.4's continuation exchange).
-  #
-  # The route stays out of `:enforce_capability` per the design-exempt
-  # matrix in `design.md` §"Interfaces / Contracts" so an expired
-  # Account can still resolve a membership before billing recovery.
-  scope "/api", MealPlannerApiWeb do
-    pipe_through([:api, :switch_account_auth])
-
+    # Phase A — Tenancy Refactor (PR 3a task 3.5): no `:account_id` in the
+    # URL, so `:enforce_account_scope` does not apply (design §5.2). The
+    # bearer token is the only credential the route takes.
     post("/auth/switch-account", AccountLifecycleController, :switch_account)
   end
 

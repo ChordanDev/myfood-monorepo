@@ -851,7 +851,7 @@ Lo siguen devolviendo:
 - los errores de validación y de dominio que arman los controladores que no son de autenticación:
   contexto de cuenta, perfil dietario, planning, chat de planning, calendario, cooking, recetas, shopping,
   inventario, memberships, invitaciones, abandono de cuenta y billing;
-- `/api/auth/switch-account`, para los errores que arma su propio controlador o plug;
+- `/api/auth/switch-account`, para los errores que arma su propio controlador;
 - la verificación de cuenta en `/api/accounts/:account_id/*`: `403` con `{ "error": "account_mismatch" }`.
 
 Para errores que ningún controlador maneja (por ejemplo, una ruta inexistente), Phoenix responde con su

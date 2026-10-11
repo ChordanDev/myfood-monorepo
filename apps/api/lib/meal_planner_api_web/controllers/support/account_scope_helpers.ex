@@ -73,11 +73,7 @@ defmodule MealPlannerApiWeb.Controllers.AccountScopeHelpers do
     end
   end
 
-  # Shared renderer for the canonical auth payload. Both
-  # `render_membership_auth_response/5` (legacy branch — mints its
-  # own tokens) and `render_exchange_response/2` (continuation branch
-  # — uses the exchange's pre-minted access_token) feed through this
-  # function so the response shape is byte-identical for both flows.
+  # Renders the canonical auth payload from an already minted token pair.
   defp render_auth_payload(conn, user, account, membership, access_token, refresh_token) do
     subscription = SubscriptionService.policy_for_account(account.id)
 
@@ -118,42 +114,6 @@ defmodule MealPlannerApiWeb.Controllers.AccountScopeHelpers do
       {:ok, access_token, refresh_token}
     else
       _ -> {:error, :token_refresh_failed}
-    end
-  end
-
-  @doc """
-  Phase 4 task 4.2 — Renders the canonical auth payload using the
-  pre-minted `access_token` from
-  `MealPlannerApi.Services.EmailCodeAuth.exchange_continuation/3`'s
-  committed transaction. Mints only the `refresh_token` here (the
-  access token is already the authoritative one — re-minting would
-  produce a different `iat`).
-
-  The response shape matches `render_membership_auth_response/5`
-  exactly: `access_token`, `refresh_token`, `token_type`, `user`,
-  `account`, `membership`, `subscription`, `websocket`. Extracted into
-  a shared private renderer (`render_auth_payload/6`) so both branches
-  of `/api/auth/switch-account` produce byte-identical JSON.
-  """
-  @spec render_exchange_response(Conn.t(), map()) :: Conn.t()
-  def render_exchange_response(
-        conn,
-        %{
-          user: user,
-          account: account,
-          membership: membership,
-          claims: claims,
-          access_token: access_token
-        }
-      ) do
-    case Guardian.encode_and_sign(user, Map.delete(claims, "typ"), token_type: "refresh") do
-      {:ok, refresh_token, _refresh_claims} ->
-        render_auth_payload(conn, user, account, membership, access_token, refresh_token)
-
-      _ ->
-        conn
-        |> Plug.Conn.put_status(:internal_server_error)
-        |> json(%{error: "token_refresh_failed"})
     end
   end
 

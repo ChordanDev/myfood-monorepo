@@ -18,27 +18,14 @@ defmodule MealPlannerApi.Services.EmailCodeAuth do
       locked for good.
     * `code_email/3` — the verification-code email.
     * `load_active_memberships/1` — the `:active` Memberships of a User.
-
-  It also owns the account-selection continuation that
-  `POST /api/auth/switch-account` accepts in place of a bearer token:
-  `hash_continuation/1` and `exchange_continuation/3`, the locked
-  single-use exchange that delegates to
-  `MealPlannerApi.AccountsMembership.switch_account/2` and mints the
-  access token inside the same transaction as the `consumed_at` UPDATE.
-  No production code mints a continuation; `mint_test_continuation/3`
-  builds one for the tests of the exchange.
   """
 
   import Ecto.Query
 
   alias Ecto.Adapters.SQL
-  alias MealPlannerApi.AccountsMembership
-  alias MealPlannerApi.Auth.Guardian
   alias MealPlannerApi.Mailer.EmailCodeEmail
   alias MealPlannerApi.Persistence.Accounts.AccountMembership, as: PersistenceAccountMembership
   alias MealPlannerApi.Persistence.Accounts.User, as: PersistenceUser
-  alias MealPlannerApi.Persistence.Auth.AccountSelectionContinuation
-  alias MealPlannerApi.Persistence.Auth.AccountSelectionContinuationMembership
   alias MealPlannerApi.Persistence.Auth.EmailAuthEvent
   alias MealPlannerApi.Repo
 
@@ -47,7 +34,6 @@ defmodule MealPlannerApi.Services.EmailCodeAuth do
   @max_per_ip_per_window 20
   @code_length 6
   @max_code_attempts 5
-  @continuation_ttl_seconds 300
   # Per-IP bucket of the requests whose client address is not an IP.
   @unresolved_ip_key "unresolved"
 
@@ -56,33 +42,8 @@ defmodule MealPlannerApi.Services.EmailCodeAuth do
   # in a way that serializes unrelated work.
   @email_lock_salt 0x4D45_6C70_6861_756C
   @ip_lock_salt 0x4D45_6C70_5F69_705F
-  # Salt for the continuation-exchange advisory lock so concurrent
-  # exchange attempts on the same continuation token serialize cleanly
-  # without starving the request-path locks.
-  @continuation_lock_salt 0x4D45_6C70_5F63_7478
 
   @type rate_limited :: {:error, :rate_limited, non_neg_integer()}
-
-  @type exchange_result ::
-          {:ok,
-           %{
-             user: PersistenceUser.t(),
-             account: term(),
-             membership: PersistenceAccountMembership.t(),
-             claims: map(),
-             access_token: String.t()
-           }}
-          | {:error,
-             :invalid_continuation
-             | :expired_continuation
-             | :consumed_continuation
-             | :foreign_bearer
-             | :invalid_bearer
-             | :not_in_continuation_set
-             | :membership_not_found
-             | :not_your_membership
-             | :membership_not_active
-             | :token_refresh_failed}
 
   @doc """
   Returns the SHA-256 lower-case hex digest of `code`. Exposed so tests
@@ -356,233 +317,5 @@ defmodule MealPlannerApi.Services.EmailCodeAuth do
       preload: [:account]
     )
     |> Repo.all()
-  end
-
-  # ---------------------------------------------------------------------------
-  # Continuations
-  # ---------------------------------------------------------------------------
-
-  @doc """
-  Test-only fixture constructor. Mints a continuation for `user_id`
-  bound to `membership_ids` and returns its plaintext: 32 random bytes
-  base64url-encoded without padding. Only the SHA-256 digest of the
-  plaintext is stored (`token_hash`).
-
-  `:expires_at` defaults to five minutes from now; a test of the expired
-  path passes a past instant instead of sleeping. No production code
-  mints a continuation.
-  """
-  @spec mint_test_continuation(Ecto.UUID.t(), [Ecto.UUID.t()], keyword()) :: String.t()
-  def mint_test_continuation(user_id, membership_ids, opts \\ []) do
-    expires_at =
-      Keyword.get(
-        opts,
-        :expires_at,
-        DateTime.add(DateTime.utc_now(), @continuation_ttl_seconds, :second)
-      )
-
-    plaintext = generate_url_safe_token(32)
-    hash = hash_continuation(plaintext)
-
-    Repo.transaction(fn ->
-      {:ok, row} =
-        %AccountSelectionContinuation{}
-        |> Ecto.Changeset.change(%{
-          user_id: user_id,
-          token_hash: hash,
-          expires_at: expires_at
-        })
-        |> Repo.insert()
-
-      Enum.each(membership_ids, fn membership_id ->
-        {:ok, _link} =
-          %AccountSelectionContinuationMembership{}
-          |> Ecto.Changeset.change(%{
-            continuation_id: row.id,
-            membership_id: membership_id
-          })
-          |> Repo.insert()
-      end)
-
-      :ok
-    end)
-
-    plaintext
-  end
-
-  @doc """
-  Hashes a continuation plaintext token (SHA-256 lower-case hex), the
-  form `MealPlannerApiWeb.Plugs.SwitchAccountAuth` looks a continuation
-  up by. Mirrors the public-API pattern of `InviteService.hash_token/1`.
-  """
-  @spec hash_continuation(String.t()) :: String.t()
-  def hash_continuation(plaintext) when is_binary(plaintext) do
-    :crypto.hash(:sha256, plaintext) |> Base.encode16(case: :lower)
-  end
-
-  @doc """
-  Exchanges a continuation plaintext for a single
-  `AccountMembership`. The exchange runs inside one
-  `Repo.transaction/1`:
-
-      1. Hash the plaintext and look up the row under
-         `SELECT … FOR UPDATE` so concurrent exchange attempts
-         serialize on the same row.
-      2. Validate: not consumed, not expired, and (when supplied) the
-         `principal` User matches the row's `user_id`.
-      3. Verify the requested `target_membership_id` is in the
-         continuation's allowed membership set via the join table.
-      4. Delegate to `AccountsMembership.switch_account/2`, which
-         enforces ownership and `:active` status.
-      5. Mint the `access_v2` JWT inside the same transaction.
-      6. Mark `consumed_at` and commit together.
-
-  Pre-mint failures (steps 2–4) leave `consumed_at` NULL — the
-  transaction rolls back. Concurrent / replayed exchange sees
-  `:consumed_continuation` and returns no token.
-  """
-  @spec exchange_continuation(String.t(), String.t(), keyword()) :: exchange_result()
-  def exchange_continuation(plaintext, target_membership_id, opts \\ [])
-      when is_binary(plaintext) and is_binary(target_membership_id) and is_list(opts) do
-    hash = hash_continuation(plaintext)
-    principal = Keyword.get(opts, :principal, nil)
-
-    with :ok <- assert_exchange_principal(principal) do
-      Repo.transaction(
-        fn -> exchange_under_lock(hash, principal, target_membership_id) end,
-        timeout: :timer.seconds(5)
-      )
-      |> normalize_exchange_tx_result()
-    end
-  end
-
-  # Runs inside the caller's transaction: the advisory lock is held until it
-  # ends.
-  defp exchange_under_lock(hash, principal, target_membership_id) do
-    SQL.query!(Repo, "SELECT pg_advisory_xact_lock($1)", [
-      continuation_lock_key(hash)
-    ])
-
-    with {:ok, row} <- lookup_continuation_for_exchange(hash),
-         :ok <- assert_continuation_unconsumed(row),
-         :ok <- assert_continuation_unexpired(row),
-         :ok <- assert_continuation_bearer(principal, row),
-         :ok <- assert_continuation_set(row, target_membership_id),
-         {:ok, switch_payload} <- delegate_to_switch(row.user_id, target_membership_id),
-         {:ok, access_token} <- mint_exchange_token(switch_payload) do
-      consume_continuation(row)
-
-      {:ok,
-       Map.merge(switch_payload, %{
-         access_token: access_token
-       })}
-    end
-  end
-
-  # Pre-flight guard so an unparseable bearer short-circuits before the
-  # advisory lock — the lock is a Postgres round-trip we don't need to
-  # pay for a token that the plug already rejected.
-  defp assert_exchange_principal(:invalid_bearer), do: {:error, :invalid_bearer}
-  defp assert_exchange_principal(_), do: :ok
-
-  defp lookup_continuation_for_exchange(hash) do
-    case from(c in AccountSelectionContinuation,
-           where: c.token_hash == ^hash,
-           lock: "FOR UPDATE"
-         )
-         |> Repo.one() do
-      nil -> {:error, :invalid_continuation}
-      %AccountSelectionContinuation{} = row -> {:ok, row}
-    end
-  end
-
-  defp assert_continuation_unconsumed(%AccountSelectionContinuation{consumed_at: consumed})
-       when not is_nil(consumed),
-       do: {:error, :consumed_continuation}
-
-  defp assert_continuation_unconsumed(_), do: :ok
-
-  defp assert_continuation_unexpired(%AccountSelectionContinuation{expires_at: expires_at}) do
-    if DateTime.compare(expires_at, DateTime.utc_now()) == :lt do
-      {:error, :expired_continuation}
-    else
-      :ok
-    end
-  end
-
-  # `nil` (bearerless) and `:invalid_bearer` are pre-filtered by
-  # `assert_exchange_principal/1`. A non-nil principal that doesn't
-  # match the row's `user_id` is `:foreign_bearer`.
-  defp assert_continuation_bearer(nil, _row), do: :ok
-
-  defp assert_continuation_bearer(principal_user_id, %AccountSelectionContinuation{
-         user_id: user_id
-       })
-       when not is_nil(principal_user_id) do
-    if principal_user_id == user_id, do: :ok, else: {:error, :foreign_bearer}
-  end
-
-  defp assert_continuation_set(
-         %AccountSelectionContinuation{id: continuation_id},
-         target_membership_id
-       ) do
-    case Ecto.UUID.cast(target_membership_id) do
-      :error ->
-        {:error, :not_in_continuation_set}
-
-      {:ok, uuid} ->
-        if Repo.exists?(
-             from(m in AccountSelectionContinuationMembership,
-               where: m.continuation_id == ^continuation_id,
-               where: m.membership_id == ^uuid
-             )
-           ) do
-          :ok
-        else
-          {:error, :not_in_continuation_set}
-        end
-    end
-  end
-
-  defp delegate_to_switch(user_id, target_membership_id) do
-    user = Repo.get!(PersistenceUser, user_id)
-
-    case AccountsMembership.switch_account(user, target_membership_id) do
-      {:ok, payload} -> {:ok, payload}
-      {:error, _} = err -> err
-    end
-  end
-
-  defp mint_exchange_token(%{user: user, claims: claims}) do
-    case Guardian.encode_and_sign(user, claims, token_type: "access") do
-      {:ok, token, _verified_claims} -> {:ok, token}
-      _ -> {:error, :token_refresh_failed}
-    end
-  end
-
-  defp consume_continuation(%AccountSelectionContinuation{id: row_id}) do
-    {1, _} =
-      Repo.update_all(
-        from(c in AccountSelectionContinuation, where: c.id == ^row_id),
-        set: [consumed_at: DateTime.utc_now()]
-      )
-
-    :ok
-  end
-
-  defp normalize_exchange_tx_result({:ok, {:ok, payload}}), do: {:ok, payload}
-  defp normalize_exchange_tx_result({:ok, {:error, _} = err}), do: err
-  defp normalize_exchange_tx_result(other), do: other
-
-  defp continuation_lock_key(hash) do
-    (@continuation_lock_salt + truncated_hash(hash)) |> Integer.mod(1_000_000_007)
-  end
-
-  # Token-mint helper of `mint_test_continuation/3`. 32 random bytes →
-  # ~43 base64url chars.
-  defp generate_url_safe_token(byte_size) do
-    byte_size
-    |> :crypto.strong_rand_bytes()
-    |> Base.url_encode64(padding: false)
   end
 end

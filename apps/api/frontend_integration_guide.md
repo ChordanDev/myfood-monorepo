@@ -1591,7 +1591,7 @@ Two error body shapes are in use. Which one a request gets depends on the code p
   - the validation and domain errors that the non-auth controllers build themselves: account context,
     dietary profile, planning, planning chat, calendar, cooking, shopping, memberships, invites,
     account leave and billing;
-  - `/api/auth/switch-account`, for the errors its own controller or plug builds;
+  - `/api/auth/switch-account`, for the errors its own controller builds;
   - the account scope check on `/api/accounts/:account_id/*`: `403` with `{ "error": "account_mismatch" }`.
 - Planning weekly has explicit `400` for known request-shape/limits errors (including `exceeds_max_planning_days`).
 - Channel generation errors are emitted and replied with `reason` as string.
