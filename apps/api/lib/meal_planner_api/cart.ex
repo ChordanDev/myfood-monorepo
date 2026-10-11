@@ -244,18 +244,31 @@ defmodule MealPlannerApi.Cart do
     Map.new(@result_keys, &{&1, Map.get(stored, Atom.to_string(&1))})
   end
 
-  # The Cart as the lines of the Shopping list: the planned items of an
-  # Ingredient and unit share a line, its allocations nearest first (date,
-  # then slot); a manual item is a line of its own. Lines are ordered by
-  # Ingredient and unit, which is Inventory's canonical lock order.
+  # The lines of the Cart a confirm settles: the ones `group_lines/1` builds
+  # from its items, locked, the allocations of each line nearest first
+  # (date, then slot).
   defp cart_lines(cart) do
     items = cart_items(cart)
     slots = meal_slots(items)
 
     items
+    |> group_lines()
+    |> Enum.map(fn line ->
+      %{line | items: Enum.sort_by(line.items, &allocation_position(&1, slots))}
+    end)
+  end
+
+  # Items as the lines of the Shopping list: the planned items of an
+  # Ingredient and unit share a line, a manual item is a line of its own.
+  # A line's quantity is the total of its items. Lines are ordered by
+  # Ingredient id, then unit, then line id; a manual item without an
+  # Ingredient comes before the others. Both the list read (`lines/1`) and
+  # the confirm (`cart_lines/1`) take the identity, the total and the order
+  # of a line from here.
+  defp group_lines(items) do
+    items
     |> Enum.group_by(&line_id/1)
     |> Enum.map(fn {id, rows} ->
-      rows = Enum.sort_by(rows, &allocation_position(&1, slots))
       %{id: id, items: rows, quantity_milli: rows |> Enum.map(& &1.quantity_milli) |> Enum.sum()}
     end)
     |> Enum.sort_by(fn %{id: id, items: [first | _]} -> {first.ingredient_id, first.unit, id} end)
@@ -538,22 +551,38 @@ defmodule MealPlannerApi.Cart do
   end
 
   @doc """
-  How many Shopping items a Cart holds: the ones reserved in it that are
-  still `:in_cart`, whatever their planned date.
+  The lines of a Cart as `purchase/3` takes them: every Shopping item
+  reserved in it that is still `:in_cart`, whatever its planned date.
+
+  Each line is `%{id, name, unit, quantity_milli}`. `id` is the `"item_id"`
+  a confirm names the line by, and `quantity_milli` the total of its items,
+  the quantity an unlisted line is bought at. A planned line is named after
+  its Ingredient, a manual item by its own name. The lines come in the
+  order a confirm settles them.
 
   This is a plain read: it takes no lock.
   """
-  @spec items_count(Ecto.Schema.t()) :: non_neg_integer()
-  def items_count(%CheckoutSession{} = cart) do
-    Repo.aggregate(
-      from(i in ShoppingItem,
-        where:
-          i.account_id == ^cart.account_id and
-            i.checkout_session_id == ^cart.id and i.status == :in_cart
-      ),
-      :count
-    )
+  @spec lines(Ecto.Schema.t()) :: [
+          %{id: String.t(), name: String.t(), unit: atom(), quantity_milli: non_neg_integer()}
+        ]
+  def lines(%CheckoutSession{} = cart) do
+    cart
+    |> cart_items_query()
+    |> preload(:ingredient)
+    |> Repo.all()
+    |> group_lines()
+    |> Enum.map(fn %{items: [first | _]} = line ->
+      %{
+        id: line.id,
+        name: line_name(first),
+        unit: first.unit,
+        quantity_milli: line.quantity_milli
+      }
+    end)
   end
+
+  defp line_name(%ShoppingItem{source: :manual} = item), do: item.name
+  defp line_name(item), do: item.ingredient.name
 
   def expire_account(account_id, now \\ DateTime.utc_now()) do
     result =
@@ -738,15 +767,15 @@ defmodule MealPlannerApi.Cart do
   defp release!(item),
     do: update!(item, %{status: :pending, checkout_session_id: nil, reservation_token: nil})
 
-  defp cart_items(cart) do
-    Repo.all(
-      from(i in ShoppingItem,
-        where:
-          i.account_id == ^cart.account_id and
-            i.checkout_session_id == ^cart.id and i.status == :in_cart,
-        order_by: i.id,
-        lock: "FOR UPDATE"
-      )
+  defp cart_items(cart), do: cart |> cart_items_query() |> lock("FOR UPDATE") |> Repo.all()
+
+  # The Shopping items a Cart holds, in a stable order.
+  defp cart_items_query(cart) do
+    from(i in ShoppingItem,
+      where:
+        i.account_id == ^cart.account_id and
+          i.checkout_session_id == ^cart.id and i.status == :in_cart,
+      order_by: i.id
     )
   end
 

@@ -943,14 +943,32 @@ Fields:
   when no ingredient was given and `category` `otros` in that case. They are never merged with each other or
   with a planned line, `untilDate` does not limit them and `groupBy` does not change them. `id` is the
   Shopping item id: send it to `/api/shopping-items/mark-cart` or `DELETE /api/shopping-items/:itemId`.
-- `cart`: the caller's own active Cart,
-  `{ "sessionId": "...", "leaseExpiresAt": "<ISO 8601 datetime>", "itemsCount": 3 }`, or `null`. Reading the
-  list does not renew the lease.
-  - `itemsCount`: how many Shopping items that Cart holds, planned and manual. `untilDate` does not change
-    it: an item marked for a meal after `untilDate` is not in `planned`, and it is still counted here and
-    still bought by a confirm (7.4). When it is above the `in_cart` allocations and manual items of the read,
-    the Cart holds items the read does not list. The `in_cart` allocations of the read can also be more than
-    `itemsCount`, since they include the ones another member holds.
+- `cart`: the caller's own active Cart, or `null`. Reading the list does not renew the lease.
+
+  ```json
+  {
+    "sessionId": "<checkout_session_uuid>",
+    "leaseExpiresAt": "<ISO 8601 datetime>",
+    "lines": [
+      { "id": "<ingredient_uuid>:g", "name": "Tomate", "unit": "g", "quantityMilli": 700 },
+      { "id": "<manual_item_uuid>", "name": "Detergente", "unit": "unit", "quantityMilli": 1000 }
+    ]
+  }
+  ```
+
+  - `lines`: the lines of that Cart exactly as a confirm takes them (7.4), `[]` for a Cart that holds
+    nothing. Show these in a confirm screen, not the `in_cart` lines of `planned`.
+    - `id`: the `itemId` to send in the `lines` of a confirm: `<ingredientId>:<unit>` for the planned items
+      of an ingredient, the Shopping item id for a manual item.
+    - `name`: the name of the Ingredient for a planned line, the name of the item for a manual one, as
+      `planned` and `manual` give them.
+    - `quantityMilli`: the total of the line across every Shopping item the Cart holds of it. This is the
+      suggested quantity, the one the line is bought at when the confirm does not list it.
+    - `untilDate` and `groupBy` do not change `lines`: an item marked for a meal after `untilDate` is not in
+      `planned`, and it is still part of its line here and still bought by a confirm. A line can therefore
+      total more than the read shows of it, or not be in `planned` at all.
+    - Only the caller's Cart is listed. The `in_cart` allocations of `planned` also include the ones another
+      member holds, which are in no `lines` of the caller.
 - `totals`: `needed`, `inCart` and `removed` count the lines of `planned` by status;
   `estimatedCents` adds the estimated price of the needed items. Manual items are not counted, and neither are
   `purchased` lines: the totals are what is still to buy.
@@ -1025,7 +1043,7 @@ Cart lease (one hour from the last activity):
   Clients renew at most once a minute while the shopping screen is active.
 - Cancel: `DELETE /api/cart/:sessionId` returns `{ "data": { "sessionId", "updatedRows", "status": "abandoned" } }`.
 - An expired lease reads back as `cart: null` on `GET /api/shopping-list`.
-- Marking and renewing do not answer `itemsCount`: only the `cart` of the read (7.1) carries it.
+- Marking and renewing do not answer `lines`: only the `cart` of the read (7.1) carries them.
 
 Errors (`{ "error": { "code", "message" } }`):
 
@@ -1076,9 +1094,9 @@ Request body:
   - `online`: nothing enters Inventory yet. The session and its purchased items are `pending_delivery` until
     the delivery is acknowledged (7.5).
 - `lines`: optional, what was actually bought, one entry per line of the Cart at most. A line of the Cart
-  that is not listed is bought at its suggested quantity, the one in the Cart, with no price; without `lines`
-  every line is.
-  - `itemId`: the `id` of the line as `GET /api/shopping-list` gives it with `groupBy=ingredient`:
+  that is not listed is bought at its suggested quantity, the `quantityMilli` of its `cart.lines` entry, with
+  no price; without `lines` every line is.
+  - `itemId`: the `id` of the line as the `cart.lines` of `GET /api/shopping-list` give it (7.1):
     `<ingredientId>:<unit>` for the planned items of an ingredient, the Shopping item id for a manual item.
     It is not the `itemId` of an allocation.
   - `quantityMilli`: required, an integer, `0` or more. `0` puts the line back on the list as `needed` and

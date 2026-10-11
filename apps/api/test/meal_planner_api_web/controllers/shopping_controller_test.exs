@@ -461,7 +461,14 @@ defmodule MealPlannerApiWeb.ShoppingControllerTest do
       assert own["cart"] == %{
                "sessionId" => marked["sessionId"],
                "leaseExpiresAt" => marked["leaseExpiresAt"],
-               "itemsCount" => 2
+               "lines" => [
+                 %{
+                   "id" => "#{c.ingredient.id}:g",
+                   "name" => c.ingredient.name,
+                   "unit" => "g",
+                   "quantityMilli" => 800
+                 }
+               ]
              }
 
       assert [%{"status" => "in_cart"}] = own["planned"]
@@ -480,16 +487,13 @@ defmodule MealPlannerApiWeb.ShoppingControllerTest do
       assert theirs["cart"] == nil
     end
 
-    test "cart.itemsCount counts every item in the Cart, also the ones untilDate hides", c do
+    test "cart.lines totals every item of a line in the Cart, also the ones untilDate hides",
+         c do
       [first, second] = shopping_list(c.owner_token, %{"groupBy" => "meal"})["planned"]
+      line = %{"id" => "#{c.ingredient.id}:g", "name" => c.ingredient.name, "unit" => "g"}
 
       # Only the item of the later meal goes into the Cart.
-      build_conn()
-      |> put_req_header("authorization", "Bearer " <> c.owner_token)
-      |> post("/api/shopping-items/mark-cart", %{"itemIds" => [second["id"]]})
-      |> json_response(200)
-
-      assert shopping_list(c.owner_token)["cart"]["itemsCount"] == 1
+      mark_cart(c.owner_token, [second["id"]])
 
       limited = shopping_list(c.owner_token, %{"untilDate" => c.today})
 
@@ -497,20 +501,40 @@ defmodule MealPlannerApiWeb.ShoppingControllerTest do
                limited["planned"]
 
       assert limited["totals"]["inCart"] == 0
-      assert limited["cart"]["itemsCount"] == 1
+      assert limited["cart"]["lines"] == [Map.put(line, "quantityMilli", 400)]
 
-      build_conn()
-      |> put_req_header("authorization", "Bearer " <> c.owner_token)
-      |> post("/api/shopping-items/mark-cart", %{"itemIds" => [first["id"]]})
-      |> json_response(200)
+      mark_cart(c.owner_token, [first["id"]])
 
-      assert shopping_list(c.owner_token, %{"untilDate" => c.today})["cart"]["itemsCount"] == 2
+      # The read lists 400 g of the line; the Cart holds 800 g of it.
+      limited = shopping_list(c.owner_token, %{"untilDate" => c.today})
 
-      # The count is of the caller's own Cart: another member has none.
-      assert shopping_list(c.member_token)["cart"] == nil
+      assert [%{"status" => "in_cart", "quantityMilli" => 400}] = limited["planned"]
+      assert limited["cart"]["lines"] == [Map.put(line, "quantityMilli", 800)]
+
+      # The grouping of the read does not change the lines of the Cart.
+      assert shopping_list(c.owner_token, %{"groupBy" => "meal"})["cart"]["lines"] ==
+               limited["cart"]["lines"]
     end
 
-    test "cart.itemsCount counts the items added by hand that are in the Cart", c do
+    test "cart.lines lists only the caller's own Cart", c do
+      [first, second] = shopping_list(c.owner_token, %{"groupBy" => "meal"})["planned"]
+
+      mark_cart(c.owner_token, [first["id"]])
+      mark_cart(c.member_token, [second["id"]])
+
+      own = shopping_list(c.owner_token)
+      theirs = shopping_list(c.member_token)
+
+      # Both shares read in_cart to both members.
+      assert [%{"status" => "in_cart", "quantityMilli" => 800}] = own["planned"]
+      assert own["planned"] == theirs["planned"]
+
+      assert own["cart"]["sessionId"] != theirs["cart"]["sessionId"]
+      assert [%{"id" => line_id, "quantityMilli" => 400}] = own["cart"]["lines"]
+      assert [%{"id" => ^line_id, "quantityMilli" => 400}] = theirs["cart"]["lines"]
+    end
+
+    test "cart.lines lists an item added by hand under its own id and name", c do
       manual =
         build_conn()
         |> put_req_header("authorization", "Bearer " <> c.owner_token)
@@ -518,12 +542,16 @@ defmodule MealPlannerApiWeb.ShoppingControllerTest do
         |> json_response(201)
         |> get_in(["data", "id"])
 
-      build_conn()
-      |> put_req_header("authorization", "Bearer " <> c.owner_token)
-      |> post("/api/shopping-items/mark-cart", %{"itemIds" => [manual]})
-      |> json_response(200)
+      mark_cart(c.owner_token, [manual])
 
-      assert shopping_list(c.owner_token)["cart"]["itemsCount"] == 1
+      list = shopping_list(c.owner_token)
+
+      assert [%{"id" => ^manual, "name" => "Dish soap", "unit" => unit, "quantityMilli" => q}] =
+               list["manual"]
+
+      assert list["cart"]["lines"] == [
+               %{"id" => manual, "name" => "Dish soap", "unit" => unit, "quantityMilli" => q}
+             ]
     end
 
     test "a malformed untilDate is rejected with the error envelope", c do
@@ -992,6 +1020,13 @@ defmodule MealPlannerApiWeb.ShoppingControllerTest do
     |> json_response(200)
     |> assert_camel_case_keys()
     |> Map.fetch!("data")
+  end
+
+  defp mark_cart(token, item_ids) do
+    build_conn()
+    |> put_req_header("authorization", "Bearer " <> token)
+    |> post("/api/shopping-items/mark-cart", %{"itemIds" => item_ids})
+    |> json_response(200)
   end
 
   # The code of a 422 read, after checking that the body is the envelope.
