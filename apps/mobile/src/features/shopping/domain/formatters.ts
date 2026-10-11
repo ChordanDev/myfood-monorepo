@@ -98,6 +98,13 @@ export function formatCartButtonLabel(cartCount: number) {
   return `Ver carrito, ${cartCount === 0 ? 'vacío' : pluralize(cartCount, 'ítem')}`;
 }
 
+// What the cart sheet says of the items of the Cart that the list does not show.
+export function formatHiddenCartItemsNotice(hidden: number) {
+  const willBeBought = hidden === 1 ? 'se va a comprar' : 'se van a comprar';
+
+  return `${pluralize(hidden, 'ítem')} fuera de las fechas elegidas también ${willBeBought} con la cantidad sugerida.`;
+}
+
 // Line under the cards that brings the removed items back.
 export function formatRemovedLabel(removed: number) {
   return `${pluralize(removed, 'quitado')}${SEPARATOR}Restaurar`;

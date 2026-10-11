@@ -2,6 +2,7 @@ import type { ShoppingLineAllocation, ShoppingListLine, ShoppingMealSlot } from 
 import {
   formatCartButtonLabel,
   formatCountersLabel,
+  formatHiddenCartItemsNotice,
   formatItemMealsLine,
   formatItemNameLine,
   formatRemovedLabel,
@@ -213,6 +214,23 @@ describe('formatCartButtonLabel', () => {
     expect(formatCartButtonLabel(1)).toBe('Ver carrito, 1 ítem');
     expect(formatCartButtonLabel(2)).toBe('Ver carrito, 2 ítems');
     expect(formatCartButtonLabel(12)).toBe('Ver carrito, 12 ítems');
+  });
+});
+
+describe('formatHiddenCartItemsNotice', () => {
+  it('says the one item outside the chosen dates is bought too, in the singular', () => {
+    expect(formatHiddenCartItemsNotice(1)).toBe(
+      '1 ítem fuera de las fechas elegidas también se va a comprar con la cantidad sugerida.'
+    );
+  });
+
+  it('says it in the plural for more than one', () => {
+    expect(formatHiddenCartItemsNotice(2)).toBe(
+      '2 ítems fuera de las fechas elegidas también se van a comprar con la cantidad sugerida.'
+    );
+    expect(formatHiddenCartItemsNotice(12)).toBe(
+      '12 ítems fuera de las fechas elegidas también se van a comprar con la cantidad sugerida.'
+    );
   });
 });
 

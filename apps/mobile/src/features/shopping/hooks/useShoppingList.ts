@@ -6,6 +6,7 @@ import {
   formatItemMealsLine,
   formatUntilLabel,
   getCartLines,
+  getHiddenCartItemsCount,
   getDefaultUntilDate,
   getShoppingCounters,
   getUntilCalendar,
@@ -86,6 +87,7 @@ export function useShoppingList() {
   const metaLines = useMemo(() => getMetaLines(list?.planned ?? [], groupBy), [list, groupBy]);
   const counters = useMemo(() => (list ? getShoppingCounters(list.totals) : undefined), [list]);
   const cartLines = useMemo(() => getCartLines(list), [list]);
+  const hiddenCartItemsCount = useMemo(() => getHiddenCartItemsCount(list), [list]);
 
   // Picking the last planned day asks for the whole plan, so nothing is kept as chosen: the
   // list keeps reaching the last planned date as the plan grows.
@@ -159,6 +161,8 @@ export function useShoppingList() {
     cart: list?.cart ?? null,
     // What that read shows as in a Cart, as a confirm names it.
     cartLines,
+    // The items of that Cart the read does not list: the ones after the date it reaches.
+    hiddenCartItemsCount,
     // Whole lines, to find the items behind a row.
     lines: list?.planned ?? [],
     manualItems,

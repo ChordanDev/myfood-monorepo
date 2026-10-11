@@ -49,11 +49,18 @@ export interface ShoppingListLine {
   allocations: ShoppingLineAllocation[];
 }
 
-// The caller's own active Cart.
-export interface ShoppingCart {
+// The lease of a Cart: what marking and renewing answer.
+export interface CartLease {
   sessionId: string;
   // ISO 8601 datetime.
   leaseExpiresAt: string;
+}
+
+// The caller's own active Cart, as a read of the list reports it.
+export interface ShoppingCart extends CartLease {
+  // How many Shopping items the Cart holds, planned and manual. The date limit of the read does
+  // not change it, so it can be more than the items the read lists as in a Cart.
+  itemsCount: number;
 }
 
 // `needed`, `inCart` and `removed` count the planned lines of the read by status.
@@ -92,7 +99,7 @@ export interface CartReservation {
 }
 
 // What `POST /api/shopping-items/mark-cart` answers: the Cart lease and the items it holds.
-export interface MarkedCart extends ShoppingCart {
+export interface MarkedCart extends CartLease {
   items: CartReservation[];
 }
 

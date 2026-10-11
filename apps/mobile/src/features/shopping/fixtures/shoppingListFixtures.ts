@@ -10,7 +10,8 @@ import type {
 } from '../types/shoppingApi';
 
 // Reads of `GET /api/shopping-list` for one plan, as the server answers them: four meals over
-// three days, six ingredients, and a Cart holding the rice and the oil of the first meal.
+// three days, six ingredients, and a Cart holding the rice and the oil of the first meal: two
+// Shopping items, which is what its `itemsCount` says in every read.
 
 type Meal = { scheduledMealId: string; date: string; slot: ShoppingMealSlot };
 
@@ -154,6 +155,7 @@ const PLANNED_DATES = ['2026-10-08', '2026-10-10', '2026-10-12'];
 const CART = {
   sessionId: '36d3abb6-dd68-4728-a33a-ab33b02ecdfe',
   leaseExpiresAt: '2026-10-08T18:12:27.085974Z',
+  itemsCount: 2,
 };
 
 /**
@@ -211,6 +213,24 @@ export const SHOPPING_LIST_UNTIL_OCT_10: ShoppingListRead = {
   manual: [],
   cart: CART,
   totals: { needed: 4, inCart: 1, removed: 0, estimatedCents: 0 },
+  plannedDates: PLANNED_DATES,
+};
+
+/**
+ * `GET /api/shopping-list?untilDate=2026-10-08` once the User ticked the milk and the banana of
+ * the 12th instead, and then brought the date back to the 8th. No line of the read is in the
+ * Cart, and the Cart still holds those two items: its `itemsCount` does not follow the date.
+ */
+export const SHOPPING_LIST_WITH_CART_OUT_OF_RANGE: ShoppingListRead = {
+  planned: [
+    ingredientLine(RICE, [{ ...RICE_OCT_8, status: 'needed' }]),
+    ingredientLine(CHICKEN, [CHICKEN_OCT_8]),
+    ingredientLine(TOMATO, [TOMATO_OCT_8]),
+    ingredientLine(OLIVE_OIL, [{ ...OLIVE_OIL_OCT_8, status: 'needed' }]),
+  ],
+  manual: [],
+  cart: CART,
+  totals: { needed: 4, inCart: 0, removed: 0, estimatedCents: 0 },
   plannedDates: PLANNED_DATES,
 };
 

@@ -49,6 +49,14 @@ function mockJsonResponse(payload: unknown, ok = true, status = ok ? 200 : 422) 
   } as Response);
 }
 
+// The read per ingredient with another `itemsCount` on its Cart, valid or not.
+function withCartItemsCount(itemsCount: unknown) {
+  return {
+    ...SHOPPING_LIST_BY_INGREDIENT,
+    cart: { ...SHOPPING_LIST_BY_INGREDIENT.cart, itemsCount },
+  };
+}
+
 describe('getShoppingList', () => {
   const fetchMock = jest.fn();
   const originalApiUrl = process.env.EXPO_PUBLIC_API_URL;
@@ -149,6 +157,10 @@ describe('getShoppingList', () => {
       ['no planned lines', { data: { ...SHOPPING_LIST_BY_INGREDIENT, planned: undefined } }],
       ['no manual lines', { data: { ...SHOPPING_LIST_BY_INGREDIENT, manual: undefined } }],
       ['no cart member', { data: { ...SHOPPING_LIST_BY_INGREDIENT, cart: undefined } }],
+      ['a cart without its item count', { data: withCartItemsCount(undefined) }],
+      ['a cart whose item count is not a number', { data: withCartItemsCount('2') }],
+      ['a cart whose item count is not whole', { data: withCartItemsCount(1.5) }],
+      ['a cart whose item count is negative', { data: withCartItemsCount(-1) }],
       ['no totals', { data: { ...SHOPPING_LIST_BY_INGREDIENT, totals: undefined } }],
       [
         'planned dates that are not a list',
@@ -161,6 +173,13 @@ describe('getShoppingList', () => {
         code: 'unknown_error',
         message: 'Malformed shopping list response',
       });
+    });
+
+    it('accepts a Cart that holds no item', async () => {
+      const read = withCartItemsCount(0);
+      fetchMock.mockReturnValueOnce(mockJsonResponse({ data: read }));
+
+      await expect(getShoppingList()).resolves.toEqual(read);
     });
 
     it('accepts a read without a Cart', async () => {

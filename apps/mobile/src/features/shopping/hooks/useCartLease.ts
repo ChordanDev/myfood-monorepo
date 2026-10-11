@@ -3,7 +3,7 @@ import { AppState } from 'react-native';
 import { useFocusEffect } from 'expo-router';
 import { getAuthErrorMessage, isApiError } from '@/api/errors';
 import { cancelCart, confirmCheckout, markInCart, renewCart } from '../api/shoppingApi';
-import type { CheckoutLine, ShoppingCart } from '../types';
+import type { CartLease, CheckoutLine } from '../types';
 
 // The server holds a Cart for a while after its last activity. Renewing at most once a
 // minute keeps it alive without a request per tick or per render.
@@ -28,7 +28,7 @@ export type CartConfirmOutcome = 'purchased' | 'cart_gone' | 'refused';
 
 interface UseCartLeaseOptions {
   // The Cart the last read of the list reported for the signed-in Membership, if any.
-  listCart: ShoppingCart | null;
+  listCart: CartLease | null;
   // Reads the list again: it is the server's, so it is what shows what a Cart holds.
   refreshList: () => void;
 }
@@ -38,7 +38,7 @@ interface UseCartLeaseOptions {
 // Leaving the screen does not cancel: the lease just stops being renewed and runs out. Buying
 // the Cart ends it.
 export function useCartLease({ listCart, refreshList }: UseCartLeaseOptions) {
-  const [cart, setCart] = useState<ShoppingCart | null>(listCart);
+  const [cart, setCart] = useState<CartLease | null>(listCart);
   const [isHeldByAnother, setIsHeldByAnother] = useState(false);
   const [error, setError] = useState<unknown>(null);
   // What the last confirm was refused with while the Cart stays: it is said where the confirm

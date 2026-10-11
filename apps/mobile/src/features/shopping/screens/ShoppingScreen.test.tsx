@@ -20,6 +20,7 @@ import {
   SHOPPING_LIST_BY_INGREDIENT,
   SHOPPING_LIST_BY_MEAL,
   SHOPPING_LIST_UNTIL_OCT_10,
+  SHOPPING_LIST_WITH_CART_OUT_OF_RANGE,
   SHOPPING_LIST_VALIDATION_ERROR,
   SHOPPING_LIST_WITH_MANUAL_AND_REMOVED,
   TOMATO_ITEM_IDS,
@@ -1609,6 +1610,56 @@ describe('ShoppingScreen: buying the Cart', () => {
     await focusScreen();
 
     expect(root.findAll((node) => node.props.testID === 'shopping-cart-button')).toEqual([]);
+  });
+
+  describe('with items of the Cart outside the chosen dates', () => {
+    const EMPTY_HINT = 'Todavía no marcaste nada.';
+    const ONE_HIDDEN =
+      '1 ítem fuera de las fechas elegidas también se va a comprar con la cantidad sugerida.';
+    const TWO_HIDDEN =
+      '2 ítems fuera de las fechas elegidas también se van a comprar con la cantidad sugerida.';
+
+    it('keeps the button, counting the items of the Cart, when no line of it is listed', async () => {
+      serverList = SHOPPING_LIST_WITH_CART_OUT_OF_RANGE;
+      const root = await renderLoadedScreen();
+      const [button] = root.findAll((node) => node.props.testID === 'shopping-cart-button');
+
+      expect(getButtonLabels(root)).toContain('Ver carrito, 2 ítems');
+      expect(getTexts(button)).toEqual(['2']);
+    });
+
+    it('says they are bought too instead of saying nothing was marked, and buys them', async () => {
+      serverList = SHOPPING_LIST_WITH_CART_OUT_OF_RANGE;
+      const root = await renderLoadedScreen();
+      await press(root, 'Ver carrito, 2 ítems');
+
+      expect(getTexts(root)).toContain(TWO_HIDDEN);
+      expect(getTexts(root)).not.toContain(EMPTY_HINT);
+
+      await pressText(root, CONFIRM);
+
+      expect(confirmBodies()).toEqual([{ sessionId: CART_SESSION_ID, checkoutType: 'physical' }]);
+      expect(isSheetOpen(root)).toBe(false);
+    });
+
+    it('adds them to the lines the button counts, and says how many under the lines', async () => {
+      serverList = {
+        ...SHOPPING_LIST_BY_INGREDIENT,
+        cart: { ...SHOPPING_LIST_BY_INGREDIENT.cart!, itemsCount: 3 },
+      };
+      const root = await renderLoadedScreen();
+      await press(root, 'Ver carrito, 3 ítems');
+
+      expect(getTexts(root)).toEqual(
+        expect.arrayContaining(['Sugerido: 400 g', 'Sugerido: 30 ml', ONE_HIDDEN])
+      );
+    });
+
+    it('says nothing about them while the list shows every item of the Cart', async () => {
+      const root = await openTheCart();
+
+      expect(getTexts(root).filter((text) => text.includes('fuera de las fechas'))).toEqual([]);
+    });
   });
 
   it('opens the Cart with each line and the quantity the Cart holds of it', async () => {

@@ -60,6 +60,7 @@ export function ShoppingScreen() {
     retry,
     cart: listCart,
     cartLines,
+    hiddenCartItemsCount,
     lines,
     manualItems,
     removedCount,
@@ -256,13 +257,15 @@ export function ShoppingScreen() {
         </ScrollView>
       </SafeAreaContent>
 
-      {/* Over the list, above the tab bar: what the Cart holds is one press away. */}
+      {/* Over the list, above the tab bar: what the Cart holds is one press away. It counts
+          what a confirm buys: the lines the sheet lists and the items it does not, so it is
+          never zero for a Cart whose items are all after the date the list reaches. */}
       {cart ? (
         <View
           testID="shopping-cart-button"
           style={[styles.cartButton, { bottom: tabBarHeight + LIST_GAP }]}>
           <ShoppingCartButton
-            count={cartLines.length}
+            count={cartLines.length + hiddenCartItemsCount}
             onPress={() => setIsCartSheetVisible(true)}
           />
         </View>
@@ -271,6 +274,7 @@ export function ShoppingScreen() {
       <ShoppingCartSheet
         visible={isCartSheetVisible}
         lines={cartLines}
+        hiddenItemsCount={hiddenCartItemsCount}
         isConfirming={isConfirming}
         errorMessage={confirmErrorMessage}
         onConfirm={confirmCart}
