@@ -124,6 +124,9 @@ defmodule MealPlannerApi.Services.CookingChatTest do
     Repo.all(from(m in CookingChatMessage, order_by: [asc: m.inserted_at]))
   end
 
+  defp sessions_of(meal),
+    do: Repo.all(from(s in CookingSession, where: s.scheduled_meal_id == ^meal.id))
+
   defp use_barrier_client! do
     previous = Application.get_env(:meal_planner_api, :ai_client)
     Application.put_env(:meal_planner_api, :ai_client, MealPlannerApi.CookingBarrierClient)
@@ -283,6 +286,30 @@ defmodule MealPlannerApi.Services.CookingChatTest do
 
       # Cooked again: the session that cooked it last is the one returned.
       assert start!(f, meal).session_id == again.session_id
+    end
+
+    # Issue #148. Marked cooked from the calendar, the meal has no session that
+    # cooked it, and a new one could never finish.
+    test "start is refused for a meal marked cooked outside a session", f do
+      meal = meal!(f, @utc_day)
+      assert {:ok, _} = Calendar.set_is_cooked(f.account.id, meal.id, true)
+
+      assert {:error, :cooking_already_finished} =
+               CookingService.start_session(f.actor, meal.id, @instant)
+
+      assert sessions_of(meal) == []
+    end
+
+    test "start does not hand out the active session of a meal marked cooked meanwhile", f do
+      meal = meal!(f, @utc_day)
+      session = start!(f, meal)
+      assert {:ok, _} = Calendar.set_is_cooked(f.account.id, meal.id, true)
+
+      assert {:error, :cooking_already_finished} =
+               CookingService.start_session(f.actor, meal.id, @instant)
+
+      assert [%{id: id, status: :active}] = sessions_of(meal)
+      assert id == session.session_id
     end
   end
 

@@ -6,6 +6,7 @@ defmodule MealPlannerApiWeb.CookingControllerTest do
   import MealPlannerApi.IdentityFixtures
 
   alias MealPlannerApi.Auth.Guardian
+  alias MealPlannerApi.Persistence.Calendar
   alias MealPlannerApi.Persistence.Catalog
   alias MealPlannerApi.Persistence.Inventory.InventoryItem
   alias MealPlannerApi.Persistence.Planning
@@ -354,6 +355,27 @@ defmodule MealPlannerApiWeb.CookingControllerTest do
 
       conn = post(stranger, "/api/cooking/start", %{"scheduledMealId" => meal.id})
       assert %{"error" => %{"code" => "scheduled_meal_not_found"}} = json_response(conn, 404)
+
+      assert MealPlannerApi.Repo.aggregate(
+               MealPlannerApi.Persistence.Planning.CookingSession,
+               :count
+             ) == 0
+    end
+
+    test "start for a meal marked cooked from the calendar is 409 cooking_already_finished",
+         %{conn: conn, account_id: account_id, recipe: recipe, today: today} do
+      {:ok, meal} =
+        Planning.schedule_meal(%{
+          account_id: account_id,
+          date: today,
+          slot: :dinner,
+          recipe_id: recipe.id
+        })
+
+      assert {:ok, _} = Calendar.set_is_cooked(account_id, meal.id, true)
+
+      conn = post(conn, "/api/cooking/start", %{"scheduledMealId" => meal.id})
+      assert %{"error" => %{"code" => "cooking_already_finished"}} = json_response(conn, 409)
 
       assert MealPlannerApi.Repo.aggregate(
                MealPlannerApi.Persistence.Planning.CookingSession,
