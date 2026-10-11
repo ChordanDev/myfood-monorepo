@@ -7,11 +7,22 @@ import type {
   UserPreferencesPayload,
   SlotCookingTimesPayload,
 } from '@/features/auth/types/auth';
-import { fixtureOnboardingCompletion } from '@/features/onboarding/fixtures/onboardingCompletion';
+import {
+  fixtureInvalidCookingSkill,
+  fixtureOnboardingCompletion,
+} from '@/features/onboarding/fixtures/onboardingCompletion';
 import onboardingCompletionFixture from '@/features/onboarding/fixtures/onboardingCompletion.json';
-import { fixturePreferences } from '@/features/preferences/fixtures/preferences';
+import {
+  fixtureInvalidDiet,
+  fixtureInvalidHardRestriction,
+  fixturePreferences,
+} from '@/features/preferences/fixtures/preferences';
 import preferencesFixture from '@/features/preferences/fixtures/preferences.json';
-import { fixtureSlotCookingTimes } from '@/features/preferences/fixtures/slotCookingTimes';
+import {
+  fixtureInvalidHungerLevel,
+  fixtureSlotCookingTimes,
+  fixtureValidationErrorDinnerCookingTimeMinutes,
+} from '@/features/preferences/fixtures/slotCookingTimes';
 import slotCookingTimesFixture from '@/features/preferences/fixtures/slotCookingTimes.json';
 import * as authService from '../authService';
 
@@ -54,8 +65,8 @@ const profilePayload: ProfileUpdatePayload = {
   cookingSkill: 'intermediate',
 };
 
-// The response bodies are the frozen fixtures the api pins; the request bodies above are
-// what the app builds, so they stay inline.
+// The response bodies, the refusals included, are the frozen fixtures the api pins; the
+// request bodies above are what the app builds, so they stay inline.
 const profileResponse = fixtureProfileUpdate();
 
 describe('authService onboarding/preferences/slot-cooking-times endpoints', () => {
@@ -93,27 +104,19 @@ describe('authService onboarding/preferences/slot-cooking-times endpoints', () =
     expect(result).toEqual(fixtureOnboardingCompletion());
   });
 
-  it('maps onboarding_invalid and onboarding_already_complete to typed errors', async () => {
-    fetchMock
-      .mockReturnValueOnce(
-        mockJsonResponse({ error: { code: 'onboarding_invalid', message: 'invalid' } }, false, 422)
-      )
-      .mockReturnValueOnce(
-        mockJsonResponse(
-          { error: { code: 'onboarding_already_complete', message: 'done' } },
-          false,
-          409
-        )
-      );
+  // Every refusal the api answers to an onboarding body with an invalid field.
+  it.each([
+    ['validation_error', fixtureValidationErrorDinnerCookingTimeMinutes()],
+    ['invalid_cooking_skill', fixtureInvalidCookingSkill()],
+    ['invalid_diet', fixtureInvalidDiet()],
+    ['invalid_hard_restriction', fixtureInvalidHardRestriction()],
+    ['invalid_hunger_level', fixtureInvalidHungerLevel()],
+  ])('maps a refused onboarding completion to a typed %s error', async (code, envelope) => {
+    fetchMock.mockReturnValueOnce(mockJsonResponse(envelope, false, 422));
 
     await expect(authService.completeOnboarding('access-1', validPayload)).rejects.toMatchObject({
-      code: 'onboarding_invalid',
+      code,
       status: 422,
-    });
-
-    await expect(authService.completeOnboarding('access-1', validPayload)).rejects.toMatchObject({
-      code: 'onboarding_already_complete',
-      status: 409,
     });
   });
 
@@ -153,10 +156,8 @@ describe('authService onboarding/preferences/slot-cooking-times endpoints', () =
     expect(result).toEqual(fixturePreferences());
   });
 
-  it('maps preferences_invalid to a typed error', async () => {
-    fetchMock.mockReturnValueOnce(
-      mockJsonResponse({ error: { code: 'preferences_invalid', message: 'bad' } }, false, 422)
-    );
+  it('maps invalid_diet to a typed error', async () => {
+    fetchMock.mockReturnValueOnce(mockJsonResponse(fixtureInvalidDiet(), false, 422));
 
     await expect(
       authService.updateUserPreferences('access-1', {
@@ -164,7 +165,7 @@ describe('authService onboarding/preferences/slot-cooking-times endpoints', () =
         hardRestrictions: [],
         softPreferences: [],
       })
-    ).rejects.toMatchObject({ code: 'preferences_invalid', status: 422 });
+    ).rejects.toMatchObject({ code: 'invalid_diet', status: 422 });
   });
 
   it('GETs /api/me/slot-cooking-times with bearer token', async () => {
@@ -203,13 +204,9 @@ describe('authService onboarding/preferences/slot-cooking-times endpoints', () =
     expect(result).toEqual(fixtureSlotCookingTimes());
   });
 
-  it('maps slot_cooking_times_invalid to a typed error', async () => {
+  it('maps the validation_error of a refused slot cooking time to a typed error', async () => {
     fetchMock.mockReturnValueOnce(
-      mockJsonResponse(
-        { error: { code: 'slot_cooking_times_invalid', message: 'bad' } },
-        false,
-        422
-      )
+      mockJsonResponse(fixtureValidationErrorDinnerCookingTimeMinutes(), false, 422)
     );
 
     await expect(
@@ -218,7 +215,11 @@ describe('authService onboarding/preferences/slot-cooking-times endpoints', () =
         lunch: { cookingTimeMinutes: 0, hungerLevel: 'normal' },
         dinner: { cookingTimeMinutes: -1, hungerLevel: 'normal' },
       })
-    ).rejects.toMatchObject({ code: 'slot_cooking_times_invalid', status: 422 });
+    ).rejects.toMatchObject({
+      code: 'validation_error',
+      message: 'The field dinner.cookingTimeMinutes is not valid.',
+      status: 422,
+    });
   });
 
   it('PUTs /api/me/profile with bearer token and returns the updated user', async () => {
