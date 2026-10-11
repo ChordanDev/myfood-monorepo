@@ -61,6 +61,25 @@ defmodule MealPlannerApi.Services.PlanningChatServiceTest do
   end
 
   describe "generate_menu/2 date range limit" do
+    test "accepts a range of a single day", %{user: user, account: account} do
+      assert {:ok, result} =
+               PlanningChatService.generate_menu(
+                 current_user(user, account, :free),
+                 range("2026-06-15", "2026-06-15")
+               )
+
+      assert result.date_from == ~D[2026-06-15]
+      assert result.date_to == ~D[2026-06-15]
+
+      dates = result.proposal_json.scheduled_meals |> Enum.map(& &1.date) |> Enum.uniq()
+
+      assert dates == ["2026-06-15"]
+      assert length(result.proposal_json.scheduled_meals) == 3
+
+      assert generation_run_count(account.id) == 1
+      assert proposal_count(account.id) == 1
+    end
+
     test "accepts a range of five days for a free User", %{user: user, account: account} do
       assert {:ok, result} =
                PlanningChatService.generate_menu(
