@@ -92,11 +92,16 @@ defmodule MealPlannerApi.Services.GenerationService do
   @doc """
   Formats a slot key as \"YYYY-MM-DD_slot\" for broadcasts and state keys.
 
+  The slot is an atom or its name as a string, the way the optimizer returns it.
+
       iex> slot_key("2026-06-03", :lunch)
       "2026-06-03_lunch"
+
+      iex> slot_key("2026-06-03", "lunch")
+      "2026-06-03_lunch"
   """
-  @spec slot_key(String.t(), atom()) :: String.t()
-  def slot_key(date, slot) when is_binary(date) and is_atom(slot) do
+  @spec slot_key(String.t(), atom() | String.t()) :: String.t()
+  def slot_key(date, slot) when is_binary(date) and (is_atom(slot) or is_binary(slot)) do
     "#{date}_#{slot}"
   end
 

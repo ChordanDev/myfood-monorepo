@@ -471,6 +471,50 @@ defmodule MealPlannerApi.Generation.ServerTest do
     end
   end
 
+  # A run whose optimizer answer is valid ends in `proposal_ready` (#158). The
+  # optimizer names the slot of a meal as a string, and the proposal is built
+  # from the meals as `PayloadAdapter.translate_response/2` returns them.
+  describe "start_generation/4 proposal" do
+    test "a run with a seeded recipe broadcasts proposal_ready with its slots" do
+      account = insert_account("generation proposal account")
+      actor = insert_user_with_membership(account, "generation-proposal@example.com")
+      recipe = insert_recipe("Proposal recipe")
+      optimizer = start_optimizer_server!()
+
+      Phoenix.PubSub.subscribe(MealPlannerApi.PubSub, "planning:#{account.id}")
+
+      assert {:ok, run_id} =
+               Server.start_generation(
+                 account.id,
+                 actor.id,
+                 %{
+                   "date_from" => "2026-02-01",
+                   "date_to" => "2026-02-01",
+                   "slot_types" => ["lunch", "dinner"]
+                 },
+                 self()
+               )
+
+      answer_optimizer_request(optimizer)
+
+      assert_receive %Phoenix.Socket.Broadcast{event: "proposal_ready", payload: ready}, 5_000
+      assert %{proposal_id: proposal_id, run_id: ^run_id, proposal: %{slots: slots}} = ready
+
+      assert Enum.map(slots, &{&1.slot_key, &1.recipe_id, &1.recipe_name}) == [
+               {"2026-02-01_dinner", recipe.id, "Proposal recipe"},
+               {"2026-02-01_lunch", recipe.id, "Proposal recipe"}
+             ]
+
+      # The stored proposal, the one a confirmation reads, has the same slots.
+      assert Enum.map(get_proposal(proposal_id).proposal_json["slots"], & &1["slot_key"]) ==
+               ["2026-02-01_dinner", "2026-02-01_lunch"]
+
+      assert generation_run(run_id).status == :completed
+
+      stop_generation_server(account.id)
+    end
+  end
+
   test "confirmation after a correction keeps the proposal version and rebuilds its frozen quantities" do
     account = insert_account("Versioned confirmation")
     user = insert_user_with_membership(account, "versioned-confirmation@example.com")

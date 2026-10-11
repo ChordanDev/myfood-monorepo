@@ -1,6 +1,7 @@
 defmodule MealPlannerApi.Services.GenerationServiceTest do
   use ExUnit.Case, async: true
 
+  alias MealPlannerApi.Optimization.PayloadAdapter
   alias MealPlannerApi.Services.GenerationService
 
   describe "build_constraints/2" do
@@ -92,6 +93,10 @@ defmodule MealPlannerApi.Services.GenerationServiceTest do
     test "formats date and slot as YYYY-MM-DD_slot" do
       assert GenerationService.slot_key("2026-06-03", :lunch) == "2026-06-03_lunch"
     end
+
+    test "formats a slot given as a string the same way" do
+      assert GenerationService.slot_key("2026-06-03", "lunch") == "2026-06-03_lunch"
+    end
   end
 
   describe "parse_slot_key/1" do
@@ -153,6 +158,34 @@ defmodule MealPlannerApi.Services.GenerationServiceTest do
       assert is_list(result.slots)
       assert is_binary(result.fingerprint)
       assert result == GenerationService.build_proposal_json(slots)
+    end
+
+    # The slots of a generation are the meals of the optimizer as
+    # `PayloadAdapter.translate_response/2` returns them: atom keys, and the
+    # slot as the string the optimizer answered.
+    test "builds the slots of a translated optimizer answer" do
+      meals = [
+        %{"day" => "2026-06-03", "slot" => "lunch", "recipe_id" => "r1"},
+        %{"day" => "2026-06-03", "slot" => "dinner", "recipe_id" => "r1"}
+      ]
+
+      recipe = %{name: "Pollo", price_cents: 1200, protein_g: 25, calories: 450, carbs_g: 30}
+
+      {:ok, resolved} =
+        PayloadAdapter.translate_response({:ok, %{"meals" => meals}}, %{"r1" => recipe})
+
+      assert [%{slot: "lunch"}, %{slot: "dinner"}] = resolved
+
+      assert %{slots: [dinner, lunch]} = GenerationService.build_proposal_json(resolved)
+      assert dinner.slot_key == "2026-06-03_dinner"
+
+      assert lunch == %{
+               slot_key: "2026-06-03_lunch",
+               recipe_id: "r1",
+               recipe_name: "Pollo",
+               price_cents: 1200,
+               macros: %{"protein_g" => 25, "calories" => 450, "carbs_g" => 30}
+             }
     end
   end
 
