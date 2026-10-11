@@ -137,6 +137,12 @@ defmodule MealPlannerApiWeb.ApiErrorTest do
       end
     end
 
+    test "maps the Scheduled meal move codes to their HTTP status", %{conn: conn} do
+      for {code, status} <- [scheduled_meal_cooked: 409, calendar_conflict: 409] do
+        assert {code, ApiError.error(conn, code).status} == {code, status}
+      end
+    end
+
     test "maps the Cart lease codes to their HTTP status", %{conn: conn} do
       for {code, status} <- [cart_locked: 409, stale_cart: 409, cart_not_found: 404] do
         assert {code, ApiError.error(conn, code).status} == {code, status}
@@ -317,10 +323,14 @@ defmodule MealPlannerApiWeb.ApiErrorTest do
       # The codes of the Inventory voice adjustment (issue #44).
       voice_codes = ~w(voice_parse_failed voice_confirmation_required)a
 
+      # The codes of the Scheduled meal move (issue #144) that are its own.
+      meal_move_codes = ~w(scheduled_meal_cooked calendar_conflict)a
+
       assert Enum.sort(ApiError.codes()) ==
                Enum.sort(
                  auth_codes ++
                    [:recipe_not_found, :prepared_leftover_not_found] ++
+                   meal_move_codes ++
                    profile_codes ++
                    slot_cooking_times_codes ++
                    preferences_codes ++

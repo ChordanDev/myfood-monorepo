@@ -762,4 +762,151 @@ defmodule MealPlannerApiWeb.CalendarControllerTest do
       assert id == skipped.id
     end
   end
+
+  describe "POST /api/calendar/meals/:id/move" do
+    setup do
+      %{token: token, account: account} = insert_identity_with_token!(plan: :family_4)
+      today = Date.utc_today()
+
+      %{token: token, account_id: account.id, today: today, tomorrow: Date.add(today, 1)}
+    end
+
+    defp move(token, meal_id, body) do
+      build_conn()
+      |> put_req_header("authorization", "Bearer " <> token)
+      |> post("/api/calendar/meals/#{meal_id}/move", body)
+    end
+
+    defp scheduled!(account_id, date, slot, attrs \\ %{}) do
+      {:ok, meal} =
+        Calendar.upsert_scheduled_meal(account_id, Map.merge(%{date: date, slot: slot}, attrs))
+
+      meal
+    end
+
+    defp stored_position(meal) do
+      stored = Repo.get!(Planning.ScheduledMeal, meal.id)
+      {stored.date, stored.slot}
+    end
+
+    test "swaps the meal with the one at the destination", f do
+      source = scheduled!(f.account_id, f.tomorrow, :dinner)
+      target = scheduled!(f.account_id, f.today, :lunch)
+
+      body =
+        f.token
+        |> move(source.id, %{"date" => Date.to_iso8601(f.today), "slot" => "lunch"})
+        |> json_response(200)
+
+      assert body == %{
+               "data" => %{
+                 "moved" => %{
+                   "mealId" => source.id,
+                   "date" => Date.to_iso8601(f.today),
+                   "slot" => "lunch"
+                 },
+                 "displaced" => %{
+                   "mealId" => target.id,
+                   "date" => Date.to_iso8601(f.tomorrow),
+                   "slot" => "dinner"
+                 }
+               }
+             }
+
+      assert stored_position(source) == {f.today, :lunch}
+      assert stored_position(target) == {f.tomorrow, :dinner}
+    end
+
+    test "moves the meal into an empty slot", f do
+      source = scheduled!(f.account_id, f.tomorrow, :dinner)
+
+      body =
+        f.token
+        |> move(source.id, %{"date" => Date.to_iso8601(f.today), "slot" => "snack"})
+        |> json_response(200)
+
+      assert %{"moved" => %{"mealId" => id, "slot" => "snack"}, "displaced" => nil} = body["data"]
+      assert id == source.id
+      assert stored_position(source) == {f.today, :snack}
+    end
+
+    test "answers 404 for the meal of another Account and leaves it in place", f do
+      %{account: other_account} = insert_identity!(plan: :family_4)
+      foreign = scheduled!(other_account.id, f.tomorrow, :dinner)
+
+      conn = move(f.token, foreign.id, %{"date" => Date.to_iso8601(f.today), "slot" => "lunch"})
+
+      assert %{"error" => %{"code" => "scheduled_meal_not_found"}} = json_response(conn, 404)
+      assert stored_position(foreign) == {f.tomorrow, :dinner}
+    end
+
+    test "answers 409 for a cooked meal on either side", f do
+      cooked = scheduled!(f.account_id, f.tomorrow, :dinner, %{is_cooked: true})
+      source = scheduled!(f.account_id, f.tomorrow, :lunch)
+
+      for {meal, destination} <- [{cooked, {f.today, "lunch"}}, {source, {f.tomorrow, "dinner"}}] do
+        {date, slot} = destination
+        conn = move(f.token, meal.id, %{"date" => Date.to_iso8601(date), "slot" => slot})
+
+        assert %{"error" => %{"code" => "scheduled_meal_cooked"}} = json_response(conn, 409)
+      end
+
+      assert stored_position(cooked) == {f.tomorrow, :dinner}
+      assert stored_position(source) == {f.tomorrow, :lunch}
+    end
+
+    test "answers 422 naming the field for an invalid slot or date", f do
+      source = scheduled!(f.account_id, f.tomorrow, :dinner)
+      today = Date.to_iso8601(f.today)
+      tomorrow = Date.to_iso8601(f.tomorrow)
+
+      for {body, field} <- [
+            {%{"date" => today, "slot" => "brunch"}, "slot"},
+            {%{"date" => today}, "slot"},
+            {%{"date" => "08/10/2026", "slot" => "lunch"}, "date"},
+            {%{"slot" => "lunch"}, "date"},
+            # The position the meal already has.
+            {%{"date" => tomorrow, "slot" => "dinner"}, "slot"}
+          ] do
+        assert %{"error" => %{"code" => "validation_error", "message" => message}} =
+                 f.token |> move(source.id, body) |> json_response(422)
+
+        assert message =~ field
+      end
+
+      assert stored_position(source) == {f.tomorrow, :dinner}
+    end
+
+    test "denies an expired account when capability enforcement is enabled", f do
+      user =
+        user_with_memberships(
+          %{email: "calendar-move-expired@example.com"},
+          [{%{name: "Expired move account", plan: :family_4}, :owner}]
+        )
+
+      membership = hd(user.memberships)
+      now = DateTime.utc_now()
+
+      Repo.get!(Account, membership.account_id)
+      |> Account.changeset(%{
+        trial_started_at: DateTime.add(now, -86_400, :second),
+        trial_ends_at: DateTime.add(now, -1, :second)
+      })
+      |> Repo.update!()
+
+      source = scheduled!(membership.account_id, f.tomorrow, :dinner)
+      token = issue_access_v2_token(user, membership)
+      previous = Application.get_env(:meal_planner_api, :revenuecat_access_enforcement)
+      Application.put_env(:meal_planner_api, :revenuecat_access_enforcement, true)
+
+      try do
+        conn = move(token, source.id, %{"date" => Date.to_iso8601(f.today), "slot" => "lunch"})
+
+        assert %{"error" => %{"code" => "trial_expired"}} = json_response(conn, 403)
+        assert stored_position(source) == {f.tomorrow, :dinner}
+      after
+        Application.put_env(:meal_planner_api, :revenuecat_access_enforcement, previous)
+      end
+    end
+  end
 end

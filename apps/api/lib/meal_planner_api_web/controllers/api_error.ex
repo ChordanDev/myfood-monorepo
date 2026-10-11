@@ -137,6 +137,8 @@ defmodule MealPlannerApiWeb.ApiError do
           | :voice_parse_failed
           | :voice_confirmation_required
           | :prepared_leftover_not_found
+          | :scheduled_meal_cooked
+          | :calendar_conflict
 
   @type envelope :: %{
           error:
@@ -218,6 +220,11 @@ defmodule MealPlannerApiWeb.ApiError do
     # Keep it above the planning channel rows: the mobile allowlist test reads
     # every row after that header as a channel code.
     prepared_leftover_not_found: {404, "The prepared leftover was not found."},
+    # Moving a Scheduled meal (issue #144). A missing, malformed-id and
+    # other-Account meal reply `scheduled_meal_not_found`. Keep these above
+    # the planning channel rows too.
+    scheduled_meal_cooked: {409, "A cooked meal cannot be moved."},
+    calendar_conflict: {409, "The calendar changed while the meal was moved. Nothing was saved."},
     # Planning channel (issue #11): every deliberate reason a join or a
     # command of `PlanningChannel` replies, named as the reason was.
     generation_in_progress: {409, "A menu generation is already in progress for this account."},
