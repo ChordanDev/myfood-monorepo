@@ -248,6 +248,63 @@ defmodule MealPlannerApiWeb.CheckoutConfirmTest do
       assert %{"data" => _} = f |> confirm(cart, [good]) |> json_response(200)
     end
 
+    test "a quantity or a total too large to store is validation_error", f do
+      cart = reserve!(f)
+      snapshot = {lines(f), Repo.get!(CheckoutSession, cart.session_id)}
+      good = %{"itemId" => f.line_id, "quantityMilli" => 300, "totalCents" => 250}
+
+      for lines <- [
+            [%{good | "quantityMilli" => 3_000_000_000}],
+            [%{good | "totalCents" => 3_000_000_000}],
+            [%{good | "quantityMilli" => 2_147_483_648}],
+            [%{good | "totalCents" => 2_147_483_648}]
+          ] do
+        assert %{"error" => %{"code" => "validation_error", "message" => _}} =
+                 f |> confirm(cart, lines) |> json_response(422)
+
+        assert stock(f) == []
+        assert events(f) == []
+        assert {lines(f), Repo.get!(CheckoutSession, cart.session_id)} == snapshot
+        assert Enum.all?(lines(f), &(&1.status == :in_cart))
+      end
+    end
+
+    test "lines whose totals add up to more than can be stored are validation_error", f do
+      manual =
+        manual_item!(f, %{
+          name: "Extra rice",
+          ingredient_id: f.ingredient.id,
+          quantity_milli: 2000,
+          unit: :g
+        })
+
+      {:ok, cart} = MealPlannerApi.Cart.reserve(f.actor, [manual.id | Enum.map(f.items, & &1.id)])
+      snapshot = {lines(f), Repo.get!(CheckoutSession, cart.session_id)}
+
+      lines = [
+        %{"itemId" => f.line_id, "quantityMilli" => 1500, "totalCents" => 2_000_000_000},
+        %{"itemId" => manual.id, "quantityMilli" => 2000, "totalCents" => 2_000_000_000}
+      ]
+
+      assert %{"error" => %{"code" => "validation_error", "message" => _}} =
+               f |> confirm(cart, lines) |> json_response(422)
+
+      assert stock(f) == []
+      assert events(f) == []
+      assert {lines(f), Repo.get!(CheckoutSession, cart.session_id)} == snapshot
+    end
+
+    test "the largest quantity and total that can be stored are bought", f do
+      cart = reserve!(f)
+      max = 2_147_483_647
+      line = %{"itemId" => f.line_id, "quantityMilli" => max, "totalCents" => max}
+
+      assert %{"data" => %{"actualTotalCents" => ^max}} =
+               f |> confirm(cart, [line]) |> json_response(200)
+
+      assert stock(f) |> Enum.map(& &1.quantity_milli) |> Enum.sum() == max
+    end
+
     test "an invalid or missing checkout type is checkout_invalid_type", f do
       cart = reserve!(f)
 

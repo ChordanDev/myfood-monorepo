@@ -166,11 +166,43 @@ describe('ShoppingCartSheet', () => {
     expect(getTexts(root)).toEqual([
       TITLE,
       'Pollo (Pechuga)',
-      'Sugerido: 1,2 kg',
+      'Sugerido: 1200 g',
       'g',
       'Servilletas',
       'Sugerido: 1 u',
       'u',
+      CONFIRM,
+      CANCEL,
+    ]);
+  });
+
+  // A suggestion in kilos next to a field in grams would have a "2" typed for two kilos
+  // bought as two grams.
+  it('suggests each quantity as its field reads it, in the unit next to the field', () => {
+    const rice: ShoppingCartLine = {
+      id: 'i1:g',
+      name: 'Arroz',
+      unit: 'g',
+      quantityMilli: 1_500_000,
+    };
+    const milk: ShoppingCartLine = {
+      id: 'i3:ml',
+      name: 'Leche',
+      unit: 'ml',
+      quantityMilli: 2_250_500,
+    };
+    const { root } = renderSheet({ lines: [rice, milk] });
+
+    expect(getQuantityInput(root, 'Cantidad comprada, Arroz').props.value).toBe('1500');
+    expect(getQuantityInput(root, 'Cantidad comprada, Leche').props.value).toBe('2250,5');
+    expect(getTexts(root)).toEqual([
+      TITLE,
+      'Arroz',
+      'Sugerido: 1500 g',
+      'g',
+      'Leche',
+      'Sugerido: 2250,5 ml',
+      'ml',
       CONFIRM,
       CANCEL,
     ]);
@@ -191,7 +223,7 @@ describe('ShoppingCartSheet', () => {
       .filter((view) => view.props.accessible === true && !view.props.accessibilityRole)
       .map((view) => view.props.accessibilityLabel);
 
-    expect(rows).toEqual(['Pollo (Pechuga), Sugerido: 1,2 kg', 'Servilletas, Sugerido: 1 u']);
+    expect(rows).toEqual(['Pollo (Pechuga), Sugerido: 1200 g', 'Servilletas, Sugerido: 1 u']);
   });
 
   it('scrolls the rows inside a height bounded by the window', () => {
@@ -409,7 +441,7 @@ describe('ShoppingCartSheet', () => {
       expect(getTexts(root)).toEqual([
         TITLE,
         'Pollo (Pechuga)',
-        'Sugerido: 1,2 kg',
+        'Sugerido: 1200 g',
         'g',
         CONFIRM,
         CANCEL,
@@ -442,7 +474,7 @@ describe('ShoppingCartSheet', () => {
     );
     expect(getTextStyle(root, TITLE).color).toBe(mockTheme.textLight);
     expect(getTextStyle(root, 'Pollo (Pechuga)').color).toBe(mockTheme.textLight);
-    expect(getTextStyle(root, 'Sugerido: 1,2 kg').color).toBe(mockTheme.textMedium);
+    expect(getTextStyle(root, 'Sugerido: 1200 g').color).toBe(mockTheme.textMedium);
     expect(getTextStyle(root, 'g').color).toBe(mockTheme.textMedium);
     expect(getTextStyle(root, 'No se pudo.').color).toBe(mockTheme.textLight);
     expect(input).toEqual(
