@@ -139,8 +139,11 @@ defmodule MealPlannerApiWeb.ShoppingController do
   def cancel_cart(conn, %{"session_id" => id}),
     do: cart_response(conn, MealPlannerApi.Cart.cancel(scoped_user(conn), id))
 
-  # The Cart lease routes answer errors in the mobile envelope (issue #41).
-  # A reason outside the Cart codes keeps the legacy body.
+  # The reasons the Cart lease routes answer in the mobile envelope (issue
+  # #41): the Cart codes and the subscription gate. Any other reason keeps the
+  # legacy body.
+  @cart_envelope_reasons [:cart_locked, :stale_cart, :cart_not_found, :subscription_required]
+
   defp cart_response(conn, {:ok, %{reservations: items} = cart}) do
     json(conn, %{
       data: %{session_id: cart.session_id, lease_expires_at: cart.lease_expires_at, items: items}
@@ -148,12 +151,9 @@ defmodule MealPlannerApiWeb.ShoppingController do
   end
 
   defp cart_response(conn, {:ok, data}), do: json(conn, %{data: data})
-  defp cart_response(conn, {:error, :cart_locked}), do: conn |> ApiError.error(:cart_locked)
-  defp cart_response(conn, {:error, :stale_cart}), do: conn |> ApiError.error(:stale_cart)
-  defp cart_response(conn, {:error, :cart_not_found}), do: conn |> ApiError.error(:cart_not_found)
 
-  defp cart_response(conn, {:error, :subscription_required}),
-    do: conn |> ApiError.error(:subscription_required)
+  defp cart_response(conn, {:error, reason}) when reason in @cart_envelope_reasons,
+    do: ApiError.error(conn, reason)
 
   defp cart_response(conn, {:error, reason}), do: render_error(conn, reason)
 

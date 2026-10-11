@@ -245,10 +245,8 @@ defmodule MealPlannerApiWeb.CartLifecycleTest do
           {:post, "/api/cart/#{cart.session_id}/activity"},
           {:delete, "/api/cart/#{cart.session_id}"}
         ] do
-      assert %{"error" => %{"code" => code}} =
+      assert %{"error" => %{"code" => "stale_cart"}} =
                request(f, method, path, %{}) |> json_response(409)
-
-      assert code in ["stale_cart", "cart_not_found"]
     end
   end
 
