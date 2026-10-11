@@ -60,7 +60,9 @@ Forecast: about 250 changed lines on the API and about 700 on mobile, so two ind
 Both tasks are done. Checks observed on 2026-10-11:
 
 - API (`refactor/recipes-sweep-api`): `mix compile --warnings-as-errors`, `mix format --check-formatted`, `mix credo --strict` and `mix sobelow --config` clean; `mix test` 1814 passed, 22 skipped (`main`: 1819 passed; six stub tests removed, one added); `mix dialyzer` reports the same 9 `call_without_opaque` warnings as `main` on the local OTP 29, in the same files.
-- Mobile (this branch): `npm run typecheck` clean; `npm run lint` 0 errors and the 4 warnings of `main`; `npx jest --ci` 148 suites and 2249 tests passed (`main`: 149 and 2260; the converter suite of 10 tests and one Recipe screen test removed).
+- Mobile (this branch): `npm run typecheck` clean; `npm run lint` 0 errors and the 4 warnings of `main`; `npx jest --ci` 148 suites and 2253 tests passed (`main`: 149 and 2260; the converter suite of 10 tests and one Recipe screen test removed, four tests added after the review).
+
+Review of the mobile commit `a6e5bb9` (reliability lens): approved and acknowledged, with two non-blocking suggestions. Both are taken in `test(mobile): pin the cached first paint and the Home selected meal (#38)`: the Recipe screen asserts that a recipe the cache has is drawn on the first paint with no loading state, and `getSelectedLocalMeal` has its result pinned.
 
 What the engine calls of the recipe context, with the engine taken as `generation/*`, `optimization/*` and the services `Generation.Server` aliases: `RecipeVersions.freeze_many/1`, `RecipeVersions.decode/1` and `RecipeVersions.recipe_for_meal/1`. Nothing of `RecipeService` or `RecipeRepo`.
 

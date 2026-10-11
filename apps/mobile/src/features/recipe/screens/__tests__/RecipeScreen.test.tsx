@@ -370,6 +370,16 @@ describe('RecipeScreen', () => {
     );
   });
 
+  it('draws a recipe the cache has on the first paint, without a loading state', async () => {
+    const tree = renderScreen();
+
+    expect(tree.root.findAllByProps({ testID: 'recipe-loading' })).toHaveLength(0);
+    expect(renderedTexts(tree)).toContain('Pollo con arroz y tomate');
+
+    // The answer of the cache lands a tick later; let it land before the test ends.
+    await act(async () => {});
+  });
+
   describe('ingredients the inventory is short of', () => {
     it('reads them as missing, with nothing to send to the shopping list', async () => {
       const tree = await renderSettledScreen();

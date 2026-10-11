@@ -5,6 +5,7 @@ import {
   getHomeMealSummaries,
   getPendingConfirmationEntries,
   getPendingHomeMealType,
+  getSelectedLocalMeal,
   isMealConfirmed,
   isPendingConfirmationDate,
   isSelectableMealDate,
@@ -286,6 +287,33 @@ describe('meal confirmation', () => {
       expect(isSelectable(todayKey, [])).toBe(false);
       expect(isSelectable(tomorrowKey, [])).toBe(false);
     });
+  });
+});
+
+describe('getSelectedLocalMeal', () => {
+  const lunch: MealPlanEntry = {
+    id: 'entry-lunch',
+    date: '2026-08-24',
+    type: 'lunch',
+    recipeId: 'recipe-salad',
+    isCooked: false,
+  };
+  const dinner: MealPlanEntry = { ...lunch, id: 'entry-dinner', type: 'dinner' };
+
+  it('returns the meal of the selected type with a placeholder description, no image and no palette', () => {
+    const selectedMeal = getSelectedLocalMeal([lunch, dinner], 'dinner');
+
+    expect(selectedMeal).toEqual({ ...dinner, description: 'Sin descripción' });
+    expect(selectedMeal?.imageUrl).toBeUndefined();
+    expect(selectedMeal?.theme).toBeUndefined();
+  });
+
+  it('returns nothing when no meal type is selected', () => {
+    expect(getSelectedLocalMeal([lunch, dinner], null)).toBeNull();
+  });
+
+  it('returns nothing when the day has no meal of the selected type', () => {
+    expect(getSelectedLocalMeal([lunch], 'dinner')).toBeNull();
   });
 });
 
