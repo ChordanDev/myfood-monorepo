@@ -16,6 +16,7 @@ import { useKeyboardAnimation } from '@/hooks/useKeyboardAnimation';
 import { UNIT_LABEL } from '@/utils/formatQuantity';
 import { withOpacity } from '@/utils/colors';
 import {
+  formatHiddenCartItemsNotice,
   formatQuantityInput,
   formatSuggestedQuantity,
   getChangedCheckoutLines,
@@ -30,6 +31,9 @@ export interface ShoppingCartSheetProps {
   visible: boolean;
   // The lines of the Cart, each with the quantity the Cart holds of it.
   lines: ShoppingCartLine[];
+  // The items of the Cart with no line here: the ones for a meal after the date the list
+  // reaches. A confirm buys them too, at the quantity the Cart holds.
+  hiddenItemsCount: number;
   // The purchase was asked for and the server has not answered yet.
   isConfirming: boolean;
   // Why the server refused the last purchase, while the Cart is still there to buy.
@@ -52,6 +56,7 @@ function getSuggestedTexts(lines: ShoppingCartLine[]) {
 export function ShoppingCartSheet({
   visible,
   lines,
+  hiddenItemsCount,
   isConfirming,
   errorMessage,
   onConfirm,
@@ -61,6 +66,7 @@ export function ShoppingCartSheet({
   const { height: windowHeight } = useWindowDimensions();
   const { theme } = useRecipeTheme();
   const [shownLines, setShownLines] = useState(lines);
+  const [shownHiddenItemsCount, setShownHiddenItemsCount] = useState(hiddenItemsCount);
   // What each field reads, keyed by line id. A line without an entry reads what the Cart holds.
   const [quantityTexts, setQuantityTexts] = useState<Record<string, string>>({});
   const [wasVisible, setWasVisible] = useState(visible);
@@ -72,11 +78,14 @@ export function ShoppingCartSheet({
     enabled: visible,
   });
 
-  // The rows follow the cart only while the sheet is open. Buying empties the cart at once and
-  // iOS keeps the panel mounted while it fades out: it leaves showing what was bought, not the
-  // empty hint.
+  // The rows and the notice follow the cart only while the sheet is open. Buying empties the
+  // cart at once and iOS keeps the panel mounted while it fades out: it leaves showing what was
+  // bought, not the empty hint.
   if (visible && shownLines !== lines) {
     setShownLines(lines);
+  }
+  if (visible && shownHiddenItemsCount !== hiddenItemsCount) {
+    setShownHiddenItemsCount(hiddenItemsCount);
   }
 
   // Every opening starts from what the Cart holds. What was typed is kept on close so it does
@@ -99,7 +108,9 @@ export function ShoppingCartSheet({
     else boughtQuantities[id] = bought;
   }
 
-  const isEmpty = shownLines.length === 0;
+  const hasLines = shownLines.length > 0;
+  // A Cart whose items are all outside the chosen dates has no line here and is still to buy.
+  const isEmpty = !hasLines && shownHiddenItemsCount === 0;
   const canConfirm = visible && !isEmpty && !isConfirming && isEveryQuantityValid;
 
   // A press that lands while the sheet closes, or while the purchase is on its way, buys
@@ -147,7 +158,9 @@ export function ShoppingCartSheet({
             <Text style={[styles.hint, { color: withOpacity(theme.textLight, 0.6) }]}>
               Todavía no marcaste nada.
             </Text>
-          ) : (
+          ) : null}
+
+          {hasLines ? (
             <ScrollView
               style={[styles.list, { maxHeight: Math.round(windowHeight * LIST_MAX_HEIGHT_RATIO) }]}
               keyboardShouldPersistTaps="handled"
@@ -187,7 +200,16 @@ export function ShoppingCartSheet({
                 );
               })}
             </ScrollView>
-          )}
+          ) : null}
+
+          {/* Not an alert: nothing went wrong, it says what else the button buys. */}
+          {shownHiddenItemsCount > 0 ? (
+            <Text
+              accessibilityRole="text"
+              style={[styles.hint, { color: withOpacity(theme.textLight, 0.6) }]}>
+              {formatHiddenCartItemsNotice(shownHiddenItemsCount)}
+            </Text>
+          ) : null}
 
           {errorMessage ? (
             <Text accessibilityRole="alert" style={[styles.error, { color: theme.textLight }]}>

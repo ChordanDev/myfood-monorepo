@@ -56,9 +56,11 @@ defmodule MealPlannerApi.Services.ShoppingService do
       on the list, oldest first, one line each in the shape of a `planned`
       line (`source` `"manual"`, no allocations). They are never merged with
       each other or with a planned line, and no date limit applies to them.
-    * `cart` — `%{session_id, lease_expires_at}` for the caller's own
-      active Cart, otherwise `nil`. A line held in another member's Cart
-      still reads `"in_cart"`.
+    * `cart` — `%{session_id, lease_expires_at, items_count}` for the
+      caller's own active Cart, otherwise `nil`. `items_count` is how many
+      Shopping items that Cart holds, also the ones `until_date` leaves out
+      of `planned`. A line held in another member's Cart still reads
+      `"in_cart"`.
     * `totals` — `needed`, `in_cart` and `removed` count the planned
       lines by status; `estimated_cents` adds the estimated price of the
       needed items. Purchased lines and quantities are in none of them:
@@ -219,7 +221,11 @@ defmodule MealPlannerApi.Services.ShoppingService do
   defp serialize_cart(nil), do: nil
 
   defp serialize_cart(%Shopping.CheckoutSession{} = cart) do
-    %{session_id: cart.id, lease_expires_at: cart.lease_expires_at}
+    %{
+      session_id: cart.id,
+      lease_expires_at: cart.lease_expires_at,
+      items_count: Cart.items_count(cart)
+    }
   end
 
   # Prune/archive past-dated items (planned_date before the Account's today)

@@ -71,6 +71,10 @@ const TITLE = 'Tu carrito';
 const CONFIRM = 'Marcar como comprado';
 const CANCEL = 'Cancelar';
 const EMPTY_HINT = 'Todavía no marcaste nada.';
+const ONE_HIDDEN =
+  '1 ítem fuera de las fechas elegidas también se va a comprar con la cantidad sugerida.';
+const THREE_HIDDEN =
+  '3 ítems fuera de las fechas elegidas también se van a comprar con la cantidad sugerida.';
 const CHICKEN_QUANTITY = 'Cantidad comprada, Pollo (Pechuga)';
 const NAPKINS_QUANTITY = 'Cantidad comprada, Servilletas';
 
@@ -82,6 +86,7 @@ function renderSheet(initial: Partial<SheetProps> = {}) {
   let props: SheetProps = {
     visible: true,
     lines: CART,
+    hiddenItemsCount: 0,
     isConfirming: false,
     onConfirm,
     onClose,
@@ -166,11 +171,43 @@ describe('ShoppingCartSheet', () => {
     expect(getTexts(root)).toEqual([
       TITLE,
       'Pollo (Pechuga)',
-      'Sugerido: 1,2 kg',
+      'Sugerido: 1200 g',
       'g',
       'Servilletas',
       'Sugerido: 1 u',
       'u',
+      CONFIRM,
+      CANCEL,
+    ]);
+  });
+
+  // A suggestion in kilos next to a field in grams would have a "2" typed for two kilos
+  // bought as two grams.
+  it('suggests each quantity as its field reads it, in the unit next to the field', () => {
+    const rice: ShoppingCartLine = {
+      id: 'i1:g',
+      name: 'Arroz',
+      unit: 'g',
+      quantityMilli: 1_500_000,
+    };
+    const milk: ShoppingCartLine = {
+      id: 'i3:ml',
+      name: 'Leche',
+      unit: 'ml',
+      quantityMilli: 2_250_500,
+    };
+    const { root } = renderSheet({ lines: [rice, milk] });
+
+    expect(getQuantityInput(root, 'Cantidad comprada, Arroz').props.value).toBe('1500');
+    expect(getQuantityInput(root, 'Cantidad comprada, Leche').props.value).toBe('2250,5');
+    expect(getTexts(root)).toEqual([
+      TITLE,
+      'Arroz',
+      'Sugerido: 1500 g',
+      'g',
+      'Leche',
+      'Sugerido: 2250,5 ml',
+      'ml',
       CONFIRM,
       CANCEL,
     ]);
@@ -191,7 +228,7 @@ describe('ShoppingCartSheet', () => {
       .filter((view) => view.props.accessible === true && !view.props.accessibilityRole)
       .map((view) => view.props.accessibilityLabel);
 
-    expect(rows).toEqual(['Pollo (Pechuga), Sugerido: 1,2 kg', 'Servilletas, Sugerido: 1 u']);
+    expect(rows).toEqual(['Pollo (Pechuga), Sugerido: 1200 g', 'Servilletas, Sugerido: 1 u']);
   });
 
   it('scrolls the rows inside a height bounded by the window', () => {
@@ -316,6 +353,75 @@ describe('ShoppingCartSheet', () => {
     });
   });
 
+  describe('with items of the Cart outside the chosen dates', () => {
+    it('says how many are bought too, under the rows and above the actions', () => {
+      const { root } = renderSheet({ hiddenItemsCount: 3 });
+
+      expect(getTexts(root).slice(-3)).toEqual([THREE_HIDDEN, CONFIRM, CANCEL]);
+      expect(root.findAllByType(ScrollView)).toHaveLength(1);
+    });
+
+    it('says it in the singular for one', () => {
+      const { root } = renderSheet({ hiddenItemsCount: 1 });
+
+      expect(getTexts(root)).toContain(ONE_HIDDEN);
+    });
+
+    it('says nothing about them while the Cart has none', () => {
+      const { root } = renderSheet({ hiddenItemsCount: 0 });
+
+      expect(getTexts(root).filter((text) => text.includes('fuera de las fechas'))).toEqual([]);
+    });
+
+    it('reads the notice as plain text in the muted ink of the hint, not as an alert', () => {
+      const { root } = renderSheet({ hiddenItemsCount: 1 });
+      const [notice] = root
+        .findAllByType(Text)
+        .filter((candidate) => candidate.props.children === ONE_HIDDEN);
+
+      expect(notice.props.accessibilityRole).toBe('text');
+      expect(getTextStyle(root, ONE_HIDDEN).color).toBe(withOpacity(mockTheme.textLight, 0.6));
+    });
+
+    it('says the notice instead of the empty hint when no line of the Cart is listed', () => {
+      const { root } = renderSheet({ lines: [], hiddenItemsCount: 3 });
+
+      expect(getTexts(root)).toEqual([TITLE, THREE_HIDDEN, CONFIRM, CANCEL]);
+    });
+
+    it('buys a Cart with no listed line, and sends no line', () => {
+      const { root, onConfirm } = renderSheet({ lines: [], hiddenItemsCount: 1 });
+
+      expect(getButton(root, CONFIRM).props.disabled).toBe(false);
+      press(root, CONFIRM);
+
+      expect(onConfirm).toHaveBeenCalledTimes(1);
+      expect(onConfirm).toHaveBeenCalledWith([]);
+    });
+
+    it('still refuses to confirm while a listed quantity does not read as one', () => {
+      const { root, onConfirm } = renderSheet({ hiddenItemsCount: 2 });
+      typeQuantity(root, CHICKEN_QUANTITY, 'abc');
+
+      expect(getButton(root, CONFIRM).props.disabled).toBe(true);
+      press(root, CONFIRM);
+
+      expect(onConfirm).not.toHaveBeenCalled();
+    });
+
+    it('keeps the notice while it fades out, instead of the empty hint', () => {
+      mockKeepsChildrenWhileHidden = true;
+      const { root, update } = renderSheet({ lines: [], hiddenItemsCount: 3 });
+      const textsWhileOpen = getTexts(root);
+      press(root, CONFIRM);
+
+      // The purchase emptied the cart and the screen asked the sheet to close.
+      update({ visible: false, hiddenItemsCount: 0 });
+
+      expect(getTexts(root)).toEqual(textsWhileOpen);
+    });
+  });
+
   describe('confirming', () => {
     it('asks for the purchase and stays open: the screen closes it once the server answers', () => {
       const { root, onConfirm, onClose } = renderSheet();
@@ -409,7 +515,7 @@ describe('ShoppingCartSheet', () => {
       expect(getTexts(root)).toEqual([
         TITLE,
         'Pollo (Pechuga)',
-        'Sugerido: 1,2 kg',
+        'Sugerido: 1200 g',
         'g',
         CONFIRM,
         CANCEL,
@@ -442,7 +548,7 @@ describe('ShoppingCartSheet', () => {
     );
     expect(getTextStyle(root, TITLE).color).toBe(mockTheme.textLight);
     expect(getTextStyle(root, 'Pollo (Pechuga)').color).toBe(mockTheme.textLight);
-    expect(getTextStyle(root, 'Sugerido: 1,2 kg').color).toBe(mockTheme.textMedium);
+    expect(getTextStyle(root, 'Sugerido: 1200 g').color).toBe(mockTheme.textMedium);
     expect(getTextStyle(root, 'g').color).toBe(mockTheme.textMedium);
     expect(getTextStyle(root, 'No se pudo.').color).toBe(mockTheme.textLight);
     expect(input).toEqual(

@@ -10,6 +10,9 @@ defmodule MealPlannerApi.Cart do
 
   @lease_seconds 3600
 
+  # The largest value an `int4` column holds.
+  @max_stored_integer 2_147_483_647
+
   # The result of a confirmed purchase, as `CheckoutSession.purchase_result`
   # stores it and a repeated confirm replays it.
   @result_keys ~w(checkout_session_id status checkout_type moved_to_inventory_count
@@ -160,6 +163,8 @@ defmodule MealPlannerApi.Cart do
       lines = cart |> cart_lines() |> bought_lines!(payload["lines"])
       require!(lines != [], :validation_error)
       total = lines |> Enum.map(&(&1.total_cents || 0)) |> Enum.sum()
+      # Each line fits on its own; the session stores what they add up to.
+      require!(storable?(total), :validation_error)
       online? = type == "online"
       status = if online?, do: :pending_delivery, else: :completed
       lots = Enum.flat_map(lines, &settle_line!(&1, purchased_status(status)))
@@ -303,11 +308,15 @@ defmodule MealPlannerApi.Cart do
   defp validate_bought_line!(line) do
     quantity = line["quantity_milli"]
     total = line["total_cents"]
-    require!(is_integer(quantity) and quantity >= 0, :validation_error)
-    require!(is_nil(total) or (is_integer(total) and total >= 0), :validation_error)
+    require!(storable?(quantity), :validation_error)
+    require!(is_nil(total) or storable?(total), :validation_error)
     # Nothing bought costs nothing.
     require!(quantity > 0 or total in [nil, 0], :validation_error)
   end
+
+  # A count the integer columns of Postgres can hold: quantities and cents
+  # are stored as `int4`.
+  defp storable?(value), do: is_integer(value) and value in 0..@max_stored_integer
 
   # Settles the items of one line, the purchased ones as `status`, and
   # returns the lots the line puts in Inventory.
@@ -525,6 +534,24 @@ defmodule MealPlannerApi.Cart do
           c.account_id == ^account_id and c.reserved_by_user_id == ^user_id and
             c.status == :draft and c.lease_expires_at > ^now
       )
+    )
+  end
+
+  @doc """
+  How many Shopping items a Cart holds: the ones reserved in it that are
+  still `:in_cart`, whatever their planned date.
+
+  This is a plain read: it takes no lock.
+  """
+  @spec items_count(Ecto.Schema.t()) :: non_neg_integer()
+  def items_count(%CheckoutSession{} = cart) do
+    Repo.aggregate(
+      from(i in ShoppingItem,
+        where:
+          i.account_id == ^cart.account_id and
+            i.checkout_session_id == ^cart.id and i.status == :in_cart
+      ),
+      :count
     )
   end
 

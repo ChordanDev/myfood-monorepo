@@ -6,9 +6,16 @@ import {
   SHOPPING_LIST_AFTER_PURCHASE,
   SHOPPING_LIST_BY_INGREDIENT,
   SHOPPING_LIST_BY_MEAL,
+  SHOPPING_LIST_UNTIL_OCT_10,
+  SHOPPING_LIST_WITH_CART_OUT_OF_RANGE,
 } from '../fixtures';
-import type { ShoppingCartLine } from '../types';
-import { getCartLines, getChangedCheckoutLines, getItemIdsToBuy } from './shoppingCart';
+import type { ShoppingCartLine, ShoppingListRead } from '../types';
+import {
+  getCartLines,
+  getChangedCheckoutLines,
+  getHiddenCartItemsCount,
+  getItemIdsToBuy,
+} from './shoppingCart';
 
 const RICE_IN_CART: ShoppingCartLine = {
   id: RICE_LINE_ID,
@@ -58,6 +65,47 @@ describe('getCartLines', () => {
   it('has no line once the Cart was bought, or before a list was read', () => {
     expect(getCartLines(SHOPPING_LIST_AFTER_PURCHASE)).toEqual([]);
     expect(getCartLines(null)).toEqual([]);
+  });
+});
+
+describe('getHiddenCartItemsCount', () => {
+  const withItemsCount = (list: ShoppingListRead, itemsCount: number): ShoppingListRead => ({
+    ...list,
+    cart: { ...list.cart!, itemsCount },
+  });
+
+  it('is zero while the read lists every item of the Cart, however it is grouped', () => {
+    expect(getHiddenCartItemsCount(SHOPPING_LIST_BY_INGREDIENT)).toBe(0);
+    expect(getHiddenCartItemsCount(SHOPPING_LIST_BY_MEAL)).toBe(0);
+    expect(getHiddenCartItemsCount(SHOPPING_LIST_UNTIL_OCT_10)).toBe(0);
+  });
+
+  it('is zero without a Cart, and before a list was read', () => {
+    expect(getHiddenCartItemsCount(SHOPPING_LIST_AFTER_PURCHASE)).toBe(0);
+    expect(getHiddenCartItemsCount(null)).toBe(0);
+  });
+
+  it('is every item of the Cart when the date limit leaves all of them out', () => {
+    expect(getHiddenCartItemsCount(SHOPPING_LIST_WITH_CART_OUT_OF_RANGE)).toBe(2);
+  });
+
+  it('is what the Cart holds beyond the items the read lists as in a Cart', () => {
+    // The rice and the oil of the 8th are listed; three more are for later meals.
+    expect(getHiddenCartItemsCount(withItemsCount(SHOPPING_LIST_UNTIL_OCT_10, 5))).toBe(3);
+    expect(getHiddenCartItemsCount(withItemsCount(SHOPPING_LIST_BY_MEAL, 3))).toBe(1);
+  });
+
+  it('counts an item added by hand that is in the Cart as listed', () => {
+    const soapInCart = { ...MANUAL_DISH_SOAP, status: 'in_cart' as const };
+    const list = { ...SHOPPING_LIST_BY_INGREDIENT, manual: [MANUAL_DISH_SOAP, soapInCart] };
+
+    expect(getHiddenCartItemsCount(withItemsCount(list, 3))).toBe(0);
+    expect(getHiddenCartItemsCount(withItemsCount(list, 4))).toBe(1);
+  });
+
+  it('is never below zero: the shares in the Cart of another member are listed too', () => {
+    expect(getHiddenCartItemsCount(withItemsCount(SHOPPING_LIST_BY_INGREDIENT, 1))).toBe(0);
+    expect(getHiddenCartItemsCount(withItemsCount(SHOPPING_LIST_BY_INGREDIENT, 0))).toBe(0);
   });
 });
 

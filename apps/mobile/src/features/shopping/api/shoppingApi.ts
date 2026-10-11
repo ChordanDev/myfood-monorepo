@@ -3,11 +3,11 @@ import { ApiError } from '@/api/errors';
 import type { RequestOptions } from '@/api/transport';
 import type {
   CancelledCart,
+  CartLease,
   CheckoutConfirmation,
   CheckoutResult,
   MarkedCart,
   NewManualShoppingItem,
-  ShoppingCart,
   ShoppingItemsStatus,
   ShoppingItemsStatusChange,
   ShoppingListLine,
@@ -49,6 +49,12 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
+// The Cart of a read: without a whole count of its items of zero or more, the screen could not
+// tell that the Cart holds items the read does not list.
+function isShoppingCart(cart: unknown) {
+  return isRecord(cart) && Number.isInteger(cart.itemsCount) && (cart.itemsCount as number) >= 0;
+}
+
 // The transport hands back null for an empty or non-JSON body and does not check the shape of
 // a 2xx answer, so the caller would otherwise cache whatever arrived as the list. An answer
 // without the members of a read is treated like any other unintelligible server answer.
@@ -61,7 +67,7 @@ function parseShoppingListResponse(response: unknown): ShoppingListRead {
     !Array.isArray(data.manual) ||
     !Array.isArray(data.plannedDates) ||
     !isRecord(data.totals) ||
-    !(data.cart === null || isRecord(data.cart))
+    !(data.cart === null || isShoppingCart(data.cart))
   ) {
     throw new ApiError('unknown_error', 'Malformed shopping list response');
   }
@@ -81,7 +87,7 @@ function parseCartData(response: unknown): Record<string, unknown> {
   return data;
 }
 
-function parseLease(response: unknown): ShoppingCart {
+function parseLease(response: unknown): CartLease {
   const data = parseCartData(response);
 
   if (typeof data.leaseExpiresAt !== 'string') {

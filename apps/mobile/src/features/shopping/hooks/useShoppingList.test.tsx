@@ -7,6 +7,7 @@ import {
   RICE_NEEDED_ITEM_IDS,
   SHOPPING_LIST_AFTER_PURCHASE,
   SHOPPING_LIST_BY_INGREDIENT,
+  SHOPPING_LIST_WITH_CART_OUT_OF_RANGE,
   SHOPPING_LIST_WITH_MANUAL_AND_REMOVED,
   TOMATO_ITEM_IDS,
   toDeleteItemResponse,
@@ -190,6 +191,18 @@ describe('useShoppingList: items added by hand and removed ones', () => {
       ['Arroz', 400_000],
       ['Aceite de oliva', 30_000],
     ]);
+  });
+
+  it('counts no hidden item while the read lists every item of the Cart', async () => {
+    const hook = await renderHook(SHOPPING_LIST_BY_INGREDIENT);
+
+    expect(hook.current.hiddenCartItemsCount).toBe(0);
+  });
+
+  it('counts the items of the Cart that the read does not list', async () => {
+    const hook = await renderHook(SHOPPING_LIST_WITH_CART_OUT_OF_RANGE);
+
+    expect(hook.current.hiddenCartItemsCount).toBe(2);
   });
 
   it('restores every removed line', async () => {

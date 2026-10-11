@@ -943,8 +943,14 @@ Fields:
   when no ingredient was given and `category` `otros` in that case. They are never merged with each other or
   with a planned line, `untilDate` does not limit them and `groupBy` does not change them. `id` is the
   Shopping item id: send it to `/api/shopping-items/mark-cart` or `DELETE /api/shopping-items/:itemId`.
-- `cart`: the caller's own active Cart, `{ "sessionId": "...", "leaseExpiresAt": "<ISO 8601 datetime>" }`, or
-  `null`. Reading the list does not renew the lease.
+- `cart`: the caller's own active Cart,
+  `{ "sessionId": "...", "leaseExpiresAt": "<ISO 8601 datetime>", "itemsCount": 3 }`, or `null`. Reading the
+  list does not renew the lease.
+  - `itemsCount`: how many Shopping items that Cart holds, planned and manual. `untilDate` does not change
+    it: an item marked for a meal after `untilDate` is not in `planned`, and it is still counted here and
+    still bought by a confirm (7.4). When it is above the `in_cart` allocations and manual items of the read,
+    the Cart holds items the read does not list. The `in_cart` allocations of the read can also be more than
+    `itemsCount`, since they include the ones another member holds.
 - `totals`: `needed`, `inCart` and `removed` count the lines of `planned` by status;
   `estimatedCents` adds the estimated price of the needed items. Manual items are not counted, and neither are
   `purchased` lines: the totals are what is still to buy.
@@ -1019,6 +1025,7 @@ Cart lease (one hour from the last activity):
   Clients renew at most once a minute while the shopping screen is active.
 - Cancel: `DELETE /api/cart/:sessionId` returns `{ "data": { "sessionId", "updatedRows", "status": "abandoned" } }`.
 - An expired lease reads back as `cart: null` on `GET /api/shopping-list`.
+- Marking and renewing do not answer `itemsCount`: only the `cart` of the read (7.1) carries it.
 
 Errors (`{ "error": { "code", "message" } }`):
 

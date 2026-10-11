@@ -2,9 +2,11 @@ import type { ShoppingLineAllocation, ShoppingListLine, ShoppingMealSlot } from 
 import {
   formatCartButtonLabel,
   formatCountersLabel,
+  formatHiddenCartItemsNotice,
   formatItemMealsLine,
   formatItemNameLine,
   formatRemovedLabel,
+  formatQuantityInput,
   formatSuggestedQuantity,
   parseBoughtQuantityMilli,
   parseQuantityMilli,
@@ -215,6 +217,23 @@ describe('formatCartButtonLabel', () => {
   });
 });
 
+describe('formatHiddenCartItemsNotice', () => {
+  it('says the one item outside the chosen dates is bought too, in the singular', () => {
+    expect(formatHiddenCartItemsNotice(1)).toBe(
+      '1 ítem fuera de las fechas elegidas también se va a comprar con la cantidad sugerida.'
+    );
+  });
+
+  it('says it in the plural for more than one', () => {
+    expect(formatHiddenCartItemsNotice(2)).toBe(
+      '2 ítems fuera de las fechas elegidas también se van a comprar con la cantidad sugerida.'
+    );
+    expect(formatHiddenCartItemsNotice(12)).toBe(
+      '12 ítems fuera de las fechas elegidas también se van a comprar con la cantidad sugerida.'
+    );
+  });
+});
+
 describe('formatUntilButtonLabel', () => {
   it('says what the pill does and the day the list reaches now', () => {
     expect(formatUntilButtonLabel('2026-10-12')).toBe('Elegir hasta qué día comprar, ahora 12 Oct');
@@ -271,9 +290,26 @@ describe('parseBoughtQuantityMilli', () => {
 });
 
 describe('formatSuggestedQuantity', () => {
-  it('says what the Cart holds of a line, as the list writes quantities', () => {
+  it('says what the Cart holds of a line, in the unit of the line', () => {
     expect(formatSuggestedQuantity(400_000, 'g')).toBe('Sugerido: 400 g');
-    expect(formatSuggestedQuantity(1_250_000, 'g')).toBe('Sugerido: 1,25 kg');
+    expect(formatSuggestedQuantity(30_000, 'ml')).toBe('Sugerido: 30 ml');
     expect(formatSuggestedQuantity(2_000, 'unit')).toBe('Sugerido: 2 u');
   });
+
+  // The field next to it takes the quantity in grams or millilitres: a suggestion in kilos
+  // would have a "2" typed for two kilos bought as two grams.
+  it('never changes to kilos or litres, whatever the quantity', () => {
+    expect(formatSuggestedQuantity(1_500_000, 'g')).toBe('Sugerido: 1500 g');
+    expect(formatSuggestedQuantity(1_250_000, 'g')).toBe('Sugerido: 1250 g');
+    expect(formatSuggestedQuantity(2_000_000, 'ml')).toBe('Sugerido: 2000 ml');
+  });
+
+  it.each([400_000, 1_500_000, 1_250_500, 500, 2_000])(
+    'writes %i thousandths as the field starts with them',
+    (quantityMilli) => {
+      expect(formatSuggestedQuantity(quantityMilli, 'g')).toBe(
+        `Sugerido: ${formatQuantityInput(quantityMilli)} g`
+      );
+    }
+  );
 });

@@ -28,7 +28,8 @@ const ICON_SIZE = 26;
 const BADGE_SIZE = 22;
 
 export interface ShoppingCartButtonProps {
-  // Rows in the cart. The badge shows it from one on.
+  // What the cart holds: its rows, and its items that have no row. The badge shows it from one
+  // on.
   count: number;
   onPress: () => void;
 }

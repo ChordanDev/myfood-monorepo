@@ -1,4 +1,4 @@
-import { formatQuantity } from '@/utils/formatQuantity';
+import { formatQuantity, UNIT_LABEL } from '@/utils/formatQuantity';
 import type { UnitType } from '@/types/domain';
 import { SHOPPING_SLOT_LABELS, SHORT_MONTHS } from '../constants';
 import type {
@@ -72,14 +72,16 @@ export function formatItemMealsLine(
   return undefined;
 }
 
-// Second line of a row of the cart sheet: what the Cart holds of the line.
-export function formatSuggestedQuantity(quantityMilli: number, unit: UnitType) {
-  return `Sugerido: ${formatQuantity(quantityMilli / MILLI_PER_UNIT, unit)}`;
-}
-
 // A quantity as the field of the cart sheet starts with it: in the unit, decimals after a comma.
 export function formatQuantityInput(quantityMilli: number) {
   return String(quantityMilli / MILLI_PER_UNIT).replace('.', ',');
+}
+
+// Second line of a row of the cart sheet: what the Cart holds of the line. It is written as
+// the field next to it reads, in the unit of the line and never in kilos or litres, so what is
+// suggested and what is typed are always the same measure.
+export function formatSuggestedQuantity(quantityMilli: number, unit: UnitType) {
+  return `Sugerido: ${formatQuantityInput(quantityMilli)} ${UNIT_LABEL[unit]}`;
 }
 
 function pluralize(count: number, singular: string) {
@@ -94,6 +96,13 @@ export function formatCountersLabel({ total, inCart }: ShoppingCounters) {
 // What the floating cart button says to a screen reader.
 export function formatCartButtonLabel(cartCount: number) {
   return `Ver carrito, ${cartCount === 0 ? 'vacío' : pluralize(cartCount, 'ítem')}`;
+}
+
+// What the cart sheet says of the items of the Cart that the list does not show.
+export function formatHiddenCartItemsNotice(hidden: number) {
+  const willBeBought = hidden === 1 ? 'se va a comprar' : 'se van a comprar';
+
+  return `${pluralize(hidden, 'ítem')} fuera de las fechas elegidas también ${willBeBought} con la cantidad sugerida.`;
 }
 
 // Line under the cards that brings the removed items back.
