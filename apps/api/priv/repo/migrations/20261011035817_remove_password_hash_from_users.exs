@@ -9,7 +9,7 @@ defmodule MealPlannerApi.Repo.Migrations.RemovePasswordHashFromUsers do
 
   def change do
     alter table(:users) do
-      remove :password_hash, :string
+      remove(:password_hash, :string)
     end
   end
 end
