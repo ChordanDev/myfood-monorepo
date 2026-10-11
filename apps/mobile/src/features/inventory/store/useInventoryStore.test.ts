@@ -8,6 +8,7 @@ import {
   RICE,
   STEW,
   VOICE_APPLY_RESULT,
+  VOICE_APPLY_RESULT_CAPPED,
   VOICE_PREVIEW_HIGH_CONFIDENCE,
   VOICE_TRANSCRIPT_HIGH,
   dataResponse,
@@ -323,6 +324,14 @@ describe('applyVoice', () => {
       body: payload,
     });
     expect(getItems()).toEqual([{ ...RICE, quantityMilli: 1_000_000 }, MILK]);
+  });
+
+  it('resolves with the answer of the API, which says how much was subtracted', async () => {
+    fetchMock.mockReturnValueOnce(dataResponse(VOICE_APPLY_RESULT_CAPPED));
+
+    await expect(useInventoryStore.getState().applyVoice(payload)).resolves.toEqual(
+      VOICE_APPLY_RESULT_CAPPED
+    );
   });
 
   it('removes a lot the intent emptied', async () => {

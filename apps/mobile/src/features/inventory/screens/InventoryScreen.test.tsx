@@ -12,6 +12,8 @@ import {
   RICE,
   STEW,
   VOICE_APPLY_RESULT,
+  VOICE_APPLY_RESULT_CAPPED,
+  VOICE_PREVIEW_AFTER_DRIFT,
   VOICE_PREVIEW_HIGH_CONFIDENCE,
   VOICE_PREVIEW_LOW_CONFIDENCE,
   VOICE_TRANSCRIPT_HIGH,
@@ -763,6 +765,40 @@ describe('InventoryScreen', () => {
         `${API_URL}/api/inventory/voice/preview`,
       ]);
       expect(getTexts(root)).toContain('1,5 kg');
+    });
+
+    it('asks to confirm a fresh preview when the API refuses the auto-apply, then says what it subtracted', async () => {
+      queueRead();
+      const root = await renderScreen();
+
+      fetchMock.mockReturnValueOnce(dataResponse(VOICE_PREVIEW_HIGH_CONFIDENCE));
+      fetchMock.mockReturnValueOnce(
+        errorResponse('voice_confirmation_required', 'Confirmation required', 422)
+      );
+      fetchMock.mockReturnValueOnce(dataResponse(VOICE_PREVIEW_AFTER_DRIFT));
+      await previewTranscript(root, VOICE_TRANSCRIPT_HIGH);
+
+      expect(voiceCalls().map(({ url }) => url)).toEqual([
+        `${API_URL}/api/inventory/voice/preview`,
+        `${API_URL}/api/inventory/voice/apply`,
+        `${API_URL}/api/inventory/voice/preview`,
+      ]);
+      expect(voiceCalls()[2].body).toEqual({ transcript: VOICE_TRANSCRIPT_HIGH });
+      expect(getTexts(root)).toContain('Entendimos: descontar 400 g de Arroz.');
+      expect(getTexts(root)).not.toContain('Confirmá el ajuste antes de aplicarlo.');
+
+      fetchMock.mockReturnValueOnce(dataResponse(VOICE_APPLY_RESULT_CAPPED));
+      await pressAndSettle(root, 'Confirmar');
+
+      expect(voiceCalls()).toHaveLength(4);
+      expect(voiceCalls()[3].body).toEqual({
+        transcript: VOICE_TRANSCRIPT_HIGH,
+        intent: VOICE_PREVIEW_AFTER_DRIFT.intent,
+        confirmed: true,
+      });
+      // The API subtracted the 300 g the lot held, which emptied it.
+      expect(getTexts(root)).toContain('Descontamos 300 g de Arroz de tu inventario.');
+      expect(getTexts(root)).not.toContain('1,5 kg');
     });
 
     it('shows the message of a transcript that cannot be parsed and stays on the entry', async () => {
