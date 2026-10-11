@@ -31,7 +31,7 @@ Out of scope: reversing a purchase, `actionId`, `inventoryVersion`, any mobile U
 - [x] **T1 — API: physical confirm contract.** `lines[]` request, `extra` lots for manual items with an Ingredient, nearest-allocation partial coverage with a `needed` remainder, idempotent replay, envelope errors with the three new codes (API table, typespec, `api_error_test`, mobile allowlist so the contract scan stays green). Route: delegated writer (several non-trivial files). Commit `1684633`.
 - [x] **T2 — API: online completes on delivered.** Confirm leaves `pending_delivery`; delivered creates lots, completes and replays. Route: delegated writer. Commit `96d8a9d`.
 - [x] **T3 — API: purchased planned items stay visible.** List read includes them as `purchased` until cooked or out of range; guide updated for the whole contract. Route: delegated writer. Commit `2e46b2d`.
-- [x] **T4 — Mobile: confirm screen.** API client and types, quantity adjustment per line, confirm action, list and Inventory refreshed afterwards, `purchased` line status rendered. Route: delegated writer. Commit `a9b871a`.
+- [x] **T4 — Mobile: confirm screen.** API client and types, quantity adjustment per line, confirm action, list and Inventory refreshed afterwards, `purchased` line status rendered. Route: delegated writer. Commits `59f48cc` (client, Cart lines and lease hook) and `284c69a` (sheet and screen).
 
 ## Acceptance criteria
 
@@ -44,7 +44,14 @@ The four criteria of issue #43.
 
 ## Delivery
 
-Forecast is above 400 authored lines. Strategy: `ask-on-risk`; chain strategy to be asked before opening pull requests. One whole-branch native review at the end.
+The branch is above 400 authored lines, so it is delivered as stacked pull requests to `main`: one branch per slice, each built on the previous one and reviewed against it.
+
+1. `feat/checkout-confirm-1-api-confirm` — T1, the physical confirm contract. Commit `1684633`.
+2. `feat/checkout-confirm-2-online-delivered` — T2, online checkouts complete on delivery. Commit `96d8a9d`.
+3. `feat/checkout-confirm-3-purchased-visible` — T3, purchased planned items stay on the list. Commit `2e46b2d`.
+4. `feat/checkout-confirm-4-mobile-client` — T4, data layer: the confirm request, types, Cart lines, formatters, lease and list hooks, fixtures and their tests. Commit `59f48cc`. The price helpers of the old cart sheet stay here so the slice is green on its own.
+5. `feat/checkout-confirm-5-mobile-screen` — T4, UI: the cart sheet, the item row and the Shopping screen with their tests, the removal of the price helpers, the glossary and this document. Commit `284c69a`.
+6. `feat/checkout-confirm-6-follow-ups` — the fixes after T4: Cart confirm quantities and the suggestion unit (`b814422`), the Cart item count on the list read (`229cac0`), a Cart whose lines are outside the chosen dates (`013fa0d`), and this commit, which records the slices.
 
 ## Progress
 
@@ -101,7 +108,7 @@ Forecast is above 400 authored lines. Strategy: `ask-on-risk`; chain strategy to
 
 - Fixed, API: a `quantityMilli` or a `totalCents` above what an `int4` column holds (2 147 483 647) is `validation_error`; it used to end as a 500 outside the envelope (`DBConnection.EncodeError`). The totals of the lines added up are bounded the same way, since the session stores their sum. Nothing else a confirm writes can exceed it: the quantities a line is split into never add up to more than the quantity sent, a remainder is never more than the reserved quantity, the price shares never add up to more than the line's total, and every lot is a new row and not an addition to an existing one.
 - Fixed, mobile: the cart sheet writes "Sugerido" in the unit and the number format of the field next to it ("Sugerido: 1500 g" beside `1500 g`), never in kilos or litres. `formatQuantity` and the other screens are unchanged.
-- Fixed, API and mobile (the product owner chose the count on the read; route: delegated writer): **a Cart whose lines the date limit hides.** The `cart` of the list read now carries `itemsCount`, the Shopping items the caller's Cart holds whatever `untilDate` leaves out (`Cart.items_count/1`, commit `f9a6b81`); marking and renewing answer the lease as before, since they do not share that serializer. The device requires it as a whole number of `0` or more and counts the hidden items as `itemsCount` less the `in_cart` allocations and manual items of the read, never below zero because the read also lists the shares in another member's Cart. With hidden items the sheet says "N ítem(s) fuera de las fechas elegidas también se va(n) a comprar con la cantidad sugerida.", the confirm is enabled with no listed line and sends no `lines`, "Todavía no marcaste nada." is left for a Cart with nothing in it, and the cart button counts the listed lines plus the hidden items. Observed: RED on `shopping_controller_test.exs`, 3 tests failing with `itemsCount` missing; RED on six mobile suites, 22 tests failing.
+- Fixed, API and mobile (the product owner chose the count on the read; route: delegated writer): **a Cart whose lines the date limit hides.** The `cart` of the list read now carries `itemsCount`, the Shopping items the caller's Cart holds whatever `untilDate` leaves out (`Cart.items_count/1`, commit `229cac0`); marking and renewing answer the lease as before, since they do not share that serializer. The device requires it as a whole number of `0` or more and counts the hidden items as `itemsCount` less the `in_cart` allocations and manual items of the read, never below zero because the read also lists the shares in another member's Cart. With hidden items the sheet says "N ítem(s) fuera de las fechas elegidas también se va(n) a comprar con la cantidad sugerida.", the confirm is enabled with no listed line and sends no `lines`, "Todavía no marcaste nada." is left for a Cart with nothing in it, and the cart button counts the listed lines plus the hidden items. Observed: RED on `shopping_controller_test.exs`, 3 tests failing with `itemsCount` missing; RED on six mobile suites, 22 tests failing.
 - Known gaps left open on purpose:
   - A partial purchase of a manual item leaves a new manual item with the remainder; the spec does not say what should happen.
   - An online purchase whose meal is planned again before delivery can be derived as a new Shortage and bought twice.
