@@ -19,8 +19,31 @@ describe('summarizeCookingFinish', () => {
 
     expect(summary.recipeName).toBe('Arroz con aceite');
     expect(summary.consumed).toEqual([
-      { ingredientId: expect.any(String), name: 'Arroz', quantity: '200 g', lots: 2 },
-      { ingredientId: expect.any(String), name: 'Aceite de oliva', quantity: '15 ml', lots: 1 },
+      { ingredientId: expect.any(String), name: 'Arroz', unit: 'g', quantity: '200 g', lots: 2 },
+      {
+        ingredientId: expect.any(String),
+        name: 'Aceite de oliva',
+        unit: 'ml',
+        quantity: '15 ml',
+        lots: 1,
+      },
+    ]);
+  });
+
+  it('keeps the units of one ingredient in separate consumed lines', () => {
+    const [lot] = COOKING_FINISH_WITH_SHORTAGE.inventoryMutations;
+    const summary = summarizeCookingFinish({
+      ...COOKING_FINISH_WITH_SHORTAGE,
+      inventoryMutations: [
+        { ...lot, unit: 'g', quantityDeltaMilli: -100000 },
+        { ...lot, unit: 'unit', quantityDeltaMilli: -2000 },
+        { ...lot, unit: 'g', quantityDeltaMilli: -50000 },
+      ],
+    });
+
+    expect(summary.consumed).toEqual([
+      { ingredientId: lot.ingredientId, name: 'Arroz', unit: 'g', quantity: '150 g', lots: 2 },
+      { ingredientId: lot.ingredientId, name: 'Arroz', unit: 'unit', quantity: '2 u', lots: 1 },
     ]);
   });
 
@@ -28,7 +51,7 @@ describe('summarizeCookingFinish', () => {
     const summary = summarizeCookingFinish(COOKING_FINISH_WITH_SHORTAGE);
 
     expect(summary.shortages).toEqual([
-      { ingredientId: expect.any(String), name: 'Sal', missing: '5 g' },
+      { ingredientId: expect.any(String), name: 'Sal', unit: 'g', missing: '5 g' },
     ]);
   });
 
