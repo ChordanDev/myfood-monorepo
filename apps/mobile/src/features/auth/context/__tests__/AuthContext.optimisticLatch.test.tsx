@@ -342,8 +342,9 @@ describe('AuthContext — optimisticComplete is a one-way latch (Judgment Day C2
   it('takes the profile fields from the follow-up /me, not from the completion answer', async () => {
     // A successful GET /api/me is the only source of displayName,
     // householdSize and cookingSkill. The two answers differ here on
-    // purpose: the completion answer must reach neither `me` nor the stored
-    // snapshot.
+    // purpose: the completion answer must not reach `me`. It is stored
+    // before the refresh starts, so an app closed mid-refresh does not
+    // reopen with empty fields; the refresh then overwrites the snapshot.
     const handle = setupStaleHydration(makeMe());
     await waitForSinkAuth(handle.sink, (a) => a.accessToken !== null);
 
@@ -366,7 +367,11 @@ describe('AuthContext — optimisticComplete is a one-way latch (Judgment Day C2
 
     expect(handle.sink.v!.me?.user).toEqual(freshUser);
     expect(handle.sink.v!.isComplete).toBe(true);
-    expect(mockAuthService.persistProfileForStoredSession).not.toHaveBeenCalled();
+    expect(mockAuthService.persistProfileForStoredSession).toHaveBeenCalledTimes(1);
+    expect(mockAuthService.persistProfileForStoredSession).toHaveBeenCalledWith(completedUser);
+    expect(mockAuthService.persistProfileForStoredSession.mock.invocationCallOrder[0]).toBeLessThan(
+      mockAuthService.refreshCurrentSession.mock.invocationCallOrder[0]
+    );
 
     await act(async () => {
       handle.tree.unmount();
@@ -409,6 +414,29 @@ describe('AuthContext — optimisticComplete is a one-way latch (Judgment Day C2
     expect(handle.sink.v!.isComplete).toBe(true);
     expect(mockAuthService.persistProfileForStoredSession).toHaveBeenCalledTimes(1);
     expect(mockAuthService.persistProfileForStoredSession).toHaveBeenCalledWith(completedUser);
+
+    warn.mockRestore();
+    await act(async () => {
+      handle.tree.unmount();
+    });
+  });
+
+  it('completes when the snapshot write of the completion answer is rejected', async () => {
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const handle = setupStaleHydration(makeMe());
+    await waitForSinkAuth(handle.sink, (a) => a.accessToken !== null);
+
+    stubSuccessfulCompleteOnboarding(completedUser);
+    mockAuthService.refreshCurrentSession.mockRejectedValue(new Error('network down'));
+    mockAuthService.persistProfileForStoredSession.mockRejectedValue(new Error('storage full'));
+
+    await act(async () => {
+      await handle.sink.v!.completeOnboarding(onboardingPayload);
+    });
+    await waitForSinkAuth(handle.sink, (a) => a.me?.user.householdSize === 3);
+
+    expect(handle.sink.v!.me?.user).toEqual(completedUser);
+    expect(handle.sink.v!.isComplete).toBe(true);
 
     warn.mockRestore();
     await act(async () => {

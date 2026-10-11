@@ -264,6 +264,31 @@ export function AuthProvider({ children }: AuthProviderProps) {
       // reconciliation policy is unit-tested in `postCompletion.test.ts`.
       const result = await authService.completeOnboarding(payload);
 
+      // A successful GET /api/me is the only source of displayName,
+      // householdSize and cookingSkill. The completion answer only stands
+      // in until one arrives: it goes to the stored snapshot before the
+      // refresh below, so an app closed mid-refresh does not reopen with
+      // empty fields, and that refresh overwrites it with what /me
+      // returned. It goes into `me` only when no fresh /me arrived.
+      const email = meRef.current?.user.email;
+      const completedProfile: ProfileUpdateUser | null =
+        email === undefined
+          ? null
+          : normalizeProfileFields({
+              id: result.user.id,
+              email,
+              displayName: result.user.displayName,
+              householdSize: result.user.householdSize,
+              cookingSkill: result.user.cookingSkill,
+            });
+      if (completedProfile) {
+        try {
+          await authService.persistProfileForStoredSession(completedProfile);
+        } catch (error) {
+          console.warn('[AuthProvider] Error guardando el perfil del onboarding:', error);
+        }
+      }
+
       const session = await authService.persistOnboardingCompletionForStoredSession();
       let receivedFreshMe = false;
       if (session?.accessToken) {
@@ -298,33 +323,19 @@ export function AuthProvider({ children }: AuthProviderProps) {
         optimisticCompleteRef.current = true;
       }
 
-      // A successful GET /api/me is the only source of displayName,
-      // householdSize and cookingSkill: the refresh above already applied
-      // and stored what it returned. The completion answer is used only
-      // when no fresh /me arrived (the refresh failed, or there was no
-      // stored session to refresh), so the User is not sent back to
-      // Onboarding with empty fields. It then goes into `me`, with the
-      // same patch as `updateProfile`, and into the stored snapshot.
+      // No fresh /me arrived (the refresh failed, or there was no stored
+      // session to refresh): same patch as `updateProfile`.
       const currentMe = meRef.current;
-      if (!receivedFreshMe && currentMe) {
-        const completedProfile: ProfileUpdateUser = normalizeProfileFields({
-          id: result.user.id,
-          email: currentMe.user.email,
-          displayName: result.user.displayName,
-          householdSize: result.user.householdSize,
-          cookingSkill: result.user.cookingSkill,
-        });
-        if (currentMe.user.id === completedProfile.id) {
-          const nextMe = withUpdatedProfile(currentMe, completedProfile);
-          if (!areCurrentMeEquivalent(currentMe, nextMe)) {
-            meRef.current = nextMe;
-            setMe(nextMe);
-          }
-        }
-        try {
-          await authService.persistProfileForStoredSession(completedProfile);
-        } catch (error) {
-          console.warn('[AuthProvider] Error guardando el perfil del onboarding:', error);
+      if (
+        !receivedFreshMe &&
+        completedProfile &&
+        currentMe &&
+        currentMe.user.id === completedProfile.id
+      ) {
+        const nextMe = withUpdatedProfile(currentMe, completedProfile);
+        if (!areCurrentMeEquivalent(currentMe, nextMe)) {
+          meRef.current = nextMe;
+          setMe(nextMe);
         }
       }
 

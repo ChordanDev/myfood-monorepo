@@ -17,8 +17,10 @@ completion response wins over the refresh" (context).
 ## Rule (decided at triage, 2026-10-11)
 
 A successful `GET /api/me` is the only source of the profile fields. The
-completion answer is used only when that refresh fails, so the User is not
-sent back to Onboarding with empty fields.
+completion answer stands in only when no fresh `/me` arrived (the refresh
+failed, there was no stored session to refresh, or the app closed before the
+refresh finished), so the User is not sent back to Onboarding with empty
+fields.
 
 ## Scope
 
@@ -36,8 +38,8 @@ sent back to Onboarding with empty fields.
 ## Tasks
 
 - [x] **T1 Mobile rule** (route: delegated writer; context plus its tests)
-  - `completeOnboarding` applies the completion answer to the stored snapshot
-    and to `me` only when the follow-up refresh did not deliver a fresh `/me`.
+  - `completeOnboarding` applies the completion answer to `me` only when the
+    follow-up refresh did not deliver a fresh `/me`.
   - One comment states the rule; comments stating the old rule go.
   - Tests: success path (the `/me` fields win, nothing is written from the
     completion answer) and failed-refresh path (the completion answer is
@@ -46,6 +48,11 @@ sent back to Onboarding with empty fields.
   - `onboarding_controller_test.exs`: post the completion, read `GET /api/me`
     over HTTP, assert `householdSize` and `cookingSkill`.
   - No RED is possible: the behavior already exists; the test pins it.
+
+- [x] **T3 Snapshot write before the refresh** (route: inline; one production
+  file and its test; user decision 2026-10-11 after the native review)
+  - The completion answer goes to the stored snapshot before the refresh
+    starts, and the refresh overwrites it with what `/me` returned.
 
 ## Acceptance criteria
 
@@ -66,8 +73,11 @@ T1 and T2 done in one work unit (2026-10-11).
 - `completeOnboarding` tells a fresh `/me` from the stored-session fallback
   with an `isFreshMe` flag on the refresh result: `reconcileAfterCompletion`
   reports `refresh-success` for both.
-- On the fallback path the snapshot write now runs after the refresh attempt,
-  not before it.
+- T1 first moved the snapshot write after the refresh attempt. T3 put it back
+  before the refresh: the native review (resilience and reliability lenses)
+  and the verifier flagged that an app closed mid-refresh and reopened offline
+  showed empty profile fields. The write is provisional; a successful refresh
+  stores what `/me` returned over it.
 - RED observed for the success-path test (`me.user` showed the completion
   values where the `/me` values were expected). The fallback cases (refresh
   rejects, refresh resolves `null`, no stored session) passed before and after
@@ -83,10 +93,14 @@ T1 and T2 done in one work unit (2026-10-11).
   were green.
 - An independent read-only verifier passed the commit with notes. Accepted:
   a context test that a rejected completion POST leaves the latch unset (the
-  criterion held by code structure only). Recorded, not changed: if the app is
-  killed while the refresh is still running and is reopened offline, the
-  stored snapshot has Onboarding complete but empty profile fields until the
-  next successful `GET /api/me`. That follows from the rule; the User is not
-  sent back to Onboarding.
+  criterion held by code structure only).
+- The native review of T1 and T2 was approved with advisory findings only. T3
+  answers its one warning. RED observed for T3: the success-path test expected
+  the snapshot write before the refresh and found no write. A test that a
+  rejected snapshot write does not fail the completion passes before and
+  after.
+- Observed after T3: `npx jest --ci` 146 suites and 2219 tests passed; `npx
+  tsc --noEmit` clean; `npm run lint` 0 errors (4 warnings in untouched
+  files). No API file changed in T3.
 
 Next step: review of the pull request.
