@@ -302,6 +302,34 @@ describe('AuthContext — optimisticComplete is a one-way latch (Judgment Day C2
     });
   });
 
+  it('leaves the latch unset when the completion POST is rejected', async () => {
+    const incompleteMe = makeMe({ onboarding: { isComplete: false } });
+    const handle = setupStaleHydration(incompleteMe);
+    await waitForSinkAuth(handle.sink, (a) => a.accessToken !== null);
+
+    const rejection = new Error('validation_error');
+    mockAuthService.completeOnboarding.mockRejectedValue(rejection);
+
+    let thrown: unknown;
+    await act(async () => {
+      try {
+        await handle.sink.v!.completeOnboarding(onboardingPayload);
+      } catch (error) {
+        thrown = error;
+      }
+    });
+
+    expect(thrown).toBe(rejection);
+    expect(handle.sink.v!.isComplete).toBe(false);
+    expect(mockAuthService.persistOnboardingCompletionForStoredSession).not.toHaveBeenCalled();
+    expect(mockAuthService.refreshCurrentSession).not.toHaveBeenCalled();
+    expect(mockAuthService.persistProfileForStoredSession).not.toHaveBeenCalled();
+
+    await act(async () => {
+      handle.tree.unmount();
+    });
+  });
+
   // The profile fields the completion POST answers with in the tests below.
   const completedUser: CurrentMe['user'] = {
     id: 'user-1',

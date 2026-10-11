@@ -81,5 +81,12 @@ T1 and T2 done in one work unit (2026-10-11).
   full runs failed in tests outside this change (one identified:
   `cooking_channel_test.exs:291`, a 100 ms `assert_receive`), the other two
   were green.
+- An independent read-only verifier passed the commit with notes. Accepted:
+  a context test that a rejected completion POST leaves the latch unset (the
+  criterion held by code structure only). Recorded, not changed: if the app is
+  killed while the refresh is still running and is reopened offline, the
+  stored snapshot has Onboarding complete but empty profile fields until the
+  next successful `GET /api/me`. That follows from the rule; the User is not
+  sent back to Onboarding.
 
 Next step: review of the pull request.
