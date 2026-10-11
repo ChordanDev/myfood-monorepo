@@ -57,5 +57,11 @@ Observed on the final tree: `mix test` 1819 passed, 22 skipped; `mix compile --w
 - R4-002, by D1. Open question for the User: what should the screen do while renewals keep failing for a reason other than the lease being gone?
 - The second half of R2-004, by D5.
 - After a cancel followed by a tick, a list read asked before the cancel can still show the cancelled session until the tick's own read lands. Closing it means ordering reads by request, not by session.
-- `isCartReservation` takes any integer `quantityMilli`, a negative one included; the finding asked for a numeric one.
 - The full jest run prints "A worker process has failed to exit gracefully". It comes from suites outside `src/features/shopping` and is on `main` too.
+
+## After the native review
+
+The review of the branch was approved with two findings that did not block. Both were taken, in `fix(mobile): tighten the reserved item check and pin the cancel answer`:
+
+- The cancel route's test asserts `updatedRows`, and a hook test covers a cancel whose answer cannot be read: the Cart stays, with the error, until a renewal finds it gone.
+- `isCartReservation` also rejects an empty `reservationToken` and a negative `quantityMilli`, like `isShoppingCartLine`; a quantity of zero is accepted. RED: both rows resolved instead of rejecting.

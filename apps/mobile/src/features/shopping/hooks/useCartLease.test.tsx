@@ -295,6 +295,29 @@ describe('useCartLease', () => {
       expect(refreshList).toHaveBeenCalledTimes(1);
     });
 
+    it('keeps the Cart when the answer of a cancel cannot be read, until a renewal finds it gone', async () => {
+      api.cancelCart.mockRejectedValue(new ApiError('unknown_error', 'Malformed cart response'));
+      api.renewCart.mockRejectedValue(new ApiError('cart_not_found', 'gone', 404));
+      const { result, refreshList } = setup();
+      await tickItems(result);
+      refreshList.mockClear();
+
+      await act(async () => {
+        await result.current.cancel();
+      });
+
+      // Nothing says the Cart was abandoned, so it is not dropped on the word of this device.
+      expect(result.current.cart).toEqual(LEASE);
+      expect(result.current.errorMessage).toBeDefined();
+      expect(refreshList).not.toHaveBeenCalled();
+
+      // The server did abandon it: the next renewal says so, and the list is read again.
+      await tick(60_000);
+
+      expect(result.current.cart).toBeNull();
+      expect(refreshList).toHaveBeenCalledTimes(1);
+    });
+
     it('does not bring the Cart back when a renewal lands after cancelling', async () => {
       let resolveRenew: (lease: typeof LEASE) => void = () => {};
       api.renewCart.mockReturnValue(new Promise((resolve) => (resolveRenew = resolve)));

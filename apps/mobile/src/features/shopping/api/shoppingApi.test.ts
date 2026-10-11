@@ -492,6 +492,11 @@ describe('the Cart lease', () => {
         { data: withMarkedItem({ reservationToken: undefined }) },
       ],
       [
+        'an item with an empty reservation token',
+        { data: withMarkedItem({ reservationToken: '' }) },
+      ],
+      ['an item with a negative quantity', { data: withMarkedItem({ quantityMilli: -1 }) }],
+      [
         'an item whose quantity is not a number',
         { data: withMarkedItem({ quantityMilli: '200000' }) },
       ],
@@ -511,6 +516,13 @@ describe('the Cart lease', () => {
 
     it('accepts a Cart that reserved no item', async () => {
       const marked = withMarkedItems([]);
+      fetchMock.mockReturnValueOnce(mockJsonResponse({ data: marked }));
+
+      await expect(markInCart(['item-1'])).resolves.toEqual(marked);
+    });
+
+    it('accepts an item reserved at a quantity of zero', async () => {
+      const marked = withMarkedItem({ quantityMilli: 0 });
       fetchMock.mockReturnValueOnce(mockJsonResponse({ data: marked }));
 
       await expect(markInCart(['item-1'])).resolves.toEqual(marked);

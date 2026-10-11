@@ -120,7 +120,9 @@ function isCartReservation(item: unknown): item is CartReservation {
     typeof item.itemId === 'string' &&
     item.itemId !== '' &&
     typeof item.reservationToken === 'string' &&
-    Number.isInteger(item.quantityMilli)
+    item.reservationToken !== '' &&
+    Number.isInteger(item.quantityMilli) &&
+    (item.quantityMilli as number) >= 0
   );
 }
 
