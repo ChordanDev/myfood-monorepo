@@ -24,6 +24,8 @@ defmodule MealPlannerApi.Generation.ServerTestFixtures do
   import ExUnit.Assertions
 
   alias MealPlannerApi.Data.{PlanningRepo, RecipeRepo, ShoppingRepo}
+  alias MealPlannerApi.Optimization.{OptimizerMock, OptimizerServer}
+  alias MealPlannerApi.Optimization.TestSupport.FakePortRunner
   alias MealPlannerApi.Persistence.Accounts.Account, as: PersistenceAccount
   alias MealPlannerApi.Persistence.Accounts.AccountMembership
   alias MealPlannerApi.Persistence.Accounts.User, as: PersistenceUser
@@ -39,6 +41,10 @@ defmodule MealPlannerApi.Generation.ServerTestFixtures do
   # How long `stop_generation_server/1` waits for the generation a server is
   # running. Half of the default timeout of an ExUnit test.
   @pipeline_timeout_ms 30_000
+
+  # How long `answer_optimizer_request/1` waits for a generation to reach the
+  # optimizer server.
+  @solve_request_timeout_ms 5_000
 
   @doc "Insert an Account backed by the `:individual` subscription plan."
   @spec insert_account(String.t()) :: PersistenceAccount.t()
@@ -89,7 +95,8 @@ defmodule MealPlannerApi.Generation.ServerTestFixtures do
 
   @doc """
   Insert a Recipe, optionally associated with `account_id` and `user_id`,
-  and return the persisted struct.
+  and return the persisted struct. It suits lunch and dinner unless
+  `suitable_for_slots` names other slots.
   """
   @spec insert_recipe(String.t(), keyword()) :: Recipe.t()
   def insert_recipe(name, opts \\ []) do
@@ -98,7 +105,7 @@ defmodule MealPlannerApi.Generation.ServerTestFixtures do
       description: "Test recipe: #{name}",
       servings: 2,
       cooking_time_minutes: 30,
-      suitable_for_slots: ["lunch", "dinner"],
+      suitable_for_slots: Keyword.get(opts, :suitable_for_slots, ["lunch", "dinner"]),
       source: :user_created
     }
 
@@ -228,5 +235,65 @@ defmodule MealPlannerApi.Generation.ServerTestFixtures do
     assert_receive {:DOWN, ^ref, :process, ^pid, _reason}
 
     :ok
+  end
+
+  @doc """
+  Start the optimizer server a generation calls, ready to take its request.
+
+  The test configuration starts none (`start_optimizer_server: false`), so a
+  generation that gets as far as the optimizer ends in
+  `optimizer_unavailable`. This one is the real `OptimizerServer` under its
+  own name, on the `FakePortRunner`: no Python process is spawned, and the
+  frames that process would write are sent by the test, the `ready` of the
+  handshake here and the solution in `answer_optimizer_request/1`. The server
+  stops with the test.
+  """
+  @spec start_optimizer_server!() :: {pid(), port()}
+  def start_optimizer_server! do
+    pid = ExUnit.Callbacks.start_supervised!({OptimizerServer, port_runner: FakePortRunner})
+    port = FakePortRunner.get_port()
+    ExUnit.Callbacks.on_exit(&FakePortRunner.clear_port/0)
+
+    send(pid, {port, {:data, ~s({"type":"ready","version":"1.0"}\n)}})
+    %{handshake_phase: :ready} = :sys.get_state(pid)
+
+    {pid, port}
+  end
+
+  @doc """
+  Answer the solve request a generation left on the optimizer server started
+  by `start_optimizer_server!/0`.
+
+  Waits for the request and sends, as the solution frame of the optimizer
+  process, what `OptimizerMock` selects for its payload: for every day and
+  slot, the first candidate of the slot. The frame is JSON, so the meals
+  reach the generation with string keys and a string `"slot"`, as every
+  optimizer backend returns them.
+  """
+  @spec answer_optimizer_request({pid(), port()}) :: :ok
+  def answer_optimizer_request({pid, port}) do
+    deadline = System.monotonic_time(:millisecond) + @solve_request_timeout_ms
+    {request_id, payload} = await_solve_request(pid, deadline)
+
+    {:ok, result} = OptimizerMock.select_weekly_menu(payload)
+    frame = Jason.encode!(%{type: "solution", id: request_id, result: result})
+    send(pid, {port, {:data, frame <> "\n"}})
+
+    :ok
+  end
+
+  defp await_solve_request(pid, deadline) do
+    case Map.to_list(:sys.get_state(pid).pending_requests) do
+      [{request_id, %{payload: payload}}] ->
+        {request_id, payload}
+
+      [] ->
+        if System.monotonic_time(:millisecond) < deadline do
+          Process.sleep(10)
+          await_solve_request(pid, deadline)
+        else
+          flunk("no solve request reached the optimizer server")
+        end
+    end
   end
 end
