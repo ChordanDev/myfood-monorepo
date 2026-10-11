@@ -48,9 +48,10 @@ defmodule MealPlannerApiWeb.InviteController do
   (identified via an optional `Authorization` header — this route is
   deliberately NOT behind the `:auth` pipeline because the "new User"
   case has no account/token yet, per `specs/invite-and-accept.md`
-  §"New User accepts") or `{"name": ..., "password": ...}` for a brand
-  new User. Errors: `401 unauthorized` (no body params and no valid
-  Bearer token), `410 invite_token_used`, `410 invite_token_expired`.
+  §"New User accepts") or `{"name": ...}` for a brand new User. Any
+  other key in the body is ignored. Errors: `401 unauthorized` (no
+  `name` and no valid Bearer token), `410 invite_token_used`,
+  `410 invite_token_expired`.
   """
   def accept(conn, %{"token" => token} = params) do
     case resolve_invitee(conn, params) do
@@ -98,17 +99,17 @@ defmodule MealPlannerApiWeb.InviteController do
     end
   end
 
-  # New User path: {"name": ..., "password": ...} needs no prior auth —
-  # the invitee has no account/token yet.
-  defp resolve_invitee(_conn, %{"name" => name, "password" => password})
-       when is_binary(name) and name != "" and is_binary(password) and password != "" do
-    {:ok, %{name: name, password_hash: Bcrypt.hash_pwd_salt(password)}}
+  # New User path: {"name": ...} needs no prior auth — the invitee has
+  # no account/token yet. A non-empty string `name` selects this path;
+  # no other key of the body is read.
+  defp resolve_invitee(_conn, %{"name" => name}) when is_binary(name) and name != "" do
+    {:ok, %{name: name}}
   end
 
-  # Existing User path: body is `{}` — identify the caller via an
-  # optional Authorization header (manual decode, NOT the `:auth`
-  # pipeline, since this route must also serve unauthenticated new
-  # Users).
+  # Existing User path: the body carries no usable `name` — identify the
+  # caller via an optional Authorization header (manual decode, NOT the
+  # `:auth` pipeline, since this route must also serve unauthenticated
+  # new Users).
   #
   # Post-review fix pass, item 8 (security): Guardian's
   # `decode_and_verify/1` never checks `typ` on its own — without the

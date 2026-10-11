@@ -479,8 +479,12 @@ Content-Type: application/json
 POST /api/invites/:token/accept
 Content-Type: application/json
 
-{ "name": "Ana Pérez", "password": "supersecret123" }
+{ "name": "Ana Pérez" }
 ```
+
+El body solo lleva `name`, un string no vacío. La invitación no pide
+password: el usuario nuevo inicia sesión después con un código enviado
+por email, igual que el resto. Cualquier otra clave del body se ignora.
 
 **Response `200`** — con la membership recién aceptada:
 ```json
@@ -514,7 +518,7 @@ usuario vuelve a iniciar sesión con un código.
 
 | Status | `error` | Causa | Acción recomendada |
 |--------|---------|-------|---------------------|
-| `401` | `unauthorized` | Body vacío `{}` sin `Authorization` válido (caso "usuario existente" mal armado) | Pedir login o completar `name`/`password` |
+| `401` | `unauthorized` | Body sin `name` (o con `name` vacío) y sin `Authorization` válido | Pedir login o completar `name` |
 | `410` | `invite_token_used` | El token ya fue usado antes | Mostrar "invitación ya usada", pedir una nueva |
 | `410` | `invite_token_expired` | Pasaron más de 7 días desde la invitación | Pedir al `owner` que reenvíe |
 | `404` | `invite_token_unknown` | Token inválido/no existe | Mostrar "invitación inválida" |

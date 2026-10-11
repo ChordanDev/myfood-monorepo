@@ -28,7 +28,6 @@ defmodule MealPlannerApi.Persistence.Accounts.User do
     field(:email, :string)
     field(:name, :string)
     field(:role, Ecto.Enum, values: [:owner, :member])
-    field(:password_hash, :string)
     field(:avatar_url, :string)
     # Set when the user finishes onboarding; nil means not completed.
     field(:onboarding_completed_at, :utc_datetime_usec)
@@ -53,7 +52,7 @@ defmodule MealPlannerApi.Persistence.Accounts.User do
   """
   def changeset(user, attrs) do
     user
-    |> cast(attrs, [:account_id, :email, :name, :role, :password_hash, :avatar_url])
+    |> cast(attrs, [:account_id, :email, :name, :role, :avatar_url])
     |> validate_required([:email, :name, :role])
     |> unique_constraint(:email)
     |> foreign_key_constraint(:account_id)

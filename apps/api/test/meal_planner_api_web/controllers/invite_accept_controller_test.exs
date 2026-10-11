@@ -57,11 +57,7 @@ defmodule MealPlannerApiWeb.InviteAcceptControllerTest do
       {:ok, %{token: plaintext}} =
         AccountsMembership.invite(account, owner_membership, "brand_new@example.com")
 
-      conn =
-        post(conn, "/api/invites/#{plaintext}/accept", %{
-          "name" => "Brand New",
-          "password" => "supersecret123"
-        })
+      conn = post(conn, "/api/invites/#{plaintext}/accept", %{"name" => "Brand New"})
 
       body = json_response(conn, 200)
 
@@ -72,7 +68,33 @@ defmodule MealPlannerApiWeb.InviteAcceptControllerTest do
         Repo.get_by(MealPlannerApi.Persistence.Accounts.User, email: "brand_new@example.com")
 
       assert new_user.name == "Brand New"
-      assert is_binary(new_user.password_hash)
+    end
+
+    # The new User path is selected by `name` alone: any other key in the
+    # body is ignored, `password` included.
+    test "new User accepts when the body also carries a password key", %{conn: conn} do
+      owner =
+        user_with_memberships(%{email: "owner_accept_stray@example.com"}, [
+          {%{plan: :family_4, name: "Family Accept Stray"}, :owner}
+        ])
+
+      [owner_membership] = owner.memberships
+      account = owner_membership.account
+
+      {:ok, %{token: plaintext}} =
+        AccountsMembership.invite(account, owner_membership, "stray_key@example.com")
+
+      conn =
+        post(conn, "/api/invites/#{plaintext}/accept", %{
+          "name" => "Stray Key",
+          "password" => "supersecret123"
+        })
+
+      body = json_response(conn, 200)
+
+      assert body["user"]["email"] == "stray_key@example.com"
+      assert body["user"]["name"] == "Stray Key"
+      assert body["membership"]["status"] == "active"
     end
 
     test "replaying an already-accepted token returns 410 invite_token_used", %{conn: conn} do
@@ -87,17 +109,9 @@ defmodule MealPlannerApiWeb.InviteAcceptControllerTest do
       {:ok, %{token: plaintext}} =
         AccountsMembership.invite(account, owner_membership, "replay@example.com")
 
-      _first =
-        post(conn, "/api/invites/#{plaintext}/accept", %{
-          "name" => "Replay User",
-          "password" => "supersecret123"
-        })
+      _first = post(conn, "/api/invites/#{plaintext}/accept", %{"name" => "Replay User"})
 
-      conn =
-        post(conn, "/api/invites/#{plaintext}/accept", %{
-          "name" => "Replay User",
-          "password" => "supersecret123"
-        })
+      conn = post(conn, "/api/invites/#{plaintext}/accept", %{"name" => "Replay User"})
 
       assert json_response(conn, 410)["error"] == "invite_token_used"
     end
@@ -120,11 +134,7 @@ defmodule MealPlannerApiWeb.InviteAcceptControllerTest do
       })
       |> Repo.update!()
 
-      conn =
-        post(conn, "/api/invites/#{plaintext}/accept", %{
-          "name" => "Expired User",
-          "password" => "supersecret123"
-        })
+      conn = post(conn, "/api/invites/#{plaintext}/accept", %{"name" => "Expired User"})
 
       assert json_response(conn, 410)["error"] == "invite_token_expired"
     end
@@ -176,11 +186,7 @@ defmodule MealPlannerApiWeb.InviteAcceptControllerTest do
     # Post-review fix pass, item 7: `error_status/1`'s `invite_token_unknown`
     # mapping (404) had zero HTTP-level test coverage.
     test "an unknown/bogus token returns 404 invite_token_unknown", %{conn: conn} do
-      conn =
-        post(conn, "/api/invites/#{Ecto.UUID.generate()}/accept", %{
-          "name" => "Nobody",
-          "password" => "supersecret123"
-        })
+      conn = post(conn, "/api/invites/#{Ecto.UUID.generate()}/accept", %{"name" => "Nobody"})
 
       assert json_response(conn, 404)["error"] == "invite_token_unknown"
     end
@@ -261,10 +267,7 @@ defmodule MealPlannerApiWeb.InviteAcceptControllerTest do
 
       body =
         conn
-        |> post("/api/invites/#{plaintext}/accept", %{
-          "name" => "Flag Off New",
-          "password" => "supersecret123"
-        })
+        |> post("/api/invites/#{plaintext}/accept", %{"name" => "Flag Off New"})
         |> json_response(200)
 
       {:ok, claims} = Guardian.decode_and_verify(body["access_token"])
@@ -309,18 +312,12 @@ defmodule MealPlannerApiWeb.InviteAcceptControllerTest do
         InviteService.create_invite_row(owner_membership, "dupe_invitee@example.com")
 
       first_conn =
-        post(conn, "/api/invites/#{first_plaintext}/accept", %{
-          "name" => "Dupe Invitee",
-          "password" => "supersecret123"
-        })
+        post(conn, "/api/invites/#{first_plaintext}/accept", %{"name" => "Dupe Invitee"})
 
       assert json_response(first_conn, 200)
 
       second_conn =
-        post(conn, "/api/invites/#{second_plaintext}/accept", %{
-          "name" => "Dupe Invitee",
-          "password" => "supersecret123"
-        })
+        post(conn, "/api/invites/#{second_plaintext}/accept", %{"name" => "Dupe Invitee"})
 
       assert json_response(second_conn, 409)["error"] == "already_a_member"
     end
