@@ -1,6 +1,7 @@
 defmodule MealPlannerApiWeb.CookingControllerTest do
   use MealPlannerApiWeb.ConnCase, async: false
 
+  import MealPlannerApi.AccountClockFixtures
   import MealPlannerApi.FactoryHelpers
   import MealPlannerApi.IdentityFixtures
 
@@ -24,6 +25,10 @@ defmodule MealPlannerApiWeb.CookingControllerTest do
       [membership_a, membership_b] = user.memberships
       MealPlannerApiWeb.ChannelHelpers.persist_trial_window!(membership_a.account, :eligible)
 
+      # The server judges "today" on the Account's clock at the real now, so
+      # every meal date in this file comes from an Account pinned to midday.
+      today = pin_account_to_midday!(membership_a.account_id)
+
       {:ok, recipe} =
         Catalog.create_recipe(%{
           account_id: membership_a.account_id,
@@ -37,7 +42,7 @@ defmodule MealPlannerApiWeb.CookingControllerTest do
       {:ok, meal} =
         Planning.schedule_meal(%{
           account_id: membership_a.account_id,
-          date: Date.utc_today(),
+          date: today,
           slot: :dinner,
           recipe_id: recipe.id,
           is_cooked: false
@@ -108,7 +113,7 @@ defmodule MealPlannerApiWeb.CookingControllerTest do
     {:ok, meal} =
       Planning.schedule_meal(%{
         account_id: account_id,
-        date: Date.utc_today(),
+        date: pin_account_to_midday!(account_id),
         slot: :dinner,
         recipe_id: recipe.id,
         is_cooked: false
@@ -242,7 +247,7 @@ defmodule MealPlannerApiWeb.CookingControllerTest do
     {:ok, meal} =
       Planning.schedule_meal(%{
         account_id: account_id,
-        date: Date.utc_today(),
+        date: pin_account_to_midday!(account_id),
         slot: :dinner,
         recipe_id: recipe.id
       })
@@ -300,7 +305,8 @@ defmodule MealPlannerApiWeb.CookingControllerTest do
       {:ok,
        conn: put_req_header(conn, "authorization", "Bearer " <> token),
        account_id: account_id,
-       recipe: recipe}
+       recipe: recipe,
+       today: pin_account_to_midday!(account_id)}
     end
 
     test "start with an unknown meal is 404 scheduled_meal_not_found", %{conn: conn} do
@@ -314,11 +320,11 @@ defmodule MealPlannerApiWeb.CookingControllerTest do
     end
 
     test "start for a meal not scheduled today is 409 cooking_chat_unavailable",
-         %{conn: conn, account_id: account_id, recipe: recipe} do
+         %{conn: conn, account_id: account_id, recipe: recipe, today: today} do
       {:ok, meal} =
         Planning.schedule_meal(%{
           account_id: account_id,
-          date: Date.add(Date.utc_today(), 2),
+          date: Date.add(today, 2),
           slot: :dinner,
           recipe_id: recipe.id
         })
@@ -328,11 +334,11 @@ defmodule MealPlannerApiWeb.CookingControllerTest do
     end
 
     test "start with another Account's meal is 404 scheduled_meal_not_found",
-         %{account_id: account_id, recipe: recipe} do
+         %{account_id: account_id, recipe: recipe, today: today} do
       {:ok, meal} =
         Planning.schedule_meal(%{
           account_id: account_id,
-          date: Date.utc_today(),
+          date: today,
           slot: :dinner,
           recipe_id: recipe.id
         })
@@ -399,12 +405,13 @@ defmodule MealPlannerApiWeb.CookingControllerTest do
     test "a request without a subscription is 403 subscription_required", %{
       conn: conn,
       account_id: account_id,
-      recipe: recipe
+      recipe: recipe,
+      today: today
     } do
       {:ok, meal} =
         Planning.schedule_meal(%{
           account_id: account_id,
-          date: Date.utc_today(),
+          date: today,
           slot: :dinner,
           recipe_id: recipe.id
         })
@@ -437,11 +444,12 @@ defmodule MealPlannerApiWeb.CookingControllerTest do
           suitable_for_slots: [:dinner]
         })
 
-      # The server gates on the Account's day, so the meal is scheduled on it.
+      today = pin_account_to_midday!(account_id)
+
       {:ok, meal} =
         Planning.schedule_meal(%{
           account_id: account_id,
-          date: MealPlannerApi.AccountClock.today(account_id),
+          date: today,
           slot: :dinner,
           recipe_id: recipe.id
         })
@@ -454,7 +462,7 @@ defmodule MealPlannerApiWeb.CookingControllerTest do
         |> json_response(200)
         |> get_in(["data", "sessionId"])
 
-      {:ok, conn: conn, meal: meal, session_id: session_id, account_id: account_id}
+      {:ok, conn: conn, meal: meal, session_id: session_id, today: today}
     end
 
     defp chat_count,
@@ -582,11 +590,9 @@ defmodule MealPlannerApiWeb.CookingControllerTest do
     end
 
     test "ask for a meal no longer on today is 409 cooking_chat_unavailable",
-         %{conn: conn, meal: meal, session_id: session_id, account_id: account_id} do
+         %{conn: conn, meal: meal, session_id: session_id, today: today} do
       meal
-      |> Planning.ScheduledMeal.changeset(%{
-        date: Date.add(MealPlannerApi.AccountClock.today(account_id), 1)
-      })
+      |> Planning.ScheduledMeal.changeset(%{date: Date.add(today, 1)})
       |> MealPlannerApi.Repo.update!()
 
       conn = post(conn, "/api/cooking/sessions/#{session_id}/ask", %{"message" => "Hi"})

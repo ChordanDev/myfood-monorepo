@@ -1,6 +1,7 @@
 defmodule MealPlannerApiWeb.CalendarControllerTest do
   use MealPlannerApiWeb.ConnCase, async: true
 
+  import MealPlannerApi.AccountClockFixtures
   import MealPlannerApi.FactoryHelpers
   import MealPlannerApi.IdentityFixtures
 
@@ -35,7 +36,10 @@ defmodule MealPlannerApiWeb.CalendarControllerTest do
         ])
 
       [membership_a, membership_b] = user.memberships
-      today = Date.utc_today()
+
+      # The server judges "today" on the Account's clock at the real now, so
+      # dates relative to today come from an Account pinned to midday.
+      today = pin_account_to_midday!(membership_a.account_id)
 
       {:ok, recipe_a} =
         Catalog.create_recipe(%{
@@ -273,7 +277,7 @@ defmodule MealPlannerApiWeb.CalendarControllerTest do
       %{token: token, user: %{id: user_id}, account: %{id: account_id}} =
         insert_identity_with_token!(plan: :family_4)
 
-      today = Date.utc_today()
+      today = pin_account_to_midday!(account_id)
 
       {:ok, recipe} =
         Catalog.create_recipe(%{
@@ -317,16 +321,17 @@ defmodule MealPlannerApiWeb.CalendarControllerTest do
     end
 
     test "selectedMeal has canCreate: true when slot is empty" do
-      %{token: token} = insert_identity_with_token!(plan: :family_4)
+      %{token: token, account: %{id: account_id}} = insert_identity_with_token!(plan: :family_4)
 
-      tomorrow = Date.add(Date.utc_today(), 10)
+      today = pin_account_to_midday!(account_id)
+      tomorrow = Date.add(today, 10)
 
       conn =
         build_conn()
         |> put_req_header("authorization", "Bearer " <> token)
         |> get("/api/calendar", %{
-          "start_date" => Date.to_iso8601(Date.utc_today()),
-          "end_date" => Date.to_iso8601(Date.add(Date.utc_today(), 6)),
+          "start_date" => Date.to_iso8601(today),
+          "end_date" => Date.to_iso8601(Date.add(today, 6)),
           "selected_date" => Date.to_iso8601(tomorrow),
           "selected_slot" => "dinner"
         })
@@ -344,7 +349,7 @@ defmodule MealPlannerApiWeb.CalendarControllerTest do
       %{token: token, user: %{id: user_id}, account: %{id: account_id}} =
         insert_identity_with_token!(plan: :family_4)
 
-      today = Date.utc_today()
+      today = pin_account_to_midday!(account_id)
 
       {:ok, recipe} =
         Catalog.create_recipe(%{
@@ -679,7 +684,7 @@ defmodule MealPlannerApiWeb.CalendarControllerTest do
       Application.put_env(:meal_planner_api, :revenuecat_access_enforcement, true)
 
       try do
-        today = Date.utc_today()
+        today = pin_account_to_midday!(account.id)
 
         conn =
           conn
@@ -712,7 +717,7 @@ defmodule MealPlannerApiWeb.CalendarControllerTest do
           suitable_for_slots: [:lunch, :dinner]
         })
 
-      today = Date.utc_today()
+      today = pin_account_to_midday!(account_id)
       yesterday = Date.add(today, -1)
 
       {:ok, skipped} =
@@ -766,7 +771,7 @@ defmodule MealPlannerApiWeb.CalendarControllerTest do
   describe "POST /api/calendar/meals/:id/move" do
     setup do
       %{token: token, account: account} = insert_identity_with_token!(plan: :family_4)
-      today = Date.utc_today()
+      today = pin_account_to_midday!(account)
 
       %{token: token, account_id: account.id, today: today, tomorrow: Date.add(today, 1)}
     end
