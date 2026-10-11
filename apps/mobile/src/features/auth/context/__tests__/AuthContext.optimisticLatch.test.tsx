@@ -302,11 +302,11 @@ describe('AuthContext — optimisticComplete is a one-way latch (Judgment Day C2
     });
   });
 
-  it('keeps the profile fields from the completion response when the follow-up /me omits them', async () => {
-    // GET /api/me does not send householdSize or cookingSkill yet, so the
-    // refresh that follows a completed onboarding used to overwrite the
-    // values the POST had just confirmed. The completion response is the
-    // source of truth for those fields until the server serves them.
+  it('keeps the profile fields from the completion response when the follow-up /me is stale', async () => {
+    // The server stores householdSize and cookingSkill with the completion
+    // and GET /api/me serves them. The completion response still wins over
+    // the refresh that follows it, so a snapshot read without them does not
+    // overwrite the values the POST had just confirmed.
     const handle = setupStaleHydration(makeMe());
     await waitForSinkAuth(handle.sink, (a) => a.accessToken !== null);
 
@@ -332,7 +332,7 @@ describe('AuthContext — optimisticComplete is a one-way latch (Judgment Day C2
 
     expect(handle.sink.v!.me?.user).toEqual(completedUser);
     expect(handle.sink.v!.isComplete).toBe(true);
-    // Stored first, so the stored snapshot the refresh reads already has them.
+    // Stored first, so a failed refresh falls back to a snapshot that has them.
     expect(mockAuthService.persistProfileForStoredSession).toHaveBeenCalledWith(completedUser);
     expect(mockAuthService.persistProfileForStoredSession.mock.invocationCallOrder[0]).toBeLessThan(
       mockAuthService.refreshCurrentSession.mock.invocationCallOrder[0]

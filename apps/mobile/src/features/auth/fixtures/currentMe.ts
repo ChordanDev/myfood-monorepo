@@ -43,7 +43,8 @@ export function fixtureCurrentMe(): CurrentMe {
   };
 }
 
-// The frozen `GET /api/me` body of a User who has not finished Onboarding: no profile yet.
+// The frozen `GET /api/me` body of a User who has not finished Onboarding: only
+// the display name sign-up derives from the email, no Household size or Cooking skill.
 export function fixtureCurrentMeBeforeOnboarding(): CurrentMe {
   return {
     user: { ...currentMeBeforeOnboarding.user },

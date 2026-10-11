@@ -125,17 +125,34 @@ defmodule MealPlannerApiWeb.AccountsControllerTest do
 
     test "has exactly the key sets of the frozen mobile fixture before Onboarding", %{
       conn: conn,
+      user: user,
+      membership: membership,
       token: token
     } do
       fixture = MobileFixtures.read!(@before_onboarding_fixture)
 
-      assert Map.keys(fixture) == ["account", "membership", "onboarding", "user"]
+      assert Enum.sort(Map.keys(fixture)) == ["account", "membership", "onboarding", "user"]
       assert fixture["onboarding"] == %{"isComplete" => false}
+
+      # Sign-up names a User after the local part of the email, so the
+      # display name is never null, even before Onboarding.
+      [local_part, _domain] = String.split(fixture["user"]["email"], "@", parts: 2)
+      assert fixture["user"]["displayName"] == local_part
+
+      put_trial!(membership.account_id, 7 * 86_400)
+      user |> Ecto.Changeset.change(name: local_part) |> Repo.update!()
 
       body = conn |> get_me(token, "/api/me") |> json_response(200)
 
       assert MobileFixtures.key_shape(body) == MobileFixtures.key_shape(fixture)
+      # Everything but the identifiers and the trial date is the fixture's:
+      # no Household size, Cooking skill or timezone before Onboarding.
+      assert Map.drop(body["user"], ["id", "email"]) == Map.drop(fixture["user"], ["id", "email"])
+      assert body["membership"] == fixture["membership"]
       assert body["onboarding"] == fixture["onboarding"]
+
+      assert Map.drop(body["account"], ["id", "trialEndsAt"]) ==
+               Map.drop(fixture["account"], ["id", "trialEndsAt"])
     end
 
     test "has exactly the key sets of the frozen mobile fixture after Onboarding", %{
@@ -146,7 +163,7 @@ defmodule MealPlannerApiWeb.AccountsControllerTest do
     } do
       fixture = MobileFixtures.read!(@fixture)
 
-      assert Map.keys(fixture) == ["account", "membership", "onboarding", "user"]
+      assert Enum.sort(Map.keys(fixture)) == ["account", "membership", "onboarding", "user"]
 
       put_trial!(membership.account_id, 7 * 86_400)
 
@@ -181,7 +198,7 @@ defmodule MealPlannerApiWeb.AccountsControllerTest do
       alias_body = conn |> get_me(token, "/api/auth/me") |> json_response(200)
 
       assert alias_body == me
-      assert Map.keys(alias_body) == ["account", "membership", "onboarding", "user"]
+      assert Enum.sort(Map.keys(alias_body)) == ["account", "membership", "onboarding", "user"]
     end
   end
 

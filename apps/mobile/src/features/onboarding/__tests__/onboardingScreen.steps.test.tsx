@@ -252,8 +252,11 @@ describe('OnboardingScreen — three steps', () => {
     expect(textContent(root)).toContain('CONTINUAR');
   });
 
+  // The name field starts with the display name sign-up gave the User, so an
+  // empty name is one the User cleared.
   it('stays on step 1 and explains why when the name is empty', () => {
     const { root } = renderOnboarding();
+    type(root, 'Nombre para mostrar', '');
 
     pressButton(root, 'CONTINUAR');
 
@@ -264,6 +267,7 @@ describe('OnboardingScreen — three steps', () => {
 
   it('clears the message as soon as the user edits the step', () => {
     const { root } = renderOnboarding();
+    type(root, 'Nombre para mostrar', '');
     pressButton(root, 'CONTINUAR');
     expect(inlineError(root)).not.toBeNull();
 

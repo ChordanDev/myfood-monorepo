@@ -132,7 +132,7 @@ describe('authService onboarding/preferences/slot-cooking-times endpoints', () =
     expect(result).toEqual(fixturePreferences());
   });
 
-  it('PUTs /api/me/preferences with bearer token and returns updated payload', async () => {
+  it('PUTs /api/me/preferences with bearer token and returns the stored preferences', async () => {
     const payload: UserPreferencesPayload = {
       diet: 'pescatarian',
       hardRestrictions: ['shellfish'],
@@ -182,7 +182,7 @@ describe('authService onboarding/preferences/slot-cooking-times endpoints', () =
     expect(result).toEqual(fixtureSlotCookingTimes());
   });
 
-  it('PUTs /api/me/slot-cooking-times with bearer token and returns updated slots', async () => {
+  it('PUTs /api/me/slot-cooking-times with bearer token and returns the stored slot cooking times', async () => {
     const payload: SlotCookingTimesPayload = {
       breakfast: { cookingTimeMinutes: 10, hungerLevel: 'light' },
       lunch: { cookingTimeMinutes: 30, hungerLevel: 'normal' },

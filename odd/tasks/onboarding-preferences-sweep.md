@@ -66,6 +66,13 @@ frozen fixtures pinned by the API.
   - Add the new fixture directories to the CI path filter that triggers the
     API job.
   - Checks: both suites above.
+- [x] **T4 Stale profile fallback and review follow-ups** (route: delegated writer)
+  - Delete `withPreservedProfileFields`: a fresh `/me` is the only source of
+    `householdSize` / `cookingSkill`, null included.
+  - Rename the two `onboardingService.test.ts` titles that said "returns
+    updated" to say they return what the server stored.
+  - Make the before-onboarding `/me` pin compare the `user` object and the
+    account timezone with the fixture, and sort the key-list assertions.
 
 ## Acceptance criteria
 
@@ -92,15 +99,22 @@ frozen fixtures pinned by the API.
   skipped; `npx jest --ci` 144 suites, 2090 tests passed. Nine expected
   literals in the settings tests changed value because the fixture holds what
   the API really serves (hard restrictions come back in catalog order).
+- T4: committed with this document. RED observed in the new
+  `authSessionService.test.ts` (restore and refresh returned the stored
+  `householdSize: 2` / `cookingSkill: "intermediate"` instead of null), GREEN
+  after the removal. The stricter before-onboarding pin failed on
+  `displayName`: sign-up names a User after the local part of the email, so
+  the API never serves a null display name. The fixture now holds `"lucca"`,
+  the pin asserts that rule, and two onboarding step tests clear the
+  prefilled name before checking the empty-name error. `npm run lint` 0
+  errors, `npx tsc --noEmit` clean, `npx jest --ci` 145 suites, 2088 tests
+  passed; `mix format --check-formatted` and `mix credo --strict` clean,
+  `mix test` 1707 passed, 20 skipped.
 - Delivery: about 1,200 authored changed lines across three commits, most of
   it fixtures and test rewrites; one commit per task.
 
 ## Found, not done (outside this sweep)
 
-- `withPreservedProfileFields` (`features/auth/utils/currentMe.ts`) still
-  fills `householdSize` / `cookingSkill` from the local snapshot when `/me`
-  sends null. The API stores both on completion now, so this fallback and its
-  comment are stale. Removing it changes session behaviour.
 - The mobile error catalog handles `onboarding_invalid`,
   `onboarding_already_complete`, `preferences_invalid` and
   `slot_cooking_times_invalid`; the API emits none of them (it answers
