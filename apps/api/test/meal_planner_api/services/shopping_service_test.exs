@@ -114,12 +114,13 @@ defmodule MealPlannerApi.ShoppingServiceTest do
       result =
         ShoppingService.confirm_checkout(user, cart.session_id, %{
           "checkout_type" => "physical",
-          "items" =>
-            Enum.map(
-              cart.reservations,
-              &(Map.new(&1, fn {k, v} -> {Atom.to_string(k), v} end)
-                |> Map.put("total_cents", 5000))
-            )
+          "lines" => [
+            %{
+              "item_id" => "#{ingredient.id}:g",
+              "quantity_milli" => 500,
+              "total_cents" => 5000
+            }
+          ]
         })
 
       assert {:ok, response} = result
@@ -207,12 +208,13 @@ defmodule MealPlannerApi.ShoppingServiceTest do
       result =
         ShoppingService.confirm_checkout(user, cart.session_id, %{
           "checkout_type" => "physical",
-          "items" =>
-            Enum.map(
-              cart.reservations,
-              &(Map.new(&1, fn {k, v} -> {Atom.to_string(k), v} end)
-                |> Map.put("total_cents", 1500))
-            )
+          "lines" => [
+            %{
+              "item_id" => "#{ingredient.id}:g",
+              "quantity_milli" => 300,
+              "total_cents" => 1500
+            }
+          ]
         })
 
       assert {:ok, response} = result
@@ -235,10 +237,10 @@ defmodule MealPlannerApi.ShoppingServiceTest do
       fake_session_id = Ecto.UUID.generate()
 
       result =
-        ShoppingService.confirm_checkout(user, fake_session_id, %{"actual_total_cents" => 1000})
+        ShoppingService.confirm_checkout(user, fake_session_id, %{"checkout_type" => "physical"})
 
       # Should return error for session not found
-      assert result == {:error, :cart_not_found}
+      assert result == {:error, :checkout_session_not_found}
     end
   end
 

@@ -76,6 +76,7 @@ defmodule MealPlannerApi.CartFixtures do
           ingredient: ingredient,
           recipe: recipe,
           meal: meal,
+          next_meal: next_meal,
           items: items,
           actor: %{id: owner.id, account_id: account.id},
           other: %{id: member.id, account_id: account.id}
@@ -85,20 +86,51 @@ defmodule MealPlannerApi.CartFixtures do
     f
   end
 
-  def payload(cart, quantity \\ 300, type \\ "physical") do
-    %{
-      "session_id" => cart.session_id,
-      "checkout_type" => type,
-      "items" =>
-        Enum.map(cart.reservations, fn line ->
-          %{
-            "item_id" => line.item_id,
-            "reservation_token" => line.reservation_token,
-            "quantity_milli" => quantity,
-            "total_cents" => if(quantity == 0, do: 0, else: 250)
-          }
-        end)
-    }
+  # The confirm payload of a Cart: every list line bought at `quantity`, for
+  # 250 cents (nothing when nothing was bought). `nil` sends no lines, so
+  # each one is bought at its suggested quantity.
+  def payload(cart, quantity \\ 300, type \\ "physical")
+
+  def payload(cart, nil, type),
+    do: %{"session_id" => cart.session_id, "checkout_type" => type}
+
+  def payload(cart, quantity, type) do
+    lines =
+      Enum.map(line_ids(cart), fn line_id ->
+        %{
+          "item_id" => line_id,
+          "quantity_milli" => quantity,
+          "total_cents" => if(quantity == 0, do: 0, else: 250)
+        }
+      end)
+
+    cart |> payload(nil, type) |> Map.put("lines", lines)
+  end
+
+  # The list line ids of the reserved items: `"<ingredient_id>:<unit>"` for
+  # planned items, the item's own id for a manual one.
+  def line_ids(cart) do
+    ids = Enum.map(cart.reservations, & &1.item_id)
+
+    from(i in ShoppingItem, where: i.id in ^ids, order_by: i.id)
+    |> Repo.all()
+    |> Enum.map(fn
+      %{source: :manual} = item -> item.id
+      item -> "#{item.ingredient_id}:#{item.unit}"
+    end)
+    |> Enum.uniq()
+  end
+
+  # The reserved items as `Cart.remove/3` takes them.
+  def reservations(cart) do
+    Enum.map(cart.reservations, fn line ->
+      %{"item_id" => line.item_id, "reservation_token" => line.reservation_token}
+    end)
+  end
+
+  def manual_item!(f, attrs) do
+    {:ok, item} = Shopping.create_manual_item(Map.put(attrs, :account_id, f.account.id))
+    item
   end
 
   def reserve!(f, actor \\ nil) do

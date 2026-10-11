@@ -60,11 +60,11 @@ defmodule MealPlannerApi.CartConcurrencyTest do
     Phoenix.PubSub.subscribe(MealPlannerApi.PubSub, "shopping:#{f.account.id}")
     purchase = fn -> Cart.purchase(f.actor, cart.session_id, payload(cart)) end
     results = concurrent(f, [purchase, purchase])
-    assert Enum.count(results, &match?({:ok, _}, &1)) == 1
-    assert {:error, :already_purchased} in results
-    assert length(stock(f)) == 2
-    assert length(events(f)) == 2
-    assert Repo.get!(CheckoutSession, cart.session_id).total_cents == 500
+    # The second confirm replays the result of the first.
+    assert [{:ok, result}, {:ok, result}] = results
+    assert length(stock(f)) == 1
+    assert length(events(f)) == 1
+    assert Repo.get!(CheckoutSession, cart.session_id).total_cents == 250
     assert_receive %Phoenix.Socket.Broadcast{event: "purchase_confirmed"}
     assert_receive %Phoenix.Socket.Broadcast{event: "inventory_changed"}
     refute_receive %Phoenix.Socket.Broadcast{event: "purchase_confirmed"}
@@ -142,13 +142,14 @@ defmodule MealPlannerApi.CartConcurrencyTest do
       ])
 
     assert Enum.count(results, &match?({:ok, _}, &1)) == 1
-    assert {:error, :stale_cart} in results
     status = Repo.get!(CheckoutSession, cart.session_id).status
 
     if status == :completed do
-      assert length(stock(f)) == 2
-      assert length(events(f)) == 2
+      assert {:error, :stale_cart} in results
+      assert length(stock(f)) == 1
+      assert length(events(f)) == 1
     else
+      assert {:error, :cart_expired} in results
       assert status == :abandoned
       assert stock(f) == []
       assert events(f) == []
@@ -172,7 +173,7 @@ defmodule MealPlannerApi.CartConcurrencyTest do
     assert Enum.sort(results) == [{:ok, 0}, {:ok, 1}]
     assert_receive %Phoenix.Socket.Broadcast{event: "cart_expired"}
     refute_receive %Phoenix.Socket.Broadcast{event: "cart_expired"}
-    assert {:error, :stale_cart} = Cart.purchase(f.actor, cart.session_id, payload(cart))
+    assert {:error, :cart_expired} = Cart.purchase(f.actor, cart.session_id, payload(cart))
     assert stock(f) == []
     assert events(f) == []
   end
@@ -204,7 +205,7 @@ defmodule MealPlannerApi.CartConcurrencyTest do
       refute_receive %Phoenix.Socket.Broadcast{event: "cart_released"}
 
       assert {:error, %Ecto.Changeset{}} =
-               Cart.remove(f.actor, cart.session_id, payload(cart)["items"])
+               Cart.remove(f.actor, cart.session_id, reservations(cart))
 
       assert {lines(f), Repo.get!(CheckoutSession, cart.session_id)} == original
     after

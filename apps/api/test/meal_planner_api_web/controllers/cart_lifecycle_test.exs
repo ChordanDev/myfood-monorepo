@@ -64,14 +64,16 @@ defmodule MealPlannerApiWeb.CartLifecycleTest do
     current = reserve!(f)
     assert_push "cart_reserved", _
 
-    assert %{"data" => %{"actualTotalCents" => 500}} =
+    assert %{"data" => %{"actualTotalCents" => 250}} =
+             confirmed =
              request(f, :post, "/api/checkout/confirm", payload(current)) |> json_response(200)
 
     assert_push "purchase_confirmed", _
     assert_push "inventory_changed", _
 
-    assert %{"error" => "already_purchased"} =
-             request(f, :post, "/api/checkout/confirm", payload(current)) |> json_response(422)
+    # A repeated confirm replays the result and announces nothing.
+    assert request(f, :post, "/api/checkout/confirm", payload(current)) |> json_response(200) ==
+             confirmed
 
     refute_push "purchase_confirmed", _
     refute_push "inventory_changed", _
@@ -85,7 +87,7 @@ defmodule MealPlannerApiWeb.CartLifecycleTest do
              |> json_response(200)
 
     assert_push "inventory_changed", _
-    assert length(events(f)) == 3
+    assert length(events(f)) == 2
     # A foreign topic must not reach the subscribed member.
     Cart.notify(foreign.account.id, "cart_reserved", %{session_id: "foreign"})
     refute_push "cart_reserved", _
@@ -144,8 +146,8 @@ defmodule MealPlannerApiWeb.CartLifecycleTest do
     own_view = request(f, :get, "/api/shopping-list", %{}) |> json_response(200)
     assert own_view["data"]["cart"]["sessionId"] == cart.session_id
 
-    assert %{"error" => "cart_not_found"} =
-             request(other, :post, "/api/checkout/confirm", payload(cart)) |> json_response(422)
+    assert %{"error" => %{"code" => "cart_locked"}} =
+             request(other, :post, "/api/checkout/confirm", payload(cart)) |> json_response(409)
 
     assert %{"data" => _} =
              request(f, :post, "/api/checkout/confirm", payload(cart)) |> json_response(200)
@@ -163,8 +165,8 @@ defmodule MealPlannerApiWeb.CartLifecycleTest do
 
     assert {stock(f), events(f)} == snapshot
 
-    assert %{"error" => "cart_not_found"} =
-             request(foreign, :post, "/api/checkout/confirm", payload(cart)) |> json_response(422)
+    assert %{"error" => %{"code" => "checkout_session_not_found"}} =
+             request(foreign, :post, "/api/checkout/confirm", payload(cart)) |> json_response(404)
   end
 
   test "suspended member receives no subsequent events", f do

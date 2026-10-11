@@ -219,7 +219,7 @@ defmodule MealPlannerApiWeb.ShoppingManualItemsTest do
   end
 
   describe "a manual item in a Cart at checkout" do
-    test "closes a manual item without an Ingredient as bought; stock is issue #48", c do
+    test "closes a manual item without an Ingredient as bought and stocks nothing", c do
       %{"id" => id} = create_manual(c.token, %{"name" => "Dish soap"}, 201)
 
       mark =
@@ -234,7 +234,7 @@ defmodule MealPlannerApiWeb.ShoppingManualItemsTest do
         |> post("/api/checkout/confirm", %{
           "checkout_type" => "physical",
           "session_id" => mark["data"]["sessionId"],
-          "items" => Enum.map(mark["data"]["items"], &Map.put(&1, "total_cents", 100))
+          "lines" => [%{"item_id" => id, "quantity_milli" => 1000, "total_cents" => 100}]
         })
 
       assert %{"data" => %{"status" => "completed", "movedToInventoryCount" => 0}} =

@@ -131,6 +131,9 @@ defmodule MealPlannerApiWeb.ApiError do
           | :cart_locked
           | :stale_cart
           | :cart_not_found
+          | :checkout_invalid_type
+          | :cart_expired
+          | :checkout_session_not_found
           | :voice_parse_failed
           | :voice_confirmation_required
           | :prepared_leftover_not_found
@@ -204,6 +207,12 @@ defmodule MealPlannerApiWeb.ApiError do
     cart_locked: {409, "These items are held in another member's cart."},
     stale_cart: {409, "This cart has expired."},
     cart_not_found: {404, "The cart was not found."},
+    # Checkout confirm (issue #43). `cart_expired`: the Cart being confirmed
+    # is no longer live. A session of another Account, an unknown one and a
+    # malformed id share `checkout_session_not_found`.
+    checkout_invalid_type: {422, "The checkout type must be physical or online."},
+    cart_expired: {409, "This cart has expired and can no longer be confirmed."},
+    checkout_session_not_found: {404, "The checkout session was not found."},
     # Prepared leftovers (issue #45). A missing, closed, malformed-id and
     # other-Account leftover share the code, so existence is not revealed.
     # Keep it above the planning channel rows: the mobile allowlist test reads
