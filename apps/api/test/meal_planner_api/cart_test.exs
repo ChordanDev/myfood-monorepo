@@ -25,7 +25,7 @@ defmodule MealPlannerApi.CartTest do
     assert {:ok, own_view} = ShoppingService.get_shopping_list(f.actor)
     assert own_view.cart.session_id == cart.session_id
     assert {:error, :cart_locked} = Cart.reserve(f.other, [hd(f.items).id])
-    assert {:error, :cart_not_found} = Cart.purchase(f.other, cart.session_id, payload(cart))
+    assert {:error, :cart_locked} = Cart.purchase(f.other, cart.session_id, payload(cart))
     assert {:error, :cart_not_found} = Cart.cancel(f.other, cart.session_id)
     assert {:error, :cart_not_found} = Cart.renew(f.other, cart.session_id)
     assert stock(f) == []
@@ -50,7 +50,7 @@ defmodule MealPlannerApi.CartTest do
   test "removal releases atomically; old tokens cannot act on a new reservation in the same cart",
        f do
     cart = reserve!(f)
-    [line | _] = payload(cart)["items"]
+    [line | _] = reservations(cart)
 
     assert {:error, :stale_reservation} =
              Cart.remove(f.actor, cart.session_id, [
@@ -62,14 +62,13 @@ defmodule MealPlannerApi.CartTest do
     assert {:ok, renewed} = Cart.reserve(f.actor, [line["item_id"]])
     refute hd(renewed.reservations).reservation_token == line["reservation_token"]
     assert {:error, :stale_reservation} = Cart.remove(f.actor, cart.session_id, [line])
-    assert {:error, :stale_reservation} = Cart.purchase(f.actor, cart.session_id, payload(cart))
   end
 
   test "cancellation releases every line and rejects stale confirmation", f do
     cart = reserve!(f)
     assert {:ok, %{updated_rows: 2}} = Cart.cancel(f.actor, cart.session_id)
     assert Enum.all?(lines(f), &(&1.status == :pending and is_nil(&1.reservation_token)))
-    assert {:error, :stale_cart} = Cart.purchase(f.actor, cart.session_id, payload(cart))
+    assert {:error, :cart_expired} = Cart.purchase(f.actor, cart.session_id, payload(cart))
     assert {:ok, _} = Cart.reserve(f.other, Enum.map(f.items, & &1.id))
     assert events(f) == []
   end
@@ -78,7 +77,7 @@ defmodule MealPlannerApi.CartTest do
        f do
     cart = reserve!(f)
     expire!(cart)
-    assert {:error, :stale_cart} = Cart.purchase(f.actor, cart.session_id, payload(cart))
+    assert {:error, :cart_expired} = Cart.purchase(f.actor, cart.session_id, payload(cart))
     assert {:error, :stale_cart} = Cart.renew(f.actor, cart.session_id)
     assert Enum.all?(lines(f), &(&1.status == :pending and is_nil(&1.checkout_session_id)))
     assert Repo.get!(CheckoutSession, cart.session_id).status == :abandoned
@@ -107,15 +106,14 @@ defmodule MealPlannerApi.CartTest do
       cart = reserve!(f)
       Phoenix.PubSub.subscribe(MealPlannerApi.PubSub, "shopping:#{f.account.id}")
 
-      assert {:ok, %{actual_total_cents: 500}} =
+      # 300 g of a 1500 g line: it covers part of the nearest allocation.
+      assert {:ok, %{actual_total_cents: 250} = result} =
                ShoppingCheckout.confirm_checkout(f.actor, payload(cart, 300, unquote(type)))
 
       assert_receive %Phoenix.Socket.Broadcast{event: "purchase_confirmed"}
       assert_receive %Phoenix.Socket.Broadcast{event: "inventory_changed"}
-      assert Enum.sum(Enum.map(stock(f), & &1.quantity_milli)) == 600
-      assert Enum.sum(Enum.map(stock(f), & &1.acquired_price_cents)) == 500
-      assert length(stock(f)) == 2
-      assert length(events(f)) == 2
+      assert [%{quantity_milli: 300, acquired_price_cents: 250}] = stock(f)
+      assert length(events(f)) == 1
 
       assert Enum.all?(
                events(f),
@@ -124,7 +122,7 @@ defmodule MealPlannerApi.CartTest do
              )
 
       remaining = Enum.filter(lines(f), &(&1.status == :pending))
-      assert Enum.sort(Enum.map(remaining, & &1.quantity_milli)) == [200, 700]
+      assert Enum.sort(Enum.map(remaining, & &1.quantity_milli)) == [500, 700]
 
       assert Enum.all?(
                remaining,
@@ -133,8 +131,9 @@ defmodule MealPlannerApi.CartTest do
 
       snapshot = {stock(f), events(f), lines(f), Repo.get!(CheckoutSession, cart.session_id)}
 
-      assert {:error, :already_purchased} =
-               ShoppingCheckout.confirm_checkout(f.actor, payload(cart))
+      # A repeated confirm replays the first result and changes nothing.
+      assert {:ok, ^result} =
+               ShoppingCheckout.confirm_checkout(f.actor, payload(cart, 300, unquote(type)))
 
       assert {:ok, %{"moved_to_inventory_count" => 0}} =
                ShoppingService.confirm_delivery(f.actor, cart.session_id)
@@ -145,7 +144,7 @@ defmodule MealPlannerApi.CartTest do
       refute_receive %Phoenix.Socket.Broadcast{event: "purchase_confirmed"}
       refute_receive %Phoenix.Socket.Broadcast{event: "inventory_changed"}
       assert {:ok, view} = ShoppingService.get_shopping_list(f.other)
-      assert hd(view.planned).quantity_milli == 900
+      assert hd(view.planned).quantity_milli == 1200
     end
   end
 
@@ -163,34 +162,36 @@ defmodule MealPlannerApi.CartTest do
   test "actual quantity above the reservation adds exactly what was bought without a negative remainder",
        f do
     cart = reserve!(f)
-    assert {:ok, _} = Cart.purchase(f.actor, cart.session_id, payload(cart, 1200))
-    assert Enum.sum(Enum.map(stock(f), & &1.quantity_milli)) == 2400
-    assert Enum.all?(lines(f), &(&1.status == :checked_out and &1.quantity_milli == 1200))
+    assert {:ok, _} = Cart.purchase(f.actor, cart.session_id, payload(cart, 1800))
+    assert Enum.sum(Enum.map(stock(f), & &1.quantity_milli)) == 1800
+    assert Enum.all?(lines(f), &(&1.status == :checked_out))
+    # The surplus is stocked with the last allocation.
+    assert Enum.sort(Enum.map(lines(f), & &1.quantity_milli)) == [800, 1000]
   end
 
-  test "invalid, missing, duplicate and incomplete purchase data leave all rows untouched", f do
+  test "invalid, unknown and duplicate purchase lines leave all rows untouched", f do
     cart = reserve!(f)
     original = lines(f)
     data = payload(cart)
-    [line | _] = data["items"]
+    [line] = data["lines"]
 
-    for {items, reason} <- [
-          {[], :invalid_purchase_items},
-          {[line], :incomplete_cart},
-          {[line, line], :duplicate_item},
-          {[Map.put(line, "item_id", nil)], :invalid_payload},
-          {Enum.map(data["items"], &Map.put(&1, "quantity_milli", -1)), :invalid_quantity},
-          {Enum.map(data["items"], &Map.put(&1, "total_cents", -1)), :invalid_price}
+    for lines <- [
+          [line, line],
+          [Map.put(line, "item_id", nil)],
+          [Map.put(line, "item_id", hd(f.items).id)],
+          [Map.put(line, "quantity_milli", -1)],
+          [Map.put(line, "total_cents", -1)],
+          [%{line | "quantity_milli" => 0}]
         ] do
-      assert {:error, ^reason} =
-               Cart.purchase(f.actor, cart.session_id, Map.put(data, "items", items))
+      assert {:error, :validation_error} =
+               Cart.purchase(f.actor, cart.session_id, Map.put(data, "lines", lines))
 
       assert lines(f) == original
       assert stock(f) == []
       assert events(f) == []
     end
 
-    assert {:error, :invalid_payload} = ShoppingCheckout.confirm_checkout(f.actor, %{})
+    assert {:error, :validation_error} = ShoppingCheckout.confirm_checkout(f.actor, %{})
 
     assert {:error, :reservation_required} =
              ShoppingService.create_checkout_from_range(
@@ -206,7 +207,7 @@ defmodule MealPlannerApi.CartTest do
     cart = reserve!(f)
     assert {:error, :item_not_found} = Cart.reserve(foreign.actor, Enum.map(f.items, & &1.id))
 
-    assert {:error, :cart_not_found} =
+    assert {:error, :checkout_session_not_found} =
              Cart.purchase(foreign.actor, cart.session_id, payload(cart))
 
     membership =

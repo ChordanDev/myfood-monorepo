@@ -160,34 +160,37 @@ defmodule MealPlannerApiWeb.ShoppingController do
   defp respond(conn, {:ok, data}), do: json(conn, %{data: data})
   defp respond(conn, {:error, reason}), do: render_error(conn, reason)
 
+  # Checkout confirm (issue #43): `{ sessionId, checkoutType, lines? }`. Every
+  # error leaves through the `ApiError` envelope, and a repeated confirm of a
+  # completed session answers 200 with the first result.
   def confirm_checkout(conn, payload) do
     user = scoped_user(conn)
 
-    # Support both session_id (path param) and date-range checkout (body params)
-    session_id = Map.get(payload, "session_id")
-    checkout_type = Map.get(payload, "checkout_type")
-
-    cond do
-      session_id ->
-        case ShoppingService.confirm_checkout(user, session_id, payload) do
-          {:ok, response} -> json(conn, %{data: response})
-          {:error, reason} -> render_error(conn, reason)
-        end
-
-      checkout_type ->
-        # Date-range based checkout: create session from items in range
-        start_date = parse_date_param(payload["start_date"])
-        end_date = parse_date_param(payload["end_date"])
-
-        respond(
-          conn,
-          ShoppingService.create_checkout_from_range(user, start_date, end_date, checkout_type)
-        )
-
-      true ->
-        render_error(conn, :invalid_payload)
+    case ShoppingService.confirm_checkout(user, payload["session_id"], payload) do
+      {:ok, response} -> json(conn, %{data: response})
+      {:error, reason} -> render_checkout_error(conn, reason)
     end
   end
+
+  defp render_checkout_error(conn, :validation_error),
+    do: conn |> ApiError.error(:validation_error)
+
+  defp render_checkout_error(conn, :checkout_invalid_type),
+    do: conn |> ApiError.error(:checkout_invalid_type)
+
+  defp render_checkout_error(conn, :checkout_session_not_found),
+    do: conn |> ApiError.error(:checkout_session_not_found)
+
+  defp render_checkout_error(conn, :cart_expired), do: conn |> ApiError.error(:cart_expired)
+  defp render_checkout_error(conn, :cart_locked), do: conn |> ApiError.error(:cart_locked)
+
+  defp render_checkout_error(conn, :subscription_required),
+    do: conn |> ApiError.error(:subscription_required)
+
+  defp render_checkout_error(conn, :invalid_identity),
+    do: conn |> ApiError.error(:invalid_identity)
+
+  defp render_checkout_error(conn, _reason), do: conn |> ApiError.server_fault()
 
   defp parse_date_param(nil), do: Date.utc_today()
 

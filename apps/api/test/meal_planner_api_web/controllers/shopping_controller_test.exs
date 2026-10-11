@@ -669,7 +669,9 @@ defmodule MealPlannerApiWeb.ShoppingControllerTest do
       |> post("/api/checkout/confirm", %{
         "checkout_type" => "physical",
         "session_id" => mark_body["data"]["sessionId"],
-        "items" => Enum.map(mark_body["data"]["items"], &Map.put(&1, "total_cents", 5000)),
+        "lines" => [
+          %{"item_id" => "#{ingredient.id}:g", "quantity_milli" => 900, "total_cents" => 10_000}
+        ],
         "start_date" => Date.to_iso8601(start_date),
         "end_date" => Date.to_iso8601(end_date)
       })
@@ -888,7 +890,9 @@ defmodule MealPlannerApiWeb.ShoppingControllerTest do
       |> post("/api/checkout/confirm", %{
         "checkout_type" => "online",
         "session_id" => cart["sessionId"],
-        "items" => Enum.map(cart["items"], &Map.put(&1, "total_cents", 2000)),
+        "lines" => [
+          %{"item_id" => "#{ingredient.id}:g", "quantity_milli" => 300, "total_cents" => 2000}
+        ],
         "start_date" => Date.to_iso8601(start_date),
         "end_date" => Date.to_iso8601(end_date)
       })
