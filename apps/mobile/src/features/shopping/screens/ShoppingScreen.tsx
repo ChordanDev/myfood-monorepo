@@ -1,25 +1,30 @@
 import { useCallback, useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import * as Haptics from 'expo-haptics';
 import { X } from 'lucide-react-native';
 import Animated from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { NoisyBackground, SafeAreaContent, SegmentedSwitcher } from '@/components';
 import { useRecipeTheme } from '@/context/RecipeThemeContext';
+import { useInventoryStore } from '@/features/inventory';
 import { CUSTOM_TAB_BAR_CONTENT_HEIGHT } from '@/features/planner/constants';
 import { useAnimatedThemeStyle } from '@/hooks/useAnimatedThemeStyle';
 import { withOpacity } from '@/utils/colors';
 import {
+  SHOPPING_CART_BUTTON_SIZE,
   ShoppingAddItemSheet,
+  ShoppingCartButton,
+  ShoppingCartSheet,
   ShoppingDatePill,
   ShoppingGroupCard,
   ShoppingLoadError,
   ShoppingManualCard,
   ShoppingRestoreLine,
 } from '../components';
-import { formatCountersLabel } from '../domain';
+import { formatCountersLabel, getItemIdsToBuy } from '../domain';
 import { useCartLease } from '../hooks/useCartLease';
 import { useShoppingList } from '../hooks/useShoppingList';
-import type { ShoppingGroupBy } from '../types';
+import type { CheckoutLine, ShoppingGroupBy } from '../types';
 
 const GROUPING_OPTIONS: { value: ShoppingGroupBy; label: string }[] = [
   { value: 'ingredient', label: 'Por ingrediente' },
@@ -32,8 +37,9 @@ const LIST_GAP = 14;
 // The list as the server has it. The User can add an item by hand, remove one (a planned item
 // is only taken off the list, a manual one is deleted) and bring the removed ones back. A row
 // can be ticked into the Cart, which holds a lease the screen keeps alive while it is open; the
-// Cart can be abandoned. Un-ticking a row and buying the cart are not on this screen until the
-// server takes them.
+// Cart can be abandoned, or opened from its button and bought in person, with the quantity
+// bought of each line. What was bought enters the Inventory and stays listed as bought until
+// its meal is cooked. Un-ticking a row is not on this screen until the server takes it.
 export function ShoppingScreen() {
   const insets = useSafeAreaInsets();
   const { theme } = useRecipeTheme();
@@ -53,6 +59,7 @@ export function ShoppingScreen() {
     errorMessage,
     retry,
     cart: listCart,
+    cartLines,
     lines,
     manualItems,
     removedCount,
@@ -64,32 +71,68 @@ export function ShoppingScreen() {
     dismissChangeError,
   } = useShoppingList();
   const [isAddSheetVisible, setIsAddSheetVisible] = useState(false);
+  const [isCartSheetVisible, setIsCartSheetVisible] = useState(false);
+  const refreshInventory = useInventoryStore((state) => state.refresh);
   const {
     cart,
     markItems,
     cancel,
+    confirm,
+    isConfirming,
+    confirmErrorMessage,
+    dismissConfirmError,
     errorMessage: cartErrorMessage,
   } = useCartLease({
     listCart,
     refreshList: retry,
   });
 
-  // A row stands for one line: ticking it ticks the items behind it. A line already in the
-  // Cart has nothing to tick.
+  // A row stands for one line: ticking it ticks the items behind it that are still to buy. A
+  // line already in the Cart has nothing to tick, and neither has a bought one.
   const tickLine = useCallback(
     (lineId: string) => {
       const line = lines.find((candidate) => candidate.id === lineId);
+      const itemIds = line && line.status === 'needed' ? getItemIdsToBuy(line) : [];
 
-      if (line && line.status === 'needed') {
-        markItems(line.allocations.map((allocation) => allocation.itemId));
-      }
+      if (itemIds.length > 0) markItems(itemIds);
     },
     [lines, markItems]
   );
+
+  // A Cart that ran out while it was open has nothing left to confirm, and the next Cart does
+  // not open by itself.
+  if (!cart && isCartSheetVisible) {
+    setIsCartSheetVisible(false);
+  }
+
+  const closeCartSheet = useCallback(() => {
+    setIsCartSheetVisible(false);
+    dismissConfirmError();
+  }, [dismissConfirmError]);
+
+  // Buying the Cart moves it into the Inventory: the list is read again by the lease, and the
+  // Inventory here, so its tab shows what was bought without being reloaded. A Cart that is
+  // gone has nothing left to confirm, and a refused one stays open to be tried again.
+  const confirmCart = useCallback(
+    async (boughtLines: CheckoutLine[]) => {
+      const outcome = await confirm(boughtLines);
+
+      if (outcome === 'refused') return;
+      if (outcome === 'purchased') {
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        refreshInventory();
+      }
+      setIsCartSheetVisible(false);
+    },
+    [confirm, refreshInventory]
+  );
+
   // The tab bar floats over the screen, so the content clears it by hand.
   const tabBarHeight = insets.bottom + CUSTOM_TAB_BAR_CONTENT_HEIGHT;
-  // The list ends one gap above the tab bar, so the last card scrolls clear of it.
-  const listBottomPadding = tabBarHeight + LIST_GAP;
+  // The list ends one gap above the tab bar, so the last card scrolls clear of it, and of the
+  // cart button while there is one.
+  const listBottomPadding =
+    tabBarHeight + LIST_GAP + (cart ? SHOPPING_CART_BUTTON_SIZE + LIST_GAP : 0);
 
   const groundStyle = useAnimatedThemeStyle({ backgroundColor: theme.appBg });
   const titleStyle = useAnimatedThemeStyle({ color: theme.textDark });
@@ -213,6 +256,27 @@ export function ShoppingScreen() {
         </ScrollView>
       </SafeAreaContent>
 
+      {/* Over the list, above the tab bar: what the Cart holds is one press away. */}
+      {cart ? (
+        <View
+          testID="shopping-cart-button"
+          style={[styles.cartButton, { bottom: tabBarHeight + LIST_GAP }]}>
+          <ShoppingCartButton
+            count={cartLines.length}
+            onPress={() => setIsCartSheetVisible(true)}
+          />
+        </View>
+      ) : null}
+
+      <ShoppingCartSheet
+        visible={isCartSheetVisible}
+        lines={cartLines}
+        isConfirming={isConfirming}
+        errorMessage={confirmErrorMessage}
+        onConfirm={confirmCart}
+        onClose={closeCartSheet}
+      />
+
       <ShoppingAddItemSheet
         visible={isAddSheetVisible}
         onAdd={addManualItem}
@@ -223,6 +287,10 @@ export function ShoppingScreen() {
 }
 
 const styles = StyleSheet.create({
+  cartButton: {
+    position: 'absolute',
+    right: HORIZONTAL_PADDING,
+  },
   counter: {
     fontFamily: 'Inter_500Medium',
     fontSize: 12,

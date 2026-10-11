@@ -32,8 +32,6 @@ export const SHOPPING_SLOT_LABELS: Record<ShoppingMealSlot, string> = {
   dinner: 'Cena',
 };
 
-export const NO_PRICE_LABEL = 'Sin precio';
-
 export const SHORT_MONTHS = [
   'Ene',
   'Feb',

@@ -469,4 +469,50 @@ describe('ShoppingItemRow', () => {
       expect(root.findAllByType(Check)).toHaveLength(1);
     });
   });
+
+  describe('purchased', () => {
+    const BOUGHT: ShoppingListLine = { ...CHEESE, status: 'purchased' };
+
+    it('reads as bought, in one element, after its lines', () => {
+      const { root } = renderRow(BOUGHT, CHEESE_MEALS);
+      const labels = root
+        .findAll((node) => node.props.accessible === true && typeof node.type === 'string')
+        .map((node) => node.props.accessibilityLabel);
+
+      expect(labels).toEqual(['300 g · Queso cremoso, Para 2 comidas, comprado']);
+      expect(getTexts(root)).toEqual(['300 g · Queso cremoso', 'Para 2 comidas', 'Comprado']);
+    });
+
+    it('cannot be ticked, held or acted on, even with the handlers of the list', () => {
+      const { root, onToggle, onRemove } = renderRow(BOUGHT, CHEESE_MEALS);
+
+      expect(
+        root.findAll(
+          (node) =>
+            typeof node.props.onPress === 'function' ||
+            typeof node.props.onLongPress === 'function' ||
+            typeof node.props.onAccessibilityAction === 'function' ||
+            typeof node.props.onResponderGrant === 'function'
+        )
+      ).toEqual([]);
+      expect(root.findAll((node) => node.props.accessibilityRole === 'checkbox')).toEqual([]);
+      expect(onToggle).not.toHaveBeenCalled();
+      expect(onRemove).not.toHaveBeenCalled();
+    });
+
+    it('is dimmed and tagged instead of ticked, so it does not pass for a row in the cart', () => {
+      const { root } = renderRow(BOUGHT, CHEESE_MEALS);
+      const [name, meta, tag] = getLineStyles(root);
+      const dimmed = withOpacity(mockTheme.textBlack, 0.45);
+
+      expect(name).toEqual(expect.objectContaining({ color: dimmed }));
+      expect(name.textDecorationLine).not.toBe('line-through');
+      expect(meta).toEqual(expect.objectContaining({ color: dimmed }));
+      expect(tag).toEqual(expect.objectContaining({ color: dimmed }));
+      expect(root.findAll((node) => node.props.testID === 'shopping-checkbox')).toEqual([]);
+      expect(root.findAll((node) => node.props.testID === 'shopping-purchased-tag')).not.toEqual(
+        []
+      );
+    });
+  });
 });

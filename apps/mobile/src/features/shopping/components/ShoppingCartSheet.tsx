@@ -1,79 +1,119 @@
-import { useEffect, useRef, useState } from 'react';
+import { useState } from 'react';
 import {
   Modal,
   Pressable,
   ScrollView,
   StyleSheet,
   Text,
+  TextInput,
   useWindowDimensions,
   View,
 } from 'react-native';
-import * as Haptics from 'expo-haptics';
-import { X } from 'lucide-react-native';
+import Animated from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRecipeTheme } from '@/context/RecipeThemeContext';
+import { useKeyboardAnimation } from '@/hooks/useKeyboardAnimation';
+import { UNIT_LABEL } from '@/utils/formatQuantity';
 import { withOpacity } from '@/utils/colors';
-import { formatItemMetaLine, formatItemNameLine } from '../domain';
-import type { BestOffer, ShoppingListItem } from '../types';
+import {
+  formatQuantityInput,
+  formatSuggestedQuantity,
+  getChangedCheckoutLines,
+  parseBoughtQuantityMilli,
+} from '../domain';
+import type { CheckoutLine, ShoppingCartLine } from '../types';
 
 // Share of the window the rows may take before they scroll, so the actions stay on screen.
 const LIST_MAX_HEIGHT_RATIO = 0.4;
-const TAKE_OUT_ICON_SIZE = 20;
-const TAKE_OUT_TARGET_SIZE = 44;
-// Space between the icon and the edge of its target, on each side.
-const TAKE_OUT_ICON_INSET = (TAKE_OUT_TARGET_SIZE - TAKE_OUT_ICON_SIZE) / 2;
 
 export interface ShoppingCartSheetProps {
   visible: boolean;
-  // Rows in the cart, planned and manual, as they are derived now.
-  items: ShoppingListItem[];
-  // Best offer of each row, keyed by item id. A row without an entry has no price.
-  bestOffers: Record<string, BestOffer>;
-  onTakeOut: (itemId: string) => void;
-  // Called once per opening; the sheet asks to close right after.
-  onConfirm: () => void;
+  // The lines of the Cart, each with the quantity the Cart holds of it.
+  lines: ShoppingCartLine[];
+  // The purchase was asked for and the server has not answered yet.
+  isConfirming: boolean;
+  // Why the server refused the last purchase, while the Cart is still there to buy.
+  errorMessage?: string;
+  // Called with the lines bought at another quantity than the Cart holds, and only those. The
+  // sheet stays open: whoever asked closes it once the server answers.
+  onConfirm: (lines: CheckoutLine[]) => void;
   onClose: () => void;
 }
 
-// Bottom sheet with what was marked, and the button that buys it. Mirrors the add sheet.
+// What the fields read when the sheet opens: what the Cart holds of each line.
+function getSuggestedTexts(lines: ShoppingCartLine[]) {
+  return Object.fromEntries(
+    lines.map(({ id, quantityMilli }) => [id, formatQuantityInput(quantityMilli)])
+  );
+}
+
+// Bottom sheet with what was marked, how much of each line was bought, and the button that
+// buys it. Mirrors the add sheet.
 export function ShoppingCartSheet({
   visible,
-  items,
-  bestOffers,
-  onTakeOut,
+  lines,
+  isConfirming,
+  errorMessage,
   onConfirm,
   onClose,
 }: ShoppingCartSheetProps) {
   const insets = useSafeAreaInsets();
   const { height: windowHeight } = useWindowDimensions();
   const { theme } = useRecipeTheme();
-  const [shown, setShown] = useState({ items, bestOffers });
-  // A ref, not state: two presses can land before the first one has re-rendered anything.
-  const hasConfirmedRef = useRef(false);
+  const [shownLines, setShownLines] = useState(lines);
+  // What each field reads, keyed by line id. A line without an entry reads what the Cart holds.
+  const [quantityTexts, setQuantityTexts] = useState<Record<string, string>>({});
+  const [wasVisible, setWasVisible] = useState(visible);
+  // The panel rests on the bottom edge of the window, so it rises by the whole keyboard.
+  const { inputAnimatedStyle } = useKeyboardAnimation({
+    mode: 'geometry',
+    restingBottomOffset: 0,
+    bottomInset: insets.bottom,
+    enabled: visible,
+  });
 
-  // The rows and their offers follow the cart only while the sheet is open. Confirming
-  // empties the cart at once, offers included, and iOS keeps the panel mounted while it fades
-  // out: it leaves showing what was bought at its price, not the empty hint or "Sin precio".
-  if (visible && (shown.items !== items || shown.bestOffers !== bestOffers)) {
-    setShown({ items, bestOffers });
+  // The rows follow the cart only while the sheet is open. Buying empties the cart at once and
+  // iOS keeps the panel mounted while it fades out: it leaves showing what was bought, not the
+  // empty hint.
+  if (visible && shownLines !== lines) {
+    setShownLines(lines);
   }
 
-  // Each opening accepts one confirmation.
-  useEffect(() => {
-    if (visible) hasConfirmedRef.current = false;
-  }, [visible]);
+  // Every opening starts from what the Cart holds. What was typed is kept on close so it does
+  // not jump back mid fade-out.
+  if (visible !== wasVisible) {
+    setWasVisible(visible);
+    if (visible) setQuantityTexts({});
+  }
 
-  const isEmpty = shown.items.length === 0;
+  const suggestedTexts = getSuggestedTexts(shownLines);
+  const getQuantityText = (lineId: string) => quantityTexts[lineId] ?? suggestedTexts[lineId];
 
-  // A second press, or one that lands while the sheet closes, would buy the cart again with
-  // whatever was marked since: one confirmation per opening, and none once it is closing.
+  const boughtQuantities: Record<string, number> = {};
+  let isEveryQuantityValid = true;
+
+  for (const { id } of shownLines) {
+    const bought = parseBoughtQuantityMilli(getQuantityText(id));
+
+    if (bought === undefined) isEveryQuantityValid = false;
+    else boughtQuantities[id] = bought;
+  }
+
+  const isEmpty = shownLines.length === 0;
+  const canConfirm = visible && !isEmpty && !isConfirming && isEveryQuantityValid;
+
+  // A press that lands while the sheet closes, or while the purchase is on its way, buys
+  // nothing: the server would be asked for the same Cart twice.
   const handleConfirm = () => {
-    if (!visible || isEmpty || hasConfirmedRef.current) return;
+    if (!canConfirm) return;
 
-    hasConfirmedRef.current = true;
-    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    onConfirm();
-    onClose();
+    onConfirm(getChangedCheckoutLines(shownLines, boughtQuantities));
+  };
+
+  const inputColors = {
+    backgroundColor: withOpacity(theme.icon, 0.15),
+    borderColor: withOpacity(theme.icon, 0.3),
+    color: theme.textLight,
   };
 
   return (
@@ -92,11 +132,12 @@ export function ShoppingCartSheet({
         />
 
         {/* Sibling of the backdrop pressable, so a press on the panel never closes the sheet. */}
-        <View
+        <Animated.View
           accessibilityViewIsModal
           style={[
             styles.panel,
             { backgroundColor: theme.colorDark, paddingBottom: insets.bottom + 16 },
+            inputAnimatedStyle,
           ]}>
           <Text accessibilityRole="header" style={[styles.title, { color: theme.textLight }]}>
             Tu carrito
@@ -109,49 +150,63 @@ export function ShoppingCartSheet({
           ) : (
             <ScrollView
               style={[styles.list, { maxHeight: Math.round(windowHeight * LIST_MAX_HEIGHT_RATIO) }]}
+              keyboardShouldPersistTaps="handled"
               showsVerticalScrollIndicator={false}>
-              {shown.items.map((item) => {
-                const nameLine = formatItemNameLine(item);
-                const metaLine = formatItemMetaLine(shown.bestOffers[item.id]);
+              {shownLines.map((line) => {
+                const suggested = formatSuggestedQuantity(line.quantityMilli, line.unit);
 
                 return (
-                  <View key={item.id} style={styles.row}>
-                    {/* One element for both lines; the button next to it is read apart. */}
+                  <View key={line.id} style={styles.row}>
+                    {/* One element for both lines; the field next to it is read apart. */}
                     <View
                       accessible
-                      accessibilityLabel={`${nameLine}, ${metaLine}`}
+                      accessibilityLabel={`${line.name}, ${suggested}`}
                       style={styles.lines}>
-                      <Text style={[styles.name, { color: theme.textLight }]}>{nameLine}</Text>
-                      <Text style={[styles.meta, { color: theme.textMedium }]}>{metaLine}</Text>
+                      <Text style={[styles.name, { color: theme.textLight }]}>{line.name}</Text>
+                      <Text style={[styles.meta, { color: theme.textMedium }]}>{suggested}</Text>
                     </View>
-                    <Pressable
-                      accessibilityRole="button"
-                      accessibilityLabel={`Sacar del carrito, ${nameLine}`}
-                      onPress={() => {
-                        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                        onTakeOut(item.id);
-                      }}
-                      style={({ pressed }) => [styles.takeOut, { opacity: pressed ? 0.6 : 1 }]}>
-                      <X size={TAKE_OUT_ICON_SIZE} color={theme.icon} strokeWidth={2.5} />
-                    </Pressable>
+                    <TextInput
+                      testID={`shopping-cart-quantity-${line.id}`}
+                      value={getQuantityText(line.id)}
+                      onChangeText={(text) =>
+                        setQuantityTexts((texts) => ({ ...texts, [line.id]: text }))
+                      }
+                      editable={!isConfirming}
+                      keyboardType="decimal-pad"
+                      returnKeyType="done"
+                      selectTextOnFocus
+                      accessibilityLabel={`Cantidad comprada, ${line.name}`}
+                      selectionColor={theme.primaryAccent}
+                      cursorColor={theme.primaryAccent}
+                      style={[styles.quantityInput, inputColors]}
+                    />
+                    <Text style={[styles.unit, { color: theme.textMedium }]}>
+                      {UNIT_LABEL[line.unit]}
+                    </Text>
                   </View>
                 );
               })}
             </ScrollView>
           )}
 
+          {errorMessage ? (
+            <Text accessibilityRole="alert" style={[styles.error, { color: theme.textLight }]}>
+              {errorMessage}
+            </Text>
+          ) : null}
+
           <View style={styles.actions}>
             <Pressable
               accessibilityRole="button"
-              accessibilityState={{ disabled: isEmpty }}
-              disabled={isEmpty}
+              accessibilityState={{ disabled: !canConfirm, busy: isConfirming }}
+              disabled={!canConfirm}
               onPress={handleConfirm}
               style={({ pressed }) => [
                 styles.confirmButton,
                 {
                   backgroundColor: theme.primaryAccent,
                   borderColor: theme.primaryAccentIntense,
-                  opacity: isEmpty ? 0.5 : pressed ? 0.9 : 1,
+                  opacity: canConfirm ? (pressed ? 0.9 : 1) : 0.5,
                 },
               ]}>
               <Text style={[styles.confirmLabel, { color: theme.textBlack }]}>
@@ -166,7 +221,7 @@ export function ShoppingCartSheet({
               <Text style={[styles.textButtonLabel, { color: theme.textLight }]}>Cancelar</Text>
             </Pressable>
           </View>
-        </View>
+        </Animated.View>
       </View>
     </Modal>
   );
@@ -197,6 +252,13 @@ const styles = StyleSheet.create({
     fontSize: 16,
     lineHeight: 22,
   },
+  error: {
+    fontFamily: 'Inter_500Medium',
+    fontSize: 14,
+    lineHeight: 20,
+    marginTop: 16,
+    textAlign: 'center',
+  },
   hint: {
     fontFamily: 'Inter_500Medium',
     fontSize: 14,
@@ -210,9 +272,6 @@ const styles = StyleSheet.create({
   list: {
     // Never taller than its rows: a short cart does not stretch the panel.
     flexGrow: 0,
-    // The list clips, so it is the list that reaches into the padding of the panel: the
-    // take-out icon lines up with the right edge of the text and its whole target is inside.
-    marginRight: -TAKE_OUT_ICON_INSET,
     marginTop: 16,
   },
   meta: {
@@ -232,17 +291,23 @@ const styles = StyleSheet.create({
     paddingTop: 24,
     width: '100%',
   },
+  quantityInput: {
+    borderRadius: 12,
+    borderWidth: 1,
+    fontFamily: 'Inter_500Medium',
+    fontSize: 16,
+    fontVariant: ['tabular-nums'],
+    minHeight: 44,
+    minWidth: 84,
+    paddingHorizontal: 12,
+    textAlign: 'right',
+  },
   row: {
     alignItems: 'center',
     flexDirection: 'row',
-    gap: 12,
+    gap: 8,
     minHeight: 44,
-  },
-  takeOut: {
-    alignItems: 'center',
-    height: TAKE_OUT_TARGET_SIZE,
-    justifyContent: 'center',
-    width: TAKE_OUT_TARGET_SIZE,
+    paddingVertical: 4,
   },
   textButton: {
     alignItems: 'center',
@@ -259,5 +324,12 @@ const styles = StyleSheet.create({
     fontSize: 20,
     lineHeight: 26,
     textAlign: 'center',
+  },
+  // Wide enough for the longest unit, so the fields of every row line up.
+  unit: {
+    fontFamily: 'Inter_500Medium',
+    fontSize: 14,
+    lineHeight: 20,
+    minWidth: 20,
   },
 });
