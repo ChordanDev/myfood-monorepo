@@ -1,12 +1,17 @@
 defmodule MealPlannerApi.ShoppingServiceTest do
   use ExUnit.Case, async: true
 
+  import Ecto.Query
+  import ExUnit.CaptureLog
+
   alias Ecto.Adapters.SQL.Sandbox
   alias MealPlannerApi.Persistence.Accounts.Account
   alias MealPlannerApi.Persistence.Accounts.AccountMembership
+  alias MealPlannerApi.Persistence.Calendar.MealMove
   alias MealPlannerApi.Persistence.Catalog
   alias MealPlannerApi.Persistence.Identity
   alias MealPlannerApi.Persistence.Planning
+  alias MealPlannerApi.Persistence.Planning.ScheduledMeal
   alias MealPlannerApi.Persistence.Shopping
   alias MealPlannerApi.Repo
   alias MealPlannerApi.Services.ShoppingService
@@ -464,6 +469,108 @@ defmodule MealPlannerApi.ShoppingServiceTest do
                  @late_utc_evening
                )
     end
+  end
+
+  # A Shopping list read loads the Scheduled meals first and derives their
+  # Shopping items later, outside any transaction. These tests stand in for a
+  # write that commits in between: the meals are loaded, the write runs, and
+  # the derivation gets the meals as they were loaded.
+  describe "ensure_shopping_items_from_schedule/2 with meals loaded before a write" do
+    test "stores nothing for the date a meal with Shopping items was moved off" do
+      {account_id, user} = identity!("stale_moved")
+      today = Date.utc_today()
+      ingredient = create_test_ingredient(account_id)
+      meal = schedule_meal!(account_id, user.id, Date.add(today, 1), :lunch, ingredient, 200)
+
+      assert {:ok, _list} = ShoppingService.get_shopping_list(user)
+      assert stored_planned_items(account_id) == [{meal.id, meal.date, ingredient.id, :pending}]
+
+      loaded = loaded_meals(account_id)
+      new_date = Date.add(today, 2)
+      assert {:ok, _} = MealMove.move(account_id, meal.id, new_date, :lunch, today)
+
+      assert :ok = ShoppingService.ensure_shopping_items_from_schedule(account_id, loaded)
+
+      assert stored_planned_items(account_id) == [{meal.id, new_date, ingredient.id, :pending}]
+
+      # Two open items of one meal on different dates would collapse onto one
+      # date here and refuse every later move.
+      assert {:ok, _} = MealMove.move(account_id, meal.id, Date.add(today, 3), :lunch, today)
+    end
+
+    test "stores nothing for the date a meal without Shopping items was moved off" do
+      {account_id, user} = identity!("stale_empty")
+      today = Date.utc_today()
+      tomorrow = Date.add(today, 1)
+      moved_ingredient = create_test_ingredient(account_id)
+      kept_ingredient = create_test_ingredient(account_id)
+      moved = schedule_meal!(account_id, user.id, tomorrow, :lunch, moved_ingredient, 200)
+      kept = schedule_meal!(account_id, user.id, tomorrow, :dinner, kept_ingredient, 300)
+
+      loaded = loaded_meals(account_id)
+      new_date = Date.add(today, 2)
+      assert {:ok, _} = MealMove.move(account_id, moved.id, new_date, :lunch, today)
+
+      assert :ok = ShoppingService.ensure_shopping_items_from_schedule(account_id, loaded)
+
+      # The meal that stayed gets its item from the same derivation.
+      assert stored_planned_items(account_id) == [
+               {kept.id, tomorrow, kept_ingredient.id, :pending}
+             ]
+
+      # The next read loads the moved meal again and derives it where it is.
+      assert {:ok, _list} = ShoppingService.get_shopping_list(user)
+
+      assert stored_planned_items(account_id) ==
+               Enum.sort([
+                 {kept.id, tomorrow, kept_ingredient.id, :pending},
+                 {moved.id, new_date, moved_ingredient.id, :pending}
+               ])
+    end
+
+    test "skips a meal deleted since it was loaded, without failing the batch" do
+      {account_id, user} = identity!("stale_deleted")
+      tomorrow = Date.add(Date.utc_today(), 1)
+      deleted_ingredient = create_test_ingredient(account_id)
+      kept_ingredient = create_test_ingredient(account_id)
+      deleted = schedule_meal!(account_id, user.id, tomorrow, :lunch, deleted_ingredient, 200)
+      kept = schedule_meal!(account_id, user.id, tomorrow, :dinner, kept_ingredient, 300)
+
+      loaded = loaded_meals(account_id)
+      Repo.delete!(deleted)
+
+      log =
+        capture_log(fn ->
+          assert :ok = ShoppingService.ensure_shopping_items_from_schedule(account_id, loaded)
+        end)
+
+      # Other tests log at the same time: only this Account's lines count.
+      refute log =~ account_id
+
+      assert stored_planned_items(account_id) == [
+               {kept.id, tomorrow, kept_ingredient.id, :pending}
+             ]
+    end
+  end
+
+  # The Scheduled meals of the Account, in the order a Shopping list read
+  # loads them.
+  defp loaded_meals(account_id) do
+    Repo.all(
+      from(m in ScheduledMeal,
+        where: m.account_id == ^account_id,
+        order_by: [asc: m.date, asc: m.id]
+      )
+    )
+  end
+
+  defp stored_planned_items(account_id) do
+    from(i in Shopping.ShoppingItem,
+      where: i.account_id == ^account_id,
+      select: {i.scheduled_meal_id, i.planned_date, i.ingredient_id, i.status}
+    )
+    |> Repo.all()
+    |> Enum.sort()
   end
 
   defp identity!(tag) do

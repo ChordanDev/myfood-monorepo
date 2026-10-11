@@ -224,8 +224,12 @@ defmodule MealPlannerApi.Persistence.Shopping do
         &{&1.scheduled_meal_id, Date.to_erl(&1.planned_date), &1.ingredient_id, &1.unit}
       )
 
+    # The Shopping list read calls this inside a transaction. A statement that
+    # fails there aborts the transaction, and the lines stored one by one
+    # below would all fail with it, so each statement runs in a savepoint.
+    # Outside a transaction the option changes nothing.
     try do
-      Repo.insert_all(ShoppingItem, rows, on_conflict: :nothing)
+      Repo.insert_all(ShoppingItem, rows, on_conflict: :nothing, mode: :savepoint)
       :ok
     rescue
       exception ->
@@ -240,7 +244,7 @@ defmodule MealPlannerApi.Persistence.Shopping do
   end
 
   defp insert_planned_changeset(account_id, changeset) do
-    case Repo.insert(changeset, on_conflict: :nothing) do
+    case Repo.insert(changeset, on_conflict: :nothing, mode: :savepoint) do
       {:ok, _item} ->
         :ok
 
