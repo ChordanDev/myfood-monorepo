@@ -257,18 +257,19 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
   const completeOnboarding = useCallback(
     async (payload: OnboardingCompletionRequest): Promise<OnboardingCompletionResponse> => {
-      // Judgment Day C2: the POST result is the source of truth. The
-      // follow-up refreshMe() is a soft read; if it fails the gate
-      // must not flip the user back to the Onboarding screen because
-      // the server already accepted the completion. The reconciliation
-      // policy is unit-tested in `postCompletion.test.ts`.
+      // Judgment Day C2: the POST result is the source of truth for the
+      // completion gate. The follow-up refreshMe() is a soft read; if it
+      // fails the gate must not flip the user back to the Onboarding
+      // screen because the server already accepted the completion. The
+      // reconciliation policy is unit-tested in `postCompletion.test.ts`.
       const result = await authService.completeOnboarding(payload);
 
-      // The completion answer carries displayName, householdSize and
-      // cookingSkill. The server stores them with the completion and
-      // GET /api/me serves them afterwards. They still go to the stored
-      // snapshot before the refresh below, so a failed refresh or a later
-      // restored snapshot does not drop them, and into `me` after it.
+      // A successful GET /api/me is the only source of displayName,
+      // householdSize and cookingSkill. The completion answer only stands
+      // in until one arrives: it goes to the stored snapshot before the
+      // refresh below, so an app closed mid-refresh does not reopen with
+      // empty fields, and that refresh overwrites it with what /me
+      // returned. It goes into `me` only when no fresh /me arrived.
       const email = meRef.current?.user.email;
       const completedProfile: ProfileUpdateUser | null =
         email === undefined
@@ -289,20 +290,27 @@ export function AuthProvider({ children }: AuthProviderProps) {
       }
 
       const session = await authService.persistOnboardingCompletionForStoredSession();
+      let receivedFreshMe = false;
       if (session?.accessToken) {
         const reconcile = await reconcileAfterCompletion({
           wasComplete: optimisticCompleteRef.current,
           persisted: true,
-          refresh: () => authService.refreshCurrentSession().then((next) => next ?? session),
+          // `refreshCurrentSession` resolves null when it finds no stored
+          // session, so no GET /api/me ran.
+          refresh: async () => {
+            const next = await authService.refreshCurrentSession();
+            return { session: next ?? session, isFreshMe: next !== null };
+          },
           onOptimistic: (next) => {
             setOptimisticComplete(next);
             optimisticCompleteRef.current = next;
           },
           onRefreshed: (value) => {
-            applySession(value);
+            applySession(value.session);
           },
           shouldRetry: (error) => isTransientAuthError(error),
         });
+        receivedFreshMe = reconcile.refreshed?.isFreshMe === true;
         if (reconcile.outcome === 'refresh-failed') {
           console.warn(
             '[AuthProvider] Background /me refresh after onboarding failed; relying on next session restore.'
@@ -315,10 +323,15 @@ export function AuthProvider({ children }: AuthProviderProps) {
         optimisticCompleteRef.current = true;
       }
 
-      // Same patch as `updateProfile`: the POST answer is the source of
-      // truth for the profile fields, whatever the refresh returned.
+      // No fresh /me arrived (the refresh failed, or there was no stored
+      // session to refresh): same patch as `updateProfile`.
       const currentMe = meRef.current;
-      if (completedProfile && currentMe && currentMe.user.id === completedProfile.id) {
+      if (
+        !receivedFreshMe &&
+        completedProfile &&
+        currentMe &&
+        currentMe.user.id === completedProfile.id
+      ) {
         const nextMe = withUpdatedProfile(currentMe, completedProfile);
         if (!areCurrentMeEquivalent(currentMe, nextMe)) {
           meRef.current = nextMe;
