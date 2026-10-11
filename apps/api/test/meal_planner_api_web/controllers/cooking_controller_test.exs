@@ -364,4 +364,139 @@ defmodule MealPlannerApiWeb.CookingControllerTest do
       assert %{"error" => %{"code" => "subscription_required"}} = json_response(conn, 403)
     end
   end
+
+  describe "cooking chat (issue #36)" do
+    setup %{conn: conn} do
+      %{token: token, user: %{id: user_id}, account: %{id: account_id}} =
+        insert_identity_with_token!(plan: :family_4)
+
+      MealPlannerApiWeb.ChannelHelpers.persist_trial_window!(
+        MealPlannerApi.Repo.get!(MealPlannerApi.Persistence.Accounts.Account, account_id),
+        :eligible
+      )
+
+      {:ok, recipe} =
+        Catalog.create_recipe(%{
+          account_id: account_id,
+          created_by_user_id: user_id,
+          name: "Chat recipe",
+          source: :user_created,
+          servings: 2,
+          suitable_for_slots: [:dinner]
+        })
+
+      {:ok, meal} =
+        Planning.schedule_meal(%{
+          account_id: account_id,
+          date: Date.utc_today(),
+          slot: :dinner,
+          recipe_id: recipe.id
+        })
+
+      conn = put_req_header(conn, "authorization", "Bearer " <> token)
+
+      session_id =
+        conn
+        |> post("/api/cooking/start", %{"scheduledMealId" => meal.id})
+        |> json_response(200)
+        |> get_in(["data", "sessionId"])
+
+      {:ok, conn: conn, meal: meal, session_id: session_id}
+    end
+
+    defp chat_count,
+      do:
+        MealPlannerApi.Repo.aggregate(
+          MealPlannerApi.Persistence.Planning.CookingChatMessage,
+          :count
+        )
+
+    test "ask stores both turns and the session read recovers them in camelCase",
+         %{conn: conn, meal: meal, session_id: session_id} do
+      ask_body =
+        conn
+        |> post("/api/cooking/sessions/#{session_id}/ask", %{"message" => "How long?"})
+        |> json_response(200)
+        |> assert_camel_case_keys()
+
+      assert %{"sessionId" => ^session_id, "message" => answer, "contentType" => "text"} =
+               ask_body["data"]
+
+      assert Map.has_key?(ask_body["data"], "stepContext")
+
+      conn
+      |> post("/api/cooking/sessions/#{session_id}/ask", %{"message" => "And after?"})
+      |> json_response(200)
+
+      read_body =
+        conn
+        |> get("/api/cooking/sessions/#{session_id}")
+        |> json_response(200)
+        |> assert_camel_case_keys()
+
+      assert [
+               %{"role" => "user", "content" => "How long?"} = first,
+               %{"role" => "assistant", "content" => ^answer},
+               %{"role" => "user", "content" => "And after?"},
+               %{"role" => "assistant"}
+             ] = read_body["data"]["chatMessages"]
+
+      assert first |> Map.keys() |> Enum.sort() == ~w(content id insertedAt role)
+      assert {:ok, _, _} = DateTime.from_iso8601(first["insertedAt"])
+      refute Map.has_key?(read_body["data"]["snapshot"], "frozen")
+
+      # Reopening the chat starts the meal again and lands on the same session.
+      restart_body =
+        conn
+        |> post("/api/cooking/start", %{"scheduledMealId" => meal.id})
+        |> json_response(200)
+
+      assert restart_body["data"]["sessionId"] == session_id
+      assert restart_body["data"]["chatMessages"] == read_body["data"]["chatMessages"]
+    end
+
+    test "ask for a meal no longer on today is 409 cooking_chat_unavailable",
+         %{conn: conn, meal: meal, session_id: session_id} do
+      meal
+      |> Planning.ScheduledMeal.changeset(%{date: Date.add(Date.utc_today(), 1)})
+      |> MealPlannerApi.Repo.update!()
+
+      conn = post(conn, "/api/cooking/sessions/#{session_id}/ask", %{"message" => "Hi"})
+      assert %{"error" => %{"code" => "cooking_chat_unavailable"}} = json_response(conn, 409)
+      assert chat_count() == 0
+    end
+
+    test "ask on a finished session is 409 cooking_already_finished",
+         %{conn: conn, session_id: session_id} do
+      conn |> post("/api/cooking/sessions/#{session_id}/finish") |> json_response(200)
+
+      conn = post(conn, "/api/cooking/sessions/#{session_id}/ask", %{"message" => "Hi"})
+      assert %{"error" => %{"code" => "cooking_already_finished"}} = json_response(conn, 409)
+      assert chat_count() == 0
+    end
+
+    test "a blank message is a validation error", %{conn: conn, session_id: session_id} do
+      conn = post(conn, "/api/cooking/sessions/#{session_id}/ask", %{"message" => "  "})
+      assert %{"error" => %{"code" => "validation_error"}} = json_response(conn, 422)
+      assert chat_count() == 0
+    end
+
+    test "another Account can neither read nor ask", %{session_id: session_id} do
+      %{token: token, account: %{id: other_id}} = insert_identity_with_token!(plan: :family_4)
+
+      MealPlannerApiWeb.ChannelHelpers.persist_trial_window!(
+        MealPlannerApi.Repo.get!(MealPlannerApi.Persistence.Accounts.Account, other_id),
+        :eligible
+      )
+
+      stranger = put_req_header(build_conn(), "authorization", "Bearer " <> token)
+
+      read = get(stranger, "/api/cooking/sessions/#{session_id}")
+      assert %{"error" => %{"code" => "not_found"}} = json_response(read, 404)
+
+      ask = post(stranger, "/api/cooking/sessions/#{session_id}/ask", %{"message" => "Hi"})
+      assert %{"error" => %{"code" => "not_found"}} = json_response(ask, 404)
+      assert chat_count() == 0
+    end
+  end
 end

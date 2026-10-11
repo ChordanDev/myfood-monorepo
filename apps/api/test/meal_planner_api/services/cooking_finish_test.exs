@@ -348,7 +348,7 @@ defmodule MealPlannerApi.Services.CookingFinishTest do
                CookingService.finish_session(f.actor, "not-a-uuid", @instant)
     end
 
-    test "steps and questions on a finished session are cooking_session_not_active", f do
+    test "a finished session refuses steps and questions", f do
       meal = meal!(f, @utc_day)
       session = start!(f, meal)
       step_id = Ecto.UUID.generate()
@@ -357,8 +357,14 @@ defmodule MealPlannerApi.Services.CookingFinishTest do
       assert {:error, :cooking_session_not_active} =
                CookingService.track_step(f.actor, session.session_id, step_id, :started)
 
-      assert {:error, :cooking_session_not_active} =
-               CookingService.answer_question(f.actor, session.session_id, "hola")
+      assert {:error, :cooking_already_finished} =
+               CookingService.answer_question(
+                 f.actor,
+                 session.session_id,
+                 "hola",
+                 "text",
+                 @instant
+               )
     end
   end
 end

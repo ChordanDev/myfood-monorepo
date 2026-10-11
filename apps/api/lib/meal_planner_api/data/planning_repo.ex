@@ -20,6 +20,7 @@ defmodule MealPlannerApi.Data.PlanningRepo do
 
   alias MealPlannerApi.Persistence.Planning.{
     ContextSnapshot,
+    CookingChatMessage,
     CookingSession,
     CookingStepEvent,
     PlanningException,
@@ -566,8 +567,31 @@ defmodule MealPlannerApi.Data.PlanningRepo do
     |> Repo.one()
   end
 
-  @spec add_chat_message(map()) :: {:error, :ephemeral_chat_only}
-  def add_chat_message(_attrs), do: {:error, :ephemeral_chat_only}
+  @doc "The meal's active Cooking session, if it has one."
+  @spec active_cooking_session_for_meal(Ecto.UUID.t(), Ecto.UUID.t()) :: CookingSession.t() | nil
+  def active_cooking_session_for_meal(account_id, meal_id) do
+    from(s in CookingSession,
+      where:
+        s.scheduled_meal_id == ^meal_id and s.account_id == ^account_id and s.status == :active,
+      order_by: [desc: s.inserted_at],
+      limit: 1
+    )
+    |> Repo.one()
+  end
+
+  @spec add_chat_message(map()) :: {:ok, CookingChatMessage.t()} | {:error, Ecto.Changeset.t()}
+  def add_chat_message(attrs),
+    do: %CookingChatMessage{} |> CookingChatMessage.changeset(attrs) |> Repo.insert()
+
+  @doc "A Cooking session's user and assistant turns, oldest first."
+  @spec list_chat_messages(Ecto.UUID.t()) :: [CookingChatMessage.t()]
+  def list_chat_messages(session_id) do
+    from(m in CookingChatMessage,
+      where: m.cooking_session_id == ^session_id and m.role in [:user, :assistant],
+      order_by: [asc: m.inserted_at, asc: m.id]
+    )
+    |> Repo.all()
+  end
 
   @spec add_step_event(map()) :: {:ok, CookingStepEvent.t()} | {:error, Ecto.Changeset.t()}
   def add_step_event(attrs),

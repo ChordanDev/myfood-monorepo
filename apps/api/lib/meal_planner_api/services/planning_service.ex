@@ -258,9 +258,6 @@ defmodule MealPlannerApi.Services.PlanningService do
     end
   end
 
-  @spec add_chat_message(Ecto.UUID.t(), String.t()) :: {:error, :ephemeral_chat_only}
-  def add_chat_message(_session_id, _content), do: {:error, :ephemeral_chat_only}
-
   # -------------------------------------------------------------------------
   # Helpers
   # -------------------------------------------------------------------------

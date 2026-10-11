@@ -177,18 +177,22 @@ defmodule MealPlannerApi.Services.RecipeLifecycleTest do
     assert json_response(request.(f.recipe.id), 403)["error"]["code"] == "forbidden"
   end
 
-  test "questions and answers leave no durable transcript or recoverable history", f do
+  test "questions and answers are kept as history until the session finishes", f do
     meal = meal!(f)
     {:ok, session} = CookingService.start_session(f.actor, meal.id)
-    assert {:ok, _} = CookingService.answer_question(f.actor, session.session_id, "How hot?")
-    assert Repo.aggregate(MealPlannerApi.Persistence.Planning.CookingChatMessage, :count) == 0
     assert {:ok, %{chat_messages: []}} = CookingService.session_state(f.actor, session.session_id)
+    assert {:ok, _} = CookingService.answer_question(f.actor, session.session_id, "How hot?")
+    assert Repo.aggregate(MealPlannerApi.Persistence.Planning.CookingChatMessage, :count) == 2
+
+    assert {:ok, %{chat_messages: [%{role: "user", content: "How hot?"}, %{role: "assistant"}]}} =
+             CookingService.session_state(f.actor, session.session_id)
+
     assert {:ok, _} = CookingService.finish_session(f.actor, session.session_id)
 
-    assert {:error, :cooking_session_not_active} =
+    assert {:error, :cooking_already_finished} =
              CookingService.answer_question(f.actor, session.session_id, "Continue?")
 
-    assert Repo.aggregate(MealPlannerApi.Persistence.Planning.CookingChatMessage, :count) == 0
+    assert Repo.aggregate(MealPlannerApi.Persistence.Planning.CookingChatMessage, :count) == 2
   end
 
   test "AI reply is discarded when Account expires while the provider is running", f do
@@ -273,7 +277,7 @@ defmodule MealPlannerApi.Services.RecipeLifecycleTest do
     assert_receive {:cooking_ai, worker, "How hot?", _opts}
     assert {:ok, _} = CookingService.finish_session(f.actor, session.session_id)
     send(worker, :answer)
-    assert {:error, :cooking_session_not_active} = Task.await(task)
+    assert {:error, :cooking_already_finished} = Task.await(task)
     assert Repo.aggregate(MealPlannerApi.Persistence.Planning.CookingChatMessage, :count) == 0
   end
 
