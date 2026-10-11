@@ -10,10 +10,11 @@ defmodule MealPlannerApi.Services.CookingChatTest do
   import MealPlannerApi.IdentityFixtures
 
   alias MealPlannerApi.Persistence.Accounts.Account
+  alias MealPlannerApi.Persistence.Calendar
   alias MealPlannerApi.Persistence.Catalog
   alias MealPlannerApi.Persistence.Inventory.InventoryItem
   alias MealPlannerApi.Persistence.Planning
-  alias MealPlannerApi.Persistence.Planning.{CookingChatMessage, CookingSession}
+  alias MealPlannerApi.Persistence.Planning.{ContextSnapshot, CookingChatMessage, CookingSession}
   alias MealPlannerApi.Repo
   alias MealPlannerApi.Services.CookingService
 
@@ -105,8 +106,19 @@ defmodule MealPlannerApi.Services.CookingChatTest do
     session
   end
 
-  defp ask(f, session, message, now \\ @instant),
-    do: CookingService.answer_question(f.actor, session.session_id, message, "text", now)
+  defp ask(f, session, message, now \\ @instant, client_message_id \\ nil) do
+    CookingService.answer_question(
+      f.actor,
+      session.session_id,
+      message,
+      "text",
+      now,
+      client_message_id
+    )
+  end
+
+  defp frozen_part(session),
+    do: Repo.get!(CookingSession, session.session_id).context_snapshot["frozen"]
 
   defp stored_turns do
     Repo.all(from(m in CookingChatMessage, order_by: [asc: m.inserted_at]))
@@ -124,11 +136,11 @@ defmodule MealPlannerApi.Services.CookingChatTest do
   end
 
   # Asks through the barrier client and returns the system prompt it received.
-  defp ask_observing_prompt(f, session, message) do
+  defp ask_observing_prompt(f, session, message, now \\ @instant) do
     supervisor = start_supervised!(Task.Supervisor, id: make_ref())
 
     task =
-      Task.Supervisor.async_nolink(supervisor, fn -> ask(f, session, message) end)
+      Task.Supervisor.async_nolink(supervisor, fn -> ask(f, session, message, now) end)
 
     assert_receive {:cooking_ai, worker, ^message, opts}
     send(worker, :answer)
@@ -195,7 +207,7 @@ defmodule MealPlannerApi.Services.CookingChatTest do
       assert Repo.aggregate(CookingSession, :count) == 1
     end
 
-    test "a finished session is not reused by a new start", f do
+    test "a meal that is not cooked starts a fresh session after a completed one", f do
       meal = meal!(f, @utc_day)
       session = start!(f, meal)
 
@@ -203,7 +215,9 @@ defmodule MealPlannerApi.Services.CookingChatTest do
       |> CookingSession.changeset(%{status: :completed})
       |> Repo.update!()
 
-      assert start!(f, meal).session_id != session.session_id
+      again = start!(f, meal)
+      assert again.session_id != session.session_id
+      assert again.status == "active"
     end
 
     test "an empty or oversized message is a validation error and stores nothing", f do
@@ -212,6 +226,141 @@ defmodule MealPlannerApi.Services.CookingChatTest do
       assert {:error, :validation_error} = ask(f, session, "   ")
       assert {:error, :validation_error} = ask(f, session, String.duplicate("a", 2001))
       assert stored_turns() == []
+    end
+
+    test "a message of exactly 2000 characters is accepted", f do
+      session = start!(f, meal!(f, @utc_day))
+      question = String.duplicate("a", 2000)
+
+      assert {:ok, _} = ask(f, session, question)
+      assert [%{role: :user, content: ^question}, %{role: :assistant}] = stored_turns()
+    end
+  end
+
+  describe "a cooked meal" do
+    test "start returns its finished session with the history", f do
+      meal = meal!(f, @utc_day)
+      session = start!(f, meal)
+      assert {:ok, _} = ask(f, session, "Before cooking?")
+      assert {:ok, _} = CookingService.finish_session(f.actor, session.session_id, @instant)
+
+      reopened = start!(f, meal)
+      assert reopened.session_id == session.session_id
+      assert reopened.status == "completed"
+
+      assert [%{role: "user", content: "Before cooking?"}, %{role: "assistant"}] =
+               reopened.chat_messages
+
+      assert Repo.aggregate(CookingSession, :count) == 1
+      assert {:error, :cooking_already_finished} = ask(f, reopened, "After?")
+
+      assert {:error, :cooking_already_finished} =
+               CookingService.finish_session(f.actor, reopened.session_id, @instant)
+    end
+
+    test "start is still refused on another day", f do
+      meal = meal!(f, @utc_day)
+      session = start!(f, meal)
+      assert {:ok, _} = CookingService.finish_session(f.actor, session.session_id, @instant)
+
+      assert {:error, :cooking_chat_unavailable} =
+               CookingService.start_session(f.actor, meal.id, DateTime.add(@instant, 86_400))
+    end
+
+    test "a meal set back to not cooked starts a fresh session that can finish", f do
+      meal = meal!(f, @utc_day)
+      session = start!(f, meal)
+      assert {:ok, _} = ask(f, session, "First round?")
+      assert {:ok, _} = CookingService.finish_session(f.actor, session.session_id, @instant)
+
+      assert {:ok, _} = Calendar.set_is_cooked(f.account.id, meal.id, false)
+
+      again = start!(f, meal)
+      assert again.session_id != session.session_id
+      assert again.status == "active"
+      assert again.chat_messages == []
+      assert {:ok, _} = CookingService.finish_session(f.actor, again.session_id, @instant)
+
+      # Cooked again: the session that cooked it last is the one returned.
+      assert start!(f, meal).session_id == again.session_id
+    end
+  end
+
+  describe "idempotent ask" do
+    setup do
+      use_barrier_client!()
+    end
+
+    defp ask_behind_barrier(f, session, message, client_message_id) do
+      supervisor = start_supervised!(Task.Supervisor, id: make_ref())
+
+      Task.Supervisor.async_nolink(supervisor, fn ->
+        ask(f, session, message, @instant, client_message_id)
+      end)
+    end
+
+    test "a repeat of the same client message id returns the stored pair", f do
+      session = start!(f, meal!(f, @utc_day))
+      id = Ecto.UUID.generate()
+
+      task = ask_behind_barrier(f, session, "Only once?", id)
+      assert_receive {:cooking_ai, worker, "Only once?", _opts}
+      send(worker, :answer)
+      assert {:ok, first} = Task.await(task)
+
+      # The provider is not asked again: the barrier would block this call.
+      assert {:ok, repeat} = ask(f, session, "Only once?", @instant, id)
+      refute_received {:cooking_ai, _, _, _}
+
+      assert repeat == first
+      assert [%{role: "user"}, %{role: "assistant"}] = repeat.turns
+      assert Enum.map(stored_turns(), & &1.id) == Enum.map(first.turns, & &1.id)
+      assert [%{client_message_id: ^id}, %{client_message_id: nil}] = stored_turns()
+    end
+
+    test "a malformed client message id is a validation error and stores nothing", f do
+      session = start!(f, meal!(f, @utc_day))
+
+      for bad <- ["not-a-uuid", "", String.duplicate("a", 16), 42] do
+        assert {:error, :validation_error} = ask(f, session, "Hi", @instant, bad)
+      end
+
+      refute_received {:cooking_ai, _, _, _}
+      assert stored_turns() == []
+    end
+
+    test "the same id on another session is a different question", f do
+      id = Ecto.UUID.generate()
+
+      for slot <- [:lunch, :dinner] do
+        session = start!(f, meal!(f, @utc_day, slot))
+        task = ask_behind_barrier(f, session, "Shared id?", id)
+        assert_receive {:cooking_ai, worker, "Shared id?", _opts}
+        send(worker, :answer)
+        assert {:ok, _} = Task.await(task)
+      end
+
+      assert length(stored_turns()) == 4
+    end
+
+    test "two requests racing on one id store a single pair and both get it", f do
+      session = start!(f, meal!(f, @utc_day))
+      id = Ecto.UUID.generate()
+
+      tasks = for _ <- 1..2, do: ask_behind_barrier(f, session, "Race?", id)
+
+      # Both passed the lookup before either stored anything.
+      workers =
+        for _ <- tasks do
+          assert_receive {:cooking_ai, worker, "Race?", _opts}
+          worker
+        end
+
+      Enum.each(workers, &send(&1, :answer))
+
+      assert [{:ok, winner}, {:ok, loser}] = Task.await_many(tasks)
+      assert winner.turns == loser.turns
+      assert Enum.map(stored_turns(), & &1.id) == Enum.map(winner.turns, & &1.id)
     end
   end
 
@@ -290,9 +439,19 @@ defmodule MealPlannerApi.Services.CookingChatTest do
       assert second =~ "Use the frozen instructions."
     end
 
-    test "inventory changed after the start does not change the prompt", f do
+    test "the inventory is frozen on the first question, not when the session starts", f do
       lot = lot!(f, f.ingredient)
       session = start!(f, meal!(f, @utc_day))
+      assert frozen_part(session) == nil
+
+      # Changed after the screen opened the session, before anything was asked.
+      lot |> InventoryItem.changeset(%{quantity_milli: 400}) |> Repo.update!()
+
+      first = ask_observing_prompt(f, session, "What do I have?")
+      assert first =~ "#{f.ingredient.name}: 400 g"
+      assert first =~ "Inventario disponible al hacer la primera pregunta del dia:"
+      refute first =~ "al empezar a cocinar"
+      assert %{"captured_on" => "2026-10-08", "inventory" => [_]} = frozen_part(session)
 
       lot |> InventoryItem.changeset(%{quantity_milli: 10}) |> Repo.update!()
 
@@ -304,16 +463,37 @@ defmodule MealPlannerApi.Services.CookingChatTest do
 
       lot!(f, late)
 
-      prompt = ask_observing_prompt(f, session, "What do I have?")
-      assert prompt =~ "#{f.ingredient.name}: 750 g"
-      refute prompt =~ late.name
+      second = ask_observing_prompt(f, session, "And now?")
+      assert second =~ "#{f.ingredient.name}: 400 g"
+      refute second =~ late.name
+    end
+
+    test "a meal moved to another day is frozen again on the first question there", f do
+      lot = lot!(f, f.ingredient)
+      meal = meal!(f, @utc_day)
+      session = start!(f, meal)
+      assert ask_observing_prompt(f, session, "Today?") =~ "#{f.ingredient.name}: 750 g"
+
+      next_day = DateTime.add(@instant, 86_400)
+      meal |> Planning.ScheduledMeal.changeset(%{date: Date.add(@utc_day, 1)}) |> Repo.update!()
+      lot |> InventoryItem.changeset(%{quantity_milli: 300}) |> Repo.update!()
+
+      moved = ask_observing_prompt(f, session, "Tomorrow?", next_day)
+      assert moved =~ "#{f.ingredient.name}: 300 g"
+      assert %{"captured_on" => "2026-10-09"} = frozen_part(session)
+
+      lot |> InventoryItem.changeset(%{quantity_milli: 5}) |> Repo.update!()
+      assert ask_observing_prompt(f, session, "Again?", next_day) =~ "#{f.ingredient.name}: 300 g"
     end
 
     test "the frozen snapshot survives step updates and stays out of the payloads", f do
-      lot!(f, f.ingredient)
+      lot = lot!(f, f.ingredient)
       meal = meal!(f, @utc_day)
       session = start!(f, meal)
       refute Map.has_key?(session.snapshot, "frozen")
+
+      assert ask_observing_prompt(f, session, "Frozen now?") =~ "#{f.ingredient.name}: 750 g"
+      assert start!(f, meal).snapshot |> Map.has_key?("frozen") == false
 
       [%{id: step_id}] = session.recipe.steps
 
@@ -325,6 +505,12 @@ defmodule MealPlannerApi.Services.CookingChatTest do
       assert {:ok, state} = CookingService.session_state(f.actor, session.session_id)
       refute Map.has_key?(state.snapshot, "frozen")
       assert state.snapshot["step_status"] == "completed"
+
+      for row <- Repo.all(ContextSnapshot) do
+        refute Map.has_key?(row.snapshot_data, "frozen")
+      end
+
+      lot |> InventoryItem.changeset(%{quantity_milli: 10}) |> Repo.update!()
 
       prompt = ask_observing_prompt(f, session, "Still frozen?")
       assert prompt =~ "#{f.ingredient.name}: 750 g"

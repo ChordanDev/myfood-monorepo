@@ -118,9 +118,9 @@ This file and `docs/adr/` are the only durable docs in the repository. Specs, ma
 
 **Cooking step event** — A recorded progression through a recipe step during a Cooking session. `(code: Persistence.Planning.CookingStepEvent)`
 
-**Cooking chat** — The recipe-scoped AI assistant available while cooking today's meal; it knows the recipe and the inventory as of the session's start, and its turns are kept per Cooking session. `(code: Persistence.Planning.CookingChatMessage)` `(alias: Chat Contextual de Receta, Contexto Inyectado)`
+**Cooking chat** — The recipe-scoped AI assistant available while cooking today's meal; it knows the recipe and the inventory as of the day's first question, and its turns are kept per Cooking session and stay readable, closed, once the meal is cooked. `(code: Persistence.Planning.CookingChatMessage)` `(alias: Chat Contextual de Receta, Contexto Inyectado)`
 
-**Context snapshot** — The frozen recipe-and-inventory state the Cooking chat answers from, captured once when the Cooking session is created; later Inventory changes do not alter it. `(code: CookingSession.context_snapshot["frozen"]; Persistence.Planning.ContextSnapshot holds the step state)`
+**Context snapshot** — The frozen recipe-and-inventory state the Cooking chat answers from, captured by the first question of the Account's day and reused by that day's later questions; later Inventory changes do not alter it, and starting a Cooking session captures nothing. `(code: CookingSession.context_snapshot["frozen"]; Persistence.Planning.ContextSnapshot holds the step state)`
 
 **Cooked meal** — A Scheduled meal marked as cooked, which consumes its ingredients from Inventory and removes its items from the shopping list. `(code: ScheduledMeal.is_cooked, InventoryMutationEvent trigger=cooking)` `(alias: Consumo Automático)`
 

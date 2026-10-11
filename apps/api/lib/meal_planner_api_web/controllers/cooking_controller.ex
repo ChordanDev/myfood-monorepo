@@ -77,8 +77,17 @@ defmodule MealPlannerApiWeb.CookingController do
   def ask(conn, %{"session_id" => session_id, "message" => message} = params) do
     user = scoped_user(conn)
     content_type = Map.get(params, "content_type", "text")
+    # Optional: a resend of the same id gets the pair the first one stored.
+    client_message_id = params["client_message_id"]
 
-    case CookingService.answer_question(user, session_id, message, content_type) do
+    case CookingService.answer_question(
+           user,
+           session_id,
+           message,
+           content_type,
+           DateTime.utc_now(),
+           client_message_id
+         ) do
       {:ok, result} ->
         json(conn, %{data: result})
 
