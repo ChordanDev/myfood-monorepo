@@ -283,10 +283,11 @@ defmodule MealPlannerApi.AccountsMembership do
       `user_id` at the User. Returns the auth payload ready for the
       API layer to mint an `access_v2` JWT.
 
-    * `accept_invite(plaintext, %{name: ..., password_hash: ...})` —
-      new User. The `InviteService.create_invite_row/2` created a stub
-      `User` row at invite time; this function fills it in with the
-      real `name` and `password_hash`, then flips the membership.
+    * `accept_invite(plaintext, %{name: ...})` — new User. The
+      `InviteService.create_invite_row/2` created a stub `User` row at
+      invite time; this function fills it in with the real `name`,
+      then flips the membership. The User holds no credential: they
+      sign in with an email code.
 
   Errors: `:invite_token_used`, `:invite_token_expired`,
   `:invite_token_unknown`.
@@ -310,11 +311,11 @@ defmodule MealPlannerApi.AccountsMembership do
     end)
   end
 
-  def accept_invite(plaintext, %{name: name, password_hash: password_hash})
-      when is_binary(plaintext) and is_binary(name) and is_binary(password_hash) do
+  def accept_invite(plaintext, %{name: name})
+      when is_binary(plaintext) and is_binary(name) do
     accept_invite_with_lookup(plaintext, fn %PersistenceUser{id: user_id} = stub ->
       case stub
-           |> PersistenceUser.changeset(%{name: name, password_hash: password_hash})
+           |> PersistenceUser.changeset(%{name: name})
            |> Repo.update() do
         {:ok, %PersistenceUser{id: ^user_id} = updated} -> {:ok, updated}
         {:error, _} = err -> err

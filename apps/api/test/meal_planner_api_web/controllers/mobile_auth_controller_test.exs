@@ -1000,7 +1000,6 @@ defmodule MealPlannerApiWeb.MobileAuthControllerTest do
                user
 
       assert user.account_id == account.id
-      assert is_nil(user.password_hash)
       assert is_nil(user.onboarding_completed_at)
 
       assert %Account{name: "signup-records", plan: :individual, default_budget_cents: 0} =

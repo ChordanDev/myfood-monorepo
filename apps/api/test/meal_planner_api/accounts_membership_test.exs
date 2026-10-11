@@ -326,8 +326,8 @@ defmodule MealPlannerApi.AccountsMembershipTest do
       # Post-review fix pass, item 7: `error_status/1`'s `invalid_invitee`
       # mapping (400) has no HTTP-level path that can trigger it —
       # `InviteController.resolve_invitee/2` only ever produces a
-      # `%PersistenceUser{}` or a `%{name:, password_hash:}` map, both of
-      # which match `accept_invite/2`'s named clauses. The catch-all
+      # `%PersistenceUser{}` or a `%{name:}` map, both of which match
+      # `accept_invite/2`'s named clauses. The catch-all
       # clause (`accept_invite(_plaintext, _args), do: {:error,
       # :invalid_invitee}`) was previously untested at ANY layer — this
       # pins its behavior directly against the application function.
@@ -406,7 +406,7 @@ defmodule MealPlannerApi.AccountsMembershipTest do
                AccountsMembership.accept_invite(plaintext, invitee)
     end
 
-    test "new User acceptance (map arity) fills in the stub User's name and password_hash" do
+    test "new User acceptance (map arity) fills in the stub User's name" do
       # PR 3a task 3.4 regression: the map-based accept_invite/2 arity
       # (invitee has no User yet) previously called
       # `resolve_user.(:stub)` with the literal atom `:stub` instead of
@@ -430,14 +430,10 @@ defmodule MealPlannerApi.AccountsMembershipTest do
         AccountsMembership.invite(account, owner_membership, "brand-new-invitee@example.com")
 
       assert {:ok, result} =
-               AccountsMembership.accept_invite(plaintext, %{
-                 name: "Brand New Invitee",
-                 password_hash: "hashed-password"
-               })
+               AccountsMembership.accept_invite(plaintext, %{name: "Brand New Invitee"})
 
       assert result.user.email == "brand-new-invitee@example.com"
       assert result.user.name == "Brand New Invitee"
-      assert result.user.password_hash == "hashed-password"
       assert result.membership.status == :active
       assert result.membership.user_id == result.user.id
     end

@@ -67,11 +67,10 @@ defmodule MealPlannerApi.Services.InviteService do
 
   The `account_memberships.user_id` FK requires a real `User` row. If
   the invitee email already maps to a `User`, that User's id is used.
-  Otherwise a stub `User` is created with the email, `role: :member`,
-  `name: nil`, `password_hash: nil`. The stub User is filled in
-  (`name`, `password_hash`) by the caller when the invitee accepts
-  via `verify_and_consume/3` (which receives a real `%User{}` at
-  accept time).
+  Otherwise a stub `User` is created with the email, `role: :member`
+  and the email as a placeholder `name`. The caller fills in the real
+  `name` when the invitee accepts via `verify_and_consume/3` (which
+  receives a real `%User{}` at accept time).
   """
   @spec create_invite_row(AccountMembership.t(), String.t()) ::
           {:ok, %{membership: AccountMembership.t(), token: String.t()}}
