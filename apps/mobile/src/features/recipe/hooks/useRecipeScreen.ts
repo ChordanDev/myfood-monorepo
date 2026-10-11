@@ -6,6 +6,7 @@ import { favoriteSummaryFromRecipe } from '@/features/favorites/domain/favoriteF
 import { selectIsFavorite, useFavoritesStore } from '@/features/favorites/store';
 import { useMarkAsCooked } from '@/features/cooking';
 import { useInventoryStore } from '@/features/inventory';
+import { createPreparedLeftover } from '@/features/leftovers';
 import { useMealPlanStore } from '@/store';
 import { canMarkAsCooked, isRecipeChatEnabled, resolveRecipeEntry } from '../domain/recipeEntry';
 import { resolveRecipeIngredients } from '../domain/recipeIngredients';
@@ -44,6 +45,7 @@ export function useRecipeScreen() {
   const cooking = useMarkAsCooked();
   const inventory = useInventoryStore((state) => state.items);
   const catalog = useInventoryStore((state) => state.ingredients);
+  const addInventoryExtra = useInventoryStore((state) => state.addExtra);
   const [isCookedConfirmVisible, setIsCookedConfirmVisible] = useState(false);
   // The answer is taken once: a second tap on "Sí" lands before the sheet has closed.
   const isAwaitingCookedAnswerRef = useRef(false);
@@ -100,15 +102,16 @@ export function useRecipeScreen() {
     setIsCookedConfirmVisible(false);
     if (!entry || !canMarkAsCooked(entry)) return;
 
-    // The summary is shown over the recipe; the screen closes when the user dismisses it.
+    // The summary and then the leftover prompt are shown over the recipe; the screen closes
+    // when the user is done with the prompt. A refusal asks nothing, so the recipe stays.
     await cooking.markAsCooked(entry.id);
   }, [cooking, entry]);
 
-  const { dismiss: dismissCookingResult, summary: cookingSummary } = cooking;
-  const handleCloseCookingResult = useCallback(() => {
-    dismissCookingResult();
-    if (cookingSummary) router.back();
-  }, [cookingSummary, dismissCookingResult, router]);
+  const { closeLeftoverPrompt, leftoverPrompt } = cooking;
+  const handleCloseLeftoverPrompt = useCallback(() => {
+    closeLeftoverPrompt();
+    if (leftoverPrompt) router.back();
+  }, [closeLeftoverPrompt, leftoverPrompt, router]);
 
   return {
     recipe,
@@ -121,14 +124,19 @@ export function useRecipeScreen() {
     chatScheduledMealId: entry?.id ?? null,
     isMealCooked: entry?.isCooked ?? false,
     isCookedConfirmVisible,
-    cookingSummary,
+    cookingSummary: cooking.summary,
     cookingErrorMessage: cooking.errorMessage,
+    leftoverPrompt,
     handleBack,
     handleRetry: retry,
     handleToggleFavorite,
     handleRequestMarkAsCooked,
     handleConfirmCooked,
     handleCancelCooked,
-    handleCloseCookingResult,
+    handleCloseCookingResult: cooking.dismiss,
+    // A leftover Ingredient goes through the Inventory store; a Prepared leftover has no store.
+    handleAddLeftoverIngredient: addInventoryExtra,
+    handleCreatePreparedLeftover: createPreparedLeftover,
+    handleCloseLeftoverPrompt,
   };
 }

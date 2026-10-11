@@ -50,6 +50,7 @@ export function RecipeScreen() {
     isCookedConfirmVisible,
     cookingSummary,
     cookingErrorMessage,
+    leftoverPrompt,
     handleBack,
     handleRetry,
     handleToggleFavorite,
@@ -57,6 +58,9 @@ export function RecipeScreen() {
     handleConfirmCooked,
     handleCancelCooked,
     handleCloseCookingResult,
+    handleAddLeftoverIngredient,
+    handleCreatePreparedLeftover,
+    handleCloseLeftoverPrompt,
   } = useRecipeScreen();
   const chat = useRecipeChat({
     scheduledMealId: chatScheduledMealId,
@@ -159,6 +163,10 @@ export function RecipeScreen() {
         summary={cookingSummary}
         errorMessage={cookingErrorMessage}
         onClose={handleCloseCookingResult}
+        leftoverPrompt={leftoverPrompt}
+        onAddLeftoverIngredient={handleAddLeftoverIngredient}
+        onCreatePreparedLeftover={handleCreatePreparedLeftover}
+        onCloseLeftoverPrompt={handleCloseLeftoverPrompt}
       />
     </View>
   );

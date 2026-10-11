@@ -1,6 +1,9 @@
 import React from 'react';
 import { act, create } from 'react-test-renderer';
+import { summarizeCookingFinish } from '@/features/cooking/domain';
+import { COOKING_FINISH_COVERED } from '@/features/cooking/fixtures';
 import { useFavoritesStore } from '@/features/favorites/store';
+import { createPreparedLeftover } from '@/features/leftovers';
 import { HomeScreen } from '../HomeScreen';
 
 jest.mock('@react-native-async-storage/async-storage', () =>
@@ -53,6 +56,9 @@ jest.mock('../../components', () => ({
   PendingDayCard: 'PendingDayCard',
 }));
 jest.mock('../../components/FoodCard', () => ({ FoodCard: 'FoodCard' }));
+// The finish the cooking flow asks about leftovers for; none until a test cooks.
+let mockLeftoverPrompt: unknown = null;
+const mockCloseLeftoverPrompt = jest.fn();
 jest.mock('@/features/cooking', () => ({
   CookingResultSheet: 'CookingResultSheet',
   useMarkAsCooked: () => ({
@@ -60,8 +66,16 @@ jest.mock('@/features/cooking', () => ({
     summary: null,
     errorMessage: null,
     dismiss: jest.fn(),
+    leftoverPrompt: mockLeftoverPrompt,
+    closeLeftoverPrompt: mockCloseLeftoverPrompt,
   }),
 }));
+// The barrels also export screens the mocks above cannot load; Home only needs the two writes.
+const mockAddExtra = jest.fn();
+jest.mock('@/features/inventory', () => ({
+  useInventoryStore: (select: (state: unknown) => unknown) => select({ addExtra: mockAddExtra }),
+}));
+jest.mock('@/features/leftovers', () => ({ createPreparedLeftover: jest.fn() }));
 
 function mount() {
   let tree: ReturnType<typeof create>;
@@ -94,5 +108,28 @@ describe('HomeScreen favorite star', () => {
     act(() => card.props.onToggleFavorite());
 
     expect(toggle).toHaveBeenCalledWith(expect.objectContaining({ recipeId: 'r1' }));
+  });
+});
+
+describe('HomeScreen leftover prompt', () => {
+  afterEach(() => {
+    mockLeftoverPrompt = null;
+  });
+
+  it('stays closed while no finish asks about leftovers', () => {
+    const sheet = mount().root.findByType('CookingResultSheet' as never);
+
+    expect(sheet.props.leftoverPrompt).toBeNull();
+  });
+
+  it('asks about the finish, writing through the Inventory store and the leftovers API', () => {
+    mockLeftoverPrompt = summarizeCookingFinish(COOKING_FINISH_COVERED);
+
+    const sheet = mount().root.findByType('CookingResultSheet' as never);
+
+    expect(sheet.props.leftoverPrompt).toBe(mockLeftoverPrompt);
+    expect(sheet.props.onAddLeftoverIngredient).toBe(mockAddExtra);
+    expect(sheet.props.onCreatePreparedLeftover).toBe(createPreparedLeftover);
+    expect(sheet.props.onCloseLeftoverPrompt).toBe(mockCloseLeftoverPrompt);
   });
 });

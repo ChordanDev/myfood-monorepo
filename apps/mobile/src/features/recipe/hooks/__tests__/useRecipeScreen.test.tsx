@@ -6,6 +6,7 @@ import {
   COOKING_SCHEDULED_MEAL_ID,
   COOKING_START,
 } from '@/features/cooking/fixtures';
+import { createPreparedLeftover } from '@/features/leftovers';
 import { useMealPlanStore } from '@/store';
 import { formatDateKey } from '@/features/home/utils/calendarDate';
 import type { MealPlanEntry } from '@/types/domain';
@@ -23,11 +24,13 @@ jest.mock('react-native/Libraries/Components/Keyboard/Keyboard', () => ({
   default: { dismiss: jest.fn() },
 }));
 
-// The inventory barrel pulls in screens that need the native animation runtime.
+// The inventory and leftovers barrels pull in screens that need the native animation runtime.
+const mockAddExtra = jest.fn();
 jest.mock('@/features/inventory', () => ({
   useInventoryStore: (select: (state: unknown) => unknown) =>
-    select({ items: [], ingredients: [] }),
+    select({ items: [], ingredients: [], addExtra: mockAddExtra }),
 }));
+jest.mock('@/features/leftovers', () => ({ createPreparedLeftover: jest.fn() }));
 
 const mockBack = jest.fn();
 jest.mock('expo-router', () => ({
@@ -76,18 +79,32 @@ describe('useRecipeScreen marking the meal as cooked', () => {
     tree = null;
   });
 
-  it('shows the summary and goes back only when it is closed', async () => {
+  it('shows the summary, then asks about leftovers, and goes back only when that is closed', async () => {
     jest.mocked(startCookingSession).mockResolvedValue(COOKING_START);
     jest.mocked(finishCookingSession).mockResolvedValue(COOKING_FINISH_WITH_SHORTAGE);
 
     await confirmCooked();
 
     expect(screen.cookingSummary?.recipeName).toBe('Arroz con aceite');
+    expect(screen.leftoverPrompt).toBeNull();
     expect(mockBack).not.toHaveBeenCalled();
 
     act(() => screen.handleCloseCookingResult());
 
+    // The prompt is over the recipe: leaving now would take it away.
+    expect(screen.cookingSummary).toBeNull();
+    expect(screen.leftoverPrompt?.scheduledMealId).toBe(COOKING_SCHEDULED_MEAL_ID);
+    expect(mockBack).not.toHaveBeenCalled();
+
+    act(() => screen.handleCloseLeftoverPrompt());
+
+    expect(screen.leftoverPrompt).toBeNull();
     expect(mockBack).toHaveBeenCalledTimes(1);
+  });
+
+  it('sends the leftovers through the Inventory store and the leftovers API', () => {
+    expect(screen.handleAddLeftoverIngredient).toBe(mockAddExtra);
+    expect(screen.handleCreatePreparedLeftover).toBe(createPreparedLeftover);
   });
 
   it('stays on the recipe and shows the error when the server refuses', async () => {
@@ -102,5 +119,6 @@ describe('useRecipeScreen marking the meal as cooked', () => {
 
     expect(mockBack).not.toHaveBeenCalled();
     expect(screen.cookingErrorMessage).toBeNull();
+    expect(screen.leftoverPrompt).toBeNull();
   });
 });
