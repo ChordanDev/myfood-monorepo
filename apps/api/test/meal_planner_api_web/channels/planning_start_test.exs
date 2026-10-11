@@ -11,7 +11,15 @@ defmodule MealPlannerApiWeb.PlanningStartTest do
 
   import Ecto.Query, only: [from: 2]
   import MealPlannerApiWeb.CasingAssertions, only: [assert_camel_case_keys: 1]
-  import MealPlannerApi.Generation.ServerTestFixtures, only: [stop_generation_server: 1]
+
+  import MealPlannerApi.Generation.ServerTestFixtures,
+    only: [
+      answer_optimizer_request: 1,
+      insert_recipe: 2,
+      start_optimizer_server!: 0,
+      stop_generation_server: 1
+    ]
+
   import MealPlannerApiWeb.ChannelHelpers, only: [issue_identity_and_token: 2]
 
   alias MealPlannerApi.Data.PlanningRepo
@@ -552,6 +560,43 @@ defmodule MealPlannerApiWeb.PlanningStartTest do
         next_pushes(2)
 
       assert message["text"] == "Here is your plan for 1 day: 1 meal, estimated cost 1.00."
+    end
+
+    # The proposal of a real run (#158): the generation server builds it from
+    # the answer of the optimizer and broadcasts it, nothing is injected.
+    test "the proposal_ready of a generation carries the days and slots of the range", %{
+      socket: socket,
+      account: account
+    } do
+      recipe = insert_recipe("Planner recipe", suitable_for_slots: ~w(breakfast lunch dinner))
+      optimizer = start_optimizer_server!()
+      day_1 = in_days(1)
+      day_2 = in_days(2)
+
+      ref = push(socket, "start_planning", %{"rangeFrom" => day_1, "rangeTo" => day_2})
+      assert_reply(ref, :ok, %{"sessionId" => _})
+      assert_push("generation_started", %{"runId" => run_id})
+
+      answer_optimizer_request(optimizer)
+
+      assert_push("proposal_ready", ready, 5_000)
+      assert_camel_case_keys(ready)
+      assert %{"proposalId" => proposal_id, "runId" => ^run_id, "days" => days} = ready
+      assert is_binary(proposal_id)
+      assert Enum.map(days, & &1["date"]) == [day_1, day_2]
+
+      for day <- days do
+        assert Enum.map(day["meals"], &{&1["slot"], &1["recipeId"], &1["recipeName"]}) == [
+                 {"breakfast", recipe.id, "Planner recipe"},
+                 {"lunch", recipe.id, "Planner recipe"},
+                 {"dinner", recipe.id, "Planner recipe"}
+               ]
+      end
+
+      assert_push("planning_message", %{"proposalId" => ^proposal_id, "summary" => summary})
+      assert %{"dayCount" => 2, "mealCount" => 6} = summary
+
+      stop_generation_server(account.id)
     end
 
     test "a proposal_ready that is not the generation's keeps its payload", %{
