@@ -1,11 +1,14 @@
 defmodule MealPlannerApiWeb.PlanningChatControllerTest do
   use MealPlannerApiWeb.ConnCase, async: false
+  import Ecto.Query, warn: false
   import MealPlannerApi.FactoryHelpers
   import MealPlannerApi.IdentityFixtures
 
   alias MealPlannerApi.Auth.Guardian
   alias MealPlannerApi.Persistence.Calendar
   alias MealPlannerApi.Persistence.Catalog
+  alias MealPlannerApi.Persistence.Planning.{PlanningGenerationRun, PlanningProposal}
+  alias MealPlannerApi.Repo
 
   # ─── Phase A — Tenancy Refactor (PR 3c task 3.19) ───────────────────────────
   # See calendar_controller_test.exs (task 3.14) for why a tampered
@@ -129,6 +132,50 @@ defmodule MealPlannerApiWeb.PlanningChatControllerTest do
     assert length(body["data"]["proposal"]["weeklyPlan"]["days"]) >= 2
   end
 
+  describe "POST /api/planning/chat date range limit (issue #87)" do
+    test "a range longer than the plan maximum answers 422 and creates no rows", %{conn: conn} do
+      %{token: token, account: %{id: account_id}} = insert_identity_with_token!()
+
+      # A free User plans five days at most; the second range is two years.
+      for {date_from, date_to} <- [{"2026-03-23", "2026-03-28"}, {"2026-01-01", "2027-12-31"}] do
+        conn =
+          conn
+          |> put_req_header("authorization", "Bearer " <> token)
+          |> post("/api/planning/chat", %{
+            "message" => "Necesito menu",
+            "date_from" => date_from,
+            "date_to" => date_to
+          })
+
+        assert json_response(conn, 422) == %{"error" => "invalid_date_range"}
+      end
+
+      assert planning_row_counts(account_id) == %{generation_runs: 0, proposals: 0}
+    end
+
+    test "a range of the plan maximum still creates a proposal", %{conn: conn} do
+      %{token: token, account: %{id: account_id}} =
+        insert_identity_with_token!(subscription_tier: :premium)
+
+      conn =
+        conn
+        |> put_req_header("authorization", "Bearer " <> token)
+        |> post("/api/planning/chat", %{
+          "message" => "Necesito menu para la semana",
+          "date_from" => "2026-03-23",
+          "date_to" => "2026-03-29"
+        })
+
+      body = json_response(conn, 200)
+
+      assert is_binary(body["data"]["proposalId"])
+      assert body["data"]["dateFrom"] == "2026-03-23"
+      assert body["data"]["dateTo"] == "2026-03-29"
+
+      assert planning_row_counts(account_id) == %{generation_runs: 1, proposals: 1}
+    end
+  end
+
   test "favorites endpoint returns user starred recipes", %{conn: conn} do
     %{token: token, user: %{id: user_id}, account: %{id: account_id}} =
       insert_identity_with_token!(plan: :family_4)
@@ -153,5 +200,21 @@ defmodule MealPlannerApiWeb.PlanningChatControllerTest do
     body = json_response(conn, 200)
 
     assert Enum.any?(body["data"], &(&1["recipeId"] == recipe.id))
+  end
+
+  # The generation runs of the Account and the proposals made from them.
+  defp planning_row_counts(account_id) do
+    runs = from(r in PlanningGenerationRun, where: r.account_id == ^account_id)
+
+    proposals =
+      from(p in PlanningProposal,
+        join: r in assoc(p, :generation_run),
+        where: r.account_id == ^account_id
+      )
+
+    %{
+      generation_runs: Repo.aggregate(runs, :count),
+      proposals: Repo.aggregate(proposals, :count)
+    }
   end
 end
