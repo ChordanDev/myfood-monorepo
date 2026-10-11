@@ -1,6 +1,7 @@
 import { COOKING_ANSWER, COOKING_CHAT_HISTORY } from '@/features/cooking/fixtures';
 import {
   createPendingUserMessage,
+  hasUnseenQuestion,
   mergeChatHistory,
   recipeChatPlaceholder,
   reconcileChatTurns,
@@ -82,6 +83,25 @@ describe('reconcileChatTurns', () => {
     );
 
     expect(messages).toEqual(alreadyThere);
+  });
+});
+
+describe('hasUnseenQuestion', () => {
+  const history = [...COOKING_CHAT_HISTORY, ...COOKING_ANSWER.turns];
+  const seen = new Set(COOKING_CHAT_HISTORY.map((turn) => turn.id));
+  const [newQuestion, newAnswer] = COOKING_ANSWER.turns;
+
+  it('finds the question the server stored and the conversation has not seen', () => {
+    expect(hasUnseenQuestion(history, seen, newQuestion.content)).toBe(true);
+  });
+
+  it('does not take a question that was already seen for a new one', () => {
+    expect(hasUnseenQuestion(history, seen, STORED_QUESTION.content)).toBe(false);
+    expect(hasUnseenQuestion(COOKING_CHAT_HISTORY, seen, newQuestion.content)).toBe(false);
+  });
+
+  it('only matches user turns', () => {
+    expect(hasUnseenQuestion(history, seen, newAnswer.content)).toBe(false);
   });
 });
 

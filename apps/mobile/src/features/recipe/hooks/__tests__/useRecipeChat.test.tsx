@@ -7,6 +7,7 @@ import {
   COOKING_CHAT_HISTORY,
   COOKING_QUESTION,
   COOKING_SCHEDULED_MEAL_ID,
+  COOKING_SESSION_FINISHED,
   COOKING_SESSION_ID,
   COOKING_SESSION_WITH_HISTORY,
   COOKING_START,
@@ -33,6 +34,14 @@ type Chat = ReturnType<typeof useRecipeChat>;
 const OTHER_MEAL_ID = 'b7a1d3c2-0000-4000-8000-00000000000b';
 const HISTORY_IDS = COOKING_CHAT_HISTORY.map((turn) => turn.id);
 const ANSWER_IDS = COOKING_ANSWER.turns.map((turn) => turn.id);
+const OTHER_SESSION_ID = 'd2000000-0000-4000-8000-00000000000b';
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+// The session read once the question that lost its answer was stored after all.
+const SESSION_WITH_ANSWER = {
+  ...COOKING_SESSION_WITH_HISTORY,
+  chatMessages: [...COOKING_CHAT_HISTORY, ...COOKING_ANSWER.turns],
+};
+const sentMessageIds = () => askMock.mock.calls.map(([, , clientMessageId]) => clientMessageId);
 
 function deferred<T>() {
   let resolve: (value: T) => void = () => {};
@@ -124,11 +133,30 @@ describe('useRecipeChat', () => {
       expect(result.current.availability).toBe('unavailable');
     });
 
-    it('does not open a session for a meal that is already cooked', async () => {
-      const { result } = await renderChat({ isCooked: true });
+    it('opens the finished session of a cooked meal and shows its history, closed', async () => {
+      startMock.mockResolvedValue(COOKING_SESSION_FINISHED);
+      readMock.mockResolvedValue(COOKING_SESSION_FINISHED);
 
-      expect(startMock).not.toHaveBeenCalled();
+      const { result } = await renderChat({ isCooked: true });
+      await ask(result, COOKING_QUESTION);
+
+      expect(startMock).toHaveBeenCalledWith(COOKING_SCHEDULED_MEAL_ID);
+      expect(ids(result)).toEqual(HISTORY_IDS);
       expect(result.current.availability).toBe('finished');
+      expect(result.current.errorMessage).toBeNull();
+      expect(askMock).not.toHaveBeenCalled();
+    });
+
+    it('closes the chat when the session the server returns already finished', async () => {
+      startMock.mockResolvedValue(COOKING_SESSION_FINISHED);
+      readMock.mockResolvedValue(COOKING_SESSION_FINISHED);
+
+      const { result } = await renderChat({ isCooked: false });
+      await ask(result, COOKING_QUESTION);
+
+      expect(result.current.availability).toBe('finished');
+      expect(ids(result)).toEqual(HISTORY_IDS);
+      expect(askMock).not.toHaveBeenCalled();
     });
 
     it('closes the chat when the server says the meal is not on its today', async () => {
@@ -157,7 +185,11 @@ describe('useRecipeChat', () => {
       await ask(result, COOKING_QUESTION);
 
       expect(startMock).toHaveBeenCalledTimes(2);
-      expect(askMock).toHaveBeenCalledWith(COOKING_SESSION_ID, COOKING_QUESTION);
+      expect(askMock).toHaveBeenCalledWith(
+        COOKING_SESSION_ID,
+        COOKING_QUESTION,
+        expect.stringMatching(UUID)
+      );
       expect(ids(result)).toEqual([...HISTORY_IDS, ...ANSWER_IDS]);
       expect(result.current.errorMessage).toBeNull();
     });
@@ -171,7 +203,11 @@ describe('useRecipeChat', () => {
 
       await ask(result, `  ${COOKING_QUESTION}  `);
 
-      expect(askMock).toHaveBeenCalledWith(COOKING_SESSION_ID, COOKING_QUESTION);
+      expect(askMock).toHaveBeenCalledWith(
+        COOKING_SESSION_ID,
+        COOKING_QUESTION,
+        expect.stringMatching(UUID)
+      );
       expect(result.current.messages).toHaveLength(3);
       expect(result.current.messages[2]).toEqual(
         expect.objectContaining({ author: 'user', text: COOKING_QUESTION })
@@ -265,6 +301,74 @@ describe('useRecipeChat', () => {
       expect(result.current.availability).toBe('available');
     });
 
+    it('re-reads the session and shows the stored turns when only the answer was lost', async () => {
+      askMock.mockRejectedValue(new ApiError('network_error', 'offline'));
+      readMock
+        .mockResolvedValueOnce(COOKING_SESSION_WITH_HISTORY)
+        .mockResolvedValueOnce(SESSION_WITH_ANSWER);
+      const { result } = await renderChat();
+
+      await ask(result, COOKING_QUESTION);
+
+      expect(readMock).toHaveBeenCalledTimes(2);
+      expect(ids(result)).toEqual([...HISTORY_IDS, ...ANSWER_IDS]);
+      expect(result.current.input).toBe('');
+      expect(result.current.isThinking).toBe(false);
+      expect(result.current.errorMessage).toBeNull();
+    });
+
+    it('does not take an earlier, identical question for the one that failed', async () => {
+      const [earlierQuestion, earlierAnswer] = COOKING_CHAT_HISTORY;
+      askMock.mockRejectedValue(new ApiError('network_error', 'offline'));
+      const { result } = await renderChat();
+
+      await ask(result, earlierQuestion.content);
+
+      expect(ids(result)).toEqual([earlierQuestion.id, earlierAnswer.id]);
+      expect(result.current.input).toBe(earlierQuestion.content);
+      expect(result.current.errorMessage).toEqual(expect.any(String));
+    });
+
+    it('restores the input when the session cannot be read again either', async () => {
+      askMock.mockRejectedValue(new ApiError('network_error', 'offline'));
+      readMock
+        .mockResolvedValueOnce(COOKING_SESSION_WITH_HISTORY)
+        .mockRejectedValueOnce(new ApiError('network_error', 'offline'));
+      const { result } = await renderChat();
+
+      await ask(result, COOKING_QUESTION);
+
+      expect(ids(result)).toEqual(HISTORY_IDS);
+      expect(result.current.input).toBe(COOKING_QUESTION);
+      expect(result.current.errorMessage).toEqual(expect.any(String));
+    });
+
+    it('resends the unchanged text with the same message id', async () => {
+      askMock.mockRejectedValueOnce(new ApiError('network_error', 'offline'));
+      const { result } = await renderChat();
+      await ask(result, COOKING_QUESTION);
+
+      await act(async () => {
+        result.current.sendMessage();
+      });
+
+      const [first, second] = sentMessageIds();
+      expect(first).toMatch(UUID);
+      expect(second).toBe(first);
+      expect(ids(result)).toEqual([...HISTORY_IDS, ...ANSWER_IDS]);
+    });
+
+    it('sends an edited question, and every new question, with a new message id', async () => {
+      askMock.mockRejectedValueOnce(new ApiError('network_error', 'offline'));
+      const { result } = await renderChat();
+      await ask(result, COOKING_QUESTION);
+
+      await ask(result, `${COOKING_QUESTION} ¿Y la sal?`);
+      await ask(result, COOKING_QUESTION);
+
+      expect(new Set(sentMessageIds()).size).toBe(3);
+    });
+
     it('clears the error on the next question', async () => {
       askMock.mockRejectedValueOnce(new ApiError('network_error', 'offline'));
       const { result } = await renderChat();
@@ -288,6 +392,8 @@ describe('useRecipeChat', () => {
       expect(result.current.availability).toBe(availability);
       expect(ids(result)).toEqual(HISTORY_IDS);
       expect(result.current.isThinking).toBe(false);
+      // A refusal says the question was not stored: the session is not read again.
+      expect(readMock).toHaveBeenCalledTimes(1);
 
       await ask(result, 'Otra');
       expect(askMock).toHaveBeenCalledTimes(1);
@@ -338,6 +444,36 @@ describe('useRecipeChat', () => {
       await act(async () => pendingAnswer.resolve(COOKING_ANSWER));
 
       expect(result.current.messages).toEqual([]);
+    });
+
+    it('asks on another meal while the answer of the previous one is still pending', async () => {
+      const pendingAnswer = deferred<typeof COOKING_ANSWER>();
+      askMock.mockReturnValueOnce(pendingAnswer.promise);
+      const { result, rerender } = await renderChat();
+      await ask(result, COOKING_QUESTION);
+
+      const otherSession = {
+        ...COOKING_START,
+        sessionId: OTHER_SESSION_ID,
+        scheduledMealId: OTHER_MEAL_ID,
+      };
+      startMock.mockResolvedValue(otherSession);
+      readMock.mockResolvedValue(otherSession);
+      await rerender({ scheduledMealId: OTHER_MEAL_ID });
+
+      await ask(result, 'Otra comida');
+
+      expect(askMock).toHaveBeenCalledTimes(2);
+      expect(askMock).toHaveBeenLastCalledWith(
+        OTHER_SESSION_ID,
+        'Otra comida',
+        expect.stringMatching(UUID)
+      );
+      expect(ids(result)).toEqual(ANSWER_IDS);
+
+      // The late answer of the first meal neither lands here nor frees a guard it does not own.
+      await act(async () => pendingAnswer.resolve(COOKING_ANSWER));
+      expect(ids(result)).toEqual(ANSWER_IDS);
     });
   });
 });

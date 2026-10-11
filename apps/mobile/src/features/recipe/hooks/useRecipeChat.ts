@@ -1,8 +1,15 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { getAuthErrorMessage, isApiError } from '@/api/errors';
-import { askCookingSession, getCookingSession, startCookingSession } from '@/features/cooking';
+import {
+  askCookingSession,
+  getCookingSession,
+  startCookingSession,
+  type CookingChatMessage,
+} from '@/features/cooking';
+import { newRequestId } from '@/services/requestId';
 import {
   createPendingUserMessage,
+  hasUnseenQuestion,
   mergeChatHistory,
   reconcileChatTurns,
   type RecipeChatAvailability,
@@ -17,6 +24,9 @@ type UseRecipeChatArgs = {
   /** A cooked meal has finished its Cooking session: the conversation stays, nothing is asked. */
   isCooked: boolean;
 };
+
+/** A question on its way, with the id that lets the server tell a resend from a new question. */
+type Question = { pendingId: string; text: string; clientMessageId: string };
 
 /** Why the server closed the chat; it stays closed for as long as the screen shows this meal. */
 type ClosedReason = Exclude<RecipeChatAvailability, 'available'>;
@@ -61,7 +71,8 @@ function withFailure(chat: ChatState, error: unknown): ChatState {
 /**
  * Conversation with the Cooking chat of a planned meal. The server keeps it: opening the chat
  * starts (or finds) the meal's Cooking session and reads its history, and every question is
- * answered and stored there. A chat that is not available makes no request.
+ * answered and stored there. A cooked meal opens its finished session, so the conversation is
+ * shown closed. A chat that is not on the meal's day makes no request.
  */
 export function useRecipeChat({ scheduledMealId, isEnabled, isCooked }: UseRecipeChatArgs) {
   const [chat, setChat] = useState(() => emptyChat(scheduledMealId));
@@ -70,12 +81,18 @@ export function useRecipeChat({ scheduledMealId, isEnabled, isCooked }: UseRecip
   const activeMealIdRef = useRef<string | null>(null);
   // One opening per meal, shared by the mount and by a question sent before it settled.
   const openingRef = useRef<{ mealId: string; sessionId: Promise<string> } | null>(null);
-  // State lags a render behind: the ref is what stops a second submit from asking twice.
-  const isAskingRef = useRef(false);
+  // State lags a render behind: the ref is what stops a second submit from asking twice. It
+  // holds the meals with a question on its way, so the pending answer of a meal the screen left
+  // does not block the one it shows now.
+  const askingMealIdsRef = useRef(new Set<string>());
   const pendingCountRef = useRef(0);
+  // Every stored turn the server sent: a turn outside it is news after a failed question.
+  const seenTurnIdsRef = useRef(new Set<string>());
+  // The last question that failed without being stored: the same text is resent with its id.
+  const retryRef = useRef<{ mealId: string; text: string; clientMessageId: string } | null>(null);
 
   const current = chat.mealId === scheduledMealId ? chat : emptyChat(scheduledMealId);
-  const canOpen = isEnabled && !isCooked && scheduledMealId !== null;
+  const canOpen = isEnabled && scheduledMealId !== null;
 
   let availability: RecipeChatAvailability = current.closedReason ?? 'available';
   if (!isEnabled || scheduledMealId === null) availability = 'unavailable';
@@ -87,6 +104,10 @@ export function useRecipeChat({ scheduledMealId, isEnabled, isCooked }: UseRecip
     setChat((latest) => change(latest.mealId === mealId ? latest : emptyChat(mealId)));
   }, []);
 
+  const rememberTurns = useCallback((turns: CookingChatMessage[]) => {
+    turns.forEach((turn) => seenTurnIdsRef.current.add(turn.id));
+  }, []);
+
   const openSession = useCallback(
     (mealId: string): Promise<string> => {
       if (openingRef.current?.mealId === mealId) return openingRef.current.sessionId;
@@ -96,9 +117,12 @@ export function useRecipeChat({ scheduledMealId, isEnabled, isCooked }: UseRecip
         // The read is what brings the history back after the app was closed.
         const session = await getCookingSession(started.sessionId);
 
+        rememberTurns(session.chatMessages);
         updateChat(mealId, (latest) => ({
           ...latest,
           messages: mergeChatHistory(session.chatMessages, latest.messages),
+          // The finished session of a cooked meal: its history is shown, nothing is asked.
+          closedReason: session.status === 'completed' ? 'finished' : latest.closedReason,
           errorMessage: null,
         }));
         return session.sessionId;
@@ -112,7 +136,24 @@ export function useRecipeChat({ scheduledMealId, isEnabled, isCooked }: UseRecip
 
       return sessionId;
     },
-    [updateChat]
+    [rememberTurns, updateChat]
+  );
+
+  // After a failed question: the stored history when the server kept the question after all
+  // (only its answer was lost on the way back), `null` when it did not or cannot be asked.
+  const readStoredQuestion = useCallback(
+    async (sessionId: string, text: string): Promise<CookingChatMessage[] | null> => {
+      try {
+        const { chatMessages } = await getCookingSession(sessionId);
+        if (!hasUnseenQuestion(chatMessages, seenTurnIdsRef.current, text)) return null;
+
+        rememberTurns(chatMessages);
+        return chatMessages;
+      } catch {
+        return null;
+      }
+    },
+    [rememberTurns]
   );
 
   useEffect(() => {
@@ -130,55 +171,75 @@ export function useRecipeChat({ scheduledMealId, isEnabled, isCooked }: UseRecip
   }, [canOpen, openSession, scheduledMealId, updateChat]);
 
   const ask = useCallback(
-    async (mealId: string, pendingId: string, question: string) => {
-      try {
-        const sessionId = await openSession(mealId);
-        const answer = await askCookingSession(sessionId, question);
+    async (mealId: string, { pendingId, text, clientMessageId }: Question) => {
+      const withoutPending = (messages: RecipeChatMessage[]) =>
+        messages.filter((message) => message.id !== pendingId);
+      let sessionId: string | null = null;
 
+      try {
+        sessionId = await openSession(mealId);
+        const answer = await askCookingSession(sessionId, text, clientMessageId);
+
+        rememberTurns(answer.turns);
         updateChat(mealId, (latest) => ({
           ...latest,
           messages: reconcileChatTurns(latest.messages, pendingId, answer.turns),
           isThinking: false,
         }));
       } catch (error) {
+        const isRefusal = closedReasonOf(error) !== null;
+        // A refusal stored nothing, and neither did a session that never opened.
+        const stored =
+          isRefusal || sessionId === null ? null : await readStoredQuestion(sessionId, text);
+
+        if (stored) {
+          updateChat(mealId, (latest) => ({
+            ...latest,
+            messages: mergeChatHistory(stored, withoutPending(latest.messages)),
+            isThinking: false,
+          }));
+          return;
+        }
+
         updateChat(mealId, (latest) =>
           withFailure(
-            {
-              ...latest,
-              messages: latest.messages.filter((message) => message.id !== pendingId),
-              isThinking: false,
-            },
+            { ...latest, messages: withoutPending(latest.messages), isThinking: false },
             error
           )
         );
         // The question goes back to the composer unless the chat closed or the user moved on.
-        if (activeMealIdRef.current === mealId && closedReasonOf(error) === null) {
-          setInput((typed) => (typed === '' ? question : typed));
+        if (activeMealIdRef.current === mealId && !isRefusal) {
+          retryRef.current = { mealId, text, clientMessageId };
+          setInput((typed) => (typed === '' ? text : typed));
         }
       } finally {
-        isAskingRef.current = false;
+        askingMealIdsRef.current.delete(mealId);
       }
     },
-    [openSession, updateChat]
+    [openSession, readStoredQuestion, rememberTurns, updateChat]
   );
 
   const sendMessage = useCallback(() => {
-    const question = input.trim();
+    const text = input.trim();
     if (availability !== 'available' || scheduledMealId === null) return;
-    if (isAskingRef.current || question === '') return;
+    if (askingMealIdsRef.current.has(scheduledMealId) || text === '') return;
 
-    isAskingRef.current = true;
+    askingMealIdsRef.current.add(scheduledMealId);
     pendingCountRef.current += 1;
     const pendingId = `pending-${pendingCountRef.current}`;
+    const retry = retryRef.current;
+    const isResend = retry?.mealId === scheduledMealId && retry.text === text;
+    const clientMessageId = isResend ? retry.clientMessageId : newRequestId();
+    retryRef.current = null;
 
     updateChat(scheduledMealId, (latest) => ({
       ...latest,
-      messages: [...latest.messages, createPendingUserMessage(pendingId, question)],
+      messages: [...latest.messages, createPendingUserMessage(pendingId, text)],
       isThinking: true,
       errorMessage: null,
     }));
     setInput('');
-    void ask(scheduledMealId, pendingId, question);
+    void ask(scheduledMealId, { pendingId, text, clientMessageId });
   }, [ask, availability, input, scheduledMealId, updateChat]);
 
   return {

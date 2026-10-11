@@ -15,6 +15,7 @@ import {
 import {
   COOKING_ANSWER,
   COOKING_FINISH_WITH_SHORTAGE,
+  COOKING_SESSION_FINISHED,
   COOKING_SESSION_WITH_HISTORY,
   COOKING_START,
 } from '@/features/cooking/fixtures';
@@ -991,6 +992,24 @@ describe('RecipeScreen', () => {
       );
     });
 
+    it('shows the closed conversation of a meal that was already cooked today', async () => {
+      useMealPlanStore.setState({ entries: [entry({ isCooked: true })] });
+      jest.mocked(startCookingSession).mockResolvedValue(COOKING_SESSION_FINISHED);
+      const tree = await renderWithChatOpen(COOKING_SESSION_FINISHED);
+
+      expect(startCookingSession).toHaveBeenCalledWith('e-today');
+      expect(renderedTexts(tree)).toEqual(
+        expect.arrayContaining(['¿Puedo usar menos aceite?', 'Sí, con la mitad alcanza.'])
+      );
+      expect(getComposer(tree).props.disabled).toBe(true);
+      expect(getComposer(tree).props.placeholder).toBe('Chat cerrado: la comida ya está cocinada');
+      expect(tree.root.findAllByProps({ testID: 'recipe-chat-error' })).toHaveLength(0);
+
+      ask(tree, QUESTION);
+      await waitForReply();
+      expect(askCookingSession).not.toHaveBeenCalled();
+    });
+
     it('shows the question, then the typing indicator, then the answer of the server', async () => {
       let answer: (value: typeof COOKING_ANSWER) => void = () => {};
       jest.mocked(askCookingSession).mockReturnValue(new Promise((resolve) => (answer = resolve)));
@@ -999,7 +1018,11 @@ describe('RecipeScreen', () => {
       ask(tree, QUESTION);
       await waitForReply();
 
-      expect(askCookingSession).toHaveBeenCalledWith(COOKING_START.sessionId, QUESTION);
+      expect(askCookingSession).toHaveBeenCalledWith(
+        COOKING_START.sessionId,
+        QUESTION,
+        expect.any(String)
+      );
       expect(renderedTexts(tree)).toContain(QUESTION);
       expect(getComposer(tree).props.value).toBe('');
       expect(getComposer(tree).props.isThinking).toBe(true);

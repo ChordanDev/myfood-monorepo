@@ -6,6 +6,7 @@ import {
   COOKING_FINISH_WITH_SHORTAGE,
   COOKING_QUESTION,
   COOKING_SCHEDULED_MEAL_ID,
+  COOKING_SESSION_FINISHED,
   COOKING_SESSION_ID,
   COOKING_SESSION_WITH_HISTORY,
   toCookingAnswerResponse,
@@ -40,6 +41,8 @@ function mockJsonResponse(payload: unknown, ok = true, status = ok ? 200 : 422) 
     text: () => Promise.resolve(JSON.stringify(payload)),
   } as Response);
 }
+
+const MESSAGE_ID = 'e3000000-0000-4000-8000-000000000001';
 
 describe('the cooking API', () => {
   const fetchMock = jest.fn();
@@ -175,8 +178,22 @@ describe('the cooking API', () => {
       expect(session.chatMessages).toEqual(COOKING_CHAT_HISTORY);
     });
 
-    it('turns an answer without a history into an unknown error', async () => {
-      fetchMock.mockReturnValue(mockJsonResponse({ data: { sessionId: COOKING_SESSION_ID } }));
+    it('returns the finished session of a cooked meal with its status', async () => {
+      fetchMock.mockReturnValue(
+        mockJsonResponse(toCookingSessionResponse(COOKING_SESSION_FINISHED))
+      );
+
+      const session = await getCookingSession(COOKING_SESSION_ID);
+
+      expect(session.status).toBe('completed');
+      expect(session.chatMessages).toEqual(COOKING_CHAT_HISTORY);
+    });
+
+    it.each([
+      ['a history', { sessionId: COOKING_SESSION_ID, status: 'active' }],
+      ['a status', { sessionId: COOKING_SESSION_ID, chatMessages: [] }],
+    ])('turns an answer without %s into an unknown error', async (_missing, data) => {
+      fetchMock.mockReturnValue(mockJsonResponse({ data }));
 
       await expect(getCookingSession(COOKING_SESSION_ID)).rejects.toMatchObject({
         code: 'unknown_error',
@@ -198,19 +215,24 @@ describe('the cooking API', () => {
     it('posts the question and returns the two stored turns', async () => {
       fetchMock.mockReturnValue(mockJsonResponse(toCookingAnswerResponse()));
 
-      const answer = await askCookingSession(COOKING_SESSION_ID, COOKING_QUESTION);
+      const answer = await askCookingSession(COOKING_SESSION_ID, COOKING_QUESTION, MESSAGE_ID);
 
       const [url, init] = fetchMock.mock.calls[0];
       expect(url).toBe(`https://api.example.test/api/cooking/sessions/${COOKING_SESSION_ID}/ask`);
       expect(init.method).toBe('POST');
-      expect(JSON.parse(init.body)).toEqual({ message: COOKING_QUESTION });
+      expect(JSON.parse(init.body)).toEqual({
+        message: COOKING_QUESTION,
+        clientMessageId: MESSAGE_ID,
+      });
       expect(answer.turns).toEqual(COOKING_ANSWER.turns);
     });
 
-    it('does not retry a transient failure: a repeat would store the question twice', async () => {
+    it('does not retry a transient failure: the caller decides whether to send it again', async () => {
       fetchMock.mockRejectedValue(new TypeError('Network request failed'));
 
-      await expect(askCookingSession(COOKING_SESSION_ID, COOKING_QUESTION)).rejects.toMatchObject({
+      await expect(
+        askCookingSession(COOKING_SESSION_ID, COOKING_QUESTION, MESSAGE_ID)
+      ).rejects.toMatchObject({
         code: 'network_error',
       });
       expect(fetchMock).toHaveBeenCalledTimes(1);
@@ -220,7 +242,9 @@ describe('the cooking API', () => {
       const { data } = toCookingAnswerResponse();
       fetchMock.mockReturnValue(mockJsonResponse({ data: { ...data, turns: [data.turns[0]] } }));
 
-      await expect(askCookingSession(COOKING_SESSION_ID, COOKING_QUESTION)).rejects.toMatchObject({
+      await expect(
+        askCookingSession(COOKING_SESSION_ID, COOKING_QUESTION, MESSAGE_ID)
+      ).rejects.toMatchObject({
         code: 'unknown_error',
       });
     });
@@ -230,9 +254,9 @@ describe('the cooking API', () => {
       async (code) => {
         fetchMock.mockReturnValue(mockJsonResponse({ error: { code, message: 'x' } }, false, 409));
 
-        await expect(askCookingSession(COOKING_SESSION_ID, COOKING_QUESTION)).rejects.toMatchObject(
-          { code }
-        );
+        await expect(
+          askCookingSession(COOKING_SESSION_ID, COOKING_QUESTION, MESSAGE_ID)
+        ).rejects.toMatchObject({ code });
       }
     );
   });

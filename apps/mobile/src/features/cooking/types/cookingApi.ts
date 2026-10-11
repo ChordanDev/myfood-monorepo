@@ -12,11 +12,13 @@ export interface CookingChatMessage {
 
 /**
  * The part of a Cooking session the app reads, from `POST /api/cooking/start` and from the
- * session read: the id the other calls need and the chat history, oldest first.
+ * session read: the id the other calls need, whether it is still open and the chat history,
+ * oldest first. A cooked meal answers with its `completed` session.
  */
 export interface CookingSession {
   sessionId: string;
   scheduledMealId: string;
+  status: 'active' | 'paused' | 'completed';
   chatMessages: CookingChatMessage[];
 }
 
