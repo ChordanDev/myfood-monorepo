@@ -27,18 +27,8 @@ export interface CalendarQuery {
   endDate: string;
 }
 
-// One meal of the body of `PUT /api/calendar/meals/range`.
-export interface CalendarRangeMeal {
+// The body of `POST /api/calendar/meals/:mealId/move`: where the meal goes.
+export interface CalendarMealDestination {
   date: string;
   slot: MealSlot;
-  recipeId: string | null;
-  isCooked: boolean;
-  selectedQuantity?: number | null;
-}
-
-// The server deletes every meal of `from..to` and inserts exactly these ones.
-export interface CalendarRangeReplacement {
-  from: string;
-  to: string;
-  meals: CalendarRangeMeal[];
 }

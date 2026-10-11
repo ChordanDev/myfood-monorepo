@@ -1,6 +1,6 @@
 /// <reference types="node" />
 import { ApiError } from '@/api/errors';
-import { getCalendar, replaceCalendarRange } from './calendarApi';
+import { getCalendar, moveCalendarMeal } from './calendarApi';
 
 const mockSecureStore = new Map<string, string>();
 
@@ -68,29 +68,37 @@ describe('calendar API', () => {
     });
   });
 
-  describe('replaceCalendarRange', () => {
-    it('puts the range and its meals', async () => {
-      fetchMock.mockReturnValue(jsonResponse({ data: { replaced: 1 } }));
-      const replacement = {
-        from: '2026-10-08',
-        to: '2026-10-09',
-        meals: [{ date: '2026-10-08', slot: 'lunch' as const, recipeId: 'r1', isCooked: false }],
-      };
-
-      await replaceCalendarRange(replacement);
-
-      const [url, init] = fetchMock.mock.calls[0];
-      expect(url).toBe('https://api.example.test/api/calendar/meals/range');
-      expect(init.method).toBe('PUT');
-      expect(JSON.parse(init.body)).toEqual(replacement);
-    });
-
-    it('rejects when the server refuses the replacement', async () => {
-      fetchMock.mockReturnValue(jsonResponse({ error: 'meal_outside_range' }, 422));
+  describe('moveCalendarMeal', () => {
+    it('posts the destination to the move route of the meal', async () => {
+      fetchMock.mockReturnValue(
+        jsonResponse({
+          data: { moved: { mealId: 'm 2', date: '2026-10-08', slot: 'lunch' }, displaced: null },
+        })
+      );
 
       await expect(
-        replaceCalendarRange({ from: '2026-10-08', to: '2026-10-08', meals: [] })
-      ).rejects.toBeInstanceOf(ApiError);
+        moveCalendarMeal('m 2', { date: '2026-10-08', slot: 'lunch' })
+      ).resolves.toBeUndefined();
+
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      const [url, init] = fetchMock.mock.calls[0];
+      expect(url).toBe('https://api.example.test/api/calendar/meals/m%202/move');
+      expect(init.method).toBe('POST');
+      expect(init.headers.Authorization).toBe('Bearer access-1');
+      expect(JSON.parse(init.body)).toEqual({ date: '2026-10-08', slot: 'lunch' });
+    });
+
+    it('rejects with the code of the envelope when the server refuses the move', async () => {
+      fetchMock.mockReturnValue(
+        jsonResponse({ error: { code: 'scheduled_meal_cooked', message: 'Cooked' } }, 409)
+      );
+
+      const refusal = await moveCalendarMeal('m2', { date: '2026-10-08', slot: 'lunch' }).catch(
+        (error: unknown) => error
+      );
+
+      expect(refusal).toBeInstanceOf(ApiError);
+      expect(refusal).toMatchObject({ code: 'scheduled_meal_cooked', status: 409 });
     });
   });
 });
