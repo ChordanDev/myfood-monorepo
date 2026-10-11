@@ -1672,3 +1672,52 @@ Errors use the envelope of section 10:
 
 `apps/mobile/src/features/recipe/fixtures/recipeDetail.json` is a full example body. A route test keeps its
 keys equal to the ones this route answers.
+
+## 12. Calendar (REST)
+
+### 12.1 Move a Scheduled meal
+
+- Method: `POST`
+- Path: `/api/calendar/meals/:mealId/move`
+
+Request body:
+
+```json
+{
+  "date": "2026-10-11",
+  "slot": "lunch"
+}
+```
+
+- `mealId`: the `mealId` of a meal of `GET /api/calendar`.
+- `date`: required, the destination day as `YYYY-MM-DD`.
+- `slot`: required, `breakfast`, `lunch`, `snack` or `dinner`.
+
+Success response (`200`):
+
+```json
+{
+  "data": {
+    "moved": { "mealId": "<scheduled_meal_uuid>", "date": "2026-10-11", "slot": "lunch" },
+    "displaced": { "mealId": "<scheduled_meal_uuid>", "date": "2026-10-12", "slot": "dinner" }
+  }
+}
+```
+
+The meal goes to `date` and `slot`. A meal already there takes the position the moved one leaves and comes
+back as `displaced`; for an empty destination `displaced` is `null`. The server finds the meal at the
+destination itself, so a client does not send what its cache holds for that slot. The call is all or nothing.
+
+Both meals keep their `mealId`, and what hangs from them goes with them: their Cooking sessions, the Slot
+favorites of both positions, and their Shopping items in the state they had (in a Cart, removed, bought),
+which now read the meal's new date. Use this route to move a meal; `PUT /api/calendar/meals/range` deletes
+the meals of its range and creates new ones, and is meant for replacing a plan.
+
+Errors use the envelope of section 10:
+
+| Status | Code                       | When                                                                                |
+| ------ | -------------------------- | ----------------------------------------------------------------------------------- |
+| `404`  | `scheduled_meal_not_found` | The id is unknown, of another Account or not a UUID                                 |
+| `422`  | `validation_error`         | `date` or `slot` is missing or not valid, or is the position the meal already has   |
+| `409`  | `scheduled_meal_cooked`    | The meal, or the meal at the destination, is cooked. A cooked meal stays on its day |
+| `409`  | `calendar_conflict`        | Another write took the destination meanwhile. Read the calendar again and retry     |

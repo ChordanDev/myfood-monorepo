@@ -3,7 +3,9 @@ defmodule MealPlannerApiWeb.CalendarController do
 
   alias MealPlannerApi.AccountClock
   alias MealPlannerApi.Persistence.Calendar
+  alias MealPlannerApi.Persistence.Calendar.MealMove
   alias MealPlannerApi.Services.ShoppingService
+  alias MealPlannerApiWeb.ApiError
   alias MealPlannerApiWeb.MealSummary
 
   # Phase A — Tenancy Refactor (PR 3c task 3.14): tenancy scope is always
@@ -57,6 +59,36 @@ defmodule MealPlannerApiWeb.CalendarController do
       end
     else
       {:error, reason} -> render_error(conn, reason)
+    end
+  end
+
+  @doc """
+  `POST /api/calendar/meals/:id/move` with `date` and `slot`: moves the
+  Scheduled meal `:id` of the caller's Account to that position and keeps its
+  id. A meal already there takes the position the moved one leaves and comes
+  back as `displaced`, which is `nil` for an empty destination; both carry
+  `meal_id`, `date` and `slot`.
+
+  Unlike the older actions of this controller, errors use the envelope of
+  `ApiError`: 404 `scheduled_meal_not_found`, 422 `validation_error` naming
+  `date` or `slot` (the position the meal already has is not a valid
+  destination), 409 `scheduled_meal_cooked` when either meal is cooked, and
+  409 `calendar_conflict` when a concurrent write took the destination.
+  """
+  def move_meal(conn, %{"id" => meal_id} = params) do
+    account_id = conn.assigns.current_membership.account_id
+
+    with {:date, {:ok, date}} <- {:date, parse_date(Map.get(params, "date"))},
+         {:slot, {:ok, slot}} <- {:slot, parse_slot(Map.get(params, "slot"))},
+         {:ok, %{moved: moved, displaced: displaced}} <-
+           MealMove.move(account_id, meal_id, date, slot, AccountClock.today(account_id)) do
+      json(conn, %{
+        data: %{moved: serialize_position(moved), displaced: serialize_position(displaced)}
+      })
+    else
+      {:date, {:error, _reason}} -> conn |> ApiError.validation_error("date")
+      {:slot, {:error, _reason}} -> conn |> ApiError.validation_error("slot")
+      {:error, reason} -> render_move_error(conn, reason)
     end
   end
 
@@ -114,6 +146,15 @@ defmodule MealPlannerApiWeb.CalendarController do
     |> put_status(:unprocessable_entity)
     |> json(%{error: reason})
   end
+
+  defp render_move_error(conn, :meal_not_found),
+    do: conn |> ApiError.error(:scheduled_meal_not_found)
+
+  defp render_move_error(conn, :same_slot), do: conn |> ApiError.validation_error("slot")
+  defp render_move_error(conn, :conflict), do: conn |> ApiError.error(:calendar_conflict)
+
+  defp render_move_error(conn, reason) when reason in [:meal_cooked, :target_meal_cooked],
+    do: conn |> ApiError.error(:scheduled_meal_cooked)
 
   defp validate_date_range(start_date, end_date) do
     if Date.compare(start_date, end_date) in [:lt, :eq] do
@@ -240,5 +281,13 @@ defmodule MealPlannerApiWeb.CalendarController do
     # Filled slot — can_create is always false for existing meals
     serialize_meal(meal)
     |> Map.put(:can_create, false)
+  end
+
+  # Where a meal sits after a move (move_meal endpoint)
+
+  defp serialize_position(nil), do: nil
+
+  defp serialize_position(meal) do
+    %{meal_id: meal.id, date: Date.to_iso8601(meal.date), slot: Atom.to_string(meal.slot)}
   end
 end
