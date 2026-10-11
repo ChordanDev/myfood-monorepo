@@ -44,10 +44,14 @@ defmodule MealPlannerApi.Services.CookingService do
   `now`, so moving a meal to today makes it eligible. Any other day is
   `{:error, :cooking_chat_unavailable}`.
 
-  A meal has one active session: starting it again returns that session, with
-  its chat history, instead of creating another. A cooked meal returns the
-  finished session that cooked it, so its conversation can still be read; a
-  meal that is not cooked and has no active session gets a new one.
+  A meal that is not cooked has one active session: starting it again returns
+  that session, with its chat history, instead of creating another, and a meal
+  with no active session gets a new one.
+
+  A cooked meal never gets an active session. It returns the finished session
+  that cooked it, so its conversation can still be read. A meal marked cooked
+  outside a session has none: it is `{:error, :cooking_already_finished}` and
+  no session is created.
   """
   @spec start_session(map(), binary(), DateTime.t()) :: {:ok, map()} | {:error, term()}
   def start_session(current_user, scheduled_meal_id, now \\ DateTime.utc_now())
@@ -368,15 +372,16 @@ defmodule MealPlannerApi.Services.CookingService do
   # -------------------------------------------------------------------------
 
   # The meal row lock serializes concurrent starts of one meal, so the lookup
-  # and the insert cannot interleave into two active sessions.
+  # and the insert cannot interleave into two active sessions. A finish marks
+  # the meal cooked under the same lock, so `is_cooked` is read here as the
+  # finish left it.
   defp find_or_create_session(ids, meal) do
     Repo.transaction(fn ->
       locked =
         PlanningRepo.lock_cooking_meal_for_account(ids.account_id, meal.id) ||
           Repo.rollback(:scheduled_meal_not_found)
 
-      with nil <- PlanningRepo.active_cooking_session_for_meal(ids.account_id, meal.id),
-           nil <- cooked_session(ids, locked),
+      with nil <- current_session(ids, locked),
            {:ok, session} <- create_session(ids, meal) do
         session
       else
@@ -386,12 +391,19 @@ defmodule MealPlannerApi.Services.CookingService do
     end)
   end
 
-  # A cooked meal keeps the session that cooked it. One marked cooked outside
-  # a session (calendar) has none, and one set back to not cooked starts over.
-  defp cooked_session(ids, %{is_cooked: true, id: meal_id}),
-    do: PlanningRepo.completed_cooking_session_for_meal(ids.account_id, meal_id)
+  # A cooked meal keeps the session that cooked it and never gets an active
+  # one. One marked cooked outside a session (calendar) has none to return: a
+  # new session could not finish, and an active one left from before is not
+  # handed out.
+  defp current_session(ids, %{is_cooked: true, id: meal_id}) do
+    PlanningRepo.completed_cooking_session_for_meal(ids.account_id, meal_id) ||
+      {:error, :cooking_already_finished}
+  end
 
-  defp cooked_session(_ids, _meal), do: nil
+  # A meal that is not cooked keeps its active session. One set back to not
+  # cooked has none and starts over.
+  defp current_session(ids, %{id: meal_id}),
+    do: PlanningRepo.active_cooking_session_for_meal(ids.account_id, meal_id)
 
   defp create_session(ids, meal) do
     recipe = RecipeVersions.recipe_for_meal(meal)

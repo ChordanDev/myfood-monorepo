@@ -43,7 +43,7 @@ About 550 authored changed lines over four PRs, each under 400.
 - [x] T1 #125 web tests on the Account's clock. Route: delegated writer (three test files).
 - [x] T2 #126 remove `paused` from the Cooking session status. Route: delegated writer (schema, migration, service, tests, glossary).
 - [x] T3 #147 Shopping rows before the Inventory key in finish. Route: delegated writer (service plus a two-connection test).
-- [ ] T4 #148 start refuses a cooked meal that has no finished session. Route: delegated writer (service, service and web tests, glossary).
+- [x] T4 #148 start refuses a cooked meal that has no finished session. Route: delegated writer (service, service and web tests, glossary).
 
 ## Progress / evidence
 
@@ -84,7 +84,7 @@ About 550 authored changed lines over four PRs, each under 400.
 
 - Review assessment after T2 (`accc19a`): medium, `review_due: true` (`slice_budget_reached`, 429 authored changed lines since `main`). Consent is pending for the user; no review was started.
 
-### T3 (#147), 2026-10-11, uncommitted (the parent commits)
+### T3 (#147), 2026-10-11, committed as `aacf238`, PR #225
 - `CookingService.persist_finish/3`: `Shopping.delete_open_items_for_meal/2` now runs before `deduct_ingredients/4`. Lock order: Cooking session row, Scheduled meal row, the meal's open Shopping rows, then per Ingredient the Inventory key and its lots. One comment states the order and that a checkout takes its Shopping rows before the Inventory key. Nothing else in `lib` changed.
 - New test in `cooking_atomicity_test.exs`, "a checkout holding the meal's in-cart Shopping item and a finish of that meal both complete". The checkout half is the real `Cart.purchase/3`, not a simulation. `cart.ex` has no seam between its row locks and the Inventory key, so the test adds a `BEFORE UPDATE` trigger on `shopping_items` that makes the update closing the item wait for an advisory lock the test connection holds (a bigint key above the int4 range of `hashtext/1`). Sequence: the checkout blocks at the gate, observed with `pg_blocking_pids` and with exactly one granted advisory lock (the Cart key); the finish starts and is observed blocked by the checkout backend; the gate opens and the checkout goes on to the Inventory key. Waits poll the lock table with a two second bound; there is no fixed sleep.
 - End state asserted: checkout `completed` with one lot, finish `{:ok, _}` with two mutations and no shortage, session `completed`, meal cooked, the item kept as `checked_out` at 500 (the finish reads the row as the checkout left it), stock of the Ingredient 1300 (1000 + 500 - 200), one `purchase` and two `cooking` events.
@@ -100,5 +100,26 @@ About 550 authored changed lines over four PRs, each under 400.
   - `mix test`: 1831 passed, 23 skipped, exit 0 (the new test is skipped outside the runner).
 - Not fixed, reported for #190: a checkout that buys less than the reserved quantity inserts the remainder as a new Shopping item (`cart.ex`, `settle_item!/2`). The foreign key check of that insert takes `FOR KEY SHARE` on the Scheduled meal row, after the checkout's Shopping row locks, and conflicts with the `FOR UPDATE` the finish holds on the meal (`PlanningRepo.lock_cooking_meal_for_account/2`). Probed once with the new test buying 300 of 500: `deadlock_detected` with the new order too (20 of 21 passed). The committed test buys the reserved quantity in full, which is the Inventory key cycle of #147. `MealMove.lock_meals/3` takes the same `FOR UPDATE` before the Shopping rows.
 
+- Review assessment after T3 (`aacf238`): medium, `review_due: true` (`slice_budget_reached`, 627 authored changed lines since `main`). Consent is pending for the user; no review was started.
+
+### T4 (#148), 2026-10-11, committed as `4498944`, PR #226
+- Rule (D4), in `CookingService.find_or_create_session/2`: under the Scheduled meal row lock, `is_cooked` of the locked meal is read before any session lookup. A cooked meal returns the finished session that cooked it, or rolls back with `:cooking_already_finished` when it has none; it never reaches the active-session lookup or `create_session/2`. A meal that is not cooked is unchanged: its active session, else a new one. `cooked_session/2` became the two-clause `current_session/2`. The `@doc` of `start_session/3` and the comments state the rule. The today gate and everything else on start are unchanged.
+- `docs/GLOSSARY.md`, Cooking session: "a meal scheduled on the Account's today that is not cooked yet". The Cooking chat entry still holds and was not edited. `apps/api/docs`, `frontend_integration_guide.md` and `ARCHITECTURE.md` do not describe the cooking endpoints, so nothing there changed.
+- New tests. `cooking_chat_test.exs`, `describe "a cooked meal"`: a meal marked cooked with `Calendar.set_is_cooked/3` and never cooked through a session is refused and has no `CookingSession` row; a meal with an active session that is then marked cooked is refused, and the meal still has that one active session. `cooking_controller_test.exs`: `POST /api/cooking/start` for a calendar-cooked meal of today is 409 `cooking_already_finished` and no session row exists.
+- Existing tests: none reshaped. "a meal already marked cooked refuses a new session's finish" (`cooking_finish_test.exs`) already starts the session before it marks the meal cooked. The tests for a meal cooked through a session (finished session returned with its history) and for a meal set back to not cooked (fresh session that can finish) pass unchanged.
+- Route: delegated writer.
+- RED, on the unchanged service (3 of 50 failed): both service tests got `{:ok, %{status: "active", ...}}` where `{:error, :cooking_already_finished}` was expected; the web test got `expected response with status 409, got: 200` with `"status":"active"` and an empty `chatMessages`. GREEN after the change: 50 passed.
+- Checks (`apps/api`, `MIX_ENV=test`):
+  - `mix test test/meal_planner_api/services test/meal_planner_api_web/controllers/cooking_controller_test.exs test/meal_planner_api_web/controllers/mobile_casing_contract_test.exs`: 391 passed, 10 skipped.
+  - `mix run --no-start test/support/issue38_concurrency_runner.exs`: 21 passed.
+  - `mix compile --warnings-as-errors`: exit 0.
+  - `mix format --check-formatted`: exit 0.
+  - `mix credo --strict`: 345 files, no issues.
+  - `mix test`: 1834 passed, 23 skipped, exit 0 (1831 before, plus the 3 new).
+  - `mix dialyzer --format short`: exit 2 with the 9 known `call_without_opaque` warnings and nothing else; none in `cooking_service.ex`.
+- What the app observes: `POST /api/cooking/start` for a meal of today that was marked cooked from the calendar used to answer 200 with an empty active session, and now answers 409 `cooking_already_finished`. A meal cooked through a session still answers 200 with its completed session.
+- Not changed, out of scope: an active session that exists when the meal is marked cooked from the calendar (`Calendar.set_is_cooked/3`) stays `active`. Start no longer returns it, but a client that holds its id can still send `step` and, on the meal's day, chat questions: `active_session/1` and `chat_available/2` do not read `is_cooked`. Its finish answers `cooking_already_finished`.
+- Edge left as is: a meal cooked through session A, set back to not cooked, started again (active session B) and then marked cooked from the calendar returns A on start, the latest finished session of the meal, while B stays active.
+
 ## Next step
-T4.
+Reviews and merge decisions are the user's.
