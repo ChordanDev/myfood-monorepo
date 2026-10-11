@@ -21,6 +21,10 @@ defmodule MealPlannerApiWeb.PreferencesControllerTest do
   # below keeps it from drifting away from the two routes.
   @fixture "preferences/fixtures/preferences.json"
 
+  # The frozen refusals of a `PUT`, pinned the same way.
+  @invalid_diet_fixture "preferences/fixtures/invalidDiet.json"
+  @invalid_hard_restriction_fixture "preferences/fixtures/invalidHardRestriction.json"
+
   describe "GET /api/me/preferences" do
     setup do
       user = insert_user!("preferences_read@example.com")
@@ -484,6 +488,24 @@ defmodule MealPlannerApiWeb.PreferencesControllerTest do
 
         rejected_message(context, body, "invalid_hard_restriction")
       end
+    end
+
+    test "the invalid_diet refusal is the frozen mobile error fixture", %{token: token} do
+      fixture = MobileFixtures.read!(@invalid_diet_fixture)
+      body = %{valid_body() | "diet" => "keto"}
+
+      assert Map.keys(fixture) == ["error"]
+      assert build_conn() |> put_preferences(token, body) |> json_response(422) == fixture
+    end
+
+    test "the invalid_hard_restriction refusal is the frozen mobile error fixture", %{
+      token: token
+    } do
+      fixture = MobileFixtures.read!(@invalid_hard_restriction_fixture)
+      body = %{valid_body() | "hardRestrictions" => ["sesame"]}
+
+      assert Map.keys(fixture) == ["error"]
+      assert build_conn() |> put_preferences(token, body) |> json_response(422) == fixture
     end
 
     test "missing or mistyped softPreferences are a validation_error naming softPreferences",

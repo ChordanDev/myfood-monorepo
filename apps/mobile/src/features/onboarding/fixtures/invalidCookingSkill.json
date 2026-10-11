@@ -1,0 +1,6 @@
+{
+  "error": {
+    "code": "invalid_cooking_skill",
+    "message": "The cooking skill is not valid."
+  }
+}

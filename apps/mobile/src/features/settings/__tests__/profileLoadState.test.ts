@@ -73,7 +73,7 @@ describe('profileLoadState (Judgment Day S2 + S3)', () => {
   it('keeps status=ready when a save fails but allows the user to retry', () => {
     const ready = loadSucceeded(startLoading(initialLoadState));
     const saving = startSaving(ready);
-    const failed = saveFinished(saving, new Error('preferences_invalid'));
+    const failed = saveFinished(saving, new Error('invalid_diet'));
 
     expect(failed.status).toBe('ready');
     expect(failed.saving).toBe(false);

@@ -3,7 +3,7 @@
 // Mounts the real `OnboardingScreen` with a controlled AuthContext and drives
 // it the way a user does: typing, tapping chips and pressing the primary
 // button. The payload builder, the catalog and the submit gate are NOT mocked,
-// so the last case proves the wizard still submits what
+// so the submit case proves the wizard still submits what
 // `buildOnboardingPayload` produces.
 
 /* eslint-disable @typescript-eslint/no-require-imports */
@@ -14,9 +14,20 @@ import { act, create, type ReactTestInstance, type ReactTestRenderer } from 'rea
 import type { AuthContextValue, CurrentMe } from '@/features/auth/types/auth';
 import { AuthContext } from '@/features/auth/context/AuthContext';
 import { fixtureCurrentMeBeforeOnboarding } from '@/features/auth/fixtures/currentMe';
-import { fixtureOnboardingCompletion } from '@/features/onboarding/fixtures/onboardingCompletion';
+import {
+  fixtureInvalidCookingSkillError,
+  fixtureOnboardingCompletion,
+} from '@/features/onboarding/fixtures/onboardingCompletion';
 import { OnboardingScreen } from '@/features/onboarding/screens/OnboardingScreen';
 import { buildOnboardingPayload } from '@/features/onboarding/utils/onboardingPayload';
+import {
+  fixtureInvalidDietError,
+  fixtureInvalidHardRestrictionError,
+} from '@/features/preferences/fixtures/preferences';
+import {
+  fixtureInvalidHungerLevelError,
+  fixtureValidationErrorDinnerCookingTimeMinutesError,
+} from '@/features/preferences/fixtures/slotCookingTimes';
 
 const mockRouterReplace = jest.fn();
 
@@ -71,8 +82,9 @@ jest.mock('@/components', () => ({
   ShadowSurface: ({ children }: { children: unknown }) => children,
 }));
 
+// The message lookup is the real one, so a refused completion shows the catalog text.
 jest.mock('@/services/authService', () => ({
-  getAuthErrorMessage: () => 'boom',
+  getAuthErrorMessage: jest.requireActual('@/api/errors').getAuthErrorMessage,
   AuthApiError: class extends Error {},
 }));
 
@@ -460,4 +472,45 @@ describe('OnboardingScreen — three steps', () => {
     expect(mockRouterReplace).toHaveBeenCalledWith('/');
     expect(Alert.alert).not.toHaveBeenCalled();
   });
+
+  // Each refusal the api answers to an onboarding body with an invalid field, as the api
+  // client throws it from the frozen envelope.
+  it.each([
+    [
+      'validation_error',
+      fixtureValidationErrorDinnerCookingTimeMinutesError,
+      'Los datos ingresados no son válidos.',
+    ],
+    [
+      'invalid_cooking_skill',
+      fixtureInvalidCookingSkillError,
+      'La experiencia cocinando seleccionada no es válida.',
+    ],
+    ['invalid_diet', fixtureInvalidDietError, 'La dieta elegida no es válida.'],
+    [
+      'invalid_hard_restriction',
+      fixtureInvalidHardRestrictionError,
+      'Una de las restricciones elegidas no es válida.',
+    ],
+    [
+      'invalid_hunger_level',
+      fixtureInvalidHungerLevelError,
+      'El nivel de hambre elegido no es válido.',
+    ],
+  ])(
+    'shows the message of %s and stays on the form when the completion is refused',
+    async (_code, frozenError, message) => {
+      const completeOnboarding = jest.fn().mockRejectedValue(frozenError());
+      const { root } = renderOnboarding({ completeOnboarding });
+      goToMealTimes(root);
+
+      await act(async () => {
+        await findControl(root, 'button', byText('FINALIZAR')).props.onPress();
+      });
+
+      expect(completeOnboarding).toHaveBeenCalledTimes(1);
+      expect(Alert.alert).toHaveBeenCalledWith('No pudimos guardar', message);
+      expect(mockRouterReplace).not.toHaveBeenCalled();
+    }
+  );
 });

@@ -21,10 +21,14 @@ import type {
   UserPreferences,
   UserPreferencesPayload,
 } from '@/features/auth/types/auth';
-import { fixturePreferences } from '@/features/preferences/fixtures/preferences';
+import {
+  fixtureInvalidDietError,
+  fixturePreferences,
+} from '@/features/preferences/fixtures/preferences';
 import {
   fixtureSlotCookingTimes,
   fixtureSlotCookingTimesNotFoundError,
+  fixtureValidationErrorDinnerCookingTimeMinutesError,
 } from '@/features/preferences/fixtures/slotCookingTimes';
 import type { RecipeThemeConfig } from '@/types/domain';
 import { withOpacity } from '@/utils/colors';
@@ -1005,7 +1009,7 @@ describe('SettingsScreen', () => {
     it('keeps the sheet open and the row unchanged when the save fails, then retries', async () => {
       const saveUserPreferences = jest
         .fn<Promise<UserPreferences>, [UserPreferencesPayload]>()
-        .mockRejectedValueOnce(new ApiError('preferences_invalid', 'invalid'))
+        .mockRejectedValueOnce(fixtureInvalidDietError())
         .mockImplementation((payload) => Promise.resolve(payload));
       const { root } = await renderScreen({ context: { saveUserPreferences } });
 
@@ -1015,7 +1019,7 @@ describe('SettingsScreen', () => {
 
       expect(isSheetOpen(root)).toBe(true);
       expect(getHost(root, 'settings-sheet-error').props.children).toBe(
-        'Tus preferencias no son válidas. Revisá los valores ingresados.'
+        'La dieta elegida no es válida.'
       );
       expect(chipIsSelected(root, 'settings-chip-diet-vegan')).toBe(true);
       expect(rowLabel(root, 'settings-row-diet')).toBe('Dieta, Vegetariano');
@@ -1109,20 +1113,20 @@ describe('SettingsScreen', () => {
       const { root } = await renderScreen({
         context: {
           saveSlotCookingTimes: jest.fn(() =>
-            Promise.reject(new ApiError('slot_cooking_times_invalid', 'invalid'))
+            Promise.reject(fixtureValidationErrorDinnerCookingTimeMinutesError())
           ),
         },
       });
 
-      await press(root, 'settings-row-slot-lunch');
+      await press(root, 'settings-row-slot-dinner');
       await press(root, 'settings-chip-minutes-10');
       await press(root, 'settings-sheet-save');
 
       expect(isSheetOpen(root)).toBe(true);
       expect(getHost(root, 'settings-sheet-error').props.children).toBe(
-        'Los tiempos de cocina no son válidos. Revisá los valores ingresados.'
+        'Los datos ingresados no son válidos.'
       );
-      expect(rowLabel(root, 'settings-row-slot-lunch')).toBe('Almuerzo, 30 min · Normal');
+      expect(rowLabel(root, 'settings-row-slot-dinner')).toBe('Cena, 45 min · Abundante');
     });
   });
 

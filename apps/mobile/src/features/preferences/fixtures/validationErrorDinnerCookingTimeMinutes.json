@@ -1,0 +1,6 @@
+{
+  "error": {
+    "code": "validation_error",
+    "message": "The field dinner.cookingTimeMinutes is not valid."
+  }
+}

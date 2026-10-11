@@ -1,0 +1,6 @@
+{
+  "error": {
+    "code": "invalid_hard_restriction",
+    "message": "A hard restriction is not valid."
+  }
+}

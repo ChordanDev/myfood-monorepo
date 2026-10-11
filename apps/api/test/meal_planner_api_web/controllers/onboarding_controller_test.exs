@@ -24,6 +24,19 @@ defmodule MealPlannerApiWeb.OnboardingControllerTest do
   # below keeps it from drifting away from the route.
   @fixture "onboarding/fixtures/onboardingCompletion.json"
 
+  # The frozen refusals the mobile app is tested against, each with the edit
+  # to a valid body that this route refuses with it.
+  @error_fixtures [
+    {"onboarding/fixtures/invalidCookingSkill.json", ["profile", "cookingSkill"], "wizard"},
+    {"preferences/fixtures/invalidDiet.json", ["preferences", "diet"], "carnivore"},
+    {"preferences/fixtures/invalidHardRestriction.json", ["preferences", "hardRestrictions"],
+     ["sesame"]},
+    {"preferences/fixtures/invalidHungerLevel.json",
+     ["slotCookingTimes", "dinner", "hungerLevel"], "starving"},
+    {"preferences/fixtures/validationErrorDinnerCookingTimeMinutes.json",
+     ["slotCookingTimes", "dinner", "cookingTimeMinutes"], -1}
+  ]
+
   @body %{
     "profile" => %{
       "displayName" => "Ana María",
@@ -241,6 +254,16 @@ defmodule MealPlannerApiWeb.OnboardingControllerTest do
       assert_nothing_persisted(ctx)
     end
 
+    test "with an unknown hard restriction answers invalid_hard_restriction",
+         %{token: token} = ctx do
+      body = put_in(@body, ["preferences", "hardRestrictions"], ["gluten", "sesame"])
+
+      assert %{"error" => %{"code" => "invalid_hard_restriction"}} =
+               token |> complete(body) |> json_response(422)
+
+      assert_nothing_persisted(ctx)
+    end
+
     test "in the slot cooking times answers 422 and persists nothing", %{token: token} = ctx do
       body = put_in(@body, ["slotCookingTimes", "lunch", "cookingTimeMinutes"], 241)
 
@@ -275,6 +298,16 @@ defmodule MealPlannerApiWeb.OnboardingControllerTest do
                token |> complete(Map.put(@body, "timezone", 3)) |> json_response(422)
 
       assert_nothing_persisted(ctx)
+    end
+
+    test "each refusal is the frozen mobile error fixture of its code", %{token: token} do
+      for {path, field, value} <- @error_fixtures do
+        fixture = MobileFixtures.read!(path)
+        body = put_in(@body, field, value)
+
+        assert Map.keys(fixture) == ["error"]
+        assert {path, token |> complete(body) |> json_response(422)} == {path, fixture}
+      end
     end
 
     test "the first invalid group in profile, preferences, slots order decides", %{token: token} do
