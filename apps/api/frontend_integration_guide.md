@@ -153,9 +153,11 @@ Success response (`200`), without `me`:
 Every refresh returns a new refresh token; store it and discard the one that was sent. Access tokens live
 1 hour and refresh tokens 30 days.
 
-A refresh token works once. A second request that sends the same token gets `401 refresh_token_replayed`
-and the sessions of that device are revoked. The client must serialize the refresh: one call in flight,
-shared by every request that found the access token expired.
+A refresh whose response never arrived may be sent again with the same token within 10 seconds: it gets a
+new pair and the pair of the lost response stops working, so always store the pair of the last response
+received. After those 10 seconds a refresh token that was already used gets `401 refresh_token_replayed`
+and the sessions of that device are revoked. The client must still serialize the refresh: one call in
+flight, shared by every request that found the access token expired.
 
 Error responses (all `401`): `refresh_token_invalid`, `refresh_token_replayed`, `refresh_token_revoked`,
 `refresh_token_expired`, `refresh_token_session_mismatch`, and `account_not_found` when the Membership of

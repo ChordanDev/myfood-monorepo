@@ -176,10 +176,12 @@ Content-Type: application/json
 Cada refresh devuelve un refresh token nuevo: guardarlo y descartar el que se envió. El access token dura
 1 hora y el refresh token 30 días.
 
-Un refresh token sirve una sola vez. Si un segundo request envía el mismo token, recibe
-`401 refresh_token_replayed` y se revocan las sesiones de ese dispositivo. El cliente tiene que
-serializar el refresh: una sola llamada en vuelo, compartida por todos los requests que encontraron
-el access token vencido.
+Si la respuesta de un refresh no llegó, se puede reenviar el mismo token durante 10 segundos: devuelve
+un par nuevo y el par de la respuesta perdida deja de servir, así que siempre hay que guardar el par de
+la última respuesta recibida. Pasados esos 10 segundos, un refresh token que ya se usó recibe
+`401 refresh_token_replayed` y se revocan las sesiones de ese dispositivo. El cliente sigue teniendo
+que serializar el refresh: una sola llamada en vuelo, compartida por todos los requests que
+encontraron el access token vencido.
 
 **Errores (todos `401`):** `refresh_token_invalid`, `refresh_token_replayed`, `refresh_token_revoked`,
 `refresh_token_expired`, `refresh_token_session_mismatch` y `account_not_found` (la membership de la

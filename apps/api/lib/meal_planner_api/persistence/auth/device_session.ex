@@ -10,7 +10,10 @@ defmodule MealPlannerApi.Persistence.Auth.DeviceSession do
   A row is active while `revoked_at` is `nil` and `expires_at` is in the
   future. Rotation revokes the row and points `replaced_by_id` at the row
   of the new refresh token, which is how a rotated token that shows up
-  again is told apart from one that was merely logged out.
+  again is told apart from one that was merely logged out. On a rotated
+  row `revoked_at` is the time of that rotation, and the retry window of
+  its token is counted from it: a retry moves `replaced_by_id` on to the
+  row it stores and leaves `revoked_at` as it was.
 
   Rows are written by `MealPlannerApi.Services.DeviceSessions` only.
   """

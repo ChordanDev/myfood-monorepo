@@ -26,6 +26,12 @@ config :meal_planner_api, MealPlannerApi.Auth.Guardian,
     "refresh" => {30, :days}
   }
 
+# How long after a refresh token was rotated the same token is still
+# accepted, for a phone that never received the answer (issue #57). `0`
+# turns the tolerance off: a rotated token is then always a replay.
+config :meal_planner_api,
+  refresh_retry_window_seconds: 10
+
 config :meal_planner_api,
   ai_client: MealPlannerApi.AI.GeminiClient
 
