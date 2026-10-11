@@ -3,9 +3,7 @@ import {
   formatCartButtonLabel,
   formatCountersLabel,
   formatItemMealsLine,
-  formatItemMetaLine,
   formatItemNameLine,
-  formatPrice,
   formatRemovedLabel,
   formatSuggestedQuantity,
   parseBoughtQuantityMilli,
@@ -13,20 +11,6 @@ import {
   formatUntilButtonLabel,
   formatUntilLabel,
 } from './formatters';
-
-describe('formatPrice', () => {
-  it('writes pesos with a thousands dot and no decimals', () => {
-    expect(formatPrice(1850)).toBe('$1.850');
-    expect(formatPrice(450)).toBe('$450');
-    expect(formatPrice(1234567)).toBe('$1.234.567');
-  });
-
-  it('rounds to the nearest peso', () => {
-    expect(formatPrice(1849.5)).toBe('$1.850');
-    expect(formatPrice(999.6)).toBe('$1.000');
-    expect(formatPrice(0.4)).toBe('$0');
-  });
-});
 
 describe('formatUntilLabel', () => {
   it('writes the day and the short Spanish month of a date key', () => {
@@ -102,16 +86,6 @@ describe('row lines', () => {
 
   it('writes the quantity before the name of a manual item too', () => {
     expect(formatItemNameLine(paper)).toBe('1 u · Papel de cocina');
-  });
-
-  it('writes the supermarket and the price of the best offer', () => {
-    const offer = { supermarket: 'Coto', unitPrice: 1.85, price: 1850 };
-
-    expect(formatItemMetaLine(offer)).toBe('Coto · $1.850');
-  });
-
-  it('says there is no price when there is no offer', () => {
-    expect(formatItemMetaLine(undefined)).toBe('Sin precio');
   });
 });
 

@@ -1,15 +1,22 @@
+/* eslint-disable @typescript-eslint/no-require-imports */
+
 import React from 'react';
-import { ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { act, create, ReactTestInstance } from 'react-test-renderer';
-import * as Haptics from 'expo-haptics';
-import { X } from 'lucide-react-native';
+import { useKeyboardAnimation } from '@/hooks/useKeyboardAnimation';
 import { withOpacity } from '@/utils/colors';
-import type { BestOffer, ShoppingListItem } from '../types';
+import type { ShoppingCartLine } from '../types';
 import { ShoppingCartSheet } from './ShoppingCartSheet';
 
 jest.mock('react-native-safe-area-context', () => ({
   useSafeAreaInsets: () => ({ top: 0, right: 0, bottom: 34, left: 0 }),
 }));
+
+jest.mock('react-native-reanimated', () => {
+  const { Text, View } = require('react-native');
+
+  return { __esModule: true, default: { Text, View } };
+});
 
 // iOS keeps the children of a modal mounted while it fades out; the stock Jest mock drops
 // them at once. A test turns this on to press what is still on screen during that fade.
@@ -21,13 +28,13 @@ jest.mock('react-native/Libraries/Modal/Modal', () => ({
     visible || mockKeepsChildrenWhileHidden ? children : null,
 }));
 
-jest.mock('lucide-react-native', () => ({ X: 'X' }));
+const mockKeyboardLift = { transform: [{ translateY: -300 }] };
 
-jest.mock('expo-haptics', () => ({
-  ImpactFeedbackStyle: { Light: 'light', Medium: 'medium' },
-  NotificationFeedbackType: { Success: 'success' },
-  impactAsync: jest.fn(),
-  notificationAsync: jest.fn(),
+jest.mock('@/hooks/useKeyboardAnimation', () => ({
+  useKeyboardAnimation: jest.fn(() => ({
+    inputAnimatedStyle: mockKeyboardLift,
+    isKeyboardOpen: true,
+  })),
 }));
 
 const mockTheme = {
@@ -44,82 +51,56 @@ jest.mock('@/context/RecipeThemeContext', () => ({
   useRecipeTheme: () => ({ theme: mockTheme }),
 }));
 
-const CHICKEN: ShoppingListItem = {
-  id: 'planned:i2',
-  source: 'planned_meal',
-  status: 'in_cart',
+const CHICKEN: ShoppingCartLine = {
+  id: 'i2:g',
   name: 'Pollo (Pechuga)',
-  ingredientId: 'i2',
-  quantityMilli: 200_000,
   unit: 'g',
-  category: 'carnes',
-  supermarketId: null,
-  allocations: [],
+  quantityMilli: 1_200_000,
 };
 
-const NAPKINS: ShoppingListItem = {
-  id: 'manual:1',
-  source: 'manual',
-  status: 'in_cart',
+const NAPKINS: ShoppingCartLine = {
+  id: 'manual-1',
   name: 'Servilletas',
-  ingredientId: null,
-  category: 'otros',
-  quantityMilli: 1_000,
   unit: 'unit',
-  supermarketId: null,
-  allocations: [],
+  quantityMilli: 1_000,
 };
 
 const CART = [CHICKEN, NAPKINS];
-
-const BEST_OFFERS: Record<string, BestOffer> = {
-  'planned:i2': { supermarket: 'Día', unitPrice: 7.6, price: 1520 },
-};
 
 const TITLE = 'Tu carrito';
 const CONFIRM = 'Marcar como comprado';
 const CANCEL = 'Cancelar';
 const EMPTY_HINT = 'Todavía no marcaste nada.';
-const TAKE_OUT_CHICKEN = 'Sacar del carrito, 200 g · Pollo (Pechuga)';
-const TAKE_OUT_NAPKINS = 'Sacar del carrito, 1 u · Servilletas';
+const CHICKEN_QUANTITY = 'Cantidad comprada, Pollo (Pechuga)';
+const NAPKINS_QUANTITY = 'Cantidad comprada, Servilletas';
 
-function renderSheet(initialItems: ShoppingListItem[] = CART, initiallyVisible = true) {
-  const onTakeOut = jest.fn();
+type SheetProps = React.ComponentProps<typeof ShoppingCartSheet>;
+
+function renderSheet(initial: Partial<SheetProps> = {}) {
   const onConfirm = jest.fn();
   const onClose = jest.fn();
-  let items = initialItems;
-  let bestOffers = BEST_OFFERS;
-  let visible = initiallyVisible;
-  const sheet = () => (
-    <ShoppingCartSheet
-      visible={visible}
-      items={items}
-      bestOffers={bestOffers}
-      onTakeOut={onTakeOut}
-      onConfirm={onConfirm}
-      onClose={onClose}
-    />
-  );
+  let props: SheetProps = {
+    visible: true,
+    lines: CART,
+    isConfirming: false,
+    onConfirm,
+    onClose,
+    ...initial,
+  };
   let tree: ReturnType<typeof create>;
 
   act(() => {
-    tree = create(sheet());
+    tree = create(<ShoppingCartSheet {...props} />);
   });
 
-  const update = (next: {
-    visible?: boolean;
-    items?: ShoppingListItem[];
-    bestOffers?: Record<string, BestOffer>;
-  }) => {
-    visible = next.visible ?? visible;
-    items = next.items ?? items;
-    bestOffers = next.bestOffers ?? bestOffers;
+  const update = (next: Partial<SheetProps>) => {
+    props = { ...props, ...next };
     act(() => {
-      tree.update(sheet());
+      tree.update(<ShoppingCartSheet {...props} />);
     });
   };
 
-  return { root: tree!.root, onTakeOut, onConfirm, onClose, update };
+  return { root: tree!.root, onConfirm, onClose, update };
 }
 
 function getTexts(root: ReactTestInstance): string[] {
@@ -151,43 +132,23 @@ function getButton(root: ReactTestInstance, name: string): ReactTestInstance {
   return button;
 }
 
+// Presses as a finger would: a disabled button takes no press.
 function press(root: ReactTestInstance, name: string) {
+  const button = getButton(root, name);
+
   act(() => {
-    getButton(root, name).props.onPress();
+    if (!button.props.disabled) button.props.onPress();
   });
 }
 
-// How far a style pushes its view past the right edge of its parent.
-function getRightOutdent(style: unknown) {
-  const { margin, marginEnd, marginHorizontal, marginRight, right } = (StyleSheet.flatten(
-    style as never
-  ) ?? {}) as Record<string, number | undefined>;
-
-  return Math.max(0, -(marginRight ?? marginEnd ?? marginHorizontal ?? margin ?? 0), -(right ?? 0));
+function getQuantityInput(root: ReactTestInstance, label: string) {
+  return root.findByProps({ accessibilityLabel: label, keyboardType: 'decimal-pad' });
 }
 
-function getTypeName({ type }: ReactTestInstance) {
-  return typeof type === 'string' ? type : (type as { displayName?: string }).displayName;
-}
-
-// Outdent of everything between a node and the scrolling list it is in, the node included.
-// The list clips: whatever sticks out of it cannot be touched. The walk stops at the native
-// scroll view, which carries the style of the list itself.
-function getOutdentInsideList(root: ReactTestInstance, node: ReactTestInstance) {
-  let outdent = getRightOutdent(root.findByType(ScrollView).props.contentContainerStyle);
-  let current: ReactTestInstance | null = node;
-
-  while (current && getTypeName(current) !== 'RCTScrollView') {
-    const { style } = current.props;
-    outdent += getRightOutdent(typeof style === 'function' ? style({ pressed: false }) : style);
-    current = current.parent;
-  }
-
-  if (!current) {
-    throw new Error('The node is not inside a scrolling list');
-  }
-
-  return outdent;
+function typeQuantity(root: ReactTestInstance, label: string, text: string) {
+  act(() => {
+    getQuantityInput(root, label).props.onChangeText(text);
+  });
 }
 
 function getPanel(root: ReactTestInstance) {
@@ -196,44 +157,41 @@ function getPanel(root: ReactTestInstance) {
 
 describe('ShoppingCartSheet', () => {
   beforeEach(() => {
-    jest.mocked(Haptics.impactAsync).mockClear();
-    jest.mocked(Haptics.notificationAsync).mockClear();
     mockKeepsChildrenWhileHidden = false;
   });
 
-  it('lists the rows of the cart, planned and manual, between the title and the actions', () => {
+  it('lists the lines of the cart with what the Cart holds of each, between the title and the actions', () => {
     const { root } = renderSheet();
 
     expect(getTexts(root)).toEqual([
       TITLE,
-      '200 g · Pollo (Pechuga)',
-      'Día · $1.520',
-      '1 u · Servilletas',
-      'Sin precio',
+      'Pollo (Pechuga)',
+      'Sugerido: 1,2 kg',
+      'g',
+      'Servilletas',
+      'Sugerido: 1 u',
+      'u',
       CONFIRM,
       CANCEL,
     ]);
   });
 
   it('renders nothing while it is hidden', () => {
-    const { root } = renderSheet(CART, false);
+    const { root } = renderSheet({ visible: false });
 
     // A count, not the nodes: a failed assertion on a test instance prints its whole tree.
     expect(getTexts(root)).toEqual([]);
     expect(getButtons(root).length).toBe(0);
   });
 
-  it('reads each row as one element, with both of its lines', () => {
+  it('reads each line as one element, with what the Cart holds of it', () => {
     const { root } = renderSheet();
     const rows = root
       .findAllByType(View)
       .filter((view) => view.props.accessible === true && !view.props.accessibilityRole)
       .map((view) => view.props.accessibilityLabel);
 
-    expect(rows).toEqual([
-      '200 g · Pollo (Pechuga), Día · $1.520',
-      '1 u · Servilletas, Sin precio',
-    ]);
+    expect(rows).toEqual(['Pollo (Pechuga), Sugerido: 1,2 kg', 'Servilletas, Sugerido: 1 u']);
   });
 
   it('scrolls the rows inside a height bounded by the window', () => {
@@ -244,200 +202,191 @@ describe('ShoppingCartSheet', () => {
     expect(maxHeight).toBe(Math.round(1334 * 0.4));
   });
 
-  describe('taking a row out', () => {
-    it('offers it on every row, named after the row', () => {
+  it('rises with the keyboard, which the quantity fields open', () => {
+    const { root } = renderSheet();
+
+    expect(StyleSheet.flatten(getPanel(root).props.style)).toEqual(
+      expect.objectContaining(mockKeyboardLift)
+    );
+    expect(useKeyboardAnimation).toHaveBeenLastCalledWith(
+      expect.objectContaining({ enabled: true, bottomInset: 34 })
+    );
+  });
+
+  describe('the bought quantity', () => {
+    it('starts at what the Cart holds, in the unit of the line, in a field named after it', () => {
       const { root } = renderSheet();
 
-      expect(getButtons(root).map((button) => button.props.accessibilityLabel)).toEqual([
-        'Cerrar',
-        TAKE_OUT_CHICKEN,
-        TAKE_OUT_NAPKINS,
-        undefined,
-        undefined,
+      expect(getQuantityInput(root, CHICKEN_QUANTITY).props.value).toBe('1200');
+      expect(getQuantityInput(root, NAPKINS_QUANTITY).props.value).toBe('1');
+      expect(root.findAllByType(TextInput).map((input) => input.props.testID)).toEqual([
+        'shopping-cart-quantity-i2:g',
+        'shopping-cart-quantity-manual-1',
       ]);
     });
 
-    it('reports the id of the row, with a light haptic, and neither confirms nor closes', () => {
-      const { root, onTakeOut, onConfirm, onClose } = renderSheet();
+    it('writes the decimals of a quantity after a comma', () => {
+      const { root } = renderSheet({ lines: [{ ...NAPKINS, quantityMilli: 2_500 }] });
 
-      press(root, TAKE_OUT_NAPKINS);
-
-      expect(onTakeOut).toHaveBeenCalledTimes(1);
-      expect(onTakeOut).toHaveBeenCalledWith('manual:1');
-      expect(Haptics.impactAsync).toHaveBeenCalledWith(Haptics.ImpactFeedbackStyle.Light);
-      expect(onConfirm).not.toHaveBeenCalled();
-      expect(onClose).not.toHaveBeenCalled();
+      expect(getQuantityInput(root, NAPKINS_QUANTITY).props.value).toBe('2,5');
     });
 
-    it('is a touch target of at least 44 pt that lies whole inside the scrolling list', () => {
-      const { root } = renderSheet();
-      const button = getButton(root, TAKE_OUT_CHICKEN);
-      const [target] = button.findAllByType(View);
-      const { height, width } = StyleSheet.flatten(target.props.style);
+    it('confirms with no line while nothing was adjusted', () => {
+      const { root, onConfirm } = renderSheet();
 
-      expect(height).toBeGreaterThanOrEqual(44);
-      expect(width).toBeGreaterThanOrEqual(44);
-      // Any part of it past the right edge of the list would be clipped away.
-      expect(getOutdentInsideList(root, button)).toBe(0);
+      press(root, CONFIRM);
+
+      expect(onConfirm).toHaveBeenCalledWith([]);
     });
 
-    it('lines the icon up with the padding of the panel by widening the list, inside the panel', () => {
-      const { root } = renderSheet();
-      const [target] = getButton(root, TAKE_OUT_CHICKEN).findAllByType(View);
-      const [icon] = root.findAllByType(X);
-      const listOutdent = getRightOutdent(root.findByType(ScrollView).props.style);
-      const { paddingHorizontal } = StyleSheet.flatten(getPanel(root).props.style);
+    it('confirms with only the line that was adjusted, by its id, in thousandths', () => {
+      const { root, onConfirm } = renderSheet();
 
-      // The icon is centred in its target: the list reaches out by the space beside it.
-      expect(listOutdent).toBe(
-        (StyleSheet.flatten(target.props.style).width - icon.props.size) / 2
+      typeQuantity(root, CHICKEN_QUANTITY, '950,5');
+      press(root, CONFIRM);
+
+      expect(onConfirm).toHaveBeenCalledWith([{ itemId: 'i2:g', quantityMilli: 950_500 }]);
+    });
+
+    it('takes more than what the Cart holds, and none at all', () => {
+      const { root, onConfirm } = renderSheet();
+
+      typeQuantity(root, CHICKEN_QUANTITY, '1500');
+      typeQuantity(root, NAPKINS_QUANTITY, '0');
+      press(root, CONFIRM);
+
+      expect(onConfirm).toHaveBeenCalledWith([
+        { itemId: 'i2:g', quantityMilli: 1_500_000 },
+        { itemId: 'manual-1', quantityMilli: 0 },
+      ]);
+    });
+
+    it('leaves out a line typed back to what the Cart holds', () => {
+      const { root, onConfirm } = renderSheet();
+
+      typeQuantity(root, CHICKEN_QUANTITY, '800');
+      typeQuantity(root, CHICKEN_QUANTITY, '1200,0');
+      press(root, CONFIRM);
+
+      expect(onConfirm).toHaveBeenCalledWith([]);
+    });
+
+    it.each(['', 'abc', '-1', '1,2,3'])('cannot be confirmed while a field reads "%s"', (text) => {
+      const { root, onConfirm } = renderSheet();
+
+      typeQuantity(root, NAPKINS_QUANTITY, text);
+
+      expect(getButton(root, CONFIRM).props.disabled).toBe(true);
+      expect(getButton(root, CONFIRM).props.accessibilityState).toEqual(
+        expect.objectContaining({ disabled: true })
       );
-      expect(listOutdent).toBeLessThanOrEqual(paddingHorizontal);
+      press(root, CONFIRM);
+      expect(onConfirm).not.toHaveBeenCalled();
     });
 
-    it('stops listing a row once it is out of the cart', () => {
+    it('starts again from what the Cart holds every time it is opened', () => {
+      mockKeepsChildrenWhileHidden = true;
       const { root, update } = renderSheet();
+      typeQuantity(root, CHICKEN_QUANTITY, '800');
 
-      update({ items: [CHICKEN] });
+      update({ visible: false });
+      // Kept while it fades out: the field does not jump back under the finger.
+      expect(getQuantityInput(root, CHICKEN_QUANTITY).props.value).toBe('800');
 
-      expect(getTexts(root)).toEqual([
-        TITLE,
-        '200 g · Pollo (Pechuga)',
-        'Día · $1.520',
-        CONFIRM,
-        CANCEL,
-      ]);
+      update({ visible: true });
+      expect(getQuantityInput(root, CHICKEN_QUANTITY).props.value).toBe('1200');
     });
   });
 
   describe('with an empty cart', () => {
     it('says nothing was marked instead of listing rows', () => {
-      const { root } = renderSheet([]);
+      const { root } = renderSheet({ lines: [] });
 
       expect(getTexts(root)).toEqual([TITLE, EMPTY_HINT, CONFIRM, CANCEL]);
-      expect(root.findAllByType(ScrollView).length).toBe(0);
+      expect(root.findAllByType(ScrollView)).toHaveLength(0);
     });
 
     it('keeps "Marcar como comprado" disabled, so a press confirms nothing', () => {
-      const { root, onConfirm, onClose } = renderSheet([]);
-      const confirmButton = getButton(root, CONFIRM);
+      const { root, onConfirm } = renderSheet({ lines: [] });
 
-      expect(confirmButton.props.disabled).toBe(true);
-      expect(confirmButton.props.accessibilityState).toEqual({ disabled: true });
-
+      expect(getButton(root, CONFIRM).props.disabled).toBe(true);
       press(root, CONFIRM);
 
       expect(onConfirm).not.toHaveBeenCalled();
-      expect(onClose).not.toHaveBeenCalled();
-      expect(Haptics.notificationAsync).not.toHaveBeenCalled();
-    });
-
-    it('goes back to the hint when the last row is taken out', () => {
-      const { root, update } = renderSheet([NAPKINS]);
-
-      update({ items: [] });
-
-      expect(getTexts(root)).toEqual([TITLE, EMPTY_HINT, CONFIRM, CANCEL]);
-      expect(getButton(root, CONFIRM).props.disabled).toBe(true);
     });
   });
 
   describe('confirming', () => {
-    it('confirms the purchase and closes, with a success haptic', () => {
+    it('asks for the purchase and stays open: the screen closes it once the server answers', () => {
       const { root, onConfirm, onClose } = renderSheet();
       const confirmButton = getButton(root, CONFIRM);
 
       expect(confirmButton.props.disabled).toBe(false);
-      expect(confirmButton.props.accessibilityState).toEqual({ disabled: false });
+      expect(confirmButton.props.accessibilityState).toEqual({ disabled: false, busy: false });
 
       press(root, CONFIRM);
 
       expect(onConfirm).toHaveBeenCalledTimes(1);
-      expect(onClose).toHaveBeenCalledTimes(1);
-      expect(Haptics.notificationAsync).toHaveBeenCalledTimes(1);
-      expect(Haptics.notificationAsync).toHaveBeenCalledWith(
-        Haptics.NotificationFeedbackType.Success
-      );
+      expect(onClose).not.toHaveBeenCalled();
     });
 
-    it('confirms once when the button is pressed twice', () => {
-      const { root, onConfirm, onClose } = renderSheet();
-
-      press(root, CONFIRM);
-      press(root, CONFIRM);
-
-      expect(onConfirm).toHaveBeenCalledTimes(1);
-      expect(onClose).toHaveBeenCalledTimes(1);
-      expect(Haptics.notificationAsync).toHaveBeenCalledTimes(1);
-    });
-
-    it('confirms once when the second press lands while it fades out', () => {
-      mockKeepsChildrenWhileHidden = true;
+    it('cannot be asked again while the purchase is on its way', () => {
       const { root, onConfirm, update } = renderSheet();
       press(root, CONFIRM);
-      // The purchase emptied the cart and the screen asked the sheet to close.
-      update({ visible: false, items: [] });
 
+      update({ isConfirming: true });
+
+      expect(getButton(root, CONFIRM).props.disabled).toBe(true);
+      expect(getButton(root, CONFIRM).props.accessibilityState).toEqual({
+        disabled: true,
+        busy: true,
+      });
+      expect(root.findAllByType(TextInput).map((input) => input.props.editable)).toEqual([
+        false,
+        false,
+      ]);
       press(root, CONFIRM);
-
       expect(onConfirm).toHaveBeenCalledTimes(1);
     });
 
-    it('keeps showing the bought rows while it fades out, instead of the empty hint', () => {
-      mockKeepsChildrenWhileHidden = true;
-      const { root, update } = renderSheet();
+    it('can be asked again once a refused purchase is answered', () => {
+      const { root, onConfirm, update } = renderSheet();
+      press(root, CONFIRM);
+      update({ isConfirming: true });
+
+      update({ isConfirming: false, errorMessage: 'Otro integrante ya los tiene.' });
       press(root, CONFIRM);
 
-      update({ visible: false, items: [] });
-
-      expect(getTexts(root)).toContain('200 g · Pollo (Pechuga)');
-      expect(getTexts(root)).not.toContain(EMPTY_HINT);
+      expect(onConfirm).toHaveBeenCalledTimes(2);
     });
 
-    it('keeps the price of the bought rows while it fades out, instead of "Sin precio"', () => {
+    it('says why the purchase was refused, as an alert above the actions, and keeps the quantities', () => {
+      const { root, update } = renderSheet();
+      typeQuantity(root, CHICKEN_QUANTITY, '800');
+
+      update({ errorMessage: 'Otro integrante ya los tiene.' });
+
+      const [alert] = root.findAll(
+        (node) => node.props.accessibilityRole === 'alert' && typeof node.type === 'string'
+      );
+      expect(alert.props.children).toBe('Otro integrante ya los tiene.');
+      expect(getTexts(root).slice(-3)).toEqual(['Otro integrante ya los tiene.', CONFIRM, CANCEL]);
+      expect(getQuantityInput(root, CHICKEN_QUANTITY).props.value).toBe('800');
+    });
+
+    it('keeps showing the bought lines while it fades out, instead of the empty hint', () => {
       mockKeepsChildrenWhileHidden = true;
       const { root, update } = renderSheet();
       const textsWhileOpen = getTexts(root);
       press(root, CONFIRM);
 
-      // The bought rows left the list, and their offers left with them.
-      update({ visible: false, items: [], bestOffers: {} });
+      // The purchase emptied the cart and the screen asked the sheet to close.
+      update({ visible: false, lines: [] });
 
       expect(getTexts(root)).toEqual(textsWhileOpen);
-      expect(getTexts(root)).toContain('Día · $1.520');
     });
 
-    it('follows the offers while it is open', () => {
-      const { root, update } = renderSheet();
-
-      update({ bestOffers: { 'planned:i2': { supermarket: 'Coto', unitPrice: 7, price: 1400 } } });
-
-      expect(getTexts(root)).toContain('Coto · $1.400');
-      expect(getTexts(root)).not.toContain('Día · $1.520');
-    });
-
-    it('shows the offers of the cart it is reopened with', () => {
-      mockKeepsChildrenWhileHidden = true;
-      const { root, update } = renderSheet();
-      press(root, CONFIRM);
-      update({ visible: false, items: [], bestOffers: {} });
-
-      update({
-        visible: true,
-        items: [CHICKEN],
-        bestOffers: { 'planned:i2': { supermarket: 'Coto', unitPrice: 7, price: 1400 } },
-      });
-
-      expect(getTexts(root)).toEqual([
-        TITLE,
-        '200 g · Pollo (Pechuga)',
-        'Coto · $1.400',
-        CONFIRM,
-        CANCEL,
-      ]);
-    });
-
-    it('confirms nothing from a press that lands while it fades out after a cancel', () => {
+    it('confirms nothing from a press that lands while it fades out', () => {
       mockKeepsChildrenWhileHidden = true;
       const { root, onConfirm, update } = renderSheet();
       press(root, CANCEL);
@@ -446,36 +395,35 @@ describe('ShoppingCartSheet', () => {
       press(root, CONFIRM);
 
       expect(onConfirm).not.toHaveBeenCalled();
-      expect(Haptics.notificationAsync).not.toHaveBeenCalled();
     });
 
-    it.each([false, true])(
-      'confirms again once it is reopened (children kept while hidden: %s)',
-      (keepsChildren) => {
-        mockKeepsChildrenWhileHidden = keepsChildren;
-        const { root, onConfirm, update } = renderSheet();
-        press(root, CONFIRM);
-        update({ visible: false, items: [] });
+    it('follows the cart while it is open, and lists the one it is reopened with', () => {
+      mockKeepsChildrenWhileHidden = true;
+      const { root, update } = renderSheet();
 
-        update({ visible: true, items: [NAPKINS] });
-        expect(getTexts(root)).toEqual([TITLE, '1 u · Servilletas', 'Sin precio', CONFIRM, CANCEL]);
-        press(root, CONFIRM);
-        press(root, CONFIRM);
+      update({ lines: [NAPKINS] });
+      expect(getTexts(root)).toEqual([TITLE, 'Servilletas', 'Sugerido: 1 u', 'u', CONFIRM, CANCEL]);
 
-        expect(onConfirm).toHaveBeenCalledTimes(2);
-      }
-    );
+      update({ visible: false, lines: [] });
+      update({ visible: true, lines: [CHICKEN] });
+      expect(getTexts(root)).toEqual([
+        TITLE,
+        'Pollo (Pechuga)',
+        'Sugerido: 1,2 kg',
+        'g',
+        CONFIRM,
+        CANCEL,
+      ]);
+    });
   });
 
   it.each([CANCEL, 'Cerrar'])('closes from "%s" without confirming', (name) => {
-    const { root, onConfirm, onClose, onTakeOut } = renderSheet();
+    const { root, onConfirm, onClose } = renderSheet();
 
     press(root, name);
 
     expect(onClose).toHaveBeenCalledTimes(1);
     expect(onConfirm).not.toHaveBeenCalled();
-    expect(onTakeOut).not.toHaveBeenCalled();
-    expect(Haptics.notificationAsync).not.toHaveBeenCalled();
   });
 
   it('rests on the bottom edge, clear of the home indicator', () => {
@@ -485,19 +433,25 @@ describe('ShoppingCartSheet', () => {
   });
 
   it('takes every color from the palette, by the roles of a dark surface', () => {
-    const { root } = renderSheet();
+    const { root } = renderSheet({ errorMessage: 'No se pudo.' });
     const [confirmSurface] = getButton(root, CONFIRM).findAllByType(View);
+    const input = StyleSheet.flatten(getQuantityInput(root, CHICKEN_QUANTITY).props.style);
 
     expect(StyleSheet.flatten(getPanel(root).props.style).backgroundColor).toBe(
       mockTheme.colorDark
     );
     expect(getTextStyle(root, TITLE).color).toBe(mockTheme.textLight);
-    expect(getTextStyle(root, '200 g · Pollo (Pechuga)').color).toBe(mockTheme.textLight);
-    expect(getTextStyle(root, 'Día · $1.520').color).toBe(mockTheme.textMedium);
-    expect(root.findAllByType(X).map((icon) => icon.props.color)).toEqual([
-      mockTheme.icon,
-      mockTheme.icon,
-    ]);
+    expect(getTextStyle(root, 'Pollo (Pechuga)').color).toBe(mockTheme.textLight);
+    expect(getTextStyle(root, 'Sugerido: 1,2 kg').color).toBe(mockTheme.textMedium);
+    expect(getTextStyle(root, 'g').color).toBe(mockTheme.textMedium);
+    expect(getTextStyle(root, 'No se pudo.').color).toBe(mockTheme.textLight);
+    expect(input).toEqual(
+      expect.objectContaining({
+        backgroundColor: withOpacity(mockTheme.icon, 0.15),
+        borderColor: withOpacity(mockTheme.icon, 0.3),
+        color: mockTheme.textLight,
+      })
+    );
     expect(StyleSheet.flatten(confirmSurface.props.style)).toEqual(
       expect.objectContaining({
         backgroundColor: mockTheme.primaryAccent,
@@ -509,7 +463,7 @@ describe('ShoppingCartSheet', () => {
   });
 
   it('mutes the empty hint with the light text of the panel', () => {
-    const { root } = renderSheet([]);
+    const { root } = renderSheet({ lines: [] });
 
     expect(getTextStyle(root, EMPTY_HINT).color).toBe(withOpacity(mockTheme.textLight, 0.6));
   });

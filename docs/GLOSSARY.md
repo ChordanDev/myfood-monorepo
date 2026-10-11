@@ -134,7 +134,7 @@ This file and `docs/adr/` are the only durable docs in the repository. Specs, ma
 
 **Shopping list** — The Account's current set of Shopping items derived from upcoming Scheduled meals minus Inventory, plus manual additions. `(code: Services.ShoppingService, ShoppingCheckout)` `(alias: Lista de Compras, grocery plan)`
 
-**Shopping item** — One ingredient quantity to buy for a planned date, optionally assigned to a Supermarket, with a status of `needed`, `in_cart` or `removed`. `(code: Persistence.Shopping.ShoppingItem, mobile ShoppingItemStatus)` `(alias: purchased, no_longer_needed)`
+**Shopping item** — One ingredient quantity to buy for a planned date, optionally assigned to a Supermarket, with a status of `needed`, `in_cart`, `removed` or `purchased`; a purchased item stays on the list while its Scheduled meal is uncooked and in range. `(code: Persistence.Shopping.ShoppingItem, mobile ShoppingItemStatus)` `(alias: no_longer_needed)`
 
 **Shopping item source** — Whether a Shopping item came from a `planned_meal` or was added `manual`ly; manual items never merge with planned ones. `(code: mobile ShoppingItemSource)`
 
@@ -146,7 +146,7 @@ This file and `docs/adr/` are the only durable docs in the repository. Specs, ma
 
 **Cart lease** — The one-hour exclusive hold a User has on a Cart; abandoned leases are released automatically. Another Membership that marks held items is refused with `cart_locked`; an expired lease reads back as no Cart. The shopping screen renews it at most once a minute while active and cancels it when the User abandons the Cart. `(code: Cart, CartSweeper, CheckoutSession.lease_expires_at)`
 
-**Checkout session** — The atomic act of confirming a Cart as purchased (`physical` or `online`), which moves its items into Inventory. `(code: Persistence.Shopping.CheckoutSession, ShoppingCheckout)` `(alias: confirmar compra)`
+**Checkout session** — The atomic act of confirming a Cart as purchased (`physical` or `online`), which moves its items into Inventory; an `online` session waits for its delivery before it does. `(code: Persistence.Shopping.CheckoutSession, ShoppingCheckout)` `(alias: confirmar compra)`
 
 **Supermarket** — A store, with a catalog and optional scraped prices, that Shopping items can be assigned to. `(code: Persistence.Shopping.Supermarket, Persistence.Shopping.SupermarketCatalog)`
 

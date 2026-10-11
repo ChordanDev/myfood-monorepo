@@ -1,8 +1,7 @@
 import { formatQuantity } from '@/utils/formatQuantity';
 import type { UnitType } from '@/types/domain';
-import { NO_PRICE_LABEL, SHOPPING_SLOT_LABELS, SHORT_MONTHS } from '../constants';
+import { SHOPPING_SLOT_LABELS, SHORT_MONTHS } from '../constants';
 import type {
-  BestOffer,
   ShoppingCounters,
   ShoppingGroupBy,
   ShoppingLineAllocation,
@@ -14,11 +13,6 @@ const SEPARATOR = ' · ';
 
 // The API counts quantities in thousandths of the unit.
 const MILLI_PER_UNIT = 1000;
-
-// es-AR pesos: thousands dot, no decimals.
-export function formatPrice(price: number) {
-  return `$${String(Math.round(price)).replace(/\B(?=(\d{3})+(?!\d))/g, '.')}`;
-}
 
 function formatShortDate(dateKey: string) {
   const [, month, day] = dateKey.split('-').map(Number);
@@ -76,12 +70,6 @@ export function formatItemMealsLine(
   if (groupBy === 'meal' && shares.length === 1) return formatMeal(shares[0]);
 
   return undefined;
-}
-
-// Second line of a row of the cart sheet: where it is cheapest, and for how much.
-export function formatItemMetaLine(offer: BestOffer | undefined) {
-  if (!offer) return NO_PRICE_LABEL;
-  return `${offer.supermarket}${SEPARATOR}${formatPrice(offer.price)}`;
 }
 
 // Second line of a row of the cart sheet: what the Cart holds of the line.

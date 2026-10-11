@@ -30,8 +30,8 @@ Out of scope: reversing a purchase, `actionId`, `inventoryVersion`, any mobile U
 
 - [x] **T1 — API: physical confirm contract.** `lines[]` request, `extra` lots for manual items with an Ingredient, nearest-allocation partial coverage with a `needed` remainder, idempotent replay, envelope errors with the three new codes (API table, typespec, `api_error_test`, mobile allowlist so the contract scan stays green). Route: delegated writer (several non-trivial files). Commit `1684633`.
 - [x] **T2 — API: online completes on delivered.** Confirm leaves `pending_delivery`; delivered creates lots, completes and replays. Route: delegated writer. Commit `96d8a9d`.
-- [x] **T3 — API: purchased planned items stay visible.** List read includes them as `purchased` until cooked or out of range; guide updated for the whole contract. Route: delegated writer.
-- [ ] **T4 — Mobile: confirm screen.** API client and types, quantity adjustment per line, confirm action, list and Inventory refreshed afterwards, `purchased` line status rendered. Route: delegated writer.
+- [x] **T3 — API: purchased planned items stay visible.** List read includes them as `purchased` until cooked or out of range; guide updated for the whole contract. Route: delegated writer. Commit `2e46b2d`.
+- [x] **T4 — Mobile: confirm screen.** API client and types, quantity adjustment per line, confirm action, list and Inventory refreshed afterwards, `purchased` line status rendered. Route: delegated writer.
 
 ## Acceptance criteria
 
@@ -47,6 +47,8 @@ The four criteria of issue #43.
 Forecast is above 400 authored lines. Strategy: `ask-on-risk`; chain strategy to be asked before opening pull requests. One whole-branch native review at the end.
 
 ## Progress
+
+**All four tasks are implemented and their checks were observed.** Remaining, both decided by the user: the whole-branch review and the pull request.
 
 **T1 done** (route: delegated writer; several non-trivial files).
 
@@ -80,4 +82,17 @@ Forecast is above 400 authored lines. Strategy: `ask-on-risk`; chain strategy to
 - Known gaps, not addressed here: `docs/GLOSSARY.md` still lists the Shopping item statuses as `needed`, `in_cart` or `removed`; a purchased item of a meal whose recipe is later swapped stays listed as `purchased` for that meal until it is cooked; the new line rule has no unit test in `shopping_rebuilder_test.exs` (covered through the list read in `shopping_purchased_test.exs`).
 - Observed: RED 8/9 on `shopping_purchased_test.exs` before the change (the manual-items test already passed), then `mix test` 1728 passed, 21 skipped; compile, format, credo and sobelow clean; dialyzer shows only the 9 known `call_without_opaque` warnings; mobile `tsc` and the error-code contract test pass.
 
-Next step: T4 (mobile confirm screen: API client and types for confirm, the `purchased` line and allocation status, quantity adjustment per line, list and Inventory refreshed after the confirm).
+**T4 done** (route: delegated writer; several non-trivial files).
+
+- Client: `confirmCheckout({ sessionId, checkoutType, lines })` validates the answer in the style of the other calls of the feature and lets the transport ask again on a network failure, since the server replays a confirmed session. `lines` is left out of the body when empty. The line status type has `purchased`, and every allocation has its `status`.
+- Reaching it: on the Carrito tab, while the User holds a Cart, a floating cart button sits above the tab bar at the bottom right with the number of lines in the Cart. It opens the "Tu carrito" sheet: one row per line with "Sugerido: <quantity>" and a field with the bought quantity in the unit of the line, then "Marcar como comprado" and "Cancelar".
+- Cart lines are built on the device from the read: the `in_cart` allocations added up per `<ingredientId>:<unit>`, whatever the grouping, plus the manual items that are `in_cart` by their own id. Only the lines whose quantity was changed are sent; `0` and a quantity above the suggestion are both taken. A field that does not read as a quantity disables the confirm.
+- The confirm lives in `useCartLease`, next to marking and cancelling: one request at a time (a ref guards the second press, and the button and the fields are disabled while it is pending). Bought: the Cart is dropped, the list is read again, the Inventory store is refreshed and the sheet closes. `cart_expired`, `checkout_session_not_found`, `stale_cart` and `cart_not_found`: the Cart is dropped, the list is read again, the sheet closes and the message shows where the screen shows Cart errors. Anything else (`cart_locked`, `validation_error`, a network failure): the message shows inside the sheet, which stays open with the quantities typed, and the Cart is kept.
+- Purchased on the list: a `purchased` line is dimmed and tagged "Comprado", reads ", comprado" to a screen reader, and has nothing to tick or hold. A line bought in part shows the remainder the server reports; ticking it marks only its `needed` allocations, removing it leaves out the purchased ones, and its "Para N comidas" counts only the meals still to buy for.
+- `docs/GLOSSARY.md`: the Shopping item statuses include `purchased` (no longer listed as an alias) and the Checkout session entry says an online session waits for its delivery.
+- Decisions taken beyond the list above:
+  - The re-read goes through `useCartLease`'s `refreshList` (the store's `refresh`), as marking and cancelling a Cart do, and not through the store's `change` helper: `change` answers only a boolean and leaves the error in `changeError`, which the screen draws as a banner under the sheet, so the sheet could not tell an error that closes it from one that keeps it open.
+  - The sheet no longer takes a row out of the Cart or shows a price: the mobile client has no route for either, and a quantity of `0` releases a line at confirm. The price helpers only the old sheet used (`formatPrice`, `formatItemMetaLine`, `BestOffer`, `NO_PRICE_LABEL`) were removed with it.
+  - The sheet rises with the keyboard, as the add sheet does; the list keeps clear of the cart button while there is a Cart; a successful purchase gives the success haptic; the sheet closes if the Cart runs out while it is open.
+- Known gaps, not addressed here: a read does not say who holds an `in_cart` allocation, so a share in another member's Cart is listed in the sheet too (it is only sent when its quantity is changed, and the server then answers `validation_error`); with a date limit on the list, Cart lines beyond that date are not shown in the sheet and are bought at the Cart's quantity; manual items cannot be ticked into a Cart from the screen yet, so their path through the sheet is covered only by unit tests; a list with only purchased lines shows them without the "No hay nada para comprar" message; the sheet was not checked on a simulator.
+- Observed: baseline `npx jest --ci` 142 suites, 2083 tests, all passing (the `authService.test.ts` failures reported earlier did not reproduce). RED: 31 failing tests in the API client, Cart domain and formatter suites before their code, then 62 failing tests in the lease hook, list hook, row, sheet and screen suites before theirs (one new screen test, the remainder of a line bought in part, passed at once: the server computes it). Then `npx jest --ci` 143 suites, 2158 tests passing; `npx tsc --noEmit` clean; `npm run lint` 0 errors and the 4 warnings it had before, in files this task does not touch; `npm run knip` reports three findings fewer (the cart button and sheet are mounted now) and none new.
