@@ -21,6 +21,9 @@ defmodule MealPlannerApiWeb.PreparedLeftoverController do
           {:ok, leftover} ->
             conn |> put_status(201) |> json(%{data: render_leftover(leftover)})
 
+          {:error, :scheduled_meal_not_found} ->
+            conn |> ApiError.error(:scheduled_meal_not_found)
+
           {:error, %Ecto.Changeset{} = changeset} ->
             ApiError.validation_error(conn, wire_field(changeset))
         end
@@ -44,8 +47,9 @@ defmodule MealPlannerApiWeb.PreparedLeftoverController do
     with {:ok, title} <- parse_title(params["title"]),
          {:ok, portions} <- parse_portions(params["portions"]),
          {:ok, consume_by} <- parse_consume_by(params["consume_by_date"]),
-         {:ok, notes} <- parse_notes(params["notes"]) do
-      attrs = %{title: title, portions: portions, notes: notes}
+         {:ok, notes} <- parse_notes(params["notes"]),
+         {:ok, meal_id} <- parse_scheduled_meal_id(params["scheduled_meal_id"]) do
+      attrs = %{title: title, portions: portions, notes: notes, scheduled_meal_id: meal_id}
       {:ok, if(consume_by, do: Map.put(attrs, :consume_by_date, consume_by), else: attrs)}
     end
   end
@@ -73,6 +77,12 @@ defmodule MealPlannerApiWeb.PreparedLeftoverController do
   defp parse_notes(nil), do: {:ok, nil}
   defp parse_notes(notes) when is_binary(notes), do: {:ok, notes}
   defp parse_notes(_), do: {:error, "notes"}
+
+  # Only the type is checked here: whether the id is a Scheduled meal of the
+  # Account is the persistence boundary's answer.
+  defp parse_scheduled_meal_id(nil), do: {:ok, nil}
+  defp parse_scheduled_meal_id(meal_id) when is_binary(meal_id), do: {:ok, meal_id}
+  defp parse_scheduled_meal_id(_), do: {:error, "scheduledMealId"}
 
   defp wire_field(%Ecto.Changeset{errors: [{field, _} | _]}) do
     case field do

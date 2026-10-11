@@ -5,6 +5,7 @@ defmodule MealPlannerApi.Persistence.LeftoversTest do
 
   alias Ecto.Adapters.SQL.Sandbox
   alias MealPlannerApi.Persistence.Accounts.Account
+  alias MealPlannerApi.Persistence.Calendar
   alias MealPlannerApi.Persistence.Leftovers
   alias MealPlannerApi.Repo
 
@@ -56,6 +57,49 @@ defmodule MealPlannerApi.Persistence.LeftoversTest do
       assert %{title: [_ | _]} = errors_on(changeset)
 
       assert {:error, changeset} = Leftovers.create(account_id, %{title: "x", portions: 0})
+      assert %{portions: [_ | _]} = errors_on(changeset)
+    end
+
+    test "stores a Scheduled meal of the Account as the source", %{account_id: account_id} do
+      meal_id = scheduled_meal_id!(account_id)
+
+      assert {:ok, leftover} =
+               Leftovers.create(
+                 account_id,
+                 %{title: "Lentils", portions: 2, scheduled_meal_id: meal_id},
+                 %{now: @now}
+               )
+
+      assert leftover.scheduled_meal_id == meal_id
+    end
+
+    test "has no source without a Scheduled meal id", %{account_id: account_id} do
+      attrs = %{title: "Lentils", portions: 2, scheduled_meal_id: nil}
+
+      assert {:ok, leftover} = Leftovers.create(account_id, attrs, %{now: @now})
+      assert is_nil(leftover.scheduled_meal_id)
+    end
+
+    test "is not found for another Account's Scheduled meal, an unknown and a malformed id",
+         %{account_id: account_id} do
+      other_id = account_id("leftovers-e@example.com")
+
+      for meal_id <- [scheduled_meal_id!(other_id), Ecto.UUID.generate(), "not-a-uuid", 7] do
+        attrs = %{title: "Lentils", portions: 2, scheduled_meal_id: meal_id}
+
+        assert {:error, :scheduled_meal_not_found} =
+                 Leftovers.create(account_id, attrs, %{now: @now})
+      end
+
+      assert Leftovers.list_open(account_id) == []
+      assert Leftovers.list_open(other_id) == []
+    end
+
+    test "reports an invalid field before looking the Scheduled meal up",
+         %{account_id: account_id} do
+      attrs = %{title: "x", portions: 0, scheduled_meal_id: Ecto.UUID.generate()}
+
+      assert {:error, changeset} = Leftovers.create(account_id, attrs)
       assert %{portions: [_ | _]} = errors_on(changeset)
     end
   end
@@ -142,6 +186,13 @@ defmodule MealPlannerApi.Persistence.LeftoversTest do
       %{title: title, portions: 2, consume_by_date: consume_by},
       %{now: now}
     )
+  end
+
+  defp scheduled_meal_id!(account_id) do
+    {:ok, meal} =
+      Calendar.upsert_scheduled_meal(account_id, %{date: ~D[2026-10-09], slot: :dinner})
+
+    meal.id
   end
 
   defp account_id(email) do
