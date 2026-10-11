@@ -14,8 +14,9 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
-// Every post changes the server (a session opens, a question is stored, stock is consumed), so a
-// repeat after a lost answer could not be told from a second one: none is ever retried.
+// Every post changes the server (a session opens, a question is stored, stock is consumed), so
+// none is retried by the transport. A question carries its own id instead: the caller may send
+// it again and the server answers with the pair it already stored.
 function sessionPath(sessionId: string): string {
   return `${COOKING_PATH}/sessions/${encodeURIComponent(sessionId)}`;
 }
@@ -25,8 +26,9 @@ function postOptions(options?: RequestOptions) {
 }
 
 /**
- * Opens the Cooking session of a Scheduled meal, or returns the active one it already has with
- * its chat history; the server refuses a meal not on its today.
+ * Opens the Cooking session of a Scheduled meal, or returns the one it already has with its chat
+ * history: the active one, or the finished one of a cooked meal. The server refuses a meal not
+ * on its today.
  */
 export async function startCookingSession(
   scheduledMealId: string,
@@ -57,15 +59,18 @@ export async function getCookingSession(
 /**
  * Asks the Cooking chat a question. The answer arrives whole, with the two turns the server
  * stored; it refuses a meal not on its today and a session that already finished.
+ * `clientMessageId` is a UUID that names the question: sending the same one again returns the
+ * stored pair instead of storing the question twice.
  */
 export async function askCookingSession(
   sessionId: string,
   message: string,
+  clientMessageId: string,
   options?: RequestOptions
 ): Promise<CookingAnswer> {
   const response = await apiClient.post<unknown>(
     `${sessionPath(sessionId)}/ask`,
-    { message },
+    { message, clientMessageId },
     postOptions(options)
   );
 
@@ -98,6 +103,7 @@ function parseSessionResponse(response: unknown): CookingSession {
     !isRecord(data) ||
     typeof data.sessionId !== 'string' ||
     data.sessionId === '' ||
+    typeof data.status !== 'string' ||
     !isChatMessageList(data.chatMessages)
   ) {
     throw new ApiError('unknown_error', 'Malformed cooking session response');

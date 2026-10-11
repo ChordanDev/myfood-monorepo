@@ -14,6 +14,7 @@ export const COOKING_SCHEDULED_MEAL_ID = 'fa64644f-e007-4539-9cd6-2a9d49570540';
 export const COOKING_START: CookingSession = {
   sessionId: COOKING_SESSION_ID,
   scheduledMealId: COOKING_SCHEDULED_MEAL_ID,
+  status: 'active',
   chatMessages: [],
 };
 
@@ -36,6 +37,12 @@ export const COOKING_CHAT_HISTORY: CookingChatMessage[] = [
 export const COOKING_SESSION_WITH_HISTORY: CookingSession = {
   ...COOKING_START,
   chatMessages: COOKING_CHAT_HISTORY,
+};
+
+// What start and the session read answer for a cooked meal: the closed conversation.
+export const COOKING_SESSION_FINISHED: CookingSession = {
+  ...COOKING_SESSION_WITH_HISTORY,
+  status: 'completed',
 };
 
 export const COOKING_QUESTION = '¿Cuánto tarda el arroz?';
@@ -118,7 +125,7 @@ export const COOKING_FINISH_COVERED: CookingFinish = {
 
 // Start and the session read answer with the same payload.
 export function toCookingSessionResponse(session: CookingSession = COOKING_START) {
-  return { data: { ...session, status: 'active', slot: 'lunch', snapshot: {} } };
+  return { data: { ...session, slot: 'lunch', snapshot: {} } };
 }
 
 export function toCookingAnswerResponse(answer: CookingAnswer = COOKING_ANSWER) {

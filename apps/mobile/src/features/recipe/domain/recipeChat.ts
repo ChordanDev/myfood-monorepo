@@ -53,6 +53,20 @@ export function mergeChatHistory(
   return appendUnseen(history.map(toRecipeChatMessage), shown);
 }
 
+/**
+ * Whether the stored history holds a question the conversation has not seen: after a failed
+ * question it tells a lost answer (the server stored both turns) from a question never stored.
+ */
+export function hasUnseenQuestion(
+  history: CookingChatMessage[],
+  seenTurnIds: ReadonlySet<string>,
+  question: string
+): boolean {
+  return history.some(
+    (turn) => turn.role === 'user' && turn.content === question && !seenTurnIds.has(turn.id)
+  );
+}
+
 /** Swaps the pending question for the turns the server stored: the question, then its answer. */
 export function reconcileChatTurns(
   messages: RecipeChatMessage[],
