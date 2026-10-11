@@ -268,6 +268,9 @@ defmodule MealPlannerApi.Services.InventoryService do
   never read. An intent that is not confident, or that differs from what the
   transcript says, needs `confirmed: true`. The subtraction is capped at the
   stock, so inventory never goes negative.
+
+  The Account's usable lots are read once, for the parse and for that cap. The
+  subtraction then locks the lots it takes from and reads what they hold.
   """
   @spec voice_apply(map(), map()) :: {:ok, map()} | {:error, term()}
   def voice_apply(user, payload) do
@@ -371,50 +374,33 @@ defmodule MealPlannerApi.Services.InventoryService do
     end)
   end
 
-  # Runs inside the caller's transaction, once per source kind.
+  # Runs inside the caller's transaction, once per source kind. It asks for all
+  # that is left: `subtract_usable_lots_and_log/1` locks the usable lots of the
+  # source kind and takes no more than they hold, so their total is not read
+  # here.
+  defp subtract_voice_source(_source_kind, {0, events}, _identity, _entry, _today, _transcript),
+    do: {:halt, {0, events}}
+
   defp subtract_voice_source(source_kind, {remaining, events}, identity, entry, today, transcript) do
-    available = source_total(identity.account_id, entry, source_kind, today)
-    take = min(remaining, available)
+    case InventoryPersistence.subtract_usable_lots_and_log(%{
+           account_id: identity.account_id,
+           ingredient_id: entry.ingredient_id,
+           unit: entry.unit,
+           source_kind: source_kind,
+           delta: -remaining,
+           today: today,
+           source_user_id: identity.user_id,
+           trigger_type: :voice,
+           operation: :subtract,
+           raw_voice_text: transcript,
+           metadata: %{reason: "voice_adjust"}
+         }) do
+      {:ok, result} ->
+        {:cont, {remaining + result.delta, events ++ result.mutation_events}}
 
-    cond do
-      remaining == 0 ->
-        {:halt, {remaining, events}}
-
-      take == 0 ->
-        {:cont, {remaining, events}}
-
-      true ->
-        case InventoryPersistence.subtract_usable_lots_and_log(%{
-               account_id: identity.account_id,
-               ingredient_id: entry.ingredient_id,
-               unit: entry.unit,
-               source_kind: source_kind,
-               delta: -take,
-               today: today,
-               source_user_id: identity.user_id,
-               trigger_type: :voice,
-               operation: :subtract,
-               raw_voice_text: transcript,
-               metadata: %{reason: "voice_adjust"}
-             }) do
-          {:ok, result} ->
-            {:cont, {remaining + result.delta, events ++ result.mutation_events}}
-
-          {:error, reason} ->
-            Repo.rollback(reason)
-        end
+      {:error, reason} ->
+        Repo.rollback(reason)
     end
-  end
-
-  defp source_total(account_id, entry, source_kind, today) do
-    account_id
-    |> usable_lots()
-    |> Enum.filter(
-      &(&1.ingredient_id == entry.ingredient_id and &1.unit == entry.unit and
-          &1.source_kind == source_kind and LotFreshness.usable?(&1, today))
-    )
-    |> Enum.map(& &1.quantity_milli)
-    |> Enum.sum()
   end
 
   # What the User can still use, per ingredient and unit.
