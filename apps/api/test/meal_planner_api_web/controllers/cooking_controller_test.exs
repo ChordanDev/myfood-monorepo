@@ -339,8 +339,22 @@ defmodule MealPlannerApiWeb.CookingControllerTest do
       assert %{"error" => %{"code" => "validation_error"}} = json_response(conn, 422)
     end
 
+    test "step with a non-string recipe step id is a validation error", %{conn: conn} do
+      conn =
+        post(conn, "/api/cooking/sessions/#{Ecto.UUID.generate()}/step", %{"recipeStepId" => 3})
+
+      assert %{"error" => %{"code" => "validation_error"}} = json_response(conn, 422)
+    end
+
     test "ask without a message is a validation error", %{conn: conn} do
       conn = post(conn, "/api/cooking/sessions/#{Ecto.UUID.generate()}/ask", %{})
+      assert %{"error" => %{"code" => "validation_error"}} = json_response(conn, 422)
+    end
+
+    test "ask with a non-string message is a validation error", %{conn: conn} do
+      conn =
+        post(conn, "/api/cooking/sessions/#{Ecto.UUID.generate()}/ask", %{"message" => ["hot?"]})
+
       assert %{"error" => %{"code" => "validation_error"}} = json_response(conn, 422)
     end
 
