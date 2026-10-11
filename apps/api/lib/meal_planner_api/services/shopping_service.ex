@@ -262,9 +262,22 @@ defmodule MealPlannerApi.Services.ShoppingService do
   # are stored in one statement that skips the planned keys another request
   # stored first.
   #
+  # The meals were loaded earlier, outside any transaction, and a Scheduled
+  # meal can change its date and keep its id since then
+  # (`Persistence.Calendar.MealMove`). A line computed for the old date would
+  # be stored next to the items the move carried to the new one, so a line is
+  # stored only under a row lock on its meal, and only while that meal still
+  # holds the line's date. The lines left out are derived by the next read,
+  # from the meals as it loads them.
+  #
   # A failure here must not fail the read: it is logged and the read answers
   # with the Shopping items already stored.
-  defp ensure_shopping_items_from_schedule(account_id, scheduled_meals) do
+  #
+  # Public so that a test can hand it meals loaded before a concurrent write;
+  # the callers are this module's own.
+  @doc false
+  @spec ensure_shopping_items_from_schedule(Ecto.UUID.t(), [map()]) :: :ok
+  def ensure_shopping_items_from_schedule(account_id, scheduled_meals) do
     scheduled_meals = Repo.preload(scheduled_meals, recipe: :recipe_ingredients)
 
     pool =
@@ -279,20 +292,13 @@ defmodule MealPlannerApi.Services.ShoppingService do
       end)
 
     lines = ShoppingRebuilder.compute_net_shortages(scheduled_meals, pool)
+    meal_ids = Enum.map(scheduled_meals, & &1.id)
 
-    # A Shopping item in any status answers for its planned key: what was
-    # bought or archived is not derived again.
-    existing = Shopping.planned_item_keys(account_id, Enum.map(scheduled_meals, & &1.id))
-
-    missing =
-      Enum.reject(lines, fn line ->
-        MapSet.member?(
-          existing,
-          {line.scheduled_meal_id, line.planned_date, line.ingredient_id, line.unit}
-        )
-      end)
-
-    Shopping.insert_planned_items(account_id, missing)
+    # Most reads find every line stored and stop here, without a lock.
+    case missing_lines(account_id, meal_ids, lines) do
+      [] -> :ok
+      missing -> store_lines_of_unmoved_meals(account_id, meal_ids, missing)
+    end
   rescue
     exception ->
       Logger.error(
@@ -301,6 +307,55 @@ defmodule MealPlannerApi.Services.ShoppingService do
       )
 
       :ok
+  end
+
+  # A Shopping item in any status answers for its planned key: what was
+  # bought or archived is not derived again.
+  defp missing_lines(account_id, meal_ids, lines) do
+    existing = Shopping.planned_item_keys(account_id, meal_ids)
+
+    Enum.reject(lines, fn line ->
+      MapSet.member?(
+        existing,
+        {line.scheduled_meal_id, line.planned_date, line.ingredient_id, line.unit}
+      )
+    end)
+  end
+
+  # One transaction: the locks are taken just before the planned keys are read
+  # again and are held until the insert commits. A move that commits before
+  # them is seen in the dates they return, one that starts after them waits
+  # and carries the new items along.
+  defp store_lines_of_unmoved_meals(account_id, meal_ids, lines) do
+    {:ok, :ok} =
+      Repo.transaction(fn ->
+        dates = lock_meal_dates(account_id, lines)
+
+        current =
+          Enum.filter(lines, &(Map.get(dates, &1.scheduled_meal_id) == &1.planned_date))
+
+        Shopping.insert_planned_items(account_id, missing_lines(account_id, meal_ids, current))
+      end)
+
+    :ok
+  end
+
+  # The date each meal of the lines holds now, read under `FOR KEY SHARE`: the
+  # weakest row lock that conflicts with the `FOR UPDATE` of a move, and the
+  # one the foreign key check of the insert takes on these rows anyway, so two
+  # reads never wait for each other. In id order, as the move locks its meals.
+  # A meal deleted since it was loaded is not in the result.
+  defp lock_meal_dates(account_id, lines) do
+    meal_ids = lines |> Enum.map(& &1.scheduled_meal_id) |> Enum.uniq()
+
+    from(m in MealPlannerApi.Persistence.Planning.ScheduledMeal,
+      where: m.account_id == ^account_id and m.id in ^meal_ids,
+      order_by: m.id,
+      lock: "FOR KEY SHARE",
+      select: {m.id, m.date}
+    )
+    |> Repo.all()
+    |> Map.new()
   end
 
   # -------------------------------------------------------------------------
