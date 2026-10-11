@@ -258,8 +258,6 @@ defmodule MealPlannerApi.Services.CookingService do
          do: meal_is_today(session.scheduled_meal, session.account_id, now)
   end
 
-  defp chat_available(_session, _now), do: {:error, :cooking_session_not_active}
-
   # The session lock orders this write against a concurrent finish, so a
   # finished session never gains turns. It also orders two requests carrying
   # the same client message id: the second one finds the pair of the first and
@@ -291,7 +289,7 @@ defmodule MealPlannerApi.Services.CookingService do
     |> Enum.map(&insert_turn!(&1, session_id))
   end
 
-  # Call only inside a transaction: anything but an active session rolls back.
+  # Call only inside a transaction: a missing or a finished session rolls back.
   defp lock_active_session!(ids, session_id) do
     session =
       PlanningRepo.lock_cooking_session_for_account(ids.account_id, session_id) ||
@@ -300,7 +298,6 @@ defmodule MealPlannerApi.Services.CookingService do
     case session.status do
       :active -> session
       :completed -> Repo.rollback(:cooking_already_finished)
-      _ -> Repo.rollback(:cooking_session_not_active)
     end
   end
 
@@ -503,11 +500,7 @@ defmodule MealPlannerApi.Services.CookingService do
         PlanningRepo.lock_cooking_session_for_account(ids.account_id, session_id) ||
           Repo.rollback(:session_not_found)
 
-      case session.status do
-        :completed -> Repo.rollback(:cooking_already_finished)
-        status when status in [:active, :paused] -> :ok
-        _ -> Repo.rollback(:cooking_session_not_active)
-      end
+      if session.status == :completed, do: Repo.rollback(:cooking_already_finished)
 
       meal =
         PlanningRepo.lock_cooking_meal_for_account(ids.account_id, session.scheduled_meal_id) ||

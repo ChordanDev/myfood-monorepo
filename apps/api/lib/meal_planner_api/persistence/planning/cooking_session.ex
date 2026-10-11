@@ -8,7 +8,7 @@ defmodule MealPlannerApi.Persistence.Planning.CookingSession do
   @type t :: %__MODULE__{}
 
   schema "cooking_sessions" do
-    field(:status, Ecto.Enum, values: [:active, :paused, :completed], default: :active)
+    field(:status, Ecto.Enum, values: [:active, :completed], default: :active)
     field(:context_snapshot, :map)
     field(:started_at, :utc_datetime_usec)
     field(:completed_at, :utc_datetime_usec)
