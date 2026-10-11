@@ -514,6 +514,33 @@ defmodule MealPlannerApiWeb.InventoryControllerTest do
                validation_error()
     end
 
+    test "a transcript longer than 500 characters is a validation error and writes nothing" do
+      actor = actor()
+      lot = seed_lot(actor, ingredient("Queso Voz Largo"), 400_000)
+      transcript = "me comí la mitad del queso voz largo"
+
+      preview =
+        actor
+        |> post_json("/api/inventory/voice/preview", %{"transcript" => transcript})
+        |> json_response(200)
+
+      very_long = String.duplicate(transcript <> " ", 300)
+
+      assert actor
+             |> post_json("/api/inventory/voice/preview", %{"transcript" => very_long})
+             |> json_response(422) == validation_error()
+
+      assert actor
+             |> post_json("/api/inventory/voice/apply", %{
+               "transcript" => very_long,
+               "intent" => preview["data"]["intent"],
+               "confirmed" => true
+             })
+             |> json_response(422) == validation_error()
+
+      assert [%{operation: :add}] = ledger(lot.id)
+    end
+
     test "a transcript that names nothing in stock is voice_parse_failed" do
       actor = actor()
       _ = seed_lot(actor, ingredient("Queso Voz Error"), 400_000)

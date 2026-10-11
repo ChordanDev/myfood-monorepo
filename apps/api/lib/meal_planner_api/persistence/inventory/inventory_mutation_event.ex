@@ -60,6 +60,8 @@ defmodule MealPlannerApi.Persistence.Inventory.InventoryMutationEvent do
       :quantity_after_milli,
       :source_user_id
     ])
+    # The voice endpoints refuse a longer transcript before it gets here.
+    |> validate_length(:raw_voice_text, max: 500, count: :codepoints)
     |> foreign_key_constraint(:account_id)
     |> foreign_key_constraint(:inventory_item_id)
     |> foreign_key_constraint(:source_checkout_session_id)

@@ -749,6 +749,70 @@ defmodule MealPlannerApi.Services.InventoryServiceTest do
                InventoryService.voice_preview(ctx.scoped_user, %{"transcript" => "  "})
     end
 
+    test "a transcript of 500 characters is accepted and a longer one refused", ctx do
+      lot = seed_lot(ctx.account, ctx.user, ctx.cheese, %{delta: 400_000})
+
+      # Padded, so the two transcripts differ in length alone. The "í" makes
+      # the accepted one longer than 500 bytes: the cap counts characters.
+      at_cap = String.pad_trailing("me comí la mitad del queso crema", 500)
+      over_cap = at_cap <> " "
+      assert String.length(at_cap) == 500
+      assert byte_size(at_cap) > 500
+
+      assert {:ok, %{intent: intent}} = preview(ctx, at_cap)
+      assert {:error, :invalid_voice_payload} = preview(ctx, over_cap)
+
+      assert {:error, :invalid_voice_payload} =
+               InventoryService.voice_apply(ctx.scoped_user, %{
+                 "transcript" => over_cap,
+                 "intent" => stringify(intent),
+                 "confirmed" => true
+               })
+
+      assert InventoryPersistence.get_inventory_item_for_account(ctx.account.id, lot.id).quantity_milli ==
+               400_000
+
+      assert {:ok, %{mutation_events: [event]}} =
+               InventoryService.voice_apply(ctx.scoped_user, %{
+                 "transcript" => at_cap,
+                 "intent" => stringify(intent)
+               })
+
+      assert Repo.get!(InventoryMutationEvent, event.id).raw_voice_text == at_cap
+    end
+
+    test "combining marks do not hide a transcript longer than 500 characters", ctx do
+      seed_lot(ctx.account, ctx.user, ctx.cheese, %{delta: 400_000})
+
+      # One "a" under 480 combining accents reads as a single character.
+      transcript = "me comí la mitad del queso crema a" <> String.duplicate("́", 480)
+      assert String.length(transcript) < 500
+      assert length(String.codepoints(transcript)) > 500
+
+      assert {:error, :invalid_voice_payload} = preview(ctx, transcript)
+    end
+
+    test "a very long transcript is refused and writes nothing", ctx do
+      lot = seed_lot(ctx.account, ctx.user, ctx.cheese, %{delta: 400_000})
+      {:ok, %{intent: intent}} = preview(ctx, "me comí la mitad del queso crema")
+      transcript = String.duplicate("me comí la mitad del queso crema ", 300)
+
+      assert {:error, :invalid_voice_payload} = preview(ctx, transcript)
+
+      assert {:error, :invalid_voice_payload} =
+               InventoryService.voice_apply(ctx.scoped_user, %{
+                 "transcript" => transcript,
+                 "intent" => stringify(intent),
+                 "confirmed" => true
+               })
+
+      assert InventoryPersistence.get_inventory_item_for_account(ctx.account.id, lot.id).quantity_milli ==
+               400_000
+
+      assert [%{operation: :add}] =
+               Repo.all(from(e in InventoryMutationEvent, where: e.inventory_item_id == ^lot.id))
+    end
+
     test "apply subtracts a confident intent and logs the voice event with the transcript", ctx do
       lot = seed_lot(ctx.account, ctx.user, ctx.cheese, %{delta: 400_000})
       transcript = "me comí la mitad del queso crema"

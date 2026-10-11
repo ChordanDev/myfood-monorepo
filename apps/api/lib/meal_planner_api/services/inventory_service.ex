@@ -27,6 +27,9 @@ defmodule MealPlannerApi.Services.InventoryService do
   # The longest note a lot keeps, counted once trimmed. `InventoryItem` holds
   # the same bound.
   @max_notes_length 1_000
+  # The longest spoken transcript the voice endpoints read, in codepoints and
+  # counted as sent. `InventoryMutationEvent` holds the same bound.
+  @max_transcript_length 500
 
   @doc "Returns usable inventory for one account without changing inventory state."
   @spec list_for_account(Ecto.UUID.t(), Date.t()) :: [map()]
@@ -279,16 +282,26 @@ defmodule MealPlannerApi.Services.InventoryService do
     end
   end
 
+  # Checked before the stock is loaded or the transcript parsed: the parser
+  # works in proportion to the transcript, and an apply stores it once per lot.
   defp voice_transcript(payload) do
     case param(payload, :transcript) do
       transcript when is_binary(transcript) ->
-        if String.trim(transcript) == "",
+        if transcript_too_long?(transcript) or String.trim(transcript) == "",
           do: {:error, :invalid_voice_payload},
           else: {:ok, transcript}
 
       _ ->
         {:error, :invalid_voice_payload}
     end
+  end
+
+  # Counted in codepoints, so a run of combining marks cannot pass as one
+  # character. A codepoint is at most four bytes: the byte size refuses a huge
+  # transcript without walking it.
+  defp transcript_too_long?(transcript) do
+    byte_size(transcript) > @max_transcript_length * 4 or
+      length(String.codepoints(transcript)) > @max_transcript_length
   end
 
   defp voice_intent(%{} = intent) do
