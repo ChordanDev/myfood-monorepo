@@ -334,7 +334,8 @@ defmodule MealPlannerApiWeb.MobileCasingContractTest do
                "scheduledMealId" => scheduled_meal_id,
                "date" => ^today,
                "slot" => "dinner",
-               "quantityMilli" => _
+               "quantityMilli" => _,
+               "status" => "needed"
              } = allocation
 
       assert item_id in Enum.map(f.items, & &1.id)

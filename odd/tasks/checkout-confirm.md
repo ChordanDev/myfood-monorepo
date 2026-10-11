@@ -29,8 +29,8 @@ Out of scope: reversing a purchase, `actionId`, `inventoryVersion`, any mobile U
 ## Tasks
 
 - [x] **T1 — API: physical confirm contract.** `lines[]` request, `extra` lots for manual items with an Ingredient, nearest-allocation partial coverage with a `needed` remainder, idempotent replay, envelope errors with the three new codes (API table, typespec, `api_error_test`, mobile allowlist so the contract scan stays green). Route: delegated writer (several non-trivial files). Commit `1684633`.
-- [x] **T2 — API: online completes on delivered.** Confirm leaves `pending_delivery`; delivered creates lots, completes and replays. Route: delegated writer.
-- [ ] **T3 — API: purchased planned items stay visible.** List read includes them as `purchased` until cooked or out of range; guide updated for the whole contract. Route: delegated writer.
+- [x] **T2 — API: online completes on delivered.** Confirm leaves `pending_delivery`; delivered creates lots, completes and replays. Route: delegated writer. Commit `96d8a9d`.
+- [x] **T3 — API: purchased planned items stay visible.** List read includes them as `purchased` until cooked or out of range; guide updated for the whole contract. Route: delegated writer.
 - [ ] **T4 — Mobile: confirm screen.** API client and types, quantity adjustment per line, confirm action, list and Inventory refreshed afterwards, `purchased` line status rendered. Route: delegated writer.
 
 ## Acceptance criteria
@@ -68,4 +68,16 @@ Forecast is above 400 authored lines. Strategy: `ask-on-risk`; chain strategy to
 - Decisions taken beyond the list above: delivery announces `purchase_confirmed` (with the completed result) and `inventory_changed` on the shopping channel, the events a physical confirm announces, and an online confirm announces only `purchase_confirmed`; a completed physical session replays its real result on the delivered route (it used to answer the stored body with `moved_to_inventory_count` forced to 0).
 - Observed: RED 9/10 on `checkout_delivered_test.exs` before the change (the replay test passed against the old stock-at-confirm path), then `mix test` 1719 passed, 21 skipped; compile, format, credo and sobelow clean; dialyzer shows only the 9 known `call_without_opaque` warnings; mobile `tsc` and the error-code contract test pass. `cart_concurrency_test.exs` gained a concurrent-delivery test that plain `mix test` only compiles.
 
-Next step: T3 (purchased planned items stay on the list read as `purchased` until their meal is cooked or leaves the range; guide updated for the whole contract).
+**T3 done** (route: delegated writer, together with T2).
+
+- The list read adds the planned items that were bought (`checked_out`, and `pending_delivery` ones) whose Scheduled meal is not cooked and is planned inside the range of the read (the Account's today to `untilDate`). They read `purchased`. Purchased manual items are never returned: they are for no meal.
+- Wire shape: every allocation of a `planned` line now carries `status` (`needed`, `in_cart`, `removed` or `purchased`), the status of its own Shopping item. No other key was added.
+- Line rule (`ShoppingRebuilder.group_lines/2`, `:ingredient`): the quantity and status of a line come from its open allocations, the ones neither removed nor purchased, so a line bought in part stays `needed` (or `in_cart`) for its remainder. With no open allocation the line reads `purchased` when any allocation was bought, with the bought quantity, and `removed` only when all were removed. With `groupBy=meal` each item is its own line with its own status.
+- `totals` are unchanged and count only `needed`, `in_cart` and `removed` lines; `estimatedCents` only pending items. Purchased lines are in none of them.
+- A purchased item is not re-derived (`planned_item_keys` already answered for every status) and cannot be reserved (`mark-cart` by item id is refused with the legacy `already_reserved`, by Ingredient it only takes open items) or removed (`shopping_item_not_found`). These were already true; tests now pin them.
+- `frontend_integration_guide.md`: 7.1 documents `purchased` and the allocation `status`; 7.4 and 7.5 were rewritten for the whole contract (request, response, replay, error codes, online pending delivery, delivered); section 10 lists both routes under the envelope.
+- Decisions taken beyond the list above: the allocation `status` is attached where the service serializes the line, from the rows it handed to the rebuilder, so the allocation map `group_lines/2` returns is unchanged; a line with purchased and removed allocations and nothing left to buy reads `purchased`.
+- Known gaps, not addressed here: `docs/GLOSSARY.md` still lists the Shopping item statuses as `needed`, `in_cart` or `removed`; a purchased item of a meal whose recipe is later swapped stays listed as `purchased` for that meal until it is cooked; the new line rule has no unit test in `shopping_rebuilder_test.exs` (covered through the list read in `shopping_purchased_test.exs`).
+- Observed: RED 8/9 on `shopping_purchased_test.exs` before the change (the manual-items test already passed), then `mix test` 1728 passed, 21 skipped; compile, format, credo and sobelow clean; dialyzer shows only the 9 known `call_without_opaque` warnings; mobile `tsc` and the error-code contract test pass.
+
+Next step: T4 (mobile confirm screen: API client and types for confirm, the `purchased` line and allocation status, quantity adjustment per line, list and Inventory refreshed after the confirm).
