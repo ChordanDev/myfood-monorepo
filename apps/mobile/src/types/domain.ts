@@ -31,16 +31,6 @@ export interface Ingredient {
   unit: UnitType;
 }
 
-export interface RecipeIngredient {
-  ingredientId: string;
-  amount: number;
-}
-
-export interface RecipeStep {
-  order: number;
-  instruction: string;
-}
-
 export interface RecipeThemeConfig {
   colorBlack: string;
   colorDark: string;
@@ -58,23 +48,6 @@ export interface RecipeThemeConfig {
   alert: string;
 }
 
-export interface MasterRecipe {
-  id: string;
-  name: string;
-  description: string;
-  ingredients: RecipeIngredient[];
-  steps: RecipeStep[];
-  estimatedCost: number;
-  tags: string[]; // ['económica', 'vegetariana', 'rápida', etc.]
-  imageUrl?: string;
-  theme: RecipeThemeConfig;
-}
-
-export interface CustomizedRecipe extends MasterRecipe {
-  originalRecipeId: string;
-  isFavorite: boolean;
-}
-
 // Meal slot codes of the API contract, in the order of the day. Their Spanish labels are
 // `MEAL_SLOT_LABEL`.
 export const ORDERED_MEAL_SLOTS = ['breakfast', 'lunch', 'snack', 'dinner'] as const;
@@ -85,7 +58,7 @@ export interface MealPlanEntry {
   id: string;
   date: string; // ISO string format YYYY-MM-DD
   type: MealSlot;
-  recipeId: string; // Referencia a MasterRecipe o CustomizedRecipe
+  recipeId: string; // Id of the recipe, as `GET /api/recipes/:id` names it.
   isCooked: boolean;
   isSkipped?: boolean; // The meal passed and was not cooked. Never true together with isCooked.
   selectedQuantity?: number | null; // Servings the server holds for the meal.

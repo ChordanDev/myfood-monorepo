@@ -22,11 +22,12 @@ import {
 import { useInventoryStore, type InventoryItem } from '@/features/inventory';
 import { useShoppingListStore } from '@/features/shopping/store';
 import { useMealPlanStore } from '@/store';
-import type { MasterRecipe, MealPlanEntry, RecipeThemeConfig } from '@/types/domain';
+import type { MealPlanEntry } from '@/types/domain';
 import { RecipeBottomFade } from '../../components/RecipeBottomFade';
 import { fixtureRecipe } from '../../fixtures/recipeDetail';
 import recipeDetail from '../../fixtures/recipeDetail.json';
 import { useRecipeCacheStore } from '../../store';
+import type { Recipe } from '../../types/recipe';
 import { RecipeScreen } from '../RecipeScreen';
 
 const mockBack = jest.fn();
@@ -138,23 +139,44 @@ jest.mock('@/context/RecipeThemeContext', () => ({
 const TODAY = formatDateKey(new Date());
 const OTHER_DAY = '2020-01-15';
 
-const RECIPE: MasterRecipe = {
+// The recipe of today's meal, whose ingredients are the ones the inventory catalog below has.
+const RECIPE: Recipe = {
   id: 'r1',
+  recipeVersionId: 'r1-version',
+  successorRecipeId: null,
+  source: 'traditional',
   name: 'Pollo con arroz y tomate',
   description: '',
-  estimatedCost: 15,
-  tags: [],
+  servings: null,
+  durationMinutes: null,
   ingredients: [
-    { ingredientId: 'i1', amount: 100 },
-    { ingredientId: 'i2', amount: 200 },
-    { ingredientId: 'i3', amount: 2 },
+    { ingredientId: 'i1', name: 'Arroz blanco', category: null, quantityMilli: 100_000, unit: 'g' },
+    {
+      ingredientId: 'i2',
+      name: 'Pollo (pechuga)',
+      category: null,
+      quantityMilli: 200_000,
+      unit: 'g',
+    },
+    { ingredientId: 'i3', name: 'Tomate', category: null, quantityMilli: 2_000, unit: 'unit' },
   ],
   steps: [
-    { order: 1, instruction: 'Cocinar el arroz.' },
-    { order: 2, instruction: 'Saltear el pollo.' },
+    { order: 1, text: 'Cocinar el arroz.', durationMinutes: null },
+    { order: 2, text: 'Saltear el pollo.', durationMinutes: null },
   ],
-  theme: {} as RecipeThemeConfig,
+  estimatedCostCents: 0,
+  tags: [],
+  imageUrl: null,
+  theme: null,
 };
+
+// Puts a recipe in the version cache, as a recipe that was opened before is.
+function seedCachedRecipe(recipe: Recipe) {
+  useRecipeCacheStore.setState({
+    recipesByVersionId: { [recipe.recipeVersionId]: recipe },
+    versionIdByRecipeId: { [recipe.id]: recipe.recipeVersionId },
+  });
+}
 
 function entry(overrides: Partial<MealPlanEntry> = {}): MealPlanEntry {
   return {
@@ -196,6 +218,15 @@ function renderScreen() {
   });
 
   return mountedTree!;
+}
+
+// For a test that waits for nothing else: the screen asks the cache for its recipe, and that
+// answer lands a tick after the first paint.
+async function renderSettledScreen() {
+  const tree = renderScreen();
+  await act(async () => {});
+
+  return tree;
 }
 
 function unmountScreen() {
@@ -288,6 +319,7 @@ describe('RecipeScreen', () => {
     global.fetch = fetchMock;
     process.env.EXPO_PUBLIC_API_URL = 'https://api.example.test';
     useRecipeCacheStore.getState().clear();
+    seedCachedRecipe(RECIPE);
     useFavoritesStore.getState().clear();
     jest
       .mocked(listFavorites)
@@ -296,7 +328,7 @@ describe('RecipeScreen', () => {
     jest.mocked(addFavorite).mockReset();
     jest.mocked(removeFavorite).mockReset();
     mockRouteParams = { id: 'r1', entryId: 'e-today' };
-    useMealPlanStore.setState({ entries: [entry()], recipes: [RECIPE] });
+    useMealPlanStore.setState({ entries: [entry()] });
     useInventoryStore.setState({
       items: [inventoryItem()],
       ingredients: [
@@ -317,8 +349,8 @@ describe('RecipeScreen', () => {
     process.env.EXPO_PUBLIC_API_URL = originalApiUrl;
   });
 
-  it('shows the recipe name, its ingredients with their stock state and its steps', () => {
-    const texts = renderedTexts(renderScreen());
+  it('shows the recipe name, its ingredients with their stock state and its steps', async () => {
+    const texts = renderedTexts(await renderSettledScreen());
 
     expect(texts).toEqual(
       expect.arrayContaining([
@@ -338,18 +370,19 @@ describe('RecipeScreen', () => {
     );
   });
 
-  it('draws a recipe of the local plan at once, as it always did, without asking the server', () => {
+  it('draws a recipe the cache has on the first paint, without a loading state', async () => {
     const tree = renderScreen();
 
     expect(tree.root.findAllByProps({ testID: 'recipe-loading' })).toHaveLength(0);
-    // The flat recipe states no servings or duration, and its cost has no known currency.
-    expect(shownFactLabels(tree)).toEqual([]);
-    expect(fetchMock).not.toHaveBeenCalled();
+    expect(renderedTexts(tree)).toContain('Pollo con arroz y tomate');
+
+    // The answer of the cache lands a tick later; let it land before the test ends.
+    await act(async () => {});
   });
 
   describe('ingredients the inventory is short of', () => {
-    it('reads them as missing, with nothing to send to the shopping list', () => {
-      const tree = renderScreen();
+    it('reads them as missing, with nothing to send to the shopping list', async () => {
+      const tree = await renderSettledScreen();
 
       expect(ingredientStatus(tree, 'i1')).toBe('En stock');
       expect(ingredientStatus(tree, 'i2')).toBe('Falta');
@@ -360,16 +393,16 @@ describe('RecipeScreen', () => {
       expect(renderedTexts(tree)).not.toContain('En la lista');
     });
 
-    it('neither reads nor changes the shopping list, nor asks the server for it', () => {
+    it('neither reads nor changes the shopping list, nor asks the server for it', async () => {
       const stateBefore = shopping();
 
-      renderScreen();
+      await renderSettledScreen();
 
       expect(shopping()).toBe(stateBefore);
       expect(fetchMock).not.toHaveBeenCalled();
     });
 
-    it('reads a partly stocked ingredient as missing', () => {
+    it('reads a partly stocked ingredient as missing', async () => {
       useInventoryStore.setState({
         items: [
           inventoryItem(),
@@ -381,13 +414,13 @@ describe('RecipeScreen', () => {
           }),
         ],
       });
-      const tree = renderScreen();
+      const tree = await renderSettledScreen();
 
       expect(ingredientStatus(tree, 'i2')).toBe('Falta');
       expect(renderedTexts(tree)).toContain('2 te faltan');
     });
 
-    it('does not count an inventory item without a catalog link as stock', () => {
+    it('does not count an inventory item without a catalog link as stock', async () => {
       useInventoryStore.setState({
         items: [
           inventoryItem(),
@@ -399,19 +432,27 @@ describe('RecipeScreen', () => {
           }),
         ],
       });
-      const tree = renderScreen();
+      const tree = await renderSettledScreen();
 
       expect(renderedTexts(tree)).toContain('2 te faltan');
       expect(ingredientStatus(tree, 'i2')).toBe('Falta');
     });
 
-    it('shows an ingredient outside the catalog as missing, like the others', () => {
-      useMealPlanStore.setState({
-        recipes: [
-          { ...RECIPE, ingredients: [...RECIPE.ingredients, { ingredientId: 'ghost', amount: 3 }] },
+    it('shows an ingredient outside the catalog as missing, like the others', async () => {
+      seedCachedRecipe({
+        ...RECIPE,
+        ingredients: [
+          ...RECIPE.ingredients,
+          {
+            ingredientId: 'ghost',
+            name: 'Ají molido',
+            category: null,
+            quantityMilli: 3_000,
+            unit: 'unit',
+          },
         ],
       });
-      const tree = renderScreen();
+      const tree = await renderSettledScreen();
 
       expect(ingredientStatus(tree, 'ghost')).toBe('Falta');
       expect(hasAddAction(tree, 'ghost')).toBe(false);
@@ -424,8 +465,8 @@ describe('RecipeScreen', () => {
       return tree.root.findAllByProps({ testID: 'recipe-cooked-confirm-sheet' }).length > 0;
     }
 
-    it('asks for confirmation instead of marking the meal right away', () => {
-      const tree = renderScreen();
+    it('asks for confirmation instead of marking the meal right away', async () => {
+      const tree = await renderSettledScreen();
 
       expect(isConfirmSheetOpen(tree)).toBe(false);
 
@@ -503,8 +544,8 @@ describe('RecipeScreen', () => {
       expect(mockBack).not.toHaveBeenCalled();
     });
 
-    it('leaves the meal uncooked and the screen in place when the user answers "No"', () => {
-      const tree = renderScreen();
+    it('leaves the meal uncooked and the screen in place when the user answers "No"', async () => {
+      const tree = await renderSettledScreen();
 
       press(tree, 'recipe-header-cooked');
       press(tree, 'recipe-cooked-confirm-no');
@@ -526,8 +567,8 @@ describe('RecipeScreen', () => {
       expect(useMealPlanStore.getState().entries[0].isCooked).toBe(true);
     });
 
-    it('closes without marking the meal from the backdrop and from the Android back button', () => {
-      const tree = renderScreen();
+    it('closes without marking the meal from the backdrop and from the Android back button', async () => {
+      const tree = await renderSettledScreen();
 
       press(tree, 'recipe-header-cooked');
       act(() => {
@@ -548,9 +589,9 @@ describe('RecipeScreen', () => {
       expect(mockBack).not.toHaveBeenCalled();
     });
 
-    it('does not ask when the meal cannot be marked, even if the disabled check is pressed', () => {
+    it('does not ask when the meal cannot be marked, even if the disabled check is pressed', async () => {
       useMealPlanStore.setState({ entries: [entry({ isCooked: true })] });
-      const tree = renderScreen();
+      const tree = await renderSettledScreen();
 
       expect(findButton(tree, 'recipe-header-cooked').props.disabled).toBe(true);
 
@@ -560,9 +601,9 @@ describe('RecipeScreen', () => {
       expect(mockBack).not.toHaveBeenCalled();
     });
 
-    it('does not ask for a meal that was skipped, and leaves it uncooked', () => {
+    it('does not ask for a meal that was skipped, and leaves it uncooked', async () => {
       useMealPlanStore.setState({ entries: [entry({ isSkipped: true })] });
-      const tree = renderScreen();
+      const tree = await renderSettledScreen();
 
       expect(findButton(tree, 'recipe-header-cooked').props.disabled).toBe(true);
 
@@ -573,9 +614,9 @@ describe('RecipeScreen', () => {
       expect(mockBack).not.toHaveBeenCalled();
     });
 
-    it('dismisses the keyboard before asking, so the sheet is not opened over it', () => {
+    it('dismisses the keyboard before asking, so the sheet is not opened over it', async () => {
       const dismiss = jest.spyOn(Keyboard, 'dismiss').mockImplementation(() => {});
-      const tree = renderScreen();
+      const tree = await renderSettledScreen();
 
       press(tree, 'recipe-header-cooked');
 
@@ -586,13 +627,13 @@ describe('RecipeScreen', () => {
     });
   });
 
-  it('stands for the planned meal of the route when the recipe is planned on several days', () => {
+  it('stands for the planned meal of the route when the recipe is planned on several days', async () => {
     useMealPlanStore.setState({
       entries: [entry(), entry({ id: 'e-cooked', date: OTHER_DAY, isCooked: true })],
     });
     mockRouteParams = { id: 'r1', entryId: 'e-cooked' };
 
-    const tree = renderScreen();
+    const tree = await renderSettledScreen();
 
     expect(findButton(tree, 'recipe-header-cooked').props.disabled).toBe(true);
   });
@@ -616,9 +657,9 @@ describe('RecipeScreen', () => {
     );
   });
 
-  it('favorites the recipe at once, before the server answers', () => {
+  it('favorites the recipe at once, before the server answers', async () => {
     jest.mocked(addFavorite).mockReturnValue(new Promise(() => {}));
-    const tree = renderScreen();
+    const tree = await renderSettledScreen();
 
     press(tree, 'recipe-header-favorite');
 
@@ -650,12 +691,12 @@ describe('RecipeScreen', () => {
     );
   });
 
-  it('unfavorites a favorite recipe at once and tells the server', () => {
+  it('unfavorites a favorite recipe at once and tells the server', async () => {
     useFavoritesStore.setState({
       favorites: [{ recipeId: 'r1', name: 'Pollo', mainIngredients: [], durationMinutes: null }],
     });
     jest.mocked(removeFavorite).mockReturnValue(new Promise(() => {}));
-    const tree = renderScreen();
+    const tree = await renderSettledScreen();
 
     press(tree, 'recipe-header-favorite');
 
@@ -665,16 +706,16 @@ describe('RecipeScreen', () => {
     );
   });
 
-  it('goes back from the header', () => {
-    const tree = renderScreen();
+  it('goes back from the header', async () => {
+    const tree = await renderSettledScreen();
 
     press(tree, 'recipe-header-back');
 
     expect(mockBack).toHaveBeenCalledTimes(1);
   });
 
-  it('fades the scrolling content out under the header instead of cutting it', () => {
-    const tree = renderScreen();
+  it('fades the scrolling content out under the header instead of cutting it', async () => {
+    const tree = await renderSettledScreen();
     const mask = tree.root.findByType('TopFadeMask' as never);
     const scrollView = mask.findByType(ScrollView);
     // Top inset plus the height of the header.
@@ -727,6 +768,8 @@ describe('RecipeScreen', () => {
     beforeEach(() => {
       // The requests resolve on their own; nothing here waits for the chat.
       jest.useRealTimers();
+      // These recipes are read from the server: the cache starts without any.
+      useRecipeCacheStore.getState().clear();
       mockRouteParams = { id: API_RECIPE.id };
     });
 
@@ -934,21 +977,21 @@ describe('RecipeScreen', () => {
       return tree;
     }
 
-    it('invites the user to ask about the recipe on the day it is planned', () => {
-      const composer = getComposer(renderScreen());
+    it('invites the user to ask about the recipe on the day it is planned', async () => {
+      const composer = getComposer(await renderSettledScreen());
 
       expect(composer.props.disabled).toBe(false);
       expect(composer.props.placeholder).toBe('Preguntale a la IA sobre la receta');
     });
 
-    it('sits on the bottom safe area, since this route has no tab bar', () => {
-      expect(getComposer(renderScreen()).props.restingBottomGap).toBe(14);
+    it('sits on the bottom safe area, since this route has no tab bar', async () => {
+      expect(getComposer(await renderSettledScreen()).props.restingBottomGap).toBe(14);
     });
 
-    it('disables the composer on any other day and keeps the recipe readable', () => {
+    it('disables the composer on any other day and keeps the recipe readable', async () => {
       useMealPlanStore.setState({ entries: [entry({ id: 'e-other', date: OTHER_DAY })] });
       mockRouteParams = { id: 'r1', entryId: 'e-other' };
-      const tree = renderScreen();
+      const tree = await renderSettledScreen();
       const composer = getComposer(tree);
 
       expect(composer.props.disabled).toBe(true);
@@ -1105,8 +1148,8 @@ describe('RecipeScreen', () => {
       expect(mockScrollToEnd).toHaveBeenCalledTimes(2);
     });
 
-    it('keeps the end of the conversation clear of the composer as it grows', () => {
-      const tree = renderScreen();
+    it('keeps the end of the conversation clear of the composer as it grows', async () => {
+      const tree = await renderSettledScreen();
       const getBottomPadding = () =>
         StyleSheet.flatten(getScrollView(tree).props.contentContainerStyle).paddingBottom;
       const restingPadding = getBottomPadding();
@@ -1131,8 +1174,8 @@ describe('RecipeScreen', () => {
         });
       }
 
-      it('makes room for the lifted composer under the conversation and gives it back at rest', () => {
-        const tree = renderScreen();
+      it('makes room for the lifted composer under the conversation and gives it back at rest', async () => {
+        const tree = await renderSettledScreen();
         const getBottomPadding = () =>
           StyleSheet.flatten(getScrollView(tree).props.contentContainerStyle).paddingBottom;
         const restingPadding = getBottomPadding();
@@ -1152,8 +1195,8 @@ describe('RecipeScreen', () => {
         expect(getBottomPadding()).toBe(restingPadding + 24);
       });
 
-      it('scrolls to the end once the room for the keyboard has been laid out', () => {
-        const tree = renderScreen();
+      it('scrolls to the end once the room for the keyboard has been laid out', async () => {
+        const tree = await renderSettledScreen();
 
         reportKeyboardLift(tree, KEYBOARD_LIFT);
 
@@ -1190,8 +1233,8 @@ describe('RecipeScreen', () => {
         expect(mockScrollToEnd).toHaveBeenCalledTimes(3);
       });
 
-      it('follows a keyboard that grows taller while it is open', () => {
-        const tree = renderScreen();
+      it('follows a keyboard that grows taller while it is open', async () => {
+        const tree = await renderSettledScreen();
 
         reportKeyboardLift(tree, KEYBOARD_LIFT);
         act(() => {
@@ -1205,8 +1248,8 @@ describe('RecipeScreen', () => {
         expect(mockScrollToEnd).toHaveBeenCalledTimes(2);
       });
 
-      it('hands the bottom fade to the composer, so the keyboard lifts both as one', () => {
-        const tree = renderScreen();
+      it('hands the bottom fade to the composer, so the keyboard lifts both as one', async () => {
+        const tree = await renderSettledScreen();
         const getBackdrop = () => getComposer(tree).props.backdrop;
         // Bottom inset, gap under the composer, the composer itself and the reach of the fade.
         const restingHeight = 34 + 14 + CHAT_COMPOSER_MIN_HEIGHT + 30;
@@ -1228,8 +1271,8 @@ describe('RecipeScreen', () => {
         expect(getBackdrop().props.height).toBe(restingHeight + 24);
       });
 
-      it('leaves the scroll position alone when the keyboard closes', () => {
-        const tree = renderScreen();
+      it('leaves the scroll position alone when the keyboard closes', async () => {
+        const tree = await renderSettledScreen();
 
         reportKeyboardLift(tree, KEYBOARD_LIFT);
         act(() => {

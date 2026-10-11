@@ -1,10 +1,4 @@
-import type {
-  MasterRecipe,
-  MealPlanEntry,
-  MealSlot,
-  RecipeSummary,
-  RecipeThemeConfig,
-} from '@/types/domain';
+import type { MealPlanEntry, MealSlot, RecipeSummary, RecipeThemeConfig } from '@/types/domain';
 
 type RecipeSummaries = Record<string, RecipeSummary>;
 
@@ -77,7 +71,6 @@ export function getDefaultHomeMealType(entries: MealPlanEntry[], now: Date): Hom
 
 export function getSelectedLocalMeal(
   entries: MealPlanEntry[],
-  recipes: MasterRecipe[],
   selectedMealType: HomeMealSlot | null
 ): LocalMealSelection | null {
   if (!selectedMealType) {
@@ -90,19 +83,12 @@ export function getSelectedLocalMeal(
     return null;
   }
 
-  const recipe = recipes.find((candidate) => candidate.id === selectedEntry.recipeId);
-
-  return {
-    ...selectedEntry,
-    description: recipe?.description ?? 'Sin descripción',
-    imageUrl: recipe?.imageUrl,
-    theme: recipe?.theme,
-  };
+  // The calendar read carries no description, image or palette for a meal.
+  return { ...selectedEntry, description: 'Sin descripción' };
 }
 
 export function getHomeMealSummaries(
   entries: MealPlanEntry[],
-  recipes: MasterRecipe[],
   summaries: RecipeSummaries = {}
 ): HomeMealSummary[] {
   return ORDERED_HOME_MEAL_TYPES.flatMap((type) =>
@@ -111,10 +97,7 @@ export function getHomeMealSummaries(
       .map((entry) => ({
         id: entry.id,
         type,
-        name:
-          recipes.find((recipe) => recipe.id === entry.recipeId)?.name ??
-          summaries[entry.recipeId]?.name ??
-          'Receta sin nombre',
+        name: summaries[entry.recipeId]?.name ?? 'Receta sin nombre',
       }))
   );
 }

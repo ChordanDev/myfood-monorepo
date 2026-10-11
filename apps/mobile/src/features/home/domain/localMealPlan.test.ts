@@ -1,10 +1,11 @@
-import type { MasterRecipe, MealPlanEntry, MealSlot } from '@/types/domain';
+import type { MealPlanEntry, MealSlot, RecipeSummary } from '@/types/domain';
 import {
   buildLocalMealPlanByDate,
   getDefaultHomeMealType,
   getHomeMealSummaries,
   getPendingConfirmationEntries,
   getPendingHomeMealType,
+  getSelectedLocalMeal,
   isMealConfirmed,
   isPendingConfirmationDate,
   isSelectableMealDate,
@@ -289,15 +290,46 @@ describe('meal confirmation', () => {
   });
 });
 
+describe('getSelectedLocalMeal', () => {
+  const lunch: MealPlanEntry = {
+    id: 'entry-lunch',
+    date: '2026-08-24',
+    type: 'lunch',
+    recipeId: 'recipe-salad',
+    isCooked: false,
+  };
+  const dinner: MealPlanEntry = { ...lunch, id: 'entry-dinner', type: 'dinner' };
+
+  it('returns the meal of the selected type with a placeholder description, no image and no palette', () => {
+    const selectedMeal = getSelectedLocalMeal([lunch, dinner], 'dinner');
+
+    expect(selectedMeal).toEqual({ ...dinner, description: 'Sin descripción' });
+    expect(selectedMeal?.imageUrl).toBeUndefined();
+    expect(selectedMeal?.theme).toBeUndefined();
+  });
+
+  it('returns nothing when no meal type is selected', () => {
+    expect(getSelectedLocalMeal([lunch, dinner], null)).toBeNull();
+  });
+
+  it('returns nothing when the day has no meal of the selected type', () => {
+    expect(getSelectedLocalMeal([lunch], 'dinner')).toBeNull();
+  });
+});
+
 describe('getHomeMealSummaries', () => {
   function buildEntry(type: MealSlot, recipeId: string): MealPlanEntry {
     return { id: `entry-${type}`, date: '2026-08-24', type, recipeId, isCooked: false };
   }
 
-  const recipes = [
-    { id: 'recipe-soup', name: 'Sopa de pollo' },
-    { id: 'recipe-salad', name: 'Ensalada de tomate' },
-  ] as MasterRecipe[];
+  function buildSummary(name: string): RecipeSummary {
+    return { name, isFavorite: false, prepTimeMinutes: null, calories: null };
+  }
+
+  const summaries = {
+    'recipe-soup': buildSummary('Sopa de pollo'),
+    'recipe-salad': buildSummary('Ensalada de tomate'),
+  };
 
   it('names the Home meals of a day in meal order', () => {
     const entries = [
@@ -306,14 +338,14 @@ describe('getHomeMealSummaries', () => {
       buildEntry('lunch', 'recipe-salad'),
     ];
 
-    expect(getHomeMealSummaries(entries, recipes)).toEqual([
+    expect(getHomeMealSummaries(entries, summaries)).toEqual([
       { id: 'entry-lunch', type: 'lunch', name: 'Ensalada de tomate' },
       { id: 'entry-dinner', type: 'dinner', name: 'Sopa de pollo' },
     ]);
   });
 
   it('uses a placeholder name when the recipe is unknown', () => {
-    expect(getHomeMealSummaries([buildEntry('dinner', 'recipe-missing')], recipes)).toEqual([
+    expect(getHomeMealSummaries([buildEntry('dinner', 'recipe-missing')], summaries)).toEqual([
       { id: 'entry-dinner', type: 'dinner', name: 'Receta sin nombre' },
     ]);
   });

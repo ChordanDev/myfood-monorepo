@@ -1,6 +1,5 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import type { MasterRecipe, MealPlanEntry } from '@/types/domain';
-import { MOCK_MASTER_RECIPES } from '@/mocks/domainMocks';
+import type { MealPlanEntry } from '@/types/domain';
 import { useInventoryStore } from '@/features/inventory/store';
 import { buildInventoryItem } from '@/features/inventory/mocks';
 import { loadLivePlan } from '@/features/home/hooks/useLoadLivePlan';
@@ -16,12 +15,11 @@ jest.mock('@react-native-async-storage/async-storage', () =>
 );
 
 describe('marking a meal as cooked (the server consumes the stock)', () => {
-  const recipe = MOCK_MASTER_RECIPES[0];
   const entry: MealPlanEntry = {
     id: 'entry-1',
     date: '2026-08-25',
     type: 'lunch',
-    recipeId: recipe.id,
+    recipeId: 'r1',
     isCooked: false,
   };
   const rice = buildInventoryItem({
@@ -40,7 +38,7 @@ describe('marking a meal as cooked (the server consumes the stock)', () => {
   });
 
   beforeEach(() => {
-    useMealPlanStore.setState({ entries: [entry], recipes: [recipe] });
+    useMealPlanStore.setState({ entries: [entry] });
     useInventoryStore.setState({ items: [rice, oil] });
   });
 
@@ -61,11 +59,6 @@ describe('marking a meal as cooked (the server consumes the stock)', () => {
 });
 
 describe('meal confirmation', () => {
-  const recipe: MasterRecipe = {
-    ...MOCK_MASTER_RECIPES[0],
-    id: 'recipe-1',
-    ingredients: [{ ingredientId: 'rice', amount: 100 }],
-  };
   const rice = buildInventoryItem({
     id: 'inv-rice',
     ingredientId: 'rice',
@@ -80,12 +73,12 @@ describe('meal confirmation', () => {
       id: 'entry-1',
       date: '2026-08-24',
       type: 'dinner',
-      recipeId: recipe.id,
+      recipeId: 'recipe-1',
       isCooked: false,
       ...overrides,
     };
 
-    useMealPlanStore.setState({ entries: [entry], recipes: [recipe] });
+    useMealPlanStore.setState({ entries: [entry] });
   }
 
   function getEntry() {
@@ -189,7 +182,7 @@ describe('the plan cache', () => {
         },
       ],
     });
-    useMealPlanStore.setState({ entries: [], recipes: [], recipeSummaries: {} });
+    useMealPlanStore.setState({ entries: [], recipeSummaries: {} });
 
     await loadLivePlan(new Date(2026, 9, 8));
 
