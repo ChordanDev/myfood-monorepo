@@ -67,5 +67,4 @@ defmodule MealPlannerApiWeb.AccountLifecycleController do
   defp error_status(:membership_not_found), do: :not_found
   defp error_status(:cannot_leave_owned_account), do: :forbidden
   defp error_status(:not_a_member), do: :not_found
-  defp error_status(_), do: :unprocessable_entity
 end
