@@ -1,4 +1,9 @@
-import type { CookingFinish, CookingSessionStart } from '../types/cookingApi';
+import type {
+  CookingAnswer,
+  CookingChatMessage,
+  CookingFinish,
+  CookingSession,
+} from '../types/cookingApi';
 
 // Answers of the Cooking session endpoints for one lunch: the rice came from two lots, the
 // oil from one, and the stock could not cover all the salt.
@@ -6,9 +11,52 @@ import type { CookingFinish, CookingSessionStart } from '../types/cookingApi';
 export const COOKING_SESSION_ID = '0b5f2c0e-5a43-4a5e-9a39-3d7f6a1c2b11';
 export const COOKING_SCHEDULED_MEAL_ID = 'fa64644f-e007-4539-9cd6-2a9d49570540';
 
-export const COOKING_START: CookingSessionStart = {
+export const COOKING_START: CookingSession = {
   sessionId: COOKING_SESSION_ID,
   scheduledMealId: COOKING_SCHEDULED_MEAL_ID,
+  chatMessages: [],
+};
+
+// One question already answered, then the next one: the turns of a second `ask`.
+export const COOKING_CHAT_HISTORY: CookingChatMessage[] = [
+  {
+    id: 'c1000000-0000-4000-8000-000000000001',
+    role: 'user',
+    content: '¿Puedo usar menos aceite?',
+    insertedAt: '2026-10-08T12:00:00.000000Z',
+  },
+  {
+    id: 'c1000000-0000-4000-8000-000000000002',
+    role: 'assistant',
+    content: 'Sí, con la mitad alcanza.',
+    insertedAt: '2026-10-08T12:00:00.000001Z',
+  },
+];
+
+export const COOKING_SESSION_WITH_HISTORY: CookingSession = {
+  ...COOKING_START,
+  chatMessages: COOKING_CHAT_HISTORY,
+};
+
+export const COOKING_QUESTION = '¿Cuánto tarda el arroz?';
+
+export const COOKING_ANSWER: CookingAnswer = {
+  sessionId: COOKING_SESSION_ID,
+  message: 'Unos 18 minutos a fuego bajo.',
+  turns: [
+    {
+      id: 'c1000000-0000-4000-8000-000000000003',
+      role: 'user',
+      content: COOKING_QUESTION,
+      insertedAt: '2026-10-08T12:05:00.000000Z',
+    },
+    {
+      id: 'c1000000-0000-4000-8000-000000000004',
+      role: 'assistant',
+      content: 'Unos 18 minutos a fuego bajo.',
+      insertedAt: '2026-10-08T12:05:00.000001Z',
+    },
+  ],
 };
 
 export const COOKING_FINISH_WITH_SHORTAGE: CookingFinish = {
@@ -68,8 +116,13 @@ export const COOKING_FINISH_COVERED: CookingFinish = {
   shortages: [],
 };
 
-export function toCookingStartResponse(start: CookingSessionStart = COOKING_START) {
-  return { data: { ...start, status: 'active', slot: 'lunch', snapshot: {}, chatMessages: [] } };
+// Start and the session read answer with the same payload.
+export function toCookingSessionResponse(session: CookingSession = COOKING_START) {
+  return { data: { ...session, status: 'active', slot: 'lunch', snapshot: {} } };
+}
+
+export function toCookingAnswerResponse(answer: CookingAnswer = COOKING_ANSWER) {
+  return { data: { ...answer, contentType: 'text', stepContext: {} } };
 }
 
 export function toCookingFinishResponse(finish: CookingFinish = COOKING_FINISH_WITH_SHORTAGE) {

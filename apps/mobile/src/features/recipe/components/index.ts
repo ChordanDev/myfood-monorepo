@@ -11,5 +11,4 @@ export * from './RecipeLoadError';
 export * from './RecipeLoading';
 export * from './RecipeNotFound';
 export * from './RecipePreparationCard';
-export * from './RecipeQuickActions';
 export * from './RecipeTopGradient';

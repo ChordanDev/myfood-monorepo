@@ -117,6 +117,9 @@ export function useRecipeScreen() {
     isFavorite,
     canMarkAsCooked: canMarkAsCooked(entry),
     isChatEnabled: isRecipeChatEnabled(entry, todayKey),
+    // The planned meal is the server's Scheduled meal: its id opens the Cooking chat.
+    chatScheduledMealId: entry?.id ?? null,
+    isMealCooked: entry?.isCooked ?? false,
     isCookedConfirmVisible,
     cookingSummary,
     cookingErrorMessage: cooking.errorMessage,
