@@ -10,14 +10,23 @@ import { useInventoryStore } from '@/features/inventory/store';
 import { CUSTOM_TAB_BAR_CONTENT_HEIGHT } from '@/features/planner/constants';
 import { useMealPlanStore } from '@/store';
 import {
+  CART_SESSION_ID,
   EMPTY_SHOPPING_LIST,
   MANUAL_DISH_SOAP,
+  MILK_LINE_ID,
+  OLIVE_OIL_LINE_ID,
+  RICE_LINE_ID,
+  RICE_NEEDED_ITEM_IDS,
+  SHOPPING_LIST_AFTER_PURCHASE,
   SHOPPING_LIST_BY_INGREDIENT,
   SHOPPING_LIST_BY_MEAL,
   SHOPPING_LIST_UNTIL_OCT_10,
+  SHOPPING_LIST_WITH_CART_LINE_BEYOND_RANGE,
+  SHOPPING_LIST_WITH_CART_OUT_OF_RANGE,
   SHOPPING_LIST_VALIDATION_ERROR,
   SHOPPING_LIST_WITH_MANUAL_AND_REMOVED,
   TOMATO_ITEM_IDS,
+  toCheckoutResponse,
   toDeleteItemResponse,
   toManualItemResponse,
   toSetStatusResponse,
@@ -369,6 +378,10 @@ const ADD_LABEL = 'Agregar a la lista';
 // The card of the items added by hand: on screen once a list was read, empty or not.
 const MANUAL_CARD = ['Agregados a mano', 'Todavía no agregaste nada.'];
 
+// The badge of the cart button, drawn over the list: the Cart of the plan holds two lines.
+const CART_BADGE = '2';
+const CART_BUTTON_LABEL = 'Ver carrito, 2 ítems';
+
 const HEADER = ['Hasta 12 Oct', 'Por ingrediente', 'Por comida', 'COMPRAS'];
 
 // The cards of the plan read per ingredient: each card a category, each row its lines.
@@ -390,6 +403,7 @@ const CARDS_BY_INGREDIENT = [
   'No perecederos',
   '30 ml · Aceite de oliva',
   ...MANUAL_CARD,
+  CART_BADGE,
 ];
 
 const USER_A = { id: 'user-a' };
@@ -506,7 +520,7 @@ describe('ShoppingScreen', () => {
       expect(list.findAll((node) => typeof node.props.onLongPress === 'function')).toHaveLength(6);
     });
 
-    it('offers the date, the two groupings, the abandoning of the Cart and the add to press', async () => {
+    it('offers the date, the two groupings, the abandoning of the Cart, the add and the cart to press', async () => {
       const root = await renderLoadedScreen();
 
       expect(getButtonLabels(root)).toEqual([
@@ -515,6 +529,7 @@ describe('ShoppingScreen', () => {
         'Por comida',
         'Cancelar carrito',
         ADD_LABEL,
+        CART_BUTTON_LABEL,
       ]);
     });
 
@@ -539,10 +554,9 @@ describe('ShoppingScreen', () => {
       expect(rows).toContainEqual(['1,25 kg · Arroz, Para 3 comidas', false]);
     });
 
-    it('keeps the cart off the screen, and the restore line while nothing is removed', async () => {
+    it('keeps the restore line off the screen while nothing is removed', async () => {
       const root = await renderLoadedScreen();
 
-      expect(root.findAll((node) => node.props.testID === 'shopping-cart-button')).toHaveLength(0);
       expect(getTexts(root).some((text) => text.includes('Restaurar'))).toBe(false);
     });
 
@@ -551,7 +565,19 @@ describe('ShoppingScreen', () => {
       const list = root.findByType(ScrollView);
 
       expect(list.props.contentInsetAdjustmentBehavior).toBe('never');
-      // The tab bar and a gap: the last card scrolls clear of it.
+      // The tab bar and a gap, then the cart button and another: the last card scrolls clear
+      // of both.
+      expect(StyleSheet.flatten(list.props.contentContainerStyle).paddingBottom).toBe(
+        34 + CUSTOM_TAB_BAR_CONTENT_HEIGHT + 14 + 56 + 14
+      );
+    });
+
+    it('ends one gap above the tab bar while there is no Cart, and no cart button', async () => {
+      fetchMock.mockReset();
+      answerOnceWith({ ...SHOPPING_LIST_BY_INGREDIENT, cart: null });
+      const root = await renderLoadedScreen();
+      const list = root.findByType(ScrollView);
+
       expect(StyleSheet.flatten(list.props.contentContainerStyle).paddingBottom).toBe(
         34 + CUSTOM_TAB_BAR_CONTENT_HEIGHT + 14
       );
@@ -559,8 +585,8 @@ describe('ShoppingScreen', () => {
   });
 
   describe('shopping with a Cart lease', () => {
+    // The shares of the rice that are still to buy: the one of the first meal is in the Cart.
     const RICE_ITEM_IDS = [
-      'ec18bfeb-0d2c-4e11-b772-e6e2fa3d9473',
       '7eabbc7a-4d46-49a2-a44a-4a06b663d25f',
       '92d4f57b-380a-4fec-a6c7-d0b3e48fa1cf',
     ];
@@ -600,7 +626,7 @@ describe('ShoppingScreen', () => {
       await settle();
     }
 
-    it('ticks all the items behind a line into the Cart and reads the list again', async () => {
+    it('ticks the items behind a line that are still to buy into the Cart and reads the list again', async () => {
       serveCartRoutes(markedCart());
       const root = await renderLoadedScreen();
 
@@ -696,6 +722,7 @@ describe('ShoppingScreen', () => {
         '30 ml · Aceite de oliva',
         '8 Oct · Almuerzo',
         ...MANUAL_CARD,
+        CART_BADGE,
       ]);
     });
 
@@ -802,6 +829,7 @@ describe('ShoppingScreen', () => {
         'No perecederos',
         '30 ml · Aceite de oliva',
         ...MANUAL_CARD,
+        CART_BADGE,
       ]);
       expect(untilCalendar().anchor).toBeNull();
       expect(untilCalendar().rangeEnd).toBe('2026-10-10');
@@ -1101,6 +1129,7 @@ describe('ShoppingScreen', () => {
         'Por comida',
         'Cancelar carrito',
         ADD_LABEL,
+        CART_BUTTON_LABEL,
       ]);
 
       request.answer(SHOPPING_LIST_BY_INGREDIENT);
@@ -1499,5 +1528,403 @@ describe('ShoppingScreen: items added by hand, removed and restored', () => {
     await settle();
 
     expect(getIndicators(root, 'Guardando los cambios')).toHaveLength(0);
+  });
+});
+
+describe('ShoppingScreen: buying the Cart', () => {
+  const CONFIRM_URL = 'https://api.example.test/api/checkout/confirm';
+  const INVENTORY_URL = 'https://api.example.test/api/inventory';
+  const MARK_CART_URL = 'https://api.example.test/api/shopping-items/mark-cart';
+  const CART_BUTTON = 'Ver carrito, 2 ítems';
+  const CONFIRM = 'Marcar como comprado';
+  const RICE_QUANTITY = 'Cantidad comprada, Arroz';
+  const OIL_QUANTITY = 'Cantidad comprada, Aceite de oliva';
+  const CART_EXPIRED = 'El carrito venció y ya no se puede confirmar.';
+  const CART_LOCKED = 'Otro integrante del hogar ya tiene esos productos en su carrito.';
+
+  // The list the server holds now. A confirm it accepts leaves the Cart bought.
+  let serverList: ShoppingListRead;
+
+  function serve(confirmAnswer: () => Promise<Response>) {
+    fetchMock.mockImplementation((url: string) => {
+      if (url === CONFIRM_URL) {
+        return confirmAnswer().then((response) => {
+          if (response.ok) serverList = SHOPPING_LIST_AFTER_PURCHASE;
+          return response;
+        });
+      }
+      if (url.startsWith(INVENTORY_URL)) {
+        return Promise.resolve(
+          jsonResponse({ data: { sections: { expired: [], warning: [], ok: [] } } })
+        );
+      }
+      if (url === MARK_CART_URL) {
+        return Promise.resolve(
+          jsonResponse({
+            data: { sessionId: CART_SESSION_ID, leaseExpiresAt: '2026-10-08T18:30:00Z', items: [] },
+          })
+        );
+      }
+      return Promise.resolve(listResponse(serverList));
+    });
+  }
+
+  const serveAPurchase = () => serve(() => Promise.resolve(jsonResponse(toCheckoutResponse())));
+
+  const serveARefusal = (code: string, status: number) =>
+    serve(() =>
+      Promise.resolve(jsonResponse(toShoppingErrorResponse(code, 'Refused.'), false, status))
+    );
+
+  const callsTo = (prefix: string) =>
+    fetchMock.mock.calls.filter(([url]) => (url as string).startsWith(prefix));
+
+  const confirmBodies = () => callsTo(CONFIRM_URL).map(([, init]) => JSON.parse(init.body));
+
+  const isSheetOpen = (root: ReactTestInstance) => getTexts(root).includes('Tu carrito');
+
+  function typeQuantity(root: ReactTestInstance, label: string, text: string) {
+    act(() => {
+      root.findByProps({ accessibilityLabel: label }).props.onChangeText(text);
+    });
+  }
+
+  async function openTheCart(): Promise<ReactTestInstance> {
+    const root = await renderLoadedScreen();
+    await press(root, CART_BUTTON);
+
+    return root;
+  }
+
+  beforeEach(() => {
+    serverList = SHOPPING_LIST_BY_INGREDIENT;
+    useInventoryStore.setState(useInventoryStore.getInitialState(), true);
+    serveAPurchase();
+  });
+
+  it('offers the Cart from a button that counts its lines, only while there is a Cart', async () => {
+    const root = await renderLoadedScreen();
+
+    expect(root.findAll((node) => node.props.testID === 'shopping-cart-button')).not.toEqual([]);
+    expect(getButtonLabels(root)).toContain(CART_BUTTON);
+
+    serverList = SHOPPING_LIST_AFTER_PURCHASE;
+    await focusScreen();
+
+    expect(root.findAll((node) => node.props.testID === 'shopping-cart-button')).toEqual([]);
+  });
+
+  describe('with a Cart that holds more than the chosen dates show', () => {
+    const MILK_QUANTITY = 'Cantidad comprada, Leche';
+
+    it('suggests the whole line of the Cart, not the part of it on the list', async () => {
+      serverList = SHOPPING_LIST_WITH_CART_LINE_BEYOND_RANGE;
+      const root = await renderLoadedScreen();
+
+      // The list reaches the 8th: it shows the 400 g of that day.
+      expect(getTexts(root)).toContain('400 g · Arroz');
+
+      await press(root, 'Ver carrito, 1 ítem');
+
+      expect(getTexts(root)).toContain('Sugerido: 1250 g');
+      expect(getTexts(root)).not.toContain('Sugerido: 400 g');
+      expect(root.findByProps({ accessibilityLabel: RICE_QUANTITY }).props.value).toBe('1250');
+    });
+
+    it('sends a quantity adjusted on that line against the whole line', async () => {
+      serverList = SHOPPING_LIST_WITH_CART_LINE_BEYOND_RANGE;
+      const root = await renderLoadedScreen();
+      await press(root, 'Ver carrito, 1 ítem');
+
+      typeQuantity(root, RICE_QUANTITY, '1249');
+      await pressText(root, CONFIRM);
+
+      expect(confirmBodies()).toEqual([
+        {
+          sessionId: CART_SESSION_ID,
+          checkoutType: 'physical',
+          lines: [{ itemId: RICE_LINE_ID, quantityMilli: 1_249_000 }],
+        },
+      ]);
+    });
+
+    it('sends no line while the suggested total of that line is left as it is', async () => {
+      serverList = SHOPPING_LIST_WITH_CART_LINE_BEYOND_RANGE;
+      const root = await renderLoadedScreen();
+      await press(root, 'Ver carrito, 1 ítem');
+
+      await pressText(root, CONFIRM);
+
+      expect(confirmBodies()).toEqual([{ sessionId: CART_SESSION_ID, checkoutType: 'physical' }]);
+    });
+
+    it('lists the lines of the Cart that are not on the list, and counts them on the button', async () => {
+      serverList = SHOPPING_LIST_WITH_CART_OUT_OF_RANGE;
+      const root = await renderLoadedScreen();
+      const [button] = root.findAll((node) => node.props.testID === 'shopping-cart-button');
+
+      expect(getTexts(button)).toEqual(['2']);
+
+      await press(root, CART_BUTTON);
+
+      expect(getTexts(root)).toEqual(
+        expect.arrayContaining(['Leche', 'Sugerido: 750 ml', 'Banana', 'Sugerido: 2 u'])
+      );
+      expect(getTexts(root)).not.toContain('Todavía no marcaste nada.');
+    });
+
+    it('buys a line that is not on the list at the quantity typed for it', async () => {
+      serverList = SHOPPING_LIST_WITH_CART_OUT_OF_RANGE;
+      const root = await renderLoadedScreen();
+      await press(root, CART_BUTTON);
+
+      typeQuantity(root, MILK_QUANTITY, '500');
+      await pressText(root, CONFIRM);
+
+      expect(confirmBodies()).toEqual([
+        {
+          sessionId: CART_SESSION_ID,
+          checkoutType: 'physical',
+          lines: [{ itemId: MILK_LINE_ID, quantityMilli: 500_000 }],
+        },
+      ]);
+      expect(isSheetOpen(root)).toBe(false);
+    });
+  });
+
+  it('leaves the share in the Cart of another member out of the Cart', async () => {
+    const [rice, chicken, ...others] = SHOPPING_LIST_BY_INGREDIENT.planned;
+    serverList = {
+      ...SHOPPING_LIST_BY_INGREDIENT,
+      planned: [
+        rice,
+        {
+          ...chicken,
+          status: 'in_cart',
+          allocations: chicken.allocations.map((share) => ({ ...share, status: 'in_cart' })),
+        },
+        ...others,
+      ],
+      totals: { ...SHOPPING_LIST_BY_INGREDIENT.totals, needed: 4, inCart: 2 },
+    };
+    const root = await openTheCart();
+
+    expect(root.findAllByProps({ accessibilityLabel: 'Cantidad comprada, Pollo' })).toEqual([]);
+    expect(root.findAllByProps({ accessibilityLabel: RICE_QUANTITY })).not.toEqual([]);
+    expect(root.findAllByProps({ accessibilityLabel: OIL_QUANTITY })).not.toEqual([]);
+  });
+
+  it('stops a quantity above what the server takes in the sheet', async () => {
+    const root = await openTheCart();
+
+    typeQuantity(root, RICE_QUANTITY, '2147484');
+    await pressText(root, CONFIRM);
+
+    expect(confirmBodies()).toEqual([]);
+    expect(isSheetOpen(root)).toBe(true);
+  });
+
+  it('opens the Cart with each line and the quantity the Cart holds of it', async () => {
+    const root = await openTheCart();
+
+    expect(isSheetOpen(root)).toBe(true);
+    expect(getTexts(root)).toEqual(expect.arrayContaining(['Sugerido: 400 g', 'Sugerido: 30 ml']));
+    expect(root.findByProps({ accessibilityLabel: RICE_QUANTITY }).props.value).toBe('400');
+    expect(root.findByProps({ accessibilityLabel: OIL_QUANTITY }).props.value).toBe('30');
+  });
+
+  it('buys the Cart in person in one tap, with no line while nothing was adjusted', async () => {
+    const root = await openTheCart();
+
+    await pressText(root, CONFIRM);
+
+    expect(confirmBodies()).toEqual([{ sessionId: CART_SESSION_ID, checkoutType: 'physical' }]);
+  });
+
+  it('sends only the adjusted line, named by its ingredient and unit', async () => {
+    const root = await openTheCart();
+
+    typeQuantity(root, RICE_QUANTITY, '250');
+    await pressText(root, CONFIRM);
+
+    expect(confirmBodies()).toEqual([
+      {
+        sessionId: CART_SESSION_ID,
+        checkoutType: 'physical',
+        lines: [{ itemId: RICE_LINE_ID, quantityMilli: 250_000 }],
+      },
+    ]);
+  });
+
+  it('names the line by its ingredient and unit while the list is read per meal too', async () => {
+    const root = await renderLoadedScreen();
+    await press(root, 'Por comida');
+    await press(root, CART_BUTTON);
+
+    typeQuantity(root, RICE_QUANTITY, '0');
+    typeQuantity(root, OIL_QUANTITY, '45');
+    await pressText(root, CONFIRM);
+
+    expect(confirmBodies()[0].lines).toEqual([
+      { itemId: OLIVE_OIL_LINE_ID, quantityMilli: 45_000 },
+      { itemId: RICE_LINE_ID, quantityMilli: 0 },
+    ]);
+  });
+
+  it('closes, reads the list again and refreshes the Inventory once the Cart is bought', async () => {
+    const root = await openTheCart();
+    const readsBefore = callsTo(LIST_URL).length;
+
+    await pressText(root, CONFIRM);
+
+    expect(isSheetOpen(root)).toBe(false);
+    expect(callsTo(LIST_URL)).toHaveLength(readsBefore + 1);
+    expect(callsTo(INVENTORY_URL)).toHaveLength(1);
+    expect(useInventoryStore.getState().loadStatus).toBe('ready');
+    // The Cart is gone with the purchase: nothing is left to open or to abandon.
+    expect(getButtonLabels(root)).not.toContain('Cancelar carrito');
+    expect(root.findAll((node) => node.props.testID === 'shopping-cart-button')).toEqual([]);
+  });
+
+  it('sends one confirm when the button is pressed twice before the server answers', async () => {
+    let answer: (response: Response) => void = () => {};
+    serve(() => new Promise<Response>((resolve) => (answer = resolve)));
+    const root = await openTheCart();
+    const confirmButton = () =>
+      getButtons(root).find((button) => getTexts(button).includes(CONFIRM))!;
+
+    act(() => {
+      confirmButton().props.onPress();
+      confirmButton().props.onPress();
+    });
+    await settle();
+
+    expect(confirmButton().props.disabled).toBe(true);
+    act(() => {
+      if (!confirmButton().props.disabled) confirmButton().props.onPress();
+    });
+    await settle();
+    expect(callsTo(CONFIRM_URL)).toHaveLength(1);
+
+    answer(jsonResponse(toCheckoutResponse()));
+    await settle();
+
+    expect(isSheetOpen(root)).toBe(false);
+    expect(callsTo(CONFIRM_URL)).toHaveLength(1);
+  });
+
+  it.each([
+    ['cart_expired', 409, CART_EXPIRED],
+    ['checkout_session_not_found', 404, 'No encontramos esa compra.'],
+  ])('closes, reads the list again and says why on `%s`', async (code, status, message) => {
+    serveARefusal(code, status);
+    const root = await openTheCart();
+    const readsBefore = callsTo(LIST_URL).length;
+    serverList = { ...SHOPPING_LIST_BY_INGREDIENT, cart: null };
+
+    await pressText(root, CONFIRM);
+
+    expect(isSheetOpen(root)).toBe(false);
+    expect(callsTo(LIST_URL)).toHaveLength(readsBefore + 1);
+    expect(callsTo(INVENTORY_URL)).toHaveLength(0);
+    expect(getTexts(root)).toContain(message);
+    expect(getButtonLabels(root)).not.toContain('Cancelar carrito');
+  });
+
+  it.each([
+    ['cart_locked', 409, CART_LOCKED],
+    ['validation_error', 422, 'Los datos ingresados no son válidos.'],
+  ])(
+    'stays open with the message on `%s`, with the Cart as it was',
+    async (code, status, message) => {
+      serveARefusal(code, status);
+      const root = await openTheCart();
+      const readsBefore = callsTo(LIST_URL).length;
+      typeQuantity(root, RICE_QUANTITY, '250');
+
+      await pressText(root, CONFIRM);
+
+      expect(isSheetOpen(root)).toBe(true);
+      expect(getTexts(root)).toContain(message);
+      expect(root.findByProps({ accessibilityLabel: RICE_QUANTITY }).props.value).toBe('250');
+      expect(callsTo(LIST_URL)).toHaveLength(readsBefore);
+      expect(callsTo(INVENTORY_URL)).toHaveLength(0);
+
+      // Closing it forgets the message: it is not there the next time the Cart is opened.
+      await pressText(root, 'Cancelar');
+      expect(getTexts(root)).not.toContain(message);
+      await press(root, CART_BUTTON);
+      expect(getTexts(root)).not.toContain(message);
+    }
+  );
+
+  it('can be confirmed again after the network failed, and buys once', async () => {
+    let attempts = 0;
+    serve(() => {
+      attempts += 1;
+      // The transport asks twice before it gives up.
+      return attempts <= 2
+        ? Promise.reject(new TypeError('Network request failed'))
+        : Promise.resolve(jsonResponse(toCheckoutResponse()));
+    });
+    const root = await openTheCart();
+
+    await pressText(root, CONFIRM);
+    expect(isSheetOpen(root)).toBe(true);
+    expect(getTexts(root)).toContain(NETWORK_ERROR);
+
+    await pressText(root, CONFIRM);
+
+    expect(isSheetOpen(root)).toBe(false);
+    expect(callsTo(INVENTORY_URL)).toHaveLength(1);
+  });
+
+  describe('once it is bought', () => {
+    beforeEach(() => {
+      serverList = SHOPPING_LIST_AFTER_PURCHASE;
+    });
+
+    it('shows a purchased line as bought, with nothing to tick or hold', async () => {
+      const root = await renderLoadedScreen();
+      const list = root.findByType(ScrollView);
+
+      expect(getTexts(root)).toEqual(
+        expect.arrayContaining(['30 ml · Aceite de oliva', 'Comprado'])
+      );
+      expect(
+        list.findAll(
+          (node) => node.props.accessibilityLabel === '30 ml · Aceite de oliva, comprado'
+        )
+      ).not.toEqual([]);
+      // The other five lines are still to buy.
+      expect(getCheckboxes(root)).toHaveLength(5);
+      expect(list.findAll((node) => typeof node.props.onLongPress === 'function')).toHaveLength(5);
+      expect(getStruckNames(root)).toEqual([]);
+    });
+
+    it('shows what is still to buy of a line bought in part', async () => {
+      const root = await renderLoadedScreen();
+
+      // 150 g left of the first meal, and the two meals after it.
+      expect(getTexts(root)).toContain('1 kg · Arroz');
+      expect(getCheckboxes(root).map((row) => row.props.accessibilityLabel)).toContain(
+        '1 kg · Arroz, Para 3 comidas'
+      );
+    });
+
+    it('ticks only the shares of that line that are still to buy', async () => {
+      const root = await renderLoadedScreen();
+      const rice = getCheckboxes(root).find((row) =>
+        String(row.props.accessibilityLabel).includes('Arroz')
+      )!;
+
+      act(() => {
+        rice.props.onPress();
+      });
+      await settle();
+
+      const [markCall] = callsTo(MARK_CART_URL);
+      expect(JSON.parse(markCall[1].body)).toEqual({ itemIds: RICE_NEEDED_ITEM_IDS });
+    });
   });
 });

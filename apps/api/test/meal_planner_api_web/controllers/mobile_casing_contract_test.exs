@@ -334,7 +334,8 @@ defmodule MealPlannerApiWeb.MobileCasingContractTest do
                "scheduledMealId" => scheduled_meal_id,
                "date" => ^today,
                "slot" => "dinner",
-               "quantityMilli" => _
+               "quantityMilli" => _,
+               "status" => "needed"
              } = allocation
 
       assert item_id in Enum.map(f.items, & &1.id)
@@ -358,31 +359,26 @@ defmodule MealPlannerApiWeb.MobileCasingContractTest do
       assert %{
                "sessionId" => session_id,
                "leaseExpiresAt" => _,
-               "items" => [_, _] = reserved
+               "items" => [_, _]
              } = cart["data"]
 
       refute Map.has_key?(cart["data"], "reservations")
 
-      items =
-        Enum.map(reserved, fn %{"itemId" => item_id, "reservationToken" => token} ->
-          %{
-            "itemId" => item_id,
-            "reservationToken" => token,
-            "quantityMilli" => 300,
-            "totalCents" => 250
-          }
-        end)
+      lines = [
+        %{"itemId" => "#{f.ingredient.id}:g", "quantityMilli" => 300, "totalCents" => 250}
+      ]
 
       bought =
         f
         |> request(:post, "/api/checkout/confirm", %{
           "sessionId" => session_id,
           "checkoutType" => "physical",
-          "items" => items
+          "lines" => lines
         })
         |> success()
 
-      assert bought["data"]["actualTotalCents"] == 500
+      assert bought["data"]["actualTotalCents"] == 250
+      assert bought["data"]["movedToInventoryCount"] == 1
     end
   end
 

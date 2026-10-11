@@ -114,12 +114,13 @@ defmodule MealPlannerApi.ShoppingServiceTest do
       result =
         ShoppingService.confirm_checkout(user, cart.session_id, %{
           "checkout_type" => "physical",
-          "items" =>
-            Enum.map(
-              cart.reservations,
-              &(Map.new(&1, fn {k, v} -> {Atom.to_string(k), v} end)
-                |> Map.put("total_cents", 5000))
-            )
+          "lines" => [
+            %{
+              "item_id" => "#{ingredient.id}:g",
+              "quantity_milli" => 500,
+              "total_cents" => 5000
+            }
+          ]
         })
 
       assert {:ok, response} = result
@@ -207,12 +208,13 @@ defmodule MealPlannerApi.ShoppingServiceTest do
       result =
         ShoppingService.confirm_checkout(user, cart.session_id, %{
           "checkout_type" => "physical",
-          "items" =>
-            Enum.map(
-              cart.reservations,
-              &(Map.new(&1, fn {k, v} -> {Atom.to_string(k), v} end)
-                |> Map.put("total_cents", 1500))
-            )
+          "lines" => [
+            %{
+              "item_id" => "#{ingredient.id}:g",
+              "quantity_milli" => 300,
+              "total_cents" => 1500
+            }
+          ]
         })
 
       assert {:ok, response} = result
@@ -235,10 +237,10 @@ defmodule MealPlannerApi.ShoppingServiceTest do
       fake_session_id = Ecto.UUID.generate()
 
       result =
-        ShoppingService.confirm_checkout(user, fake_session_id, %{"actual_total_cents" => 1000})
+        ShoppingService.confirm_checkout(user, fake_session_id, %{"checkout_type" => "physical"})
 
       # Should return error for session not found
-      assert result == {:error, :cart_not_found}
+      assert result == {:error, :checkout_session_not_found}
     end
   end
 
@@ -289,7 +291,7 @@ defmodule MealPlannerApi.ShoppingServiceTest do
       assert response.planned_dates == []
     end
 
-    test "lists only pending and in cart items, as needed and in_cart" do
+    test "lists pending, in cart and purchased items, and never archived ones" do
       {account_id, user} = identity!("statuses")
       date = Date.add(Date.utc_today(), 1)
 
@@ -310,11 +312,12 @@ defmodule MealPlannerApi.ShoppingServiceTest do
 
       assert Enum.map(response.planned, &{&1.ingredient_id, &1.status, &1.source}) == [
                {pending, "needed", "planned_meal"},
-               {in_cart, "in_cart", "planned_meal"}
+               {in_cart, "in_cart", "planned_meal"},
+               # Bought for a meal that is not cooked yet (issue #43).
+               {checked_out, "purchased", "planned_meal"}
              ]
 
       refute archived in Enum.map(response.planned, & &1.ingredient_id)
-      refute checked_out in Enum.map(response.planned, & &1.ingredient_id)
       assert response.manual == []
       assert response.totals.needed == 1
       assert response.totals.in_cart == 1

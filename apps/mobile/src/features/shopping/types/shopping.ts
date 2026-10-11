@@ -19,14 +19,6 @@ export type ShoppingUntilCalendar = Required<
   rangeStart: string;
 };
 
-// Only the cart sheet shows a price, and it is not on screen until the cart is.
-export type BestOffer = {
-  supermarket: string;
-  unitPrice: number;
-  // `unitPrice` times the quantity of the row it was resolved for.
-  price: number;
-};
-
 // A card of the list: the planned lines of one ingredient category.
 export type ShoppingGroup = {
   key: string;

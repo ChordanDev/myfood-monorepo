@@ -1,13 +1,22 @@
 defmodule MealPlannerApi.Cart do
   @moduledoc "Account-scoped cart leases and the single atomic purchase authority."
   import Ecto.Query
-  alias MealPlannerApi.Persistence.{Identity, Inventory, Shopping}
+  alias MealPlannerApi.Persistence.{Identity, Inventory}
+  alias MealPlannerApi.Persistence.Planning.ScheduledMeal
   alias MealPlannerApi.Persistence.Shopping.{CheckoutSession, ShoppingItem}
   alias MealPlannerApi.Repo
-  alias MealPlannerApi.Services.PlanningRequestValidator
+  alias MealPlannerApi.Services.{PlanningRequestValidator, ShoppingRebuilder}
   alias Phoenix.Channel.Server
 
   @lease_seconds 3600
+
+  # The largest value an `int4` column holds.
+  @max_stored_integer 2_147_483_647
+
+  # The result of a confirmed purchase, as `CheckoutSession.purchase_result`
+  # stores it and a repeated confirm replays it.
+  @result_keys ~w(checkout_session_id status checkout_type moved_to_inventory_count
+                  checked_out_items_count actual_total_cents)a
 
   def reserve(user, item_ids) when is_list(item_ids) and item_ids != [] do
     with {:ok, ids} <- identity(user) do
@@ -109,86 +118,418 @@ defmodule MealPlannerApi.Cart do
     end
   end
 
-  # Both online and physical purchase confirmations add the actual purchase now.
-  # Delivery acknowledgement is not another inventory mutation (#29).
+  @doc """
+  Confirms a Cart as purchased (issue #43).
+
+  `payload` carries `"checkout_type"` and, optionally, `"lines"`: the bought
+  `"quantity_milli"` and `"total_cents"` of a list line, named by
+  `"item_id"`. That is the id the Shopping list gives the line:
+  `"<ingredient_id>:<unit>"` for the planned items of an Ingredient, the
+  item's own id for a manual one. A line that is not listed is bought at its
+  suggested quantity, the one reserved in the Cart.
+
+  A `"physical"` purchase enters Inventory now and completes the session. An
+  `"online"` one stocks nothing yet: the session and its purchased items
+  wait as `pending_delivery` until `delivery/2` acknowledges the delivery.
+
+  Confirming a session that is already completed, or pending delivery,
+  changes nothing and returns its stored result.
+
+  Errors: `:validation_error` (no session id, malformed lines, an empty
+  Cart), `:checkout_session_not_found`, `:cart_locked` (the Cart of another
+  member), `:cart_expired` and `:checkout_invalid_type`.
+  """
   def purchase(user, session_id, payload) when is_map(payload) do
-    with {:ok, ids} <- identity(user) do
-      transact(ids, "purchase_confirmed", fn now ->
-        confirm_purchase!(ids, session_id, payload, now)
-      end)
+    with {:ok, ids} <- identity(user),
+         {:ok, {outcome, result}} <-
+           transact(ids, nil, fn now -> confirm_purchase!(ids, session_id, payload, now) end) do
+      # A replayed confirm changed nothing, so it is not announced again.
+      if outcome == :confirmed, do: notify_purchase(ids.account_id, result)
+      {:ok, result}
     end
   end
 
-  def purchase(_, _, _), do: {:error, :invalid_payload}
+  def purchase(_, _, _), do: {:error, :validation_error}
 
   defp confirm_purchase!(ids, session_id, payload, now) do
-    cart = get_owned!(ids, session_id)
-    require!(cart.status != :completed, :already_purchased)
-    require_active!(cart, now)
-    type = payload["checkout_type"]
-    require!(type in ["physical", "online"], :invalid_checkout_type)
-    lines = payload["items"]
-    require!(is_list(lines) and lines != [], :invalid_purchase_items)
-    pairs = validate_lines!(ids, cart, lines)
-    current = cart_items(cart)
-    require!(length(pairs) == length(current), :incomplete_cart)
+    cart = checkout_session!(ids, session_id)
 
-    Enum.each(pairs, fn {_item, line} ->
-      require!(
-        is_integer(line["quantity_milli"]) and line["quantity_milli"] >= 0,
-        :invalid_quantity
-      )
+    if cart.status in [:completed, :pending_delivery] do
+      {:replayed, stored_result(cart)}
+    else
+      require_live!(cart, now)
+      type = payload["checkout_type"]
+      require!(type in ["physical", "online"], :checkout_invalid_type)
+      lines = cart |> cart_lines() |> bought_lines!(payload["lines"])
+      require!(lines != [], :validation_error)
+      total = lines |> Enum.map(&(&1.total_cents || 0)) |> Enum.sum()
+      # Each line fits on its own; the session stores what they add up to.
+      require!(storable?(total), :validation_error)
+      online? = type == "online"
+      status = if online?, do: :pending_delivery, else: :completed
+      lots = Enum.flat_map(lines, &settle_line!(&1, purchased_status(status)))
+      # An online purchase stocks nothing until it is delivered.
+      moved = if online?, do: 0, else: add_lots!(ids, cart, lots, now)
+      result = purchase_result(cart, status, type, moved, total)
 
-      require!(
-        is_integer(line["total_cents"]) and line["total_cents"] >= 0,
-        :invalid_price
-      )
+      update!(cart, %{
+        status: status,
+        checkout_type: type,
+        total_cents: total,
+        confirmed_by_user_id: ids.user_id,
+        confirmed_at: now,
+        # The lots wait in the session, not in its Shopping items: those are
+        # deleted with their Scheduled meal, and what was bought must still
+        # arrive.
+        purchase_result: if(online?, do: Map.put(result, :pending_lots, lots), else: result)
+      })
 
-      require!(line["quantity_milli"] > 0 or line["total_cents"] == 0, :invalid_price)
-    end)
+      {:confirmed, result}
+    end
+  end
 
-    # Match inventory's canonical lock order across multi-ingredient purchases.
-    pairs = Enum.sort_by(pairs, fn {item, _} -> {item.ingredient_id, item.unit, item.id} end)
-    Enum.each(pairs, fn {item, line} -> purchase_line!(ids, cart, item, line, now) end)
+  # The status of a purchased Shopping item, from the one its session takes.
+  defp purchased_status(:completed), do: :checked_out
+  defp purchased_status(:pending_delivery), do: :pending_delivery
 
-    moved =
-      Enum.count(pairs, fn {item, line} ->
-        line["quantity_milli"] > 0 and not is_nil(item.ingredient_id)
-      end)
-
-    total = Enum.sum(Enum.map(pairs, fn {_, line} -> line["total_cents"] end))
-
-    result = %{
-      checkout_session_id: cart.id,
-      status: "completed",
+  defp purchase_result(session, status, type, moved, total_cents) do
+    %{
+      checkout_session_id: session.id,
+      status: Atom.to_string(status),
       checkout_type: type,
       moved_to_inventory_count: moved,
       checked_out_items_count: moved,
-      actual_total_cents: total
+      actual_total_cents: total_cents
     }
+  end
 
-    update!(cart, %{
-      status: :completed,
-      checkout_type: type,
-      total_cents: total,
-      confirmed_by_user_id: ids.user_id,
-      confirmed_at: now,
-      purchase_result: result
-    })
+  # The session a confirm names. One of another Account, or one another
+  # member already closed, does not exist for this User; a live Cart of
+  # another member is locked.
+  defp checkout_session!(ids, session_id) do
+    require!(is_binary(session_id), :validation_error)
+    require!(valid_id?(session_id), :checkout_session_not_found)
 
+    cart =
+      Repo.one(
+        from(c in CheckoutSession,
+          where: c.account_id == ^ids.account_id and c.id == ^session_id,
+          lock: "FOR UPDATE"
+        )
+      )
+
+    require!(not is_nil(cart), :checkout_session_not_found)
+
+    cond do
+      cart.reserved_by_user_id == ids.user_id -> cart
+      cart.status == :draft and cart.reserved_by_user_id -> Repo.rollback(:cart_locked)
+      true -> Repo.rollback(:checkout_session_not_found)
+    end
+  end
+
+  # A session that is neither completed nor a live Cart was abandoned: its
+  # lease ran out, or the User cancelled it.
+  defp require_live!(cart, now) do
+    require!(
+      cart.status == :draft and not is_nil(cart.lease_expires_at) and
+        DateTime.compare(cart.lease_expires_at, now) == :gt,
+      :cart_expired
+    )
+  end
+
+  # `purchase_result` comes back from JSON with string keys; a replay answers
+  # the same map the first confirm did.
+  defp stored_result(%CheckoutSession{purchase_result: stored}) do
+    stored = stored || %{}
+    Map.new(@result_keys, &{&1, Map.get(stored, Atom.to_string(&1))})
+  end
+
+  # The lines of the Cart a confirm settles: the ones `group_lines/1` builds
+  # from its items, locked, the allocations of each line nearest first
+  # (date, then slot).
+  defp cart_lines(cart) do
+    items = cart_items(cart)
+    slots = meal_slots(items)
+
+    items
+    |> group_lines()
+    |> Enum.map(fn line ->
+      %{line | items: Enum.sort_by(line.items, &allocation_position(&1, slots))}
+    end)
+  end
+
+  # Items as the lines of the Shopping list: the planned items of an
+  # Ingredient and unit share a line, a manual item is a line of its own.
+  # A line's quantity is the total of its items. Lines are ordered by
+  # Ingredient id, then unit, then line id; a manual item without an
+  # Ingredient comes before the others. Both the list read (`lines/1`) and
+  # the confirm (`cart_lines/1`) take the identity, the total and the order
+  # of a line from here.
+  defp group_lines(items) do
+    items
+    |> Enum.group_by(&line_id/1)
+    |> Enum.map(fn {id, rows} ->
+      %{id: id, items: rows, quantity_milli: rows |> Enum.map(& &1.quantity_milli) |> Enum.sum()}
+    end)
+    |> Enum.sort_by(fn %{id: id, items: [first | _]} -> {first.ingredient_id, first.unit, id} end)
+  end
+
+  defp line_id(%ShoppingItem{source: :manual} = item), do: item.id
+  defp line_id(item), do: "#{item.ingredient_id}:#{item.unit}"
+
+  defp meal_slots(items) do
+    meal_ids = items |> Enum.map(& &1.scheduled_meal_id) |> Enum.reject(&is_nil/1)
+
+    from(m in ScheduledMeal, where: m.id in ^meal_ids, select: {m.id, m.slot})
+    |> Repo.all()
+    |> Map.new()
+  end
+
+  # The order `ShoppingRebuilder.group_lines/2` lists allocations in.
+  defp allocation_position(%ShoppingItem{planned_date: %Date{} = date} = item, slots) do
+    slot = Map.get(slots, item.scheduled_meal_id)
+    {Date.to_erl(date), ShoppingRebuilder.slot_rank(slot), item.id}
+  end
+
+  defp allocation_position(item, _slots), do: {nil, 0, item.id}
+
+  # Gives every Cart line the quantity and the price it was bought at: the
+  # ones `requested` carries, or the suggested quantity and no price.
+  defp bought_lines!(lines, nil), do: Enum.map(lines, &bought_line(&1, nil))
+
+  defp bought_lines!(lines, requested) do
+    require!(is_list(requested) and Enum.all?(requested, &is_map/1), :validation_error)
+    Enum.each(requested, &validate_bought_line!/1)
+    by_id = Map.new(requested, &{&1["item_id"], &1})
+    known = MapSet.new(lines, & &1.id)
+
+    require!(
+      map_size(by_id) == length(requested) and Enum.all?(Map.keys(by_id), &(&1 in known)),
+      :validation_error
+    )
+
+    Enum.map(lines, &bought_line(&1, Map.get(by_id, &1.id)))
+  end
+
+  defp bought_line(line, nil), do: Map.put(line, :total_cents, nil)
+
+  defp bought_line(line, requested) do
+    %{line | quantity_milli: requested["quantity_milli"]}
+    |> Map.put(:total_cents, requested["total_cents"])
+  end
+
+  defp validate_bought_line!(line) do
+    quantity = line["quantity_milli"]
+    total = line["total_cents"]
+    require!(storable?(quantity), :validation_error)
+    require!(is_nil(total) or storable?(total), :validation_error)
+    # Nothing bought costs nothing.
+    require!(quantity > 0 or total in [nil, 0], :validation_error)
+  end
+
+  # A count the integer columns of Postgres can hold: quantities and cents
+  # are stored as `int4`.
+  defp storable?(value), do: is_integer(value) and value in 0..@max_stored_integer
+
+  # Settles the items of one line, the purchased ones as `status`, and
+  # returns the lots the line puts in Inventory.
+  defp settle_line!(line, status) do
+    line.items
+    |> cover(line.quantity_milli)
+    |> with_prices(line.total_cents)
+    |> Enum.flat_map(&settle_item!(&1, status))
+  end
+
+  # Spreads the bought quantity of a line over its allocations, nearest
+  # first, as `{item, bought}`: an allocation is covered in full before the
+  # next one gets anything. A quantity above the line goes to the last
+  # allocation, so Inventory gains exactly what was bought.
+  defp cover(items, quantity) do
+    {covered, surplus} =
+      Enum.map_reduce(items, quantity, fn item, left ->
+        bought = min(item.quantity_milli, left)
+        {{item, bought}, left - bought}
+      end)
+
+    {{last, bought}, rest} = List.pop_at(covered, -1)
+    rest ++ [{last, bought + surplus}]
+  end
+
+  # A line's `total_cents` is shared by its lots in proportion to their
+  # quantity; the last lot takes the cents rounding left over, so the lots
+  # add up to the total. A line without a total leaves its lots unpriced.
+  defp with_prices(covered, nil),
+    do: Enum.map(covered, fn {item, bought} -> {item, bought, nil} end)
+
+  defp with_prices(covered, total_cents) do
+    quantity = covered |> Enum.map(&elem(&1, 1)) |> Enum.sum()
+
+    {priced, _left} =
+      Enum.map_reduce(covered, {total_cents, quantity}, fn
+        {item, 0}, left ->
+          {{item, 0, nil}, left}
+
+        {item, bought}, {cents, quantity} ->
+          share = div(cents * bought, quantity)
+          {{item, bought, share}, {cents - share, quantity - bought}}
+      end)
+
+    priced
+  end
+
+  # An allocation that got nothing leaves the Cart and stays needed.
+  defp settle_item!({item, 0, _price_cents}, _status) do
+    release!(item)
+    []
+  end
+
+  defp settle_item!({item, bought, price_cents}, status) do
+    price = if price_cents, do: %{estimated_price_cents: price_cents}, else: %{}
+
+    # Close the purchased item before storing its remainder: both share the
+    # planned key, and only one open Shopping item is allowed per key. The
+    # remainder is computed from `item`, which still holds the reserved
+    # quantity.
+    update!(item, Map.merge(%{status: status, quantity_milli: bought}, price))
+
+    if bought < item.quantity_milli do
+      item
+      |> Map.from_struct()
+      |> Map.take([
+        :account_id,
+        :scheduled_meal_id,
+        :planned_date,
+        :ingredient_id,
+        :unit,
+        :assigned_supermarket_id,
+        :source,
+        :name
+      ])
+      |> Map.merge(%{quantity_milli: item.quantity_milli - bought, status: :pending})
+      |> then(&ShoppingItem.changeset(%ShoppingItem{}, &1))
+      |> insert!()
+    end
+
+    lot(item, bought, price_cents)
+  end
+
+  # A manual item with no Ingredient has no stock to add to: it is closed
+  # as bought and creates no lot.
+  defp lot(%{ingredient_id: nil}, _bought, _price_cents), do: []
+
+  # One lot per purchased item: `planned` for the item of a Scheduled meal,
+  # `extra` for a manual one.
+  defp lot(item, bought, price_cents) do
+    [
+      %{
+        shopping_item_id: item.id,
+        ingredient_id: item.ingredient_id,
+        unit: item.unit,
+        source_kind: if(item.source == :manual, do: :extra, else: :planned),
+        quantity_milli: bought,
+        price_cents: price_cents
+      }
+    ]
+  end
+
+  # Adds the lots to Inventory, each with its `purchase` mutation event, and
+  # returns how many there are.
+  defp add_lots!(ids, session, lots, now) do
+    Enum.each(lots, fn lot ->
+      case Inventory.apply_delta_and_log(%{
+             account_id: ids.account_id,
+             ingredient_id: lot.ingredient_id,
+             unit: lot.unit,
+             source_kind: lot.source_kind,
+             delta: lot.quantity_milli,
+             source_user_id: ids.user_id,
+             trigger_type: :purchase,
+             operation: :add,
+             acquired_at: now,
+             acquired_price_cents: lot.price_cents,
+             source_checkout_session_id: session.id,
+             metadata: %{shopping_item_id: lot.shopping_item_id}
+           }) do
+        {:ok, _} -> :ok
+        {:error, reason} -> Repo.rollback(reason)
+      end
+    end)
+
+    length(lots)
+  end
+
+  @doc """
+  Acknowledges the delivery of an online purchase (issue #43).
+
+  The lots of a session that is `pending_delivery` enter Inventory, acquired
+  at the delivery; its Shopping items become `checked_out` and the session
+  is completed. Any member of the Account may acknowledge it.
+
+  A session that is already completed, delivered before or bought in
+  person, changes nothing and returns its stored result.
+
+  Errors: `:checkout_session_not_found` for an unknown session, one of
+  another Account, or one that was never confirmed (a Cart, live or
+  abandoned).
+  """
+  def delivery(user, session_id) do
+    with {:ok, ids} <- identity(user),
+         {:ok, {outcome, result}} <-
+           transact(ids, nil, fn now -> confirm_delivery!(ids, session_id, now) end) do
+      if outcome == :delivered, do: notify_purchase(ids.account_id, result)
+      {:ok, result}
+    end
+  end
+
+  defp confirm_delivery!(ids, session_id, now) do
+    require!(valid_id?(session_id), :checkout_session_not_found)
+
+    session =
+      Repo.one(
+        from(c in CheckoutSession,
+          where: c.account_id == ^ids.account_id and c.id == ^session_id,
+          lock: "FOR UPDATE"
+        )
+      )
+
+    case session do
+      %CheckoutSession{status: :completed} -> {:replayed, stored_result(session)}
+      %CheckoutSession{status: :pending_delivery} -> {:delivered, deliver!(ids, session, now)}
+      _unknown_or_never_confirmed -> Repo.rollback(:checkout_session_not_found)
+    end
+  end
+
+  defp deliver!(ids, session, now) do
+    moved = add_lots!(ids, session, pending_lots(session), now)
+
+    Repo.all(
+      from(i in ShoppingItem,
+        where:
+          i.account_id == ^session.account_id and i.checkout_session_id == ^session.id and
+            i.status == :pending_delivery,
+        order_by: i.id,
+        lock: "FOR UPDATE"
+      )
+    )
+    |> Enum.each(&update!(&1, %{status: :checked_out}))
+
+    result = purchase_result(session, :completed, "online", moved, session.total_cents)
+    update!(session, %{status: :completed, purchase_result: result})
     result
   end
 
-  def delivery(user, session_id) do
-    with {:ok, ids} <- identity(user) do
-      case Shopping.get_checkout_session_for_account(ids.account_id, session_id) do
-        %CheckoutSession{status: :completed, purchase_result: result} when is_map(result) ->
-          {:ok, Map.put(result, "moved_to_inventory_count", 0)}
-
-        _ ->
-          {:error, :invalid_checkout_status}
-      end
-    end
+  # The lots an online confirm left in the session, back from JSON.
+  defp pending_lots(%CheckoutSession{purchase_result: stored}) do
+    Enum.map(stored["pending_lots"], fn lot ->
+      %{
+        shopping_item_id: lot["shopping_item_id"],
+        ingredient_id: lot["ingredient_id"],
+        unit: String.to_existing_atom(lot["unit"]),
+        source_kind: String.to_existing_atom(lot["source_kind"]),
+        quantity_milli: lot["quantity_milli"],
+        price_cents: lot["price_cents"]
+      }
+    end)
   end
 
   @doc """
@@ -208,6 +549,40 @@ defmodule MealPlannerApi.Cart do
       )
     )
   end
+
+  @doc """
+  The lines of a Cart as `purchase/3` takes them: every Shopping item
+  reserved in it that is still `:in_cart`, whatever its planned date.
+
+  Each line is `%{id, name, unit, quantity_milli}`. `id` is the `"item_id"`
+  a confirm names the line by, and `quantity_milli` the total of its items,
+  the quantity an unlisted line is bought at. A planned line is named after
+  its Ingredient, a manual item by its own name. The lines come in the
+  order a confirm settles them.
+
+  This is a plain read: it takes no lock.
+  """
+  @spec lines(Ecto.Schema.t()) :: [
+          %{id: String.t(), name: String.t(), unit: atom(), quantity_milli: non_neg_integer()}
+        ]
+  def lines(%CheckoutSession{} = cart) do
+    cart
+    |> cart_items_query()
+    |> preload(:ingredient)
+    |> Repo.all()
+    |> group_lines()
+    |> Enum.map(fn %{items: [first | _]} = line ->
+      %{
+        id: line.id,
+        name: line_name(first),
+        unit: first.unit,
+        quantity_milli: line.quantity_milli
+      }
+    end)
+  end
+
+  defp line_name(%ShoppingItem{source: :manual} = item), do: item.name
+  defp line_name(item), do: item.ingredient.name
 
   def expire_account(account_id, now \\ DateTime.utc_now()) do
     result =
@@ -282,14 +657,20 @@ defmodule MealPlannerApi.Cart do
     Ecto.Query.CastError -> {:error, :invalid_payload}
   end
 
-  defp notify_committed(account_id, event, {:ok, response}) do
-    notify(account_id, event, response)
+  # `purchase/3` passes no event: it announces its own outcome.
+  defp notify_committed(_account_id, nil, _result), do: :ok
 
-    if event == "purchase_confirmed" and response.moved_to_inventory_count > 0,
-      do: notify(account_id, "inventory_changed", %{refresh: true})
-  end
+  defp notify_committed(account_id, event, {:ok, response}),
+    do: notify(account_id, event, response)
 
   defp notify_committed(_account_id, _event, _result), do: :ok
+
+  defp notify_purchase(account_id, result) do
+    notify(account_id, "purchase_confirmed", result)
+
+    if result.moved_to_inventory_count > 0,
+      do: notify(account_id, "inventory_changed", %{refresh: true})
+  end
 
   # Runs inside the transaction, under the account lock.
   defp recheck_identity!(ids) do
@@ -386,15 +767,15 @@ defmodule MealPlannerApi.Cart do
   defp release!(item),
     do: update!(item, %{status: :pending, checkout_session_id: nil, reservation_token: nil})
 
-  defp cart_items(cart) do
-    Repo.all(
-      from(i in ShoppingItem,
-        where:
-          i.account_id == ^cart.account_id and
-            i.checkout_session_id == ^cart.id and i.status == :in_cart,
-        order_by: i.id,
-        lock: "FOR UPDATE"
-      )
+  defp cart_items(cart), do: cart |> cart_items_query() |> lock("FOR UPDATE") |> Repo.all()
+
+  # The Shopping items a Cart holds, in a stable order.
+  defp cart_items_query(cart) do
+    from(i in ShoppingItem,
+      where:
+        i.account_id == ^cart.account_id and
+          i.checkout_session_id == ^cart.id and i.status == :in_cart,
+      order_by: i.id
     )
   end
 
@@ -428,71 +809,6 @@ defmodule MealPlannerApi.Cart do
 
       {item, line}
     end)
-  end
-
-  defp purchase_line!(ids, cart, item, line, now) do
-    quantity = line["quantity_milli"]
-
-    if quantity == 0 do
-      release!(item)
-    else
-      add_purchased_stock!(ids, cart, item, line, now)
-
-      # Close the purchased item before storing its remainder: both share the
-      # planned key, and only one open Shopping item is allowed per key. The
-      # remainder is computed from `item`, which still holds the reserved
-      # quantity.
-      update!(item, %{
-        status: :checked_out,
-        quantity_milli: quantity,
-        estimated_price_cents: line["total_cents"]
-      })
-
-      if quantity < item.quantity_milli do
-        item
-        |> Map.from_struct()
-        |> Map.take([
-          :account_id,
-          :scheduled_meal_id,
-          :planned_date,
-          :ingredient_id,
-          :unit,
-          :assigned_supermarket_id,
-          :source,
-          :name
-        ])
-        |> Map.merge(%{quantity_milli: item.quantity_milli - quantity, status: :pending})
-        |> then(&ShoppingItem.changeset(%ShoppingItem{}, &1))
-        |> insert!()
-      end
-    end
-  end
-
-  # A manual item with no Ingredient (issue #40) has no stock to add to:
-  # it is closed as bought. What a manual purchase moves into Inventory
-  # is left to issue #48.
-  defp add_purchased_stock!(_ids, _cart, %{ingredient_id: nil}, _line, _now), do: :ok
-
-  defp add_purchased_stock!(ids, cart, item, line, now) do
-    quantity = line["quantity_milli"]
-
-    case Inventory.apply_delta_and_log(%{
-           account_id: ids.account_id,
-           ingredient_id: item.ingredient_id,
-           unit: item.unit,
-           source_kind: :planned,
-           delta: quantity,
-           source_user_id: ids.user_id,
-           trigger_type: :purchase,
-           operation: :add,
-           acquired_at: now,
-           acquired_price_cents: line["total_cents"],
-           source_checkout_session_id: cart.id,
-           metadata: %{shopping_item_id: item.id}
-         }) do
-      {:ok, _} -> :ok
-      {:error, reason} -> Repo.rollback(reason)
-    end
   end
 
   defp reservation(item),

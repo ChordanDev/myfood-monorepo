@@ -3,9 +3,11 @@ import { ApiError } from '@/api/errors';
 import type { RequestOptions } from '@/api/transport';
 import type {
   CancelledCart,
+  CartLease,
+  CheckoutConfirmation,
+  CheckoutResult,
   MarkedCart,
   NewManualShoppingItem,
-  ShoppingCart,
   ShoppingItemsStatus,
   ShoppingItemsStatusChange,
   ShoppingListLine,
@@ -47,6 +49,24 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
+// A line of the Cart of a read: the sheet draws it and a confirm names it by its id.
+function isShoppingCartLine(line: unknown) {
+  return (
+    isRecord(line) &&
+    typeof line.id === 'string' &&
+    line.id !== '' &&
+    typeof line.name === 'string' &&
+    typeof line.unit === 'string' &&
+    Number.isInteger(line.quantityMilli) &&
+    (line.quantityMilli as number) >= 0
+  );
+}
+
+// The Cart of a read: without its lines the screen could not say what a confirm buys.
+function isShoppingCart(cart: unknown) {
+  return isRecord(cart) && Array.isArray(cart.lines) && cart.lines.every(isShoppingCartLine);
+}
+
 // The transport hands back null for an empty or non-JSON body and does not check the shape of
 // a 2xx answer, so the caller would otherwise cache whatever arrived as the list. An answer
 // without the members of a read is treated like any other unintelligible server answer.
@@ -59,7 +79,7 @@ function parseShoppingListResponse(response: unknown): ShoppingListRead {
     !Array.isArray(data.manual) ||
     !Array.isArray(data.plannedDates) ||
     !isRecord(data.totals) ||
-    !(data.cart === null || isRecord(data.cart))
+    !(data.cart === null || isShoppingCart(data.cart))
   ) {
     throw new ApiError('unknown_error', 'Malformed shopping list response');
   }
@@ -79,7 +99,7 @@ function parseCartData(response: unknown): Record<string, unknown> {
   return data;
 }
 
-function parseLease(response: unknown): ShoppingCart {
+function parseLease(response: unknown): CartLease {
   const data = parseCartData(response);
 
   if (typeof data.leaseExpiresAt !== 'string') {
@@ -135,6 +155,41 @@ export async function cancelCart(
     updatedRows: typeof data.updatedRows === 'number' ? data.updatedRows : 0,
     status: 'abandoned',
   };
+}
+
+const CHECKOUT_STATUSES: unknown[] = ['completed', 'pending_delivery'];
+const CHECKOUT_TYPES: unknown[] = ['physical', 'online'];
+
+/**
+ * Confirms a Cart as purchased (section 7.4). Only the lines bought at another quantity than
+ * the one the Cart holds are sent: the server buys the rest as they are. Confirming a session
+ * again answers the result of the first time and buys nothing twice, so the transport asks
+ * again when the network fails.
+ */
+export async function confirmCheckout(
+  { sessionId, checkoutType, lines }: CheckoutConfirmation,
+  options?: RequestOptions
+): Promise<CheckoutResult> {
+  const response = await apiClient.post<unknown>(
+    '/api/checkout/confirm',
+    { sessionId, checkoutType, ...(lines && lines.length > 0 ? { lines } : {}) },
+    { ...options, auth: true, retry: options?.retry ?? true }
+  );
+  const data = isRecord(response) ? response.data : undefined;
+
+  if (
+    !isRecord(data) ||
+    typeof data.checkoutSessionId !== 'string' ||
+    !CHECKOUT_STATUSES.includes(data.status) ||
+    !CHECKOUT_TYPES.includes(data.checkoutType) ||
+    typeof data.movedToInventoryCount !== 'number' ||
+    typeof data.checkedOutItemsCount !== 'number' ||
+    typeof data.actualTotalCents !== 'number'
+  ) {
+    throw malformed('checkout');
+  }
+
+  return data as unknown as CheckoutResult;
 }
 
 function malformed(what: string) {

@@ -3,6 +3,8 @@ import type {
   ShoppingLineAllocation,
   ShoppingLineStatus,
   ShoppingListLine,
+  ShoppingCart,
+  ShoppingCartLine,
   ShoppingItemsStatus,
   ShoppingItemsStatusChange,
   ShoppingListRead,
@@ -10,7 +12,8 @@ import type {
 } from '../types/shoppingApi';
 
 // Reads of `GET /api/shopping-list` for one plan, as the server answers them: four meals over
-// three days, six ingredients, and a Cart holding the rice and the oil of the first meal.
+// three days, six ingredients, and a Cart holding the rice and the oil of the first meal: the
+// two lines its `lines` list in every read, whatever the read itself shows.
 
 type Meal = { scheduledMealId: string; date: string; slot: ShoppingMealSlot };
 
@@ -74,15 +77,31 @@ const BANANA: Ingredient = {
   unit: 'unit',
 };
 
-function allocation(itemId: string, meal: Meal, quantityMilli: number): ShoppingLineAllocation {
-  return { itemId, ...meal, quantityMilli };
+function allocation(
+  itemId: string,
+  meal: Meal,
+  quantityMilli: number,
+  status: ShoppingLineStatus = 'needed'
+): ShoppingLineAllocation {
+  return { itemId, ...meal, quantityMilli, status };
 }
 
-// The shares of each meal, one per Shopping item. Quantities are thousandths of the unit.
-const RICE_OCT_8 = allocation('ec18bfeb-0d2c-4e11-b772-e6e2fa3d9473', LUNCH_OCT_8, 400_000);
+// The shares of each meal, one per Shopping item. Quantities are thousandths of the unit. The
+// rice and the oil of the first meal are the two items the Cart holds.
+const RICE_OCT_8 = allocation(
+  'ec18bfeb-0d2c-4e11-b772-e6e2fa3d9473',
+  LUNCH_OCT_8,
+  400_000,
+  'in_cart'
+);
 const CHICKEN_OCT_8 = allocation('0a4f6d28-b1c3-4e59-8a7d-2f9e1c5b3d46', LUNCH_OCT_8, 600_000);
 const TOMATO_OCT_8 = allocation('3c7e9b15-d2a4-4f86-b0c1-7a5d8e2f4b69', LUNCH_OCT_8, 2_000);
-const OLIVE_OIL_OCT_8 = allocation('4d8fa026-e3b5-4a97-91d2-8b6e9f3a5c7a', LUNCH_OCT_8, 30_000);
+const OLIVE_OIL_OCT_8 = allocation(
+  '4d8fa026-e3b5-4a97-91d2-8b6e9f3a5c7a',
+  LUNCH_OCT_8,
+  30_000,
+  'in_cart'
+);
 const RICE_OCT_10 = allocation('7eabbc7a-4d46-49a2-a44a-4a06b663d25f', DINNER_OCT_10, 400_000);
 const TOMATO_OCT_10 = allocation('5e90b137-f4c6-4ba8-a2e3-9c7fa04b6d8b', DINNER_OCT_10, 3_000);
 const MILK_OCT_10 = allocation('6fa1c248-05d7-4cb9-b3f4-ad80b15c7e9c', DINNER_OCT_10, 500_000);
@@ -95,16 +114,27 @@ function sumQuantities(allocations: ShoppingLineAllocation[]) {
   return allocations.reduce((total, { quantityMilli }) => total + quantityMilli, 0);
 }
 
-// The line of an ingredient for all of these meals: what `groupBy=ingredient` serves.
+// The shares of a line that are still to buy: neither removed nor purchased.
+function openShares(allocations: ShoppingLineAllocation[]) {
+  return allocations.filter(({ status }) => status === 'needed' || status === 'in_cart');
+}
+
+/**
+ * The line of an ingredient for all of these meals: what `groupBy=ingredient` serves. A line
+ * that is not `needed` has every share in its status. A `needed` line keeps the status of each
+ * share, and its quantity is what is still to buy.
+ */
 function ingredientLine(
   ingredient: Ingredient,
-  allocations: ShoppingLineAllocation[],
+  shares: ShoppingLineAllocation[],
   status: ShoppingLineStatus = 'needed'
 ): ShoppingListLine {
+  const allocations = status === 'needed' ? shares : shares.map((share) => ({ ...share, status }));
+
   return {
     id: `${ingredient.ingredientId}:${ingredient.unit}`,
     ...ingredient,
-    quantityMilli: sumQuantities(allocations),
+    quantityMilli: sumQuantities(status === 'needed' ? openShares(allocations) : allocations),
     status,
     source: 'planned_meal',
     supermarketId: null,
@@ -112,20 +142,38 @@ function ingredientLine(
   };
 }
 
-// The line of an ingredient for one meal: what `groupBy=meal` serves.
-function mealLine(
-  ingredient: Ingredient,
-  share: ShoppingLineAllocation,
-  status: ShoppingLineStatus = 'needed'
-): ShoppingListLine {
-  return { ...ingredientLine(ingredient, [share], status), id: share.itemId };
+// The line of an ingredient for one meal: what `groupBy=meal` serves. It has the status of
+// its only share.
+function mealLine(ingredient: Ingredient, share: ShoppingLineAllocation): ShoppingListLine {
+  return {
+    ...ingredientLine(ingredient, [share], share.status),
+    quantityMilli: share.quantityMilli,
+    id: share.itemId,
+  };
 }
 
 const PLANNED_DATES = ['2026-10-08', '2026-10-10', '2026-10-12'];
 
-const CART = {
+// A line of a Cart: every Shopping item the Cart holds of an ingredient and unit, added up.
+function cartLine(
+  { ingredientId, name, unit }: Ingredient,
+  quantityMilli: number
+): ShoppingCartLine {
+  return { id: `${ingredientId}:${unit}`, name, unit, quantityMilli };
+}
+
+const CART_LEASE = {
   sessionId: '36d3abb6-dd68-4728-a33a-ab33b02ecdfe',
   leaseExpiresAt: '2026-10-08T18:12:27.085974Z',
+};
+
+// The server lists the lines of a Cart by ingredient id, not in the order of the list.
+const CART: ShoppingCart = {
+  ...CART_LEASE,
+  lines: [
+    cartLine(OLIVE_OIL, OLIVE_OIL_OCT_8.quantityMilli),
+    cartLine(RICE, RICE_OCT_8.quantityMilli),
+  ],
 };
 
 /**
@@ -150,10 +198,10 @@ export const SHOPPING_LIST_BY_INGREDIENT: ShoppingListRead = {
 /** `GET /api/shopping-list?groupBy=meal`: the same plan, one line per meal and ingredient. */
 export const SHOPPING_LIST_BY_MEAL: ShoppingListRead = {
   planned: [
-    mealLine(RICE, RICE_OCT_8, 'in_cart'),
+    mealLine(RICE, RICE_OCT_8),
     mealLine(CHICKEN, CHICKEN_OCT_8),
     mealLine(TOMATO, TOMATO_OCT_8),
-    mealLine(OLIVE_OIL, OLIVE_OIL_OCT_8, 'in_cart'),
+    mealLine(OLIVE_OIL, OLIVE_OIL_OCT_8),
     mealLine(RICE, RICE_OCT_10),
     mealLine(TOMATO, TOMATO_OCT_10),
     mealLine(MILK, MILK_OCT_10),
@@ -183,6 +231,51 @@ export const SHOPPING_LIST_UNTIL_OCT_10: ShoppingListRead = {
   manual: [],
   cart: CART,
   totals: { needed: 4, inCart: 1, removed: 0, estimatedCents: 0 },
+  plannedDates: PLANNED_DATES,
+};
+
+/**
+ * `GET /api/shopping-list?untilDate=2026-10-08` once the User ticked the milk and the banana of
+ * the 12th instead, and then brought the date back to the 8th. No line of the read is in the
+ * Cart, and the Cart still holds those two lines: its `lines` do not follow the date.
+ */
+export const SHOPPING_LIST_WITH_CART_OUT_OF_RANGE: ShoppingListRead = {
+  planned: [
+    ingredientLine(RICE, [{ ...RICE_OCT_8, status: 'needed' }]),
+    ingredientLine(CHICKEN, [CHICKEN_OCT_8]),
+    ingredientLine(TOMATO, [TOMATO_OCT_8]),
+    ingredientLine(OLIVE_OIL, [{ ...OLIVE_OIL_OCT_8, status: 'needed' }]),
+  ],
+  manual: [],
+  cart: {
+    ...CART_LEASE,
+    lines: [
+      cartLine(MILK, MILK_OCT_12.quantityMilli),
+      cartLine(BANANA, BANANA_OCT_12.quantityMilli),
+    ],
+  },
+  totals: { needed: 4, inCart: 0, removed: 0, estimatedCents: 0 },
+  plannedDates: PLANNED_DATES,
+};
+
+/**
+ * `GET /api/shopping-list?untilDate=2026-10-08` once the User ticked the rice of the three meals
+ * and then brought the date back to the 8th. The read lists 400 g of rice, the share of the
+ * first meal, and the line of the Cart is the 1250 g of the three: what a confirm buys.
+ */
+export const SHOPPING_LIST_WITH_CART_LINE_BEYOND_RANGE: ShoppingListRead = {
+  planned: [
+    ingredientLine(RICE, [RICE_OCT_8], 'in_cart'),
+    ingredientLine(CHICKEN, [CHICKEN_OCT_8]),
+    ingredientLine(TOMATO, [TOMATO_OCT_8]),
+    ingredientLine(OLIVE_OIL, [{ ...OLIVE_OIL_OCT_8, status: 'needed' }]),
+  ],
+  manual: [],
+  cart: {
+    ...CART_LEASE,
+    lines: [cartLine(RICE, sumQuantities([RICE_OCT_8, RICE_OCT_10, RICE_OCT_12]))],
+  },
+  totals: { needed: 3, inCart: 1, removed: 0, estimatedCents: 0 },
   plannedDates: PLANNED_DATES,
 };
 
@@ -241,6 +334,67 @@ export const SHOPPING_LIST_WITH_MANUAL_AND_REMOVED: ShoppingListRead = {
   totals: { needed: 4, inCart: 1, removed: 1, estimatedCents: 0 },
   plannedDates: PLANNED_DATES,
 };
+
+// The Cart of the plan was bought, with 250 g of rice where 400 g were suggested.
+const RICE_OCT_8_BOUGHT: ShoppingLineAllocation = {
+  ...RICE_OCT_8,
+  quantityMilli: 250_000,
+  status: 'purchased',
+};
+const RICE_OCT_8_REMAINDER = allocation(
+  'b4f6179d-5a2c-41be-9c19-f2d5e61b3a82',
+  LUNCH_OCT_8,
+  150_000
+);
+
+/**
+ * The plan of `SHOPPING_LIST_BY_INGREDIENT` once its Cart was bought. The oil is `purchased`
+ * and stays on the list until its meal is cooked. The rice was bought in part: the share of the
+ * first meal is split into what was bought and a `needed` remainder, and the line reads `needed`
+ * with what is still to buy. Purchased lines are in none of the totals.
+ */
+export const SHOPPING_LIST_AFTER_PURCHASE: ShoppingListRead = {
+  planned: [
+    ingredientLine(RICE, [RICE_OCT_8_BOUGHT, RICE_OCT_8_REMAINDER, RICE_OCT_10, RICE_OCT_12]),
+    ingredientLine(CHICKEN, [CHICKEN_OCT_8, CHICKEN_OCT_12]),
+    ingredientLine(TOMATO, [TOMATO_OCT_8, TOMATO_OCT_10]),
+    ingredientLine(OLIVE_OIL, [OLIVE_OIL_OCT_8], 'purchased'),
+    ingredientLine(MILK, [MILK_OCT_10, MILK_OCT_12]),
+    ingredientLine(BANANA, [BANANA_OCT_12]),
+  ],
+  manual: [],
+  cart: null,
+  totals: { needed: 5, inCart: 0, removed: 0, estimatedCents: 0 },
+  plannedDates: PLANNED_DATES,
+};
+
+/** The `itemId` of the shares of the rice line above that are still to buy. */
+export const RICE_NEEDED_ITEM_IDS = [
+  RICE_OCT_8_REMAINDER.itemId,
+  RICE_OCT_10.itemId,
+  RICE_OCT_12.itemId,
+];
+
+/** The id of the Cart of the fixtures, and of the lines it holds as a confirm names them. */
+export const CART_SESSION_ID = CART.sessionId;
+export const RICE_LINE_ID = `${RICE.ingredientId}:${RICE.unit}`;
+export const OLIVE_OIL_LINE_ID = `${OLIVE_OIL.ingredientId}:${OLIVE_OIL.unit}`;
+/** The id of the milk line of the Cart of `SHOPPING_LIST_WITH_CART_OUT_OF_RANGE`. */
+export const MILK_LINE_ID = `${MILK.ingredientId}:${MILK.unit}`;
+
+/** The 200 body of `POST /api/checkout/confirm` for a physical purchase (section 7.4). */
+export function toCheckoutResponse(movedToInventoryCount = 2) {
+  return {
+    data: {
+      checkoutSessionId: CART_SESSION_ID,
+      status: 'completed',
+      checkoutType: 'physical',
+      movedToInventoryCount,
+      checkedOutItemsCount: movedToInventoryCount,
+      actualTotalCents: 0,
+    },
+  };
+}
 
 /** The `itemId` of the two shares of the tomato line in the fixtures above. */
 export const TOMATO_ITEM_IDS = [TOMATO_OCT_8.itemId, TOMATO_OCT_10.itemId];

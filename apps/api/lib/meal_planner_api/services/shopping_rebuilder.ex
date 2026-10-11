@@ -100,8 +100,8 @@ defmodule MealPlannerApi.Services.ShoppingRebuilder do
     * `rows` — one map per Shopping item of one Scheduled meal:
       `%{item_id, ingredient_id, name, category, unit, quantity_milli,
       status, source, supermarket_id, scheduled_meal_id, date, slot}`.
-      `status` is `:needed | :in_cart | :removed` and `source` is
-      `:planned_meal | :manual`.
+      `status` is `:needed | :in_cart | :removed | :purchased` and `source`
+      is `:planned_meal | :manual`.
     * `group_by` — `:ingredient` or `:meal`.
 
   Every row is expected to have an Ingredient and a Scheduled meal. Rows
@@ -123,16 +123,20 @@ defmodule MealPlannerApi.Services.ShoppingRebuilder do
   line, and lines follow the first appearance of each pair in the input:
 
     * `id` is `"<ingredient_id>:<unit>"`.
-    * `quantity_milli` is the sum of the rows that are not `:removed`. No
+    * `quantity_milli` is the sum of the open rows, the ones that are
+      neither `:removed` nor `:purchased`: what is still to buy. No
       rounding, no unit conversion: the same ingredient in two units stays
       on two lines.
-    * `allocations` list every row, removed ones included, sorted by date,
-      then by slot in the order of the day (see `slot_rank/1`).
-    * `status` is the status the rows that are not `:removed` share,
-      otherwise `:needed`, so a line never reads as in the Cart while part
-      of it is not.
-    * A line whose rows are all `:removed` is the exception: it reads
-      `:removed` and its `quantity_milli` is the sum of every row.
+    * `allocations` list every row, removed and purchased ones included,
+      sorted by date, then by slot in the order of the day (see
+      `slot_rank/1`).
+    * `status` is the status the open rows share, otherwise `:needed`, so a
+      line never reads as in the Cart while part of it is not. A line that
+      was bought in part stays `:needed` (or `:in_cart`) for its remainder.
+    * A line with no open row is the exception. With a `:purchased` row it
+      reads `:purchased` and its `quantity_milli` is the sum of the
+      purchased rows, what was bought. Otherwise every row is `:removed`:
+      it reads `:removed` and its `quantity_milli` is the sum of them all.
     * `supermarket_id` is the value every row shares, otherwise `nil`.
     * `name`, `category` and `source` come from the first row.
   """
@@ -177,13 +181,7 @@ defmodule MealPlannerApi.Services.ShoppingRebuilder do
   defp ingredient_key(row), do: {row.ingredient_id, row.unit}
 
   defp ingredient_line([first | _] = rows) do
-    # The rows that decide the quantity and the status: the ones still on
-    # the list, or all of them when every row was removed.
-    counted =
-      case Enum.reject(rows, &(&1.status == :removed)) do
-        [] -> rows
-        live -> live
-      end
+    counted = counted_rows(rows)
 
     %{
       id: "#{first.ingredient_id}:#{first.unit}",
@@ -200,6 +198,20 @@ defmodule MealPlannerApi.Services.ShoppingRebuilder do
         |> Enum.sort_by(&{Date.to_erl(&1.date), slot_rank(&1.slot)})
         |> Enum.map(&allocation/1)
     }
+  end
+
+  # The rows that decide the quantity and the status of a line: the ones
+  # still to buy; with none of those, the purchased ones; and all of them
+  # when every row was removed.
+  defp counted_rows(rows) do
+    open = Enum.reject(rows, &(&1.status in [:removed, :purchased]))
+    purchased = Enum.filter(rows, &(&1.status == :purchased))
+
+    cond do
+      open != [] -> open
+      purchased != [] -> purchased
+      true -> rows
+    end
   end
 
   defp allocation(row) do

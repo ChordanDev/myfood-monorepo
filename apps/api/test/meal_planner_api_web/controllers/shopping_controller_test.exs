@@ -353,21 +353,23 @@ defmodule MealPlannerApiWeb.ShoppingControllerTest do
       assert line["supermarketId"] == nil
 
       assert [first, second] = line["allocations"]
-      assert sorted_keys(first) == ~w(date itemId quantityMilli scheduledMealId slot)
+      assert sorted_keys(first) == ~w(date itemId quantityMilli scheduledMealId slot status)
       assert is_binary(first["itemId"])
 
       assert Map.delete(first, "itemId") == %{
                "scheduledMealId" => c.first_meal.id,
                "date" => c.today,
                "slot" => "lunch",
-               "quantityMilli" => 400
+               "quantityMilli" => 400,
+               "status" => "needed"
              }
 
       assert Map.delete(second, "itemId") == %{
                "scheduledMealId" => c.second_meal.id,
                "date" => c.later,
                "slot" => "dinner",
-               "quantityMilli" => 400
+               "quantityMilli" => 400,
+               "status" => "needed"
              }
 
       assert data["manual"] == []
@@ -458,7 +460,15 @@ defmodule MealPlannerApiWeb.ShoppingControllerTest do
       # Reading the list does not renew the lease.
       assert own["cart"] == %{
                "sessionId" => marked["sessionId"],
-               "leaseExpiresAt" => marked["leaseExpiresAt"]
+               "leaseExpiresAt" => marked["leaseExpiresAt"],
+               "lines" => [
+                 %{
+                   "id" => "#{c.ingredient.id}:g",
+                   "name" => c.ingredient.name,
+                   "unit" => "g",
+                   "quantityMilli" => 800
+                 }
+               ]
              }
 
       assert [%{"status" => "in_cart"}] = own["planned"]
@@ -475,6 +485,73 @@ defmodule MealPlannerApiWeb.ShoppingControllerTest do
 
       assert [%{"status" => "in_cart"}] = theirs["planned"]
       assert theirs["cart"] == nil
+    end
+
+    test "cart.lines totals every item of a line in the Cart, also the ones untilDate hides",
+         c do
+      [first, second] = shopping_list(c.owner_token, %{"groupBy" => "meal"})["planned"]
+      line = %{"id" => "#{c.ingredient.id}:g", "name" => c.ingredient.name, "unit" => "g"}
+
+      # Only the item of the later meal goes into the Cart.
+      mark_cart(c.owner_token, [second["id"]])
+
+      limited = shopping_list(c.owner_token, %{"untilDate" => c.today})
+
+      assert [%{"status" => "needed", "allocations" => [%{"status" => "needed"}]}] =
+               limited["planned"]
+
+      assert limited["totals"]["inCart"] == 0
+      assert limited["cart"]["lines"] == [Map.put(line, "quantityMilli", 400)]
+
+      mark_cart(c.owner_token, [first["id"]])
+
+      # The read lists 400 g of the line; the Cart holds 800 g of it.
+      limited = shopping_list(c.owner_token, %{"untilDate" => c.today})
+
+      assert [%{"status" => "in_cart", "quantityMilli" => 400}] = limited["planned"]
+      assert limited["cart"]["lines"] == [Map.put(line, "quantityMilli", 800)]
+
+      # The grouping of the read does not change the lines of the Cart.
+      assert shopping_list(c.owner_token, %{"groupBy" => "meal"})["cart"]["lines"] ==
+               limited["cart"]["lines"]
+    end
+
+    test "cart.lines lists only the caller's own Cart", c do
+      [first, second] = shopping_list(c.owner_token, %{"groupBy" => "meal"})["planned"]
+
+      mark_cart(c.owner_token, [first["id"]])
+      mark_cart(c.member_token, [second["id"]])
+
+      own = shopping_list(c.owner_token)
+      theirs = shopping_list(c.member_token)
+
+      # Both shares read in_cart to both members.
+      assert [%{"status" => "in_cart", "quantityMilli" => 800}] = own["planned"]
+      assert own["planned"] == theirs["planned"]
+
+      assert own["cart"]["sessionId"] != theirs["cart"]["sessionId"]
+      assert [%{"id" => line_id, "quantityMilli" => 400}] = own["cart"]["lines"]
+      assert [%{"id" => ^line_id, "quantityMilli" => 400}] = theirs["cart"]["lines"]
+    end
+
+    test "cart.lines lists an item added by hand under its own id and name", c do
+      manual =
+        build_conn()
+        |> put_req_header("authorization", "Bearer " <> c.owner_token)
+        |> post("/api/shopping-items/manual", %{"name" => "Dish soap"})
+        |> json_response(201)
+        |> get_in(["data", "id"])
+
+      mark_cart(c.owner_token, [manual])
+
+      list = shopping_list(c.owner_token)
+
+      assert [%{"id" => ^manual, "name" => "Dish soap", "unit" => unit, "quantityMilli" => q}] =
+               list["manual"]
+
+      assert list["cart"]["lines"] == [
+               %{"id" => manual, "name" => "Dish soap", "unit" => unit, "quantityMilli" => q}
+             ]
     end
 
     test "a malformed untilDate is rejected with the error envelope", c do
@@ -669,7 +746,9 @@ defmodule MealPlannerApiWeb.ShoppingControllerTest do
       |> post("/api/checkout/confirm", %{
         "checkout_type" => "physical",
         "session_id" => mark_body["data"]["sessionId"],
-        "items" => Enum.map(mark_body["data"]["items"], &Map.put(&1, "total_cents", 5000)),
+        "lines" => [
+          %{"item_id" => "#{ingredient.id}:g", "quantity_milli" => 900, "total_cents" => 10_000}
+        ],
         "start_date" => Date.to_iso8601(start_date),
         "end_date" => Date.to_iso8601(end_date)
       })
@@ -818,7 +897,7 @@ defmodule MealPlannerApiWeb.ShoppingControllerTest do
     assert Enum.any?(items, &(&1.status == :archived))
   end
 
-  test "online purchase confirmation adds inventory immediately under the approved contract" do
+  test "online purchase confirmation adds inventory once its delivery is acknowledged" do
     %{token: token, user: %{id: user_id}, account: %{id: account_id}} =
       insert_identity_with_token!(plan: :family_4)
 
@@ -888,16 +967,31 @@ defmodule MealPlannerApiWeb.ShoppingControllerTest do
       |> post("/api/checkout/confirm", %{
         "checkout_type" => "online",
         "session_id" => cart["sessionId"],
-        "items" => Enum.map(cart["items"], &Map.put(&1, "total_cents", 2000)),
+        "lines" => [
+          %{"item_id" => "#{ingredient.id}:g", "quantity_milli" => 300, "total_cents" => 2000}
+        ],
         "start_date" => Date.to_iso8601(start_date),
         "end_date" => Date.to_iso8601(end_date)
       })
 
     checkout_body = json_response(checkout_conn, 200)
 
-    # Purchase confirmation is the only stock boundary, regardless of purchase mode.
-    assert checkout_body["data"]["status"] == "completed"
-    assert checkout_body["data"]["movedToInventoryCount"] == 1
+    # An online purchase waits for its delivery: nothing is stocked at confirm.
+    assert checkout_body["data"]["status"] == "pending_delivery"
+    assert checkout_body["data"]["movedToInventoryCount"] == 0
+    assert Inventory.list_inventory(account_id) == []
+
+    shopping_items = Shopping.list_items_for_account(account_id)
+    assert Enum.all?(shopping_items, &(&1.status == :pending_delivery))
+
+    delivered_body =
+      build_conn()
+      |> put_req_header("authorization", "Bearer " <> token)
+      |> post("/api/checkout/sessions/#{cart["sessionId"]}/delivered", %{})
+      |> json_response(200)
+
+    assert delivered_body["data"]["status"] == "completed"
+    assert delivered_body["data"]["movedToInventoryCount"] == 1
 
     inventory = Inventory.list_inventory(account_id)
     assert length(inventory) == 1
@@ -926,6 +1020,13 @@ defmodule MealPlannerApiWeb.ShoppingControllerTest do
     |> json_response(200)
     |> assert_camel_case_keys()
     |> Map.fetch!("data")
+  end
+
+  defp mark_cart(token, item_ids) do
+    build_conn()
+    |> put_req_header("authorization", "Bearer " <> token)
+    |> post("/api/shopping-items/mark-cart", %{"itemIds" => item_ids})
+    |> json_response(200)
   end
 
   # The code of a 422 read, after checking that the body is the envelope.

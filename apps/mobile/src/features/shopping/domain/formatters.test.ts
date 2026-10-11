@@ -3,28 +3,15 @@ import {
   formatCartButtonLabel,
   formatCountersLabel,
   formatItemMealsLine,
-  formatItemMetaLine,
   formatItemNameLine,
-  formatPrice,
   formatRemovedLabel,
+  formatQuantityInput,
+  formatSuggestedQuantity,
+  parseBoughtQuantityMilli,
   parseQuantityMilli,
   formatUntilButtonLabel,
   formatUntilLabel,
 } from './formatters';
-
-describe('formatPrice', () => {
-  it('writes pesos with a thousands dot and no decimals', () => {
-    expect(formatPrice(1850)).toBe('$1.850');
-    expect(formatPrice(450)).toBe('$450');
-    expect(formatPrice(1234567)).toBe('$1.234.567');
-  });
-
-  it('rounds to the nearest peso', () => {
-    expect(formatPrice(1849.5)).toBe('$1.850');
-    expect(formatPrice(999.6)).toBe('$1.000');
-    expect(formatPrice(0.4)).toBe('$0');
-  });
-});
 
 describe('formatUntilLabel', () => {
   it('writes the day and the short Spanish month of a date key', () => {
@@ -101,16 +88,6 @@ describe('row lines', () => {
   it('writes the quantity before the name of a manual item too', () => {
     expect(formatItemNameLine(paper)).toBe('1 u · Papel de cocina');
   });
-
-  it('writes the supermarket and the price of the best offer', () => {
-    const offer = { supermarket: 'Coto', unitPrice: 1.85, price: 1850 };
-
-    expect(formatItemMetaLine(offer)).toBe('Coto · $1.850');
-  });
-
-  it('says there is no price when there is no offer', () => {
-    expect(formatItemMetaLine(undefined)).toBe('Sin precio');
-  });
 });
 
 describe('formatItemMealsLine', () => {
@@ -121,6 +98,7 @@ describe('formatItemMealsLine', () => {
       date,
       slot,
       quantityMilli: 1,
+      status: 'needed',
     };
   }
 
@@ -172,6 +150,32 @@ describe('formatItemMealsLine', () => {
 
   it('never passes a line of several meals for the line of one, whatever the grouping', () => {
     expect(formatItemMealsLine(line(lunch, dinner), 'meal')).toBe('Para 2 comidas');
+  });
+
+  it('counts only the meals there is still something to buy for', () => {
+    const bought: ShoppingLineAllocation = { ...lunch, status: 'purchased' };
+    const removed: ShoppingLineAllocation = { ...dinner, status: 'removed' };
+
+    expect(formatItemMealsLine(line(bought, lunch, dinner), 'ingredient')).toBe('Para 2 comidas');
+    // Bought in part for its only meal: the remainder is for that one meal.
+    expect(formatItemMealsLine(line(bought, lunch), 'ingredient')).toBeUndefined();
+    expect(formatItemMealsLine(line(removed, lunch), 'ingredient')).toBeUndefined();
+  });
+
+  it('counts the meals a purchased line was bought for, and the ones a removed line had', () => {
+    const bought: ShoppingLineAllocation = { ...lunch, status: 'purchased' };
+    const alsoBought: ShoppingLineAllocation = { ...dinner, status: 'purchased' };
+    const removed: ShoppingLineAllocation = { ...dinner, status: 'removed' };
+
+    expect(
+      formatItemMealsLine({ ...line(bought, alsoBought, removed), status: 'purchased' }, 'meal')
+    ).toBe('Para 2 comidas');
+    expect(formatItemMealsLine({ ...line(bought), status: 'purchased' }, 'meal')).toBe(
+      '8 Oct · Almuerzo'
+    );
+    expect(
+      formatItemMealsLine({ ...line(removed, removed), status: 'removed' }, 'ingredient')
+    ).toBe('Para 2 comidas');
   });
 
   it('has nothing to say about a line without meals', () => {
@@ -246,6 +250,60 @@ describe('parseQuantityMilli', () => {
     'refuses "%s"',
     (text) => {
       expect(parseQuantityMilli(text)).toBeUndefined();
+    }
+  );
+});
+
+describe('parseBoughtQuantityMilli', () => {
+  it.each([
+    ['1', 1_000],
+    ['2,5', 2_500],
+    ['400', 400_000],
+    ['0', 0],
+    ['0,0', 0],
+    [' 0,001 ', 1],
+  ])('reads "%s" as %d thousandths', (text, milli) => {
+    expect(parseBoughtQuantityMilli(text)).toBe(milli);
+  });
+
+  it.each(['', ' ', '-1', 'abc', '1,2,3', '1e3', '1 2'])('refuses "%s"', (text) => {
+    expect(parseBoughtQuantityMilli(text)).toBeUndefined();
+  });
+
+  // The server stores a quantity in an `int4`: 2 147 483 647 thousandths at most.
+  it('reads the largest quantity the server takes', () => {
+    expect(parseBoughtQuantityMilli('2147483,647')).toBe(2_147_483_647);
+  });
+
+  it.each(['2147483,648', '2147484', '3000000', '99999999999'])(
+    'refuses "%s", above what the server takes',
+    (text) => {
+      expect(parseBoughtQuantityMilli(text)).toBeUndefined();
+    }
+  );
+});
+
+describe('formatSuggestedQuantity', () => {
+  it('says what the Cart holds of a line, in the unit of the line', () => {
+    expect(formatSuggestedQuantity(400_000, 'g')).toBe('Sugerido: 400 g');
+    expect(formatSuggestedQuantity(30_000, 'ml')).toBe('Sugerido: 30 ml');
+    expect(formatSuggestedQuantity(2_000, 'unit')).toBe('Sugerido: 2 u');
+  });
+
+  // The field next to it takes the quantity in grams or millilitres: a suggestion in kilos
+  // would have a "2" typed for two kilos bought as two grams.
+  it('never changes to kilos or litres, whatever the quantity', () => {
+    expect(formatSuggestedQuantity(1_500_000, 'g')).toBe('Sugerido: 1500 g');
+    expect(formatSuggestedQuantity(1_250_000, 'g')).toBe('Sugerido: 1250 g');
+    expect(formatSuggestedQuantity(2_000_000, 'ml')).toBe('Sugerido: 2000 ml');
+  });
+
+  it.each([400_000, 1_500_000, 1_250_500, 500, 2_000])(
+    'writes %i thousandths as the field starts with them',
+    (quantityMilli) => {
+      expect(formatSuggestedQuantity(quantityMilli, 'g')).toBe(
+        `Sugerido: ${formatQuantityInput(quantityMilli)} g`
+      );
     }
   );
 });

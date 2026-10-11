@@ -890,14 +890,16 @@ Success response (`groupBy=ingredient`):
             "scheduledMealId": "<scheduled_meal_uuid>",
             "date": "2026-10-08",
             "slot": "lunch",
-            "quantityMilli": 400
+            "quantityMilli": 400,
+            "status": "needed"
           },
           {
             "itemId": "<shopping_item_uuid>",
             "scheduledMealId": "<scheduled_meal_uuid>",
             "date": "2026-10-10",
             "slot": "dinner",
-            "quantityMilli": 400
+            "quantityMilli": 400,
+            "status": "needed"
           }
         ]
       }
@@ -920,23 +922,56 @@ Fields:
 - `planned`: the lines to buy for the plan, ordered by the date of their first allocation, then by its slot
   in the order of the day.
   - `id`: `<ingredientId>:<unit>` with `groupBy=ingredient`; the Shopping item id with `groupBy=meal`.
-  - `status`: `needed`, `in_cart` or `removed`. An ingredient line reads `in_cart` only when every
-    allocation is in a Cart, whoever holds it; otherwise it reads `needed`. A line reads `removed` only when
-    every allocation was removed (7.8); its quantity then adds up all of them, so it can be restored.
+  - `status`: `needed`, `in_cart`, `removed` or `purchased`. It is decided by the allocations that are still
+    to buy, the ones that are neither removed nor purchased: an ingredient line reads `in_cart` only when
+    every one of them is in a Cart, whoever holds it; otherwise it reads `needed`. A line with nothing left
+    to buy reads `purchased` when any allocation was bought, and `removed` only when every allocation was
+    removed (7.8).
+  - `quantityMilli`: what is still to buy, the sum of the allocations that are `needed` or `in_cart`. On a
+    `purchased` line it is what was bought, the sum of its purchased allocations; on a `removed` line it adds
+    up all of them, so it can be restored.
   - `source`: always `planned_meal`.
   - `supermarketId`: the supermarket every allocation is assigned to, or `null` when there is none or they
     differ.
   - `allocations`: the share of the line each Scheduled meal needs. `itemId` is the Shopping item to send to
-    `/api/shopping-items/mark-cart`. With `groupBy=meal` a line has exactly one allocation.
+    `/api/shopping-items/mark-cart`. With `groupBy=meal` a line has exactly one allocation, and the line has
+    the status and the quantity of that allocation.
+    - `status`: the status of that Shopping item, `needed`, `in_cart`, `removed` or `purchased`. Only a
+      `needed` allocation can go into a Cart.
 - `manual`: the Shopping items the User added by hand (7.6) that are still on the list, oldest first. Each
   one has the keys of a `planned` line, with `source` `manual`, `allocations` `[]`, `ingredientId` `null`
   when no ingredient was given and `category` `otros` in that case. They are never merged with each other or
   with a planned line, `untilDate` does not limit them and `groupBy` does not change them. `id` is the
   Shopping item id: send it to `/api/shopping-items/mark-cart` or `DELETE /api/shopping-items/:itemId`.
-- `cart`: the caller's own active Cart, `{ "sessionId": "...", "leaseExpiresAt": "<ISO 8601 datetime>" }`, or
-  `null`. Reading the list does not renew the lease.
+- `cart`: the caller's own active Cart, or `null`. Reading the list does not renew the lease.
+
+  ```json
+  {
+    "sessionId": "<checkout_session_uuid>",
+    "leaseExpiresAt": "<ISO 8601 datetime>",
+    "lines": [
+      { "id": "<ingredient_uuid>:g", "name": "Tomate", "unit": "g", "quantityMilli": 700 },
+      { "id": "<manual_item_uuid>", "name": "Detergente", "unit": "unit", "quantityMilli": 1000 }
+    ]
+  }
+  ```
+
+  - `lines`: the lines of that Cart exactly as a confirm takes them (7.4), `[]` for a Cart that holds
+    nothing. Show these in a confirm screen, not the `in_cart` lines of `planned`.
+    - `id`: the `itemId` to send in the `lines` of a confirm: `<ingredientId>:<unit>` for the planned items
+      of an ingredient, the Shopping item id for a manual item.
+    - `name`: the name of the Ingredient for a planned line, the name of the item for a manual one, as
+      `planned` and `manual` give them.
+    - `quantityMilli`: the total of the line across every Shopping item the Cart holds of it. This is the
+      suggested quantity, the one the line is bought at when the confirm does not list it.
+    - `untilDate` and `groupBy` do not change `lines`: an item marked for a meal after `untilDate` is not in
+      `planned`, and it is still part of its line here and still bought by a confirm. A line can therefore
+      total more than the read shows of it, or not be in `planned` at all.
+    - Only the caller's Cart is listed. The `in_cart` allocations of `planned` also include the ones another
+      member holds, which are in no `lines` of the caller.
 - `totals`: `needed`, `inCart` and `removed` count the lines of `planned` by status;
-  `estimatedCents` adds the estimated price of the needed items. Manual items are not counted.
+  `estimatedCents` adds the estimated price of the needed items. Manual items are not counted, and neither are
+  `purchased` lines: the totals are what is still to buy.
 - `plannedDates`: every date from today on with an uncooked Scheduled meal, sorted. `untilDate` does not
   change it.
 
@@ -954,6 +989,19 @@ envelope does not say which param was rejected. It is returned when:
   }
 }
 ```
+
+Purchased items:
+
+- A planned item bought in a checkout (7.4) stays in `planned` with status `purchased` until its Scheduled
+  meal is cooked or falls outside the range of the read (`untilDate`); after that it is no longer returned.
+  The items of an online purchase read `purchased` from the confirm on, before their delivery.
+- A line bought in part keeps one allocation per part: for the same Scheduled meal, a `purchased` allocation
+  with the quantity bought and a `needed` one with the remainder, each with its own `itemId`. The line reads
+  `needed` with the remainder as its `quantityMilli`.
+- A purchased item is never to buy again. Sending its `itemId` to `/api/shopping-items/mark-cart` is refused
+  and the whole call fails, so send only the `needed` allocations; `/api/shopping-items/set-status` answers
+  `shopping_item_not_found` for it. A later read does not add its Shortage again.
+- Purchased manual items leave the list, with or without an ingredient.
 
 Important inventory-reservation behavior:
 
@@ -995,6 +1043,7 @@ Cart lease (one hour from the last activity):
   Clients renew at most once a minute while the shopping screen is active.
 - Cancel: `DELETE /api/cart/:sessionId` returns `{ "data": { "sessionId", "updatedRows", "status": "abandoned" } }`.
 - An expired lease reads back as `cart: null` on `GET /api/shopping-list`.
+- Marking and renewing do not answer `lines`: only the `cart` of the read (7.1) carries them.
 
 Errors (`{ "error": { "code", "message" } }`):
 
@@ -1023,67 +1072,125 @@ Request body:
 - Method: `POST`
 - Path: `/api/checkout/confirm`
 
+Confirms the caller's Cart as purchased. This route is in the mobile casing scope: keys are camelCase in the
+response, and the body is read in camelCase or snake_case.
+
 Request body:
 
 ```json
 {
-  "checkout_type": "physical",
-  "start_date": "2026-03-30",
-  "end_date": "2026-04-05"
+  "sessionId": "<cart_session_uuid>",
+  "checkoutType": "physical",
+  "lines": [
+    { "itemId": "<ingredient_uuid>:g", "quantityMilli": 1200, "totalCents": 600 },
+    { "itemId": "<manual_item_uuid>", "quantityMilli": 1000 }
+  ]
 }
 ```
 
-`checkout_type` values:
+- `sessionId`: required, the `sessionId` of the Cart (7.1, 7.2).
+- `checkoutType`: required, `physical` or `online`.
+  - `physical`: what was bought enters Inventory now and the session is `completed`.
+  - `online`: nothing enters Inventory yet. The session and its purchased items are `pending_delivery` until
+    the delivery is acknowledged (7.5).
+- `lines`: optional, what was actually bought, one entry per line of the Cart at most. A line of the Cart
+  that is not listed is bought at its suggested quantity, the `quantityMilli` of its `cart.lines` entry, with
+  no price; without `lines` every line is.
+  - `itemId`: the `id` of the line as the `cart.lines` of `GET /api/shopping-list` give it (7.1):
+    `<ingredientId>:<unit>` for the planned items of an ingredient, the Shopping item id for a manual item.
+    It is not the `itemId` of an allocation.
+  - `quantityMilli`: required, an integer, `0` or more. `0` puts the line back on the list as `needed` and
+    buys nothing. A quantity above the suggested one stocks exactly what was bought.
+  - `totalCents`: optional, an integer, `0` or more: what the line cost. It must be `0` or absent when
+    `quantityMilli` is `0`.
 
-- `physical`: immediately moves quantities to inventory and marks rows checked out.
-- `online`: marks rows `pending_delivery` (inventory is updated only on delivery confirmation).
+How a bought quantity is applied:
 
-Success response:
+- The quantity of an ingredient line covers its allocations nearest first (by date, then by slot). An
+  allocation is covered in full before the next one gets anything. The first one that is not fully covered is
+  purchased for the part it got, and its remainder goes back on the list as a new `needed` item for the same
+  Scheduled meal. Allocations that get nothing leave the Cart and stay `needed`.
+- Each purchased item becomes one Inventory lot with a `purchase` movement: `planned` for the item of a
+  Scheduled meal, `extra` for a manual item with an ingredient. A manual item without an ingredient is marked
+  as bought and stocks nothing.
+- `totalCents` is shared by the lots of its line in proportion to their quantity.
+
+Success response (`200`):
 
 ```json
 {
   "data": {
-    "checkout_session_id": "...",
+    "checkoutSessionId": "<cart_session_uuid>",
     "status": "completed",
-    "checkout_type": "physical",
-    "moved_to_inventory_count": 4,
-    "checked_out_items_count": 4,
-    "grouped_by_supermarket": {
-      "unassigned": {
-        "item_count": 4,
-        "total_cents": 12000,
-        "item_ids": ["..."]
-      }
-    }
+    "checkoutType": "physical",
+    "movedToInventoryCount": 3,
+    "checkedOutItemsCount": 3,
+    "actualTotalCents": 600
   }
 }
 ```
+
+- `status`: `completed` for a physical purchase, `pending_delivery` for an online one.
+- `movedToInventoryCount` and `checkedOutItemsCount`: the number of lots created. Both are `0` for an online
+  purchase until it is delivered, and a manual item without an ingredient adds to neither.
+- `actualTotalCents`: the sum of the `totalCents` sent.
+
+The confirm is idempotent: confirming a session that is already `completed` or `pending_delivery` changes
+nothing and answers `200` with the result stored for it, whatever the body carries this time. A client can
+retry a confirm that timed out with the same `sessionId` and never doubles the stock. After a delivery (7.5)
+the stored result is the completed one.
+
+Purchased planned items stay on the list as `purchased` (7.1).
+
+Errors use the error envelope of section 10. Nothing is changed by a refused confirm, except that an expired
+Cart is released.
+
+| Status | Code                         | When                                                                                                                                                                                                        |
+| ------ | ---------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `422`  | `validation_error`           | No `sessionId`, an empty Cart, or malformed `lines`: not a list, an unknown or repeated `itemId`, a `quantityMilli` or `totalCents` that is not an integer of `0` or more, or a price for a quantity of `0` |
+| `422`  | `checkout_invalid_type`      | `checkoutType` is missing or is neither `physical` nor `online`                                                                                                                                             |
+| `404`  | `checkout_session_not_found` | The session is unknown, not a UUID, of another Account, or one another member already closed                                                                                                                |
+| `409`  | `cart_locked`                | The session is the live Cart of another member of the Account                                                                                                                                               |
+| `409`  | `cart_expired`               | The Cart's lease ran out, or the Cart was cancelled. Reread the list and start a new Cart                                                                                                                   |
 
 ### 7.5 Confirm online delivery arrived
 
 - Method: `POST`
-- Path: `/api/checkout/sessions/:checkout_session_id/delivered`
+- Path: `/api/checkout/sessions/:checkoutSessionId/delivered`
+- Body: none.
 
-Success response:
+Acknowledges that an online purchase (7.4) was delivered. For a session that is `pending_delivery` it creates
+the Inventory lots of what was bought, acquired at the delivery, marks its items as bought and completes the
+session. Any member of the Account may call it, not only the one who confirmed the purchase.
+
+Success response (`200`):
 
 ```json
 {
   "data": {
-    "checkout_session_id": "...",
+    "checkoutSessionId": "<cart_session_uuid>",
     "status": "completed",
-    "moved_to_inventory_count": 4,
-    "checked_out_items_count": 4
+    "checkoutType": "online",
+    "movedToInventoryCount": 3,
+    "checkedOutItemsCount": 3,
+    "actualTotalCents": 600
   }
 }
 ```
 
-Shopping errors are returned as `422` with:
+The fields are the ones of the confirm response (7.4), now with the lots that were created.
 
-```json
-{
-  "error": "<reason>"
-}
-```
+The call is idempotent: on a session that is already `completed` it creates nothing and answers `200` with
+the same body. That includes a physical purchase, which answers the result of its confirm.
+
+What was bought arrives even if the plan changed while the purchase was on its way: the lots are created for
+the quantities confirmed, whether or not their Scheduled meals are still planned.
+
+Errors use the error envelope of section 10:
+
+| Status | Code                         | When                                                                                                                |
+| ------ | ---------------------------- | ------------------------------------------------------------------------------------------------------------------- |
+| `404`  | `checkout_session_not_found` | The session is unknown, not a UUID, of another Account, or was never confirmed (a Cart, live, expired or cancelled) |
 
 ### 7.6 Add a manual item
 
@@ -1475,7 +1582,10 @@ Two error body shapes are in use. Which one a request gets depends on the code p
   - `POST /api/shopping-items/manual`, `DELETE /api/shopping-items/:itemId` and
     `POST /api/shopping-items/set-status` (7.6 to 7.8): `422 validation_error`,
     `422 shopping_item_not_manual`, `422 shopping_item_not_planned`, `404 shopping_item_not_found`,
-    `409 shopping_item_in_cart`.
+    `409 shopping_item_in_cart`;
+  - `POST /api/checkout/confirm` and `POST /api/checkout/sessions/:checkoutSessionId/delivered` (7.4 and
+    7.5), for every error: `422 validation_error`, `422 checkout_invalid_type`,
+    `404 checkout_session_not_found`, `409 cart_locked`, `409 cart_expired`.
 - **Flat (legacy, not migrated to the envelope):** `{ "error": "<reason>" }`, with the status chosen by each
   endpoint (`422` in most controllers). It is still returned by:
   - the validation and domain errors that the non-auth controllers build themselves: account context,

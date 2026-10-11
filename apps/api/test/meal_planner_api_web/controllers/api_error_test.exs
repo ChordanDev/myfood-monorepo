@@ -143,6 +143,16 @@ defmodule MealPlannerApiWeb.ApiErrorTest do
       end
     end
 
+    test "maps the Checkout confirm codes to their HTTP status", %{conn: conn} do
+      for {code, status} <- [
+            checkout_invalid_type: 422,
+            cart_expired: 409,
+            checkout_session_not_found: 404
+          ] do
+        assert {code, ApiError.error(conn, code).status} == {code, status}
+      end
+    end
+
     test "maps the Slot cooking times codes to their HTTP status", %{conn: conn} do
       assert (conn |> ApiError.error(:slot_cooking_times_not_found)).status == 404
       assert (conn |> ApiError.error(:invalid_hunger_level)).status == 422
@@ -301,6 +311,9 @@ defmodule MealPlannerApiWeb.ApiErrorTest do
       # The codes of the Cart lease routes (issue #41).
       cart_codes = ~w(cart_locked stale_cart cart_not_found)a
 
+      # The codes of the Checkout confirm (issue #43).
+      checkout_codes = ~w(checkout_invalid_type cart_expired checkout_session_not_found)a
+
       # The codes of the Inventory voice adjustment (issue #44).
       voice_codes = ~w(voice_parse_failed voice_confirmation_required)a
 
@@ -313,6 +326,7 @@ defmodule MealPlannerApiWeb.ApiErrorTest do
                    preferences_codes ++
                    cooking_codes ++
                    cart_codes ++
+                   checkout_codes ++
                    voice_codes ++
                    [
                      :inventory_item_not_found,

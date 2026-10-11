@@ -26,27 +26,33 @@ const ACCESSIBILITY_ACTIONS = [{ name: REMOVE_ACTION, label: 'Quitar de la lista
 
 // What a read-only row in the cart adds to its label: it has no checkbox to say so.
 const IN_CART_LABEL = 'en el carrito';
+// What a bought row shows where the others have their checkbox, and adds to its label.
+const PURCHASED_TAG = 'Comprado';
+const PURCHASED_LABEL = 'comprado';
 
 const META_OPACITY = 0.6;
-// A row in the cart is struck through and dimmed: marked, not bought yet.
+// A row in the cart is struck through and dimmed: marked, not bought yet. A bought row is
+// dimmed the same and tagged, with no line through it: it is not something left to do.
 const IN_CART_OPACITY = 0.45;
 
 export function ShoppingItemRow({ item, meta, onToggle, onRemove }: ShoppingItemRowProps) {
   const { theme } = useRecipeTheme();
   const isInCart = item.status === 'in_cart';
+  const isPurchased = item.status === 'purchased';
+  const isDimmed = isInCart || isPurchased;
   const nameLine = formatItemNameLine(item);
   // An explicit label replaces the text of the children, so it carries every line.
   const label = meta === undefined ? nameLine : `${nameLine}, ${meta}`;
-  const inCartColor = withOpacity(theme.textBlack, IN_CART_OPACITY);
+  const dimmedColor = withOpacity(theme.textBlack, IN_CART_OPACITY);
 
-  // Marking a row is a state change, not a palette change: it must not crossfade.
+  // Marking or buying a row is a state change, not a palette change: it must not crossfade.
   const nameStyle = useAnimatedThemeStyle(
-    { color: isInCart ? inCartColor : theme.textBlack },
-    { immediateKey: isInCart }
+    { color: isDimmed ? dimmedColor : theme.textBlack },
+    { immediateKey: item.status }
   );
   const metaStyle = useAnimatedThemeStyle(
-    { color: isInCart ? inCartColor : withOpacity(theme.textBlack, META_OPACITY) },
-    { immediateKey: isInCart }
+    { color: isDimmed ? dimmedColor : withOpacity(theme.textBlack, META_OPACITY) },
+    { immediateKey: item.status }
   );
 
   const lines = (
@@ -59,6 +65,18 @@ export function ShoppingItemRow({ item, meta, onToggle, onRemove }: ShoppingItem
       )}
     </View>
   );
+
+  // Bought: nothing is left to tick or to remove, whatever the list offers on its other rows.
+  if (isPurchased) {
+    return (
+      <View accessible accessibilityLabel={`${label}, ${PURCHASED_LABEL}`} style={styles.row}>
+        {lines}
+        <Animated.Text testID="shopping-purchased-tag" style={[styles.meta, metaStyle]}>
+          {PURCHASED_TAG}
+        </Animated.Text>
+      </View>
+    );
+  }
 
   if (!onToggle && !onRemove) {
     return (

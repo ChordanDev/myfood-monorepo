@@ -4,7 +4,11 @@ import React from 'react';
 import { act, create } from 'react-test-renderer';
 import {
   MANUAL_DISH_SOAP,
+  RICE_NEEDED_ITEM_IDS,
+  SHOPPING_LIST_AFTER_PURCHASE,
   SHOPPING_LIST_BY_INGREDIENT,
+  SHOPPING_LIST_WITH_CART_LINE_BEYOND_RANGE,
+  SHOPPING_LIST_WITH_CART_OUT_OF_RANGE,
   SHOPPING_LIST_WITH_MANUAL_AND_REMOVED,
   TOMATO_ITEM_IDS,
   toDeleteItemResponse,
@@ -147,6 +151,64 @@ describe('useShoppingList: items added by hand and removed ones', () => {
       body: { itemIds: TOMATO_ITEM_IDS, status: 'removed' },
     });
     expect(hook.current.removedCount).toBe(1);
+  });
+
+  it('removes a line bought in part through the shares that are not bought', async () => {
+    const hook = await renderHook(SHOPPING_LIST_AFTER_PURCHASE);
+    const rice = SHOPPING_LIST_AFTER_PURCHASE.planned.find((line) => line.name === 'Arroz')!;
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse(toSetStatusResponse('removed', RICE_NEEDED_ITEM_IDS))
+    );
+    answerWithList(SHOPPING_LIST_AFTER_PURCHASE);
+
+    await act(async () => {
+      await hook.current.removeItem(rice.id);
+    });
+
+    expect(requests()[0].body).toEqual({ itemIds: RICE_NEEDED_ITEM_IDS, status: 'removed' });
+  });
+
+  it('keeps a purchased line listed, counts its lines for the Cart apart, and never removes it', async () => {
+    const hook = await renderHook(SHOPPING_LIST_AFTER_PURCHASE);
+    const oil = SHOPPING_LIST_AFTER_PURCHASE.planned.find(
+      (line) => line.name === 'Aceite de oliva'
+    )!;
+
+    const names = hook.current.groups.flatMap((group) => group.items.map((item) => item.name));
+    expect(names).toContain('Aceite de oliva');
+    expect(hook.current.cartLines).toEqual([]);
+
+    await act(async () => {
+      await hook.current.removeItem(oil.id);
+    });
+
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('serves the lines of the Cart of the read', async () => {
+    const hook = await renderHook(SHOPPING_LIST_BY_INGREDIENT);
+
+    expect(hook.current.cartLines.map(({ name, quantityMilli }) => [name, quantityMilli])).toEqual([
+      ['Aceite de oliva', 30_000],
+      ['Arroz', 400_000],
+    ]);
+  });
+
+  it('serves the whole line of the Cart when the read lists only a part of it', async () => {
+    const hook = await renderHook(SHOPPING_LIST_WITH_CART_LINE_BEYOND_RANGE);
+
+    expect(hook.current.cartLines.map(({ name, quantityMilli }) => [name, quantityMilli])).toEqual([
+      ['Arroz', 1_250_000],
+    ]);
+  });
+
+  it('serves the lines of the Cart that the read does not list', async () => {
+    const hook = await renderHook(SHOPPING_LIST_WITH_CART_OUT_OF_RANGE);
+
+    expect(hook.current.cartLines.map(({ name, quantityMilli }) => [name, quantityMilli])).toEqual([
+      ['Leche', 750_000],
+      ['Banana', 2_000],
+    ]);
   });
 
   it('restores every removed line', async () => {
