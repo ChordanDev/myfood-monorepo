@@ -1,4 +1,5 @@
 import type { CalendarProps } from '@/features/home';
+import type { UnitType } from '@/types/domain';
 import type { ShoppingLineStatus, ShoppingListLine } from './shoppingApi';
 
 // `in_cart` is a row marked and not bought yet.
@@ -25,6 +26,17 @@ export type BestOffer = {
   unitPrice: number;
   // `unitPrice` times the quantity of the row it was resolved for.
   price: number;
+};
+
+// A line of the Cart, as a confirm names it: the planned items of one ingredient and unit that
+// are in a Cart, added up, or one item added by hand.
+export type ShoppingCartLine = {
+  // What a confirm calls the line: `<ingredientId>:<unit>`, or the id of a manual item.
+  id: string;
+  name: string;
+  unit: UnitType;
+  // What the Cart holds of it: the quantity a confirm buys unless another one is sent.
+  quantityMilli: number;
 };
 
 // A card of the list: the planned lines of one ingredient category.

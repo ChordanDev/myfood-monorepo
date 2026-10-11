@@ -1,12 +1,15 @@
 /// <reference types="node" />
 import { ApiError } from '@/api/errors';
 import {
+  CART_SESSION_ID,
   MANUAL_DISH_SOAP,
+  RICE_LINE_ID,
   SHOPPING_LIST_BY_INGREDIENT,
   SHOPPING_LIST_BY_MEAL,
   SHOPPING_LIST_UNTIL_OCT_10,
   SHOPPING_LIST_VALIDATION_ERROR,
   TOMATO_ITEM_IDS,
+  toCheckoutResponse,
   toDeleteItemResponse,
   toManualItemResponse,
   toSetStatusResponse,
@@ -16,6 +19,7 @@ import {
 import {
   addManualShoppingItem,
   cancelCart,
+  confirmCheckout,
   deleteShoppingItem,
   getShoppingList,
   markInCart,
@@ -490,6 +494,101 @@ describe('the Cart lease', () => {
       );
 
       await expect(cancelCart('session-1')).rejects.toMatchObject({ code: 'cart_not_found' });
+    });
+  });
+
+  describe('confirmCheckout', () => {
+    const CONFIRM_URL = 'https://api.example.test/api/checkout/confirm';
+    const RESULT = toCheckoutResponse().data;
+
+    it('posts the session, the type and the lines that were adjusted, authenticated', async () => {
+      const lines = [{ itemId: RICE_LINE_ID, quantityMilli: 250_000 }];
+      fetchMock.mockReturnValueOnce(mockJsonResponse(toCheckoutResponse()));
+
+      await expect(
+        confirmCheckout({ sessionId: CART_SESSION_ID, checkoutType: 'physical', lines })
+      ).resolves.toEqual(RESULT);
+
+      const [url, init] = fetchMock.mock.calls[0];
+      expect(url).toBe(CONFIRM_URL);
+      expect(init.method).toBe('POST');
+      expect(JSON.parse(init.body)).toEqual({
+        sessionId: CART_SESSION_ID,
+        checkoutType: 'physical',
+        lines,
+      });
+      expect(init.headers.Authorization ?? init.headers.get?.('Authorization')).toBe(
+        'Bearer access-1'
+      );
+    });
+
+    it('sends no lines when every line is bought as the Cart holds it', async () => {
+      fetchMock.mockReturnValue(mockJsonResponse(toCheckoutResponse()));
+
+      await confirmCheckout({ sessionId: CART_SESSION_ID, checkoutType: 'physical' });
+      await confirmCheckout({ sessionId: CART_SESSION_ID, checkoutType: 'physical', lines: [] });
+
+      for (const [, init] of fetchMock.mock.calls) {
+        expect(JSON.parse(init.body)).toEqual({
+          sessionId: CART_SESSION_ID,
+          checkoutType: 'physical',
+        });
+      }
+    });
+
+    it('reads an online purchase that waits for its delivery', async () => {
+      const pending = { ...RESULT, status: 'pending_delivery', checkoutType: 'online' };
+      fetchMock.mockReturnValueOnce(mockJsonResponse({ data: pending }));
+
+      await expect(
+        confirmCheckout({ sessionId: CART_SESSION_ID, checkoutType: 'online' })
+      ).resolves.toEqual(pending);
+    });
+
+    it('asks again when the network fails: the server answers a repeated confirm the same', async () => {
+      fetchMock
+        .mockRejectedValueOnce(new TypeError('Network request failed'))
+        .mockReturnValueOnce(mockJsonResponse(toCheckoutResponse()));
+
+      await expect(
+        confirmCheckout({ sessionId: CART_SESSION_ID, checkoutType: 'physical' })
+      ).resolves.toEqual(RESULT);
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+    });
+
+    it.each([
+      ['an empty body', null],
+      ['a body without `data`', RESULT],
+      ['no session id', { data: { ...RESULT, checkoutSessionId: undefined } }],
+      ['a status it does not know', { data: { ...RESULT, status: 'draft' } }],
+      ['a type it does not know', { data: { ...RESULT, checkoutType: 'barter' } }],
+      ['a count that is not a number', { data: { ...RESULT, movedToInventoryCount: '2' } }],
+      ['no total', { data: { ...RESULT, actualTotalCents: undefined } }],
+    ])('rejects %s as unintelligible', async (_name, body) => {
+      fetchMock.mockReturnValueOnce(mockJsonResponse(body));
+
+      await expect(
+        confirmCheckout({ sessionId: CART_SESSION_ID, checkoutType: 'physical' })
+      ).rejects.toMatchObject({ code: 'unknown_error', message: 'Malformed checkout response' });
+    });
+
+    it.each([
+      ['cart_expired', 409],
+      ['cart_locked', 409],
+      ['checkout_session_not_found', 404],
+      ['validation_error', 422],
+    ])('surfaces a refused confirm as `%s`', async (code, status) => {
+      fetchMock.mockReturnValueOnce(
+        mockJsonResponse({ error: { code, message: 'refused' } }, false, status)
+      );
+
+      const error = await confirmCheckout({
+        sessionId: CART_SESSION_ID,
+        checkoutType: 'physical',
+      }).catch((caught) => caught);
+
+      expect(error).toBeInstanceOf(ApiError);
+      expect(error).toMatchObject({ code, status });
     });
   });
 });

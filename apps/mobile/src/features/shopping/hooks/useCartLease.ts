@@ -2,17 +2,29 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { AppState } from 'react-native';
 import { useFocusEffect } from 'expo-router';
 import { getAuthErrorMessage, isApiError } from '@/api/errors';
-import { cancelCart, markInCart, renewCart } from '../api/shoppingApi';
-import type { ShoppingCart } from '../types';
+import { cancelCart, confirmCheckout, markInCart, renewCart } from '../api/shoppingApi';
+import type { CheckoutLine, ShoppingCart } from '../types';
 
 // The server holds a Cart for a while after its last activity. Renewing at most once a
 // minute keeps it alive without a request per tick or per render.
 export const CART_RENEW_INTERVAL_MS = 60_000;
 
-// The server no longer holds the lease: it ran out or the Cart is gone.
+// What the server answers once it no longer holds the lease: it ran out or the Cart is gone.
+// The last two are how a confirm says it.
+const LEASE_GONE_CODES: readonly string[] = [
+  'stale_cart',
+  'cart_not_found',
+  'cart_expired',
+  'checkout_session_not_found',
+];
+
 function isLeaseGone(caught: unknown) {
-  return isApiError(caught) && ['stale_cart', 'cart_not_found'].includes(caught.code);
+  return isApiError(caught) && LEASE_GONE_CODES.includes(caught.code);
 }
+
+// How a confirm ended: the Cart was bought, the Cart is gone and there is nothing to confirm,
+// or the server refused and the Cart is as it was.
+export type CartConfirmOutcome = 'purchased' | 'cart_gone' | 'refused';
 
 interface UseCartLeaseOptions {
   // The Cart the last read of the list reported for the signed-in Membership, if any.
@@ -23,11 +35,18 @@ interface UseCartLeaseOptions {
 
 // The Cart lease of the Membership while it shops: ticking items starts it, the screen being
 // open and the app in the foreground keep it alive, and abandoning the Cart releases it.
-// Leaving the screen does not cancel: the lease just stops being renewed and runs out.
+// Leaving the screen does not cancel: the lease just stops being renewed and runs out. Buying
+// the Cart ends it.
 export function useCartLease({ listCart, refreshList }: UseCartLeaseOptions) {
   const [cart, setCart] = useState<ShoppingCart | null>(listCart);
   const [isHeldByAnother, setIsHeldByAnother] = useState(false);
   const [error, setError] = useState<unknown>(null);
+  // What the last confirm was refused with while the Cart stays: it is said where the confirm
+  // was asked, apart from the errors of the list.
+  const [confirmError, setConfirmError] = useState<unknown>(null);
+  const [isConfirming, setIsConfirming] = useState(false);
+  // A ref next to the state: two presses can land before the first one has re-rendered anything.
+  const isConfirmingRef = useRef(false);
   const [isFocused, setIsFocused] = useState(false);
   const [isAppActive, setIsAppActive] = useState(AppState.currentState === 'active');
   const [readCart, setReadCart] = useState(listCart);
@@ -129,10 +148,50 @@ export function useCartLease({ listCart, refreshList }: UseCartLeaseOptions) {
     }
   }, [sessionId, dropCart]);
 
+  // Buys the Cart in person. Only the lines bought at another quantity than the Cart holds are
+  // passed. One confirm is on its way at a time; asking again after a failure is safe, since
+  // the server answers a session it already confirmed with the result of the first time.
+  const confirm = useCallback(
+    async (lines: CheckoutLine[]): Promise<CartConfirmOutcome> => {
+      if (sessionId === undefined || isConfirmingRef.current) return 'refused';
+
+      isConfirmingRef.current = true;
+      setIsConfirming(true);
+      setError(null);
+      setConfirmError(null);
+
+      try {
+        await confirmCheckout({ sessionId, checkoutType: 'physical', lines });
+        dropCart();
+        return 'purchased';
+      } catch (caught) {
+        if (isLeaseGone(caught)) {
+          setError(caught);
+          dropCart();
+          return 'cart_gone';
+        }
+
+        setConfirmError(caught);
+        return 'refused';
+      } finally {
+        isConfirmingRef.current = false;
+        setIsConfirming(false);
+      }
+    },
+    [sessionId, dropCart]
+  );
+
+  const dismissConfirmError = useCallback(() => setConfirmError(null), []);
+
   return {
     cart,
     markItems,
     cancel,
+    confirm,
+    isConfirming,
+    // Why the last confirm was refused, while the Cart is still there to confirm again.
+    confirmErrorMessage: confirmError === null ? undefined : getAuthErrorMessage(confirmError),
+    dismissConfirmError,
     // Another member of the Account holds some of the items ticked.
     isHeldByAnother,
     errorMessage: error === null ? undefined : getAuthErrorMessage(error),
