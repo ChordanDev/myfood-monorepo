@@ -385,10 +385,11 @@ defmodule MealPlannerApiWeb.CookingControllerTest do
           suitable_for_slots: [:dinner]
         })
 
+      # The server gates on the Account's day, so the meal is scheduled on it.
       {:ok, meal} =
         Planning.schedule_meal(%{
           account_id: account_id,
-          date: Date.utc_today(),
+          date: MealPlannerApi.AccountClock.today(account_id),
           slot: :dinner,
           recipe_id: recipe.id
         })
@@ -401,7 +402,7 @@ defmodule MealPlannerApiWeb.CookingControllerTest do
         |> json_response(200)
         |> get_in(["data", "sessionId"])
 
-      {:ok, conn: conn, meal: meal, session_id: session_id}
+      {:ok, conn: conn, meal: meal, session_id: session_id, account_id: account_id}
     end
 
     defp chat_count,
@@ -455,10 +456,85 @@ defmodule MealPlannerApiWeb.CookingControllerTest do
       assert restart_body["data"]["chatMessages"] == read_body["data"]["chatMessages"]
     end
 
-    test "ask for a meal no longer on today is 409 cooking_chat_unavailable",
+    test "ask answers with the two stored turns, and a repeat of its id with the same pair",
+         %{conn: conn, session_id: session_id} do
+      params = %{"message" => "How long?", "clientMessageId" => Ecto.UUID.generate()}
+
+      body =
+        conn
+        |> post("/api/cooking/sessions/#{session_id}/ask", params)
+        |> json_response(200)
+        |> assert_camel_case_keys()
+
+      assert [
+               %{"role" => "user", "content" => "How long?"} = question,
+               %{"role" => "assistant", "content" => answer} = reply
+             ] = body["data"]["turns"]
+
+      assert body["data"]["message"] == answer
+
+      for turn <- [question, reply] do
+        assert turn |> Map.keys() |> Enum.sort() == ~w(content id insertedAt role)
+        assert {:ok, _} = Ecto.UUID.cast(turn["id"])
+        assert {:ok, _, _} = DateTime.from_iso8601(turn["insertedAt"])
+      end
+
+      repeat =
+        conn
+        |> post("/api/cooking/sessions/#{session_id}/ask", params)
+        |> json_response(200)
+
+      assert repeat["data"] == body["data"]
+      assert chat_count() == 2
+    end
+
+    test "a malformed clientMessageId is a validation error",
+         %{conn: conn, session_id: session_id} do
+      for bad <- ["not-a-uuid", 42] do
+        conn =
+          post(conn, "/api/cooking/sessions/#{session_id}/ask", %{
+            "message" => "Hi",
+            "clientMessageId" => bad
+          })
+
+        assert %{"error" => %{"code" => "validation_error"}} = json_response(conn, 422)
+      end
+
+      assert chat_count() == 0
+    end
+
+    test "start on a cooked meal returns its finished session with the history",
          %{conn: conn, meal: meal, session_id: session_id} do
+      conn
+      |> post("/api/cooking/sessions/#{session_id}/ask", %{"message" => "Before?"})
+      |> json_response(200)
+
+      conn |> post("/api/cooking/sessions/#{session_id}/finish") |> json_response(200)
+
+      body =
+        conn
+        |> post("/api/cooking/start", %{"scheduledMealId" => meal.id})
+        |> json_response(200)
+        |> assert_camel_case_keys()
+
+      assert %{"sessionId" => ^session_id, "status" => "completed"} = body["data"]
+
+      assert [%{"role" => "user", "content" => "Before?"}, %{"role" => "assistant"}] =
+               body["data"]["chatMessages"]
+
+      refute Map.has_key?(body["data"]["snapshot"], "frozen")
+
+      again = post(conn, "/api/cooking/sessions/#{session_id}/ask", %{"message" => "After?"})
+      assert %{"error" => %{"code" => "cooking_already_finished"}} = json_response(again, 409)
+      assert chat_count() == 2
+    end
+
+    test "ask for a meal no longer on today is 409 cooking_chat_unavailable",
+         %{conn: conn, meal: meal, session_id: session_id, account_id: account_id} do
       meal
-      |> Planning.ScheduledMeal.changeset(%{date: Date.add(Date.utc_today(), 1)})
+      |> Planning.ScheduledMeal.changeset(%{
+        date: Date.add(MealPlannerApi.AccountClock.today(account_id), 1)
+      })
       |> MealPlannerApi.Repo.update!()
 
       conn = post(conn, "/api/cooking/sessions/#{session_id}/ask", %{"message" => "Hi"})

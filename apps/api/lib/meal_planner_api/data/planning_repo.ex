@@ -579,6 +579,20 @@ defmodule MealPlannerApi.Data.PlanningRepo do
     |> Repo.one()
   end
 
+  @doc "The Cooking session that cooked the meal last, if it has a finished one."
+  @spec completed_cooking_session_for_meal(Ecto.UUID.t(), Ecto.UUID.t()) ::
+          CookingSession.t() | nil
+  def completed_cooking_session_for_meal(account_id, meal_id) do
+    from(s in CookingSession,
+      where:
+        s.scheduled_meal_id == ^meal_id and s.account_id == ^account_id and
+          s.status == :completed,
+      order_by: [desc_nulls_last: s.completed_at, desc: s.inserted_at],
+      limit: 1
+    )
+    |> Repo.one()
+  end
+
   @spec add_chat_message(map()) :: {:ok, CookingChatMessage.t()} | {:error, Ecto.Changeset.t()}
   def add_chat_message(attrs),
     do: %CookingChatMessage{} |> CookingChatMessage.changeset(attrs) |> Repo.insert()
@@ -591,6 +605,37 @@ defmodule MealPlannerApi.Data.PlanningRepo do
       order_by: [asc: m.inserted_at, asc: m.id]
     )
     |> Repo.all()
+  end
+
+  @doc """
+  The stored question that carries a client message id and the answer stored
+  with it, or `nil` when the session has no such complete pair.
+  """
+  @spec chat_pair_for_client_message(Ecto.UUID.t(), Ecto.UUID.t()) ::
+          [CookingChatMessage.t()] | nil
+  def chat_pair_for_client_message(session_id, client_message_id) do
+    question =
+      Repo.one(
+        from(m in CookingChatMessage,
+          where:
+            m.cooking_session_id == ^session_id and m.role == :user and
+              m.client_message_id == ^client_message_id
+        )
+      )
+
+    answer =
+      question &&
+        Repo.one(
+          from(m in CookingChatMessage,
+            where:
+              m.cooking_session_id == ^session_id and m.role == :assistant and
+                m.inserted_at > ^question.inserted_at,
+            order_by: [asc: m.inserted_at, asc: m.id],
+            limit: 1
+          )
+        )
+
+    answer && [question, answer]
   end
 
   @spec add_step_event(map()) :: {:ok, CookingStepEvent.t()} | {:error, Ecto.Changeset.t()}

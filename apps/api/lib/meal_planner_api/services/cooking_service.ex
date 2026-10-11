@@ -24,8 +24,9 @@ defmodule MealPlannerApi.Services.CookingService do
   @type step_status :: :started | :paused | :completed | :error
 
   # Key of the frozen recipe-and-inventory state inside
-  # `cooking_sessions.context_snapshot`. It is written once at session creation
-  # and never serialized: the step state around it is what clients read.
+  # `cooking_sessions.context_snapshot`. The first question of the Account's
+  # day writes it and it is never serialized: the step state around it is what
+  # clients read.
   @frozen_key "frozen"
 
   @max_question_length 2000
@@ -44,7 +45,9 @@ defmodule MealPlannerApi.Services.CookingService do
   `{:error, :cooking_chat_unavailable}`.
 
   A meal has one active session: starting it again returns that session, with
-  its chat history, instead of creating another.
+  its chat history, instead of creating another. A cooked meal returns the
+  finished session that cooked it, so its conversation can still be read; a
+  meal that is not cooked and has no active session gets a new one.
   """
   @spec start_session(map(), binary(), DateTime.t()) :: {:ok, map()} | {:error, term()}
   def start_session(current_user, scheduled_meal_id, now \\ DateTime.utc_now())
@@ -55,7 +58,7 @@ defmodule MealPlannerApi.Services.CookingService do
            PlanningRepo.get_scheduled_meal_for_account(ids.account_id, meal_id),
          :ok <- planned_meal(meal, ids.account_id),
          :ok <- meal_is_today(meal, ids.account_id, now),
-         {:ok, session} <- find_or_create_session(ids, meal, now) do
+         {:ok, session} <- find_or_create_session(ids, meal) do
       snapshot = PlanningRepo.latest_context_snapshot(session.id)
       # Preload scheduled_meal on session for serialization
       session = PlanningRepo.get_cooking_session_for_account(ids.account_id, session.id)
@@ -157,36 +160,76 @@ defmodule MealPlannerApi.Services.CookingService do
   today at `now` `:cooking_chat_unavailable`. The answer is built from the
   frozen Context snapshot and the prior turns; the provider is called outside
   any transaction, and nothing is stored when the session finished meanwhile.
+
+  The Context snapshot is frozen by the first question of the Account's day
+  and reused by the later ones.
+
+  `client_message_id` is the UUID the client gave the question. A repeat of an
+  id the session already stored returns that stored pair: the provider is not
+  called and nothing is written. A malformed id is `:validation_error`.
   """
-  @spec answer_question(map(), binary(), binary(), String.t(), DateTime.t()) ::
+  @spec answer_question(map(), binary(), binary(), String.t(), DateTime.t(), term()) ::
           {:ok, map()} | {:error, term()}
   def answer_question(
         current_user,
         session_id,
         message,
         content_type \\ "text",
-        now \\ DateTime.utc_now()
+        now \\ DateTime.utc_now(),
+        client_message_id \\ nil
       )
       when is_binary(session_id) and is_binary(message) and is_binary(content_type) do
     with {:ok, ids} <- RecipeAccess.authorize(current_user),
          {:ok, question} <- chat_question(message),
-         {:ok, session} <- chat_session(ids, session_id, now),
-         current_snapshot <- PlanningRepo.latest_context_snapshot(session.id),
-         assistant_text <-
-           build_contextual_answer(session, current_snapshot, question, content_type),
-         {:ok, _ids} <- RecipeAccess.authorize(current_user),
-         {:ok, _session} <- chat_session(ids, session.id, now),
-         {:ok, turns} <- persist_turns(ids, session.id, question, assistant_text) do
-      {:ok,
-       %{
-         session_id: session.id,
-         message: assistant_text,
-         content_type: "text",
-         step_context: snapshot_step_context(current_snapshot),
-         turns: Enum.map(turns, &serialize_turn/1)
-       }}
+         {:ok, message_id} <- cast_client_message_id(client_message_id),
+         {:ok, session} <- chat_session(ids, session_id, now) do
+      case stored_pair(session.id, message_id) do
+        nil ->
+          ask_and_store(current_user, ids, session, {question, message_id}, content_type, now)
+
+        turns ->
+          {:ok, answer_payload(session.id, turns)}
+      end
     end
   end
+
+  defp ask_and_store(current_user, ids, session, {question, message_id}, content_type, now) do
+    with {:ok, frozen} <- freeze_context(ids, session, now),
+         assistant_text <- build_contextual_answer(session.id, frozen, question, content_type),
+         {:ok, _ids} <- RecipeAccess.authorize(current_user),
+         {:ok, _session} <- chat_session(ids, session.id, now),
+         {:ok, turns} <- persist_turns(ids, session.id, {question, message_id}, assistant_text) do
+      {:ok, answer_payload(session.id, turns)}
+    end
+  end
+
+  defp answer_payload(session_id, [_question, answer] = turns) do
+    %{
+      session_id: session_id,
+      message: answer.content,
+      content_type: "text",
+      step_context:
+        session_id |> PlanningRepo.latest_context_snapshot() |> snapshot_step_context(),
+      turns: Enum.map(turns, &serialize_turn/1)
+    }
+  end
+
+  defp cast_client_message_id(nil), do: {:ok, nil}
+
+  # Only the canonical text form: `Ecto.UUID.cast/1` also takes 16 raw bytes.
+  defp cast_client_message_id(<<_::binary-size(36)>> = id) do
+    case Ecto.UUID.cast(id) do
+      {:ok, uuid} -> {:ok, uuid}
+      :error -> {:error, :validation_error}
+    end
+  end
+
+  defp cast_client_message_id(_other), do: {:error, :validation_error}
+
+  defp stored_pair(_session_id, nil), do: nil
+
+  defp stored_pair(session_id, message_id),
+    do: PlanningRepo.chat_pair_for_client_message(session_id, message_id)
 
   defp chat_question(message) do
     question = String.trim(message)
@@ -218,27 +261,74 @@ defmodule MealPlannerApi.Services.CookingService do
   defp chat_available(_session, _now), do: {:error, :cooking_session_not_active}
 
   # The session lock orders this write against a concurrent finish, so a
-  # finished session never gains turns. The user turn is stamped first.
-  defp persist_turns(ids, session_id, question, answer) do
+  # finished session never gains turns. It also orders two requests carrying
+  # the same client message id: the second one finds the pair of the first and
+  # stores nothing. The user turn is stamped first.
+  defp persist_turns(ids, session_id, {question, message_id}, answer) do
     Repo.transaction(fn ->
-      session =
-        PlanningRepo.lock_cooking_session_for_account(ids.account_id, session_id) ||
-          Repo.rollback(:session_not_found)
+      session = lock_active_session!(ids, session_id)
 
-      case session.status do
-        :active -> :ok
-        :completed -> Repo.rollback(:cooking_already_finished)
-        _ -> Repo.rollback(:cooking_session_not_active)
+      case stored_pair(session.id, message_id) do
+        nil -> insert_turns!(ids, session.id, {question, message_id}, answer)
+        turns -> turns
       end
-
-      asked_at = DateTime.utc_now()
-
-      [
-        %{role: :user, content: question, user_id: ids.user_id, inserted_at: asked_at},
-        %{role: :assistant, content: answer, inserted_at: DateTime.add(asked_at, 1, :microsecond)}
-      ]
-      |> Enum.map(&insert_turn!(&1, session.id))
     end)
+  end
+
+  defp insert_turns!(ids, session_id, {question, message_id}, answer) do
+    asked_at = DateTime.utc_now()
+
+    [
+      %{
+        role: :user,
+        content: question,
+        user_id: ids.user_id,
+        client_message_id: message_id,
+        inserted_at: asked_at
+      },
+      %{role: :assistant, content: answer, inserted_at: DateTime.add(asked_at, 1, :microsecond)}
+    ]
+    |> Enum.map(&insert_turn!(&1, session_id))
+  end
+
+  # Call only inside a transaction: anything but an active session rolls back.
+  defp lock_active_session!(ids, session_id) do
+    session =
+      PlanningRepo.lock_cooking_session_for_account(ids.account_id, session_id) ||
+        Repo.rollback(:session_not_found)
+
+    case session.status do
+      :active -> session
+      :completed -> Repo.rollback(:cooking_already_finished)
+      _ -> Repo.rollback(:cooking_session_not_active)
+    end
+  end
+
+  # Freezes the Context snapshot on the first question of the Account's day
+  # and returns it. The session lock makes concurrent first questions agree on
+  # one capture; a part captured on another day, or a session that has none,
+  # is replaced.
+  defp freeze_context(ids, session, now) do
+    today = AccountClock.today(ids.account_id, now)
+    captured_on = Date.to_iso8601(today)
+
+    Repo.transaction(fn ->
+      locked = lock_active_session!(ids, session.id)
+
+      case (locked.context_snapshot || %{})[@frozen_key] do
+        %{"captured_on" => ^captured_on} = frozen -> frozen
+        _stale_or_missing -> store_frozen!(locked, frozen_context(ids, session, today, now))
+      end
+    end)
+  end
+
+  defp store_frozen!(session, frozen) do
+    snapshot = Map.put(session.context_snapshot || %{}, @frozen_key, frozen)
+
+    case PlanningRepo.update_cooking_session(session, %{context_snapshot: snapshot}) do
+      {:ok, _session} -> frozen
+      {:error, _changeset} -> Repo.rollback(:validation_error)
+    end
   end
 
   defp insert_turn!(turn, session_id) do
@@ -282,13 +372,15 @@ defmodule MealPlannerApi.Services.CookingService do
 
   # The meal row lock serializes concurrent starts of one meal, so the lookup
   # and the insert cannot interleave into two active sessions.
-  defp find_or_create_session(ids, meal, now) do
+  defp find_or_create_session(ids, meal) do
     Repo.transaction(fn ->
-      PlanningRepo.lock_cooking_meal_for_account(ids.account_id, meal.id) ||
-        Repo.rollback(:scheduled_meal_not_found)
+      locked =
+        PlanningRepo.lock_cooking_meal_for_account(ids.account_id, meal.id) ||
+          Repo.rollback(:scheduled_meal_not_found)
 
       with nil <- PlanningRepo.active_cooking_session_for_meal(ids.account_id, meal.id),
-           {:ok, session} <- create_session(ids, meal, now) do
+           nil <- cooked_session(ids, locked),
+           {:ok, session} <- create_session(ids, meal) do
         session
       else
         {:error, reason} -> Repo.rollback(reason)
@@ -297,7 +389,14 @@ defmodule MealPlannerApi.Services.CookingService do
     end)
   end
 
-  defp create_session(ids, meal, now) do
+  # A cooked meal keeps the session that cooked it. One marked cooked outside
+  # a session (calendar) has none, and one set back to not cooked starts over.
+  defp cooked_session(ids, %{is_cooked: true, id: meal_id}),
+    do: PlanningRepo.completed_cooking_session_for_meal(ids.account_id, meal_id)
+
+  defp cooked_session(_ids, _meal), do: nil
+
+  defp create_session(ids, meal) do
     recipe = RecipeVersions.recipe_for_meal(meal)
 
     first_step_id =
@@ -323,8 +422,7 @@ defmodule MealPlannerApi.Services.CookingService do
         scheduled_meal_id: meal.id,
         status: :active,
         started_at: DateTime.utc_now(),
-        context_snapshot:
-          Map.put(initial_snapshot, @frozen_key, frozen_context(ids.account_id, recipe, now))
+        context_snapshot: initial_snapshot
       })
 
     case result do
@@ -356,11 +454,14 @@ defmodule MealPlannerApi.Services.CookingService do
   end
 
   # The Context snapshot: the recipe as planned and the usable stock on the
-  # Account's today, captured once. The chat answers from this, never from
-  # live reads, so later Inventory changes do not rewrite earlier advice.
-  defp frozen_context(account_id, recipe, now) do
+  # Account's today, captured once per day. The chat answers from this, never
+  # from live reads, so later Inventory changes do not rewrite earlier advice.
+  defp frozen_context(ids, session, today, now) do
+    recipe = RecipeVersions.recipe_for_meal(session.scheduled_meal)
+
     %{
       "captured_at" => DateTime.to_iso8601(now),
+      "captured_on" => Date.to_iso8601(today),
       "recipe" => %{
         "name" => recipe && recipe.name,
         "ingredients" =>
@@ -380,7 +481,7 @@ defmodule MealPlannerApi.Services.CookingService do
             }
           end
       },
-      "inventory" => frozen_inventory(account_id, AccountClock.today(account_id, now))
+      "inventory" => frozen_inventory(ids.account_id, today)
     }
   end
 
@@ -545,8 +646,8 @@ defmodule MealPlannerApi.Services.CookingService do
   defp maybe_put(map, _key, nil), do: map
   defp maybe_put(map, key, value), do: Map.put(map, key, value)
 
-  defp build_contextual_answer(session, snapshot, question, content_type) do
-    frozen = (session.context_snapshot || %{})[@frozen_key] || %{}
+  defp build_contextual_answer(session_id, frozen, question, content_type) do
+    snapshot = PlanningRepo.latest_context_snapshot(session_id)
     recipe = frozen["recipe"] || %{}
     step = Enum.find(recipe["steps"] || [], &(&1["id"] == snapshot_step_context(snapshot)))
 
@@ -556,7 +657,7 @@ defmodule MealPlannerApi.Services.CookingService do
         else: "No tengo paso activo, te guio con la receta completa."
 
     system_prompt =
-      build_system_prompt(frozen, step_text, prior_turns_text(session.id), content_type)
+      build_system_prompt(frozen, step_text, prior_turns_text(session_id), content_type)
 
     case AI.generate_text(question, system_prompt: system_prompt) do
       {:ok, text} ->
@@ -584,7 +685,7 @@ defmodule MealPlannerApi.Services.CookingService do
     Pasos oficiales de la receta:
     #{prompt_steps_text(recipe["steps"])}
 
-    Inventario disponible al empezar a cocinar:
+    Inventario disponible al hacer la primera pregunta del dia:
     #{quantity_lines(frozen["inventory"], "Sin inventario registrado")}
 
     Conversacion previa:

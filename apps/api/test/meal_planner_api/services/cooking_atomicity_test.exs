@@ -189,6 +189,61 @@ defmodule MealPlannerApi.Services.CookingAtomicityTest do
     assert Enum.all?(f.lots, &(Repo.get!(InventoryItem, &1.id).quantity_milli == 600))
   end
 
+  test "concurrent starts of one meal share a single Cooking session", f do
+    {:ok, meal} =
+      Planning.schedule_meal(%{
+        account_id: f.account.id,
+        recipe_id: f.recipe.id,
+        date: MealPlannerApi.AccountClock.today(f.account.id),
+        slot: :lunch
+      })
+
+    parent = self()
+    supervisor = start_supervised!(Task.Supervisor)
+
+    workers =
+      for _ <- 1..2 do
+        Task.Supervisor.async_nolink(supervisor, fn ->
+          start_behind_barrier(f, parent, meal.id)
+        end)
+      end
+
+    ready =
+      for _ <- workers do
+        assert_receive {:ready, worker, pid}, 5_000
+        {worker, pid}
+      end
+
+    assert length(Enum.uniq(Enum.map(ready, &elem(&1, 1)))) == 2
+    Enum.each(ready, fn {worker, _pid} -> send(worker, :start) end)
+
+    # The second start waits on the meal lock and then finds the first one's session.
+    assert [{:ok, {:ok, first}}, {:ok, {:ok, second}}] = Task.await_many(workers, 12_000)
+    assert first.session_id == second.session_id
+
+    assert Repo.aggregate(
+             from(s in CookingSession, where: s.scheduled_meal_id == ^meal.id),
+             :count
+           ) == 1
+  end
+
+  # Runs in the worker task: it reports its connection, then waits for `:start`
+  # inside the barrier transaction.
+  defp start_behind_barrier(f, parent, meal_id) do
+    Repo.put_dynamic_repo(f.repo)
+
+    Repo.transaction(fn ->
+      %{rows: [[pid]]} = Repo.query!("SELECT pg_backend_pid()")
+      send(parent, {:ready, self(), pid})
+
+      receive do
+        :start -> CookingService.start_session(f.actor, meal_id)
+      after
+        5_000 -> Repo.rollback(:barrier_timeout)
+      end
+    end)
+  end
+
   defp concurrent_finish(f, session_ids) do
     parent = self()
     supervisor = start_supervised!(Task.Supervisor)
