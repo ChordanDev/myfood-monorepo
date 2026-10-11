@@ -47,7 +47,7 @@ defmodule MealPlannerApi.Services.PlanningChatService do
   @spec generate_menu(map(), map()) :: {:ok, map()} | {:error, term()}
   def generate_menu(current_user, payload) when is_map(payload) do
     with {:ok, ids} <- Identity.ensure_persistent_identity(current_user),
-         {:ok, parsed} <- parse_payload(payload),
+         {:ok, parsed} <- parse_payload(payload, PlanningService.max_planning_days(current_user)),
          budget = BudgetService.resolve(current_user),
          budget_cents = budget.weekly_limit_cents,
          user_with_budget = Map.merge(current_user, %{weekly_budget_cents: budget_cents}),
@@ -123,10 +123,10 @@ defmodule MealPlannerApi.Services.PlanningChatService do
   # Payload parsing
   # -------------------------------------------------------------------------
 
-  defp parse_payload(payload) do
+  defp parse_payload(payload, max_days) do
     with {:ok, date_from} <- parse_date(Map.get(payload, "date_from")),
          {:ok, date_to} <- parse_date(Map.get(payload, "date_to")),
-         :ok <- validate_date_range(date_from, date_to) do
+         :ok <- validate_date_range(date_from, date_to, max_days) do
       {:ok,
        %{
          message: normalize_message(Map.get(payload, "message")),
@@ -142,12 +142,17 @@ defmodule MealPlannerApi.Services.PlanningChatService do
   defp parse_date(value) when is_binary(value), do: Date.from_iso8601(value)
   defp parse_date(_), do: {:error, :invalid_date}
 
-  defp validate_date_range(date_from, date_to) do
-    case Date.compare(date_from, date_to) do
-      :lt -> :ok
-      :eq -> :ok
-      :gt -> {:error, :invalid_date_range}
-    end
+  # The dates come from the client and every day of the range becomes
+  # scheduled meals, so the range is checked before anything is planned or
+  # written. It holds `max_days` days at most, both ends counted: the maximum
+  # of the User's plan (`PlanningService.max_planning_days/1`, five days on the
+  # free tier and seven on premium), the same limit `generate_weekly_plan/3`
+  # applies. A longer range gets the `:invalid_date_range` of a range that
+  # ends before it starts.
+  defp validate_date_range(date_from, date_to, max_days) do
+    days = Date.diff(date_to, date_from) + 1
+
+    if days in 1..max_days, do: :ok, else: {:error, :invalid_date_range}
   end
 
   defp normalize_message(nil), do: ""

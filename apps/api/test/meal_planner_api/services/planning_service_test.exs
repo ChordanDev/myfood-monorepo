@@ -10,6 +10,20 @@ defmodule MealPlannerApi.Services.PlanningServiceTest do
     end
   end
 
+  describe "max_planning_days/1" do
+    test "is seven days for a premium User" do
+      assert PlanningService.max_planning_days(%{subscription_tier: :premium}) == 7
+      assert PlanningService.max_planning_days(%{subscription_tier: "premium"}) == 7
+    end
+
+    test "is five days for any other tier" do
+      assert PlanningService.max_planning_days(%{subscription_tier: :free}) == 5
+      assert PlanningService.max_planning_days(%{subscription_tier: "free"}) == 5
+      assert PlanningService.max_planning_days(%{subscription_tier: nil}) == 5
+      assert PlanningService.max_planning_days(%{}) == 5
+    end
+  end
+
   describe "run_optimizer/4" do
     test "returns empty meals for empty days list" do
       assert {:ok, %{"meals" => []}} = PlanningService.run_optimizer(OptimizerPort, [], %{}, %{})

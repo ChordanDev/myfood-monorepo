@@ -8,11 +8,18 @@ defmodule MealPlannerApiWeb.PlanningChannelTest do
   alias MealPlannerApi.Data.{PlanningRepo, RecipeRepo, ShoppingRepo}
   alias MealPlannerApi.Generation.PlanningSession.Sweeper
   alias MealPlannerApi.Generation.Server
+  alias MealPlannerApi.IdentityFixtures
   alias MealPlannerApi.Persistence.Accounts.Account, as: PersistenceAccount
   alias MealPlannerApi.Persistence.Accounts.AccountMembership
   alias MealPlannerApi.Persistence.Accounts.User
   alias MealPlannerApi.Persistence.Catalog
-  alias MealPlannerApi.Persistence.Planning.PlanningMessage
+
+  alias MealPlannerApi.Persistence.Planning.{
+    PlanningGenerationRun,
+    PlanningMessage,
+    PlanningProposal
+  }
+
   alias MealPlannerApi.Repo
   alias MealPlannerApiWeb.{AIChannel, Endpoint, PlanningChannel, UserSocket}
 
@@ -553,7 +560,7 @@ defmodule MealPlannerApiWeb.PlanningChannelTest do
       ref =
         push(socket, "swap_constraints", %{
           "request_id" => "swap_req_1",
-          "base_payload" => %{"date_from" => "2026-06-15", "date_to" => "2026-06-21"},
+          "base_payload" => %{"date_from" => "2026-06-15", "date_to" => "2026-06-19"},
           "constraints" => %{"budget_cents" => 5000}
         })
 
@@ -593,6 +600,80 @@ defmodule MealPlannerApiWeb.PlanningChannelTest do
         "requestId" => "swap_req_error",
         "reason" => "invalid_date_range"
       })
+    end
+
+    # Issue #87: the range of `base_payload` comes from the client. The User
+    # of this file is on the free tier, which plans five days at most.
+    test "refuses a base_payload range longer than the plan maximum and creates no rows", %{
+      account: account,
+      token: token
+    } do
+      {:ok, socket} = connect(UserSocket, %{"token" => token})
+
+      {:ok, _reply, socket} =
+        subscribe_and_join(socket, PlanningChannel, "planning:#{account.id}")
+
+      for {request_id, date_from, date_to} <- [
+            {"swap_req_six_days", "2026-06-15", "2026-06-20"},
+            {"swap_req_two_years", "2026-01-01", "2027-12-31"}
+          ] do
+        ref =
+          push(socket, "swap_constraints", %{
+            "request_id" => request_id,
+            "base_payload" => %{"date_from" => date_from, "date_to" => date_to},
+            "constraints" => %{"budget_cents" => 5000}
+          })
+
+        payload = assert_error_reply(ref, :invalid_date_range)
+        assert payload["requestId"] == request_id
+
+        assert_push("generation_error", %{
+          "requestId" => ^request_id,
+          "reason" => "invalid_date_range"
+        })
+      end
+
+      refute_push("proposal_ready", _proposal)
+
+      generation_runs = from(r in PlanningGenerationRun, where: r.account_id == ^account.id)
+
+      proposals =
+        from(p in PlanningProposal,
+          join: r in assoc(p, :generation_run),
+          where: r.account_id == ^account.id
+        )
+
+      assert Repo.aggregate(generation_runs, :count) == 0
+      assert Repo.aggregate(proposals, :count) == 0
+    end
+
+    # The limit is read from the User of the socket, whose tier comes from the
+    # token: a premium User still gets the seven days of their plan.
+    test "accepts a base_payload range of the plan maximum for a premium User" do
+      %{account: account, token: token} =
+        IdentityFixtures.insert_identity_with_token!(subscription_tier: :premium)
+
+      {:ok, socket} = connect(UserSocket, %{"token" => token})
+
+      {:ok, _reply, socket} =
+        subscribe_and_join(socket, PlanningChannel, "planning:#{account.id}")
+
+      ref =
+        push(socket, "swap_constraints", %{
+          "request_id" => "swap_req_premium_week",
+          "base_payload" => %{"date_from" => "2026-06-15", "date_to" => "2026-06-21"},
+          "constraints" => %{"budget_cents" => 5000}
+        })
+
+      assert_reply(ref, :ok, reply)
+
+      assert %{
+               "requestId" => "swap_req_premium_week",
+               "dateFrom" => "2026-06-15",
+               "dateTo" => "2026-06-21"
+             } = reply
+
+      assert_push("proposal_ready", %{"requestId" => "swap_req_premium_week"})
     end
 
     test "a malformed date replies invalid_date and is not logged as a fault", %{
@@ -2057,7 +2138,7 @@ defmodule MealPlannerApiWeb.PlanningChannelTest do
       ref =
         push(socket, "swap_constraints", %{
           "requestId" => "swap_camel",
-          "basePayload" => %{"dateFrom" => "2026-06-15", "dateTo" => "2026-06-21"},
+          "basePayload" => %{"dateFrom" => "2026-06-15", "dateTo" => "2026-06-19"},
           "constraints" => %{"budgetCents" => 5000}
         })
 
@@ -2075,11 +2156,11 @@ defmodule MealPlannerApiWeb.PlanningChannelTest do
                "runId" => run_id,
                "proposalId" => proposal_id,
                "dateFrom" => "2026-06-15",
-               "dateTo" => "2026-06-21",
+               "dateTo" => "2026-06-19",
                "appliedConstraints" => %{"budgetCents" => 5000},
                "proposal" => %{
                  "dateFrom" => "2026-06-15",
-                 "dateTo" => "2026-06-21",
+                 "dateTo" => "2026-06-19",
                  "scheduledMeals" => scheduled_meals,
                  "weeklyPlan" => %{"days" => days}
                }

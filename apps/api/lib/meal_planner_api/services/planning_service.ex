@@ -80,6 +80,22 @@ defmodule MealPlannerApi.Services.PlanningService do
     end
   end
 
+  @doc """
+  The most days a User can plan at once: the maximum of their plan.
+
+  Seven days on the premium tier and five on any other; a User without a tier
+  is on the free one. `generate_weekly_plan/3` plans no more days than this,
+  and `PlanningChatService.generate_menu/2` refuses a longer date range.
+  """
+  @spec max_planning_days(planning_user()) :: pos_integer()
+  def max_planning_days(user) do
+    case Map.get(user, :subscription_tier, :free) do
+      :premium -> 7
+      "premium" -> 7
+      _ -> 5
+    end
+  end
+
   @spec run_optimizer(module(), [String.t()], map(), planning_user()) ::
           {:ok, %{required(String.t()) => [map()]}}
           | {:error, :optimization_failed | :optimizer_unavailable}
@@ -266,18 +282,7 @@ defmodule MealPlannerApi.Services.PlanningService do
     Identity.ensure_persistent_identity(user)
   end
 
-  defp resolve_max_days(user) do
-    tier = Map.get(user, :subscription_tier, :free)
-
-    max =
-      case tier do
-        :premium -> 7
-        "premium" -> 7
-        _ -> 5
-      end
-
-    {:ok, max}
-  end
+  defp resolve_max_days(user), do: {:ok, max_planning_days(user)}
 
   defp macro_bounds_for_user(_user) do
     %{
