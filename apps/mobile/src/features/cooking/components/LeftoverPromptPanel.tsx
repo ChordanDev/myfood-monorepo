@@ -99,6 +99,8 @@ export function LeftoverPromptPanel({ prompt }: LeftoverPromptPanelProps) {
               label={line.name}
               value={line.quantityText}
               onChangeText={(text) => prompt.setLineQuantity(line, text)}
+              // A save sends what was typed when it started, so nothing is typed during it.
+              editable={!prompt.isPending}
               keyboardType="decimal-pad"
               trailing={UNIT_LABEL[line.unit]}
             />
@@ -117,6 +119,7 @@ export function LeftoverPromptPanel({ prompt }: LeftoverPromptPanelProps) {
             label="Título"
             value={prompt.title}
             onChangeText={prompt.setTitle}
+            editable={!prompt.isPending}
             autoCapitalize="sentences"
             maxLength={TITLE_MAX_LENGTH}
           />
@@ -124,6 +127,7 @@ export function LeftoverPromptPanel({ prompt }: LeftoverPromptPanelProps) {
             label="Porciones"
             value={prompt.portionsText}
             onChangeText={prompt.setPortionsText}
+            editable={!prompt.isPending}
             keyboardType="number-pad"
           />
         </LeftoverPromptForm>

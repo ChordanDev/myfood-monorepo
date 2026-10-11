@@ -54,7 +54,8 @@ See issue #46.
   - The cooking feature does not import the inventory or leftovers features: their indexes export screens that load `react-native-reanimated`, which bare Jest cannot load, and `useRecipeChat.test.tsx` loads the cooking index unmocked. The screens inject the two writes (`useInventoryStore`'s `addExtra`, `createPreparedLeftover`). Cost: the form UI and a small quantity parser are duplicated inside cooking instead of reusing the inventory sheet kit.
   - The prompt is a second stage of the `CookingResultSheet` modal, not a sheet of its own: iOS presents a modal at once without waiting for another one's dismissal (read from `RCTModalHostViewComponentView.mm`, not confirmed on a simulator), so two sequential modals risked the prompt never showing.
 - Not verified: the prompt was not exercised in a running app (simulator or web). Keyboard handling with a long Ingredient list is the part to look at.
-- Native review: per-commit assessments under budget; one review of the whole stack at the end.
+- Native review of the whole stack (`83d63db`): approved; one advisory finding, the untested foreign key race branch in `leftovers.ex` (the constraint is declared in `PreparedLeftover.create_changeset`, so the branch answers not found as intended).
+- Jorge review of the stack (2026-10-11): approved; one confirmed low finding, the prompt fields stayed editable during a save so text typed then was dropped silently. Fixed on top of the sheet PR: the fields are read-only while a save is on its way.
 
 ## Next step
 User: review and merge the stack in order; Jorge review recommended by the triage comment on #46.

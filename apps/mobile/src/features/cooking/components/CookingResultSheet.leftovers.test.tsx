@@ -214,6 +214,39 @@ describe('CookingResultSheet leftover prompt', () => {
     expect(button('leftover-prompt-save').props.disabled).toBe(true);
   });
 
+  it('locks the quantities while they are being saved, and unlocks them if the save fails', async () => {
+    let failSave: (error: Error) => void = () => undefined;
+    const onAddIngredient = jest.fn(
+      () => new Promise<void>((_resolve, reject) => (failSave = reject))
+    );
+    const { press, pressAndSettle, input, inputs } = render({
+      onAddLeftoverIngredient: onAddIngredient,
+    });
+    press('leftover-choice-ingredients');
+    act(() => input('Arroz').props.onChangeText('50'));
+
+    await pressAndSettle('leftover-prompt-save');
+
+    // What is typed now would not be part of the save already on its way.
+    expect(inputs().map((field) => field.props.editable)).toEqual(inputs().map(() => false));
+
+    await act(async () => failSave(new ApiError('validation_error', 'no', 422)));
+
+    expect(inputs().map((field) => field.props.editable)).toEqual(inputs().map(() => true));
+  });
+
+  it('locks the title and the portions while the prepared food is being saved', async () => {
+    const onCreatePrepared = jest.fn(() => new Promise<void>(() => undefined));
+    const { press, pressAndSettle, input } = render({ onCreatePreparedLeftover: onCreatePrepared });
+    press('leftover-choice-prepared');
+    expect(input('Título').props.editable).toBe(true);
+
+    await pressAndSettle('leftover-prompt-save');
+
+    expect(input('Título').props.editable).toBe(false);
+    expect(input('Porciones').props.editable).toBe(false);
+  });
+
   it('stays open and shows why when a save fails', async () => {
     const onCreatePrepared = jest.fn(() =>
       Promise.reject(new ApiError('validation_error', 'no', 422))
