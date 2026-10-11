@@ -18,6 +18,14 @@ defmodule MealPlannerApi.Voice.InventoryIntentParserTest do
   @lemons %{ingredient_id: "lemons", name: "Limón", unit: :unit, total_milli: 5_000}
   @walnuts %{ingredient_id: "walnuts", name: "Nuez", unit: :unit, total_milli: 8_000}
 
+  # Enough of everything for a kilo and a half or a litre and a half to fit.
+  @pantry [
+    %{@plain_cheese | total_milli: 4_000_000},
+    %{@milk | total_milli: 3_000_000},
+    %{@eggs | total_milli: 12_000},
+    %{ingredient_id: "apples", name: "Manzana", unit: :unit, total_milli: 4_000}
+  ]
+
   defp parse(transcript), do: InventoryIntentParser.parse(transcript, @stock)
 
   test "a consume verb, a name and a fraction is a confident subtract of that share" do
@@ -76,6 +84,98 @@ defmodule MealPlannerApi.Voice.InventoryIntentParserTest do
              parse("me comí 1 kilo y medio de queso")
 
     assert c < 0.8
+  end
+
+  test "un or una reads exactly as the digit 1 does" do
+    for {spoken, digit} <- [
+          {"me comí un kilo de queso", "me comí 1 kilo de queso"},
+          {"usé un gramo de queso", "usé 1 gramo de queso"},
+          {"tomé un litro de leche", "tomé 1 litro de leche"},
+          {"usé una unidad de huevo", "usé 1 unidad de huevo"},
+          {"me comí un kilo y medio de queso", "me comí 1 kilo y medio de queso"},
+          {"me comí un huevo", "me comí 1 huevo"},
+          {"me comí un huevos", "me comí 1 huevos"},
+          {"usé una manzana", "usé 1 manzana"},
+          {"Usé UNA manzana.", "Usé 1 manzana."},
+          {"me comí un queso", "me comí 1 queso"}
+        ] do
+      assert {:ok, _parsed} = with_digit = InventoryIntentParser.parse(digit, @pantry)
+      assert InventoryIntentParser.parse(spoken, @pantry) == with_digit, spoken
+    end
+  end
+
+  test "un before a unit label is one of that unit" do
+    assert {:ok, %{intent: %{ingredient_id: "plain", quantity_milli: 1_000_000}, confidence: 0.9}} =
+             InventoryIntentParser.parse("me comí un kilo de queso", @pantry)
+
+    assert {:ok, %{intent: %{ingredient_id: "milk", quantity_milli: 1_000_000}, confidence: 0.7}} =
+             InventoryIntentParser.parse("tomé un litro de leche", @pantry)
+
+    assert {:ok, %{intent: %{ingredient_id: "eggs", quantity_milli: 1_000}, confidence: 0.9}} =
+             InventoryIntentParser.parse("usé una unidad de huevo", @pantry)
+  end
+
+  test "un kilo y medio is a kilo and a half and needs no confirmation" do
+    assert {:ok, %{intent: %{ingredient_id: "plain", quantity_milli: 1_500_000}, confidence: c}} =
+             InventoryIntentParser.parse("me comí un kilo y medio de queso", @pantry)
+
+    refute InventoryIntentParser.confirmation_required?(c)
+  end
+
+  test "un or una before the name of a stock counted in units is one unit" do
+    assert {:ok, %{intent: %{ingredient_id: "eggs", quantity_milli: 1_000}, confidence: 0.9}} =
+             InventoryIntentParser.parse("me comí un huevo", @pantry)
+
+    assert {:ok, %{intent: %{ingredient_id: "apples", quantity_milli: 1_000}, confidence: 0.9}} =
+             InventoryIntentParser.parse("usé una manzana", @pantry)
+
+    assert {:ok, %{intent: %{ingredient_id: "field_eggs", quantity_milli: 1_000}}} =
+             InventoryIntentParser.parse("me comí un huevo de campo", [@eggs, @field_eggs])
+  end
+
+  test "un before the name of a stock in grams is not an amount" do
+    assert {:ok, %{intent: %{ingredient_id: "plain", quantity_milli: 4_000_000}, confidence: 0.5}} =
+             InventoryIntentParser.parse("me comí un queso", @pantry)
+  end
+
+  test "a longer word that ends in un is not the number 1" do
+    assert {:ok, %{intent: %{ingredient_id: "plain", quantity_milli: 4_000_000}, confidence: 0.5}} =
+             InventoryIntentParser.parse("me comí algún kilo de queso", @pantry)
+
+    assert {:ok, %{intent: %{ingredient_id: "eggs", quantity_milli: 12_000}, confidence: 0.5}} =
+             InventoryIntentParser.parse("me comí algún huevo", @pantry)
+
+    assert {:ok, %{intent: %{ingredient_id: "apples", quantity_milli: 4_000}, confidence: 0.5}} =
+             InventoryIntentParser.parse("usé alguna manzana", @pantry)
+  end
+
+  test "a half after a unit that is not the unit of the stock needs confirmation" do
+    for transcript <- [
+          "usé 1 litro y medio de queso",
+          "usé un litro y medio de queso",
+          "usé litro y medio de queso",
+          "usé 1 unidad y media de queso"
+        ] do
+      assert {:ok, %{intent: intent, confidence: c}} =
+               InventoryIntentParser.parse(transcript, @pantry)
+
+      assert %{ingredient_id: "plain", quantity_milli: 4_000_000} = intent
+      assert InventoryIntentParser.confirmation_required?(c), transcript
+    end
+  end
+
+  test "a half that does not follow a unit label is still half of the stock" do
+    assert {:ok, %{intent: %{ingredient_id: "plain", quantity_milli: 2_000_000}, confidence: 0.9}} =
+             InventoryIntentParser.parse("me comí medio queso", @pantry)
+
+    assert {:ok, %{intent: %{ingredient_id: "plain", quantity_milli: 2_000_000}, confidence: 0.9}} =
+             InventoryIntentParser.parse("me comí la mitad del queso", @pantry)
+
+    assert {:ok, %{intent: %{ingredient_id: "milk", quantity_milli: 1_500_000}, confidence: 0.9}} =
+             InventoryIntentParser.parse("usé queso y media leche", [
+               %{@plain_cheese | total_milli: 1_000_000},
+               %{@milk | total_milli: 3_000_000}
+             ])
   end
 
   test "medio kilo is 500 g whatever the stock holds" do

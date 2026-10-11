@@ -71,6 +71,12 @@ defmodule MealPlannerApi.Voice.InventoryIntentParser do
                   )
   @fraction_regex Regex.compile!("(?<![\\d.,/])(\\d+)/(\\d+)\\s*(#{@unit_labels})\\b")
 
+  # "un" and "una" as whole words, so "algún" and "atún" hold no number.
+  @one_regex ~r/(?<![\p{L}\p{N}])una?(?![\p{L}\p{N}])/u
+
+  # A unit label as a word of its own or glued to its number, as in "1kg".
+  @unit_word_regex Regex.compile!("^\\d*(?:#{@unit_labels})$")
+
   # Spoken words that start with a consume stem but are not the verb.
   @not_verbs ~w(comida comidas)
 
@@ -226,11 +232,24 @@ defmodule MealPlannerApi.Voice.InventoryIntentParser do
   end
 
   defp fraction_amount(words, stock) do
+    words = without_unit_halves(words)
+
     Enum.find_value(@fractions, fn {phrases, {numerator, denominator}} ->
       if Enum.any?(phrases, &contains_phrase?(words, words(&1))),
         do: div(stock.total_milli * numerator, denominator)
     end)
   end
+
+  # "1 litro y medio" is a litre and a half whatever the stock is counted in,
+  # so the "medio" right after a unit label is never half of the stock.
+  defp without_unit_halves([label, "y", half | rest] = words) when half in ~w(medio media) do
+    if Regex.match?(@unit_word_regex, label),
+      do: [label | without_unit_halves(rest)],
+      else: [label | without_unit_halves(tl(words))]
+  end
+
+  defp without_unit_halves([word | rest]), do: [word | without_unit_halves(rest)]
+  defp without_unit_halves([]), do: []
 
   defp unit_of(label) when label in ~w(g gr grs gramo gramos), do: {:g, 1_000}
 
@@ -256,12 +275,15 @@ defmodule MealPlannerApi.Voice.InventoryIntentParser do
   end
 
   # The same fold, keeping the decimal separators of a quantity and the slash
-  # of a fraction. "1/2 kg" becomes "0.500000 kg"; a slash fraction with no
-  # unit stays "1/2", which no amount pattern reads.
+  # of a fraction. "un" and "una" become the digit 1, so "un kilo" and "un
+  # huevo" are read as "1 kilo" and "1 huevo" are. "1/2 kg" becomes
+  # "0.500000 kg"; a slash fraction with no unit stays "1/2", which no amount
+  # pattern reads.
   defp decimal_text(text) do
     text
     |> fold()
     |> String.replace(~r/[^\p{L}\p{N}.,\/]+/u, " ")
+    |> String.replace(@one_regex, "1")
     |> then(
       &Regex.replace(@fraction_regex, &1, fn whole, n, d, label ->
         fraction_text(whole, n, d, label)

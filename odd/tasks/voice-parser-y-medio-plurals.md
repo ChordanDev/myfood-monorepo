@@ -28,6 +28,15 @@ Both gaps are in `apps/api/lib/meal_planner_api/voice/inventory_intent_parser.ex
   - `plural/1` became `forms/1`, applied to every word of the name: vowel + "s", consonant + "es", "z" to "ces", plus the bare "s". `mentioned?` compares whole words.
   - `count_amount` reads the name in the same forms and needs a word end after it. Without that, "2 huevos de campo" matched the name but subtracted all the stock at 0.5.
 
+- [x] **T2 "un/una" reads as 1, and a "y medio" after a unit is never a fraction of the stock.** Added on 2026-10-11 after the User decided two open questions of T1 (D1, D2). Route: delegated direct, same writer as T1. Commit: the one after `9c19b1b`, `fix(api): read "un" as one and keep "y medio" after a unit off the stock fraction`.
+  - `decimal_text/1` rewrites the whole words "un" and "una" to the digit 1, so every amount pattern reads them as it reads "1". Name matching works on `words/1` and is untouched.
+  - `fraction_amount/2` drops a "y medio|media" that directly follows a unit label before it looks for a fraction of the stock.
+
+## Decisions
+
+- **D1 "un/una" is the number 1.** Before a unit label ("un kilo", "una unidad") and before the name of a stock counted in units ("un huevo"), it reads exactly as the digit 1 does, with the same confidence. Before the name of a stock in grams or millilitres ("un queso") nothing changes.
+- **D2 "y medio" after a unit label is never a fraction of the stock.** When the stated unit is not the unit of the stock ("1 litro y medio de queso" against grams), the intent no longer reads "medio" as half the stock: it falls to the path that needs confirmation. A "medio" that does not follow a unit label ("medio queso") is still half the stock.
+
 ## Acceptance criteria
 
 - "1 kilo y medio de queso" gives 1,500,000.
@@ -42,16 +51,21 @@ Both gaps are in `apps/api/lib/meal_planner_api/voice/inventory_intent_parser.ex
 
 ## Progress
 
-T1 done on 2026-10-11.
+T1 and T2 done on 2026-10-11.
 
 - RED observed before the change: `mix test test/meal_planner_api/voice`, 4 failed of 35 ("a quantity and a half" got 1,000,000; the longer-name plural matched "Huevo"; the "es"/"ces" plural gave `voice_parse_failed`; the count before a longer word got 2,000).
 - GREEN: `mix test test/meal_planner_api/voice`, 36 passed. `mix test`, 1742 passed, 21 skipped, 0 failures. `mix format --check-formatted` and `mix credo` clean.
 
+- T2 RED: `mix test test/meal_planner_api/voice`, 5 failed of 44 ("un kilo" gave all the stock at 0.5; "un kilo y medio" gave half the stock at 0.9; "un huevo" gave all the stock at 0.5; a half after a unit of another kind gave half the stock at 0.9). T2 GREEN: 44 passed. `mix test`, 1751 passed, 21 skipped, 0 failures. `mix format --check-formatted` and `mix credo` clean.
+
 ## Open questions
 
-Found while probing, present before this change and left as they were:
+Decided and closed by T2: "un kilo y medio" is 1.5 kg, and "1 litro y medio" against a stock in grams needs confirmation.
 
-- "me comí un kilo y medio de queso" (the number as a word) subtracts half of the stock at 0.9. The parser has no number words, so "medio" falls to the fraction-of-stock path. Either "un/una" plus a unit reads as 1, or a "y medio" after a unit label never counts as a fraction of the stock and the intent drops to confirmation.
-- "usé 1 litro y medio de queso" against a stock in grams also reads "medio" as half the stock at 0.9.
+Still open:
+
+- A quantity with a unit wins over a fraction phrase, with a digit or with "un": "la mitad de un kilo de queso" reads 1 kg (500 g is meant) and "la mitad de un huevo" reads 1 unit. Before T2 the "un" forms read half of the stock, which was wrong too.
+- A unit label with no number, "kilo y medio de queso", now takes all the stock at 0.5 and needs confirmation. It is not read as 1.5 kg.
 - "2 huevos y medio" for a unit stock is not read as 2.5, and "2 huevos y medio de campo" fails closed.
 - Only a singular stock name spoken in plural is covered. A stock named "Huevos" spoken as "1 huevo" still fails closed.
+- No number words beyond "un/una": "uno de los huevos" and "dos kilos" are not read as numbers.
