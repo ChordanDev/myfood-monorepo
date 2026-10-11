@@ -147,6 +147,76 @@ defmodule MealPlannerApiWeb.CheckoutConfirmTest do
     end
   end
 
+  describe "the Cart lines of the list read" do
+    test "a quantity edited on a line the date limit shows in part buys the whole line", f do
+      cart = reserve!(f)
+      today = Date.to_iso8601(f.today_item.planned_date)
+
+      # The read ends today: it lists 1000 g of the line, and the Cart holds
+      # 1500 g of it.
+      limited = shopping_list(f, %{"untilDate" => today})
+
+      assert [%{"quantityMilli" => 1000, "allocations" => [_]}] = limited["planned"]
+
+      assert [%{"id" => line_id, "quantityMilli" => 1500} = line] = limited["cart"]["lines"]
+      assert line == %{line | "name" => f.ingredient.name, "unit" => "g"}
+
+      body =
+        f
+        |> confirm(cart, [%{"itemId" => line_id, "quantityMilli" => 1499}])
+        |> json_response(200)
+
+      assert body["data"]["movedToInventoryCount"] == 2
+      assert [499, 1000] = stock(f) |> Enum.map(& &1.quantity_milli) |> Enum.sort()
+
+      # Tomorrow's meal was bought for but 1 g, which is left to buy.
+      assert [%{"status" => "needed", "quantityMilli" => 1, "allocations" => allocations}] =
+               shopping_list(f, %{})["planned"]
+
+      assert [1, 499, 1000] = allocations |> Enum.map(& &1["quantityMilli"]) |> Enum.sort()
+    end
+
+    test "a confirm takes every line id the read lists, manual items too", f do
+      soap = manual_item!(f, %{name: "Dish soap", quantity_milli: 1000, unit: :unit})
+
+      extra =
+        manual_item!(f, %{
+          name: "Extra rice",
+          ingredient_id: f.ingredient.id,
+          quantity_milli: 2000,
+          unit: :g
+        })
+
+      {:ok, cart} =
+        MealPlannerApi.Cart.reserve(f.actor, [soap.id, extra.id | Enum.map(f.items, & &1.id)])
+
+      lines = shopping_list(f, %{})["cart"]["lines"]
+
+      assert Enum.sort_by(lines, & &1["quantityMilli"]) == [
+               %{
+                 "id" => soap.id,
+                 "name" => "Dish soap",
+                 "unit" => "unit",
+                 "quantityMilli" => 1000
+               },
+               %{
+                 "id" => f.line_id,
+                 "name" => f.ingredient.name,
+                 "unit" => "g",
+                 "quantityMilli" => 1500
+               },
+               %{"id" => extra.id, "name" => "Extra rice", "unit" => "g", "quantityMilli" => 2000}
+             ]
+
+      bought = Enum.map(lines, &%{"itemId" => &1["id"], "quantityMilli" => &1["quantityMilli"]})
+
+      assert %{"data" => %{"status" => "completed", "movedToInventoryCount" => 3}} =
+               f |> confirm(cart, bought) |> json_response(200)
+
+      assert shopping_list(f, %{})["cart"] == nil
+    end
+  end
+
   describe "manual items" do
     test "a manual item with an Ingredient enters Inventory as an extra lot", f do
       manual =
@@ -378,6 +448,10 @@ defmodule MealPlannerApiWeb.CheckoutConfirmTest do
     params = %{"sessionId" => cart.session_id, "checkoutType" => "physical"}
     params = if lines, do: Map.put(params, "lines", lines), else: params
     request(f, :post, "/api/checkout/confirm", params)
+  end
+
+  defp shopping_list(f, params) do
+    f |> request(:get, "/api/shopping-list", params) |> json_response(200) |> Map.fetch!("data")
   end
 
   defp reload(item), do: Repo.get!(item.__struct__, item.id)

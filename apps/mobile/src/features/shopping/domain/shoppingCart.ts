@@ -1,51 +1,12 @@
 import type { CheckoutLine, ShoppingCartLine, ShoppingListLine, ShoppingListRead } from '../types';
 
 /**
- * The lines of the Cart, as a confirm names them. The planned shares in a Cart are added up
- * per ingredient and unit whatever the grouping of the read: per meal the id of a line is the
- * id of a Shopping item, which a confirm does not take.
- *
- * A read does not say who holds a share, so a share in the Cart of another member is listed
- * too. It is only ever sent when its quantity is changed, and the server then refuses it.
+ * The lines of the Cart, as a confirm names and buys them: the ones the server reports for the
+ * caller's own Cart. They are never worked out from the lines of the list, which the date
+ * limit cuts short and which also show the shares in the Cart of another member.
  */
 export function getCartLines(list: ShoppingListRead | null): ShoppingCartLine[] {
-  const lines = new Map<string, ShoppingCartLine>();
-
-  for (const { ingredientId, name, unit, allocations } of list?.planned ?? []) {
-    for (const share of allocations) {
-      if (ingredientId === null || share.status !== 'in_cart') continue;
-
-      const id = `${ingredientId}:${unit}`;
-      const quantityMilli = (lines.get(id)?.quantityMilli ?? 0) + share.quantityMilli;
-      lines.set(id, { id, name, unit, quantityMilli });
-    }
-  }
-
-  const manualLines = (list?.manual ?? [])
-    .filter((line) => line.status === 'in_cart')
-    .map(({ id, name, unit, quantityMilli }) => ({ id, name, unit, quantityMilli }));
-
-  return [...lines.values(), ...manualLines];
-}
-
-/**
- * How many Shopping items the Cart holds that the read does not list, so the sheet has no line
- * for them: the ones for a meal after the date the list reaches. A confirm buys them all the
- * same, at the quantity the Cart holds.
- *
- * The read lists the shares in the Cart of another member too, so what it lists can be more
- * than the Cart holds: the count never goes below zero.
- */
-export function getHiddenCartItemsCount(list: ShoppingListRead | null): number {
-  if (!list?.cart) return 0;
-
-  const listedShares = list.planned
-    .filter(({ ingredientId }) => ingredientId !== null)
-    .flatMap(({ allocations }) => allocations)
-    .filter(({ status }) => status === 'in_cart').length;
-  const listedManualItems = list.manual.filter(({ status }) => status === 'in_cart').length;
-
-  return Math.max(0, list.cart.itemsCount - listedShares - listedManualItems);
+  return list?.cart?.lines ?? [];
 }
 
 /**

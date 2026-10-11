@@ -1,5 +1,4 @@
 import type { CalendarProps } from '@/features/home';
-import type { UnitType } from '@/types/domain';
 import type { ShoppingLineStatus, ShoppingListLine } from './shoppingApi';
 
 // `in_cart` is a row marked and not bought yet.
@@ -18,17 +17,6 @@ export type ShoppingUntilCalendar = Required<
   // First day the list buys for. The calendar draws the stretch from it to the day the list
   // reaches; it is fixed, not something the user picks.
   rangeStart: string;
-};
-
-// A line of the Cart, as a confirm names it: the planned items of one ingredient and unit that
-// are in a Cart, added up, or one item added by hand.
-export type ShoppingCartLine = {
-  // What a confirm calls the line: `<ingredientId>:<unit>`, or the id of a manual item.
-  id: string;
-  name: string;
-  unit: UnitType;
-  // What the Cart holds of it: the quantity a confirm buys unless another one is sent.
-  quantityMilli: number;
 };
 
 // A card of the list: the planned lines of one ingredient category.

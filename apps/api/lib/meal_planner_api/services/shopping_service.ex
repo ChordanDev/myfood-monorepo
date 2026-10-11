@@ -56,11 +56,13 @@ defmodule MealPlannerApi.Services.ShoppingService do
       on the list, oldest first, one line each in the shape of a `planned`
       line (`source` `"manual"`, no allocations). They are never merged with
       each other or with a planned line, and no date limit applies to them.
-    * `cart` — `%{session_id, lease_expires_at, items_count}` for the
-      caller's own active Cart, otherwise `nil`. `items_count` is how many
-      Shopping items that Cart holds, also the ones `until_date` leaves out
-      of `planned`. A line held in another member's Cart still reads
-      `"in_cart"`.
+    * `cart` — `%{session_id, lease_expires_at, lines}` for the caller's
+      own active Cart, otherwise `nil`. `lines` are the lines of that Cart
+      as `Cart.lines/1` gives them, `%{id, name, unit, quantity_milli}`:
+      what a confirm buys, whatever `until_date` leaves out of `planned`
+      and whatever `group_by` is. A line held in another member's Cart
+      still reads `"in_cart"` in `planned` and is in no `lines` of the
+      caller.
     * `totals` — `needed`, `in_cart` and `removed` count the planned
       lines by status; `estimated_cents` adds the estimated price of the
       needed items. Purchased lines and quantities are in none of them:
@@ -224,7 +226,7 @@ defmodule MealPlannerApi.Services.ShoppingService do
     %{
       session_id: cart.id,
       lease_expires_at: cart.lease_expires_at,
-      items_count: Cart.items_count(cart)
+      lines: cart |> Cart.lines() |> Enum.map(&%{&1 | unit: Atom.to_string(&1.unit)})
     }
   end
 

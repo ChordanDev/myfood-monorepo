@@ -71,10 +71,6 @@ const TITLE = 'Tu carrito';
 const CONFIRM = 'Marcar como comprado';
 const CANCEL = 'Cancelar';
 const EMPTY_HINT = 'Todavía no marcaste nada.';
-const ONE_HIDDEN =
-  '1 ítem fuera de las fechas elegidas también se va a comprar con la cantidad sugerida.';
-const THREE_HIDDEN =
-  '3 ítems fuera de las fechas elegidas también se van a comprar con la cantidad sugerida.';
 const CHICKEN_QUANTITY = 'Cantidad comprada, Pollo (Pechuga)';
 const NAPKINS_QUANTITY = 'Cantidad comprada, Servilletas';
 
@@ -86,7 +82,6 @@ function renderSheet(initial: Partial<SheetProps> = {}) {
   let props: SheetProps = {
     visible: true,
     lines: CART,
-    hiddenItemsCount: 0,
     isConfirming: false,
     onConfirm,
     onClose,
@@ -308,18 +303,22 @@ describe('ShoppingCartSheet', () => {
       expect(onConfirm).toHaveBeenCalledWith([]);
     });
 
-    it.each(['', 'abc', '-1', '1,2,3'])('cannot be confirmed while a field reads "%s"', (text) => {
-      const { root, onConfirm } = renderSheet();
+    // The last one is above the 2 147 483 647 thousandths the server takes.
+    it.each(['', 'abc', '-1', '1,2,3', '2147484'])(
+      'cannot be confirmed while a field reads "%s"',
+      (text) => {
+        const { root, onConfirm } = renderSheet();
 
-      typeQuantity(root, NAPKINS_QUANTITY, text);
+        typeQuantity(root, NAPKINS_QUANTITY, text);
 
-      expect(getButton(root, CONFIRM).props.disabled).toBe(true);
-      expect(getButton(root, CONFIRM).props.accessibilityState).toEqual(
-        expect.objectContaining({ disabled: true })
-      );
-      press(root, CONFIRM);
-      expect(onConfirm).not.toHaveBeenCalled();
-    });
+        expect(getButton(root, CONFIRM).props.disabled).toBe(true);
+        expect(getButton(root, CONFIRM).props.accessibilityState).toEqual(
+          expect.objectContaining({ disabled: true })
+        );
+        press(root, CONFIRM);
+        expect(onConfirm).not.toHaveBeenCalled();
+      }
+    );
 
     it('starts again from what the Cart holds every time it is opened', () => {
       mockKeepsChildrenWhileHidden = true;
@@ -350,75 +349,6 @@ describe('ShoppingCartSheet', () => {
       press(root, CONFIRM);
 
       expect(onConfirm).not.toHaveBeenCalled();
-    });
-  });
-
-  describe('with items of the Cart outside the chosen dates', () => {
-    it('says how many are bought too, under the rows and above the actions', () => {
-      const { root } = renderSheet({ hiddenItemsCount: 3 });
-
-      expect(getTexts(root).slice(-3)).toEqual([THREE_HIDDEN, CONFIRM, CANCEL]);
-      expect(root.findAllByType(ScrollView)).toHaveLength(1);
-    });
-
-    it('says it in the singular for one', () => {
-      const { root } = renderSheet({ hiddenItemsCount: 1 });
-
-      expect(getTexts(root)).toContain(ONE_HIDDEN);
-    });
-
-    it('says nothing about them while the Cart has none', () => {
-      const { root } = renderSheet({ hiddenItemsCount: 0 });
-
-      expect(getTexts(root).filter((text) => text.includes('fuera de las fechas'))).toEqual([]);
-    });
-
-    it('reads the notice as plain text in the muted ink of the hint, not as an alert', () => {
-      const { root } = renderSheet({ hiddenItemsCount: 1 });
-      const [notice] = root
-        .findAllByType(Text)
-        .filter((candidate) => candidate.props.children === ONE_HIDDEN);
-
-      expect(notice.props.accessibilityRole).toBe('text');
-      expect(getTextStyle(root, ONE_HIDDEN).color).toBe(withOpacity(mockTheme.textLight, 0.6));
-    });
-
-    it('says the notice instead of the empty hint when no line of the Cart is listed', () => {
-      const { root } = renderSheet({ lines: [], hiddenItemsCount: 3 });
-
-      expect(getTexts(root)).toEqual([TITLE, THREE_HIDDEN, CONFIRM, CANCEL]);
-    });
-
-    it('buys a Cart with no listed line, and sends no line', () => {
-      const { root, onConfirm } = renderSheet({ lines: [], hiddenItemsCount: 1 });
-
-      expect(getButton(root, CONFIRM).props.disabled).toBe(false);
-      press(root, CONFIRM);
-
-      expect(onConfirm).toHaveBeenCalledTimes(1);
-      expect(onConfirm).toHaveBeenCalledWith([]);
-    });
-
-    it('still refuses to confirm while a listed quantity does not read as one', () => {
-      const { root, onConfirm } = renderSheet({ hiddenItemsCount: 2 });
-      typeQuantity(root, CHICKEN_QUANTITY, 'abc');
-
-      expect(getButton(root, CONFIRM).props.disabled).toBe(true);
-      press(root, CONFIRM);
-
-      expect(onConfirm).not.toHaveBeenCalled();
-    });
-
-    it('keeps the notice while it fades out, instead of the empty hint', () => {
-      mockKeepsChildrenWhileHidden = true;
-      const { root, update } = renderSheet({ lines: [], hiddenItemsCount: 3 });
-      const textsWhileOpen = getTexts(root);
-      press(root, CONFIRM);
-
-      // The purchase emptied the cart and the screen asked the sheet to close.
-      update({ visible: false, hiddenItemsCount: 0 });
-
-      expect(getTexts(root)).toEqual(textsWhileOpen);
     });
   });
 
