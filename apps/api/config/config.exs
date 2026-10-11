@@ -55,7 +55,8 @@ config :logger, :default_formatter,
 # Use Jason for JSON parsing in Phoenix
 config :phoenix, :json_library, Jason
 
-# Cooking conversations must not be retained in request parameter logs.
+# Cooking conversations and spoken inventory transcripts must not be retained
+# in request parameter logs.
 config :phoenix, :filter_parameters, [
   "password",
   "token",
@@ -63,7 +64,8 @@ config :phoenix, :filter_parameters, [
   "code",
   "message",
   "content",
-  "prompt"
+  "prompt",
+  "transcript"
 ]
 
 # IANA time zone database, compiled into the `tz` package: no runtime
