@@ -1,39 +1,55 @@
 import React from 'react';
 import { act, create, type ReactTestRenderer } from 'react-test-renderer';
-import type { RecipeIngredientRow } from '../../domain/recipeIngredients';
-import { RECIPE_CHAT_REPLY_DELAY_MS, useRecipeChat } from '../useRecipeChat';
+import { ApiError } from '@/api/errors';
+import { askCookingSession, getCookingSession, startCookingSession } from '@/features/cooking/api';
+import {
+  COOKING_ANSWER,
+  COOKING_CHAT_HISTORY,
+  COOKING_QUESTION,
+  COOKING_SCHEDULED_MEAL_ID,
+  COOKING_SESSION_ID,
+  COOKING_SESSION_WITH_HISTORY,
+  COOKING_START,
+} from '@/features/cooking/fixtures';
+import { useRecipeChat } from '../useRecipeChat';
+
+jest.mock('@react-native-async-storage/async-storage', () =>
+  jest.requireActual('@react-native-async-storage/async-storage/jest/async-storage-mock')
+);
+jest.mock('@/features/cooking/api', () => ({
+  startCookingSession: jest.fn(),
+  getCookingSession: jest.fn(),
+  askCookingSession: jest.fn(),
+  finishCookingSession: jest.fn(),
+}));
+
+const startMock = jest.mocked(startCookingSession);
+const readMock = jest.mocked(getCookingSession);
+const askMock = jest.mocked(askCookingSession);
 
 type ChatArgs = Parameters<typeof useRecipeChat>[0];
 type Chat = ReturnType<typeof useRecipeChat>;
 
-const RICE_IN_STOCK: RecipeIngredientRow = {
-  ingredientId: 'i1',
-  name: 'Arroz blanco',
-  quantityLabel: '100 g',
-  requiredAmount: 100,
-  availableAmount: 500,
-  missingAmount: 0,
-  unit: 'g',
-  status: 'in_stock',
-};
-const CHICKEN_MISSING: RecipeIngredientRow = {
-  ingredientId: 'i2',
-  name: 'Pollo (pechuga)',
-  quantityLabel: '200 g',
-  requiredAmount: 200,
-  availableAmount: 50,
-  missingAmount: 150,
-  unit: 'g',
-  status: 'missing',
-};
-const CHICKEN_OFFER = { name: 'Pollo (pechuga)', ingredientId: 'i2', amount: 150, unit: 'g' };
+const OTHER_MEAL_ID = 'b7a1d3c2-0000-4000-8000-00000000000b';
+const HISTORY_IDS = COOKING_CHAT_HISTORY.map((turn) => turn.id);
+const ANSWER_IDS = COOKING_ANSWER.turns.map((turn) => turn.id);
 
-function renderChat(overrides: Partial<ChatArgs> = {}) {
+function deferred<T>() {
+  let resolve: (value: T) => void = () => {};
+  let reject: (error: unknown) => void = () => {};
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+
+  return { promise, resolve, reject };
+}
+
+async function renderChat(overrides: Partial<ChatArgs> = {}) {
   const args: ChatArgs = {
-    recipeName: 'Pollo con arroz y tomate',
-    rows: [RICE_IN_STOCK],
+    scheduledMealId: COOKING_SCHEDULED_MEAL_ID,
     isEnabled: true,
-    onAddOffer: jest.fn(),
+    isCooked: false,
     ...overrides,
   };
   const result = { current: null as unknown as Chat };
@@ -44,222 +60,284 @@ function renderChat(overrides: Partial<ChatArgs> = {}) {
   }
 
   let tree: ReactTestRenderer;
-  act(() => {
+  // The session opens on mount; the act lets its answers land.
+  await act(async () => {
     tree = create(<Harness {...args} />);
   });
 
-  const rerender = (nextArgs: Partial<ChatArgs>) => {
+  const rerender = async (nextArgs: Partial<ChatArgs>) => {
     Object.assign(args, nextArgs);
-    act(() => {
+    await act(async () => {
       tree.update(<Harness {...args} />);
     });
   };
 
-  return { result, args, rerender, unmount: () => act(() => tree.unmount()) };
+  return { result, rerender, unmount: () => act(() => tree.unmount()) };
 }
 
-function ask(result: { current: Chat }, question: string) {
+async function ask(result: { current: Chat }, question: string) {
   act(() => {
     result.current.setInput(question);
   });
-  act(() => {
+  await act(async () => {
     result.current.sendMessage();
   });
 }
 
-function waitForReply() {
-  act(() => {
-    jest.advanceTimersByTime(RECIPE_CHAT_REPLY_DELAY_MS);
-  });
-}
+const ids = (result: { current: Chat }) => result.current.messages.map((message) => message.id);
 
 describe('useRecipeChat', () => {
   beforeEach(() => {
-    jest.useFakeTimers();
+    jest.resetAllMocks();
+    startMock.mockResolvedValue(COOKING_START);
+    readMock.mockResolvedValue(COOKING_SESSION_WITH_HISTORY);
+    askMock.mockResolvedValue(COOKING_ANSWER);
   });
 
-  afterEach(() => {
-    jest.useRealTimers();
-  });
+  describe('opening the chat', () => {
+    it('opens the session of the meal and recovers its history from the session read', async () => {
+      const { result } = await renderChat();
 
-  it('starts with an empty conversation', () => {
-    const { result } = renderChat();
-
-    expect(result.current.messages).toEqual([]);
-    expect(result.current.input).toBe('');
-    expect(result.current.isThinking).toBe(false);
-  });
-
-  it('appends the question right away, clears the input and starts thinking', () => {
-    const { result } = renderChat();
-
-    ask(result, '  ¿Puedo hacerla más liviana?  ');
-
-    expect(result.current.messages).toEqual([
-      expect.objectContaining({ author: 'user', text: '¿Puedo hacerla más liviana?' }),
-    ]);
-    expect(result.current.input).toBe('');
-    expect(result.current.isThinking).toBe(true);
-  });
-
-  it('appends the assistant reply after the delay and stops thinking', () => {
-    const { result } = renderChat();
-
-    ask(result, '¿Puedo hacerla más liviana?');
-    act(() => {
-      jest.advanceTimersByTime(RECIPE_CHAT_REPLY_DELAY_MS - 1);
-    });
-
-    expect(result.current.messages).toHaveLength(1);
-
-    act(() => {
-      jest.advanceTimersByTime(1);
-    });
-
-    expect(result.current.messages.map((message) => message.author)).toEqual(['user', 'assistant']);
-    expect(result.current.messages[1].text).toContain('Pollo con arroz y tomate');
-    expect(result.current.isThinking).toBe(false);
-  });
-
-  it('gives every message its own id across turns', () => {
-    const { result } = renderChat();
-
-    ask(result, 'Primera');
-    waitForReply();
-    ask(result, 'Segunda');
-    waitForReply();
-
-    const ids = result.current.messages.map((message) => message.id);
-
-    expect(ids).toHaveLength(4);
-    expect(new Set(ids).size).toBe(4);
-  });
-
-  it('ignores an empty question', () => {
-    const { result } = renderChat();
-
-    ask(result, '   ');
-
-    expect(result.current.messages).toEqual([]);
-    expect(result.current.isThinking).toBe(false);
-  });
-
-  it('does not send a second question while the assistant is thinking', () => {
-    const { result } = renderChat();
-
-    ask(result, 'Primera');
-    ask(result, 'Segunda');
-
-    expect(result.current.messages).toHaveLength(1);
-    expect(result.current.input).toBe('Segunda');
-  });
-
-  it('does not send anything while the chat is disabled', () => {
-    const { result } = renderChat({ isEnabled: false });
-
-    ask(result, '¿Puedo hacerla más liviana?');
-    waitForReply();
-
-    expect(result.current.messages).toEqual([]);
-    expect(result.current.isThinking).toBe(false);
-  });
-
-  it('drops the pending reply when the screen leaves', () => {
-    const { result, unmount } = renderChat();
-
-    ask(result, '¿Puedo hacerla más liviana?');
-    unmount();
-
-    expect(jest.getTimerCount()).toBe(0);
-  });
-  describe('offer to add a missing ingredient', () => {
-    function askWithMissingChicken(overrides: Partial<ChatArgs> = {}) {
-      const chat = renderChat({ rows: [RICE_IN_STOCK, CHICKEN_MISSING], ...overrides });
-
-      ask(chat.result, '¿Puedo hacerla más liviana?');
-      waitForReply();
-
-      return { ...chat, offerMessage: chat.result.current.messages[1] };
-    }
-
-    it('offers the ingredient the inventory is short of, with both quick actions', () => {
-      const { offerMessage } = askWithMissingChicken();
-
-      expect(offerMessage.offer).toEqual(CHICKEN_OFFER);
-      expect(offerMessage.actions?.map((action) => action.label)).toEqual([
-        'Sí, agregalo',
-        'No hace falta',
+      expect(startMock).toHaveBeenCalledWith(COOKING_SCHEDULED_MEAL_ID);
+      expect(readMock).toHaveBeenCalledWith(COOKING_SESSION_ID);
+      expect(result.current.messages).toEqual([
+        { id: HISTORY_IDS[0], author: 'user', text: '¿Puedo usar menos aceite?' },
+        { id: HISTORY_IDS[1], author: 'assistant', text: 'Sí, con la mitad alcanza.' },
       ]);
+      expect(result.current.availability).toBe('available');
+      expect(result.current.errorMessage).toBeNull();
     });
 
-    it('offers what is missing when the reply arrives, not when the question was sent', () => {
-      const { result, rerender } = renderChat({ rows: [RICE_IN_STOCK] });
+    it.each<Partial<ChatArgs>>([
+      { isEnabled: false },
+      { scheduledMealId: null },
+      { isEnabled: false, scheduledMealId: null },
+    ])('makes no request while the chat is disabled: %j', async (overrides) => {
+      const { result } = await renderChat(overrides);
 
-      ask(result, '¿Puedo hacerla más liviana?');
-      rerender({ rows: [RICE_IN_STOCK, CHICKEN_MISSING] });
-      waitForReply();
+      await ask(result, COOKING_QUESTION);
 
-      expect(result.current.messages[1].offer).toEqual(CHICKEN_OFFER);
+      expect(startMock).not.toHaveBeenCalled();
+      expect(readMock).not.toHaveBeenCalled();
+      expect(askMock).not.toHaveBeenCalled();
+      expect(result.current.messages).toEqual([]);
+      expect(result.current.availability).toBe('unavailable');
     });
 
-    it('makes no offer without a way to take one: the reply is only the advice', () => {
-      const { result } = renderChat({
-        rows: [RICE_IN_STOCK, CHICKEN_MISSING],
-        onAddOffer: undefined,
-      });
+    it('does not open a session for a meal that is already cooked', async () => {
+      const { result } = await renderChat({ isCooked: true });
 
-      ask(result, '¿Puedo hacerla más liviana?');
-      waitForReply();
-
-      const [, reply] = result.current.messages;
-      expect(reply).toEqual(expect.objectContaining({ author: 'assistant' }));
-      expect(reply.offer).toBeUndefined();
-      expect(reply.actions).toBeUndefined();
-      expect(reply.text).not.toContain('compras');
+      expect(startMock).not.toHaveBeenCalled();
+      expect(result.current.availability).toBe('finished');
     });
 
-    it('adds the ingredient and removes the quick actions when the user confirms', () => {
-      const { result, args, offerMessage } = askWithMissingChicken();
+    it('closes the chat when the server says the meal is not on its today', async () => {
+      startMock.mockRejectedValue(new ApiError('cooking_chat_unavailable', 'no', 409));
 
-      act(() => {
-        result.current.answerQuickAction(offerMessage.id, 'confirm_add');
-      });
+      const { result } = await renderChat();
 
-      expect(args.onAddOffer).toHaveBeenCalledTimes(1);
-      expect(args.onAddOffer).toHaveBeenCalledWith(CHICKEN_OFFER);
-      expect(result.current.messages.every((message) => message.actions === undefined)).toBe(true);
-      expect(result.current.messages.slice(2)).toEqual([
-        expect.objectContaining({ author: 'user', text: 'Sí, agregalo' }),
-        expect.objectContaining({ author: 'assistant' }),
-      ]);
+      expect(result.current.availability).toBe('unavailable');
+      expect(readMock).not.toHaveBeenCalled();
     });
 
-    it('adds nothing and removes the quick actions when the user dismisses the offer', () => {
-      const { result, args, offerMessage } = askWithMissingChicken();
+    it('says why the history could not be loaded', async () => {
+      readMock.mockRejectedValue(new ApiError('network_error', 'offline'));
 
-      act(() => {
-        result.current.answerQuickAction(offerMessage.id, 'dismiss_add');
-      });
+      const { result } = await renderChat();
 
-      expect(args.onAddOffer).not.toHaveBeenCalled();
-      expect(result.current.messages.every((message) => message.actions === undefined)).toBe(true);
+      expect(result.current.messages).toEqual([]);
+      expect(result.current.availability).toBe('available');
+      expect(result.current.errorMessage).toEqual(expect.any(String));
+    });
+
+    it('opens the session again on the next question after a failed open', async () => {
+      startMock.mockRejectedValueOnce(new ApiError('network_error', 'offline'));
+      const { result } = await renderChat();
+
+      await ask(result, COOKING_QUESTION);
+
+      expect(startMock).toHaveBeenCalledTimes(2);
+      expect(askMock).toHaveBeenCalledWith(COOKING_SESSION_ID, COOKING_QUESTION);
+      expect(ids(result)).toEqual([...HISTORY_IDS, ...ANSWER_IDS]);
+      expect(result.current.errorMessage).toBeNull();
+    });
+  });
+
+  describe('asking', () => {
+    it('shows the question right away, clears the input and starts thinking', async () => {
+      const pendingAnswer = deferred<typeof COOKING_ANSWER>();
+      askMock.mockReturnValue(pendingAnswer.promise);
+      const { result } = await renderChat();
+
+      await ask(result, `  ${COOKING_QUESTION}  `);
+
+      expect(askMock).toHaveBeenCalledWith(COOKING_SESSION_ID, COOKING_QUESTION);
+      expect(result.current.messages).toHaveLength(3);
       expect(result.current.messages[2]).toEqual(
-        expect.objectContaining({ author: 'user', text: 'No hace falta' })
+        expect.objectContaining({ author: 'user', text: COOKING_QUESTION })
       );
+      expect(result.current.input).toBe('');
+      expect(result.current.isThinking).toBe(true);
+
+      await act(async () => pendingAnswer.resolve(COOKING_ANSWER));
     });
 
-    it('adds the ingredient only once when the same offer is answered twice', () => {
-      const { result, args, offerMessage } = askWithMissingChicken();
+    it('appends both stored turns in order, without repeating the optimistic question', async () => {
+      const { result } = await renderChat();
 
+      await ask(result, COOKING_QUESTION);
+
+      expect(ids(result)).toEqual([...HISTORY_IDS, ...ANSWER_IDS]);
+      expect(result.current.messages.slice(2)).toEqual([
+        { id: ANSWER_IDS[0], author: 'user', text: COOKING_QUESTION },
+        { id: ANSWER_IDS[1], author: 'assistant', text: 'Unos 18 minutos a fuego bajo.' },
+      ]);
+      expect(result.current.isThinking).toBe(false);
+    });
+
+    it('keeps a question sent before the history arrived, after the history', async () => {
+      const pendingRead = deferred<typeof COOKING_SESSION_WITH_HISTORY>();
+      readMock.mockReturnValue(pendingRead.promise);
+      const { result } = await renderChat();
+
+      await ask(result, COOKING_QUESTION);
+      expect(result.current.messages).toHaveLength(1);
+      expect(askMock).not.toHaveBeenCalled();
+
+      await act(async () => pendingRead.resolve(COOKING_SESSION_WITH_HISTORY));
+
+      expect(startMock).toHaveBeenCalledTimes(1);
+      expect(ids(result)).toEqual([...HISTORY_IDS, ...ANSWER_IDS]);
+    });
+
+    it('ignores an empty question', async () => {
+      const { result } = await renderChat();
+
+      await ask(result, '   ');
+
+      expect(askMock).not.toHaveBeenCalled();
+      expect(result.current.messages).toHaveLength(2);
+    });
+
+    it('does not send a second question while the assistant is thinking', async () => {
+      const pendingAnswer = deferred<typeof COOKING_ANSWER>();
+      askMock.mockReturnValue(pendingAnswer.promise);
+      const { result } = await renderChat();
+
+      await ask(result, COOKING_QUESTION);
+      await ask(result, 'Segunda');
+
+      expect(askMock).toHaveBeenCalledTimes(1);
+      expect(result.current.messages).toHaveLength(3);
+      expect(result.current.input).toBe('Segunda');
+
+      await act(async () => pendingAnswer.resolve(COOKING_ANSWER));
+    });
+
+    it('sends once when the submit lands twice before the screen re-renders', async () => {
+      const { result } = await renderChat();
       act(() => {
-        result.current.answerQuickAction(offerMessage.id, 'confirm_add');
-      });
-      act(() => {
-        result.current.answerQuickAction(offerMessage.id, 'confirm_add');
+        result.current.setInput(COOKING_QUESTION);
       });
 
-      expect(args.onAddOffer).toHaveBeenCalledTimes(1);
-      expect(result.current.messages).toHaveLength(4);
+      const { sendMessage } = result.current;
+      await act(async () => {
+        sendMessage();
+        sendMessage();
+      });
+
+      expect(askMock).toHaveBeenCalledTimes(1);
+      expect(ids(result)).toEqual([...HISTORY_IDS, ...ANSWER_IDS]);
+    });
+  });
+
+  describe('when a question fails', () => {
+    it('takes the question back, restores the input and says why', async () => {
+      askMock.mockRejectedValue(new ApiError('validation_error', 'too long', 422));
+      const { result } = await renderChat();
+
+      await ask(result, COOKING_QUESTION);
+
+      expect(ids(result)).toEqual(HISTORY_IDS);
+      expect(result.current.input).toBe(COOKING_QUESTION);
+      expect(result.current.isThinking).toBe(false);
+      expect(result.current.errorMessage).toEqual(expect.any(String));
+      expect(result.current.availability).toBe('available');
+    });
+
+    it('clears the error on the next question', async () => {
+      askMock.mockRejectedValueOnce(new ApiError('network_error', 'offline'));
+      const { result } = await renderChat();
+      await ask(result, COOKING_QUESTION);
+
+      await ask(result, COOKING_QUESTION);
+
+      expect(result.current.errorMessage).toBeNull();
+      expect(ids(result)).toEqual([...HISTORY_IDS, ...ANSWER_IDS]);
+    });
+
+    it.each([
+      ['cooking_chat_unavailable', 'unavailable'],
+      ['cooking_already_finished', 'finished'],
+    ] as const)('closes the chat on %s and keeps the history', async (code, availability) => {
+      askMock.mockRejectedValue(new ApiError(code, 'no', 409));
+      const { result } = await renderChat();
+
+      await ask(result, COOKING_QUESTION);
+
+      expect(result.current.availability).toBe(availability);
+      expect(ids(result)).toEqual(HISTORY_IDS);
+      expect(result.current.isThinking).toBe(false);
+
+      await ask(result, 'Otra');
+      expect(askMock).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe('when the meal is cooked', () => {
+    it('closes the chat and keeps the conversation on screen', async () => {
+      const { result, rerender } = await renderChat();
+
+      await rerender({ isCooked: true });
+      await ask(result, COOKING_QUESTION);
+
+      expect(result.current.availability).toBe('finished');
+      expect(ids(result)).toEqual(HISTORY_IDS);
+      expect(askMock).not.toHaveBeenCalled();
+      expect(startMock).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe('late answers', () => {
+    it('drops an answer that lands after the screen left', async () => {
+      const pendingAnswer = deferred<typeof COOKING_ANSWER>();
+      askMock.mockReturnValue(pendingAnswer.promise);
+      const { result, unmount } = await renderChat();
+      await ask(result, COOKING_QUESTION);
+      const before = result.current;
+
+      unmount();
+      await act(async () => pendingAnswer.resolve(COOKING_ANSWER));
+
+      expect(result.current).toBe(before);
+    });
+
+    it('drops the answer of another meal and shows the history of the current one', async () => {
+      const pendingAnswer = deferred<typeof COOKING_ANSWER>();
+      askMock.mockReturnValue(pendingAnswer.promise);
+      const { result, rerender } = await renderChat();
+      await ask(result, COOKING_QUESTION);
+
+      readMock.mockResolvedValue({ ...COOKING_START, scheduledMealId: OTHER_MEAL_ID });
+      await rerender({ scheduledMealId: OTHER_MEAL_ID });
+
+      expect(startMock).toHaveBeenLastCalledWith(OTHER_MEAL_ID);
+      expect(result.current.messages).toEqual([]);
+      expect(result.current.isThinking).toBe(false);
+
+      await act(async () => pendingAnswer.resolve(COOKING_ANSWER));
+
+      expect(result.current.messages).toEqual([]);
     });
   });
 });

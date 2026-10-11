@@ -1,13 +1,23 @@
 /// <reference types="node" />
 import { ApiError } from '@/api/errors';
 import {
+  COOKING_ANSWER,
+  COOKING_CHAT_HISTORY,
   COOKING_FINISH_WITH_SHORTAGE,
+  COOKING_QUESTION,
   COOKING_SCHEDULED_MEAL_ID,
   COOKING_SESSION_ID,
+  COOKING_SESSION_WITH_HISTORY,
+  toCookingAnswerResponse,
   toCookingFinishResponse,
-  toCookingStartResponse,
+  toCookingSessionResponse,
 } from '../fixtures';
-import { finishCookingSession, startCookingSession } from './cookingApi';
+import {
+  askCookingSession,
+  finishCookingSession,
+  getCookingSession,
+  startCookingSession,
+} from './cookingApi';
 
 const mockSecureStore = new Map<string, string>();
 
@@ -49,7 +59,7 @@ describe('the cooking API', () => {
 
   describe('startCookingSession', () => {
     it('posts the meal id and returns the session', async () => {
-      fetchMock.mockReturnValue(mockJsonResponse(toCookingStartResponse()));
+      fetchMock.mockReturnValue(mockJsonResponse(toCookingSessionResponse()));
 
       const session = await startCookingSession(COOKING_SCHEDULED_MEAL_ID);
 
@@ -58,6 +68,27 @@ describe('the cooking API', () => {
       expect(init.method).toBe('POST');
       expect(JSON.parse(init.body)).toEqual({ scheduledMealId: COOKING_SCHEDULED_MEAL_ID });
       expect(session.sessionId).toBe(COOKING_SESSION_ID);
+    });
+
+    it('carries the history of the session the meal already had', async () => {
+      fetchMock.mockReturnValue(
+        mockJsonResponse(toCookingSessionResponse(COOKING_SESSION_WITH_HISTORY))
+      );
+
+      const session = await startCookingSession(COOKING_SCHEDULED_MEAL_ID);
+
+      expect(session.chatMessages).toEqual(COOKING_CHAT_HISTORY);
+    });
+
+    it('turns an answer with a malformed chat turn into an unknown error', async () => {
+      const { data } = toCookingSessionResponse();
+      fetchMock.mockReturnValue(
+        mockJsonResponse({ data: { ...data, chatMessages: [{ id: 'm1', role: 'system' }] } })
+      );
+
+      await expect(startCookingSession(COOKING_SCHEDULED_MEAL_ID)).rejects.toMatchObject({
+        code: 'unknown_error',
+      });
     });
 
     it('does not retry a transient failure: the post is not idempotent', async () => {
@@ -126,5 +157,83 @@ describe('the cooking API', () => {
         code: 'cooking_already_finished',
       });
     });
+  });
+
+  describe('getCookingSession', () => {
+    it('reads the session and returns its history, oldest first', async () => {
+      fetchMock.mockReturnValue(
+        mockJsonResponse(toCookingSessionResponse(COOKING_SESSION_WITH_HISTORY))
+      );
+
+      const session = await getCookingSession(COOKING_SESSION_ID);
+
+      const [url, init] = fetchMock.mock.calls[0];
+      expect(url).toBe(`https://api.example.test/api/cooking/sessions/${COOKING_SESSION_ID}`);
+      expect(init.method).toBe('GET');
+      expect(init.headers.Authorization).toBe('Bearer access-1');
+      expect(session.sessionId).toBe(COOKING_SESSION_ID);
+      expect(session.chatMessages).toEqual(COOKING_CHAT_HISTORY);
+    });
+
+    it('turns an answer without a history into an unknown error', async () => {
+      fetchMock.mockReturnValue(mockJsonResponse({ data: { sessionId: COOKING_SESSION_ID } }));
+
+      await expect(getCookingSession(COOKING_SESSION_ID)).rejects.toMatchObject({
+        code: 'unknown_error',
+      });
+    });
+
+    it('keeps the code of a session that is not found', async () => {
+      fetchMock.mockReturnValue(
+        mockJsonResponse({ error: { code: 'not_found', message: 'x' } }, false, 404)
+      );
+
+      await expect(getCookingSession(COOKING_SESSION_ID)).rejects.toMatchObject({
+        code: 'not_found',
+      });
+    });
+  });
+
+  describe('askCookingSession', () => {
+    it('posts the question and returns the two stored turns', async () => {
+      fetchMock.mockReturnValue(mockJsonResponse(toCookingAnswerResponse()));
+
+      const answer = await askCookingSession(COOKING_SESSION_ID, COOKING_QUESTION);
+
+      const [url, init] = fetchMock.mock.calls[0];
+      expect(url).toBe(`https://api.example.test/api/cooking/sessions/${COOKING_SESSION_ID}/ask`);
+      expect(init.method).toBe('POST');
+      expect(JSON.parse(init.body)).toEqual({ message: COOKING_QUESTION });
+      expect(answer.turns).toEqual(COOKING_ANSWER.turns);
+    });
+
+    it('does not retry a transient failure: a repeat would store the question twice', async () => {
+      fetchMock.mockRejectedValue(new TypeError('Network request failed'));
+
+      await expect(askCookingSession(COOKING_SESSION_ID, COOKING_QUESTION)).rejects.toMatchObject({
+        code: 'network_error',
+      });
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    });
+
+    it('turns an answer without both turns into an unknown error', async () => {
+      const { data } = toCookingAnswerResponse();
+      fetchMock.mockReturnValue(mockJsonResponse({ data: { ...data, turns: [data.turns[0]] } }));
+
+      await expect(askCookingSession(COOKING_SESSION_ID, COOKING_QUESTION)).rejects.toMatchObject({
+        code: 'unknown_error',
+      });
+    });
+
+    it.each(['cooking_chat_unavailable', 'cooking_already_finished'])(
+      'keeps the code of a refused question: %s',
+      async (code) => {
+        fetchMock.mockReturnValue(mockJsonResponse({ error: { code, message: 'x' } }, false, 409));
+
+        await expect(askCookingSession(COOKING_SESSION_ID, COOKING_QUESTION)).rejects.toMatchObject(
+          { code }
+        );
+      }
+    );
   });
 });

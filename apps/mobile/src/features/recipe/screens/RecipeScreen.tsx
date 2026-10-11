@@ -27,7 +27,7 @@ import {
   RECIPE_SCREEN_SIDE_PADDING,
   RECIPE_SECTION_GAP,
 } from '../constants';
-import { RECIPE_CHAT_DISABLED_PLACEHOLDER, RECIPE_CHAT_PLACEHOLDER } from '../domain/recipeChat';
+import { recipeChatPlaceholder } from '../domain/recipeChat';
 import { buildRecipeFacts } from '../domain/recipeFormat';
 import { useActivateRecipePalette } from '../hooks/useActivateRecipePalette';
 import { useRecipeChat } from '../hooks/useRecipeChat';
@@ -45,6 +45,8 @@ export function RecipeScreen() {
     isFavorite,
     canMarkAsCooked,
     isChatEnabled,
+    chatScheduledMealId,
+    isMealCooked,
     isCookedConfirmVisible,
     cookingSummary,
     cookingErrorMessage,
@@ -56,11 +58,10 @@ export function RecipeScreen() {
     handleCancelCooked,
     handleCloseCookingResult,
   } = useRecipeScreen();
-  // Without a way to take an offer, the assistant makes none.
   const chat = useRecipeChat({
-    recipeName: recipe?.name ?? '',
-    rows,
+    scheduledMealId: chatScheduledMealId,
     isEnabled: isChatEnabled,
+    isCooked: isMealCooked,
   });
   const [composerHeight, setComposerHeight] = useState(CHAT_COMPOSER_MIN_HEIGHT);
   // How far the keyboard lifts the composer, as the composer itself computes it; zero at rest.
@@ -117,7 +118,7 @@ export function RecipeScreen() {
           <RecipeChatSection
             messages={chat.messages}
             isThinking={chat.isThinking}
-            onQuickAction={chat.answerQuickAction}
+            errorMessage={chat.errorMessage}
           />
         </ScrollView>
       </TopFadeMask>
@@ -131,8 +132,8 @@ export function RecipeScreen() {
         onHeightChange={setComposerHeight}
         onKeyboardLiftChange={setKeyboardLift}
         onSubmit={chat.sendMessage}
-        placeholder={isChatEnabled ? RECIPE_CHAT_PLACEHOLDER : RECIPE_CHAT_DISABLED_PLACEHOLDER}
-        disabled={!isChatEnabled}
+        placeholder={recipeChatPlaceholder(chat.availability)}
+        disabled={chat.availability !== 'available'}
         restingBottomGap={RECIPE_COMPOSER_BOTTOM_GAP}
         testIDPrefix="recipe-composer"
         backdrop={<RecipeBottomFade height={bottomOverlayHeight} />}

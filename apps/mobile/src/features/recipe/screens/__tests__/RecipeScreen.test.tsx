@@ -6,8 +6,18 @@ import { formatDateKey } from '@/features/home/utils/calendarDate';
 import { CHAT_COMPOSER_MIN_HEIGHT } from '@/features/assistant-chat';
 import { addFavorite, listFavorites, removeFavorite } from '@/features/favorites/api/favoritesApi';
 import { useFavoritesStore } from '@/features/favorites/store';
-import { finishCookingSession, startCookingSession } from '@/features/cooking/api';
-import { COOKING_FINISH_WITH_SHORTAGE, COOKING_START } from '@/features/cooking/fixtures';
+import {
+  askCookingSession,
+  finishCookingSession,
+  getCookingSession,
+  startCookingSession,
+} from '@/features/cooking/api';
+import {
+  COOKING_ANSWER,
+  COOKING_FINISH_WITH_SHORTAGE,
+  COOKING_SESSION_WITH_HISTORY,
+  COOKING_START,
+} from '@/features/cooking/fixtures';
 import { useInventoryStore, type InventoryItem } from '@/features/inventory';
 import { useShoppingListStore } from '@/features/shopping/store';
 import { useMealPlanStore } from '@/store';
@@ -15,7 +25,6 @@ import type { MasterRecipe, MealPlanEntry, RecipeThemeConfig } from '@/types/dom
 import { RecipeBottomFade } from '../../components/RecipeBottomFade';
 import { fixtureRecipe } from '../../fixtures/recipeDetail';
 import recipeDetail from '../../fixtures/recipeDetail.json';
-import { RECIPE_CHAT_REPLY_DELAY_MS } from '../../hooks/useRecipeChat';
 import { useRecipeCacheStore } from '../../store';
 import { RecipeScreen } from '../RecipeScreen';
 
@@ -23,6 +32,8 @@ const mockBack = jest.fn();
 
 jest.mock('@/features/cooking/api', () => ({
   startCookingSession: jest.fn(),
+  getCookingSession: jest.fn(),
+  askCookingSession: jest.fn(),
   finishCookingSession: jest.fn(),
 }));
 const mockScrollToEnd = jest.fn();
@@ -210,10 +221,9 @@ function ask(tree: ReactTestRenderer, question: string) {
   });
 }
 
-function waitForReply() {
-  act(() => {
-    jest.advanceTimersByTime(RECIPE_CHAT_REPLY_DELAY_MS);
-  });
+// Lets the answers of the Cooking session calls land: the history, then the reply.
+async function waitForReply() {
+  await act(async () => {});
 }
 
 function renderedTexts(tree: ReactTestRenderer): string[] {
@@ -265,6 +275,13 @@ describe('RecipeScreen', () => {
     mockBack.mockClear();
     jest.mocked(startCookingSession).mockReset().mockResolvedValue(COOKING_START);
     jest.mocked(finishCookingSession).mockReset().mockResolvedValue(COOKING_FINISH_WITH_SHORTAGE);
+    // The chat of today's meal opens with the screen. Its history stays on its way unless a test
+    // waits for it, so nothing lands after a test that never looks at the chat.
+    jest
+      .mocked(getCookingSession)
+      .mockReset()
+      .mockReturnValue(new Promise(() => {}));
+    jest.mocked(askCookingSession).mockReset().mockResolvedValue(COOKING_ANSWER);
     mockScrollToEnd.mockClear();
     fetchMock.mockReset();
     global.fetch = fetchMock;
@@ -462,7 +479,9 @@ describe('RecipeScreen', () => {
         onPress();
       });
 
-      expect(startCookingSession).toHaveBeenCalledTimes(1);
+      // The chat opened the meal's session with the screen; cooking asked for it once more.
+      expect(startCookingSession).toHaveBeenCalledTimes(2);
+      expect(finishCookingSession).toHaveBeenCalledTimes(1);
       expect(useMealPlanStore.getState().entries[0].isCooked).toBe(true);
     });
 
@@ -905,6 +924,15 @@ describe('RecipeScreen', () => {
   describe('assistant chat', () => {
     const QUESTION = '¿Puedo hacerla más liviana?';
 
+    // Opens the screen and waits for the session of today's meal, with the history it had.
+    async function renderWithChatOpen(session = COOKING_START) {
+      jest.mocked(getCookingSession).mockResolvedValue(session);
+      const tree = renderScreen();
+      await waitForReply();
+
+      return tree;
+    }
+
     it('invites the user to ask about the recipe on the day it is planned', () => {
       const composer = getComposer(renderScreen());
 
@@ -929,66 +957,108 @@ describe('RecipeScreen', () => {
       );
     });
 
-    it('sends nothing while the chat is disabled', () => {
+    it('asks the server nothing while the chat is disabled', async () => {
       useMealPlanStore.setState({ entries: [entry({ id: 'e-other', date: OTHER_DAY })] });
       mockRouteParams = { id: 'r1', entryId: 'e-other' };
       const tree = renderScreen();
 
       ask(tree, QUESTION);
-      waitForReply();
+      await waitForReply();
 
       expect(renderedTexts(tree)).not.toContain(QUESTION);
       expect(tree.root.findAllByType('ChatTypingIndicator' as never)).toHaveLength(0);
+      expect(startCookingSession).not.toHaveBeenCalled();
+      expect(getCookingSession).not.toHaveBeenCalled();
+      expect(askCookingSession).not.toHaveBeenCalled();
     });
 
-    it('disables the composer when the recipe has no planned meal', () => {
+    it('disables the composer when the recipe has no planned meal', async () => {
       useMealPlanStore.setState({ entries: [] });
+      const tree = renderScreen();
+      await waitForReply();
 
-      expect(getComposer(renderScreen()).props.disabled).toBe(true);
+      expect(getComposer(tree).props.disabled).toBe(true);
+      expect(startCookingSession).not.toHaveBeenCalled();
     });
 
-    it('shows the question, then the typing indicator, then the assistant reply', () => {
-      const tree = renderScreen();
+    it('brings back the conversation of the meal when the screen opens', async () => {
+      const tree = await renderWithChatOpen(COOKING_SESSION_WITH_HISTORY);
+
+      expect(startCookingSession).toHaveBeenCalledWith('e-today');
+      expect(getCookingSession).toHaveBeenCalledWith(COOKING_START.sessionId);
+      expect(renderedTexts(tree)).toEqual(
+        expect.arrayContaining(['¿Puedo usar menos aceite?', 'Sí, con la mitad alcanza.'])
+      );
+    });
+
+    it('shows the question, then the typing indicator, then the answer of the server', async () => {
+      let answer: (value: typeof COOKING_ANSWER) => void = () => {};
+      jest.mocked(askCookingSession).mockReturnValue(new Promise((resolve) => (answer = resolve)));
+      const tree = await renderWithChatOpen();
 
       ask(tree, QUESTION);
+      await waitForReply();
 
+      expect(askCookingSession).toHaveBeenCalledWith(COOKING_START.sessionId, QUESTION);
       expect(renderedTexts(tree)).toContain(QUESTION);
       expect(getComposer(tree).props.value).toBe('');
       expect(getComposer(tree).props.isThinking).toBe(true);
       expect(tree.root.findAllByType('ChatTypingIndicator' as never)).toHaveLength(1);
 
-      waitForReply();
+      await act(async () => answer(COOKING_ANSWER));
 
       expect(getComposer(tree).props.isThinking).toBe(false);
       expect(tree.root.findAllByType('ChatTypingIndicator' as never)).toHaveLength(0);
-      expect(
-        renderedTexts(tree).some((text) => text.includes('podés adaptar Pollo con arroz y tomate'))
-      ).toBe(true);
-    });
-
-    it('makes no offer to send a missing ingredient to the shopping list', () => {
-      const stateBefore = shopping();
-      const tree = renderScreen();
-
-      // The chicken and the tomato are missing: the assistant still only gives its advice.
-      expect(ingredientStatus(tree, 'i2')).toBe('Falta');
-      ask(tree, QUESTION);
-      waitForReply();
-
-      expect(renderedTexts(tree).some((text) => text.includes('¿lo agrego a compras?'))).toBe(
-        false
+      // The stored turns replace the question the screen had drawn on its own.
+      expect(renderedTexts(tree)).not.toContain(QUESTION);
+      expect(renderedTexts(tree)).toEqual(
+        expect.arrayContaining(['¿Cuánto tarda el arroz?', 'Unos 18 minutos a fuego bajo.'])
       );
-      expect(renderedTexts(tree)).not.toContain('Sí, agregalo');
-      expect(renderedTexts(tree)).not.toContain('No hace falta');
-      expect(
-        tree.root.findAllByProps({ testID: 'recipe-chat-action-turn-1-assistant-confirm_add' })
-      ).toHaveLength(0);
-      expect(shopping()).toBe(stateBefore);
-      expect(fetchMock).not.toHaveBeenCalled();
     });
 
-    it('scrolls to the end once a new message has been laid out', () => {
-      const tree = renderScreen();
+    it('gives the question back and says why when the server cannot answer', async () => {
+      jest.mocked(askCookingSession).mockRejectedValue(new ApiError('network_error', 'offline'));
+      const tree = await renderWithChatOpen();
+
+      ask(tree, QUESTION);
+      await waitForReply();
+
+      expect(getComposer(tree).props.value).toBe(QUESTION);
+      expect(getComposer(tree).props.disabled).toBe(false);
+      expect(tree.root.findAllByProps({ testID: 'recipe-chat-error' }).length).toBeGreaterThan(0);
+      expect(renderedTexts(tree)).not.toContain(QUESTION);
+    });
+
+    it.each([
+      ['cooking_chat_unavailable', 'Chat disponible el día de la receta'],
+      ['cooking_already_finished', 'Chat cerrado: la comida ya está cocinada'],
+    ] as const)('closes the composer when the server answers %s', async (code, placeholder) => {
+      jest.mocked(askCookingSession).mockRejectedValue(new ApiError(code, 'no', 409));
+      const tree = await renderWithChatOpen();
+
+      ask(tree, QUESTION);
+      await waitForReply();
+
+      expect(getComposer(tree).props.disabled).toBe(true);
+      expect(getComposer(tree).props.placeholder).toBe(placeholder);
+      expect(getComposer(tree).props.value).toBe('');
+    });
+
+    it('closes the chat once the meal is cooked and keeps the conversation', async () => {
+      const tree = await renderWithChatOpen(COOKING_SESSION_WITH_HISTORY);
+
+      press(tree, 'recipe-header-cooked');
+      await pressAndSettle(tree, 'recipe-cooked-confirm-yes');
+
+      // Cooking finished the same session the chat was using.
+      expect(finishCookingSession).toHaveBeenCalledWith(COOKING_START.sessionId);
+      expect(getComposer(tree).props.disabled).toBe(true);
+      expect(getComposer(tree).props.placeholder).toBe('Chat cerrado: la comida ya está cocinada');
+      expect(renderedTexts(tree)).toContain('Sí, con la mitad alcanza.');
+    });
+
+    it('scrolls to the end once a new message has been laid out', async () => {
+      const tree = await renderWithChatOpen();
 
       act(() => {
         getScrollView(tree).props.onContentSizeChange(390, 600);
@@ -1004,7 +1074,7 @@ describe('RecipeScreen', () => {
       expect(mockScrollToEnd).toHaveBeenCalledTimes(1);
       expect(mockScrollToEnd).toHaveBeenCalledWith({ animated: true });
 
-      waitForReply();
+      await waitForReply();
       act(() => {
         getScrollView(tree).props.onContentSizeChange(390, 900);
       });
@@ -1075,8 +1145,8 @@ describe('RecipeScreen', () => {
         expect(mockScrollToEnd).toHaveBeenCalledWith({ animated: true });
       });
 
-      it('keeps following the conversation while the keyboard stays open', () => {
-        const tree = renderScreen();
+      it('keeps following the conversation while the keyboard stays open', async () => {
+        const tree = await renderWithChatOpen();
 
         reportKeyboardLift(tree, KEYBOARD_LIFT);
         act(() => {
@@ -1089,7 +1159,7 @@ describe('RecipeScreen', () => {
 
         expect(mockScrollToEnd).toHaveBeenCalledTimes(2);
 
-        waitForReply();
+        await waitForReply();
         act(() => {
           getScrollView(tree).props.onContentSizeChange(390, 900 + KEYBOARD_LIFT);
         });

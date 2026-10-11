@@ -31,7 +31,7 @@ While cooking today's meal the User asks the Cooking chat about the recipe and g
 
 ## Tasks
 - [x] T1 API: start reuses the active session, frozen snapshot, `ask` gates, turn persistence, history in the session read, tests. Route: delegated writer (several non-trivial files).
-- [ ] T2 Mobile: `getCookingSession` / `askCookingSession`, server-backed `useRecipeChat`, scripted reply removed, fixtures and tests. Route: delegated writer (several non-trivial files).
+- [x] T2 Mobile: `getCookingSession` / `askCookingSession`, server-backed `useRecipeChat`, scripted reply removed, fixtures and tests. Route: delegated writer (several non-trivial files).
 
 ## Checks
 - API (`apps/api`, `MIX_ENV=test`): `mix compile --warnings-as-errors`, `mix format --check-formatted`, `mix credo --strict`, `mix sobelow --config`, `mix dialyzer`, `mix test`.
@@ -50,7 +50,20 @@ T1 (delegated writer, one work-unit commit `feat(api): persist the Cooking chat 
 - Contract changes in existing tests: a finished session answers `cooking_already_finished` to `ask` (was `cooking_session_not_active`); the "no durable transcript" test now asserts the stored history.
 - RED observed first: 18 failures (HTTP: 200 instead of 409/422 and `chatMessages: []`; service: `answer_question/5` undefined, prompts never observed).
 - Checks (`apps/api`, `MIX_ENV=test`): `mix compile --warnings-as-errors` clean; `mix format --check-formatted` clean; `mix credo --strict` no issues; `mix sobelow --config` clean; `mix test` 1714 passed, 20 skipped, 0 failures; `mix dialyzer` exits 2 with 9 `call_without_opaque` warnings, the same 9 on the untouched base (none in changed code).
-- Size: about 490 authored changed lines, over the 400 heuristic because the availability, recovery and frozen-snapshot tests are about 500 lines on their own.
+- Size: 12 files, +819/-88 (`git show --stat 03cd8ba`), over the 400 heuristic because the availability, recovery and frozen-snapshot tests are about 500 lines on their own.
+
+T2 (delegated writer, one work-unit commit `feat(mobile): back the Cooking chat with the session API (#36)`):
+- API client (`features/cooking/api`): `startCookingSession` now parses `chatMessages`; new `getCookingSession` (GET, auth, default retry) and `askCookingSession` (POST, never retried). A session without a well-formed history, or an answer whose `turns` are not exactly the user turn then the assistant turn, is `unknown_error`.
+- `useRecipeChat({ scheduledMealId, isEnabled, isCooked })` is server-backed: on mount it calls start, then the session read, and maps the history to the UI messages. A question is shown optimistically, then swapped for the two stored `turns` (server ids as keys). A failed question is removed, goes back to the composer and the error is shown under the conversation; a failed opening is retried by the next question.
+- Availability is `available | unavailable | finished`: `cooking_chat_unavailable` and `cooking_already_finished` close the chat, and so does a meal marked as cooked (history stays on screen). A disabled chat (other day, no planned meal, already cooked) makes no request.
+- Guards: a ref stops a double submit; answers for a meal that is no longer on screen, or after unmount, are dropped; state is keyed by meal id.
+- Removed with the script: `buildAssistantReply`, the 1200 ms timer, the offer / quick-action flow (`RecipeChatOffer`, `RecipeChatAction`, `resolveQuickAction`, `onAddOffer`, `answerQuickAction`) and the `RecipeQuickActions` component. The quick actions only answered the scripted "add to shopping list" offer, which the server does not make.
+- Copy: new composer placeholder `Chat cerrado: la comida ya está cocinada`. `cooking_chat_unavailable` in `src/api/errors.ts` is unchanged: the chat tells both refusals through the composer placeholder, so that message is still shown only by mark-as-cooked.
+- Mark-as-cooked is unchanged: its start returns the session the chat opened, so the screen test now sees two starts (chat, then cooking) and one finish.
+- Limitation: the app keeps no session id and does not open a session for a cooked meal (start would create a new, empty one), so the history of a cooked meal is not shown after the screen is reopened. The chat availability on the device still uses the device-local date; the server's today is authoritative and closes the chat when they differ.
+- RED observed first: API suite 9 failures (`askCookingSession` / `getCookingSession` not a function, history not parsed); chat domain and hook suites 20 failures; screen suite 4 failures against the old tests once the script was gone.
+- Checks (`apps/mobile`): `npm run lint` 0 errors (4 warnings in untouched files), prettier clean; `npx tsc --noEmit` exit 0; `npx jest --ci` 142 suites, 2086 tests passed, 0 failed (no `phoenix` resolve failure this time).
+- Size: 16 files, +948/-785 before this document, over the 400 heuristic because the scripted chat's tests (about 600 lines) were replaced by the server-backed ones.
 
 ## Next step
-T2 (mobile). Notes for it: open the chat with `POST /api/cooking/start` (returns the same session and its `chatMessages` while it is active), send with `POST /api/cooking/sessions/:sessionId/ask`, and append the two items of `turns` from the response; treat 409 `cooking_chat_unavailable` and `cooking_already_finished` as a disabled chat.
+whole-branch native review, then delivery decision

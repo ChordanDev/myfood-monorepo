@@ -1,20 +1,19 @@
-import { Fragment } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import { useRecipeTheme } from '@/context/RecipeThemeContext';
 import { ChatTypingIndicator } from '@/features/assistant-chat';
 import { withOpacity } from '@/utils/colors';
-import type { RecipeChatAction, RecipeChatMessage } from '../domain/recipeChat';
+import type { RecipeChatMessage } from '../domain/recipeChat';
 import { RecipeChatMessageItem } from './RecipeChatMessageItem';
-import { RecipeQuickActions } from './RecipeQuickActions';
 
 interface RecipeChatSectionProps {
   messages: RecipeChatMessage[];
   isThinking: boolean;
-  onQuickAction: (messageId: string, actionId: RecipeChatAction['id']) => void;
+  /** Why the last request failed; `null` when there is nothing to say. */
+  errorMessage: string | null;
 }
 
 /** The conversation with the cooking assistant, under the recipe cards in the same scroll. */
-export function RecipeChatSection({ messages, isThinking, onQuickAction }: RecipeChatSectionProps) {
+export function RecipeChatSection({ messages, isThinking, errorMessage }: RecipeChatSectionProps) {
   const { theme } = useRecipeTheme();
   const hasConversation = messages.length > 0 || isThinking;
 
@@ -34,19 +33,19 @@ export function RecipeChatSection({ messages, isThinking, onQuickAction }: Recip
       {hasConversation ? (
         <View style={styles.messages}>
           {messages.map((message) => (
-            <Fragment key={message.id}>
-              <RecipeChatMessageItem message={message} />
-              {message.actions ? (
-                <RecipeQuickActions
-                  messageId={message.id}
-                  actions={message.actions}
-                  onSelect={onQuickAction}
-                />
-              ) : null}
-            </Fragment>
+            <RecipeChatMessageItem key={message.id} message={message} />
           ))}
           {isThinking ? <ChatTypingIndicator /> : null}
         </View>
+      ) : null}
+
+      {errorMessage ? (
+        <Text
+          testID="recipe-chat-error"
+          accessibilityRole="alert"
+          style={[styles.error, { color: theme.textDark }]}>
+          {errorMessage}
+        </Text>
       ) : null}
     </View>
   );
@@ -69,6 +68,12 @@ const styles = StyleSheet.create({
   dividerLine: {
     flex: 1,
     height: 1,
+  },
+  error: {
+    fontSize: 14,
+    fontWeight: '500',
+    lineHeight: 20,
+    paddingHorizontal: 3.5,
   },
   messages: {
     gap: 22,
