@@ -14,7 +14,12 @@ defmodule MealPlannerApiWeb.ProfileControllerTest do
   alias MealPlannerApi.Persistence.Accounts.Account
   alias MealPlannerApi.Persistence.Accounts.User
   alias MealPlannerApi.Repo
+  alias MealPlannerApiWeb.MobileFixtures
   alias MealPlannerApiWeb.ProfileController
+
+  # The frozen body the mobile profile edit is tested against. The test
+  # below keeps it from drifting away from the route.
+  @fixture "auth/fixtures/profileUpdate.json"
 
   @path "/api/me/profile"
   @email "profile_edit@example.com"
@@ -52,6 +57,21 @@ defmodule MealPlannerApiWeb.ProfileControllerTest do
 
       assert %User{name: "Ana María", household_size: 4, cooking_skill: "intermediate"} =
                Repo.get!(User, user.id)
+    end
+
+    test "has exactly the key sets of the frozen mobile payload fixture", %{
+      conn: conn,
+      token: token
+    } do
+      fixture = MobileFixtures.read!(@fixture)
+
+      assert Map.keys(fixture) == ["user"]
+
+      profile = Map.take(fixture["user"], ["displayName", "householdSize", "cookingSkill"])
+      body = conn |> put_profile(token, profile) |> json_response(200)
+
+      assert MobileFixtures.key_shape(body) == MobileFixtures.key_shape(fixture)
+      assert Map.take(body["user"], Map.keys(profile)) == profile
     end
 
     test "stores and returns the name trimmed", %{conn: conn, user: user, token: token} do

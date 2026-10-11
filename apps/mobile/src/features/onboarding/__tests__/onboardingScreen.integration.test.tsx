@@ -26,6 +26,8 @@ import { Alert } from 'react-native';
 import { act, create } from 'react-test-renderer';
 import type { CurrentMe, AuthContextValue } from '@/features/auth/types/auth';
 import { AuthContext } from '@/features/auth/context/AuthContext';
+import { fixtureCurrentMeBeforeOnboarding } from '@/features/auth/fixtures/currentMe';
+import { fixtureOnboardingCompletion } from '@/features/onboarding/fixtures/onboardingCompletion';
 import { OnboardingScreen } from '@/features/onboarding/screens/OnboardingScreen';
 
 const mockRouterReplace = jest.fn();
@@ -115,27 +117,9 @@ jest.mock('react-native-safe-area-context', () => ({
   useSafeAreaInsets: () => ({ top: 0, bottom: 0, left: 0, right: 0 }),
 }));
 
+// The frozen `GET /api/me` body of a User who has not finished Onboarding.
 function makeMe(overrides: Partial<CurrentMe> = {}): CurrentMe {
-  return {
-    user: {
-      id: 'user-1',
-      email: 'user@example.com',
-      displayName: null,
-      householdSize: null,
-      cookingSkill: null,
-    },
-    account: {
-      id: 'account-1',
-      type: 'individual',
-      trialEndsAt: '2099-12-31T00:00:00Z',
-      subscriptionStatus: 'none',
-      timezone: null,
-      access: { canUseApp: true, reason: null },
-    },
-    membership: { role: 'owner' },
-    onboarding: { isComplete: false },
-    ...overrides,
-  };
+  return { ...fixtureCurrentMeBeforeOnboarding(), ...overrides };
 }
 
 function buildContext(
@@ -245,16 +229,8 @@ describe('OnboardingScreen — post-completion redirect stabilization (Judgment 
   });
 
   it('completes onboarding and replaces navigation when the last step is submitted', async () => {
-    const completeOnboarding = jest.fn().mockResolvedValue(undefined);
-    const me = makeMe({
-      user: {
-        id: 'user-1',
-        email: 'user@example.com',
-        displayName: 'Test User',
-        householdSize: null,
-        cookingSkill: null,
-      },
-    });
+    const completeOnboarding = jest.fn().mockResolvedValue(fixtureOnboardingCompletion());
+    const me = makeMe({ user: { ...makeMe().user, displayName: 'Test User' } });
     const { tree } = renderOnboardingWithValue(buildContext(me, { completeOnboarding }));
 
     // The submit action lives on the last of the three steps.

@@ -26,6 +26,7 @@ import * as React from 'react';
 import { act, create } from 'react-test-renderer';
 import type { CurrentMe, AuthContextValue } from '@/features/auth/types/auth';
 import { AuthContext } from '../../src/features/auth/context/AuthContext';
+import { fixtureCurrentMeBeforeOnboarding } from '../../src/features/auth/fixtures/currentMe';
 import IndexScreen from '../index';
 
 // Mock the modules imported by `app/index.tsx` and its dependencies.
@@ -64,27 +65,9 @@ jest.mock('../../src/constants/theme', () => ({
   COLORS: { bgDarkest: '#000', accentYellow: '#ff0' },
 }));
 
+// The frozen `GET /api/me` body of a User who has not finished Onboarding.
 function makeMe(overrides: Partial<CurrentMe> = {}): CurrentMe {
-  return {
-    user: {
-      id: 'user-1',
-      email: 'user@example.com',
-      displayName: null,
-      householdSize: null,
-      cookingSkill: null,
-    },
-    account: {
-      id: 'account-1',
-      type: 'individual',
-      trialEndsAt: '2099-12-31T00:00:00Z',
-      subscriptionStatus: 'none',
-      timezone: null,
-      access: { canUseApp: true, reason: null },
-    },
-    membership: { role: 'owner' },
-    onboarding: { isComplete: false },
-    ...overrides,
-  };
+  return { ...fixtureCurrentMeBeforeOnboarding(), ...overrides };
 }
 
 function buildContext(

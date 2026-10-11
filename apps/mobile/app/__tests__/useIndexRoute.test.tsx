@@ -8,6 +8,7 @@ import * as React from 'react';
 import { act, create } from 'react-test-renderer';
 import type { CurrentMe, AuthContextValue } from '@/features/auth/types/auth';
 import { AuthContext } from '@/features/auth/context/AuthContext';
+import { fixtureCurrentMeBeforeOnboarding } from '@/features/auth/fixtures/currentMe';
 import { useAuth } from '@/features/auth/hooks/useAuth';
 import { useIndexRoute } from '@/navigation/useIndexRoute';
 
@@ -24,26 +25,17 @@ function RouteProbe({ captures }: { captures: RouteCapture[] }) {
   return null;
 }
 
+// The frozen `GET /api/me` body of a User who has not finished Onboarding.
 function makeMe(overrides: Partial<CurrentMe> = {}): CurrentMe {
+  return { ...fixtureCurrentMeBeforeOnboarding(), ...overrides };
+}
+
+// The same Account once its trial ran out.
+function lockedAccount(): CurrentMe['account'] {
   return {
-    user: {
-      id: 'user-1',
-      email: 'user@example.com',
-      displayName: null,
-      householdSize: null,
-      cookingSkill: null,
-    },
-    account: {
-      id: 'account-1',
-      type: 'individual',
-      trialEndsAt: '2099-12-31T00:00:00Z',
-      subscriptionStatus: 'none',
-      timezone: null,
-      access: { canUseApp: true, reason: null },
-    },
-    membership: { role: 'owner' },
-    onboarding: { isComplete: false },
-    ...overrides,
+    ...makeMe().account,
+    trialEndsAt: '2020-01-01T00:00:00.000000Z',
+    access: { canUseApp: false, reason: 'trial_expired' },
   };
 }
 
@@ -152,25 +144,11 @@ describe('useIndexRoute — ping-pong stability (Judgment Day C2 follow-up)', ()
   it('routes to TrialExpired (not Tabs) for a complete+locked user, even when me reference changes', () => {
     const meV1 = makeMe({
       onboarding: { isComplete: true },
-      account: {
-        id: 'account-1',
-        type: 'individual',
-        trialEndsAt: '2020-01-01T00:00:00Z',
-        subscriptionStatus: 'none',
-        timezone: null,
-        access: { canUseApp: false, reason: 'trial_expired' },
-      },
+      account: lockedAccount(),
     });
     const meV2 = makeMe({
       onboarding: { isComplete: true },
-      account: {
-        id: 'account-1',
-        type: 'individual',
-        trialEndsAt: '2020-01-01T00:00:00Z',
-        subscriptionStatus: 'none',
-        timezone: null,
-        access: { canUseApp: false, reason: 'trial_expired' },
-      },
+      account: lockedAccount(),
     });
     const { captures, tree } = renderRouteProbeWithValue(
       buildContext(meV1, { isComplete: true, canUseApp: false, isTrialExpired: true })

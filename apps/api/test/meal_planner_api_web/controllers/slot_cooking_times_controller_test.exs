@@ -12,8 +12,15 @@ defmodule MealPlannerApiWeb.SlotCookingTimesControllerTest do
     only: [persist_trial_window!: 2, with_enforcement_enabled!: 1]
 
   alias MealPlannerApi.Repo
+  alias MealPlannerApiWeb.MobileFixtures
 
   @path "/api/me/slot-cooking-times"
+
+  # The frozen bodies the mobile Slot cooking times code is tested against:
+  # a saved set and the refusal a User with none gets. The tests below keep
+  # them from drifting away from the route.
+  @fixture "preferences/fixtures/slotCookingTimes.json"
+  @not_found_fixture "preferences/fixtures/slotCookingTimesNotFound.json"
 
   @times %{
     "breakfast" => %{"cookingTimeMinutes" => 10, "hungerLevel" => "light"},
@@ -43,6 +50,26 @@ defmodule MealPlannerApiWeb.SlotCookingTimesControllerTest do
     test "returns the saved set, each slot with camelCase keys", %{token: token} do
       assert token |> put_times(@times) |> json_response(200) == @times
       assert token |> get_times() |> json_response(200) == @times
+    end
+
+    test "the 404 is the frozen mobile error fixture", %{token: token} do
+      fixture = MobileFixtures.read!(@not_found_fixture)
+
+      assert Map.keys(fixture) == ["error"]
+      assert token |> get_times() |> json_response(404) == fixture
+    end
+
+    test "PUT and GET answer the frozen mobile payload fixture, key for key", %{token: token} do
+      fixture = MobileFixtures.read!(@fixture)
+
+      assert fixture |> Map.keys() |> Enum.sort() == ["breakfast", "dinner", "lunch"]
+
+      saved = token |> put_times(fixture) |> json_response(200)
+      read = token |> get_times() |> json_response(200)
+
+      assert MobileFixtures.key_shape(saved) == MobileFixtures.key_shape(fixture)
+      assert saved == fixture
+      assert read == fixture
     end
 
     test "never shows one User the times of another", %{token: token} do

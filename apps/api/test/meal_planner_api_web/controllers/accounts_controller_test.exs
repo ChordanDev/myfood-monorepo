@@ -6,6 +6,13 @@ defmodule MealPlannerApiWeb.AccountsControllerTest do
   alias MealPlannerApi.Auth.Guardian
   alias MealPlannerApi.Persistence.Accounts.Account
   alias MealPlannerApi.Repo
+  alias MealPlannerApiWeb.MobileFixtures
+
+  # The frozen `CurrentMe` bodies the mobile app is tested against: a User
+  # who has not finished Onboarding and one who has. The tests below keep
+  # them from drifting away from the route.
+  @before_onboarding_fixture "auth/fixtures/currentMeBeforeOnboarding.json"
+  @fixture "auth/fixtures/currentMe.json"
 
   # ─── Phase A — Tenancy Refactor (PR 3c task 3.22) ───────────────────────────
   # See calendar_controller_test.exs (task 3.14) for why a tampered
@@ -114,6 +121,59 @@ defmodule MealPlannerApiWeb.AccountsControllerTest do
       body = conn |> get_me(token, "/api/me") |> json_response(200)
 
       assert body["onboarding"] == %{"isComplete" => true}
+    end
+
+    test "has exactly the key sets of the frozen mobile fixture before Onboarding", %{
+      conn: conn,
+      token: token
+    } do
+      fixture = MobileFixtures.read!(@before_onboarding_fixture)
+
+      assert Map.keys(fixture) == ["account", "membership", "onboarding", "user"]
+      assert fixture["onboarding"] == %{"isComplete" => false}
+
+      body = conn |> get_me(token, "/api/me") |> json_response(200)
+
+      assert MobileFixtures.key_shape(body) == MobileFixtures.key_shape(fixture)
+      assert body["onboarding"] == fixture["onboarding"]
+    end
+
+    test "has exactly the key sets of the frozen mobile fixture after Onboarding", %{
+      conn: conn,
+      user: user,
+      membership: membership,
+      token: token
+    } do
+      fixture = MobileFixtures.read!(@fixture)
+
+      assert Map.keys(fixture) == ["account", "membership", "onboarding", "user"]
+
+      put_trial!(membership.account_id, 7 * 86_400)
+
+      Account
+      |> Repo.get!(membership.account_id)
+      |> Ecto.Changeset.change(timezone: fixture["account"]["timezone"])
+      |> Repo.update!()
+
+      user
+      |> Ecto.Changeset.change(
+        name: fixture["user"]["displayName"],
+        household_size: fixture["user"]["householdSize"],
+        cooking_skill: fixture["user"]["cookingSkill"],
+        onboarding_completed_at: DateTime.utc_now()
+      )
+      |> Repo.update!()
+
+      body = conn |> get_me(token, "/api/me") |> json_response(200)
+
+      assert MobileFixtures.key_shape(body) == MobileFixtures.key_shape(fixture)
+      # Everything but the identifiers and the trial date is the fixture's.
+      assert Map.drop(body["user"], ["id", "email"]) == Map.drop(fixture["user"], ["id", "email"])
+      assert body["membership"] == fixture["membership"]
+      assert body["onboarding"] == fixture["onboarding"]
+
+      assert Map.drop(body["account"], ["id", "trialEndsAt"]) ==
+               Map.drop(fixture["account"], ["id", "trialEndsAt"])
     end
 
     test "GET /api/auth/me returns the same body", %{conn: conn, token: token} do

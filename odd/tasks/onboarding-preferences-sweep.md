@@ -38,7 +38,7 @@ frozen fixtures pinned by the API.
 
 ## Tasks
 
-- [ ] **T1 API dead functions** (route: delegated writer; 4+ files)
+- [x] **T1 API dead functions** (route: delegated writer; 4+ files)
   - Delete `UserPreferenceRepo.get!/1`, `upsert/2`, `delete/1`.
   - Delete `UserPreference.changeset/2` (only caller is `upsert/2`).
   - Delete `PriceService.build_slot_list/1` (zero callers; only reader of the
@@ -48,7 +48,7 @@ frozen fixtures pinned by the API.
     `mix credo --strict`, `mix dialyzer`, `mix test`.
   - Test-first exception: pure deletion of unreferenced code, no RED available;
     the existing suite is the proof.
-- [ ] **T2 Mobile pretend paths and dead types** (route: delegated writer)
+- [x] **T2 Mobile pretend paths and dead types** (route: delegated writer)
   - Delete `app/onboarding-preview.tsx`, the `previewMode` prop and branches in
     `OnboardingScreen.tsx`, and the preview tests.
   - Delete the unused legacy `UserPreferences` / `UserProfile` types in
@@ -56,7 +56,7 @@ frozen fixtures pinned by the API.
   - Fix the stale header in `features/preferences/constants/catalog.ts` and the
     stale `/api/me` comment in `AuthContext.tsx` if verified stale.
   - Checks: `npm run lint`, `npx tsc --noEmit`, `npx jest --ci`.
-- [ ] **T3 Frozen API fixtures** (route: delegated writer)
+- [x] **T3 Frozen API fixtures** (route: delegated writer)
   - Add JSON fixtures with typed accessors for the preferences, onboarding
     completion, slot cooking times and `/me` payloads used by these features,
     following `features/favorites/fixtures`.
@@ -78,8 +78,38 @@ frozen fixtures pinned by the API.
 
 ## Progress and evidence
 
-(none yet)
+- T1: commit `d95dcef`. `mix compile --warnings-as-errors`, `mix format
+  --check-formatted`, `mix credo --strict` clean; `mix test` 1700 passed, 20
+  skipped. `mix dialyzer` was run on OTP 29 only and reported 9
+  `call_without_opaque` warnings in untouched code, which `ci.yml` documents as
+  false positives above the pinned OTP 27.3; CI is the proof for this check.
+  The writer also removed the private helpers only `build_slot_list/1` used.
+- T2: commit `d61847e`. `npm run lint` 0 errors, `npx tsc --noEmit` clean,
+  `npx jest --ci` 142 suites, 2083 tests passed. The three preview tests were
+  rewritten against the real redirect, submit and sign-out paths.
+- T3: committed with this document. RED observed for all seven pins (missing
+  file, then a deliberately wrong fixture each). `mix test` 1707 passed, 20
+  skipped; `npx jest --ci` 144 suites, 2090 tests passed. Nine expected
+  literals in the settings tests changed value because the fixture holds what
+  the API really serves (hard restrictions come back in catalog order).
+- Delivery: about 1,200 authored changed lines across three commits, most of
+  it fixtures and test rewrites; one commit per task.
+
+## Found, not done (outside this sweep)
+
+- `withPreservedProfileFields` (`features/auth/utils/currentMe.ts`) still
+  fills `householdSize` / `cookingSkill` from the local snapshot when `/me`
+  sends null. The API stores both on completion now, so this fallback and its
+  comment are stale. Removing it changes session behaviour.
+- The mobile error catalog handles `onboarding_invalid`,
+  `onboarding_already_complete`, `preferences_invalid` and
+  `slot_cooking_times_invalid`; the API emits none of them (it answers
+  `validation_error`, `invalid_diet`, `invalid_hard_restriction`,
+  `invalid_hunger_level`).
+- `PriceService` has no caller left in `apps/api/lib`; only its own test.
+- `favorites` and `recipe` fixture directories are pinned by API tests but are
+  not in the CI path filter.
 
 ## Next step
 
-T1.
+Open the pull request; decide on the follow-ups above.

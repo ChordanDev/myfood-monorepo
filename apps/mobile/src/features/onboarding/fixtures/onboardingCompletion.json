@@ -1,0 +1,19 @@
+{
+  "user": {
+    "id": "7c9e6679-7425-40de-944b-e07fc1f90ae7",
+    "displayName": "Lucca Giordana",
+    "householdSize": 2,
+    "cookingSkill": "intermediate",
+    "onboardingCompletedAt": "2026-10-05T15:00:00.000000Z"
+  },
+  "preferences": {
+    "diet": "vegetarian",
+    "hardRestrictions": ["peanut", "gluten"],
+    "softPreferences": ["spicy food", "quick meals"]
+  },
+  "slotCookingTimes": {
+    "breakfast": { "cookingTimeMinutes": 0, "hungerLevel": "light" },
+    "lunch": { "cookingTimeMinutes": 30, "hungerLevel": "normal" },
+    "dinner": { "cookingTimeMinutes": 45, "hungerLevel": "strong" }
+  }
+}

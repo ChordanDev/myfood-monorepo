@@ -13,6 +13,8 @@ import { Alert, BackHandler } from 'react-native';
 import { act, create, type ReactTestInstance, type ReactTestRenderer } from 'react-test-renderer';
 import type { AuthContextValue, CurrentMe } from '@/features/auth/types/auth';
 import { AuthContext } from '@/features/auth/context/AuthContext';
+import { fixtureCurrentMeBeforeOnboarding } from '@/features/auth/fixtures/currentMe';
+import { fixtureOnboardingCompletion } from '@/features/onboarding/fixtures/onboardingCompletion';
 import { OnboardingScreen } from '@/features/onboarding/screens/OnboardingScreen';
 import { buildOnboardingPayload } from '@/features/onboarding/utils/onboardingPayload';
 
@@ -79,25 +81,8 @@ jest.mock('react-native-safe-area-context', () => ({
   useSafeAreaInsets: () => ({ top: 0, bottom: 0, left: 0, right: 0 }),
 }));
 
-const ME: CurrentMe = {
-  user: {
-    id: 'user-1',
-    email: 'user@example.com',
-    displayName: null,
-    householdSize: null,
-    cookingSkill: null,
-  },
-  account: {
-    id: 'account-1',
-    type: 'individual',
-    trialEndsAt: '2099-12-31T00:00:00Z',
-    subscriptionStatus: 'none',
-    timezone: null,
-    access: { canUseApp: true, reason: null },
-  },
-  membership: { role: 'owner' },
-  onboarding: { isComplete: false },
-};
+// The frozen `GET /api/me` body of a User who has not finished Onboarding.
+const ME: CurrentMe = fixtureCurrentMeBeforeOnboarding();
 
 function buildContext(overrides: Partial<AuthContextValue> = {}): AuthContextValue {
   return {
@@ -409,7 +394,7 @@ describe('OnboardingScreen — three steps', () => {
   });
 
   it('submits the payload built by buildOnboardingPayload and leaves for "/"', async () => {
-    const completeOnboarding = jest.fn().mockResolvedValue(undefined);
+    const completeOnboarding = jest.fn().mockResolvedValue(fixtureOnboardingCompletion());
     const { root } = renderOnboarding({ completeOnboarding });
 
     // Step 1: name, three diners, intermediate skill.

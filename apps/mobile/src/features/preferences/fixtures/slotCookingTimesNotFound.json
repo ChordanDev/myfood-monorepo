@@ -1,0 +1,6 @@
+{
+  "error": {
+    "code": "slot_cooking_times_not_found",
+    "message": "No slot cooking times are saved for this user."
+  }
+}
