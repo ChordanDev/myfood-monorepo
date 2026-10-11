@@ -23,9 +23,6 @@ defmodule MealPlannerApi.Data.RecipeRepo do
   # Ingredients
   # -------------------------------------------------------------------------
 
-  @spec list_ingredients() :: [Ingredient.t()]
-  def list_ingredients, do: Repo.all(Ingredient)
-
   @spec create_ingredient(map()) :: {:ok, Ingredient.t()} | {:error, Ecto.Changeset.t()}
   def create_ingredient(attrs),
     do: %Ingredient{} |> Ingredient.changeset(attrs) |> Repo.insert()
@@ -52,11 +49,6 @@ defmodule MealPlannerApi.Data.RecipeRepo do
 
   @spec get_ingredient!(Ecto.UUID.t()) :: Ingredient.t()
   def get_ingredient!(id), do: Repo.get!(Ingredient, id)
-
-  @spec find_ingredients_by_names([String.t()]) :: [Ingredient.t()]
-  def find_ingredients_by_names(names) when is_list(names) do
-    from(i in Ingredient, where: i.name in ^names) |> Repo.all()
-  end
 
   @doc """
   Returns the category of the given ingredients, keyed by ingredient id, in
@@ -101,28 +93,6 @@ defmodule MealPlannerApi.Data.RecipeRepo do
         select: r.theme
       )
     )
-  end
-
-  @spec create_recipe(map()) :: {:ok, Recipe.t()} | {:error, Ecto.Changeset.t()}
-  def create_recipe(attrs), do: %Recipe{} |> Recipe.changeset(attrs) |> Repo.insert()
-
-  @spec list_recipes(account_id :: Ecto.UUID.t()) :: [Recipe.t()]
-  def list_recipes(nil), do: Repo.all(Recipe)
-
-  def list_recipes(account_id) do
-    from(r in Recipe, where: r.account_id == ^account_id, order_by: [asc: r.name])
-    |> Repo.all()
-  end
-
-  @spec search_recipes_by_title(account_id :: Ecto.UUID.t(), String.t()) :: [Recipe.t()]
-  def search_recipes_by_title(account_id, query) do
-    pattern = "%#{query}%"
-
-    from(r in Recipe,
-      where: r.account_id == ^account_id and ilike(r.name, ^pattern),
-      order_by: [asc: r.name]
-    )
-    |> Repo.all()
   end
 
   @spec get_recipe_with_details!(Ecto.UUID.t()) :: Recipe.t()
@@ -270,15 +240,6 @@ defmodule MealPlannerApi.Data.RecipeRepo do
       preload: [:recipe_price]
     )
     |> Repo.all()
-  end
-
-  @spec favorite?(identity(), Ecto.UUID.t()) :: boolean()
-  def favorite?(%{account_id: account_id, user_id: user_id}, recipe_id) do
-    Repo.exists?(
-      from(f in FavoriteRecipe,
-        where: f.account_id == ^account_id and f.user_id == ^user_id and f.recipe_id == ^recipe_id
-      )
-    )
   end
 
   # -------------------------------------------------------------------------
