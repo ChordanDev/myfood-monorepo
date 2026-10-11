@@ -13,8 +13,6 @@ defmodule MealPlannerApi.Persistence.Catalog do
     RecipeStep
   }
 
-  alias MealPlannerApi.Persistence.Shopping.RecipePrice
-
   def create_ingredient(attrs), do: %Ingredient{} |> Ingredient.changeset(attrs) |> Repo.insert()
 
   def upsert_ingredient_by_name(attrs) do
@@ -69,22 +67,6 @@ defmodule MealPlannerApi.Persistence.Catalog do
       where: is_nil(r.account_id) or r.account_id == ^account_id,
       where: is_nil(r.superseded_by_id),
       where: ^slot_str in r.suitable_for_slots
-    )
-    |> Repo.all()
-  end
-
-  @doc """
-  Lists all recipes with their recipe_prices and ingredients preloaded.
-  Used by PriceService to build the optimizer slot list.
-  """
-  @spec list_recipes_with_prices_and_ingredients() :: [Recipe.t()]
-  def list_recipes_with_prices_and_ingredients do
-    from(r in Recipe,
-      left_join: rp in RecipePrice,
-      on: rp.recipe_id == r.id,
-      left_join: ri in assoc(r, :recipe_ingredients),
-      left_join: i in assoc(ri, :ingredient),
-      preload: [recipe_price: rp, recipe_ingredients: {ri, ingredient: i}]
     )
     |> Repo.all()
   end
