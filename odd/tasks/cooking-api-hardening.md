@@ -102,7 +102,7 @@ About 550 authored changed lines over four PRs, each under 400.
 
 - Review assessment after T3 (`aacf238`): medium, `review_due: true` (`slice_budget_reached`, 627 authored changed lines since `main`). Consent is pending for the user; no review was started.
 
-### T4 (#148), 2026-10-11, uncommitted (the parent commits)
+### T4 (#148), 2026-10-11, committed as `4498944`, PR #226
 - Rule (D4), in `CookingService.find_or_create_session/2`: under the Scheduled meal row lock, `is_cooked` of the locked meal is read before any session lookup. A cooked meal returns the finished session that cooked it, or rolls back with `:cooking_already_finished` when it has none; it never reaches the active-session lookup or `create_session/2`. A meal that is not cooked is unchanged: its active session, else a new one. `cooked_session/2` became the two-clause `current_session/2`. The `@doc` of `start_session/3` and the comments state the rule. The today gate and everything else on start are unchanged.
 - `docs/GLOSSARY.md`, Cooking session: "a meal scheduled on the Account's today that is not cooked yet". The Cooking chat entry still holds and was not edited. `apps/api/docs`, `frontend_integration_guide.md` and `ARCHITECTURE.md` do not describe the cooking endpoints, so nothing there changed.
 - New tests. `cooking_chat_test.exs`, `describe "a cooked meal"`: a meal marked cooked with `Calendar.set_is_cooked/3` and never cooked through a session is refused and has no `CookingSession` row; a meal with an active session that is then marked cooked is refused, and the meal still has that one active session. `cooking_controller_test.exs`: `POST /api/cooking/start` for a calendar-cooked meal of today is 409 `cooking_already_finished` and no session row exists.
