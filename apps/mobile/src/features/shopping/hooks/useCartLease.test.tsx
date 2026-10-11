@@ -46,10 +46,13 @@ const PURCHASE = {
 
 type Lease = ReturnType<typeof useCartLease>;
 
-function setup(listCart: { sessionId: string; leaseExpiresAt: string } | null = null) {
+type ListCart = { sessionId: string; leaseExpiresAt: string } | null;
+
+function setup(listCart: ListCart = null) {
   const refreshList = jest.fn();
   const result: { current: Lease } = { current: undefined as unknown as Lease };
   let appStateListener: ((state: string) => void) | undefined;
+  let renderer: ReturnType<typeof create> | undefined;
 
   jest.spyOn(AppState, 'addEventListener').mockImplementation((_type, listener) => {
     appStateListener = listener as (state: string) => void;
@@ -58,18 +61,20 @@ function setup(listCart: { sessionId: string; leaseExpiresAt: string } | null = 
     >;
   });
 
-  function Harness() {
-    result.current = useCartLease({ listCart, refreshList });
+  function Harness({ cart }: { cart: ListCart }) {
+    result.current = useCartLease({ listCart: cart, refreshList });
     return null;
   }
 
   act(() => {
-    create(<Harness />);
+    renderer = create(<Harness cart={listCart} />);
   });
 
   return {
     result,
     refreshList,
+    // A read of the list lands and reports this Cart.
+    readListCart: (cart: ListCart) => act(() => renderer?.update(<Harness cart={cart} />)),
     setAppState: (state: string) => act(() => appStateListener?.(state)),
     setFocused: (focused: boolean) => act(() => mockSetFocused?.(focused)),
   };
@@ -140,6 +145,17 @@ describe('useCartLease', () => {
       expect(result.current.errorMessage).toBeDefined();
     });
 
+    it('says the Cart expired, drops it and reads the list again on `stale_cart`', async () => {
+      api.markInCart.mockRejectedValue(new ApiError('stale_cart', 'expired', 409));
+      const { result, refreshList } = setup(LEASE);
+
+      await tickItems(result);
+
+      expect(result.current.errorMessage).toBe('Tu carrito venció. Volvé a marcar los productos.');
+      expect(result.current.cart).toBeNull();
+      expect(refreshList).toHaveBeenCalledTimes(1);
+    });
+
     it('forgets that state on the next successful tick', async () => {
       api.markInCart.mockRejectedValueOnce(new ApiError('cart_locked', 'held', 409));
       const { result } = setup();
@@ -176,12 +192,18 @@ describe('useCartLease', () => {
       expect(api.renewCart).toHaveBeenCalledTimes(2);
     });
 
-    it('renews the Cart the list reports for a screen opened on a held Cart', async () => {
+    it('renews a Cart the list reports on opening the screen at once, then once a minute', async () => {
       setup(LEASE);
 
-      await tick(60_000);
-
+      // Nothing extended that lease in this session, so it is due as soon as it is found.
+      expect(api.renewCart).toHaveBeenCalledTimes(1);
       expect(api.renewCart).toHaveBeenCalledWith('session-1');
+
+      await tick(59_999);
+      expect(api.renewCart).toHaveBeenCalledTimes(1);
+
+      await tick(1);
+      expect(api.renewCart).toHaveBeenCalledTimes(2);
     });
 
     it('does not renew while the app is in the background', async () => {
@@ -301,6 +323,86 @@ describe('useCartLease', () => {
       });
 
       expect(api.cancelCart).not.toHaveBeenCalled();
+    });
+  });
+
+  // A read of the list that was asked before a Cart ended can land after it, and still
+  // report that Cart.
+  describe('a list read that still reports a Cart this device ended', () => {
+    const LATE_READ = { ...LEASE };
+
+    it('does not bring back a Cart that was cancelled, nor renew it', async () => {
+      const { result, readListCart } = setup();
+      await tickItems(result);
+
+      await act(async () => {
+        await result.current.cancel();
+      });
+      readListCart(LATE_READ);
+
+      expect(result.current.cart).toBeNull();
+
+      await tick(180_000);
+      expect(api.renewCart).not.toHaveBeenCalled();
+    });
+
+    it('does not bring back a Cart that was bought, nor renew it', async () => {
+      const { result, readListCart } = setup();
+      await tickItems(result);
+
+      await act(async () => {
+        await result.current.confirm([]);
+      });
+      readListCart(LATE_READ);
+
+      expect(result.current.cart).toBeNull();
+
+      await tick(180_000);
+      expect(api.renewCart).not.toHaveBeenCalled();
+    });
+
+    it('takes the Cart of the read that follows, and any other Cart', async () => {
+      const other = { sessionId: 'session-2', leaseExpiresAt: '2026-10-09T12:20:00Z' };
+      const { result, readListCart } = setup();
+      await tickItems(result);
+      await act(async () => {
+        await result.current.cancel();
+      });
+
+      readListCart(LATE_READ);
+      readListCart(null);
+      expect(result.current.cart).toBeNull();
+
+      readListCart(other);
+      expect(result.current.cart).toEqual(other);
+    });
+
+    it('takes that session again once a tick started a Cart with it', async () => {
+      const extended = { ...LEASE, leaseExpiresAt: '2026-10-09T12:30:00Z' };
+      const { result, readListCart } = setup();
+      await tickItems(result);
+      await act(async () => {
+        await result.current.cancel();
+      });
+
+      await tickItems(result);
+      readListCart(extended);
+
+      expect(result.current.cart).toEqual(extended);
+    });
+
+    it('lets the list decide for a Cart the server reported gone', async () => {
+      api.cancelCart.mockRejectedValue(new ApiError('stale_cart', 'expired', 409));
+      const { result, readListCart } = setup();
+      await tickItems(result);
+      await act(async () => {
+        await result.current.cancel();
+      });
+      expect(result.current.cart).toBeNull();
+
+      readListCart(LATE_READ);
+
+      expect(result.current.cart).toEqual(LATE_READ);
     });
   });
 

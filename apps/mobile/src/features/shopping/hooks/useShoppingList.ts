@@ -34,6 +34,10 @@ function getItemIds({ allocations }: ShoppingListLine) {
   return allocations.filter(({ status }) => status !== 'purchased').map(({ itemId }) => itemId);
 }
 
+// The planned lines while no read has landed. One list for every render: a new one each time
+// would look like a change to whoever depends on the lines.
+const NO_PLANNED_LINES: ShoppingListLine[] = [];
+
 // The Shopping list as the screen shows it: the last read of the server, and how the user
 // asked to read it. Nothing is derived from what the device knows about the plan.
 export function useShoppingList() {
@@ -45,7 +49,7 @@ export function useShoppingList() {
   const cachedError = useShoppingListStore((state) => state.error);
   const chosenUntilDate = useShoppingListStore((state) => state.chosenUntilDate);
   const groupBy = useShoppingListStore((state) => state.groupBy);
-  const refresh = useShoppingListStore((state) => state.refresh);
+  const readList = useShoppingListStore((state) => state.refresh);
   const setChosenUntilDate = useShoppingListStore((state) => state.setChosenUntilDate);
   const setGroupBy = useShoppingListStore((state) => state.setGroupBy);
   const pendingChanges = useShoppingListStore((state) => state.pendingChanges);
@@ -69,8 +73,8 @@ export function useShoppingList() {
   // to. It is read again too when the user changes, and dropped when nobody is signed in.
   useFocusEffect(
     useCallback(() => {
-      refresh(ownerId);
-    }, [refresh, ownerId])
+      readList(ownerId);
+    }, [readList, ownerId])
   );
 
   const untilDate = useMemo(
@@ -130,9 +134,16 @@ export function useShoppingList() {
     return itemIds.length === 0 ? Promise.resolve(false) : setItemsStatus(itemIds, 'needed');
   }, [removedLines, setItemsStatus]);
 
-  const retry = useCallback(() => {
-    refresh(ownerId);
-  }, [refresh, ownerId]);
+  // Reads the list again, whatever the state of the last read: what a flow that changed what
+  // the server holds asks for, so the list shows it.
+  const refresh = useCallback(() => {
+    readList(ownerId);
+  }, [readList, ownerId]);
+
+  // Asks again for a read that failed: what the control next to the load error runs. It is
+  // the same read today. It has its own name so that a change to what a retry does is not a
+  // change to `refresh`, which the Cart flows depend on.
+  const retry = refresh;
 
   return {
     untilDate,
@@ -154,13 +165,17 @@ export function useShoppingList() {
     isEmpty: list !== null && groups.length === 0,
     // Set while the last read failed. The list of the read before it, if any, stays.
     errorMessage: status === 'error' ? getAuthErrorMessage(error) : undefined,
+    // Asks again for the read that failed.
     retry,
+    // Reads the list again whether the last read landed or failed.
+    refresh,
     // The caller's own active Cart as the last read reported it.
     cart: list?.cart ?? null,
     // The lines of that Cart, as a confirm names and buys them.
     cartLines,
-    // Whole lines, to find the items behind a row.
-    lines: list?.planned ?? [],
+    // The planned lines of the read, whole, to find the items behind a row. The items added
+    // by hand are not among them: they are `manualItems`.
+    plannedLines: list?.planned ?? NO_PLANNED_LINES,
     manualItems,
     // The planned lines the User removed, as the server counted them.
     removedCount: list?.totals.removed ?? 0,
