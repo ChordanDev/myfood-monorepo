@@ -820,7 +820,7 @@ defmodule MealPlannerApiWeb.ShoppingControllerTest do
     assert Enum.any?(items, &(&1.status == :archived))
   end
 
-  test "online purchase confirmation adds inventory immediately under the approved contract" do
+  test "online purchase confirmation adds inventory once its delivery is acknowledged" do
     %{token: token, user: %{id: user_id}, account: %{id: account_id}} =
       insert_identity_with_token!(plan: :family_4)
 
@@ -899,9 +899,22 @@ defmodule MealPlannerApiWeb.ShoppingControllerTest do
 
     checkout_body = json_response(checkout_conn, 200)
 
-    # Purchase confirmation is the only stock boundary, regardless of purchase mode.
-    assert checkout_body["data"]["status"] == "completed"
-    assert checkout_body["data"]["movedToInventoryCount"] == 1
+    # An online purchase waits for its delivery: nothing is stocked at confirm.
+    assert checkout_body["data"]["status"] == "pending_delivery"
+    assert checkout_body["data"]["movedToInventoryCount"] == 0
+    assert Inventory.list_inventory(account_id) == []
+
+    shopping_items = Shopping.list_items_for_account(account_id)
+    assert Enum.all?(shopping_items, &(&1.status == :pending_delivery))
+
+    delivered_body =
+      build_conn()
+      |> put_req_header("authorization", "Bearer " <> token)
+      |> post("/api/checkout/sessions/#{cart["sessionId"]}/delivered", %{})
+      |> json_response(200)
+
+    assert delivered_body["data"]["status"] == "completed"
+    assert delivered_body["data"]["movedToInventoryCount"] == 1
 
     inventory = Inventory.list_inventory(account_id)
     assert length(inventory) == 1
