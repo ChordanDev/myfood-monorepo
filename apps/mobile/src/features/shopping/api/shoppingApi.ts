@@ -49,10 +49,22 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
-// The Cart of a read: without a whole count of its items of zero or more, the screen could not
-// tell that the Cart holds items the read does not list.
+// A line of the Cart of a read: the sheet draws it and a confirm names it by its id.
+function isShoppingCartLine(line: unknown) {
+  return (
+    isRecord(line) &&
+    typeof line.id === 'string' &&
+    line.id !== '' &&
+    typeof line.name === 'string' &&
+    typeof line.unit === 'string' &&
+    Number.isInteger(line.quantityMilli) &&
+    (line.quantityMilli as number) >= 0
+  );
+}
+
+// The Cart of a read: without its lines the screen could not say what a confirm buys.
 function isShoppingCart(cart: unknown) {
-  return isRecord(cart) && Number.isInteger(cart.itemsCount) && (cart.itemsCount as number) >= 0;
+  return isRecord(cart) && Array.isArray(cart.lines) && cart.lines.every(isShoppingCartLine);
 }
 
 // The transport hands back null for an empty or non-JSON body and does not check the shape of

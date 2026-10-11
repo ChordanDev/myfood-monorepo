@@ -3,6 +3,8 @@ import type {
   ShoppingLineAllocation,
   ShoppingLineStatus,
   ShoppingListLine,
+  ShoppingCart,
+  ShoppingCartLine,
   ShoppingItemsStatus,
   ShoppingItemsStatusChange,
   ShoppingListRead,
@@ -10,8 +12,8 @@ import type {
 } from '../types/shoppingApi';
 
 // Reads of `GET /api/shopping-list` for one plan, as the server answers them: four meals over
-// three days, six ingredients, and a Cart holding the rice and the oil of the first meal: two
-// Shopping items, which is what its `itemsCount` says in every read.
+// three days, six ingredients, and a Cart holding the rice and the oil of the first meal: the
+// two lines its `lines` list in every read, whatever the read itself shows.
 
 type Meal = { scheduledMealId: string; date: string; slot: ShoppingMealSlot };
 
@@ -152,10 +154,26 @@ function mealLine(ingredient: Ingredient, share: ShoppingLineAllocation): Shoppi
 
 const PLANNED_DATES = ['2026-10-08', '2026-10-10', '2026-10-12'];
 
-const CART = {
+// A line of a Cart: every Shopping item the Cart holds of an ingredient and unit, added up.
+function cartLine(
+  { ingredientId, name, unit }: Ingredient,
+  quantityMilli: number
+): ShoppingCartLine {
+  return { id: `${ingredientId}:${unit}`, name, unit, quantityMilli };
+}
+
+const CART_LEASE = {
   sessionId: '36d3abb6-dd68-4728-a33a-ab33b02ecdfe',
   leaseExpiresAt: '2026-10-08T18:12:27.085974Z',
-  itemsCount: 2,
+};
+
+// The server lists the lines of a Cart by ingredient id, not in the order of the list.
+const CART: ShoppingCart = {
+  ...CART_LEASE,
+  lines: [
+    cartLine(OLIVE_OIL, OLIVE_OIL_OCT_8.quantityMilli),
+    cartLine(RICE, RICE_OCT_8.quantityMilli),
+  ],
 };
 
 /**
@@ -219,7 +237,7 @@ export const SHOPPING_LIST_UNTIL_OCT_10: ShoppingListRead = {
 /**
  * `GET /api/shopping-list?untilDate=2026-10-08` once the User ticked the milk and the banana of
  * the 12th instead, and then brought the date back to the 8th. No line of the read is in the
- * Cart, and the Cart still holds those two items: its `itemsCount` does not follow the date.
+ * Cart, and the Cart still holds those two lines: its `lines` do not follow the date.
  */
 export const SHOPPING_LIST_WITH_CART_OUT_OF_RANGE: ShoppingListRead = {
   planned: [
@@ -229,8 +247,35 @@ export const SHOPPING_LIST_WITH_CART_OUT_OF_RANGE: ShoppingListRead = {
     ingredientLine(OLIVE_OIL, [{ ...OLIVE_OIL_OCT_8, status: 'needed' }]),
   ],
   manual: [],
-  cart: CART,
+  cart: {
+    ...CART_LEASE,
+    lines: [
+      cartLine(MILK, MILK_OCT_12.quantityMilli),
+      cartLine(BANANA, BANANA_OCT_12.quantityMilli),
+    ],
+  },
   totals: { needed: 4, inCart: 0, removed: 0, estimatedCents: 0 },
+  plannedDates: PLANNED_DATES,
+};
+
+/**
+ * `GET /api/shopping-list?untilDate=2026-10-08` once the User ticked the rice of the three meals
+ * and then brought the date back to the 8th. The read lists 400 g of rice, the share of the
+ * first meal, and the line of the Cart is the 1250 g of the three: what a confirm buys.
+ */
+export const SHOPPING_LIST_WITH_CART_LINE_BEYOND_RANGE: ShoppingListRead = {
+  planned: [
+    ingredientLine(RICE, [RICE_OCT_8], 'in_cart'),
+    ingredientLine(CHICKEN, [CHICKEN_OCT_8]),
+    ingredientLine(TOMATO, [TOMATO_OCT_8]),
+    ingredientLine(OLIVE_OIL, [{ ...OLIVE_OIL_OCT_8, status: 'needed' }]),
+  ],
+  manual: [],
+  cart: {
+    ...CART_LEASE,
+    lines: [cartLine(RICE, sumQuantities([RICE_OCT_8, RICE_OCT_10, RICE_OCT_12]))],
+  },
+  totals: { needed: 3, inCart: 1, removed: 0, estimatedCents: 0 },
   plannedDates: PLANNED_DATES,
 };
 
@@ -334,6 +379,8 @@ export const RICE_NEEDED_ITEM_IDS = [
 export const CART_SESSION_ID = CART.sessionId;
 export const RICE_LINE_ID = `${RICE.ingredientId}:${RICE.unit}`;
 export const OLIVE_OIL_LINE_ID = `${OLIVE_OIL.ingredientId}:${OLIVE_OIL.unit}`;
+/** The id of the milk line of the Cart of `SHOPPING_LIST_WITH_CART_OUT_OF_RANGE`. */
+export const MILK_LINE_ID = `${MILK.ingredientId}:${MILK.unit}`;
 
 /** The 200 body of `POST /api/checkout/confirm` for a physical purchase (section 7.4). */
 export function toCheckoutResponse(movedToInventoryCount = 2) {

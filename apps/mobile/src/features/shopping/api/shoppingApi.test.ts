@@ -49,12 +49,19 @@ function mockJsonResponse(payload: unknown, ok = true, status = ok ? 200 : 422) 
   } as Response);
 }
 
-// The read per ingredient with another `itemsCount` on its Cart, valid or not.
-function withCartItemsCount(itemsCount: unknown) {
+// The read per ingredient with other `lines` on its Cart, valid or not.
+function withCartLines(lines: unknown) {
   return {
     ...SHOPPING_LIST_BY_INGREDIENT,
-    cart: { ...SHOPPING_LIST_BY_INGREDIENT.cart, itemsCount },
+    cart: { ...SHOPPING_LIST_BY_INGREDIENT.cart, lines },
   };
+}
+
+// The same read with one line on its Cart: the oil, with these members instead of its own.
+function withCartLine(members: Record<string, unknown>) {
+  const [oil] = SHOPPING_LIST_BY_INGREDIENT.cart!.lines;
+
+  return withCartLines([{ ...oil, ...members }]);
 }
 
 describe('getShoppingList', () => {
@@ -157,10 +164,29 @@ describe('getShoppingList', () => {
       ['no planned lines', { data: { ...SHOPPING_LIST_BY_INGREDIENT, planned: undefined } }],
       ['no manual lines', { data: { ...SHOPPING_LIST_BY_INGREDIENT, manual: undefined } }],
       ['no cart member', { data: { ...SHOPPING_LIST_BY_INGREDIENT, cart: undefined } }],
-      ['a cart without its item count', { data: withCartItemsCount(undefined) }],
-      ['a cart whose item count is not a number', { data: withCartItemsCount('2') }],
-      ['a cart whose item count is not whole', { data: withCartItemsCount(1.5) }],
-      ['a cart whose item count is negative', { data: withCartItemsCount(-1) }],
+      ['a cart without its lines', { data: withCartLines(undefined) }],
+      ['a cart whose lines are not a list', { data: withCartLines({}) }],
+      [
+        'a cart with only the count of its items',
+        {
+          data: {
+            ...withCartLines(undefined),
+            cart: { ...SHOPPING_LIST_BY_INGREDIENT.cart, lines: undefined, itemsCount: 2 },
+          },
+        },
+      ],
+      ['a cart line that is not an object', { data: withCartLines(['line']) }],
+      ['a cart line without an id', { data: withCartLine({ id: undefined }) }],
+      ['a cart line with an empty id', { data: withCartLine({ id: '' }) }],
+      ['a cart line whose name is not text', { data: withCartLine({ name: null }) }],
+      ['a cart line whose unit is not text', { data: withCartLine({ unit: 3 }) }],
+      ['a cart line without a quantity', { data: withCartLine({ quantityMilli: undefined }) }],
+      [
+        'a cart line whose quantity is not a number',
+        { data: withCartLine({ quantityMilli: '2' }) },
+      ],
+      ['a cart line whose quantity is not whole', { data: withCartLine({ quantityMilli: 1.5 }) }],
+      ['a cart line whose quantity is negative', { data: withCartLine({ quantityMilli: -1 }) }],
       ['no totals', { data: { ...SHOPPING_LIST_BY_INGREDIENT, totals: undefined } }],
       [
         'planned dates that are not a list',
@@ -175,8 +201,8 @@ describe('getShoppingList', () => {
       });
     });
 
-    it('accepts a Cart that holds no item', async () => {
-      const read = withCartItemsCount(0);
+    it('accepts a Cart that holds no line', async () => {
+      const read = withCartLines([]);
       fetchMock.mockReturnValueOnce(mockJsonResponse({ data: read }));
 
       await expect(getShoppingList()).resolves.toEqual(read);

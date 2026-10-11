@@ -98,13 +98,6 @@ export function formatCartButtonLabel(cartCount: number) {
   return `Ver carrito, ${cartCount === 0 ? 'vacío' : pluralize(cartCount, 'ítem')}`;
 }
 
-// What the cart sheet says of the items of the Cart that the list does not show.
-export function formatHiddenCartItemsNotice(hidden: number) {
-  const willBeBought = hidden === 1 ? 'se va a comprar' : 'se van a comprar';
-
-  return `${pluralize(hidden, 'ítem')} fuera de las fechas elegidas también ${willBeBought} con la cantidad sugerida.`;
-}
-
 // Line under the cards that brings the removed items back.
 export function formatRemovedLabel(removed: number) {
   return `${pluralize(removed, 'quitado')}${SEPARATOR}Restaurar`;
@@ -131,8 +124,13 @@ export function parseQuantityMilli(text: string): number | undefined {
   return milli !== undefined && milli > 0 ? milli : undefined;
 }
 
+// The most a confirm takes as the quantity of a line: the server stores it in an `int4`.
+const MAX_BOUGHT_QUANTITY_MILLI = 2_147_483_647;
+
 // Reads what the User typed as the quantity bought of a line of the Cart. Zero is a quantity
-// here: the line was not bought.
+// here: the line was not bought. More than the server takes is not one.
 export function parseBoughtQuantityMilli(text: string): number | undefined {
-  return parseMilli(text);
+  const milli = parseMilli(text);
+
+  return milli !== undefined && milli <= MAX_BOUGHT_QUANTITY_MILLI ? milli : undefined;
 }

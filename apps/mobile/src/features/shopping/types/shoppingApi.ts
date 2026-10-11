@@ -56,11 +56,24 @@ export interface CartLease {
   leaseExpiresAt: string;
 }
 
+// A line of the Cart, as a confirm names it: every planned item of one ingredient and unit the
+// Cart holds, added up, or one item added by hand.
+export interface ShoppingCartLine {
+  // What a confirm calls the line: `<ingredientId>:<unit>`, or the id of a manual item.
+  id: string;
+  name: string;
+  unit: UnitType;
+  // What the Cart holds of it: the quantity a confirm buys unless another one is sent.
+  quantityMilli: number;
+}
+
 // The caller's own active Cart, as a read of the list reports it.
 export interface ShoppingCart extends CartLease {
-  // How many Shopping items the Cart holds, planned and manual. The date limit of the read does
-  // not change it, so it can be more than the items the read lists as in a Cart.
-  itemsCount: number;
+  // What a confirm buys, `[]` for a Cart that holds nothing. Neither the date limit nor the
+  // grouping of the read changes them: a line can hold more than the read lists of it, or be
+  // of an ingredient the read does not list. The shares in the Cart of another member are in
+  // none of them.
+  lines: ShoppingCartLine[];
 }
 
 // `needed`, `inCart` and `removed` count the planned lines of the read by status.

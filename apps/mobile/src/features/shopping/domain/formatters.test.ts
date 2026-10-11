@@ -2,7 +2,6 @@ import type { ShoppingLineAllocation, ShoppingListLine, ShoppingMealSlot } from 
 import {
   formatCartButtonLabel,
   formatCountersLabel,
-  formatHiddenCartItemsNotice,
   formatItemMealsLine,
   formatItemNameLine,
   formatRemovedLabel,
@@ -217,23 +216,6 @@ describe('formatCartButtonLabel', () => {
   });
 });
 
-describe('formatHiddenCartItemsNotice', () => {
-  it('says the one item outside the chosen dates is bought too, in the singular', () => {
-    expect(formatHiddenCartItemsNotice(1)).toBe(
-      '1 ítem fuera de las fechas elegidas también se va a comprar con la cantidad sugerida.'
-    );
-  });
-
-  it('says it in the plural for more than one', () => {
-    expect(formatHiddenCartItemsNotice(2)).toBe(
-      '2 ítems fuera de las fechas elegidas también se van a comprar con la cantidad sugerida.'
-    );
-    expect(formatHiddenCartItemsNotice(12)).toBe(
-      '12 ítems fuera de las fechas elegidas también se van a comprar con la cantidad sugerida.'
-    );
-  });
-});
-
 describe('formatUntilButtonLabel', () => {
   it('says what the pill does and the day the list reaches now', () => {
     expect(formatUntilButtonLabel('2026-10-12')).toBe('Elegir hasta qué día comprar, ahora 12 Oct');
@@ -287,6 +269,18 @@ describe('parseBoughtQuantityMilli', () => {
   it.each(['', ' ', '-1', 'abc', '1,2,3', '1e3', '1 2'])('refuses "%s"', (text) => {
     expect(parseBoughtQuantityMilli(text)).toBeUndefined();
   });
+
+  // The server stores a quantity in an `int4`: 2 147 483 647 thousandths at most.
+  it('reads the largest quantity the server takes', () => {
+    expect(parseBoughtQuantityMilli('2147483,647')).toBe(2_147_483_647);
+  });
+
+  it.each(['2147483,648', '2147484', '3000000', '99999999999'])(
+    'refuses "%s", above what the server takes',
+    (text) => {
+      expect(parseBoughtQuantityMilli(text)).toBeUndefined();
+    }
+  );
 });
 
 describe('formatSuggestedQuantity', () => {

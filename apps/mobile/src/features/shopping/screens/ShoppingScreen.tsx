@@ -60,7 +60,6 @@ export function ShoppingScreen() {
     retry,
     cart: listCart,
     cartLines,
-    hiddenCartItemsCount,
     lines,
     manualItems,
     removedCount,
@@ -265,7 +264,7 @@ export function ShoppingScreen() {
           testID="shopping-cart-button"
           style={[styles.cartButton, { bottom: tabBarHeight + LIST_GAP }]}>
           <ShoppingCartButton
-            count={cartLines.length + hiddenCartItemsCount}
+            count={cartLines.length}
             onPress={() => setIsCartSheetVisible(true)}
           />
         </View>
@@ -274,7 +273,6 @@ export function ShoppingScreen() {
       <ShoppingCartSheet
         visible={isCartSheetVisible}
         lines={cartLines}
-        hiddenItemsCount={hiddenCartItemsCount}
         isConfirming={isConfirming}
         errorMessage={confirmErrorMessage}
         onConfirm={confirmCart}
