@@ -88,7 +88,7 @@ export interface MealPlanEntry {
   recipeId: string; // Referencia a MasterRecipe o CustomizedRecipe
   isCooked: boolean;
   isSkipped?: boolean; // The meal passed and was not cooked. Never true together with isCooked.
-  selectedQuantity?: number | null; // Servings the server holds for the meal; sent back untouched.
+  selectedQuantity?: number | null; // Servings the server holds for the meal.
 }
 
 // What the calendar read says about a recipe of the plan: enough to name it on Home. The full

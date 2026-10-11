@@ -1,5 +1,5 @@
 import type { MealPlanEntry } from '@/types/domain';
-import type { CalendarRangeMeal, CalendarRangeReplacement } from '../types/calendarApi';
+import type { CalendarMealDestination } from '../types/calendarApi';
 import type { HomeMealSlot } from './localMealPlan';
 
 export type EatTodayDestinationType = Extract<HomeMealSlot, 'lunch' | 'dinner'>;
@@ -37,45 +37,27 @@ export interface EatTodayParams {
   targetType: MealPlanEntry['type'];
 }
 
-function toRangeMeal(entry: MealPlanEntry): CalendarRangeMeal {
-  return {
-    date: entry.date,
-    slot: entry.type,
-    recipeId: entry.recipeId,
-    isCooked: entry.isCooked,
-    ...(entry.selectedQuantity === undefined ? {} : { selectedQuantity: entry.selectedQuantity }),
-  };
+export interface EatTodayMove extends CalendarMealDestination {
+  mealId: string;
 }
 
 /**
- * The body of `PUT /api/calendar/meals/range` that moves the source meal to the destination
- * slot, handing the destination's meal to the source's slot. The server deletes every meal of
- * the range it is sent and inserts the given ones, so the range is the span of the two days and
- * the body holds every meal of that span, swapped or not. Returns null when nothing can move:
- * the source is missing or cooked, or the destination meal is cooked.
+ * What `POST /api/calendar/meals/:mealId/move` needs to move the source meal to the destination
+ * slot: the id of that meal and where it goes. The server hands the destination's meal to the
+ * slot the source leaves, so that meal is not named here. Returns null when nothing can move:
+ * the source is missing or cooked, the destination meal is cooked, or the source is already at
+ * the destination.
  */
-export function planEatTodayReplacement(
+export function planEatTodayMove(
   entries: MealPlanEntry[],
   { sourceDate, sourceType, targetDate, targetType }: EatTodayParams
-): CalendarRangeReplacement | null {
+): EatTodayMove | null {
   const source = entries.find((entry) => entry.date === sourceDate && entry.type === sourceType);
   const target = entries.find((entry) => entry.date === targetDate && entry.type === targetType);
 
-  if (!source || source.isCooked || target?.isCooked) {
+  if (!source || source.isCooked || target?.isCooked || target?.id === source.id) {
     return null;
   }
 
-  const from = sourceDate < targetDate ? sourceDate : targetDate;
-  const to = sourceDate < targetDate ? targetDate : sourceDate;
-
-  const meals = entries
-    .map((entry) => {
-      if (entry.id === source.id) return { ...entry, date: targetDate, type: targetType };
-      if (target && entry.id === target.id) return { ...entry, date: sourceDate, type: sourceType };
-      return entry;
-    })
-    .filter((entry) => entry.date >= from && entry.date <= to)
-    .map(toRangeMeal);
-
-  return { from, to, meals };
+  return { mealId: source.id, date: targetDate, slot: targetType };
 }

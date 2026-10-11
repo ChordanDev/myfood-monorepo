@@ -31,7 +31,7 @@ Branches: `feat/calendar-meal-move-1-api` (from main `f9c4f07`) and `feat/calend
 
 ## Tasks
 - [x] T1 API: `MealPlannerApi.Persistence.Calendar.MealMove`, controller action, route, tests. Route: delegated writer (several non-trivial files).
-- [ ] T2 Mobile: `moveCalendarMeal`, `planEatTodayMove`, `useEatToday`, tests; remove the unused range client. Route: delegated writer (several non-trivial files).
+- [x] T2 Mobile: `moveCalendarMeal`, `planEatTodayMove`, `useEatToday`, tests; remove the unused range client. Route: delegated writer (several non-trivial files).
 - [x] T3 Jorge review (required by the issue's triage comment) and its confirmed findings. Route: Jorge subagents, then one delegated writer for the API fixes and an inline mobile fix.
 
 ## Checks
@@ -50,12 +50,20 @@ T1 (delegated writer, one work-unit commit `feat(api): move a Scheduled meal by 
 - Parent follow-up in the same commit (inline, mechanical): errors moved to the envelope (D6), the two codes registered in `ApiError` and in the mobile allowlist, guide section 12. Checks after the rebase: see the PR body.
 - Known limits, unchanged by this work: an `active` or `paused` Cooking session follows its meal off today and `finish` does not check the date; stored Shopping item quantities are not recomputed when the order of the meals changes; no broadcast on the calendar channel.
 
-T2: pending.
+T2 (delegated writer, one work-unit commit `feat(mobile): move the meal by id in Eat today (#144)`, on `feat/calendar-meal-move-2-mobile`):
+- `moveCalendarMeal` posts the destination to `/api/calendar/meals/:mealId/move`; `planEatTodayMove` returns the source id and the destination, with the old refusals plus "already at the destination"; `useEatToday` keeps its behaviour. `replaceCalendarRange` and its two types are removed: nothing else called them.
+- Proving check: `useEatToday.test.tsx` runs the real `calendarApi` over a mocked `fetch` and asserts that the only write is one `POST .../meals/m2/move` and that no request goes to `/api/calendar/meals/range`.
+- RED: `npx jest --ci src/features/home` failed 11 tests in 3 suites before the implementation (missing `planEatTodayMove` and `moveCalendarMeal`; the hook sent `PUT` where `POST` was expected).
+- GREEN: `npx jest --ci src/features/home` 163 passed; `npm run lint` exit 0 (4 warnings in files not touched); `npx tsc --noEmit` clean; `npx jest --ci` 146 suites, 2217 passed. Parent spot check: `src/features/home`, 163 passed.
+- After the review (T3): when the move is refused or gets no answer, the hook re-reads the calendar before resolving false, so a stale cache or a lost answer does not keep failing the same way. RED: the refusal test failed with no `GET` after the `POST`. GREEN: `npx jest --ci` 146 suites, 2218 passed; `npx tsc --noEmit` and `npm run lint` clean.
+- Left as it was: the hook still resolves false for any refusal without showing the code's message (the "eat-today errors" item of #146); `MealPlanEntry.selectedQuantity` has no reader now that the range body is gone.
+
+API checks on the rebased slice (parent): `mix compile --warnings-as-errors`, `mix format --check-formatted`, `mix credo --strict`, `mix sobelow --config` clean; `mix test` 1795 passed, 22 skipped, 0 failed. `mix dialyzer` reports 9 `call_without_opaque` warnings on this machine, none in a file of this work.
 
 T3 (Jorge review of `7d4221b..9b6c666`: advisory approval, no blocker; four confirmed findings, all fixed in the stack):
 - Shopping derivation (confirmed, medium, activated by the move): a Shopping list read that loaded a meal before a move committed stored a second open item under the meal's old date; the list double-counted it and every later move of that meal answered 409. Fix, commit `fix(api): derive Shopping items only for the date their meal holds (#144)`: `ensure_shopping_items_from_schedule/2` stores a line only under `FOR KEY SHARE` on its meal and only while the meal still holds the line's date; the check without a lock runs first, so a read with nothing to store takes no lock. The batch insert and its per-row fallback run in savepoints, because a failed statement would otherwise abort that transaction (checked on a connection outside the sandbox: without the option the next statement fails with `in_failed_sql_transaction`, with it the transaction stays usable).
 - Parking date (confirmed, low): a client could store a meal on `0001-01-01` and block every swap from that slot. Fix: the parking date is year 10000, which `Date.from_iso8601/1` cannot parse and PostgreSQL stores.
 - Conflict without a trace (confirmed, low): the move logs the Postgres code and the constraint when it answers `:conflict`.
-- Mobile hook after a refusal (confirmed, low, worsened): fixed on the mobile branch, see T2.
+- Mobile hook after a refusal (confirmed, low, worsened): the hook re-reads the calendar, see T2.
 - Not changed: a date PostgreSQL cannot store (`-9999-01-01`) still raises on every calendar route through the shared `parse_date/1` (pre-existing); the opposite lock order of a move and a partial purchase confirm (suspect, equivalent at base, either side retries); a Slot favorite created during a move is not exchanged (theoretical: no path creates a Slot favorite today, `PlanningService.toggle_slot_favorite/2` fails its changeset).
 - RED for the fixes: 5 of 29 tests failed before them. GREEN: `mix test` 1799 passed, 22 skipped, 0 failed; compile, format, credo, sobelow clean.

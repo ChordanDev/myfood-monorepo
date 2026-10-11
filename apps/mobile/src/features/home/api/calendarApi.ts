@@ -1,10 +1,10 @@
 import { apiClient } from '@/api/client';
 import { ApiError } from '@/api/errors';
 import type { RequestOptions } from '@/api/transport';
-import type { CalendarQuery, CalendarRangeReplacement, CalendarRead } from '../types/calendarApi';
+import type { CalendarMealDestination, CalendarQuery, CalendarRead } from '../types/calendarApi';
 
 const CALENDAR_PATH = '/api/calendar';
-const CALENDAR_RANGE_PATH = '/api/calendar/meals/range';
+const CALENDAR_MEALS_PATH = '/api/calendar/meals';
 
 /**
  * Reads the meals the Account has scheduled between two dates (both included). The server's
@@ -25,14 +25,20 @@ export async function getCalendar(
 }
 
 /**
- * Replaces every meal of a range with the given ones. Meals of the range that are not sent are
- * deleted by the server, so a caller sends all the meals it wants to keep.
+ * Moves a Scheduled meal to another day and slot. A meal already there takes the position the
+ * moved one leaves, and both keep their ids: the server finds that meal itself, so nothing of
+ * the cached plan is sent.
  */
-export async function replaceCalendarRange(
-  replacement: CalendarRangeReplacement,
+export async function moveCalendarMeal(
+  mealId: string,
+  destination: CalendarMealDestination,
   options?: RequestOptions
 ): Promise<void> {
-  await apiClient.put<unknown>(CALENDAR_RANGE_PATH, replacement, { ...options, auth: true });
+  await apiClient.post<unknown>(
+    `${CALENDAR_MEALS_PATH}/${encodeURIComponent(mealId)}/move`,
+    { date: destination.date, slot: destination.slot },
+    { ...options, auth: true }
+  );
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
