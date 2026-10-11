@@ -37,7 +37,8 @@ defmodule MealPlannerApiWeb.CookingController do
     end
   end
 
-  def step(conn, %{"session_id" => session_id, "recipe_step_id" => step_id} = params) do
+  def step(conn, %{"session_id" => session_id, "recipe_step_id" => step_id} = params)
+      when is_binary(step_id) do
     user = scoped_user(conn)
 
     status =
@@ -74,7 +75,8 @@ defmodule MealPlannerApiWeb.CookingController do
     end
   end
 
-  def ask(conn, %{"session_id" => session_id, "message" => message} = params) do
+  def ask(conn, %{"session_id" => session_id, "message" => message} = params)
+      when is_binary(message) do
     user = scoped_user(conn)
     content_type = Map.get(params, "content_type", "text")
     # Optional: a resend of the same id gets the pair the first one stored.

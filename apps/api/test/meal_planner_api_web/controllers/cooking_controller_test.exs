@@ -126,6 +126,16 @@ defmodule MealPlannerApiWeb.CookingControllerTest do
     assert start_body["data"]["slot"] == "dinner"
     assert length(start_body["data"]["recipe"]["steps"]) == 1
 
+    started_conn =
+      build_conn()
+      |> put_req_header("authorization", "Bearer " <> token)
+      |> post("/api/cooking/sessions/#{session_id}/step", %{
+        "recipe_step_id" => step.id,
+        "status" => "started"
+      })
+
+    assert json_response(started_conn, 200)["data"]["status"] == "started"
+
     step_conn =
       build_conn()
       |> put_req_header("authorization", "Bearer " <> token)
@@ -317,6 +327,34 @@ defmodule MealPlannerApiWeb.CookingControllerTest do
       assert %{"error" => %{"code" => "cooking_chat_unavailable"}} = json_response(conn, 409)
     end
 
+    test "start with another Account's meal is 404 scheduled_meal_not_found",
+         %{account_id: account_id, recipe: recipe} do
+      {:ok, meal} =
+        Planning.schedule_meal(%{
+          account_id: account_id,
+          date: Date.utc_today(),
+          slot: :dinner,
+          recipe_id: recipe.id
+        })
+
+      %{token: token, account: %{id: other_id}} = insert_identity_with_token!(plan: :family_4)
+
+      MealPlannerApiWeb.ChannelHelpers.persist_trial_window!(
+        MealPlannerApi.Repo.get!(MealPlannerApi.Persistence.Accounts.Account, other_id),
+        :eligible
+      )
+
+      stranger = put_req_header(build_conn(), "authorization", "Bearer " <> token)
+
+      conn = post(stranger, "/api/cooking/start", %{"scheduledMealId" => meal.id})
+      assert %{"error" => %{"code" => "scheduled_meal_not_found"}} = json_response(conn, 404)
+
+      assert MealPlannerApi.Repo.aggregate(
+               MealPlannerApi.Persistence.Planning.CookingSession,
+               :count
+             ) == 0
+    end
+
     test "start without a meal id is a validation error", %{conn: conn} do
       conn = post(conn, "/api/cooking/start", %{})
       assert %{"error" => %{"code" => "validation_error"}} = json_response(conn, 422)
@@ -339,8 +377,22 @@ defmodule MealPlannerApiWeb.CookingControllerTest do
       assert %{"error" => %{"code" => "validation_error"}} = json_response(conn, 422)
     end
 
+    test "step with a non-string recipe step id is a validation error", %{conn: conn} do
+      conn =
+        post(conn, "/api/cooking/sessions/#{Ecto.UUID.generate()}/step", %{"recipeStepId" => 3})
+
+      assert %{"error" => %{"code" => "validation_error"}} = json_response(conn, 422)
+    end
+
     test "ask without a message is a validation error", %{conn: conn} do
       conn = post(conn, "/api/cooking/sessions/#{Ecto.UUID.generate()}/ask", %{})
+      assert %{"error" => %{"code" => "validation_error"}} = json_response(conn, 422)
+    end
+
+    test "ask with a non-string message is a validation error", %{conn: conn} do
+      conn =
+        post(conn, "/api/cooking/sessions/#{Ecto.UUID.generate()}/ask", %{"message" => ["hot?"]})
+
       assert %{"error" => %{"code" => "validation_error"}} = json_response(conn, 422)
     end
 

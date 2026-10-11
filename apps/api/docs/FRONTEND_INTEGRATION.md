@@ -649,7 +649,6 @@ transferir ownership o eliminar la cuenta — no soportado todavía),
 | `ai_chat` | `ai_chat:<session_id>` | Asistente AI de meal planning |
 | `calendar` | `calendar:<account_id>` | Operaciones de calendario en tiempo real |
 | `planning` | `planning:<account_id>` | Generación de planes y confirmación |
-| `cooking` | `cooking:<recipe_id>` | Modo cooking con timers y guía |
 
 ### Canal de Planificación (para generar menús)
 
@@ -708,39 +707,6 @@ calendarChannel.push("toggle_favorite", {
   recipe_id: "45"
 })
   .receive("ok", resp => console.log("Favorito toggled!", resp));
-```
-
-### Canal de Cooking
-
-```javascript
-// 1. Conectar
-const cookingChannel = socket.channel("cooking:123", {});
-
-// 2. Iniciar sesión de cooking
-cookingChannel.push("start_session", {
-  scheduled_meal_id: "789"
-});
-
-// 3. Escuchar eventos
-cookingChannel.on("session_started", payload => {
-  console.log("Cooking started!", payload);
-});
-
-cookingChannel.on("step_tracked", payload => {
-  console.log("Step completado:", payload);
-});
-
-cookingChannel.on("timer_done", payload => {
-  // Notificar al usuario
-  showNotification(`Timer: ${payload.label}`);
-});
-
-// 4. Tracking de pasos
-cookingChannel.push("track_step", {
-  session_id: payload.session_id,
-  recipe_step_id: 3,
-  status: "completed"
-});
 ```
 
 ### Patrón de dos sockets (multi-familia)

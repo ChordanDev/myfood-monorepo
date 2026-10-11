@@ -35,7 +35,7 @@ Defines how WebSocket tenancy mirrors the HTTP model: the socket connect populat
 
 ### Requirement: `join/3` enforces account match + active status
 
-For `CalendarChannel`, `PlanningChannel`, `CookingChannel` (topic prefix `"<channel>:<account_id>[...]"`), `join/3` MUST reject with `{:error, %{reason: "forbidden"}}` when the resolved membership is `nil`, when `to_string(membership.account_id) != topic_account_id`, or when `membership.status != :active`. On success it MUST assign `:account_id` and `:current_membership` to the socket.
+For `CalendarChannel` and `PlanningChannel` (topic prefix `"<channel>:<account_id>[...]"`), `join/3` MUST reject with `{:error, %{reason: "forbidden"}}` when the resolved membership is `nil`, when `to_string(membership.account_id) != topic_account_id`, or when `membership.status != :active`. On success it MUST assign `:account_id` and `:current_membership` to the socket.
 
 #### Scenario: Cross-Account join rejected
 
@@ -65,16 +65,6 @@ For `CalendarChannel`, `PlanningChannel`, `CookingChannel` (topic prefix `"<chan
 - WHEN it attempts to join `"ai_chat:<room_id>"`
 - THEN the join is rejected with `{:error, %{reason: "forbidden"}}`
 
-### Requirement: `handle_in` cross-Account entity checks
-
-Channel event handlers that accept an entity id referencing another domain record (e.g. `CookingChannel.handle_in("start_session", %{"scheduled_meal_id" => id}, socket)`) MUST verify the entity belongs to `current_membership.account_id` before any mutation or delegation, replying `{:error, %{reason: "meal_not_in_account"}}` on mismatch.
-
-#### Scenario: Cross-Account meal id rejected in start_session
-
-- GIVEN a socket scoped to `Account_A` and a `scheduled_meal_id` belonging to `Account_B`
-- WHEN `handle_in("start_session", %{"scheduled_meal_id" => meal_id}, socket)` is called
-- THEN the reply is `{:error, %{reason: "meal_not_in_account"}}` and no session is started
-
 ### Requirement: Multi-familia User can hold two live socket connections
 
 A single User with `:active` memberships on two different Accounts MUST be able to open two independent sockets, each scoped to a different Account, and each MUST only receive broadcasts for its own topic.
@@ -85,12 +75,12 @@ A single User with `:active` memberships on two different Accounts MUST be able 
 - WHEN socket 1 joins `"planning:<Account_A>"` and socket 2 joins `"planning:<Account_B>"`, and a broadcast is pushed to `"planning:<Account_A>"`
 - THEN only socket 1 receives the broadcast
 
-### Requirement: Only four channels exist; shopping/inventory isolate at the controller
+### Requirement: Only three channels exist; shopping/inventory isolate at the controller
 
-`CalendarChannel`, `PlanningChannel`, `CookingChannel`, and `AIChannel` are the only channel modules shipped in Phase A. The `shopping` and `inventory` domains MUST enforce tenancy isolation through their HTTP controllers reading `current_membership.account_id`, not through a channel.
+`CalendarChannel`, `PlanningChannel`, and `AIChannel` are the only channel modules shipped in Phase A (`CookingChannel` was removed in issue #166: cooking goes over HTTP, where `CookingService` scopes every lookup to the Account). The `shopping` and `inventory` domains MUST enforce tenancy isolation through their HTTP controllers reading `current_membership.account_id`, not through a channel.
 
 #### Scenario: No shopping or inventory channel module exists
 
 - GIVEN the `lib/meal_planner_api_web/channels/` directory
 - WHEN its contents are listed
-- THEN only `calendar_channel.ex`, `planning_channel.ex`, `cooking_channel.ex`, and `ai_channel.ex` are present
+- THEN only `calendar_channel.ex`, `planning_channel.ex`, and `ai_channel.ex` are present

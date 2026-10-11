@@ -35,7 +35,7 @@ defmodule MealPlannerApiWeb.UserSocket do
   | `ai_chat:*` | `AIChannel` | AI meal planning assistant | `new_message`, `regenerate` |
   | `calendar:*` | `CalendarChannel` | Calendar operations | `slot_updated`, `meal_assigned` |
   | `planning:*` | `PlanningChannel` | Weekly planning | `plan_generated`, `slot_chosen` |
-  | `cooking:*` | `CookingChannel` | Cooking mode | `step_complete`, `timer_start` |
+  | `shopping:*` | `ShoppingChannel` | Shopping and inventory notifications | `cart_reserved`, `purchase_confirmed` |
 
   ## Token Refresh
 
@@ -74,7 +74,6 @@ defmodule MealPlannerApiWeb.UserSocket do
   channel("shopping:*", MealPlannerApiWeb.ShoppingChannel)
   channel("calendar:*", MealPlannerApiWeb.CalendarChannel)
   channel("planning:*", MealPlannerApiWeb.PlanningChannel)
-  channel("cooking:*", MealPlannerApiWeb.CookingChannel)
 
   @impl true
   def connect(%{"token" => token}, socket, _connect_info) do

@@ -10,6 +10,7 @@ defmodule MealPlannerApiWeb.UserSocketTest do
     * `access_v1` (legacy) token → `socket.assigns.current_membership`
       is a synthesized struct with `__synthesized__: true`
     * Connect rejects invalid tokens (existing behavior preserved)
+    * The `cooking:*` topic is not routed (issue #166)
   """
   use MealPlannerApiWeb.ChannelCase, async: false
 
@@ -215,6 +216,29 @@ defmodule MealPlannerApiWeb.UserSocketTest do
       Repo.delete!(membership)
 
       assert :error = connect(UserSocket, %{"token" => token})
+    end
+  end
+
+  describe "channel routes" do
+    # Issue #166: cooking goes over HTTP only. A join on the old topic must
+    # find no channel, so the route cannot come back unnoticed.
+    test "the cooking topic is not routed" do
+      user =
+        user_with_memberships(
+          %{email: "socket-cooking@example.com"},
+          [
+            {%{plan: :family_4, name: "Socket Cooking Family"}, :owner}
+          ]
+        )
+
+      [membership] = user.memberships
+      token = issue_access_v2_token(user, membership)
+
+      assert {:ok, socket} = connect(UserSocket, %{"token" => token})
+
+      assert_raise RuntimeError, ~r/no channel found for topic/, fn ->
+        join(socket, "cooking:#{membership.account_id}")
+      end
     end
   end
 
