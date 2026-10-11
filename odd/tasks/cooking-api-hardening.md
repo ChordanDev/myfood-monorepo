@@ -42,7 +42,7 @@ About 550 authored changed lines over four PRs, each under 400.
 ## Tasks
 - [x] T1 #125 web tests on the Account's clock. Route: delegated writer (three test files).
 - [x] T2 #126 remove `paused` from the Cooking session status. Route: delegated writer (schema, migration, service, tests, glossary).
-- [ ] T3 #147 Shopping rows before the Inventory key in finish. Route: delegated writer (service plus a two-connection test).
+- [x] T3 #147 Shopping rows before the Inventory key in finish. Route: delegated writer (service plus a two-connection test).
 - [ ] T4 #148 start refuses a cooked meal that has no finished session. Route: delegated writer (service, service and web tests, glossary).
 
 ## Progress / evidence
@@ -62,7 +62,7 @@ About 550 authored changed lines over four PRs, each under 400.
   - `mix test`: 1825 passed, 22 skipped, exit 0.
 - Not checked: a run at a real day boundary. The tests cannot move the server's clock, so the guarantee rests on the helper's unit test.
 
-### T2 (#126), 2026-10-11, uncommitted (the parent commits)
+### T2 (#126), 2026-10-11, committed as `accc19a`, PR #222
 - `CookingSession`: `status` is `Ecto.Enum` over `[:active, :completed]`. The file had no doc or typespec listing the statuses.
 - New migration `20261011150531_drop_paused_from_cooking_session_status.exs`: explicit `up` and `down` that drop and recreate `cooking_sessions_status_check` (`status IN ('active', 'completed')`; `down` restores the three values). No row is rewritten; a `paused` row would make `up` fail. The original migration is unchanged.
 - `CookingService`: `persist_finish/3` rolls back with `:cooking_already_finished` on a completed session and otherwise proceeds; the catch-all clause of `chat_available/2` and the `_` branch of `lock_active_session!/2` are gone. `active_session/1`, `@type step_status`, the `track_step` guard, `cooking_step_event.ex` and the controller's step mapping are unchanged. `:cooking_session_not_active` is still answered by `active_session/1` (a step on a completed session).
@@ -82,5 +82,23 @@ About 550 authored changed lines over four PRs, each under 400.
   - `mix dialyzer --format short`: exit 2 with the 9 known `call_without_opaque` warnings and nothing else; none in `cooking_service.ex`.
 - Left alone, outside the edit surface: `apps/mobile/src/features/cooking/types/cookingApi.ts:21` still types the session status as `'active' | 'paused' | 'completed'`; `odd/tasks/calendar-meal-move.md:51` mentions an "`active` or `paused` Cooking session" in a record of earlier work.
 
+- Review assessment after T2 (`accc19a`): medium, `review_due: true` (`slice_budget_reached`, 429 authored changed lines since `main`). Consent is pending for the user; no review was started.
+
+### T3 (#147), 2026-10-11, uncommitted (the parent commits)
+- `CookingService.persist_finish/3`: `Shopping.delete_open_items_for_meal/2` now runs before `deduct_ingredients/4`. Lock order: Cooking session row, Scheduled meal row, the meal's open Shopping rows, then per Ingredient the Inventory key and its lots. One comment states the order and that a checkout takes its Shopping rows before the Inventory key. Nothing else in `lib` changed.
+- New test in `cooking_atomicity_test.exs`, "a checkout holding the meal's in-cart Shopping item and a finish of that meal both complete". The checkout half is the real `Cart.purchase/3`, not a simulation. `cart.ex` has no seam between its row locks and the Inventory key, so the test adds a `BEFORE UPDATE` trigger on `shopping_items` that makes the update closing the item wait for an advisory lock the test connection holds (a bigint key above the int4 range of `hashtext/1`). Sequence: the checkout blocks at the gate, observed with `pg_blocking_pids` and with exactly one granted advisory lock (the Cart key); the finish starts and is observed blocked by the checkout backend; the gate opens and the checkout goes on to the Inventory key. Waits poll the lock table with a two second bound; there is no fixed sleep.
+- End state asserted: checkout `completed` with one lot, finish `{:ok, _}` with two mutations and no shortage, session `completed`, meal cooked, the item kept as `checked_out` at 500 (the finish reads the row as the checkout left it), stock of the Ingredient 1300 (1000 + 500 - 200), one `purchase` and two `cooking` events.
+- The test deletes the Account's Shopping items and Checkout sessions on exit: the Cart migration round-trip in `cart_concurrency_test.exs` shares the database and requires no reservation or purchase left in it.
+- Route: delegated writer.
+- RED, on the unchanged service (runner, 20 of 21 passed): `refute {:aborted, :deadlock_detected} in [checkout_result, finish_result]` failed with `left: {:aborted, :deadlock_detected}`. The victim varies: the checkout in one run, the finish in another. GREEN after the swap: 21 passed, three runs in a row.
+- Checks (`apps/api`, `MIX_ENV=test`):
+  - `mix run --no-start test/support/issue38_concurrency_runner.exs`: 21 passed, three times.
+  - `mix test test/meal_planner_api/services`: 346 passed, 10 skipped.
+  - `mix compile --warnings-as-errors`: exit 0.
+  - `mix format --check-formatted`: exit 0.
+  - `mix credo --strict`: 345 files, no issues.
+  - `mix test`: 1831 passed, 23 skipped, exit 0 (the new test is skipped outside the runner).
+- Not fixed, reported for #190: a checkout that buys less than the reserved quantity inserts the remainder as a new Shopping item (`cart.ex`, `settle_item!/2`). The foreign key check of that insert takes `FOR KEY SHARE` on the Scheduled meal row, after the checkout's Shopping row locks, and conflicts with the `FOR UPDATE` the finish holds on the meal (`PlanningRepo.lock_cooking_meal_for_account/2`). Probed once with the new test buying 300 of 500: `deadlock_detected` with the new order too (20 of 21 passed). The committed test buys the reserved quantity in full, which is the Inventory key cycle of #147. `MealMove.lock_meals/3` takes the same `FOR UPDATE` before the Shopping rows.
+
 ## Next step
-T3.
+T4.

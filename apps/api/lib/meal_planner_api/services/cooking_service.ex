@@ -514,8 +514,11 @@ defmodule MealPlannerApi.Services.CookingService do
       # The meal can have been marked cooked outside a session (calendar).
       if meal.is_cooked, do: Repo.rollback(:cooking_already_finished)
 
-      {mutations, shortages} = deduct_ingredients(ids, session, meal, today)
+      # Lock order: Cooking session, Scheduled meal, Shopping rows, then the
+      # Inventory key. A checkout takes its Shopping rows before the Inventory
+      # key, so taking them in the other order here would deadlock with it.
       Shopping.delete_open_items_for_meal(ids.account_id, meal.id)
+      {mutations, shortages} = deduct_ingredients(ids, session, meal, today)
 
       with {:ok, cooked} <- PlanningRepo.update_scheduled_meal(meal, %{is_cooked: true}),
            {:ok, _completed} <-
