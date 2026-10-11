@@ -45,9 +45,9 @@ const { theme } = useRecipeTheme();
 A palette changes the **value** of each variable, never the set of variables.
 Switching palettes crossfades every color together in 450 ms.
 
-The same tokens in the two palettes that exist today:
+The same tokens in the default palette and in the one the tests use:
 
-| Token           | Sand (default) | Olive (mock recipes) |
+| Token           | Sand (default) | Olive (test palette) |
 | --------------- | -------------- | -------------------- |
 | `colorLight`    | `#A0997E`      | `#8D9373`            |
 | `appBg`         | `#E1D8BA`      | `#BCBFA7`            |
@@ -130,14 +130,15 @@ sends that to the app. The frontend only applies what it receives.
 | --------------------------------------------------------------- | ------------------------------------------------- |
 | Define the token contract (`RecipeThemeConfig`)                 | Define a catalog of palettes                      |
 | Keep one fallback, `DEFAULT_THEME`, for when no palette applies | Decide which palette a meal gets                  |
-| Carry palettes in mocks, as stand-ins for the backend response  | Adjust, derive or "correct" a palette it received |
+| Carry palettes in tests, as stand-ins for the backend response  | Adjust, derive or "correct" a palette it received |
 
 The palette is stored on the Recipe and served in its payload (`theme`, `null`
 when it has none). A derived Recipe with no theme of its own is served with its
 Base recipe's theme, resolved by the backend. The app's global rules stay
 client-side: today's selected meal recolors the app, every other day uses the
-default palette. Mocks in `src/mocks/` still stand in for the backend on Home
-and the Planner until R7 removes them.
+default palette. The app has no mock recipes: the Recipe screen applies the
+palette in its payload, and the calendar read sends none, so Home stays on the
+default palette until it does.
 
 Adding a palette is a backend change. If a palette looks wrong on screen, the
 fix is in the palette data, checked against
@@ -149,9 +150,9 @@ cross-project change: update the shared docs first (see
 
 ## Open decisions
 
-- **Payload shape:** whether each meal arrives with its full palette values, as
-  the mocks do today (`MasterRecipe.theme`), or with a palette id plus a
-  separate catalog request.
+- **Payload shape:** whether each meal of the calendar read arrives with its
+  full palette values, as the Recipe payload does (`Recipe.theme`), or with a
+  palette id plus a separate catalog request.
 - **Auth:** whether pre-login screens use the default palette or keep their own
   static colors.
 

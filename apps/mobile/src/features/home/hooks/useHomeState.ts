@@ -15,7 +15,6 @@ import type { HomeMealSlot } from '../domain/localMealPlan';
 
 export function useHomeState() {
   const entries = useMealPlanStore((state) => state.entries);
-  const recipes = useMealPlanStore((state) => state.recipes);
   const recipeSummaries = useMealPlanStore((state) => state.recipeSummaries);
   const todayKey = formatDateKey(new Date());
   const today = useMemo(() => parseDateKey(todayKey), [todayKey]);
@@ -92,12 +91,12 @@ export function useHomeState() {
   ]);
 
   const selectedMeal = useMemo(() => {
-    return getSelectedLocalMeal(mealsForSelectedDate, recipes, selectedMealType);
-  }, [mealsForSelectedDate, recipes, selectedMealType]);
+    return getSelectedLocalMeal(mealsForSelectedDate, selectedMealType);
+  }, [mealsForSelectedDate, selectedMealType]);
 
   const selectedDayMeals = useMemo(
-    () => getHomeMealSummaries(mealsForSelectedDate, recipes, recipeSummaries),
-    [mealsForSelectedDate, recipes, recipeSummaries]
+    () => getHomeMealSummaries(mealsForSelectedDate, recipeSummaries),
+    [mealsForSelectedDate, recipeSummaries]
   );
 
   const handleSelectDate = (dateString: string, mealType?: HomeMealSlot) => {

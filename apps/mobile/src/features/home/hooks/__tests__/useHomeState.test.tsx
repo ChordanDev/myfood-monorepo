@@ -1,7 +1,6 @@
 import React from 'react';
 import { act, create } from 'react-test-renderer';
-import type { MasterRecipe, MealPlanEntry, MealSlot } from '@/types/domain';
-import { MOCK_MASTER_RECIPES } from '@/mocks/domainMocks';
+import type { MealPlanEntry, MealSlot, RecipeSummary } from '@/types/domain';
 import { useMealPlanStore } from '@/store';
 import { useHomeState } from '../useHomeState';
 
@@ -14,11 +13,15 @@ const YESTERDAY = '2026-08-24';
 const TODAY = '2026-08-25';
 const TOMORROW = '2026-08-26';
 
-// Marking a meal as cooked in the store is only local: the server consumes the stock.
-const recipes: MasterRecipe[] = [
-  { ...MOCK_MASTER_RECIPES[0], id: 'recipe-salad', name: 'Ensalada de tomate', ingredients: [] },
-  { ...MOCK_MASTER_RECIPES[0], id: 'recipe-soup', name: 'Sopa de pollo', ingredients: [] },
-];
+function buildSummary(name: string): RecipeSummary {
+  return { name, isFavorite: false, prepTimeMinutes: null, calories: null };
+}
+
+// What the calendar read says about the recipes of the plan.
+const recipeSummaries: Record<string, RecipeSummary> = {
+  'recipe-salad': buildSummary('Ensalada de tomate'),
+  'recipe-soup': buildSummary('Sopa de pollo'),
+};
 
 function buildEntry(
   date: string,
@@ -45,7 +48,7 @@ function HookHarness() {
 }
 
 function renderHomeState(entries: MealPlanEntry[]) {
-  useMealPlanStore.setState({ entries, recipes });
+  useMealPlanStore.setState({ entries, recipeSummaries });
 
   act(() => {
     tree = create(<HookHarness />);
@@ -58,6 +61,7 @@ function selectDate(dateString: string) {
   });
 }
 
+// Marking a meal as cooked in the store is only local: the server consumes the stock.
 function confirm(action: 'markAsCooked' | 'markAsSkipped', entryId: string) {
   act(() => {
     useMealPlanStore.getState()[action](entryId);

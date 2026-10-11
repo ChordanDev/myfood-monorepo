@@ -1,12 +1,13 @@
 import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
-import { MealPlanEntry, MasterRecipe, RecipeSummary } from '../types/domain';
+import { MealPlanEntry, RecipeSummary } from '../types/domain';
 import { safeAsyncStorage } from '@/utils/safeAsyncStorage';
 import { registerAccountDataReset } from '@/features/auth/utils/accountDataReset';
 
 interface MealPlanState {
   entries: MealPlanEntry[];
-  recipes: MasterRecipe[];
+  // Always empty: kept only because two shopping tests still seed it; remove it with them.
+  recipes: never[];
   recipeSummaries: Record<string, RecipeSummary>;
   setPlan: (entries: MealPlanEntry[]) => void;
   setRecipeSummaries: (recipeSummaries: Record<string, RecipeSummary>) => void;
@@ -15,7 +16,6 @@ interface MealPlanState {
   /** Drops everything cached for the signed-in account (plan and summaries). */
   resetAccountData: () => void;
   getEntryByDateAndType: (date: string, type: string) => MealPlanEntry | undefined;
-  getRecipeById: (id: string) => MasterRecipe | undefined;
 }
 
 // Runs when the stored version is another one. A plan stored before version 3 was seeded from
@@ -58,9 +58,6 @@ export const useMealPlanStore = create<MealPlanState>()(
       resetAccountData: () => set({ entries: [], recipeSummaries: {} }),
       getEntryByDateAndType: (date, type) => {
         return get().entries.find((e) => e.date === date && e.type === type);
-      },
-      getRecipeById: (id) => {
-        return get().recipes.find((r) => r.id === id);
       },
     }),
     {

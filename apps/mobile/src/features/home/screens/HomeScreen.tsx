@@ -38,7 +38,6 @@ export function HomeScreen() {
   const eatToday = useEatToday();
   useLoadLivePlan();
   const recipeSummaries = useMealPlanStore((state) => state.recipeSummaries);
-  const getRecipeById = useMealPlanStore((state) => state.getRecipeById);
   const cooking = useMarkAsCooked();
   const markAsSkipped = useMealPlanStore((state) => state.markAsSkipped);
   // Destinations are captured when the sheet opens so the options cannot change while it is shown.
@@ -84,8 +83,7 @@ export function HomeScreen() {
     void useFavoritesStore.getState().toggle(
       favoriteSummaryFromRecipe({
         id: selectedRecipeId,
-        name:
-          recipeSummaries[selectedRecipeId]?.name ?? getRecipeById(selectedRecipeId)?.name ?? '',
+        name: recipeSummaries[selectedRecipeId]?.name ?? '',
         durationMinutes: null,
         ingredients: [],
       })

@@ -1,8 +1,5 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { isApiError } from '@/api/errors';
-import { useInventoryStore } from '@/features/inventory';
-import { useMealPlanStore } from '@/store';
-import { recipeFromMasterRecipe } from '../domain/recipeFromMasterRecipe';
 import { useRecipeCacheStore } from '../store';
 import type { Recipe } from '../types/recipe';
 
@@ -29,14 +26,8 @@ function toLoadFailure(error: unknown): LoadFailure {
   return 'failed';
 }
 
-/**
- * Resolves the recipe of the route. A recipe of the local plan is converted to the shape the API
- * serves and never asks the network (ticket R7, #38, removes that branch); any other id is read
- * from the version cache, which fetches it once.
- */
+/** Resolves the recipe of the route from the version cache, which fetches it once. */
 export function useRecipe(recipeId: string, recipeVersionId?: string) {
-  const localRecipe = useMealPlanStore((state) => state.getRecipeById(recipeId));
-  const catalog = useInventoryStore((state) => state.ingredients);
   // The first paint of a recipe that was opened before, without waiting for the effect.
   const cachedRecipe = useRecipeCacheStore((state) =>
     state.getCachedRecipe(recipeId, { recipeVersionId })
@@ -44,15 +35,11 @@ export function useRecipe(recipeId: string, recipeVersionId?: string) {
   const [outcome, setOutcome] = useState<LoadOutcome | null>(null);
   const [attempt, setAttempt] = useState(0);
 
-  // Memoized: the rows and the palette of the screen follow the identity of the recipe.
-  const convertedRecipe = useMemo(
-    () => (localRecipe ? recipeFromMasterRecipe(localRecipe, catalog) : undefined),
-    [catalog, localRecipe]
-  );
-  const isRemote = localRecipe === undefined && recipeId !== '';
+  // An empty id names no recipe, here or on the server.
+  const hasRecipeId = recipeId !== '';
 
   useEffect(() => {
-    if (!isRemote) return;
+    if (!hasRecipeId) return;
 
     // An answer that arrives after the screen left this recipe, or unmounted, is dropped.
     let isCurrent = true;
@@ -72,7 +59,7 @@ export function useRecipe(recipeId: string, recipeVersionId?: string) {
     return () => {
       isCurrent = false;
     };
-  }, [attempt, isRemote, recipeId, recipeVersionId]);
+  }, [attempt, hasRecipeId, recipeId, recipeVersionId]);
 
   const retry = useCallback(() => {
     setOutcome(null);
@@ -80,9 +67,8 @@ export function useRecipe(recipeId: string, recipeVersionId?: string) {
   }, []);
 
   const currentOutcome = outcome?.recipeId === recipeId ? outcome : null;
-  const recipe = convertedRecipe ?? cachedRecipe ?? currentOutcome?.recipe;
-  // An empty id names no recipe, here or on the server.
-  const pendingStatus: RecipeStatus = isRemote
+  const recipe = cachedRecipe ?? currentOutcome?.recipe;
+  const pendingStatus: RecipeStatus = hasRecipeId
     ? (currentOutcome?.failure ?? 'loading')
     : 'not_found';
   const status: RecipeStatus = recipe ? 'ready' : pendingStatus;
