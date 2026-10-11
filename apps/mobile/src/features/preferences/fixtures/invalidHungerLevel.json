@@ -1,0 +1,6 @@
+{
+  "error": {
+    "code": "invalid_hunger_level",
+    "message": "The hunger level must be one of light, normal or strong."
+  }
+}

@@ -17,10 +17,12 @@ defmodule MealPlannerApiWeb.SlotCookingTimesControllerTest do
   @path "/api/me/slot-cooking-times"
 
   # The frozen bodies the mobile Slot cooking times code is tested against:
-  # a saved set and the refusal a User with none gets. The tests below keep
-  # them from drifting away from the route.
+  # a saved set, the refusal a User with none gets and the two refusals of a
+  # `PUT`. The tests below keep them from drifting away from the route.
   @fixture "preferences/fixtures/slotCookingTimes.json"
   @not_found_fixture "preferences/fixtures/slotCookingTimesNotFound.json"
+  @dinner_minutes_fixture "preferences/fixtures/validationErrorDinnerCookingTimeMinutes.json"
+  @invalid_hunger_level_fixture "preferences/fixtures/invalidHungerLevel.json"
 
   @times %{
     "breakfast" => %{"cookingTimeMinutes" => 10, "hungerLevel" => "light"},
@@ -202,6 +204,24 @@ defmodule MealPlannerApiWeb.SlotCookingTimesControllerTest do
 
         assert is_binary(message) and message != ""
       end
+    end
+
+    test "the refusal of dinner minutes of -1 is the frozen mobile error fixture", %{
+      token: token
+    } do
+      fixture = MobileFixtures.read!(@dinner_minutes_fixture)
+      times = put_in(@times, ["dinner", "cookingTimeMinutes"], -1)
+
+      assert Map.keys(fixture) == ["error"]
+      assert token |> put_times(times) |> json_response(422) == fixture
+    end
+
+    test "the invalid_hunger_level refusal is the frozen mobile error fixture", %{token: token} do
+      fixture = MobileFixtures.read!(@invalid_hunger_level_fixture)
+      times = put_in(@times, ["breakfast", "hungerLevel"], "ravenous")
+
+      assert Map.keys(fixture) == ["error"]
+      assert token |> put_times(times) |> json_response(422) == fixture
     end
 
     test "reports the first slot at fault, and its minutes before its Hunger level", %{
