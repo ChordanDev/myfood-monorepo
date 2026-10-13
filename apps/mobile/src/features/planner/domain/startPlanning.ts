@@ -6,6 +6,7 @@ export interface StartPlanningParams {
   rangeTo: string;
   requestId: string;
   request?: string;
+  favoriteRecipeIds?: string[];
 }
 
 /** The longest request the server takes, after trimming (apps/api/docs/CHANNELS.md). */
@@ -19,12 +20,14 @@ export function isPlanningRequestTooLong(request: string): boolean {
 
 /**
  * What to push to start planning `range`, or null while no day is picked. A range with only its
- * start is that one day. A blank request is left out, as the server counts it as none.
+ * start is that one day. A blank request is left out, as the server counts it as none, and so is
+ * an empty selection of favorites.
  */
 export function buildStartPlanningParams(
   range: CalendarRange,
   request: string,
-  requestId: string
+  requestId: string,
+  favoriteRecipeIds: readonly string[]
 ): StartPlanningParams | null {
   if (range.start === null) return null;
 
@@ -34,5 +37,6 @@ export function buildStartPlanningParams(
     rangeTo: range.end ?? range.start,
     requestId,
     ...(text === '' ? {} : { request: text }),
+    ...(favoriteRecipeIds.length === 0 ? {} : { favoriteRecipeIds: [...favoriteRecipeIds] }),
   };
 }

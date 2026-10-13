@@ -64,13 +64,19 @@ const DRAFT_EVENTS: {
 export interface PlanningDraftController {
   draft: PlanningDraft;
   /**
-   * Starts planning `range` with the optional free-text `request`. Does nothing while the topic
-   * is not joined or no day is picked. `onAccepted` runs once the server accepts the start, so
-   * the caller can drop what the User typed only then.
+   * Starts planning `range` with the optional free-text `request` and the ids of the Favorite
+   * recipes the User preselected. Does nothing while the topic is not joined or no day is picked.
+   * `onAccepted` runs once the server accepts the start, so the caller can drop what the User
+   * typed only then.
    */
-  start: (range: CalendarRange, request: string, onAccepted?: () => void) => void;
+  start: (
+    range: CalendarRange,
+    request: string,
+    favoriteRecipeIds: readonly string[],
+    onAccepted?: () => void
+  ) => void;
   /**
-   * Starts again with the range and request of the last start. After a generation that failed
+   * Starts again with the range, request and favorites of the last start. After a generation that failed
    * the session is still active and holds the range, so it is cancelled first.
    */
   retry: () => void;
@@ -102,21 +108,26 @@ export function usePlanningDraft(topic: PlanningTopicState): PlanningDraftContro
   }, [subscription]);
 
   // What the last start asked for, so a retry sends the same thing under a new request id.
-  const lastStartRef = useRef<{ range: CalendarRange; request: string } | null>(null);
+  const lastStartRef = useRef<{
+    range: CalendarRange;
+    request: string;
+    favoriteRecipeIds: readonly string[];
+  } | null>(null);
 
   const start = useCallback(
     (
       range: CalendarRange,
       request: string,
+      favoriteRecipeIds: readonly string[],
       onAccepted?: () => void,
       sessionToCancel: string | null = null
     ) => {
       if (subscription === null) return;
       const requestId = newRequestId();
-      const params = buildStartPlanningParams(range, request, requestId);
+      const params = buildStartPlanningParams(range, request, requestId, favoriteRecipeIds);
       if (params === null) return;
 
-      lastStartRef.current = { range, request };
+      lastStartRef.current = { range, request, favoriteRecipeIds };
       dispatch({ type: 'start_requested', requestId });
 
       // The server would refuse it as `invalid_payload`; say so without the round trip.
@@ -171,7 +182,7 @@ export function usePlanningDraft(topic: PlanningTopicState): PlanningDraftContro
     if (last === null) return;
     const sessionToCancel =
       draft.status === 'failed' && draft.failure.kind === 'generation' ? draft.sessionId : null;
-    start(last.range, last.request, undefined, sessionToCancel);
+    start(last.range, last.request, last.favoriteRecipeIds, undefined, sessionToCancel);
   }, [draft, start]);
 
   return { draft, start, retry };

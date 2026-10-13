@@ -193,7 +193,7 @@ export const PlannerScreen = () => {
   // the User has typed something else in the meantime.
   const handleStartPlanning = useCallback(() => {
     const sent = input;
-    startPlanning(planningRange.range, sent, () =>
+    startPlanning(planningRange.range, sent, [], () =>
       setInput((current) => (current === sent ? '' : current))
     );
   }, [input, planningRange.range, startPlanning]);
