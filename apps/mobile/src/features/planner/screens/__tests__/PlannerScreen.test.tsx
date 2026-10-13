@@ -56,6 +56,7 @@ jest.mock('lucide-react-native', () => ({ CircleAlert: 'CircleAlert' }));
 jest.mock('../../components', () => ({
   ...jest.requireActual('../../components/PlanningJoinNotice'),
   ...jest.requireActual('../../components/PlanningDraftPanel'),
+  ...jest.requireActual('../../components/PlanningFavoritesPicker'),
   PlannerHeader: 'PlannerHeader',
 }));
 
@@ -69,6 +70,18 @@ jest.mock('../../hooks/usePlanningRange', () => ({
 jest.mock('@/features/home', () => ({
   ...jest.requireActual('@/features/home/constants/calendar'),
   ...jest.requireActual('@/features/home/utils/calendarDate'),
+}));
+
+jest.mock('@react-native-async-storage/async-storage', () =>
+  jest.requireActual('@react-native-async-storage/async-storage/jest/async-storage-mock')
+);
+
+// The real favorites store, whose server read never answers: this suite is about the scroll. The
+// store's barrel also loads the auth feature, which nothing here needs.
+jest.mock('@/features/favorites', () => jest.requireActual('@/features/favorites/store'));
+
+jest.mock('@/features/favorites/api/favoritesApi', () => ({
+  listFavorites: () => new Promise(() => {}),
 }));
 
 // The real barrel would load the app client, and with it the Phoenix client.

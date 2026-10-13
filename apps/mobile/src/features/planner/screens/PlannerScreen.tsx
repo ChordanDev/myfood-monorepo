@@ -11,10 +11,16 @@ import {
   ChatComposer,
   ChatTypingIndicator,
 } from '@/features/assistant-chat';
-import { PlannerHeader, PlanningDraftPanel, PlanningJoinNotice } from '../components';
+import {
+  PlannerHeader,
+  PlanningDraftPanel,
+  PlanningFavoritesPicker,
+  PlanningJoinNotice,
+} from '../components';
 import { CUSTOM_TAB_BAR_CONTENT_HEIGHT } from '../constants';
 import { formatPlanningStartLabel } from '../domain/planningRange';
 import { usePlanningDraft } from '../hooks/usePlanningDraft';
+import { usePlanningFavorites } from '../hooks/usePlanningFavorites';
 import { usePlanningRange } from '../hooks/usePlanningRange';
 import { usePlanningTopic } from '../hooks/usePlanningTopic';
 import { resolveTurnTrailingSpace } from './turnAnchor';
@@ -62,6 +68,7 @@ export const PlannerScreen = () => {
   const planningTopic = usePlanningTopic();
   const planningRange = usePlanningRange();
   const { draft, start: startPlanning, retry: retryPlanning } = usePlanningDraft(planningTopic);
+  const planningFavorites = usePlanningFavorites();
   const scrollViewRef = useRef<ScrollView>(null);
   const responseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const initialScrollFrameRef = useRef<number | null>(null);
@@ -193,10 +200,10 @@ export const PlannerScreen = () => {
   // the User has typed something else in the meantime.
   const handleStartPlanning = useCallback(() => {
     const sent = input;
-    startPlanning(planningRange.range, sent, [], () =>
+    startPlanning(planningRange.range, sent, planningFavorites.selectedRecipeIds, () =>
       setInput((current) => (current === sent ? '' : current))
     );
-  }, [input, planningRange.range, startPlanning]);
+  }, [input, planningFavorites.selectedRecipeIds, planningRange.range, startPlanning]);
 
   const handleActiveTurnLayout = useCallback(
     (messageId: string, event: LayoutChangeEvent) => {
@@ -323,6 +330,13 @@ export const PlannerScreen = () => {
           )
         )}
         {isThinking ? <ChatTypingIndicator /> : null}
+        {draft.status === 'idle' ? (
+          <PlanningFavoritesPicker
+            favorites={planningFavorites.favorites}
+            selectedRecipeIds={planningFavorites.selectedRecipeIds}
+            onToggle={planningFavorites.toggle}
+          />
+        ) : null}
         <PlanningDraftPanel
           draft={draft}
           startLabel={formatPlanningStartLabel(planningRange.range)}
