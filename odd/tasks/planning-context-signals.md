@@ -73,15 +73,15 @@ The context is one nested map under the `"planning_context"` key of the constrai
 
 - [x] T1 (API, route: delegated direct, 2+ non-trivial files): `MealPlannerApi.Services.PlanningContext` assembles the context from already-read signals (pure) and reads them for a User; unit tests cover every signal, the nil cases and the three cooking modes.
 - [x] T2 (API, route: delegated direct, same writer): `start_planning` parses `favoriteRecipeIds`, keeps only the caller's favorites and hands the context to the generation; channel tests read it back from the persisted Generation run; fixture `planningContext.json` recorded through `PlannerFixtures.check!`; CHANNELS.md documents the param and the context.
-- [ ] T3 (mobile, route: delegated direct, 2+ non-trivial files): `StartPlanningParams`, `buildStartPlanningParams` and `usePlanningDraft.start`/`retry` carry `favoriteRecipeIds`; unit tests.
-- [ ] T4 (mobile, route: delegated direct, same writer): favorites preselect step on the Planner screen fed by the favorites store; integration test in `PlannerScreen.planning.test.tsx`.
+- [x] T3 (mobile, route: delegated direct, 2+ non-trivial files): `StartPlanningParams`, `buildStartPlanningParams` and `usePlanningDraft.start`/`retry` carry `favoriteRecipeIds`; unit tests.
+- [x] T4 (mobile, route: delegated direct, same writer): favorites preselect step on the Planner screen fed by the favorites store; integration test in `PlannerScreen.planning.test.tsx`.
 
 ## Acceptance criteria
 
-- [ ] `start_planning` accepts `favoriteRecipeIds` and the context payload persisted on the Generation run includes every listed signal with camelCase keys documented as a frozen fixture.
-- [ ] A missing `snack` Slot cooking time is passed as "no constraint", a slot with 0 minutes as "do not cook".
-- [ ] Hard restriction codes reach the context as text; the strict candidate filter is unchanged (O5 pending).
-- [ ] Planner screen offers the favorites list (R3) as a preselect step; integration test covers it.
+- [x] `start_planning` accepts `favoriteRecipeIds` and the context payload persisted on the Generation run includes every listed signal with camelCase keys documented as a frozen fixture.
+- [x] A missing `snack` Slot cooking time is passed as "no constraint", a slot with 0 minutes as "do not cook".
+- [x] Hard restriction codes reach the context as text; the strict candidate filter is unchanged (O5 pending).
+- [x] Planner screen offers the favorites list (R3) as a preselect step; integration test covers it.
 
 ## Checks
 
@@ -100,6 +100,11 @@ Exploration done. Feature document created.
 - Checks observed on `29c0f13`: `mix format --check-formatted` clean, `mix compile --warnings-as-errors` clean, `mix credo --strict` no issues, `mix sobelow --config` exit 0, full `mix test` 1872 passed and 23 skipped. Parent spot check: the two new test files, 23 passed.
 - `mix dialyzer --format short` failed locally with 9 `call_without_opaque` errors, none in a file this work touches (`accounts.ex`, `planning_repo.ex`, `generation/server.ex`, `persistence/calendar.ex`, `onboarding_service.ex`, `shopping_service.ex`, `user_preferences_service.ex`). The local toolchain is Elixir 1.20.3 on OTP 29 and CI pins 1.17.3 on OTP 27.3, so CI is the check of record for dialyzer. Not verified on a clean base locally.
 - Native review of slice 1 (`6812bd0..29c0f13`): assessed medium, `slice_budget_reached`; consent granted by the user; one reliability lens; approved and acknowledged (lineage `review-9ec5a049a18f936d`). Reviewed boundary is now `29c0f13`.
+- The fixture written by `PlannerFixtures.check!` failed the mobile `prettier -c` step of `npm run lint`, so it was formatted on the API branch (`663ce73`); the API fixture test compares decoded JSON and still passes (5 passed). A fixture recorded again with `UPDATE_FIXTURES=1` needs the same `prettier --write`.
+- T3 (delegated writer): `StartPlanningParams.favoriteRecipeIds` is optional and left out when nothing is selected; `usePlanningDraft.start(range, request, favoriteRecipeIds, onAccepted?)` and `retry` replays the ids of the last start. RED: 11 failed (the new tests, plus the old `start` callers shifted by the new argument). GREEN: planner and favorites suites, 299 passed. Commit `af52bb1`, 134 authored lines.
+- T4 (delegated writer): `usePlanningFavorites` loads the favorites store when the planner opens and keeps the selection, dropping a favorite that leaves the store; `PlanningFavoritesPicker` draws the favorites as checkboxes (`planner-favorite-<recipeId>`) under the title 'Incluí tus favoritas'; `PlannerScreen` shows it before `PlanningDraftPanel` only while the draft is idle. RED: 6 failed in `PlannerScreen.planning.test.tsx` (`No planner-favorite-recipe-1 on screen`), plus the new hook and picker suites. GREEN: planner and favorites suites, 318 passed. Commit `fc338c3`, 503 authored lines, about 350 of them tests.
+- Checks observed by the parent on `fc338c3`: `npm run verify` passed (typecheck clean, lint 0 errors, jest 153 suites and 2382 tests).
+- Native review of slice 2 (`29c0f13..fc338c3`): assessed medium, `slice_budget_reached`; consent granted by the user; one reliability lens; approved and acknowledged (lineage `review-f5d0d68cdd690659`). Reviewed boundary is now `fc338c3`.
 
 ## Notes and follow-ups
 
@@ -108,3 +113,10 @@ Advisory findings of the slice 1 review, none blocking and none applied:
 - Favorite ids are matched by exact string, so an id in upper case is dropped. The mobile client sends the ids the API gave it, which are lower case.
 - `favoriteRecipeIds` has no length cap; the frame size is the only bound. A cap is a contract decision that was not taken here.
 - The fixture pins `hardRestrictionCodes` in catalog order while two tests compare sorted. The order is deterministic (`UserPreferencesService` filters the catalog list), so the fixture is stable; the tests are only looser than they could be.
+
+Advisory findings of the slice 2 review, none blocking and none applied:
+
+- `retry` resends the ids captured at the last start, so a favorite removed between a failed start and the retry is still pushed. The server keeps only the caller's favorites, so nothing wrong reaches the engine.
+- `usePlanningFavorites` returns a new array on every render, which recreates the start handler of the screen each time. It costs memoization only.
+- An accepted start clears the typed request but not the selection, so the same favorites come back checked when the draft returns to idle on the same mounted screen.
+- `usePlanningFavorites.test.tsx` asserts a call count without clearing the mock in `beforeEach`.
