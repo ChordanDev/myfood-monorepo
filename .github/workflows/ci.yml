@@ -5,9 +5,16 @@ on:
   push:
     branches:
       - main
+  # Manual run of both app jobs on any ref, regardless of changed paths.
+  workflow_dispatch:
 
+# A newer run cancels an older one on the same ref, except on `main`, where
+# every run gets its own group. The app jobs are path-filtered, so a cancelled
+# `main` run can be the only one that would have checked that app. A shared
+# group with `cancel-in-progress: false` is not enough: a queued run still
+# replaces any run already pending in its group.
 concurrency:
-  group: ci-${{ github.workflow }}-${{ github.ref }}
+  group: ci-${{ github.workflow }}-${{ github.ref == 'refs/heads/main' && github.run_id || github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -27,8 +34,11 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      # Skipped on a manual run: there is no changed range to filter, and the
+      # app jobs run unconditionally then.
       - name: Filter paths
         id: filter
+        if: github.event_name != 'workflow_dispatch'
         uses: dorny/paths-filter@v3
         with:
           filters: |
@@ -52,7 +62,7 @@ jobs:
   api:
     name: API (Elixir)
     needs: changes
-    if: needs.changes.outputs.api == 'true'
+    if: github.event_name == 'workflow_dispatch' || needs.changes.outputs.api == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 25
     defaults:
@@ -143,7 +153,7 @@ jobs:
   mobile:
     name: Mobile (Expo)
     needs: changes
-    if: needs.changes.outputs.mobile == 'true'
+    if: github.event_name == 'workflow_dispatch' || needs.changes.outputs.mobile == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     defaults:
