@@ -10,14 +10,17 @@ defmodule MealPlannerApiWeb.PlannerFixturesTest do
   """
   use MealPlannerApiWeb.ChannelCase, async: false
 
-  import MealPlannerApi.Generation.ServerTestFixtures, only: [stop_generation_server: 1]
+  import MealPlannerApi.Generation.ServerTestFixtures,
+    only: [insert_recipe: 2, stop_generation_server: 1]
+
   import MealPlannerApiWeb.ChannelHelpers, only: [issue_identity_and_token: 2]
 
-  alias MealPlannerApi.Data.PlanningRepo
+  alias MealPlannerApi.Data.{AccountRepo, PlanningRepo, RecipeRepo}
   alias MealPlannerApi.Persistence.Accounts.Account
   alias MealPlannerApi.Persistence.Accounts.{AccountMembership, User}
+  alias MealPlannerApi.Persistence.Planning.PlanningGenerationRun
   alias MealPlannerApi.Repo
-  alias MealPlannerApi.Services.GenerationService
+  alias MealPlannerApi.Services.{GenerationService, UserPreferencesService}
   alias MealPlannerApiWeb.{Endpoint, PlannerFixtures, PlanningChannel, UserSocket}
 
   @moduletag :capture_log
@@ -68,6 +71,33 @@ defmodule MealPlannerApiWeb.PlannerFixturesTest do
     PlannerFixtures.check!("sessionStarted", session_started, stable)
     PlannerFixtures.check!("generationStarted", generation_started, stable)
     PlannerFixtures.check!("generationError", generation_error, stable)
+
+    stop_generation_server(account.id)
+  end
+
+  # The first fixture the client never receives: the Planning context the
+  # engine reads from the persisted run (`input_context.constraints`).
+  test "the Planning context of a User with every signal set", %{
+    socket: socket,
+    user: user,
+    account: account
+  } do
+    favorite_ids = set_up_every_signal!(user, account)
+
+    ref =
+      push(socket, "start_planning", %{
+        "rangeFrom" => in_days(0),
+        "dayCount" => 2,
+        "favoriteRecipeIds" => favorite_ids
+      })
+
+    assert_reply(ref, :ok, %{"sessionId" => _})
+    assert_push("generation_started", %{"runId" => run_id})
+
+    context =
+      Repo.get!(PlanningGenerationRun, run_id).input_context["constraints"]["planning_context"]
+
+    PlannerFixtures.check!("planningContext", context)
 
     stop_generation_server(account.id)
   end
@@ -130,6 +160,41 @@ defmodule MealPlannerApiWeb.PlannerFixturesTest do
     assert_receive %Phoenix.Socket.Reply{ref: ^ref, status: :error, payload: payload}
     assert payload["error"]["details"] == %{"ownerName" => "Ana Peer"}
     PlannerFixtures.check!("planningRangeLockedError", payload)
+  end
+
+  # Every onboarding signal, a 0-minute lunch included, and two favorites.
+  # Returns the ids of the favorites in the order the fixture keeps them.
+  defp set_up_every_signal!(user, account) do
+    {:ok, _preferences} =
+      UserPreferencesService.replace(user.id, %{
+        diet: "vegetarian",
+        hard_restrictions: ["gluten", "peanut"],
+        soft_preferences: ["quick_meals"]
+      })
+
+    user
+    |> User.profile_changeset(%{
+      name: user.name,
+      household_size: 3,
+      cooking_skill: "intermediate"
+    })
+    |> Repo.update!()
+
+    {:ok, _rows} =
+      AccountRepo.replace_slot_cooking_times(user.id, %{
+        breakfast: %{cooking_time_minutes: 15, hunger_level: :light},
+        lunch: %{cooking_time_minutes: 0, hunger_level: :normal},
+        dinner: %{cooking_time_minutes: 45, hunger_level: :strong}
+      })
+
+    for name <- ["Lentil stew", "Oatmeal"] do
+      recipe = insert_recipe(name, account_id: account.id)
+
+      {:ok, _favorite} =
+        RecipeRepo.add_favorite(%{account_id: account.id, user_id: user.id}, recipe.id)
+
+      recipe.id
+    end
   end
 
   defp in_days(offset), do: Date.utc_today() |> Date.add(offset) |> Date.to_iso8601()

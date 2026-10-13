@@ -1,0 +1,38 @@
+{
+  "cookingSkill": "intermediate",
+  "diet": "vegetarian",
+  "favoriteRecipeIds": [
+    "00000000-0000-4000-8000-000000000001",
+    "00000000-0000-4000-8000-000000000002"
+  ],
+  "hardRestrictionCodes": [
+    "peanut",
+    "gluten"
+  ],
+  "householdSize": 3,
+  "slotCookingTimes": {
+    "breakfast": {
+      "cooking": "limited",
+      "hungerLevel": "light",
+      "maxMinutes": 15
+    },
+    "dinner": {
+      "cooking": "limited",
+      "hungerLevel": "strong",
+      "maxMinutes": 45
+    },
+    "lunch": {
+      "cooking": "do_not_cook",
+      "hungerLevel": "normal",
+      "maxMinutes": 0
+    },
+    "snack": {
+      "cooking": "no_constraint",
+      "hungerLevel": null,
+      "maxMinutes": null
+    }
+  },
+  "softPreferences": [
+    "quick_meals"
+  ]
+}
