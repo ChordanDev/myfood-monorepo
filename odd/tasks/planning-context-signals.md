@@ -71,8 +71,8 @@ The context is one nested map under the `"planning_context"` key of the constrai
 
 ## Tasks
 
-- [ ] T1 (API, route: delegated direct, 2+ non-trivial files): `MealPlannerApi.Services.PlanningContext` assembles the context from already-read signals (pure) and reads them for a User; unit tests cover every signal, the nil cases and the three cooking modes.
-- [ ] T2 (API, route: delegated direct, same writer): `start_planning` parses `favoriteRecipeIds`, keeps only the caller's favorites and hands the context to the generation; channel tests read it back from the persisted Generation run; fixture `planningContext.json` recorded through `PlannerFixtures.check!`; CHANNELS.md documents the param and the context.
+- [x] T1 (API, route: delegated direct, 2+ non-trivial files): `MealPlannerApi.Services.PlanningContext` assembles the context from already-read signals (pure) and reads them for a User; unit tests cover every signal, the nil cases and the three cooking modes.
+- [x] T2 (API, route: delegated direct, same writer): `start_planning` parses `favoriteRecipeIds`, keeps only the caller's favorites and hands the context to the generation; channel tests read it back from the persisted Generation run; fixture `planningContext.json` recorded through `PlannerFixtures.check!`; CHANNELS.md documents the param and the context.
 - [ ] T3 (mobile, route: delegated direct, 2+ non-trivial files): `StartPlanningParams`, `buildStartPlanningParams` and `usePlanningDraft.start`/`retry` carry `favoriteRecipeIds`; unit tests.
 - [ ] T4 (mobile, route: delegated direct, same writer): favorites preselect step on the Planner screen fed by the favorites store; integration test in `PlannerScreen.planning.test.tsx`.
 
@@ -89,8 +89,22 @@ API (from `apps/api`, with `MYFOOD_TEST_DB_USERNAME` and a per-worktree `MYFOOD_
 
 ## Delivery
 
-Forecast: about 500 authored lines for the API half and about 400 for the mobile half, over the 400-line review budget as one PR. Strategy: a stacked-to-main chain of two PRs, the same shape as the #46 stack (PRs #238 to #241). Slice 1 holds T1 and T2, slice 2 holds T3 and T4. Each half is safe alone: the API treats an absent `favoriteRecipeIds` as none, and an API without this change ignores the extra key.
+Forecast: about 500 authored lines for the API half and about 400 for the mobile half, over the 400-line review budget as one PR. Strategy: a stacked-to-main chain of two PRs, the same shape as the #46 stack (PRs #238 to #241). Slice 1 holds T1 and T2 (`b5b7996`, `29c0f13`; 926 authored lines, about 670 of them tests, so it carries a size exception), slice 2 holds T3 and T4. Each half is safe alone: the API treats an absent `favoriteRecipeIds` as none, and an API without this change ignores the extra key.
 
 ## Progress
 
 Exploration done. Feature document created.
+
+- T1 (delegated writer): `PlanningContext.assemble/1` (pure) and `PlanningContext.read/3` (loads the signals; a deleted User gives `null` skill and size; a stored `snack` row would be ignored). RED: 0 of 18 passed, `PlanningContext.assemble/1 is undefined`. GREEN: 18 passed. Commit `b5b7996`, 488 authored lines, 352 of them tests.
+- T2 (delegated writer): `parse_favorite_recipe_ids/1` and the context read sit in the `with` before `start_session`; `start_constraints/4` adds `"planning_context"`. RED: 8 failures in the new `planning context (#29)` block (context absent; a malformed list was accepted). GREEN: `planning_start_test.exs` 44 passed, `planner_fixtures_test.exs` 5 passed. Tampering `householdSize` in the fixture made the fixture test fail with the drift message. Commit `29c0f13`, 438 authored lines, 315 of them tests.
+- Checks observed on `29c0f13`: `mix format --check-formatted` clean, `mix compile --warnings-as-errors` clean, `mix credo --strict` no issues, `mix sobelow --config` exit 0, full `mix test` 1872 passed and 23 skipped. Parent spot check: the two new test files, 23 passed.
+- `mix dialyzer --format short` failed locally with 9 `call_without_opaque` errors, none in a file this work touches (`accounts.ex`, `planning_repo.ex`, `generation/server.ex`, `persistence/calendar.ex`, `onboarding_service.ex`, `shopping_service.ex`, `user_preferences_service.ex`). The local toolchain is Elixir 1.20.3 on OTP 29 and CI pins 1.17.3 on OTP 27.3, so CI is the check of record for dialyzer. Not verified on a clean base locally.
+- Native review of slice 1 (`6812bd0..29c0f13`): assessed medium, `slice_budget_reached`; consent granted by the user; one reliability lens; approved and acknowledged (lineage `review-9ec5a049a18f936d`). Reviewed boundary is now `29c0f13`.
+
+## Notes and follow-ups
+
+Advisory findings of the slice 1 review, none blocking and none applied:
+
+- Favorite ids are matched by exact string, so an id in upper case is dropped. The mobile client sends the ids the API gave it, which are lower case.
+- `favoriteRecipeIds` has no length cap; the frame size is the only bound. A cap is a contract decision that was not taken here.
+- The fixture pins `hardRestrictionCodes` in catalog order while two tests compare sorted. The order is deterministic (`UserPreferencesService` filters the catalog list), so the fixture is stable; the tests are only looser than they could be.
