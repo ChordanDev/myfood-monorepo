@@ -5,10 +5,7 @@
     "00000000-0000-4000-8000-000000000001",
     "00000000-0000-4000-8000-000000000002"
   ],
-  "hardRestrictionCodes": [
-    "peanut",
-    "gluten"
-  ],
+  "hardRestrictionCodes": ["peanut", "gluten"],
   "householdSize": 3,
   "slotCookingTimes": {
     "breakfast": {
@@ -32,7 +29,5 @@
       "maxMinutes": null
     }
   },
-  "softPreferences": [
-    "quick_meals"
-  ]
+  "softPreferences": ["quick_meals"]
 }
