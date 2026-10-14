@@ -23,14 +23,6 @@ export const INGREDIENT_CATEGORIES = [
 
 export type IngredientCategory = (typeof INGREDIENT_CATEGORIES)[number];
 
-export interface Ingredient {
-  id: string;
-  name: string;
-  category: IngredientCategory;
-  basePrice: number; // Precio promedio de mercado
-  unit: UnitType;
-}
-
 export interface RecipeThemeConfig {
   colorBlack: string;
   colorDark: string;

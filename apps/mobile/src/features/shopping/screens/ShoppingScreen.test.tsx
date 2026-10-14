@@ -500,7 +500,7 @@ describe('ShoppingScreen', () => {
 
       act(() => {
         useMealPlanStore.setState({ entries: [], recipes: [] });
-        useInventoryStore.setState({ items: [], ingredients: [] });
+        useInventoryStore.setState({ items: [] });
       });
       await settle();
 

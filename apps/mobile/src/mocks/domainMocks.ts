@@ -1,14 +1,4 @@
-import { Ingredient, MealPlanEntry } from '../types/domain';
-
-export const MOCK_INGREDIENTS: Ingredient[] = [
-  { id: 'i1', name: 'Arroz Blanco', category: 'almacen', basePrice: 2, unit: 'g' },
-  { id: 'i2', name: 'Pollo (Pechuga)', category: 'carnes', basePrice: 10, unit: 'g' },
-  { id: 'i3', name: 'Tomate', category: 'verduras', basePrice: 3, unit: 'unit' },
-  { id: 'i4', name: 'Cebolla', category: 'verduras', basePrice: 2, unit: 'unit' },
-  { id: 'i5', name: 'Aceite de Oliva', category: 'almacen', basePrice: 15, unit: 'ml' },
-  { id: 'i6', name: 'Fideos de Pasta', category: 'almacen', basePrice: 4, unit: 'g' },
-  { id: 'i7', name: 'Espinaca', category: 'verduras', basePrice: 5, unit: 'g' },
-];
+import { MealPlanEntry } from '../types/domain';
 
 function formatDateKey(date: Date): string {
   const year = date.getFullYear();

@@ -208,7 +208,7 @@ describe('reading the list', () => {
     const listBefore = shopping().list;
 
     useMealPlanStore.setState({ entries: [], recipes: [] });
-    useInventoryStore.setState({ items: [], ingredients: [] });
+    useInventoryStore.setState({ items: [] });
 
     expect(shopping().list).toBe(listBefore);
     expect(fetchMock).toHaveBeenCalledTimes(1);
