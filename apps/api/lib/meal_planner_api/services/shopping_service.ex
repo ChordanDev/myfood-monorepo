@@ -10,7 +10,6 @@ defmodule MealPlannerApi.Services.ShoppingService do
   require Logger
   alias MealPlannerApi.AccountClock
   alias MealPlannerApi.Cart
-  alias MealPlannerApi.Data.RecipeRepo
   alias MealPlannerApi.Data.ShoppingRepo
   alias MealPlannerApi.Persistence.Calendar, as: CalendarPersistence
   alias MealPlannerApi.Persistence.Identity
@@ -630,36 +629,6 @@ defmodule MealPlannerApi.Services.ShoppingService do
     :ok
   end
 
-  @spec build_shopping_list_from_schedule(map(), map()) :: {:ok, map()} | {:error, term()}
-  def build_shopping_list_from_schedule(user, params \\ %{}) do
-    case Identity.ensure_persistent_identity(user) do
-      {:ok, identity} ->
-        account_id = identity.account_id
-        from_date = parse_date(Map.get(params, "from_date"), Date.utc_today())
-        _end_date = parse_date(Map.get(params, "to_date"), Date.add(from_date, 6))
-        recipe_ids = Map.get(params, "recipe_ids", [])
-
-        {:ok, session} =
-          ShoppingRepo.create_checkout_session(%{
-            account_id: account_id,
-            status: :draft,
-            started_at: DateTime.utc_now()
-          })
-
-        persisted = build_items_from_recipes(account_id, recipe_ids, session.id)
-
-        {:ok,
-         %{
-           checkout_session_id: session.id,
-           items_generated: length(persisted),
-           items: Enum.map(persisted, &serialize_shopping_item/1)
-         }}
-
-      {:error, reason} ->
-        {:error, reason}
-    end
-  end
-
   @spec mark_in_cart(map(), [Ecto.UUID.t()]) :: {:ok, map()} | {:error, term()}
   def mark_in_cart(user, item_ids) do
     MealPlannerApi.Cart.reserve(user, item_ids)
@@ -749,34 +718,10 @@ defmodule MealPlannerApi.Services.ShoppingService do
   # Checkout sessions
   # -------------------------------------------------------------------------
 
-  @spec start_checkout_session(map()) :: {:ok, map()} | {:error, term()}
-  def start_checkout_session(user) do
-    case Identity.ensure_persistent_identity(user) do
-      {:ok, identity} ->
-        {:ok, session} =
-          ShoppingRepo.create_checkout_session(%{
-            account_id: identity.account_id,
-            status: :draft,
-            started_at: DateTime.utc_now()
-          })
-
-        {:ok, %{session_id: session.id, status: Atom.to_string(session.status)}}
-
-      {:error, reason} ->
-        {:error, reason}
-    end
-  end
-
   @spec confirm_checkout(map(), Ecto.UUID.t(), map()) :: {:ok, map()} | {:error, term()}
   def confirm_checkout(user, session_id, payload) do
     MealPlannerApi.Cart.purchase(user, session_id, payload)
   end
-
-  # Date-range based checkout: create session from items in range
-  @spec create_checkout_from_range(map(), Date.t(), Date.t(), String.t()) ::
-          {:error, :reservation_required}
-  def create_checkout_from_range(_user, _start_date, _end_date, _checkout_type),
-    do: {:error, :reservation_required}
 
   @spec confirm_delivery(map(), Ecto.UUID.t()) :: {:ok, map()} | {:error, term()}
   def confirm_delivery(user, checkout_session_id) do
@@ -784,63 +729,8 @@ defmodule MealPlannerApi.Services.ShoppingService do
   end
 
   # -------------------------------------------------------------------------
-  # Supermarkets
-  # -------------------------------------------------------------------------
-
-  @spec list_supermarkets(map()) :: {:ok, [map()]} | {:error, term()}
-  def list_supermarkets(user) do
-    case Identity.ensure_persistent_identity(user) do
-      {:ok, _identity} ->
-        supermarkets = ShoppingRepo.list_supermarkets()
-        {:ok, Enum.map(supermarkets, &serialize_supermarket/1)}
-
-      {:error, reason} ->
-        {:error, reason}
-    end
-  end
-
-  # -------------------------------------------------------------------------
   # Helpers
   # -------------------------------------------------------------------------
-
-  defp build_items_from_recipes(_account_id, [], _session_id), do: []
-
-  defp build_items_from_recipes(_account_id, recipe_ids, session_id) when is_list(recipe_ids) do
-    recipes =
-      recipe_ids
-      |> Enum.map(&RecipeRepo.get_recipe!/1)
-      |> Enum.reject(&is_nil/1)
-      |> Enum.map(&Repo.preload(&1, :recipe_ingredients))
-
-    Enum.flat_map(recipes, fn recipe ->
-      Enum.map(recipe.recipe_ingredients || [], fn ri ->
-        ShoppingRepo.create_shopping_item(%{
-          checkout_session_id: session_id,
-          ingredient_id: ri.ingredient_id,
-          quantity_milli: ri.quantity_milli,
-          unit: ri.unit,
-          is_checked: false,
-          is_in_cart: false
-        })
-      end)
-    end)
-    |> Enum.filter(fn
-      {:ok, _} -> true
-      _ -> false
-    end)
-    |> Enum.map(fn {:ok, item} -> item end)
-  end
-
-  defp parse_date(nil, default), do: default
-
-  defp parse_date(d, _default) when is_binary(d) do
-    case Date.from_iso8601(d) do
-      {:ok, date} -> date
-      {:error, _} -> nil
-    end
-  end
-
-  defp parse_date(d, _default), do: d
 
   defp serialize_shopping_item(i) do
     # Handle Ecto.Association.NotLoaded case
@@ -907,13 +797,4 @@ defmodule MealPlannerApi.Services.ShoppingService do
   end
 
   defp reservation_field(_, _), do: nil
-
-  defp serialize_supermarket(m) do
-    %{
-      id: m.id,
-      name: m.name,
-      address: m.address,
-      is_preferred: m.is_preferred
-    }
-  end
 end

@@ -33,9 +33,6 @@ defmodule MealPlannerApi.Data.ShoppingRepo do
     )
   end
 
-  @spec list_supermarkets() :: [Supermarket.t()]
-  def list_supermarkets, do: Repo.all(Supermarket)
-
   @spec get_supermarket!(Ecto.UUID.t()) :: Supermarket.t()
   def get_supermarket!(id), do: Repo.get!(Supermarket, id)
 

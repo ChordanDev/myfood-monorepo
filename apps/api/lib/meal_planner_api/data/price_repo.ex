@@ -26,31 +26,6 @@ defmodule MealPlannerApi.Data.PriceRepo do
     |> Enum.into(%{})
   end
 
-  @spec latest_prices_map([Ecto.UUID.t()]) :: %{
-          Ecto.UUID.t() => %{String.t() => pos_integer()}
-        }
-  def latest_prices_map(ingredient_ids) when is_list(ingredient_ids) do
-    rows =
-      from(ip in IngredientPrice,
-        where: ip.ingredient_id in ^ingredient_ids,
-        where: ip.scraped_at > ago(1, "day"),
-        select: {ip.ingredient_id, ip.supermarket_id, ip.price_per_unit_cents}
-      )
-      |> Repo.all()
-
-    rows
-    |> Enum.group_by(fn {ing_id, _, _} -> ing_id end)
-    |> Enum.map(fn {ing_id, entries} ->
-      {ing_id, Enum.into(entries, %{}, fn {_, sup_id, price} -> {sup_id, price} end)}
-    end)
-    |> Enum.into(%{})
-  end
-
-  @spec best_price_per_ingredient([Ecto.UUID.t()]) :: %{Ecto.UUID.t() => pos_integer()}
-  def best_price_per_ingredient(ingredient_ids) when is_list(ingredient_ids) do
-    latest_prices(ingredient_ids)
-  end
-
   @spec upsert_prices([map()]) :: {non_neg_integer(), [IngredientPrice.t()]}
   def upsert_prices(rows) when is_list(rows) do
     results =
@@ -66,17 +41,6 @@ defmodule MealPlannerApi.Data.PriceRepo do
     successes = Enum.count(results, &match?({:ok, _}, &1))
     inserted = Enum.map(results, fn {:ok, record} -> record end)
     {successes, inserted}
-  end
-
-  @spec get_recipe_price(Ecto.UUID.t()) :: RecipePrice.t() | nil
-  def get_recipe_price(recipe_id) do
-    Repo.get_by(RecipePrice, recipe_id: recipe_id)
-  end
-
-  @spec get_recipe_prices([Ecto.UUID.t()]) :: [RecipePrice.t()]
-  def get_recipe_prices(recipe_ids) when is_list(recipe_ids) do
-    from(rp in RecipePrice, where: rp.recipe_id in ^recipe_ids)
-    |> Repo.all()
   end
 
   @spec compute_all_recipe_prices :: {non_neg_integer(), non_neg_integer()}

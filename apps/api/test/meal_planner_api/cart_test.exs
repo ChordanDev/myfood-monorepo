@@ -224,14 +224,6 @@ defmodule MealPlannerApi.CartTest do
     end
 
     assert {:error, :validation_error} = ShoppingCheckout.confirm_checkout(f.actor, %{})
-
-    assert {:error, :reservation_required} =
-             ShoppingService.create_checkout_from_range(
-               f.actor,
-               Date.utc_today(),
-               Date.utc_today(),
-               "physical"
-             )
   end
 
   test "foreign Account and revoked membership cannot reserve or purchase", f do

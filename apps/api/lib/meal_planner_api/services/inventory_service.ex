@@ -176,26 +176,6 @@ defmodule MealPlannerApi.Services.InventoryService do
     end
   end
 
-  @spec get_inventory_item(map(), Ecto.UUID.t()) ::
-          {:ok, map()} | {:error, :not_found}
-  def get_inventory_item(user, item_id) do
-    with {:ok, identity} <- Identity.ensure_persistent_identity(user),
-         item when not is_nil(item) <-
-           InventoryPersistence.get_inventory_item_for_account(identity.account_id, item_id) do
-      {:ok,
-       %{
-         id: item.id,
-         ingredient_id: item.ingredient_id,
-         ingredient_name: item.ingredient.name,
-         quantity_milli: item.quantity_milli,
-         unit: Atom.to_string(item.unit)
-       }}
-    else
-      nil -> {:error, :not_found}
-      {:error, reason} -> {:error, reason}
-    end
-  end
-
   # -------------------------------------------------------------------------
   # Helpers
   # -------------------------------------------------------------------------
