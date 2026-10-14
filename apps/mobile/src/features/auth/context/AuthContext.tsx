@@ -281,6 +281,9 @@ export function AuthProvider({ children }: AuthProviderProps) {
               householdSize: result.user.householdSize,
               cookingSkill: result.user.cookingSkill,
             });
+      // No user-id check here, unlike the `me` patch below: the store makes
+      // its own. `persistProfileForStoredSession` writes nothing and returns
+      // null when the stored session belongs to another user.
       if (completedProfile) {
         try {
           await authService.persistProfileForStoredSession(completedProfile);

@@ -215,6 +215,8 @@ describe('AuthContext — optimisticComplete is a one-way latch (Judgment Day C2
     mockAuthService.getStoredSession.mockResolvedValue(null);
     mockAuthService.persistOnboardingCompletionForStoredSession.mockResolvedValue(null);
     mockAuthService.refreshCurrentSession.mockResolvedValue(null);
+    // `clearAllMocks` keeps implementations: a test that rejected the write must not leak it.
+    mockAuthService.persistProfileForStoredSession.mockResolvedValue(null);
     mockAuthService.clearSession.mockResolvedValue(undefined);
     mockAuthService.logout.mockResolvedValue(undefined);
   });
@@ -339,6 +341,22 @@ describe('AuthContext — optimisticComplete is a one-way latch (Judgment Day C2
     cookingSkill: 'advanced',
   };
 
+  // What a successful follow-up GET /api/me answers with: it differs from
+  // `completedUser` in every profile field.
+  const freshUser: CurrentMe['user'] = {
+    ...completedUser,
+    displayName: 'Lucca G.',
+    householdSize: 5,
+    cookingSkill: 'beginner',
+  };
+
+  // A failing assertion must not leave `console.warn` silenced.
+  let warn: jest.SpyInstance | undefined;
+  afterEach(() => {
+    warn?.mockRestore();
+    warn = undefined;
+  });
+
   it('takes the profile fields from the follow-up /me, not from the completion answer', async () => {
     // A successful GET /api/me is the only source of displayName,
     // householdSize and cookingSkill. The two answers differ here on
@@ -349,12 +367,6 @@ describe('AuthContext — optimisticComplete is a one-way latch (Judgment Day C2
     await waitForSinkAuth(handle.sink, (a) => a.accessToken !== null);
 
     stubSuccessfulCompleteOnboarding(completedUser);
-    const freshUser: CurrentMe['user'] = {
-      ...completedUser,
-      displayName: 'Lucca G.',
-      householdSize: 5,
-      cookingSkill: 'beginner',
-    };
     mockAuthService.refreshCurrentSession.mockResolvedValue(
       makeSession(makeMe({ user: freshUser, onboarding: { isComplete: true } }))
     );
@@ -381,68 +393,127 @@ describe('AuthContext — optimisticComplete is a one-way latch (Judgment Day C2
   it.each([
     {
       when: 'the follow-up /me fails',
-      stubRefresh: () =>
+      arrangeFollowUp: () =>
         mockAuthService.refreshCurrentSession.mockRejectedValue(new Error('network down')),
+      refreshAttempted: true,
     },
     {
+      // The stored profile fields differ from the completion answer and are
+      // not null, so a null refresh wrongly taken as a fresh /me would show.
       when: 'the follow-up refresh finds no session to read',
-      stubRefresh: () => mockAuthService.refreshCurrentSession.mockResolvedValue(null),
+      arrangeFollowUp: () => {
+        mockAuthService.persistOnboardingCompletionForStoredSession.mockResolvedValue(
+          makeSession(
+            makeMe({
+              user: {
+                id: 'user-1',
+                email: 'user@example.com',
+                displayName: 'Stored name',
+                householdSize: 2,
+                cookingSkill: 'intermediate',
+              },
+            })
+          )
+        );
+        mockAuthService.refreshCurrentSession.mockResolvedValue(null);
+      },
+      refreshAttempted: true,
     },
     {
       when: 'there is no stored session to refresh',
-      stubRefresh: () =>
+      arrangeFollowUp: () =>
         mockAuthService.persistOnboardingCompletionForStoredSession.mockResolvedValue(null),
+      refreshAttempted: false,
     },
-  ])('falls back to the completion answer when $when', async ({ stubRefresh }) => {
-    // Without a fresh /me the completion answer is all there is: it goes to
-    // `me` and to the stored snapshot, so the User is not sent back to
-    // Onboarding with empty fields.
-    const warn = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
-    const handle = setupStaleHydration(makeMe());
-    await waitForSinkAuth(handle.sink, (a) => a.accessToken !== null);
+  ])(
+    'falls back to the completion answer when $when',
+    async ({ arrangeFollowUp, refreshAttempted }) => {
+      // Without a fresh /me the completion answer is all there is: it goes to
+      // `me` and to the stored snapshot, so the User is not sent back to
+      // Onboarding with empty fields.
+      warn = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+      const handle = setupStaleHydration(makeMe());
+      await waitForSinkAuth(handle.sink, (a) => a.accessToken !== null);
 
-    stubSuccessfulCompleteOnboarding(completedUser);
-    stubRefresh();
-    mockAuthService.persistProfileForStoredSession.mockResolvedValue(null);
+      stubSuccessfulCompleteOnboarding(completedUser);
+      arrangeFollowUp();
+      mockAuthService.persistProfileForStoredSession.mockResolvedValue(null);
 
-    await act(async () => {
-      await handle.sink.v!.completeOnboarding(onboardingPayload);
-    });
-    await waitForSinkAuth(handle.sink, (a) => a.me?.user.householdSize === 3);
+      await act(async () => {
+        await handle.sink.v!.completeOnboarding(onboardingPayload);
+      });
+      await waitForSinkAuth(handle.sink, (a) => a.me?.user.householdSize === 3);
 
-    expect(handle.sink.v!.me?.user).toEqual(completedUser);
-    expect(handle.sink.v!.isComplete).toBe(true);
-    expect(mockAuthService.persistProfileForStoredSession).toHaveBeenCalledTimes(1);
-    expect(mockAuthService.persistProfileForStoredSession).toHaveBeenCalledWith(completedUser);
+      expect(handle.sink.v!.me?.user).toEqual(completedUser);
+      expect(handle.sink.v!.isComplete).toBe(true);
+      expect(mockAuthService.persistProfileForStoredSession).toHaveBeenCalledTimes(1);
+      expect(mockAuthService.persistProfileForStoredSession).toHaveBeenCalledWith(completedUser);
+      if (refreshAttempted) {
+        expect(mockAuthService.refreshCurrentSession).toHaveBeenCalled();
+      } else {
+        expect(mockAuthService.refreshCurrentSession).not.toHaveBeenCalled();
+      }
 
-    warn.mockRestore();
-    await act(async () => {
-      handle.tree.unmount();
-    });
-  });
+      await act(async () => {
+        handle.tree.unmount();
+      });
+    }
+  );
 
-  it('completes when the snapshot write of the completion answer is rejected', async () => {
-    const warn = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
-    const handle = setupStaleHydration(makeMe());
-    await waitForSinkAuth(handle.sink, (a) => a.accessToken !== null);
+  // The write is only the early copy of the completion answer: its failure
+  // must not fail the completion, and the follow-up /me still decides the
+  // profile fields when it succeeds.
+  it.each([
+    {
+      when: 'the follow-up /me fails',
+      arrangeRefresh: () =>
+        mockAuthService.refreshCurrentSession.mockRejectedValue(new Error('network down')),
+      expectedUser: completedUser,
+    },
+    {
+      when: 'the follow-up /me succeeds',
+      arrangeRefresh: () =>
+        mockAuthService.refreshCurrentSession.mockResolvedValue(
+          makeSession(makeMe({ user: freshUser, onboarding: { isComplete: true } }))
+        ),
+      expectedUser: freshUser,
+    },
+  ])(
+    'completes when the snapshot write of the completion answer is rejected and $when',
+    async ({ arrangeRefresh, expectedUser }) => {
+      warn = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+      const handle = setupStaleHydration(makeMe());
+      await waitForSinkAuth(handle.sink, (a) => a.accessToken !== null);
 
-    stubSuccessfulCompleteOnboarding(completedUser);
-    mockAuthService.refreshCurrentSession.mockRejectedValue(new Error('network down'));
-    mockAuthService.persistProfileForStoredSession.mockRejectedValue(new Error('storage full'));
+      stubSuccessfulCompleteOnboarding(completedUser);
+      arrangeRefresh();
+      mockAuthService.persistProfileForStoredSession.mockRejectedValue(new Error('storage full'));
 
-    await act(async () => {
-      await handle.sink.v!.completeOnboarding(onboardingPayload);
-    });
-    await waitForSinkAuth(handle.sink, (a) => a.me?.user.householdSize === 3);
+      await act(async () => {
+        await handle.sink.v!.completeOnboarding(onboardingPayload);
+      });
+      await waitForSinkAuth(
+        handle.sink,
+        (a) => a.me?.user.householdSize === expectedUser.householdSize
+      );
 
-    expect(handle.sink.v!.me?.user).toEqual(completedUser);
-    expect(handle.sink.v!.isComplete).toBe(true);
+      expect(handle.sink.v!.me?.user).toEqual(expectedUser);
+      expect(handle.sink.v!.isComplete).toBe(true);
+      expect(mockAuthService.persistProfileForStoredSession).toHaveBeenCalledTimes(1);
+      expect(mockAuthService.persistProfileForStoredSession).toHaveBeenCalledWith(completedUser);
+      await expect(
+        mockAuthService.persistProfileForStoredSession.mock.results[0].value
+      ).rejects.toThrow('storage full');
+      expect(warn).toHaveBeenCalledWith(
+        '[AuthProvider] Error guardando el perfil del onboarding:',
+        expect.any(Error)
+      );
 
-    warn.mockRestore();
-    await act(async () => {
-      handle.tree.unmount();
-    });
-  });
+      await act(async () => {
+        handle.tree.unmount();
+      });
+    }
+  );
 
   it('the optimistic flag clears only when a fresh /me returns me.onboarding.isComplete=true', async () => {
     // Once the server catches up and reports isComplete=true, the
