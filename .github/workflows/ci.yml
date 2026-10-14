@@ -184,5 +184,18 @@ jobs:
       - name: Typecheck
         run: npx tsc --noEmit
 
+      # Jest's transform cache normally lives in the runner's temp dir, so
+      # every run re-transforms React Native, Expo and the app through Babel.
+      # The key covers what changes every transform (dependencies and Babel
+      # config); entries for edited source files miss on their own, since Jest
+      # keys each one by file content.
+      - name: Cache Jest transforms
+        uses: actions/cache@v4
+        with:
+          path: apps/mobile/.jest-cache
+          key: jest-${{ runner.os }}-${{ hashFiles('apps/mobile/package-lock.json', 'apps/mobile/babel.config.js') }}
+          restore-keys: |
+            jest-${{ runner.os }}-
+
       - name: Test
-        run: npx jest --ci
+        run: npx jest --ci --cacheDirectory=.jest-cache
