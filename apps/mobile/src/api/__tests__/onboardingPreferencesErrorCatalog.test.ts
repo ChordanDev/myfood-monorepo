@@ -14,6 +14,7 @@ import {
   fixtureInvalidHungerLevelError,
   fixtureSlotCookingTimesNotFoundError,
   fixtureValidationErrorDinnerCookingTimeMinutesError,
+  fixtureValidationRequestApiError,
 } from '@/features/preferences/fixtures/slotCookingTimes';
 
 // The error codes of `POST /api/onboarding/complete`, `/api/me/preferences` and
@@ -55,6 +56,18 @@ describe('error catalog of the onboarding, preferences and slot cooking times ro
     const shown = frozenErrors.map(([, , frozenError]) => getAuthErrorMessage(frozenError()));
 
     expect(new Set(shown).size).toBe(frozenErrors.length);
+  });
+
+  // `validation_error` comes in two forms: one names the field, the other names none. The
+  // User reads the catalog text for the code in both, whatever the api message says.
+  it('shows the same message for validation_error whether it names a field or not', () => {
+    const named = fixtureValidationErrorDinnerCookingTimeMinutesError();
+    const fieldless = fixtureValidationRequestApiError();
+
+    expect(fieldless).toMatchObject({ code: 'validation_error', status: 422 });
+    expect(fieldless.message).not.toBe(named.message);
+    expect(getAuthErrorMessage(fieldless)).toBe(getAuthErrorMessage(named));
+    expect(getAuthErrorMessage(fieldless)).toBe(AUTH_ERROR_MESSAGES.validation_error);
   });
 
   // No code in `apps/api/lib` emits these four; the catalog used to carry them.
