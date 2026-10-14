@@ -36,7 +36,10 @@ async function refreshTokensOnce(token: string): Promise<RefreshResponse> {
         body: JSON.stringify({ refreshToken: token }),
       },
       timeoutMs: REFRESH_REQUEST_TIMEOUT_MS,
-      retry: false,
+      // One more attempt with the same token after a `network_error` or a
+      // `timeout`: while its retry window is open the api takes it as a retry,
+      // not as a replay (see REFRESH_REQUEST_TIMEOUT_MS).
+      retry: true,
     });
     await persistTokens(tokens);
     return tokens;

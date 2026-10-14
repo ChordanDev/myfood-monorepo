@@ -3,7 +3,12 @@ import { ApiError, errorFromEnvelope, isApiError, isTransientAuthError } from '.
 import { newRequestId } from './requestId';
 
 export const DEFAULT_REQUEST_TIMEOUT_MS = 15_000;
-export const REFRESH_REQUEST_TIMEOUT_MS = 30_000;
+
+// The api accepts again a refresh token it has just rotated for 10 seconds
+// (`refresh_retry_window_seconds` in apps/api/config/config.exs), so a refresh
+// whose answer was lost can be sent once more with the same token. Both
+// attempts have to fit inside that window: 2 attempts x 4 s = 8 s.
+export const REFRESH_REQUEST_TIMEOUT_MS = 4_000;
 
 export interface RequestOptions {
   timeoutMs?: number;

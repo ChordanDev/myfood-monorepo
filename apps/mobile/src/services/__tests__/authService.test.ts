@@ -2,6 +2,7 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 
+import { __resetRefreshInFlightForTests } from '@/api/authRefresh';
 import type { CurrentMe } from '@/features/auth/types/auth';
 import * as authService from '../authService';
 
@@ -69,6 +70,40 @@ function fetchHeadersAt(callIndex: number): HeadersInit | undefined {
 }
 
 /**
+ * A fetch that is never answered. It honors the AbortSignal, so the production
+ * timeout aborts it the same way it would abort a real fetch.
+ */
+function hangUntilAborted(_url: unknown, init: RequestInit | undefined): Promise<Response> {
+  return new Promise<Response>((_resolve, reject) => {
+    const signal = init?.signal;
+    if (!signal) return;
+    if (signal.aborted) {
+      reject(new DOMException('Aborted', 'AbortError'));
+      return;
+    }
+    signal.addEventListener('abort', () => {
+      reject(new DOMException('Aborted', 'AbortError'));
+    });
+  });
+}
+
+/**
+ * How long the api accepts again a refresh token it has just rotated, read
+ * from the api config instead of being repeated on the mobile side. The api
+ * source is a read-only fixture, as in `authErrorCodeContract.test.ts`.
+ */
+function serverRefreshRetryWindowMs(): number {
+  const configPath = path.resolve(__dirname, '../../../../api/config/config.exs');
+  const source = fs.readFileSync(configPath, 'utf8');
+  const seconds = source.match(/refresh_retry_window_seconds: (\d+)/)?.[1];
+  if (!seconds) {
+    throw new Error('refresh_retry_window_seconds was not found in apps/api/config/config.exs');
+  }
+
+  return Number(seconds) * 1000;
+}
+
+/**
  * The codes the planning channel replies (issue #11), read from the api
  * allowlist instead of being listed a third time on the mobile side: they are
  * the rows of `@codes` in `ApiError` that follow the "Planning channel"
@@ -96,6 +131,8 @@ describe('authService', () => {
 
   beforeEach(() => {
     mockSecureStore.clear();
+    // A refresh left unanswered by one test must not be handed to the next.
+    __resetRefreshInFlightForTests();
     fetchMock.mockReset();
     mockNewRequestId.mockClear();
     global.fetch = fetchMock;
@@ -505,23 +542,7 @@ describe('authService', () => {
 
   describe('apiRequest timeout (AbortController)', () => {
     it('aborts the request and throws a transient AuthApiError when the server never responds', async () => {
-      // The mock honors the AbortSignal so the production timeout actually
-      // triggers an abort the same way a real fetch would.
-      fetchMock.mockImplementationOnce(
-        (_url: unknown, init: RequestInit | undefined) =>
-          new Promise<Response>((_resolve, reject) => {
-            const signal = init?.signal;
-            if (signal) {
-              if (signal.aborted) {
-                reject(new DOMException('Aborted', 'AbortError'));
-                return;
-              }
-              signal.addEventListener('abort', () => {
-                reject(new DOMException('Aborted', 'AbortError'));
-              });
-            }
-          })
-      );
+      fetchMock.mockImplementationOnce(hangUntilAborted);
 
       const start = Date.now();
       await expect(
@@ -802,16 +823,6 @@ describe('authService', () => {
       expect(mockNewRequestId).toHaveBeenCalledTimes(2);
     });
 
-    it('does NOT retry refreshTokens when the first attempt hits a transient error', async () => {
-      fetchMock.mockRejectedValueOnce(new Error('offline'));
-
-      await expect(authService.refreshTokens('refresh-1')).rejects.toMatchObject({
-        code: 'network_error',
-      });
-
-      expect(fetchMock).toHaveBeenCalledTimes(1);
-    });
-
     it('throws a typed unauthenticated error when refreshing without a refresh token', async () => {
       await expect(authService.refreshTokens()).rejects.toMatchObject({
         name: 'AuthApiError',
@@ -997,6 +1008,154 @@ describe('authService', () => {
         accessToken: 'new-access',
         refreshToken: 'new-refresh',
       });
+    });
+  });
+
+  // The api rotates the refresh token before its answer reaches the phone.
+  // When that answer is lost the app still holds the rotated token, which the
+  // api accepts again for `refresh_retry_window_seconds` (issue #57).
+  describe('refresh retry inside the server window (issue #205)', () => {
+    const retriedPair = {
+      accessToken: 'retried-access',
+      refreshToken: 'retried-refresh',
+      tokenType: 'Bearer' as const,
+    };
+
+    function refreshTokenSentAt(callIndex: number): unknown {
+      const init = fetchMock.mock.calls[callIndex]?.[1] as RequestInit | undefined;
+      return JSON.parse(String(init?.body)).refreshToken;
+    }
+
+    beforeEach(async () => {
+      await authService.persistSession({
+        accessToken: 'old-access',
+        refreshToken: 'old-refresh',
+        tokenType: 'Bearer',
+        me,
+      });
+    });
+
+    afterEach(() => {
+      jest.useRealTimers();
+    });
+
+    it('sends the refresh once more with the same token after a network error and stores the pair of the second answer', async () => {
+      fetchMock
+        .mockRejectedValueOnce(new Error('offline'))
+        .mockReturnValueOnce(mockJsonResponse(retriedPair));
+
+      await expect(authService.refreshTokens()).resolves.toEqual(retriedPair);
+
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+      expect(fetchMock.mock.calls.map((call) => call[0])).toEqual([
+        'https://api.example.test/api/auth/refresh',
+        'https://api.example.test/api/auth/refresh',
+      ]);
+      expect(refreshTokenSentAt(0)).toBe('old-refresh');
+      expect(refreshTokenSentAt(1)).toBe('old-refresh');
+      await expect(authService.getStoredSession()).resolves.toMatchObject({
+        accessToken: 'retried-access',
+        refreshToken: 'retried-refresh',
+      });
+    });
+
+    it('sends the refresh once more with the same token after a timeout and stores the pair of the second answer', async () => {
+      jest.useFakeTimers();
+      fetchMock
+        .mockImplementationOnce(hangUntilAborted)
+        .mockReturnValueOnce(mockJsonResponse(retriedPair));
+
+      const refreshed = expect(authService.refreshTokens()).resolves.toEqual(retriedPair);
+      await jest.advanceTimersByTimeAsync(authService.REFRESH_REQUEST_TIMEOUT_MS);
+      await refreshed;
+
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+      expect(refreshTokenSentAt(0)).toBe('old-refresh');
+      expect(refreshTokenSentAt(1)).toBe('old-refresh');
+      await expect(authService.getStoredSession()).resolves.toMatchObject({
+        accessToken: 'retried-access',
+        refreshToken: 'retried-refresh',
+      });
+    });
+
+    it('gives up on a refresh that is never answered before the server window closes', async () => {
+      const windowMs = serverRefreshRetryWindowMs();
+      jest.useFakeTimers();
+      fetchMock.mockImplementation(hangUntilAborted);
+      const startedAt = Date.now();
+      const outcome: { error?: unknown; afterMs?: number } = {};
+
+      void authService.refreshTokens().catch((error: unknown) => {
+        outcome.error = error;
+        outcome.afterMs = Date.now() - startedAt;
+      });
+      await jest.advanceTimersByTimeAsync(windowMs);
+
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+      expect(outcome.error).toMatchObject({ code: 'timeout' });
+      // The second attempt has been given up on while the api would still
+      // have accepted it, wherever inside the first one the rotation happened.
+      expect(outcome.afterMs).toBeLessThan(windowMs);
+    });
+
+    it('keeps the session when both attempts hit a transient error', async () => {
+      fetchMock
+        .mockRejectedValueOnce(new Error('offline'))
+        .mockRejectedValueOnce(new Error('offline-2'));
+
+      await expect(authService.refreshTokens()).rejects.toMatchObject({ code: 'network_error' });
+
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+      await expect(authService.getStoredSession()).resolves.toMatchObject({
+        accessToken: 'old-access',
+        refreshToken: 'old-refresh',
+      });
+    });
+
+    it.each([
+      'refresh_token_replayed',
+      'refresh_token_revoked',
+      'refresh_token_expired',
+      'refresh_token_invalid',
+    ] as const)('does not retry a refresh answered %s and clears the session', async (code) => {
+      fetchMock.mockReturnValueOnce(
+        mockJsonResponse({ error: { code, message: 'x' } }, false, 401)
+      );
+
+      await expect(authService.refreshTokens()).rejects.toMatchObject({ code });
+
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      await expect(authService.getStoredSession()).resolves.toBeNull();
+    });
+
+    it('clears the session when the retry is answered with a session error', async () => {
+      fetchMock
+        .mockRejectedValueOnce(new Error('offline'))
+        .mockReturnValueOnce(
+          mockJsonResponse({ error: { code: 'refresh_token_replayed', message: 'x' } }, false, 401)
+        );
+
+      await expect(authService.refreshTokens()).rejects.toMatchObject({
+        code: 'refresh_token_replayed',
+      });
+
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+      await expect(authService.getStoredSession()).resolves.toBeNull();
+    });
+
+    it('shares one refresh, its retry included, between concurrent callers', async () => {
+      fetchMock
+        .mockRejectedValueOnce(new Error('offline'))
+        .mockReturnValueOnce(mockJsonResponse(retriedPair));
+
+      const [first, second] = await Promise.all([
+        authService.refreshTokens('old-refresh'),
+        authService.refreshTokens('old-refresh'),
+      ]);
+
+      expect(first).toEqual(retriedPair);
+      expect(second).toEqual(retriedPair);
+      expect(fetchMock).toHaveBeenCalledTimes(2);
     });
   });
 });
