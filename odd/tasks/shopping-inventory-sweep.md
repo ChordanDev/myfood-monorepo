@@ -99,7 +99,10 @@ Issue #233 is the last leftover of the recipes sweep (#224).
   `DEFAULT_THEME` and test fixtures.
 
 - Review assessment of the T3 commit (base: #259 head): medium, 6 files,
-  22 lines, `review_due: false` (`under_budget`); no review run.
+  22 lines, `review_due: false` (`under_budget`). The stop hook then
+  offered the whole branch from `main` (17 files, 464 lines): consent
+  granted, one reliability lens, no findings, approved and acknowledged
+  (lineage `review-93df56f4534666d3`).
 - PR for #233, stacked on #259: https://github.com/ChordanDev/myfood-monorepo/pull/260
 
 ## Next step
