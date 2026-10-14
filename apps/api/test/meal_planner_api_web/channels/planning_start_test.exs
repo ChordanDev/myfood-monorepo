@@ -149,6 +149,24 @@ defmodule MealPlannerApiWeb.PlanningStartTest do
         assert payload["error"]["details"] == %{"ownerName" => "Ana Peer"}
       end
     end
+
+    test "an overlap with a session whose Membership was removed still names its owner", %{
+      account: account,
+      token: token
+    } do
+      {peer_user, peer_membership} = insert_peer(account, "Ana Peer")
+      {:ok, existing} = insert_session(account, peer_user, peer_membership.id, 1, 5)
+
+      Repo.delete!(peer_membership)
+      assert Repo.reload!(existing).lock_owner_membership_id == nil
+
+      socket = join_planning!(token, account)
+
+      ref = push(socket, "start_planning", %{"rangeFrom" => in_days(3), "rangeTo" => in_days(7)})
+
+      payload = assert_error_reply(ref, :planning_range_locked)
+      assert payload["error"]["details"] == %{"ownerName" => "Ana Peer"}
+    end
   end
 
   describe "params (T2)" do
