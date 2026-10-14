@@ -425,29 +425,39 @@ defmodule MealPlannerApi.Services.PlanningService do
   # Slot favorites
   # -------------------------------------------------------------------------
 
-  @spec toggle_slot_favorite(map(), map()) :: {:ok, map()} | {:error, term()}
+  # A favorite belongs to the Scheduled meal in the slot, so the slot must hold
+  # one, and it must have a recipe. The meal is resolved first in both
+  # directions (create and remove).
+  @spec toggle_slot_favorite(map(), map()) :: {:ok, %{is_favorite: boolean()}} | {:error, atom()}
   def toggle_slot_favorite(user, payload) do
     with {:ok, identity} <- Identity.ensure_persistent_identity(user),
          {:ok, date} <- parse_date_service(Map.get(payload, "date")),
          slot_str when is_binary(slot_str) <- Map.get(payload, "slot"),
          {:ok, slot} <- parse_slot_service(slot_str),
-         toggle_result <-
+         {:ok, meal} <- fetch_favoritable_meal(identity.account_id, date, slot),
+         {:ok, toggled} <-
            PlanningRepo.toggle_slot_favorite(%{
              account_id: identity.account_id,
              user_id: identity.user_id,
              date: date,
-             slot: slot
+             slot: slot,
+             scheduled_meal_id: meal.id,
+             recipe_id: meal.recipe_id
            }) do
-      {:ok,
-       case toggle_result do
-         {:ok, %{status: :removed}} -> %{is_favorite: false}
-         {:ok, %_{}} -> %{is_favorite: true}
-         {:error, _} = error -> error
-       end}
+      {:ok, %{is_favorite: Map.get(toggled, :status) != :removed}}
     else
+      {:error, %Ecto.Changeset{}} -> {:error, :invalid_payload}
       {:error, reason} -> {:error, reason}
       nil -> {:error, :invalid_slot}
       _ -> {:error, :invalid_payload}
+    end
+  end
+
+  defp fetch_favoritable_meal(account_id, date, slot) do
+    case PlanningRepo.get_scheduled_meal_at(account_id, date, slot) do
+      nil -> {:error, :meal_not_found}
+      %{recipe_id: nil} -> {:error, :meal_without_recipe}
+      meal -> {:ok, meal}
     end
   end
 

@@ -1,12 +1,16 @@
 defmodule MealPlannerApiWeb.PlanningControllerTest do
   use MealPlannerApiWeb.ConnCase, async: true
 
+  import MealPlannerApi.AccountClockFixtures
   import MealPlannerApi.FactoryHelpers
   import MealPlannerApi.IdentityFixtures
 
   alias MealPlannerApi.Auth.Guardian
+  alias MealPlannerApi.Persistence.Calendar
   alias MealPlannerApi.Persistence.Catalog
+  alias MealPlannerApi.Persistence.Catalog.SlotFavorite
   alias MealPlannerApi.Persistence.Planning
+  alias MealPlannerApi.Repo
 
   # ─── Phase A — Tenancy Refactor (PR 3c task 3.15) ───────────────────────────
   # See calendar_controller_test.exs (task 3.14) for why a tampered
@@ -222,5 +226,95 @@ defmodule MealPlannerApiWeb.PlanningControllerTest do
 
     body = json_response(conn, 400)
     assert body["error"] == "invalid_payload"
+  end
+
+  describe "PUT /api/planning/slots/favorite" do
+    test "turns the favorite on and off for a slot with a recipe, as the calendar shows it" do
+      %{token: token, user: user, account: account} = insert_identity_with_token!(plan: :family_4)
+      today = pin_account_to_midday!(account.id)
+
+      {:ok, recipe} =
+        Catalog.create_recipe(%{
+          account_id: account.id,
+          created_by_user_id: user.id,
+          name: "Slot favorite recipe",
+          source: :user_created,
+          servings: 1,
+          calories_per_serving: 500,
+          suitable_for_slots: [:lunch]
+        })
+
+      {:ok, meal} =
+        Calendar.upsert_scheduled_meal(account.id, %{
+          date: today,
+          slot: :lunch,
+          recipe_id: recipe.id
+        })
+
+      toggle = fn ->
+        build_conn()
+        |> put_req_header("authorization", "Bearer " <> token)
+        |> put("/api/planning/slots/favorite", %{
+          "date" => Date.to_iso8601(today),
+          "slot" => "lunch"
+        })
+      end
+
+      calendar_favorite = fn ->
+        conn =
+          build_conn()
+          |> put_req_header("authorization", "Bearer " <> token)
+          |> get("/api/calendar", %{
+            "start_date" => Date.to_iso8601(today),
+            "end_date" => Date.to_iso8601(today)
+          })
+
+        [listed] = json_response(conn, 200)["data"]["meals"]
+        assert listed["mealId"] == meal.id
+        listed["isFavorite"]
+      end
+
+      refute calendar_favorite.()
+
+      assert json_response(toggle.(), 200) == %{"isFavorite" => true}
+      assert calendar_favorite.() == true
+
+      assert json_response(toggle.(), 200) == %{"isFavorite" => false}
+      assert calendar_favorite.() == false
+    end
+
+    test "answers 404 meal_not_found when the slot has no Scheduled meal" do
+      %{token: token, account: account} = insert_identity_with_token!(plan: :family_4)
+      today = pin_account_to_midday!(account.id)
+
+      conn =
+        build_conn()
+        |> put_req_header("authorization", "Bearer " <> token)
+        |> put("/api/planning/slots/favorite", %{
+          "date" => Date.to_iso8601(today),
+          "slot" => "dinner"
+        })
+
+      assert json_response(conn, 404) == %{"error" => "meal_not_found"}
+      assert Repo.aggregate(SlotFavorite, :count) == 0
+    end
+
+    test "answers 422 meal_without_recipe when the Scheduled meal has no recipe" do
+      %{token: token, account: account} = insert_identity_with_token!(plan: :family_4)
+      today = pin_account_to_midday!(account.id)
+
+      {:ok, _meal} = Calendar.upsert_scheduled_meal(account.id, %{date: today, slot: :snack})
+
+      conn =
+        build_conn()
+        |> put_req_header("authorization", "Bearer " <> token)
+        |> put("/api/planning/slots/favorite", %{
+          "date" => Date.to_iso8601(today),
+          "slot" => "snack"
+        })
+
+      assert json_response(conn, 422) == %{"error" => "meal_without_recipe"}
+      assert Repo.aggregate(SlotFavorite, :count) == 0
+    end
   end
 end
