@@ -19,8 +19,7 @@ const STATUS_LABEL: Record<RecipeIngredientStatus, string> = {
 };
 
 // A missing ingredient that cannot be sent to the shopping list only reads as missing, with
-// nothing to press: one the local catalog does not know cannot be named there, and a row
-// without a request handler has nowhere to send it.
+// nothing to press: a row without a request handler has nowhere to send it.
 const UNLISTABLE_MISSING_LABEL = 'Falta';
 
 // The row is 40pt tall and rows touch each other, so 2pt on each side reaches a 44pt target.
@@ -29,8 +28,7 @@ const ADD_HIT_SLOP = { top: 2, bottom: 2, left: 12, right: 12 };
 export function RecipeIngredientItem({ row, onRequest }: RecipeIngredientItemProps) {
   const { theme } = useRecipeTheme();
   const isMissing = row.status === 'missing';
-  // A row has a unit only when the local catalog knows its ingredient.
-  const canAdd = onRequest !== undefined && isMissing && row.unit !== null;
+  const canAdd = onRequest !== undefined && isMissing;
   const statusLabel = isMissing && !canAdd ? UNLISTABLE_MISSING_LABEL : STATUS_LABEL[row.status];
 
   return (

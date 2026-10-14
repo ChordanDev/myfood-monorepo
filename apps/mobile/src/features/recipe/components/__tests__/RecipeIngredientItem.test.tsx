@@ -87,18 +87,4 @@ describe('RecipeIngredientItem', () => {
     expect(tree.root.findAllByProps({ testID: 'recipe-ingredient-add-i2' })).toHaveLength(0);
     expect(onRequest).not.toHaveBeenCalled();
   });
-
-  it('shows an ingredient outside the catalog as missing, with nothing to press', () => {
-    const { tree } = render({
-      ...BASE_ROW,
-      ingredientId: 'ghost',
-      name: 'Papa',
-      quantityLabel: '500 g',
-      unit: null,
-    });
-
-    expect(renderedTexts(tree)).toEqual(['500 g', 'Papa', 'Falta']);
-    expect(tree.root.findAllByProps({ testID: 'recipe-ingredient-add-ghost' })).toHaveLength(0);
-    expect(tree.root.findAllByProps({ accessibilityRole: 'button' })).toHaveLength(0);
-  });
 });
