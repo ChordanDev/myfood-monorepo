@@ -52,7 +52,8 @@ Observed on 2026-10-13 in `apps/mobile`.
 
 ## Native review
 
-- T1, commit `c82d003`: `gentle-ai review assess --base-ref 63427df --committed-only` answered risk `medium`, 362 changed lines, `review_due: false` (`under_budget`). No review was started.
+- T1, commit `c82d003`: `gentle-ai review assess --base-ref 63427df --committed-only` answered risk `medium`, 362 changed lines, `review_due: false` (`under_budget`).
+- Commits `c82d003` and `90a89f3` against `63427df`: the User granted the review of this candidate. One lens, `review-reliability`, approved with no findings, lineage `review-31e4ca0e4cc961c1`, acknowledged. The reviewer read the patches only and did not rerun the tests.
 
 ## Found and left out
 
