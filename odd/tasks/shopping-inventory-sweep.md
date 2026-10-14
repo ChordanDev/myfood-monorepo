@@ -98,6 +98,10 @@ Issue #233 is the last leftover of the recipes sweep (#224).
   `npx jest --ci` 153 suites, 2389 tests passed. `CLAUDE.md:18` now says
   `DEFAULT_THEME` and test fixtures.
 
+- Review assessment of the T3 commit (base: #259 head): medium, 6 files,
+  22 lines, `review_due: false` (`under_budget`); no review run.
+- PR for #233, stacked on #259: https://github.com/ChordanDev/myfood-monorepo/pull/260
+
 ## Next step
 
-Review of the T3 commit, then the stacked PR for #233.
+Merge #259, then #260 (its base moves to `main`). Both are the user's call.
