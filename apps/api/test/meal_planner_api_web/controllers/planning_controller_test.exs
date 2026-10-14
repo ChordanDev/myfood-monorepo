@@ -19,6 +19,8 @@ defmodule MealPlannerApiWeb.PlanningControllerTest do
   alias MealPlannerApi.Persistence.Planning.ScheduledMeal
   alias MealPlannerApi.Persistence.Shopping.CheckoutSession
   alias MealPlannerApi.Repo
+  alias MealPlannerApiWeb.Casing
+  alias MealPlannerApiWeb.PlannerFixtures
 
   # ─── Phase A — Tenancy Refactor (PR 3c task 3.15) ───────────────────────────
   # See calendar_controller_test.exs (task 3.14) for why a tampered
@@ -162,13 +164,19 @@ defmodule MealPlannerApiWeb.PlanningControllerTest do
 
       assert_receive %Phoenix.Socket.Broadcast{
         event: "session_committed",
-        payload: %{
-          session_id: ^session_id,
-          proposal_id: ^proposal_id,
-          scheduled_meals_count: 1,
-          shopping_rebuilt: true
-        }
+        payload:
+          %{
+            session_id: ^session_id,
+            proposal_id: ^proposal_id,
+            scheduled_meals_count: 1,
+            shopping_rebuilt: true
+          } = committed
       }
+
+      # The app reads both shapes from these files (apps/mobile planner fixtures);
+      # the event reaches it camelized by `PlanningChannel.handle_out/3`.
+      PlannerFixtures.check!("confirmProposalReply", body["data"])
+      PlannerFixtures.check!("sessionCommitted", Casing.camelize_keys(committed))
     end
 
     test "answers a proposal it already confirmed with the same result and writes nothing",

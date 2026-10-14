@@ -460,6 +460,11 @@ defmodule MealPlannerApiWeb.PlanningStartTest do
 
       assert active_sessions(account) == 0
       assert Server.get_status(account.id) == nil
+
+      MealPlannerApiWeb.PlannerFixtures.check!("planningSlotOccupiedError", payload, %{
+        in_days(1) => "2030-01-01",
+        in_days(2) => "2030-01-02"
+      })
     end
 
     test "a meal outside the range or in a slot it does not plan leaves the start free", %{
