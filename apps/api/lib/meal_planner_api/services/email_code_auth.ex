@@ -68,9 +68,11 @@ defmodule MealPlannerApi.Services.EmailCodeAuth do
   exhausted, and then reserves neither: a refused request spends no
   slot.
 
-  `client_ip` is an IPv4 or IPv6 address as text. One that is not (`nil`
-  included) is not let through uncounted: all such requests draw from a
-  single shared bucket.
+  `client_ip` is an IPv4 or IPv6 address as text. An IPv4 address has a
+  counter of its own; an IPv6 address shares one with its whole /64
+  prefix, and an IPv4-mapped one (`::ffff:a.b.c.d`) counts as its IPv4
+  address. One that is not an address (`nil` included) is not let
+  through uncounted: all such requests draw from a single shared bucket.
 
   Must run inside a `Repo.transaction/2`: the advisory locks that
   serialize concurrent requesters are transaction-scoped. Called by
@@ -300,12 +302,13 @@ defmodule MealPlannerApi.Services.EmailCodeAuth do
   end
 
   # Coerce the IP into a stable rate-limit key that fits the schema's
-  # `:string` column: the canonical text of an IPv4 or IPv6 address, so
-  # two spellings of one address share a bucket. Anything else (`nil`,
-  # garbage, oversized input) collapses to one fixed key, so a request
-  # whose address cannot be resolved is still counted.
+  # `:string` column: the canonical text of an IPv4 address, or of the
+  # /64 prefix of an IPv6 address, so two spellings of one address share
+  # a bucket. Anything else (`nil`, garbage, oversized input) collapses
+  # to one fixed key, so a request whose address cannot be resolved is
+  # still counted.
   defp normalize_client_ip(ip) when is_binary(ip) do
-    ip |> String.trim() |> canonical_ip() || @unresolved_ip_key
+    ip |> String.trim() |> bucket_key() || @unresolved_ip_key
   end
 
   defp normalize_client_ip(_), do: @unresolved_ip_key
@@ -315,16 +318,28 @@ defmodule MealPlannerApi.Services.EmailCodeAuth do
   # refuses short forms such as "1.2.3". The length guard keeps
   # oversized input away from the parser; 45 bytes is the longest
   # textual IPv6 address.
-  defp canonical_ip(ip) when byte_size(ip) <= 45 do
-    with {:ok, address} <- ip |> String.to_charlist() |> :inet.parse_strict_address(),
-         rendered when is_list(rendered) <- :inet.ntoa(address) do
-      List.to_string(rendered)
-    else
-      _ -> nil
+  defp bucket_key(ip) when byte_size(ip) <= 45 do
+    case ip |> String.to_charlist() |> :inet.parse_strict_address() do
+      {:ok, address} -> address |> bucket_address() |> render_bucket()
+      {:error, _reason} -> nil
     end
   end
 
-  defp canonical_ip(_ip), do: nil
+  defp bucket_key(_ip), do: nil
+
+  # An IPv4-mapped IPv6 address (`::ffff:a.b.c.d`) is the IPv4 client
+  # `a.b.c.d` as a dual-stack listener reports it, so it counts as that
+  # address. Left to the /64 rule, every one of them would share `::/64`.
+  defp bucket_address({0, 0, 0, 0, 0, 0xFFFF, _, _} = mapped),
+    do: :inet.ipv4_mapped_ipv6_address(mapped)
+
+  # A single IPv6 subscriber is handed a whole /64 and can rotate its
+  # source address inside it for free, so the prefix is the bucket.
+  defp bucket_address({a, b, c, d, _, _, _, _}), do: {:prefix64, {a, b, c, d, 0, 0, 0, 0}}
+  defp bucket_address(ipv4), do: ipv4
+
+  defp render_bucket({:prefix64, prefix}), do: List.to_string(:inet.ntoa(prefix)) <> "/64"
+  defp render_bucket(ipv4), do: List.to_string(:inet.ntoa(ipv4))
 
   @doc """
   Mints a fresh six-digit plaintext code. The caller stores only its

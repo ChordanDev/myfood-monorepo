@@ -114,8 +114,8 @@ defmodule MealPlannerApi.Services.EmailCodeAuthTest do
 
   # The per-IP counter is the only bound on mail sent to addresses nobody
   # registered, so every request has to land in some bucket: its own
-  # address, IPv4 or IPv6, or the one shared by the requests whose
-  # address could not be resolved.
+  # IPv4 address, its IPv6 /64 prefix, or the one shared by the requests
+  # whose address could not be resolved.
   describe "per-IP request slots" do
     test "reserve_ip_request_slot/1 counts an unresolvable IP in the shared bucket" do
       for client_ip <- [nil, "", "not-an-ip", "203.0.113", String.duplicate("1", 4_096), 42] do
@@ -167,29 +167,78 @@ defmodule MealPlannerApi.Services.EmailCodeAuthTest do
       assert retry_after in 3_590..3_600
     end
 
-    test "an IPv6 address is a bucket of its own, whatever its spelling" do
-      for client_ip <- ["2001:db8::1", " 2001:0DB8:0:0:0:0:0:1 "] do
+    test "an IPv4 address is a bucket of its own" do
+      for client_ip <- ["203.0.113.60", "203.0.113.61"] do
+        assert :ok = in_transaction(fn -> EmailCodeAuth.reserve_ip_request_slot(client_ip) end)
+      end
+
+      assert Enum.sort(request_ips()) == ["203.0.113.60", "203.0.113.61"]
+    end
+
+    # A single IPv6 subscriber is handed a whole /64 and can rotate its
+    # source address inside it for free, so the prefix is the bucket.
+    test "an IPv6 address shares the bucket of its /64, whatever its spelling" do
+      for client_ip <- ["2001:db8:1:2::1", " 2001:0DB8:1:2:FFFF:0:0:9 "] do
         assert :ok = in_transaction(fn -> EmailCodeAuth.reserve_ip_request_slot(client_ip) end)
       end
 
       assert :ok =
                in_transaction(fn ->
-                 EmailCodeAuth.reserve_request_slots("slots@example.com", "2001:db8::1")
+                 EmailCodeAuth.reserve_request_slots("slots@example.com", "2001:db8:1:2:abcd::1")
                end)
 
-      assert request_ips() == List.duplicate("2001:db8::1", 3)
+      assert request_ips() == List.duplicate("2001:db8:1:2::/64", 3)
     end
 
-    test "an IPv6 address is rate limited once its hourly limit is spent" do
+    test "an IPv6 /64 is rate limited once its hourly limit is spent, however many addresses it used" do
+      for n <- 1..20 do
+        client_ip = "2001:db8:1:2::#{Integer.to_string(n, 16)}"
+        assert :ok = in_transaction(fn -> EmailCodeAuth.reserve_ip_request_slot(client_ip) end)
+      end
+
+      assert {:error, :rate_limited, retry_after} =
+               in_transaction(fn ->
+                 EmailCodeAuth.reserve_request_slots("slots@example.com", "2001:db8:1:2:ffff::1")
+               end)
+
+      assert retry_after in 3_590..3_600
+
+      # The neighbouring /64 is another subscriber.
+      assert :ok =
+               in_transaction(fn -> EmailCodeAuth.reserve_ip_request_slot("2001:db8:1:3::1") end)
+    end
+
+    # Under the /64 rule every IPv4-mapped address would land in `::/64`,
+    # so all the IPv4 clients a dual-stack listener reports that way would
+    # share one bucket. They are the IPv4 client, so they count as one.
+    test "an IPv4-mapped IPv6 address shares the bucket of its IPv4 address" do
+      for client_ip <- ["::ffff:203.0.113.70", "::FFFF:CB00:7146"] do
+        assert :ok = in_transaction(fn -> EmailCodeAuth.reserve_ip_request_slot(client_ip) end)
+      end
+
+      assert :ok =
+               in_transaction(fn ->
+                 EmailCodeAuth.reserve_request_slots("slots@example.com", "203.0.113.70")
+               end)
+
+      assert request_ips() == List.duplicate("203.0.113.70", 3)
+    end
+
+    test "IPv4-mapped IPv6 addresses of different IPv4 addresses are rate limited apart" do
       for _ <- 1..20 do
         assert :ok =
-                 in_transaction(fn -> EmailCodeAuth.reserve_ip_request_slot("2001:db8::1") end)
+                 in_transaction(fn ->
+                   EmailCodeAuth.reserve_ip_request_slot("::ffff:203.0.113.72")
+                 end)
       end
 
       assert {:error, :rate_limited, _retry_after} =
-               in_transaction(fn -> EmailCodeAuth.reserve_ip_request_slot("2001:db8::1") end)
+               in_transaction(fn -> EmailCodeAuth.reserve_ip_request_slot("203.0.113.72") end)
 
-      assert :ok = in_transaction(fn -> EmailCodeAuth.reserve_ip_request_slot("2001:db8::2") end)
+      assert :ok =
+               in_transaction(fn ->
+                 EmailCodeAuth.reserve_ip_request_slot("::ffff:203.0.113.73")
+               end)
     end
   end
 
@@ -294,6 +343,39 @@ defmodule MealPlannerApi.Services.EmailCodeAuthTest do
 
       assert {:error, :rate_limited, _retry_after} =
                in_transaction(fn -> EmailCodeAuth.check_verify_failures(nil) end)
+    end
+
+    test "an IPv6 /64 shares one failure count across its addresses" do
+      for n <- 1..20 do
+        client_ip = "2001:db8:5:6::#{Integer.to_string(n, 16)}"
+        in_transaction(fn -> EmailCodeAuth.reserve_verify_failure(client_ip) end)
+      end
+
+      assert {:error, :rate_limited, _retry_after} =
+               in_transaction(fn ->
+                 EmailCodeAuth.check_verify_failures("2001:db8:5:6:ffff::1")
+               end)
+
+      assert :ok =
+               in_transaction(fn -> EmailCodeAuth.check_verify_failures("2001:db8:5:7::1") end)
+    end
+
+    test "an IPv4-mapped IPv6 address shares the failure count of its IPv4 address" do
+      for client_ip <-
+            List.duplicate("::ffff:203.0.113.94", 10) ++
+              List.duplicate("203.0.113.94", 10) do
+        in_transaction(fn -> EmailCodeAuth.reserve_verify_failure(client_ip) end)
+      end
+
+      assert {:error, :rate_limited, _retry_after} =
+               in_transaction(fn ->
+                 EmailCodeAuth.check_verify_failures("::ffff:203.0.113.94")
+               end)
+
+      assert :ok =
+               in_transaction(fn ->
+                 EmailCodeAuth.check_verify_failures("::ffff:203.0.113.95")
+               end)
     end
   end
 
