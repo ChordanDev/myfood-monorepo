@@ -115,18 +115,12 @@ defmodule MealPlannerApi.Persistence.Identity do
   # The email is stored lower-cased, but rows saved with capitals before
   # that still exist, and until `users_lower_email_index` is unique only
   # the exact-email index guards them. Without this check a shadow user
-  # holding the lower-cased email of such a row would be inserted, and
-  # login, which prefers the exact-case match, would land in its empty
-  # account.
+  # holding the lower-cased email of such a row would be inserted, with
+  # an empty account, next to the real one.
   defp refuse_email_held_by_another_user(%Ecto.Changeset{} = changeset, user_id) do
     email = Ecto.Changeset.get_field(changeset, :email)
 
-    taken? =
-      Repo.exists?(
-        from(u in User, where: fragment("lower(?)", u.email) == ^email and u.id != ^user_id)
-      )
-
-    if taken? do
+    if UserEmail.registered?(email, except: user_id) do
       Ecto.Changeset.add_error(changeset, :email, "has already been taken",
         constraint: :unique,
         constraint_name: "users_lower_email_index"

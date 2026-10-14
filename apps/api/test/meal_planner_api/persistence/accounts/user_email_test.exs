@@ -67,5 +67,13 @@ defmodule MealPlannerApi.Persistence.Accounts.UserEmailTest do
       assert UserEmail.registered?(" registered@example.com")
       refute UserEmail.registered?("someone-else@example.com")
     end
+
+    test "with except: leaves that user out" do
+      %User{id: id} = insert_user!("Held@Example.com")
+      %User{id: other_id} = insert_user!("other@example.com")
+
+      refute UserEmail.registered?("held@example.com", except: id)
+      assert UserEmail.registered?("held@example.com", except: other_id)
+    end
   end
 end

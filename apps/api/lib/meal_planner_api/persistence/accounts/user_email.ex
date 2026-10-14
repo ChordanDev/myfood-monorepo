@@ -26,9 +26,21 @@ defmodule MealPlannerApi.Persistence.Accounts.UserEmail do
   @spec get_user(String.t()) :: User.t() | nil
   def get_user(email) when is_binary(email), do: email |> matching() |> Repo.one()
 
-  @doc "Whether a User's email matches `email` regardless of case and surrounding whitespace."
-  @spec registered?(String.t()) :: boolean()
-  def registered?(email) when is_binary(email), do: email |> matching() |> Repo.exists?()
+  @doc """
+  Whether a User's email matches `email` regardless of case and
+  surrounding whitespace. `except: user_id` leaves that User out, to ask
+  whether the email is held by someone else.
+  """
+  @spec registered?(String.t(), [{:except, Ecto.UUID.t()}]) :: boolean()
+  def registered?(email, opts \\ []) when is_binary(email) do
+    query =
+      case Keyword.fetch(opts, :except) do
+        {:ok, user_id} -> where(matching(email), [u], u.id != ^user_id)
+        :error -> matching(email)
+      end
+
+    Repo.exists?(query)
+  end
 
   defp matching(email) do
     email = normalize(email)
