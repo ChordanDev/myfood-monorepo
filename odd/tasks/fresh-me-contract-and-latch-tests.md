@@ -81,8 +81,12 @@ AuthContext tests of that rule must say what they prove.
 - Checks observed: `npx jest --ci` 153 suites and 2396 tests passed;
   `npx tsc --noEmit` clean; `npm run lint` 0 errors, 4 warnings, all in files
   this branch does not touch; prettier clean.
-- Native review: assessed `high` (auth hot path), review due.
+- Native review: assessed `high` (auth hot path); consent granted; four
+  lenses approved with no blocking finding; acknowledged. Advisory only: the
+  `if` on `refreshAttempted` inside the fallback test (a call-count field
+  would read better); commit hashes in this document go stale after a squash;
+  the fallback table stubs the snapshot write to resolve null in every case.
 
 ## Next step
 
-Native review of the branch from `45d74ab`, then the pull request.
+Open the pull request; merge is the owner's decision.
