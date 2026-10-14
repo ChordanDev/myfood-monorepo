@@ -87,6 +87,10 @@ Issue #233 is the last leftover of the recipes sweep (#224).
   and `v2-planning-tasks.md` mention `best_price_per_ingredient` and
   `get_recipe_price` (planning artifacts, not current docs).
 
+- Native review of `37ff227..` on base `45d74ab` (medium, 14 files, 438
+  lines): consent granted, one reliability lens, no findings, approved and
+  acknowledged (lineage `review-347d19c2bdc35aee`).
+
 ## Next step
 
-Native review of the #48 commits, PR for #48, then T3 (#233) stacked on it.
+PR for #48, then T3 (#233) stacked on it.
