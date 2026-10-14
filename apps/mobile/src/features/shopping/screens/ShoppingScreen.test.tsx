@@ -499,7 +499,7 @@ describe('ShoppingScreen', () => {
       const textsBefore = getTexts(root);
 
       act(() => {
-        useMealPlanStore.setState({ entries: [], recipes: [] });
+        useMealPlanStore.setState({ entries: [] });
         useInventoryStore.setState({ items: [] });
       });
       await settle();

@@ -158,7 +158,7 @@ describe('the plan cache', () => {
     const initial = useMealPlanStore.getInitialState();
 
     expect(initial.entries).toEqual([]);
-    expect(initial.recipes).toEqual([]);
+    expect(initial).not.toHaveProperty('recipes');
     expect(initial.recipeSummaries).toEqual({});
   });
 

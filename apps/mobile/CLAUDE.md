@@ -15,7 +15,7 @@ reviewing any UI code.
 - **Tints are a token at an opacity:** `withOpacity(theme.icon, 0.15)` from `@/utils/colors`. Never a new hex.
 - **Animate palette changes** with `useAnimatedThemeStyle` from `@/hooks/useAnimatedThemeStyle`.
 - **Do not add, rename or remove a token** without asking: it changes every palette.
-- **Palettes come from the backend.** Do not create a palette catalog in the frontend or decide which palette a meal gets. The only palette values in this repo are `DEFAULT_THEME` (fallback) and mocks.
+- **Palettes come from the backend.** Do not create a palette catalog in the frontend or decide which palette a meal gets. The only palette values in this repo are `DEFAULT_THEME` (fallback) and test fixtures.
 - **Do not edit a component to make one palette look right.** Fix the palette data.
 - **Allowed literals:** values inside a palette definition, `#000000` shadows, black modal backdrops, the inventory category colors in `INVENTORY_CATEGORY_COLORS`.
 - **Do not copy existing violations.** `docs/THEMING.md` lists the known ones.

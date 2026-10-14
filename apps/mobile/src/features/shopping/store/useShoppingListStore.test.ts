@@ -207,7 +207,7 @@ describe('reading the list', () => {
     await shopping().refresh(USER_A);
     const listBefore = shopping().list;
 
-    useMealPlanStore.setState({ entries: [], recipes: [] });
+    useMealPlanStore.setState({ entries: [] });
     useInventoryStore.setState({ items: [] });
 
     expect(shopping().list).toBe(listBefore);
