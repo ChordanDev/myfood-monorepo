@@ -44,6 +44,10 @@ fields.
   - Tests: success path (the `/me` fields win, nothing is written from the
     completion answer) and failed-refresh path (the completion answer is
     stored and shown, the gate stays complete).
+  - Superseded by T3 (issue #216): on the success path the completion answer
+    is now written to the stored snapshot before the refresh, and the refresh
+    overwrites it with what `/me` returned. Only `me` takes nothing from the
+    completion answer when a fresh `/me` arrives.
 - [x] **T2 API pin** (same writer, same work unit)
   - `onboarding_controller_test.exs`: post the completion, read `GET /api/me`
     over HTTP, assert `householdSize` and `cookingSkill`.
