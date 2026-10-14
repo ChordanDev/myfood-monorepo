@@ -2,6 +2,7 @@
 
 import React from 'react';
 import { Text, TextInput } from 'react-native';
+import { loadReactNative } from '@/testing/loadReactNative';
 import { act, create, ReactTestInstance } from 'react-test-renderer';
 import { ApiError } from '@/api/errors';
 import {
@@ -128,6 +129,8 @@ async function previewTranscript(root: ReactTestInstance, transcript: string) {
 }
 
 describe('InventoryVoiceSheet', () => {
+  beforeAll(loadReactNative, 30_000);
+
   describe('applied amount', () => {
     it('applies a confident intent right away, without confirmed, and says what was subtracted', async () => {
       const { root, onPreview, onApply } = renderSheet();
