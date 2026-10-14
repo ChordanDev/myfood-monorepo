@@ -1,6 +1,9 @@
 defmodule MealPlannerApi.Services.PlanningServiceTest do
   use ExUnit.Case, async: true
 
+  import ExUnit.CaptureIO
+  import ExUnit.CaptureLog
+
   alias MealPlannerApi.Optimization.OptimizerPort
   alias MealPlannerApi.Services.PlanningService
 
@@ -125,6 +128,26 @@ defmodule MealPlannerApi.Services.PlanningServiceTest do
   describe "save_plan/4" do
     test "accepts account_id, user_id, meals, and optional metadata" do
       assert is_function(&PlanningService.save_plan/4)
+    end
+
+    # The generation run is invalid without an Account and a User, so the
+    # changeset is rejected before any query runs.
+    test "logs a failure by name, without the reason and without printing to standard output" do
+      log =
+        capture_log(fn ->
+          printed =
+            capture_io(fn ->
+              assert {:error, %Ecto.Changeset{}} = PlanningService.save_plan(nil, nil, [])
+            end)
+
+          assert printed == ""
+        end)
+
+      assert log =~ "save_plan failed"
+      assert log =~ "PlanningGenerationRun"
+      assert log =~ "fields=[:account_id, :user_id]"
+      # `input_context` is one of the changes the rejected changeset carries.
+      refute log =~ "input_context"
     end
   end
 
