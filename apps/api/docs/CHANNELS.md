@@ -193,6 +193,7 @@ The command that starts a Planning session and its first generation (issue #25).
 | `rangeTo` | `"YYYY-MM-DD"` | Last day, inclusive. Optional when `dayCount` is sent |
 | `dayCount` | integer | Number of days, 1 to 7. Optional when `rangeTo` is sent; when both are sent they must agree |
 | `request` | string | Optional free text, at most 1000 characters after trimming. A blank text counts as none. It reaches the generation as the `request` constraint |
+| `favoriteRecipeIds` | list of UUID strings | Optional. The Favorite recipes the member preselected for this plan; absent or `null` means none. Only the ids that are favorites of the caller (their own, in this Account) reach the engine: any other id is dropped, because a client cache can be stale. Duplicates collapse onto their first place and the client's order is kept. See [Planning context](#planning-context) |
 | `requestId` | string | Optional. Correlates `generation_started`, and `generation_error` when that event carries it; generated when missing |
 
 The command validates the range, checks the Account is eligible, starts the session (`session_started`), then starts the generation through the same call `generate_menu` uses and replies:
@@ -209,7 +210,7 @@ Refusals reply the error envelope with these codes:
 |------|-----------|
 | `planning_invalid_range` | A date is missing or is not an ISO 8601 date, the range ends before it starts, lasts more than 7 days, starts more than a day in the past, or `dayCount` is not an integer from 1 to 7 or disagrees with `rangeTo` |
 | `planning_range_locked` | An active session of the Account already holds part of the range |
-| `invalid_payload` | `request` is not a string or is longer than 1000 characters |
+| `invalid_payload` | `request` is not a string or is longer than 1000 characters, or `favoriteRecipeIds` is not a list of strings. Both are refused before any session starts |
 | `subscription_required` | The Account is not eligible |
 | `generation_in_progress` | A generation of the Account is already running (the session is cancelled) |
 
@@ -227,11 +228,54 @@ Refusals reply the error envelope with these codes:
 
 The older `invalid_range` and `overlapping_range` codes stay in the allowlist; `start_planning` no longer replies them.
 
+#### Planning context
+
+`start_planning` hands the engine a Planning context with what the member set up during onboarding and the favorites they preselected (issue #29). It is a contract for the engine, not a payload the client receives: no event or reply carries it, and the mobile app has no type for it.
+
+It is read before the session starts, so a refused start leaves nothing behind, and it travels as one nested map under `"planning_context"` in the constraints of the generation, next to `"date_from"`, `"date_to"` and `"request"` (snake_case, as the rest of the constraints). The Generation run persists it at `input_context.constraints.planning_context`. Its own keys are camelCase strings and every key is always present:
+
+| Key | Type | Source |
+|-----|------|--------|
+| `diet` | string \| `null` | The Diet of the User (`omnivore`, `vegetarian`, `vegan`, `pescatarian`); `null` until set |
+| `hardRestrictionCodes` | list of strings | The Hard restriction codes of the User, in catalog order. Text only: the strict candidate filter does not read them |
+| `softPreferences` | list of strings | The Soft preferences of the User, in the stored order |
+| `cookingSkill` | string \| `null` | `beginner`, `intermediate` or `advanced`; `null` until set. Read from the User row at start time, not from the socket |
+| `householdSize` | integer \| `null` | 1 to 20; `null` until set. Read like `cookingSkill` |
+| `slotCookingTimes` | object | Always the four Meal slots `breakfast`, `lunch`, `snack` and `dinner`, each `{ "cooking", "maxMinutes", "hungerLevel" }` |
+| `favoriteRecipeIds` | list of UUID strings | The `favoriteRecipeIds` of the command that are favorites of the caller, deduplicated, in the client's order |
+
+`slotCookingTimes.<slot>.cooking` is one of three modes:
+
+| `cooking` | Meaning | `maxMinutes` | `hungerLevel` |
+|-----------|---------|--------------|---------------|
+| `no_constraint` | No time stored for the slot. The snack is never stored, so it is always this; a User who saved no times has it on all four slots | `null` | `null` |
+| `do_not_cook` | The member stored 0 minutes: the slot must not need cooking | `0` | `light`, `normal` or `strong` |
+| `limited` | The member stored 1 to 240 minutes | the stored minutes | `light`, `normal` or `strong` |
+
+```json
+{
+  "diet": "vegetarian",
+  "hardRestrictionCodes": ["peanut", "gluten"],
+  "softPreferences": ["quick_meals"],
+  "cookingSkill": "intermediate",
+  "householdSize": 3,
+  "slotCookingTimes": {
+    "breakfast": { "cooking": "limited", "maxMinutes": 15, "hungerLevel": "light" },
+    "lunch": { "cooking": "do_not_cook", "maxMinutes": 0, "hungerLevel": "normal" },
+    "snack": { "cooking": "no_constraint", "maxMinutes": null, "hungerLevel": null },
+    "dinner": { "cooking": "limited", "maxMinutes": 45, "hungerLevel": "strong" }
+  },
+  "favoriteRecipeIds": ["550e8400-e29b-41d4-a716-446655440010"]
+}
+```
+
+A User with no preferences, no profile or no Slot cooking times still gets a context: the missing signals are `null`, empty lists or `no_constraint`. Prepared leftovers are not part of the context. The assembly lives in `MealPlannerApi.Services.PlanningContext` (`lib/meal_planner_api/services/planning_context.ex`).
+
 #### Incoming Events
 
 | Event | Payload | Description |
 |-------|---------|-------------|
-| `start_planning` | `{"range_from": "YYYY-MM-DD", "range_to": "YYYY-MM-DD", "request": "text"}` (or `day_count` instead of `range_to`) | Start a planning session and its first generation, see [start_planning](#start_planning) |
+| `start_planning` | `{"range_from": "YYYY-MM-DD", "range_to": "YYYY-MM-DD", "request": "text", "favorite_recipe_ids": ["uuid"]}` (or `day_count` instead of `range_to`; `request` and `favorite_recipe_ids` are optional) | Start a planning session and its first generation, see [start_planning](#start_planning) |
 | `choose_slot` | `{"slot_id": "uuid", "recipe_id": "uuid"}` | Assign recipe to a slot |
 | `remove_slot` | `{"slot_id": "uuid"}` | Remove recipe from a slot |
 | `generate_plan` | `{"strategy": "balanced|quick|varied"}` | Trigger AI plan generation |
@@ -305,11 +349,12 @@ Order: `proposal_ready` is pushed before `planning_message`. `generation_started
 
 #### Planner fixtures
 
-The frozen payloads above are also committed as JSON in `apps/mobile/src/features/planner/fixtures/` (`startPlanningReply`, `sessionStarted`, `generationStarted`, `proposalReady`, `planningMessage`, `generationError`, `planningInvalidRangeError`, `planningRangeLockedError`). The channel serializers are real: every fixture except `proposalReady`/`planningMessage` is recorded from a real channel run. `proposal_ready` is driven by a synthetic broadcast of a proposal built in the test (with a fractional macro and a missing one, as the producer sends them):
+The frozen payloads above are also committed as JSON in `apps/mobile/src/features/planner/fixtures/` (`startPlanningReply`, `sessionStarted`, `generationStarted`, `proposalReady`, `planningMessage`, `generationError`, `planningInvalidRangeError`, `planningRangeLockedError`, `planningContext`). The channel serializers are real: every fixture except `proposalReady`/`planningMessage` is recorded from a real channel run. `proposal_ready` is driven by a synthetic broadcast of a proposal built in the test (with a fractional macro and a missing one, as the producer sends them):
 
 - `test/meal_planner_api_web/channels/planner_fixtures_test.exs` runs `start_planning` and records each payload through `MealPlannerApiWeb.PlannerFixtures.check!/3`. Without `UPDATE_FIXTURES`, the test fails when a committed file differs from the fresh payload, so API drift fails an API test.
-- The mobile test `src/features/planner/fixtures/__tests__/plannerFixtures.test.ts` parses every file with the types in `src/features/planner/types/planningEvents.ts` (missing, extra or mistyped keys throw), so app drift fails an app test.
+- The mobile test `src/features/planner/fixtures/__tests__/plannerFixtures.test.ts` parses each payload the client receives with the types in `src/features/planner/types/planningEvents.ts` (missing, extra or mistyped keys throw), so app drift fails an app test.
 - Volatile values are normalized: UUIDs become `00000000-0000-4000-8000-00000000000N` and the dates of the run become `2030-01-01`, `2030-01-02`.
+- `planningContext` is the exception to the rule above: it is the [Planning context](#planning-context) read back from the persisted Generation run of a User with every signal set, one slot at 0 minutes included. The client never receives it, so no mobile type parses it; the API test is the only guard against drift.
 
 To regenerate after an intended payload change, from `apps/api` (with the test database env set):
 

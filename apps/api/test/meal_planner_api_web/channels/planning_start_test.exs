@@ -22,13 +22,13 @@ defmodule MealPlannerApiWeb.PlanningStartTest do
 
   import MealPlannerApiWeb.ChannelHelpers, only: [issue_identity_and_token: 2]
 
-  alias MealPlannerApi.Data.PlanningRepo
+  alias MealPlannerApi.Data.{AccountRepo, PlanningRepo, RecipeRepo}
   alias MealPlannerApi.Generation.Server
   alias MealPlannerApi.Persistence.Accounts.Account
   alias MealPlannerApi.Persistence.Accounts.{AccountMembership, User}
-  alias MealPlannerApi.Persistence.Planning.PlanningSession
+  alias MealPlannerApi.Persistence.Planning.{PlanningGenerationRun, PlanningSession}
   alias MealPlannerApi.Repo
-  alias MealPlannerApi.Services.GenerationService
+  alias MealPlannerApi.Services.{GenerationService, UserPreferencesService}
   alias MealPlannerApiWeb.{ApiError, Endpoint, PlanningChannel, UserSocket}
 
   @moduletag :capture_log
@@ -380,6 +380,186 @@ defmodule MealPlannerApiWeb.PlanningStartTest do
       assert_reply(ref, :ok, %{"sessionId" => _})
       assert_push("generation_started", %{"runId" => _})
       stop_generation_server(account.id)
+    end
+  end
+
+  describe "planning context (#29)" do
+    test "hands the engine a context with every signal, read back from the run", %{
+      account: account,
+      user: user,
+      token: token
+    } do
+      [first, second] = favorites!(account, user, ["Lentil soup", "Veggie stew"])
+      set_up_signals!(user)
+
+      socket = join_planning!(token, account)
+
+      ref =
+        push(socket, "start_planning", %{
+          "rangeFrom" => in_days(1),
+          "rangeTo" => in_days(3),
+          "request" => "something light",
+          "favoriteRecipeIds" => [second.id, first.id]
+        })
+
+      assert_reply(ref, :ok, %{"sessionId" => _})
+      assert_push("generation_started", %{"runId" => run_id})
+
+      constraints = persisted_constraints(run_id)
+      assert constraints["request"] == "something light"
+      assert constraints["date_from"] == in_days(1)
+
+      context = constraints["planning_context"]
+      assert context["diet"] == "vegetarian"
+      assert context["softPreferences"] == ["quick_meals"]
+      assert context["cookingSkill"] == "intermediate"
+      assert context["householdSize"] == 3
+      assert context["favoriteRecipeIds"] == [second.id, first.id]
+
+      assert context["slotCookingTimes"]["breakfast"] == %{
+               "cooking" => "limited",
+               "maxMinutes" => 15,
+               "hungerLevel" => "light"
+             }
+
+      assert context["slotCookingTimes"]["dinner"] == %{
+               "cooking" => "limited",
+               "maxMinutes" => 45,
+               "hungerLevel" => "strong"
+             }
+
+      stop_generation_server(account.id)
+    end
+
+    test "a missing snack has no constraint and a 0-minute slot is do_not_cook", %{
+      account: account,
+      user: user,
+      token: token
+    } do
+      set_up_signals!(user)
+
+      times = start_and_read_context!(token, account)["slotCookingTimes"]
+
+      assert times["snack"] == %{
+               "cooking" => "no_constraint",
+               "maxMinutes" => nil,
+               "hungerLevel" => nil
+             }
+
+      assert times["lunch"] == %{
+               "cooking" => "do_not_cook",
+               "maxMinutes" => 0,
+               "hungerLevel" => "normal"
+             }
+
+      stop_generation_server(account.id)
+    end
+
+    test "the Hard restriction codes arrive as text", %{
+      account: account,
+      user: user,
+      token: token
+    } do
+      set_up_signals!(user)
+
+      codes = start_and_read_context!(token, account)["hardRestrictionCodes"]
+
+      assert Enum.sort(codes) == ["gluten", "peanut"]
+      assert Enum.all?(codes, &is_binary/1)
+
+      stop_generation_server(account.id)
+    end
+
+    test "a User who set nothing up still starts with a complete context", %{
+      account: account,
+      token: token
+    } do
+      context = start_and_read_context!(token, account)
+
+      assert context["diet"] == nil
+      assert context["hardRestrictionCodes"] == []
+      assert context["softPreferences"] == []
+      assert context["cookingSkill"] == nil
+      assert context["householdSize"] == nil
+      assert context["favoriteRecipeIds"] == []
+
+      assert context["slotCookingTimes"]
+             |> Map.values()
+             |> Enum.all?(&(&1["cooking"] == "no_constraint"))
+
+      stop_generation_server(account.id)
+    end
+
+    test "an id that is not a favorite of the caller is dropped", %{
+      account: account,
+      user: user,
+      token: token
+    } do
+      [mine] = favorites!(account, user, ["Lentil soup"])
+      not_a_favorite = insert_recipe("Not starred", account_id: account.id)
+
+      {peer, _membership} = insert_peer(account, "Ana Peer")
+      peer_recipe = insert_recipe("Peer stew", account_id: account.id)
+
+      {:ok, _favorite} =
+        RecipeRepo.add_favorite(%{account_id: account.id, user_id: peer.id}, peer_recipe.id)
+
+      context =
+        start_and_read_context!(token, account, %{
+          "favoriteRecipeIds" => [
+            not_a_favorite.id,
+            peer_recipe.id,
+            Ecto.UUID.generate(),
+            mine.id,
+            mine.id
+          ]
+        })
+
+      assert context["favoriteRecipeIds"] == [mine.id]
+
+      stop_generation_server(account.id)
+    end
+
+    test "a start without favoriteRecipeIds still works and preselects nothing", %{
+      account: account,
+      user: user,
+      token: token
+    } do
+      _ = favorites!(account, user, ["Lentil soup"])
+
+      assert start_and_read_context!(token, account)["favoriteRecipeIds"] == []
+
+      stop_generation_server(account.id)
+    end
+
+    test "a null favoriteRecipeIds is the same as none", %{account: account, token: token} do
+      context = start_and_read_context!(token, account, %{"favoriteRecipeIds" => nil})
+
+      assert context["favoriteRecipeIds"] == []
+
+      stop_generation_server(account.id)
+    end
+
+    test "a favoriteRecipeIds that is not a list of strings replies invalid_payload and starts nothing",
+         %{account: account, token: token} do
+      socket = join_planning!(token, account)
+      sessions_before = session_children()
+
+      for malformed <- ["a-recipe-id", %{"id" => "x"}, 7, ["ok", 7], [nil], [["nested"]]] do
+        ref =
+          push(socket, "start_planning", %{
+            "rangeFrom" => in_days(1),
+            "dayCount" => 2,
+            "favoriteRecipeIds" => malformed
+          })
+
+        assert_error_reply(ref, :invalid_payload)
+      end
+
+      assert active_sessions(account) == 0
+      assert session_children() == sessions_before
+      refute_push("generation_started", _payload)
+      assert Repo.aggregate(PlanningGenerationRun, :count) == 0
     end
   end
 
@@ -759,6 +939,64 @@ defmodule MealPlannerApiWeb.PlanningStartTest do
     |> DynamicSupervisor.which_children()
     |> Enum.map(fn {_id, pid, _type, _modules} -> pid end)
     |> Enum.filter(&(is_pid(&1) and Process.alive?(&1)))
+  end
+
+  # Starts a plan with the given extra params, waits for the generation to
+  # start and returns the Planning context persisted on its run.
+  defp start_and_read_context!(token, account, extra_params \\ %{}) do
+    socket = join_planning!(token, account)
+
+    ref =
+      push(
+        socket,
+        "start_planning",
+        Map.merge(%{"rangeFrom" => in_days(1), "dayCount" => 2}, extra_params)
+      )
+
+    assert_reply(ref, :ok, %{"sessionId" => _})
+    assert_push("generation_started", %{"runId" => run_id})
+
+    persisted_constraints(run_id)["planning_context"]
+  end
+
+  defp persisted_constraints(run_id) do
+    Repo.get!(PlanningGenerationRun, run_id).input_context["constraints"]
+  end
+
+  defp favorites!(account, user, names) do
+    for name <- names do
+      recipe = insert_recipe(name, account_id: account.id)
+
+      {:ok, _favorite} =
+        RecipeRepo.add_favorite(%{account_id: account.id, user_id: user.id}, recipe.id)
+
+      recipe
+    end
+  end
+
+  # Every onboarding signal of the Planning context, with a 0-minute lunch.
+  defp set_up_signals!(user) do
+    {:ok, _preferences} =
+      UserPreferencesService.replace(user.id, %{
+        diet: "vegetarian",
+        hard_restrictions: ["gluten", "peanut"],
+        soft_preferences: ["quick_meals"]
+      })
+
+    user
+    |> User.profile_changeset(%{
+      name: user.name,
+      household_size: 3,
+      cooking_skill: "intermediate"
+    })
+    |> Repo.update!()
+
+    {:ok, _rows} =
+      AccountRepo.replace_slot_cooking_times(user.id, %{
+        breakfast: %{cooking_time_minutes: 15, hunger_level: :light},
+        lunch: %{cooking_time_minutes: 0, hunger_level: :normal},
+        dinner: %{cooking_time_minutes: 45, hunger_level: :strong}
+      })
   end
 
   defp assert_error_reply(ref, code) do

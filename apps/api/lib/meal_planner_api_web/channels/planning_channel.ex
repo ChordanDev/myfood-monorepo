@@ -76,7 +76,7 @@ defmodule MealPlannerApiWeb.PlanningChannel do
   alias MealPlannerApi.Generation.{PlanningSessionServer, PlanningSessionSupervisor, Server}
   alias MealPlannerApi.Persistence.Planning
   alias MealPlannerApi.Planning.LockOwner
-  alias MealPlannerApi.Services.PlanningChatService
+  alias MealPlannerApi.Services.{PlanningChatService, PlanningContext}
   alias MealPlannerApiWeb.ApiError
   alias MealPlannerApiWeb.Casing
   alias MealPlannerApiWeb.ChannelCapability
@@ -432,7 +432,9 @@ defmodule MealPlannerApiWeb.PlanningChannel do
 
     with {:ok, {date_from, date_to} = range} <- parse_range(payload),
          {:ok, request_text} <- parse_request_text(payload),
+         {:ok, requested_favorite_ids} <- parse_favorite_recipe_ids(payload),
          :ok <- check_account_eligible(account_id),
+         planning_context = PlanningContext.read(account_id, user.id, requested_favorite_ids),
          {:ok, %{session_id: started_id, pid: pid}} <-
            start_session(account_id, user.id, membership.id, range, socket.channel_pid) do
       # `session_started` is broadcast by PlanningSessionServer
@@ -444,7 +446,7 @@ defmodule MealPlannerApiWeb.PlanningChannel do
       # uses, with the range of the session and the free text of the member
       # as the request. A generation that cannot start leaves no session
       # behind: the session is cancelled, so the member can start again.
-      constraints = start_constraints(date_from, date_to, request_text)
+      constraints = start_constraints(date_from, date_to, request_text, planning_context)
 
       case start_generation(account_id, user.id, constraints, socket.channel_pid) do
         {:ok, run_id} ->
@@ -784,12 +786,30 @@ defmodule MealPlannerApiWeb.PlanningChannel do
       else: {:ok, trimmed}
   end
 
-  # What `Server.start_generation/4` is given: the dates of the session and,
-  # when the member typed one, the free text under `"request"`.
-  defp start_constraints(date_from, date_to, request_text) do
+  # The Favorite recipes the member preselected are optional: absent or null
+  # means none. Anything but a list of strings is `:invalid_payload`. Which of
+  # them belong to the caller is decided by `PlanningContext.read/3`.
+  defp parse_favorite_recipe_ids(payload) do
+    case Map.get(payload, "favorite_recipe_ids") do
+      nil ->
+        {:ok, []}
+
+      ids when is_list(ids) ->
+        if Enum.all?(ids, &is_binary/1), do: {:ok, ids}, else: {:error, :invalid_payload}
+
+      _not_a_list ->
+        {:error, :invalid_payload}
+    end
+  end
+
+  # What `Server.start_generation/4` is given: the dates of the session, the
+  # Planning context under `"planning_context"` and, when the member typed
+  # one, the free text under `"request"`.
+  defp start_constraints(date_from, date_to, request_text, planning_context) do
     base = %{
       "date_from" => Date.to_iso8601(date_from),
-      "date_to" => Date.to_iso8601(date_to)
+      "date_to" => Date.to_iso8601(date_to),
+      "planning_context" => planning_context
     }
 
     if request_text, do: Map.put(base, "request", request_text), else: base
