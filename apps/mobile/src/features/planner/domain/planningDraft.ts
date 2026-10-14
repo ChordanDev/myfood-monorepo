@@ -5,6 +5,7 @@ import type {
   GenerationStartedPayload,
   PlanningMessagePayload,
   ProposalReadyPayload,
+  SessionCommittedPayload,
   SessionEndedPayload,
 } from '../types/planningEvents';
 
@@ -43,8 +44,17 @@ export type PlanningDraft =
   | {
       status: 'ready';
       requestId: string;
+      /** The session the proposal was generated in: the one a confirm commits. */
+      sessionId: string | null;
       proposal: ProposalReadyPayload;
       message: PlanningMessagePayload | null;
+    }
+  | {
+      /** The proposal is the live plan: its meals are scheduled and the Shopping list rebuilt. */
+      status: 'committed';
+      requestId: string;
+      sessionId: string;
+      scheduledMealsCount: number;
     }
   | {
       status: 'failed';
@@ -58,6 +68,9 @@ export type PlanningDraftAction =
   | { type: 'start_requested'; requestId: string }
   | { type: 'start_rejected'; requestId: string; error: ApiError }
   | { type: 'generation_started'; payload: GenerationStartedPayload }
+  | { type: 'session_committed'; payload: SessionCommittedPayload }
+  /** The User left the proposal: the draft starts over. */
+  | { type: 'reset' }
   | SessionEndEvent
   | RunEvent;
 
@@ -82,6 +95,7 @@ function applyRunEvent(draft: Generating, action: RunEvent): PlanningDraft {
       return {
         status: 'ready',
         requestId: draft.requestId,
+        sessionId: draft.sessionId,
         proposal: action.payload,
         message: draft.message,
       };
@@ -161,14 +175,33 @@ export function planningDraftReducer(
     case 'session_cancelled':
     case 'session_expired':
     case 'session_lost_lock':
-      return draft.status === 'generating' && draft.sessionId === action.payload.sessionId
+      if (
+        (draft.status !== 'generating' && draft.status !== 'ready') ||
+        draft.sessionId !== action.payload.sessionId
+      ) {
+        return draft;
+      }
+      // A proposal whose session was cancelled was left on purpose: nothing failed.
+      if (draft.status === 'ready' && action.type === 'session_cancelled') {
+        return IDLE_PLANNING_DRAFT;
+      }
+      return {
+        status: 'failed',
+        requestId: draft.requestId,
+        sessionId: draft.sessionId,
+        failure: { kind: 'generation', reason: action.type },
+      };
+    case 'session_committed':
+      return draft.status === 'ready' && draft.sessionId === action.payload.sessionId
         ? {
-            status: 'failed',
+            status: 'committed',
             requestId: draft.requestId,
-            sessionId: draft.sessionId,
-            failure: { kind: 'generation', reason: action.type },
+            sessionId: action.payload.sessionId,
+            scheduledMealsCount: action.payload.scheduledMealsCount,
           }
         : draft;
+    case 'reset':
+      return IDLE_PLANNING_DRAFT;
     default:
       return reduceRunEvent(draft, action);
   }

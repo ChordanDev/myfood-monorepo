@@ -1,6 +1,7 @@
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useRecipeTheme } from '@/context/RecipeThemeContext';
 import { describePlanningFailure, type PlanningDraft } from '../domain/planningDraft';
+import type { PlanningAction } from '../hooks/usePlanningDraft';
 import { formatCostCents } from '../domain/proposalFormat';
 import { ProposalDayCard } from './ProposalDayCard';
 
@@ -12,11 +13,25 @@ interface PlanningDraftPanelProps {
   canStart: boolean;
   onStart: () => void;
   onRetry: () => void;
+  onConfirm: () => void;
+  onReject: () => void;
+  onCancel: () => void;
+  /** The action on the proposal that is on its way: the others wait for it. */
+  pendingAction: PlanningAction | null;
+  /** Why the last action on the proposal was refused, in the app's words. */
+  actionErrorMessage?: string;
+}
+
+/** What the User reads once the proposal is the live plan. */
+export function describeCommittedPlan(scheduledMealsCount: number): string {
+  const meals = scheduledMealsCount === 1 ? 'comida' : 'comidas';
+  return `Listo: agendamos ${scheduledMealsCount} ${meals} en tu calendario y actualizamos tu lista de compras.`;
 }
 
 /**
  * The first proposal in the conversation: the button that starts planning, the wait while it
- * generates, the day cards with the assistant's message once it is ready, or why it failed with a
+ * generates, the day cards with the assistant's message once it is ready, with the buttons that
+ * confirm, reject or cancel it, what was scheduled once it is confirmed, or why it failed with a
  * way to try again.
  */
 export function PlanningDraftPanel({
@@ -25,6 +40,11 @@ export function PlanningDraftPanel({
   canStart,
   onStart,
   onRetry,
+  onConfirm,
+  onReject,
+  onCancel,
+  pendingAction,
+  actionErrorMessage,
 }: PlanningDraftPanelProps) {
   const { theme } = useRecipeTheme();
 
@@ -65,6 +85,43 @@ export function PlanningDraftPanel({
         {proposal.days.map((day) => (
           <ProposalDayCard key={day.date} day={day} />
         ))}
+        {actionErrorMessage === undefined ? null : (
+          <View
+            accessible
+            accessibilityLiveRegion="polite"
+            accessibilityRole="alert"
+            testID="planner-action-error"
+            style={[styles.progress, { backgroundColor: theme.colorLight }]}>
+            <Text selectable style={[styles.progressText, { color: theme.textDark }]}>
+              {actionErrorMessage}
+            </Text>
+          </View>
+        )}
+        <View style={styles.actions}>
+          {action('Confirmar menú', onConfirm, pendingAction !== null, 'planner-confirm')}
+          {/* Rejecting and cancelling go through the topic: they need it joined. */}
+          {action(
+            'Pedir otra propuesta',
+            onReject,
+            pendingAction !== null || !canStart,
+            'planner-reject'
+          )}
+          {action('Cancelar', onCancel, pendingAction !== null || !canStart, 'planner-cancel')}
+        </View>
+      </View>
+    );
+  }
+
+  if (draft.status === 'committed') {
+    return (
+      <View
+        accessible
+        accessibilityLiveRegion="polite"
+        testID="planner-committed"
+        style={[styles.progress, { backgroundColor: theme.colorLight }]}>
+        <Text style={[styles.progressText, { color: theme.textDark }]}>
+          {describeCommittedPlan(draft.scheduledMealsCount)}
+        </Text>
       </View>
     );
   }
@@ -91,6 +148,11 @@ export function PlanningDraftPanel({
 }
 
 const styles = StyleSheet.create({
+  actions: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 10,
+  },
   button: {
     alignItems: 'center',
     alignSelf: 'flex-start',

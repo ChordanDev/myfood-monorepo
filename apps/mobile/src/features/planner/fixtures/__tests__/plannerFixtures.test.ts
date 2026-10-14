@@ -1,18 +1,24 @@
+import confirmProposalReply from '../confirmProposalReply.json';
 import generationError from '../generationError.json';
 import generationStarted from '../generationStarted.json';
 import planningInvalidRangeError from '../planningInvalidRangeError.json';
 import planningMessage from '../planningMessage.json';
 import planningRangeLockedError from '../planningRangeLockedError.json';
+import planningSlotOccupiedError from '../planningSlotOccupiedError.json';
 import proposalReady from '../proposalReady.json';
+import sessionCommitted from '../sessionCommitted.json';
 import sessionStarted from '../sessionStarted.json';
 import startPlanningReply from '../startPlanningReply.json';
 import {
+  parseConfirmProposalReply,
   parseGenerationError,
   parseGenerationStarted,
   parsePlanningInvalidRangeError,
   parsePlanningMessage,
   parsePlanningRangeLockedError,
+  parsePlanningSlotOccupiedError,
   parseProposalReady,
+  parseSessionCommitted,
   parseSessionStarted,
   parseStartPlanningReply,
 } from '../../types/planningEvents';
@@ -30,6 +36,9 @@ describe('Planner payload fixtures', () => {
     ['generationError', parseGenerationError, generationError],
     ['planningInvalidRangeError', parsePlanningInvalidRangeError, planningInvalidRangeError],
     ['planningRangeLockedError', parsePlanningRangeLockedError, planningRangeLockedError],
+    ['planningSlotOccupiedError', parsePlanningSlotOccupiedError, planningSlotOccupiedError],
+    ['confirmProposalReply', parseConfirmProposalReply, confirmProposalReply],
+    ['sessionCommitted', parseSessionCommitted, sessionCommitted],
   ] as const)('%s matches its type', (_name, parse, fixture) => {
     expect(() => parse(fixture)).not.toThrow();
   });
@@ -43,6 +52,13 @@ describe('Planner payload fixtures', () => {
     expect(parsePlanningRangeLockedError(planningRangeLockedError).error.details?.ownerName).toBe(
       'Ana Peer'
     );
+    expect(parseSessionCommitted(sessionCommitted).scheduledMealsCount).toBe(1);
+    expect(
+      parsePlanningSlotOccupiedError(planningSlotOccupiedError).error.details.occupied
+    ).toEqual([
+      { date: '2030-01-01', slot: 'dinner' },
+      { date: '2030-01-02', slot: 'lunch' },
+    ]);
   });
 
   it('rejects a payload with a missing, extra or mistyped key', () => {

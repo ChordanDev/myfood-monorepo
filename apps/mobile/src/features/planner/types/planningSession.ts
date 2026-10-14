@@ -24,3 +24,9 @@ export const SESSION_OVER_EVENTS: readonly SessionOverReason[] = [
   'session_expired',
   'session_lost_lock',
 ];
+
+// The lease of the session after `POST /api/planning/sessions/:sessionId/activity` renewed it.
+export interface PlanningLease {
+  sessionId: string;
+  leaseExpiresAt: string;
+}
