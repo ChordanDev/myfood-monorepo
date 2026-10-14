@@ -2,6 +2,7 @@
 
 import React from 'react';
 import { StyleSheet, Text, TextInput, View } from 'react-native';
+import { loadReactNative } from '@/testing/loadReactNative';
 import { act, create, ReactTestInstance } from 'react-test-renderer';
 import { INVENTORY_CATEGORY_COLORS } from '../constants/categories';
 import {
@@ -175,6 +176,8 @@ async function renderScreen() {
 
   return mountedScreen!.root;
 }
+
+beforeAll(loadReactNative, 30_000);
 
 beforeEach(() => {
   fetchMock.mockReset();

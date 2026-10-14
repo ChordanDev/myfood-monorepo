@@ -8,6 +8,7 @@
 
 import * as React from 'react';
 import { StyleSheet, Text } from 'react-native';
+import { loadReactNative } from '@/testing/loadReactNative';
 import { act, create, type ReactTestInstance } from 'react-test-renderer';
 import { ApiError } from '@/api/errors';
 import { AuthContext } from '@/features/auth/context/AuthContext';
@@ -330,6 +331,8 @@ function expectNoRawCodes(node: ReactTestInstance) {
 
 describe('SettingsScreen', () => {
   let warnSpy: jest.SpyInstance;
+
+  beforeAll(loadReactNative, 30_000);
 
   beforeEach(() => {
     // Only the clock is faked: the screen reads "now" for the trial state.

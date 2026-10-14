@@ -23,6 +23,7 @@
 
 import * as React from 'react';
 import { Alert } from 'react-native';
+import { loadReactNative } from '@/testing/loadReactNative';
 import { act, create } from 'react-test-renderer';
 import type { CurrentMe, AuthContextValue } from '@/features/auth/types/auth';
 import { AuthContext } from '@/features/auth/context/AuthContext';
@@ -212,6 +213,8 @@ function findButtonByText(root: any, text: string) {
 }
 
 describe('OnboardingScreen — post-completion redirect stabilization (Judgment Day C2 follow-up)', () => {
+  beforeAll(loadReactNative, 30_000);
+
   beforeEach(() => {
     mockRouterReplace.mockClear();
     mockRouterPush.mockClear();
