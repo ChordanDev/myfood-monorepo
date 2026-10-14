@@ -23,11 +23,14 @@ defmodule MealPlannerApiWeb.MobileAuthController do
   require Logger
 
   alias MealPlannerApi.Services.DeviceSessions
+  alias MealPlannerApi.Services.EmailCodeAuth
   alias MealPlannerApi.Services.EmailCodeLogin
   alias MealPlannerApi.Services.EmailCodeSignup
   alias MealPlannerApiWeb.ApiError
   alias MealPlannerApiWeb.ClientIp
   alias MealPlannerApiWeb.CurrentMe
+
+  @max_verify_failures_per_ip EmailCodeAuth.max_verify_failures_per_ip()
 
   @doc """
   `POST /api/auth/login/request-code`.
@@ -88,7 +91,8 @@ defmodule MealPlannerApiWeb.MobileAuthController do
   `me` is the same payload `GET /api/me` returns, or `code_invalid`,
   `code_expired`, `too_many_attempts`, `account_not_found`, or
   `rate_limited` (with a `retry-after` header in whole seconds) once the
-  client IP has 20 failed verifications in the last hour.
+  client IP has #{@max_verify_failures_per_ip} failed verifications in the
+  last hour.
 
   The session is opened in the transaction that consumes the code: when
   it cannot be opened, the code stays pending and the user can retry.

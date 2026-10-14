@@ -46,7 +46,6 @@ defmodule MealPlannerApi.Services.EmailCodeAuth do
   # in a way that serializes unrelated work.
   @email_lock_salt 0x4D45_6C70_6861_756C
   @ip_lock_salt 0x4D45_6C70_5F69_705F
-  @verify_failure_lock_salt 0x4D45_6C70_5F76_6661
 
   @type rate_limited :: {:error, :rate_limited, non_neg_integer()}
 
@@ -115,24 +114,19 @@ defmodule MealPlannerApi.Services.EmailCodeAuth do
   A `client_ip` that is not an IP address (`nil` included) draws from one
   shared bucket, as in `reserve_request_slots/2`.
 
-  Must run inside a `Repo.transaction/2`, which then holds the lock of
-  this IP's failure counter until it ends: check the limit, verify, and
-  record a failure in the same transaction, and concurrent verifications
-  from one IP cannot run past the limit together.
+  No lock is taken, so verifications from one IP never wait on each
+  other. Failures that land at the same moment may each pass the check
+  and run the counter a few past the limit; every later verification from
+  that IP is refused all the same.
   """
   @spec check_verify_failures(String.t() | nil) :: :ok | rate_limited()
   def check_verify_failures(client_ip) do
-    ip = normalize_client_ip(client_ip)
-    now = DateTime.utc_now()
-
-    lock!(verify_failure_lock_key(ip))
-
     check_slot(
       "verification_failure",
       nil,
-      ip,
+      normalize_client_ip(client_ip),
       @max_verify_failures_per_ip_per_window,
-      now
+      DateTime.utc_now()
     )
   end
 
@@ -258,10 +252,6 @@ defmodule MealPlannerApi.Services.EmailCodeAuth do
 
   defp ip_lock_key(ip) do
     (@ip_lock_salt + truncated_hash(ip)) |> Integer.mod(1_000_000_007)
-  end
-
-  defp verify_failure_lock_key(ip) do
-    (@verify_failure_lock_salt + truncated_hash(ip)) |> Integer.mod(1_000_000_007)
   end
 
   defp truncated_hash(value) when is_binary(value) do

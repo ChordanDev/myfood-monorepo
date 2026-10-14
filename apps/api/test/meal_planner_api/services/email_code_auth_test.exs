@@ -12,6 +12,7 @@ defmodule MealPlannerApi.Services.EmailCodeAuthTest do
 
   import Ecto.Query
 
+  alias Ecto.Adapters.SQL
   alias Ecto.Adapters.SQL.Sandbox
   alias MealPlannerApi.Persistence.Accounts.User, as: PersistenceUser
   alias MealPlannerApi.Repo
@@ -241,6 +242,16 @@ defmodule MealPlannerApi.Services.EmailCodeAuthTest do
       assert :ok = in_transaction(fn -> EmailCodeAuth.check_verify_failures("203.0.113.91") end)
     end
 
+    test "check_verify_failures/1 takes no lock, so verifications from one IP do not wait on each other" do
+      in_transaction(fn -> EmailCodeAuth.record_verify_failure("203.0.113.94") end)
+
+      assert 0 ==
+               in_transaction(fn ->
+                 assert :ok = EmailCodeAuth.check_verify_failures("203.0.113.94")
+                 advisory_lock_count()
+               end)
+    end
+
     test "verify failures and code requests are counted apart" do
       for _ <- 1..20 do
         assert :ok =
@@ -264,6 +275,18 @@ defmodule MealPlannerApi.Services.EmailCodeAuthTest do
   end
 
   # ---- Helpers ----------------------------------------------------------------
+
+  # Advisory locks this connection holds right now.
+  defp advisory_lock_count do
+    %{rows: [[count]]} =
+      SQL.query!(
+        Repo,
+        "SELECT count(*) FROM pg_locks WHERE locktype = 'advisory' AND pid = pg_backend_pid()",
+        []
+      )
+
+    count
+  end
 
   # The per-email request events counted for `email`.
   defp email_request_count(email) do
