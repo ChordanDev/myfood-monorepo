@@ -914,4 +914,77 @@ defmodule MealPlannerApiWeb.CalendarControllerTest do
       end
     end
   end
+
+  # `Date.from_iso8601/1` reads years from -9999 and PostgreSQL raises on a
+  # date before 4713 BC, so such a date used to answer 500. Every route that
+  # reads a date rejects one before year 1.
+  describe "a date before year 1" do
+    @before_year_one "-9999-01-01"
+
+    setup do
+      %{token: token, account: account} = insert_identity_with_token!(plan: :family_4)
+      today = pin_account_to_midday!(account)
+
+      %{token: token, account_id: account.id, today: today}
+    end
+
+    defp authorized(token) do
+      build_conn() |> put_req_header("authorization", "Bearer " <> token)
+    end
+
+    test "GET /api/calendar answers 422", f do
+      conn =
+        f.token
+        |> authorized()
+        |> get("/api/calendar", %{
+          "start_date" => @before_year_one,
+          "end_date" => @before_year_one
+        })
+
+      assert %{"error" => "invalid_date_format"} = json_response(conn, 422)
+    end
+
+    test "GET /api/calendar/slot answers 422", f do
+      conn =
+        f.token
+        |> authorized()
+        |> get("/api/calendar/slot", %{"date" => @before_year_one, "slot" => "lunch"})
+
+      assert %{"error" => "invalid_date_format"} = json_response(conn, 422)
+    end
+
+    test "PUT /api/calendar/meals/range answers 422", f do
+      conn =
+        f.token
+        |> authorized()
+        |> put("/api/calendar/meals/range", %{
+          "from" => @before_year_one,
+          "to" => @before_year_one,
+          "meals" => []
+        })
+
+      assert %{"error" => "invalid_date_format"} = json_response(conn, 422)
+    end
+
+    test "POST /api/calendar/meals/:id/move answers 422 naming date and leaves the meal", f do
+      source = scheduled!(f.account_id, f.today, :dinner)
+
+      assert %{"error" => %{"code" => "validation_error", "message" => message}} =
+               f.token
+               |> move(source.id, %{"date" => @before_year_one, "slot" => "snack"})
+               |> json_response(422)
+
+      assert message =~ "date"
+      assert stored_position(source) == {f.today, :dinner}
+    end
+
+    test "year 1 is the first date accepted", f do
+      slot_on = fn date ->
+        f.token |> authorized() |> get("/api/calendar/slot", %{"date" => date, "slot" => "lunch"})
+      end
+
+      assert %{"error" => "invalid_date_format"} = json_response(slot_on.("0000-12-31"), 422)
+      assert %{"data" => %{"date" => "0001-01-01"}} = json_response(slot_on.("0001-01-01"), 200)
+    end
+  end
 end
