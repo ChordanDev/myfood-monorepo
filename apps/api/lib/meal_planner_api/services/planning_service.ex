@@ -180,14 +180,11 @@ defmodule MealPlannerApi.Services.PlanningService do
     end
   end
 
-  # Names a failure for the log without its contents: a rejected changeset
-  # carries the plan it was built from.
+  # Both steps fail with a rejected changeset, which carries the plan it was
+  # built from, so the log names the schema and the invalid fields only.
   defp failure_name(%Ecto.Changeset{data: %schema{}, errors: errors}) do
     "invalid #{inspect(schema)} fields=#{inspect(Keyword.keys(errors))}"
   end
-
-  defp failure_name(reason) when is_atom(reason), do: Atom.to_string(reason)
-  defp failure_name(_reason), do: "unexpected"
 
   defp schedule_plan_meal(meal, account_id, run, proposal) do
     case PlanningRepo.schedule_meal(%{
