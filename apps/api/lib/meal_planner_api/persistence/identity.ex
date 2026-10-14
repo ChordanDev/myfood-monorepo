@@ -93,7 +93,7 @@ defmodule MealPlannerApi.Persistence.Identity do
   defp ensure_user(user_id, account_id, user) do
     attrs = %{
       account_id: account_id,
-      email: EmailCodeAuth.normalize_email(Map.get(user, :email, "#{user_id}@myfood.local")),
+      email: normalize_email(Map.get(user, :email, "#{user_id}@myfood.local")),
       name: map_user_name(user),
       role: :owner
     }
@@ -113,15 +113,24 @@ defmodule MealPlannerApi.Persistence.Identity do
     end
   end
 
-  # The email is stored lower-cased, but rows saved with capitals before
-  # that still exist, and until `users_lower_email_index` is unique only
-  # the exact-email index guards them. Without this check a shadow user
-  # holding the lower-cased email of such a row would be inserted, and
-  # login, which prefers the exact-case match, would land in its empty
-  # account.
-  defp refuse_email_held_by_another_user(%Ecto.Changeset{} = changeset, user_id) do
-    email = Ecto.Changeset.get_field(changeset, :email)
+  # A missing email is left to the changeset's required check.
+  defp normalize_email(email) when is_binary(email), do: EmailCodeAuth.normalize_email(email)
+  defp normalize_email(email), do: email
 
+  # The email is stored lower-cased, but rows saved with capitals before
+  # that may still exist. Without this check a shadow user holding the
+  # lower-cased email of such a row would be written, and login, which
+  # prefers the exact-case match, would land in its empty account. Once
+  # `users_lower_email_index` is unique the database refuses that write
+  # too; the check stays so the refusal does not depend on deploy order.
+  defp refuse_email_held_by_another_user(%Ecto.Changeset{} = changeset, user_id) do
+    case Ecto.Changeset.get_field(changeset, :email) do
+      email when is_binary(email) -> refuse_if_taken(changeset, email, user_id)
+      _ -> changeset
+    end
+  end
+
+  defp refuse_if_taken(changeset, email, user_id) do
     taken? =
       Repo.exists?(
         from(u in User, where: fragment("lower(?)", u.email) == ^email and u.id != ^user_id)

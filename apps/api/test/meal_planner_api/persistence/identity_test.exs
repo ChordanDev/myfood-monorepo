@@ -107,6 +107,17 @@ defmodule MealPlannerApi.Persistence.IdentityTest do
       assert {:email, {_message, [{:constraint, :unique} | _]}} = List.keyfind(errors, :email, 0)
     end
 
+    test "an identity without an email is a validation error, not a crash" do
+      assert {:error, %Ecto.Changeset{errors: errors}} =
+               Identity.ensure_persistent_identity(%{
+                 id: "external-user-nil-email",
+                 account_id: "external-account-nil-email",
+                 email: nil
+               })
+
+      assert {:email, {_message, [validation: :required]}} = List.keyfind(errors, :email, 0)
+    end
+
     # A user stored with capitals (an invite from before emails were
     # normalized) whose membership is gone must not get a lower-cased
     # shadow user: login prefers the exact-case match, so the person would
