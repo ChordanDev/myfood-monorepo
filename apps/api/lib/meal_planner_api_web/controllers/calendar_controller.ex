@@ -8,6 +8,8 @@ defmodule MealPlannerApiWeb.CalendarController do
   alias MealPlannerApiWeb.ApiError
   alias MealPlannerApiWeb.MealSummary
 
+  @earliest_date ~D[0001-01-01]
+
   # Phase A — Tenancy Refactor (PR 3c task 3.14): tenancy scope is always
   # resolved from `conn.assigns.current_membership.account_id` (the
   # DB-resolved row `LoadCurrentMembership` assigns via `membership_id`),
@@ -183,9 +185,13 @@ defmodule MealPlannerApiWeb.CalendarController do
 
   defp parse_date(nil), do: {:error, "missing_date_param"}
 
+  # `Date.from_iso8601/1` reads years from -9999, and PostgreSQL raises on a
+  # date before 4713 BC. The calendar has no use for a date before year 1.
   defp parse_date(value) when is_binary(value) do
-    case Date.from_iso8601(value) do
-      {:ok, date} -> {:ok, date}
+    with {:ok, date} <- Date.from_iso8601(value),
+         true <- Date.compare(date, @earliest_date) != :lt do
+      {:ok, date}
+    else
       _ -> {:error, "invalid_date_format"}
     end
   end
