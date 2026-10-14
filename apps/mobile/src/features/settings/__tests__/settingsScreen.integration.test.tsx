@@ -28,7 +28,7 @@ import {
 import {
   fixtureSlotCookingTimes,
   fixtureSlotCookingTimesNotFoundError,
-  fixtureValidationErrorDinnerCookingTimeMinutesError,
+  fixtureValidationDinnerMinutesApiError,
 } from '@/features/preferences/fixtures/slotCookingTimes';
 import type { RecipeThemeConfig } from '@/types/domain';
 import { withOpacity } from '@/utils/colors';
@@ -1113,7 +1113,7 @@ describe('SettingsScreen', () => {
       const { root } = await renderScreen({
         context: {
           saveSlotCookingTimes: jest.fn(() =>
-            Promise.reject(fixtureValidationErrorDinnerCookingTimeMinutesError())
+            Promise.reject(fixtureValidationDinnerMinutesApiError())
           ),
         },
       });

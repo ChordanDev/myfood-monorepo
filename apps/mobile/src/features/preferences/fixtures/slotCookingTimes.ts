@@ -55,13 +55,13 @@ export function fixtureInvalidHungerLevelError(): ApiError {
 
 // The frozen 422 body the same two routes answer to dinner minutes of -1: `validation_error`
 // in the form that names the field.
-export function fixtureValidationErrorDinnerCookingTimeMinutes(): typeof validationErrorDinnerCookingTimeMinutes {
+export function fixtureValidationDinnerMinutes(): typeof validationErrorDinnerCookingTimeMinutes {
   return { error: { ...validationErrorDinnerCookingTimeMinutes.error } };
 }
 
 // That 422 as the api client throws it.
-export function fixtureValidationErrorDinnerCookingTimeMinutesError(): ApiError {
-  return errorFromEnvelope(fixtureValidationErrorDinnerCookingTimeMinutes(), 422);
+export function fixtureValidationDinnerMinutesApiError(): ApiError {
+  return errorFromEnvelope(fixtureValidationDinnerMinutes(), 422);
 }
 
 // The frozen 422 body `PUT /api/me/slot-cooking-times` answers to a body that is not a JSON

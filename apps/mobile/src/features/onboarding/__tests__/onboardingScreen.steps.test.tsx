@@ -26,7 +26,7 @@ import {
 } from '@/features/preferences/fixtures/preferences';
 import {
   fixtureInvalidHungerLevelError,
-  fixtureValidationErrorDinnerCookingTimeMinutesError,
+  fixtureValidationDinnerMinutesApiError,
 } from '@/features/preferences/fixtures/slotCookingTimes';
 
 const mockRouterReplace = jest.fn();
@@ -478,7 +478,7 @@ describe('OnboardingScreen — three steps', () => {
   it.each([
     [
       'validation_error',
-      fixtureValidationErrorDinnerCookingTimeMinutesError,
+      fixtureValidationDinnerMinutesApiError,
       'Los datos ingresados no son válidos.',
     ],
     [
