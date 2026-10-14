@@ -52,6 +52,11 @@ const INITIAL_MESSAGES: PlannerMessage[] = [
   { id: 'confirmation', author: 'user', text: 'Si, me parece perfecto' },
 ];
 
+// Shown after a confirm that got no answer: the menu may be saved already, and a new confirm
+// answers the result of the first one.
+const CONFIRM_UNRESOLVED_MESSAGE =
+  'No sabemos si tu menú se guardó. Tocá Confirmar menú de nuevo para comprobarlo.';
+
 // Shown on `session_expired` and `session_lost_lock` alike: the user only needs to know that the
 // conversation cannot continue and a new one is needed.
 const SESSION_OVER_MESSAGE = 'Esta sesión de planificación terminó. Empezá una nueva para seguir.';
@@ -358,8 +363,11 @@ export const PlannerScreen = () => {
           actionErrorMessage={
             planningDraft.actionError === null
               ? undefined
-              : getAuthErrorMessage(planningDraft.actionError)
+              : planningDraft.isConfirmUnresolved
+                ? CONFIRM_UNRESOLVED_MESSAGE
+                : getAuthErrorMessage(planningDraft.actionError)
           }
+          isConfirmUnresolved={planningDraft.isConfirmUnresolved}
         />
         <View
           testID="planner-turn-trailing-space"

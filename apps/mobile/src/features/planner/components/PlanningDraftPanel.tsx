@@ -20,6 +20,8 @@ interface PlanningDraftPanelProps {
   pendingAction: PlanningAction | null;
   /** Why the last action on the proposal was refused, in the app's words. */
   actionErrorMessage?: string;
+  /** The last confirm got no answer: only confirming again is offered. */
+  isConfirmUnresolved: boolean;
 }
 
 /** What the User reads once the proposal is the live plan. */
@@ -45,6 +47,7 @@ export function PlanningDraftPanel({
   onCancel,
   pendingAction,
   actionErrorMessage,
+  isConfirmUnresolved,
 }: PlanningDraftPanelProps) {
   const { theme } = useRecipeTheme();
 
@@ -74,6 +77,7 @@ export function PlanningDraftPanel({
 
   if (draft.status === 'ready') {
     const { proposal, message } = draft;
+    const canLeave = pendingAction === null && canStart && !isConfirmUnresolved;
     return (
       <View testID="planner-proposal" style={styles.proposal}>
         {message === null ? null : (
@@ -99,14 +103,10 @@ export function PlanningDraftPanel({
         )}
         <View style={styles.actions}>
           {action('Confirmar menú', onConfirm, pendingAction !== null, 'planner-confirm')}
-          {/* Rejecting and cancelling go through the topic: they need it joined. */}
-          {action(
-            'Pedir otra propuesta',
-            onReject,
-            pendingAction !== null || !canStart,
-            'planner-reject'
-          )}
-          {action('Cancelar', onCancel, pendingAction !== null || !canStart, 'planner-cancel')}
+          {/* Rejecting and cancelling go through the topic: they need it joined. After a
+              confirm with no answer they wait for a new confirm to read the result. */}
+          {action('Pedir otra propuesta', onReject, !canLeave, 'planner-reject')}
+          {action('Cancelar', onCancel, !canLeave, 'planner-cancel')}
         </View>
       </View>
     );

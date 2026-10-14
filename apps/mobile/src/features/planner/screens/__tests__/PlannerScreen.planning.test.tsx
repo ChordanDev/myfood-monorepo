@@ -776,6 +776,53 @@ describe('PlannerScreen first proposal', () => {
       ]);
       expect(byTestId('planner-proposal')).toBeDefined();
       expect(mockLoadLivePlan).not.toHaveBeenCalled();
+      // A refusal is an answer: the User may still leave the proposal.
+      expect(byTestId('planner-reject')?.props.disabled).toBe(false);
+      expect(byTestId('planner-cancel')?.props.disabled).toBe(false);
+    });
+
+    // Jorge review of PR #278: a confirm that ends without an answer may still commit on the
+    // server, so leaving the proposal could reject a menu that is already scheduled. Only a new
+    // confirm, which answers the result of the first one, is offered.
+    it.each([
+      ['unknown_error', 500],
+      ['network_error', 0],
+      ['timeout', 0],
+    ] as const)(
+      'offers only to confirm again after a confirm that ends in %s',
+      async (code, status) => {
+        mockConfirmProposal.mockRejectedValueOnce(new ApiError(code, 'no answer', status));
+        await renderProposal();
+
+        await pressAsync('planner-confirm');
+
+        expect(textsOf('planner-action-error')).toEqual([
+          'No sabemos si tu menú se guardó. Tocá Confirmar menú de nuevo para comprobarlo.',
+        ]);
+        expect(byTestId('planner-reject')?.props.disabled).toBe(true);
+        expect(byTestId('planner-cancel')?.props.disabled).toBe(true);
+        expect(byTestId('planner-confirm')?.props.disabled).toBe(false);
+
+        await pressAsync('planner-confirm');
+
+        expect(mockConfirmProposal).toHaveBeenCalledTimes(2);
+        expect(textsOf('planner-committed')).toEqual([
+          'Listo: agendamos 4 comidas en tu calendario y actualizamos tu lista de compras.',
+        ]);
+      }
+    );
+
+    it('lets the User leave the proposal once a new confirm is refused with an answer', async () => {
+      mockConfirmProposal
+        .mockRejectedValueOnce(new ApiError('unknown_error', 'no answer', 500))
+        .mockRejectedValueOnce(new ApiError('lost_lock', 'lost', 409));
+      await renderProposal();
+
+      await pressAsync('planner-confirm');
+      await pressAsync('planner-confirm');
+
+      expect(byTestId('planner-reject')?.props.disabled).toBe(false);
+      expect(byTestId('planner-cancel')?.props.disabled).toBe(false);
     });
 
     it('disables the actions while the confirm is on its way', async () => {
