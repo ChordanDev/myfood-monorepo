@@ -204,6 +204,19 @@ describe('auth error code contract (api -> mobile allowlist)', () => {
     );
   });
 
+  it('does not know rate_limit_record_failed, a code the api never emits', () => {
+    // The api records a rate-limit event with `:ok = insert_event(...)`,
+    // so a failed record raises instead of answering a code. The catalog
+    // used to carry this one.
+    const code = 'rate_limit_record_failed';
+
+    expect(scanApiErrorCodes()).not.toContain(code);
+    expect(extractAuthErrorCodeUnionMembers()).not.toContain(code);
+    expect(runtimeAllowlist.has(code)).toBe(false);
+    expect(Object.keys(AUTH_ERROR_MESSAGES)).not.toContain(code);
+    expect(errorFromEnvelope({ error: { code, message: 'x' } }, 500).code).toBe('unknown_error');
+  });
+
   it('AUTH_ERROR_MESSAGES has an entry for every code in KNOWN_AUTH_ERROR_CODES', () => {
     // A code in the allowlist without a Spanish message would render
     // as the raw `error.message` from the api (often English) — i.e.
