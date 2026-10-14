@@ -12,6 +12,8 @@ defmodule MealPlannerApi.Services.PlanningService do
   Delegates to data repos for persistence.
   """
 
+  require Logger
+
   alias MealPlannerApi.Data.PlanningRepo
   alias MealPlannerApi.Optimization.OptimizerPort
   alias MealPlannerApi.Persistence.Identity
@@ -173,10 +175,19 @@ defmodule MealPlannerApi.Services.PlanningService do
       {:ok, %{proposal_id: proposal.id, meal_ids: meal_ids}}
     else
       {:error, reason} ->
-        IO.puts("DEBUG save_plan final error: #{inspect(reason)}")
+        Logger.error("save_plan failed account_id=#{account_id} failure=#{failure_name(reason)}")
         {:error, reason}
     end
   end
+
+  # Names a failure for the log without its contents: a rejected changeset
+  # carries the plan it was built from.
+  defp failure_name(%Ecto.Changeset{data: %schema{}, errors: errors}) do
+    "invalid #{inspect(schema)} fields=#{inspect(Keyword.keys(errors))}"
+  end
+
+  defp failure_name(reason) when is_atom(reason), do: Atom.to_string(reason)
+  defp failure_name(_reason), do: "unexpected"
 
   defp schedule_plan_meal(meal, account_id, run, proposal) do
     case PlanningRepo.schedule_meal(%{
