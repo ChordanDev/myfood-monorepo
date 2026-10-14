@@ -4,6 +4,7 @@ defmodule MealPlannerApi.Persistence.IdentityTest do
   import MealPlannerApi.FactoryHelpers
 
   alias Ecto.Adapters.SQL.Sandbox
+  alias MealPlannerApi.Persistence.Accounts.User
   alias MealPlannerApi.Persistence.Identity
   alias MealPlannerApi.Repo
 
@@ -77,6 +78,32 @@ defmodule MealPlannerApi.Persistence.IdentityTest do
         })
 
       assert {:error, _reason} = result
+    end
+  end
+
+  describe "ensure_persistent_identity/1 — email normalization" do
+    test "stores the identity's email trimmed and lower-cased" do
+      assert {:ok, %{user_id: user_id}} =
+               Identity.ensure_persistent_identity(%{
+                 id: "external-user-normalized",
+                 account_id: "external-account-normalized",
+                 email: "  External.User@Example.COM "
+               })
+
+      assert Repo.get!(User, user_id).email == "external.user@example.com"
+    end
+
+    test "rejects an email that differs only in case from another user's instead of storing it twice" do
+      user_with_memberships(%{email: "identity-taken@example.com"}, [])
+
+      assert {:error, %Ecto.Changeset{errors: errors}} =
+               Identity.ensure_persistent_identity(%{
+                 id: "external-user-case-variant",
+                 account_id: "external-account-case-variant",
+                 email: "Identity-Taken@Example.com"
+               })
+
+      assert {:email, {_message, [{:constraint, :unique} | _]}} = List.keyfind(errors, :email, 0)
     end
   end
 end

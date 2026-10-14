@@ -20,6 +20,7 @@ defmodule MealPlannerApi.Services.InviteServiceTest do
 
   alias Ecto.Adapters.SQL.Sandbox
   alias MealPlannerApi.Persistence.Accounts.AccountMembership
+  alias MealPlannerApi.Persistence.Accounts.User, as: PersistenceUser
   alias MealPlannerApi.Repo
   alias MealPlannerApi.Services.InviteService
 
@@ -179,6 +180,28 @@ defmodule MealPlannerApi.Services.InviteServiceTest do
                  owner_membership.account_id,
                  owner
                )
+    end
+  end
+
+  describe "create_invite_row/2" do
+    test "reuses the user whose email differs only in case, and stores new emails normalized" do
+      owner =
+        user_with_memberships(%{email: "row-owner@example.com"}, [
+          {%{plan: :family_4, name: "F"}, :owner}
+        ])
+
+      [owner_membership] = owner.memberships
+      registered = user_with_memberships(%{email: "row-invitee@example.com"}, [])
+
+      assert {:ok, %{membership: reused}} =
+               InviteService.create_invite_row(owner_membership, "Row-Invitee@Example.com ")
+
+      assert reused.user_id == registered.id
+
+      assert {:ok, %{membership: created}} =
+               InviteService.create_invite_row(owner_membership, " Row-New@Example.COM")
+
+      assert Repo.get!(PersistenceUser, created.user_id).email == "row-new@example.com"
     end
   end
 end

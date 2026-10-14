@@ -55,6 +55,7 @@ defmodule MealPlannerApi.Persistence.Accounts.User do
     |> cast(attrs, [:account_id, :email, :name, :role, :avatar_url])
     |> validate_required([:email, :name, :role])
     |> unique_constraint(:email)
+    |> unique_constraint(:email, name: :users_lower_email_index)
     |> foreign_key_constraint(:account_id)
   end
 

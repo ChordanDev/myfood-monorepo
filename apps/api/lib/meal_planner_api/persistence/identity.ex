@@ -7,6 +7,7 @@ defmodule MealPlannerApi.Persistence.Identity do
 
   alias MealPlannerApi.Persistence.Accounts.{Account, AccountMembership, User}
   alias MealPlannerApi.Repo
+  alias MealPlannerApi.Services.EmailCodeAuth
 
   @spec ensure_persistent_identity(map()) ::
           {:ok, %{account_id: Ecto.UUID.t(), user_id: Ecto.UUID.t()}}
@@ -92,7 +93,7 @@ defmodule MealPlannerApi.Persistence.Identity do
   defp ensure_user(user_id, account_id, user) do
     attrs = %{
       account_id: account_id,
-      email: Map.get(user, :email, "#{user_id}@myfood.local"),
+      email: EmailCodeAuth.normalize_email(Map.get(user, :email, "#{user_id}@myfood.local")),
       name: map_user_name(user),
       role: :owner
     }

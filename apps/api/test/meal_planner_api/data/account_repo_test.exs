@@ -14,6 +14,8 @@ defmodule MealPlannerApi.Data.AccountRepoTest do
   """
   use ExUnit.Case, async: false
 
+  import MealPlannerApi.FactoryHelpers
+
   alias Ecto.Adapters.SQL.Sandbox
   alias MealPlannerApi.Data.AccountRepo
   alias MealPlannerApi.Persistence.Accounts.Account, as: PersistenceAccount
@@ -258,5 +260,15 @@ defmodule MealPlannerApi.Data.AccountRepoTest do
     |> Repo.insert!()
 
     user
+  end
+
+  describe "get_user_by_email/1" do
+    test "matches the stored email regardless of case and surrounding spaces" do
+      user = user_with_memberships(%{email: "repo-lookup@example.com"}, [])
+
+      assert %PersistenceUser{id: id} = AccountRepo.get_user_by_email(" Repo-Lookup@Example.COM ")
+      assert id == user.id
+      assert AccountRepo.get_user_by_email("repo-missing@example.com") == nil
+    end
   end
 end
