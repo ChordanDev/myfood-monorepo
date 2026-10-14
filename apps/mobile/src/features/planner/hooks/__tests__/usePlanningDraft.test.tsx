@@ -96,7 +96,7 @@ afterEach(() => {
 describe('usePlanningDraft', () => {
   describe('a start push that times out', () => {
     it('keeps generating and is resolved by the events that follow', async () => {
-      act(() => controller.start(RANGE, ''));
+      act(() => controller.start(RANGE, '', []));
 
       await act(async () => lastPush().timeout());
       expect(controller.draft.status).toBe('generating');
@@ -109,7 +109,7 @@ describe('usePlanningDraft', () => {
     });
 
     it('still fails on an error reply', async () => {
-      act(() => controller.start(RANGE, ''));
+      act(() => controller.start(RANGE, '', []));
 
       await act(async () =>
         lastPush().replyError({ error: { code: 'planning_invalid_range', message: 'bad' } })
@@ -119,9 +119,28 @@ describe('usePlanningDraft', () => {
     });
   });
 
+  describe('the preselected favorites', () => {
+    it('go out with the start under favoriteRecipeIds', () => {
+      act(() => controller.start(RANGE, '', ['recipe-a', 'recipe-b']));
+
+      expect(lastPush().payload).toEqual({
+        rangeFrom: '2030-01-01',
+        rangeTo: '2030-01-02',
+        requestId: 'req_fixture_1',
+        favoriteRecipeIds: ['recipe-a', 'recipe-b'],
+      });
+    });
+
+    it('leave the key out when none is selected', () => {
+      act(() => controller.start(RANGE, '', []));
+
+      expect(lastPush().payload).not.toHaveProperty('favoriteRecipeIds');
+    });
+  });
+
   describe('the request text', () => {
     it('refuses a text over the cap without pushing, as invalid data', () => {
-      act(() => controller.start(RANGE, 'x'.repeat(MAX_PLANNING_REQUEST_CHARS + 1)));
+      act(() => controller.start(RANGE, 'x'.repeat(MAX_PLANNING_REQUEST_CHARS + 1), []));
 
       expect(channel().pushes).toHaveLength(0);
       expect(controller.draft).toMatchObject({
@@ -131,14 +150,14 @@ describe('usePlanningDraft', () => {
     });
 
     it('counts the trimmed text, so a text at the cap goes through', () => {
-      act(() => controller.start(RANGE, ` ${'x'.repeat(MAX_PLANNING_REQUEST_CHARS)} `));
+      act(() => controller.start(RANGE, ` ${'x'.repeat(MAX_PLANNING_REQUEST_CHARS)} `, []));
 
       expect(pushedEvents()).toEqual(['start_planning']);
     });
 
     it('tells the caller once the start is accepted, not before', async () => {
       const accepted = jest.fn();
-      act(() => controller.start(RANGE, 'sin carne', accepted));
+      act(() => controller.start(RANGE, 'sin carne', [], accepted));
       expect(accepted).not.toHaveBeenCalled();
 
       await replyOk();
@@ -148,7 +167,7 @@ describe('usePlanningDraft', () => {
 
     it('does not tell the caller about a start the server refuses', async () => {
       const accepted = jest.fn();
-      act(() => controller.start(RANGE, 'sin carne', accepted));
+      act(() => controller.start(RANGE, 'sin carne', [], accepted));
 
       await act(async () =>
         lastPush().replyError({ error: { code: 'planning_range_locked', message: 'locked' } })
@@ -162,7 +181,7 @@ describe('usePlanningDraft', () => {
     it.each(['session_cancelled', 'session_expired', 'session_lost_lock'])(
       'fails the draft on %s of the session it learned',
       async (event) => {
-        act(() => controller.start(RANGE, ''));
+        act(() => controller.start(RANGE, '', []));
         await replyOk();
         emit('generation_started', generationStarted);
 
@@ -179,7 +198,7 @@ describe('usePlanningDraft', () => {
 
     it('ignores a payload that does not parse', () => {
       const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
-      act(() => controller.start(RANGE, ''));
+      act(() => controller.start(RANGE, '', []));
       emit('generation_started', generationStarted);
 
       emit('session_cancelled', { session_id: SESSION_ID });
@@ -191,7 +210,7 @@ describe('usePlanningDraft', () => {
 
   describe('a retry after the generation failed', () => {
     async function failGeneration(): Promise<void> {
-      act(() => controller.start(RANGE, 'sin carne'));
+      act(() => controller.start(RANGE, 'sin carne', []));
       await replyOk();
       emit('generation_started', generationStarted);
       emit('generation_error', {
@@ -238,8 +257,40 @@ describe('usePlanningDraft', () => {
       expect(pushedEvents()).toEqual(['start_planning', 'cancel_planning', 'start_planning']);
     });
 
+    it('sends the preselected favorites again, in the same order', async () => {
+      act(() => controller.start(RANGE, 'sin carne', ['recipe-b', 'recipe-a']));
+      await replyOk();
+      emit('generation_started', generationStarted);
+      emit('generation_error', {
+        reason: 'pipeline_error',
+        details: {},
+        runId: null,
+        requestId: null,
+      });
+
+      act(() => controller.retry());
+      await act(async () => lastPush().replyOk({ sessionId: SESSION_ID, status: 'cancelled' }));
+
+      expect(pushedEvents()).toEqual(['start_planning', 'cancel_planning', 'start_planning']);
+      expect(lastPush().payload).toMatchObject({
+        request: 'sin carne',
+        favoriteRecipeIds: ['recipe-b', 'recipe-a'],
+      });
+    });
+
+    it('sends the preselected favorites again after a start the server refused', async () => {
+      act(() => controller.start(RANGE, '', ['recipe-a']));
+      await act(async () =>
+        lastPush().replyError({ error: { code: 'planning_range_locked', message: 'locked' } })
+      );
+
+      act(() => controller.retry());
+
+      expect(lastPush().payload).toMatchObject({ favoriteRecipeIds: ['recipe-a'] });
+    });
+
     it('does not cancel anything after a start the server refused', async () => {
-      act(() => controller.start(RANGE, ''));
+      act(() => controller.start(RANGE, '', []));
       await act(async () =>
         lastPush().replyError({ error: { code: 'planning_range_locked', message: 'locked' } })
       );

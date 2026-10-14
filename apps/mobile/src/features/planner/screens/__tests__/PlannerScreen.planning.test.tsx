@@ -16,6 +16,9 @@ import planningRangeLockedError from '../../fixtures/planningRangeLockedError.js
 import proposalReady from '../../fixtures/proposalReady.json';
 import sessionStarted from '../../fixtures/sessionStarted.json';
 import startPlanningReply from '../../fixtures/startPlanningReply.json';
+import { listFavorites } from '@/features/favorites/api/favoritesApi';
+import { useFavoritesStore } from '@/features/favorites/store';
+import type { FavoriteSummary } from '@/features/favorites';
 import { PlannerScreen } from '../PlannerScreen';
 
 // The server payloads are the fixtures the API channel tests record, so a change of the API that
@@ -50,6 +53,8 @@ jest.mock('@/context/RecipeThemeContext', () => ({
       textBlack: '#111111',
       textDark: '#222222',
       colorBlack: '#050505',
+      colorDark: '#333333',
+      textLight: '#fafafa',
       primaryAccent: '#ff6600',
     },
   }),
@@ -66,6 +71,7 @@ jest.mock('lucide-react-native', () => ({ CircleAlert: 'CircleAlert' }));
 jest.mock('../../components', () => ({
   ...jest.requireActual('../../components/PlanningJoinNotice'),
   ...jest.requireActual('../../components/PlanningDraftPanel'),
+  ...jest.requireActual('../../components/PlanningFavoritesPicker'),
   PlannerHeader: 'PlannerHeader',
 }));
 
@@ -93,11 +99,29 @@ jest.mock('@/features/auth/hooks/useAuth', () => ({
   useAuth: () => ({ me: { account: { id: 'account-1' } } }),
 }));
 
+jest.mock('@react-native-async-storage/async-storage', () =>
+  jest.requireActual('@react-native-async-storage/async-storage/jest/async-storage-mock')
+);
+
+// The real favorites store, fed by the list this suite hands it instead of the network. Its barrel
+// also loads the auth feature, which nothing here needs.
+jest.mock('@/features/favorites', () => jest.requireActual('@/features/favorites/store'));
+
+jest.mock('@/features/favorites/api/favoritesApi', () => ({ listFavorites: jest.fn() }));
+
 jest.mock('@/features/assistant-chat', () => ({
   ...jest.requireActual('@/features/assistant-chat/constants'),
   ChatTypingIndicator: () => null,
   ChatComposer: 'ChatComposer',
 }));
+
+const mockListFavorites = jest.mocked(listFavorites);
+
+function favorite(recipeId: string, name: string): FavoriteSummary {
+  return { recipeId, name, mainIngredients: [], durationMinutes: null };
+}
+
+const FAVORITES = [favorite('recipe-1', 'Lentejas'), favorite('recipe-2', 'Milanesa')];
 
 let socket: FakeSocket;
 let tree: ReturnType<typeof create>;
@@ -112,6 +136,18 @@ function lastPush(): FakePush {
 
 function renderJoined(): void {
   act(() => {
+    tree = create(<PlannerScreen />, {
+      createNodeMock: (element) =>
+        element.type === 'RCTScrollView' ? { scrollTo: jest.fn(), scrollToEnd: jest.fn() } : null,
+    });
+  });
+  act(() => channel().replyOk());
+}
+
+// The User has `favorites` on the server and the planner reads them when it opens.
+async function renderJoinedWithFavorites(favorites: FavoriteSummary[]): Promise<void> {
+  mockListFavorites.mockResolvedValue(favorites);
+  await act(async () => {
     tree = create(<PlannerScreen />, {
       createNodeMock: (element) =>
         element.type === 'RCTScrollView' ? { scrollTo: jest.fn(), scrollToEnd: jest.fn() } : null,
@@ -171,6 +207,9 @@ function emitProposal(): void {
 
 describe('PlannerScreen first proposal', () => {
   beforeEach(() => {
+    // An emptied store, and a server that has not answered yet unless a test says so.
+    useFavoritesStore.getState().clear();
+    mockListFavorites.mockReturnValue(new Promise(() => {}));
     mockRange = { start: '2030-01-01', end: '2030-01-02' };
     mockSocketClient = createSocketClient({
       url: 'wss://api.example.test/socket',
@@ -278,6 +317,108 @@ describe('PlannerScreen first proposal', () => {
     press('planner-start');
 
     expect(lastPush().payload).not.toHaveProperty('request');
+  });
+
+  describe('the favorites preselect step', () => {
+    it('lists the favorites the server has, as unchecked checkboxes', async () => {
+      await renderJoinedWithFavorites(FAVORITES);
+
+      expect(textsOf('planner-favorite-recipe-1')).toEqual(['Lentejas']);
+      expect(textsOf('planner-favorite-recipe-2')).toEqual(['Milanesa']);
+      for (const id of ['recipe-1', 'recipe-2']) {
+        expect(byTestId(`planner-favorite-${id}`)?.props).toMatchObject({
+          accessibilityRole: 'checkbox',
+          accessibilityState: { checked: false },
+        });
+      }
+    });
+
+    it('is not shown when the User has no favorites', async () => {
+      await renderJoinedWithFavorites([]);
+
+      expect(byTestId('planner-favorites')).toBeUndefined();
+      expect(byTestId('planner-start')).toBeDefined();
+    });
+
+    it('checks a favorite when tapped and unchecks it when tapped again', async () => {
+      await renderJoinedWithFavorites(FAVORITES);
+
+      press('planner-favorite-recipe-1');
+      expect(byTestId('planner-favorite-recipe-1')?.props.accessibilityState).toEqual({
+        checked: true,
+      });
+      expect(byTestId('planner-favorite-recipe-2')?.props.accessibilityState).toEqual({
+        checked: false,
+      });
+
+      press('planner-favorite-recipe-1');
+      expect(byTestId('planner-favorite-recipe-1')?.props.accessibilityState).toEqual({
+        checked: false,
+      });
+    });
+
+    it('sends the selected favorites with the start, next to the range and the request', async () => {
+      await renderJoinedWithFavorites(FAVORITES);
+      type('sin carne');
+      press('planner-favorite-recipe-2');
+      press('planner-favorite-recipe-1');
+
+      press('planner-start');
+
+      expect(lastPush().event).toBe('start_planning');
+      expect(lastPush().payload).toEqual({
+        rangeFrom: '2030-01-01',
+        rangeTo: '2030-01-02',
+        requestId: 'req_fixture_1',
+        request: 'sin carne',
+        favoriteRecipeIds: ['recipe-2', 'recipe-1'],
+      });
+    });
+
+    it('sends no favoriteRecipeIds when none is selected, or after the selection is undone', async () => {
+      await renderJoinedWithFavorites(FAVORITES);
+      press('planner-favorite-recipe-1');
+      press('planner-favorite-recipe-1');
+
+      press('planner-start');
+
+      expect(lastPush().payload).not.toHaveProperty('favoriteRecipeIds');
+    });
+
+    it('does not send a favorite that was removed before the start', async () => {
+      await renderJoinedWithFavorites(FAVORITES);
+      press('planner-favorite-recipe-1');
+      press('planner-favorite-recipe-2');
+
+      // Removed from the favorites screen while the planner stays open.
+      act(() => {
+        useFavoritesStore.setState({ favorites: [FAVORITES[1]] });
+      });
+      expect(byTestId('planner-favorite-recipe-1')).toBeUndefined();
+
+      press('planner-start');
+
+      expect(lastPush().payload).toMatchObject({ favoriteRecipeIds: ['recipe-2'] });
+    });
+
+    it('goes away while the plan is generating', async () => {
+      await renderJoinedWithFavorites(FAVORITES);
+
+      press('planner-start');
+
+      expect(byTestId('planner-favorites')).toBeUndefined();
+    });
+
+    it('sends the same favorites again from the retry button', async () => {
+      await renderJoinedWithFavorites(FAVORITES);
+      press('planner-favorite-recipe-2');
+      press('planner-start');
+      await replyError(planningRangeLockedError);
+
+      press('planner-retry');
+
+      expect(lastPush().payload).toMatchObject({ favoriteRecipeIds: ['recipe-2'] });
+    });
   });
 
   it('shows progress from the tap until the proposal arrives', async () => {
