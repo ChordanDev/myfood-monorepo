@@ -6,8 +6,6 @@ import { registerAccountDataReset } from '@/features/auth/utils/accountDataReset
 
 interface MealPlanState {
   entries: MealPlanEntry[];
-  // Always empty: kept only because two shopping tests still seed it; remove it with them.
-  recipes: never[];
   recipeSummaries: Record<string, RecipeSummary>;
   setPlan: (entries: MealPlanEntry[]) => void;
   setRecipeSummaries: (recipeSummaries: Record<string, RecipeSummary>) => void;
@@ -33,7 +31,6 @@ export const useMealPlanStore = create<MealPlanState>()(
   persist(
     (set, get) => ({
       entries: [],
-      recipes: [],
       recipeSummaries: {},
       setPlan: (entries) => set({ entries }),
       setRecipeSummaries: (recipeSummaries) => set({ recipeSummaries }),

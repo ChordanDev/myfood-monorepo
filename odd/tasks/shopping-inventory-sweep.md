@@ -62,7 +62,7 @@ Issue #233 is the last leftover of the recipes sweep (#224).
   - The two shopping tests stop seeding `ingredients`.
   - Checks: `npm run typecheck`, `npm run lint`, `npx jest --ci`.
   - Test-first: RED on the migrate test that drops a stored catalog.
-- [ ] **T3 Plan store recipes key (#233)** (route: inline; mechanical)
+- [x] **T3 Plan store recipes key (#233)** (route: inline; mechanical)
   - Remove `recipes` from `MealPlanState` and initial state; shopping tests
     seed `{ entries: [] }`; drop the `initial.recipes` assertion; rewrite
     `apps/mobile/CLAUDE.md:18`.
@@ -91,6 +91,20 @@ Issue #233 is the last leftover of the recipes sweep (#224).
   lines): consent granted, one reliability lens, no findings, approved and
   acknowledged (lineage `review-347d19c2bdc35aee`).
 
+- PR for #48: https://github.com/ChordanDev/myfood-monorepo/pull/259
+- T3 done inline on `chore/233-plan-store-recipes-key`, stacked on #259.
+  RED: `expect(initial).not.toHaveProperty('recipes')` failed (1 failed);
+  GREEN: 12 passed. `npm run typecheck` clean, `npm run lint` 0 errors,
+  `npx jest --ci` 153 suites, 2389 tests passed. `CLAUDE.md:18` now says
+  `DEFAULT_THEME` and test fixtures.
+
+- Review assessment of the T3 commit (base: #259 head): medium, 6 files,
+  22 lines, `review_due: false` (`under_budget`). The stop hook then
+  offered the whole branch from `main` (17 files, 464 lines): consent
+  granted, one reliability lens, no findings, approved and acknowledged
+  (lineage `review-93df56f4534666d3`).
+- PR for #233, stacked on #259: https://github.com/ChordanDev/myfood-monorepo/pull/260
+
 ## Next step
 
-PR for #48, then T3 (#233) stacked on it.
+Merge #259, then #260 (its base moves to `main`). Both are the user's call.
