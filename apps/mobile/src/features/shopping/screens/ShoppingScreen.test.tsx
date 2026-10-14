@@ -417,7 +417,7 @@ function signInAs(user: { id: string } | null) {
   });
 }
 
-beforeEach(async () => {
+function startFromAFreshDevice() {
   mockUser = USER_A;
   mockIsFocused = true;
   mockFocusEffect = undefined;
@@ -429,6 +429,24 @@ beforeEach(async () => {
   process.env.EXPO_PUBLIC_API_URL = 'https://api.example.test';
   useShoppingListStore.setState(useShoppingListStore.getInitialState(), true);
   serveThePlan();
+}
+
+// `react-native` hands out each of its components through a getter that requires it on first
+// use, so the first draw of the screen loads, and on a cold Jest cache transforms, every React
+// Native component it shows. That takes over a second on a fast machine and passed the 5 s
+// budget of the first test on CI, whose timeout then left an act() open that failed every test
+// after it. The screen is drawn once here, with a budget of its own, so each test only times
+// what it tests.
+beforeAll(async () => {
+  startFromAFreshDevice();
+  await renderLoadedScreen();
+  act(() => tree?.unmount());
+  tree = undefined;
+  await settle();
+}, 30_000);
+
+beforeEach(() => {
+  startFromAFreshDevice();
 });
 
 afterEach(async () => {
