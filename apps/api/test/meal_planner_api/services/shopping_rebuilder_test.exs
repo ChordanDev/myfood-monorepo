@@ -18,6 +18,25 @@ defmodule MealPlannerApi.Services.ShoppingRebuilderTest do
     %{ingredient_id: ingredient_id, unit: unit, quantity_milli: quantity_milli}
   end
 
+  # A confirmed meal, read from its frozen recipe snapshot.
+  defp snapshot_meal(id, date, recipe_ingredients) do
+    %{
+      id: id,
+      recipe_id: "recipe-#{id}",
+      date: date,
+      recipe_snapshot: %{"selected_quantity" => 1, "recipe_ingredients" => recipe_ingredients}
+    }
+  end
+
+  defp snapshot_ri(ingredient_id, unit, quantity_milli) do
+    %{
+      "ingredient_id" => ingredient_id,
+      "unit" => unit,
+      "quantity_milli" => quantity_milli,
+      "ingredient" => %{"id" => ingredient_id, "name" => ingredient_id}
+    }
+  end
+
   # -------------------------------------------------------------------------
   # Scenario: Partial inventory yields the exact shortage
   # Spec: AC #3 / story 16 — 200_000 needed, 100_000 available → 100_000
@@ -152,6 +171,69 @@ defmodule MealPlannerApi.Services.ShoppingRebuilderTest do
       assert row.ingredient_id == "salt"
       assert row.unit == :g
       assert row.quantity_milli == 5_000
+    end
+  end
+
+  # -------------------------------------------------------------------------
+  # Scenario: A repeated planned key sums its quantities
+  # Spec: issue #112 — a snapshot listing the same Ingredient and unit twice
+  # yields one line with the summed quantity
+  # -------------------------------------------------------------------------
+
+  describe "compute_net_shortages/2 — repeated planned key" do
+    test "a snapshot listing the same Ingredient and unit twice yields one summed line" do
+      meals = [
+        snapshot_meal("m1", ~D[2026-09-25], [
+          snapshot_ri("flour", "g", 200_000),
+          snapshot_ri("flour", "g", 50_000)
+        ])
+      ]
+
+      assert ShoppingRebuilder.compute_net_shortages(meals, %{}) == [
+               %{
+                 scheduled_meal_id: "m1",
+                 planned_date: ~D[2026-09-25],
+                 ingredient_id: "flour",
+                 unit: :g,
+                 quantity_milli: 250_000
+               }
+             ]
+    end
+
+    test "sums the shortages left after the inventory pool" do
+      meals = [meal("m1", ~D[2026-09-25], [ri("flour", :g, 100_000), ri("flour", :g, 30_000)])]
+      pool = %{{"flour", :g} => 50_000}
+
+      assert [%{ingredient_id: "flour", unit: :g, quantity_milli: 80_000}] =
+               ShoppingRebuilder.compute_net_shortages(meals, pool)
+    end
+
+    test "the summed line keeps the place of the first one" do
+      meals = [
+        meal("m1", ~D[2026-09-25], [
+          ri("flour", :g, 100_000),
+          ri("salt", :g, 5_000),
+          ri("flour", :g, 20_000)
+        ])
+      ]
+
+      assert [
+               %{ingredient_id: "flour", quantity_milli: 120_000},
+               %{ingredient_id: "salt", quantity_milli: 5_000}
+             ] = ShoppingRebuilder.compute_net_shortages(meals, %{})
+    end
+
+    test "the same Ingredient in another unit or another meal stays on its own line" do
+      meals = [
+        meal("m1", ~D[2026-09-25], [ri("milk", :ml, 100_000), ri("milk", :g, 20_000)]),
+        meal("m2", ~D[2026-09-25], [ri("milk", :ml, 50_000)])
+      ]
+
+      assert [
+               %{scheduled_meal_id: "m1", unit: :ml, quantity_milli: 100_000},
+               %{scheduled_meal_id: "m1", unit: :g, quantity_milli: 20_000},
+               %{scheduled_meal_id: "m2", unit: :ml, quantity_milli: 50_000}
+             ] = ShoppingRebuilder.compute_net_shortages(meals, %{})
     end
   end
 
