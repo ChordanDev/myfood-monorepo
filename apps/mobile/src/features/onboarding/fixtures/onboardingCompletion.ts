@@ -23,8 +23,8 @@ export function fixtureOnboardingCompletion(): OnboardingCompletionResponse {
   };
 }
 
-// The frozen 422 body `POST /api/onboarding/complete` answers to a Cooking skill outside the
-// catalog.
+// The frozen 422 body `POST /api/onboarding/complete` and `PUT /api/me/profile` answer to a
+// Cooking skill outside the catalog.
 export function fixtureInvalidCookingSkill(): typeof invalidCookingSkill {
   return { error: { ...invalidCookingSkill.error } };
 }

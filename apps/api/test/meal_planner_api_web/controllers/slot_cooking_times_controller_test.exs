@@ -22,6 +22,7 @@ defmodule MealPlannerApiWeb.SlotCookingTimesControllerTest do
   @fixture "preferences/fixtures/slotCookingTimes.json"
   @not_found_fixture "preferences/fixtures/slotCookingTimesNotFound.json"
   @dinner_minutes_fixture "preferences/fixtures/validationErrorDinnerCookingTimeMinutes.json"
+  @validation_error_fixture "preferences/fixtures/validationError.json"
   @invalid_hunger_level_fixture "preferences/fixtures/invalidHungerLevel.json"
 
   @times %{
@@ -214,6 +215,15 @@ defmodule MealPlannerApiWeb.SlotCookingTimesControllerTest do
 
       assert Map.keys(fixture) == ["error"]
       assert token |> put_times(times) |> json_response(422) == fixture
+    end
+
+    test "the refusal of a body that is not an object is the frozen mobile error fixture", %{
+      token: token
+    } do
+      fixture = MobileFixtures.read!(@validation_error_fixture)
+
+      assert Map.keys(fixture) == ["error"]
+      assert token |> put_times([]) |> json_response(422) == fixture
     end
 
     test "the invalid_hunger_level refusal is the frozen mobile error fixture", %{token: token} do

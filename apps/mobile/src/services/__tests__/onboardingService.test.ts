@@ -21,7 +21,7 @@ import preferencesFixture from '@/features/preferences/fixtures/preferences.json
 import {
   fixtureInvalidHungerLevel,
   fixtureSlotCookingTimes,
-  fixtureValidationErrorDinnerCookingTimeMinutes,
+  fixtureValidationDinnerMinutes,
 } from '@/features/preferences/fixtures/slotCookingTimes';
 import slotCookingTimesFixture from '@/features/preferences/fixtures/slotCookingTimes.json';
 import * as authService from '../authService';
@@ -106,7 +106,7 @@ describe('authService onboarding/preferences/slot-cooking-times endpoints', () =
 
   // Every refusal the api answers to an onboarding body with an invalid field.
   it.each([
-    ['validation_error', fixtureValidationErrorDinnerCookingTimeMinutes()],
+    ['validation_error', fixtureValidationDinnerMinutes()],
     ['invalid_cooking_skill', fixtureInvalidCookingSkill()],
     ['invalid_diet', fixtureInvalidDiet()],
     ['invalid_hard_restriction', fixtureInvalidHardRestriction()],
@@ -205,9 +205,7 @@ describe('authService onboarding/preferences/slot-cooking-times endpoints', () =
   });
 
   it('maps the validation_error of a refused slot cooking time to a typed error', async () => {
-    fetchMock.mockReturnValueOnce(
-      mockJsonResponse(fixtureValidationErrorDinnerCookingTimeMinutes(), false, 422)
-    );
+    fetchMock.mockReturnValueOnce(mockJsonResponse(fixtureValidationDinnerMinutes(), false, 422));
 
     await expect(
       authService.updateSlotCookingTimes('access-1', {

@@ -5,6 +5,7 @@ import { HUNGER_LEVELS } from '../constants/preferenceOptions';
 import invalidHungerLevel from './invalidHungerLevel.json';
 import slotCookingTimes from './slotCookingTimes.json';
 import slotCookingTimesNotFound from './slotCookingTimesNotFound.json';
+import validationError from './validationError.json';
 import validationErrorDinnerCookingTimeMinutes from './validationErrorDinnerCookingTimeMinutes.json';
 
 type FrozenSlotCookingTime = Omit<SlotCookingTime, 'hungerLevel'> & { hungerLevel: string };
@@ -53,12 +54,23 @@ export function fixtureInvalidHungerLevelError(): ApiError {
 }
 
 // The frozen 422 body the same two routes answer to dinner minutes of -1: `validation_error`
-// in the form that names the field. The form that names none has no fixture.
-export function fixtureValidationErrorDinnerCookingTimeMinutes(): typeof validationErrorDinnerCookingTimeMinutes {
+// in the form that names the field.
+export function fixtureValidationDinnerMinutes(): typeof validationErrorDinnerCookingTimeMinutes {
   return { error: { ...validationErrorDinnerCookingTimeMinutes.error } };
 }
 
 // That 422 as the api client throws it.
-export function fixtureValidationErrorDinnerCookingTimeMinutesError(): ApiError {
-  return errorFromEnvelope(fixtureValidationErrorDinnerCookingTimeMinutes(), 422);
+export function fixtureValidationDinnerMinutesApiError(): ApiError {
+  return errorFromEnvelope(fixtureValidationDinnerMinutes(), 422);
+}
+
+// The frozen 422 body `PUT /api/me/slot-cooking-times` answers to a body that is not a JSON
+// object: `validation_error` in the form that names no field.
+export function fixtureValidationRequest(): typeof validationError {
+  return { error: { ...validationError.error } };
+}
+
+// That 422 as the api client throws it.
+export function fixtureValidationRequestApiError(): ApiError {
+  return errorFromEnvelope(fixtureValidationRequest(), 422);
 }

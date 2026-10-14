@@ -21,6 +21,10 @@ defmodule MealPlannerApiWeb.ProfileControllerTest do
   # below keeps it from drifting away from the route.
   @fixture "auth/fixtures/profileUpdate.json"
 
+  # The frozen refusal of a Cooking skill outside the catalog. The onboarding
+  # route answers it too and pins the same file.
+  @invalid_cooking_skill_fixture "onboarding/fixtures/invalidCookingSkill.json"
+
   @path "/api/me/profile"
   @email "profile_edit@example.com"
   @profile %{
@@ -258,6 +262,17 @@ defmodule MealPlannerApiWeb.ProfileControllerTest do
 
         assert is_binary(message) and message != ""
       end
+    end
+
+    test "the invalid_cooking_skill refusal is the frozen mobile error fixture", %{
+      conn: conn,
+      token: token
+    } do
+      fixture = MobileFixtures.read!(@invalid_cooking_skill_fixture)
+      conn = put_profile(conn, token, %{@profile | "cookingSkill" => "wizard"})
+
+      assert Map.keys(fixture) == ["error"]
+      assert json_response(conn, 422) == fixture
     end
 
     test "the first offending field decides the answer", %{conn: conn, token: token} do
