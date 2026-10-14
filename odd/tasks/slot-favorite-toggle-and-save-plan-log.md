@@ -51,7 +51,9 @@ From `apps/api`, with `MIX_ENV=test`, `MYFOOD_TEST_DB_USERNAME` set to the local
 ## Review
 
 - 2026-10-13 — Candidate `63427df..db1a44c` (T1 and T2 in one slice), assessed `medium` (`executable_change`: `planning_repo.ex`), 242 changed lines. The slice was under the budget, and the session stop hook asked for the review anyway. Consent granted by the owner; one lens ran (`review-reliability`); outcome `approved`, acknowledged (lineage `review-109f7b79af5fa43f`). Reviewed boundary: `db1a44c`.
-- Advisory findings, none blocking, none applied (later work, to be accepted or dropped by the owner):
+- Advisory findings, none blocking (the owner accepts or drops each; the third was accepted and applied on 2026-10-14):
   - WARNING — the remove direction is gated on the meal as well, so a favorite on a meal that lost its recipe cannot be turned off through the route, and no test covers it. A favorite cannot outlive its meal: `slot_favorites.scheduled_meal_id` deletes on cascade.
   - SUGGESTION — the branch that maps a repo changeset to `invalid_payload` has no test. `SlotFavorite.changeset/2` declares the unique constraint, so a racing insert does return a changeset.
   - SUGGESTION — in the `save_plan/4` test, `assert log =~ "account_id"` always holds because the message prefix contains `account_id=`; asserting on the `fields=` fragment would prove the field names. The atom and `unexpected` clauses of `failure_name/1` are not exercised, and `capture_log` in an async module can pick up lines of other tests.
+- 2026-10-14 — The owner declined the review of candidate `63427df..f69688b` (the same slice plus the document commit `f69688b`).
+- 2026-10-14 — Third finding applied at the owner's request: the `save_plan/4` test asserts `fields=[:account_id, :user_id]` instead of `account_id`. Mutation check: with the field names dropped from the log line, the test fails on that assertion (16/17); restored, 17 passed. `mix format --check-formatted` and `mix credo --strict` clean.

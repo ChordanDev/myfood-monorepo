@@ -145,7 +145,7 @@ defmodule MealPlannerApi.Services.PlanningServiceTest do
 
       assert log =~ "save_plan failed"
       assert log =~ "PlanningGenerationRun"
-      assert log =~ "account_id"
+      assert log =~ "fields=[:account_id, :user_id]"
       # `input_context` is one of the changes the rejected changeset carries.
       refute log =~ "input_context"
     end
