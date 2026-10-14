@@ -99,7 +99,6 @@ export type AuthErrorCode =
   | 'refresh_token_expired'
   | 'refresh_token_session_mismatch'
   | 'account_not_found'
-  | 'rate_limit_record_failed'
   | 'trial_expired'
   | 'validation_error'
   | 'invalid_cooking_skill'

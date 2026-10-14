@@ -28,7 +28,6 @@ export const KNOWN_AUTH_ERROR_CODES = new Set<AuthErrorCode>([
   'refresh_token_expired',
   'refresh_token_session_mismatch',
   'account_not_found',
-  'rate_limit_record_failed',
   'trial_expired',
   'validation_error',
   'invalid_cooking_skill',
@@ -128,7 +127,6 @@ export const AUTH_ERROR_MESSAGES: Partial<Record<AuthErrorCode, string>> = {
   refresh_token_session_mismatch:
     'No pudimos cerrar la sesión de forma remota, pero se cerró en este dispositivo.',
   account_not_found: 'No pudimos encontrar tu cuenta. Iniciá sesión nuevamente.',
-  rate_limit_record_failed: 'Hubo un problema al registrar tu actividad. Intenta nuevamente.',
   trial_expired: 'Tu período de prueba terminó.',
   validation_error: 'Los datos ingresados no son válidos.',
   invalid_cooking_skill: 'La experiencia cocinando seleccionada no es válida.',
