@@ -87,6 +87,7 @@ defmodule MealPlannerApiWeb.PlanningController do
 
   defp error_status(:invalid_date), do: :bad_request
   defp error_status(:invalid_slot), do: :bad_request
+  defp error_status(:meal_not_found), do: :not_found
   defp error_status(:invalid_identity), do: :unauthorized
   defp error_status(:optimization_failed), do: :unprocessable_entity
   defp error_status(_), do: :unprocessable_entity

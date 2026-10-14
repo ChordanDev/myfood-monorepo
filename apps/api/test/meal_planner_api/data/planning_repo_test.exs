@@ -236,6 +236,35 @@ defmodule MealPlannerApi.Data.PlanningRepoTest do
     end
   end
 
+  describe "get_scheduled_meal_at/3 — account_id + date + slot lookup" do
+    test "finds the meal at the account, date and slot, and ignores another account's" do
+      account_a = insert_account("At A")
+      account_b = insert_account("At B")
+
+      user = insert_user_with_active_membership(account_a.id, "at@example.com", :owner)
+      _family_membership = insert_active_membership_for(account_b.id, user, :member)
+
+      recipe = insert_recipe("At Recipe")
+
+      {:ok, meal_a} =
+        PlanningRepo.schedule_meal(%{
+          account_id: account_a.id,
+          recipe_id: recipe.id,
+          user_id: user.id,
+          date: ~D[2026-07-01],
+          slot: :dinner,
+          servings: 2
+        })
+
+      assert PlanningRepo.get_scheduled_meal_at(account_a.id, ~D[2026-07-01], "dinner").id ==
+               meal_a.id
+
+      assert PlanningRepo.get_scheduled_meal_at(account_b.id, ~D[2026-07-01], "dinner") == nil
+      assert PlanningRepo.get_scheduled_meal_at(account_a.id, ~D[2026-07-01], "lunch") == nil
+      assert PlanningRepo.get_scheduled_meal_at(account_a.id, ~D[2026-07-02], "dinner") == nil
+    end
+  end
+
   describe "fetch_owned_proposal/3 — account_id + user_id scoping" do
     test "rejects a proposal that belongs to a different account" do
       account_a = insert_account("Proposal A")

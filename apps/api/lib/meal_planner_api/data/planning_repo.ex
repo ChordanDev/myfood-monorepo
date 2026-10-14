@@ -202,6 +202,12 @@ defmodule MealPlannerApi.Data.PlanningRepo do
     |> Repo.one()
   end
 
+  # `slot` is the slot name as a string; Ecto casts it to the `Ecto.Enum` column.
+  @spec get_scheduled_meal_at(Ecto.UUID.t(), Date.t(), String.t()) :: ScheduledMeal.t() | nil
+  def get_scheduled_meal_at(account_id, date, slot) do
+    Repo.get_by(ScheduledMeal, account_id: account_id, date: date, slot: slot)
+  end
+
   @spec delete_scheduled_meal(Ecto.UUID.t()) :: :ok
   def delete_scheduled_meal(id) do
     Repo.delete!(Repo.get!(ScheduledMeal, id))
