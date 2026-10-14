@@ -218,6 +218,52 @@ defmodule MealPlannerApiWeb.PlanningChatControllerTest do
       assert Repo.get!(PlanningProposal, proposal.id).status == :pending
     end
 
+    # Jorge review of PR #278: a confirm still running in the generation server
+    # (its HTTP call timed out) must not be overwritten by a reject that read the
+    # proposal as pending before the confirm committed.
+    test "waits for a confirm in flight and answers 409 once it accepted the proposal",
+         %{conn: conn} do
+      %{token: token, user: user, account: account} = insert_identity_with_token!(plan: :family_4)
+      proposal = insert_pending_proposal(account, user)
+      server = start_busy_generation_server(account.id)
+
+      request =
+        Task.async(fn ->
+          conn
+          |> put_req_header("authorization", "Bearer " <> token)
+          |> post("/api/planning/proposals/#{proposal.id}/reject")
+        end)
+
+      # The server is still busy with the confirm, which commits meanwhile.
+      assert_receive {:busy_server_called, ^server, :get_status}
+      proposal |> Ecto.Changeset.change(%{status: :accepted}) |> Repo.update!()
+      send(server, :finish_confirm)
+
+      conn = Task.await(request)
+
+      assert %{"error" => %{"code" => "planning_proposal_not_pending"}} =
+               json_response(conn, 409)
+
+      assert Repo.get!(PlanningProposal, proposal.id).status == :accepted
+      refute_receive {:busy_server_cast, ^server, {:reject, _proposal_id}}
+    end
+
+    test "answers 500 and rejects nothing when the generation server cannot be reached",
+         %{conn: conn} do
+      %{token: token, user: user, account: account} = insert_identity_with_token!(plan: :family_4)
+      proposal = insert_pending_proposal(account, user)
+      server = start_busy_generation_server(account.id, exit_on_call: true)
+
+      conn =
+        conn
+        |> put_req_header("authorization", "Bearer " <> token)
+        |> post("/api/planning/proposals/#{proposal.id}/reject")
+
+      assert %{"error" => %{"code" => "unknown_error"}} = json_response(conn, 500)
+      assert Repo.get!(PlanningProposal, proposal.id).status == :pending
+      refute_receive {:busy_server_cast, ^server, _cast}
+    end
+
     test "answers 422 invalid_proposal_id for a malformed id", %{conn: conn} do
       %{token: token} = insert_identity_with_token!(plan: :family_4)
 
@@ -227,6 +273,43 @@ defmodule MealPlannerApiWeb.PlanningChatControllerTest do
         |> post("/api/planning/proposals/nope/reject")
 
       assert %{"error" => %{"code" => "invalid_proposal_id"}} = json_response(conn, 422)
+    end
+  end
+
+  # Registers a process as the generation server of the Account. It holds the
+  # first call it gets until the test sends `:finish_confirm`, as a server still
+  # running a confirm would, then answers every later call at once. With
+  # `exit_on_call: true` it dies on the first call instead. It reports every
+  # call and cast it gets to the test.
+  defp start_busy_generation_server(account_id, opts \\ []) do
+    test_pid = self()
+
+    pid =
+      spawn(fn ->
+        {:ok, _owner} =
+          Registry.register(MealPlannerApi.Generation.Generations, {:generation, account_id}, nil)
+
+        send(test_pid, :busy_server_registered)
+        busy_server_loop(test_pid, Keyword.get(opts, :exit_on_call, false), true)
+      end)
+
+    assert_receive :busy_server_registered
+    on_exit(fn -> Process.exit(pid, :kill) end)
+    pid
+  end
+
+  defp busy_server_loop(test_pid, exit_on_call?, held?) do
+    receive do
+      {:"$gen_call", from, request} ->
+        send(test_pid, {:busy_server_called, self(), request})
+        if exit_on_call?, do: exit(:boom)
+        if held?, do: receive(do: (:finish_confirm -> :ok))
+        GenServer.reply(from, %{})
+        busy_server_loop(test_pid, exit_on_call?, false)
+
+      {:"$gen_cast", request} ->
+        send(test_pid, {:busy_server_cast, self(), request})
+        busy_server_loop(test_pid, exit_on_call?, held?)
     end
   end
 
