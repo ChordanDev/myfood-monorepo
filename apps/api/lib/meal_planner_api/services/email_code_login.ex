@@ -377,19 +377,26 @@ defmodule MealPlannerApi.Services.EmailCodeLogin do
   defp check_failure_limit({:ok, client_ip}), do: EmailCodeAuth.check_verify_failures(client_ip)
   defp check_failure_limit(:error), do: :ok
 
+  # A failed check first reserves its place in the per-IP failure counter;
+  # only then does it count as an attempt on the code, so a failure
+  # refused by the IP limit leaves the code untouched.
   defp match_code(email, code, flow, now, failure_limit) do
-    with {:ok, row} <- latest_pending_code(email, flow),
-         :ok <- check_code(row, code, now) do
-      {:ok, row}
-    else
-      {:error, _reason} = failure ->
-        record_failure(failure_limit)
-        failure
+    case classify_code(latest_pending_code(email, flow), code, now) do
+      {:ok, row} ->
+        {:ok, row}
+
+      {:error, reason, row} ->
+        with :ok <- reserve_failure(failure_limit) do
+          charge_failure(reason, row)
+        end
     end
   end
 
-  defp record_failure({:ok, client_ip}), do: EmailCodeAuth.record_verify_failure(client_ip)
-  defp record_failure(:error), do: :ok
+  defp reserve_failure({:ok, client_ip}), do: EmailCodeAuth.reserve_verify_failure(client_ip)
+  defp reserve_failure(:error), do: :ok
+
+  defp charge_failure(:mismatch, row), do: record_failed_attempt(row)
+  defp charge_failure(reason, _row), do: {:error, reason}
 
   defp latest_pending_code(email, flow) do
     query = from(c in pending_codes(email, flow), order_by: [desc: c.inserted_at], limit: 1)
@@ -400,19 +407,23 @@ defmodule MealPlannerApi.Services.EmailCodeLogin do
     end
   end
 
-  defp check_code(%EmailVerificationCode{} = row, code, now) do
+  # Decides the outcome of a check without writing anything: the row on a
+  # match, or the reason it failed and the row it failed against.
+  defp classify_code({:error, reason}, _code, _now), do: {:error, reason, nil}
+
+  defp classify_code({:ok, %EmailVerificationCode{} = row}, code, now) do
     cond do
       row.attempts >= @max_attempts ->
-        {:error, :too_many_attempts}
+        {:error, :too_many_attempts, row}
 
       DateTime.compare(row.expires_at, now) != :gt ->
-        {:error, :code_expired}
+        {:error, :code_expired, row}
 
       Plug.Crypto.secure_compare(row.code_hash, EmailCodeAuth.hash_code(code)) ->
-        :ok
+        {:ok, row}
 
       true ->
-        record_failed_attempt(row)
+        {:error, :mismatch, row}
     end
   end
 

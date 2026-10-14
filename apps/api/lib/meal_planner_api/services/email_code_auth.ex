@@ -14,7 +14,7 @@ defmodule MealPlannerApi.Services.EmailCodeAuth do
       rolling 1-hour request counters (5 per email, 20 per IP), kept in
       `email_auth_events` and serialized by Postgres advisory locks so
       concurrent requesters cannot collectively exceed them.
-    * `check_verify_failures/1` and `record_verify_failure/1` — the
+    * `check_verify_failures/1` and `reserve_verify_failure/1` — the
       rolling 1-hour counter of failed code verifications (20 per IP),
       kept in the same table under its own kind.
     * `max_code_attempts/0` — the failed attempts after which a code is
@@ -46,6 +46,7 @@ defmodule MealPlannerApi.Services.EmailCodeAuth do
   # in a way that serializes unrelated work.
   @email_lock_salt 0x4D45_6C70_6861_756C
   @ip_lock_salt 0x4D45_6C70_5F69_705F
+  @verify_failure_lock_salt 0x4D45_6C70_5F76_6661
 
   @type rate_limited :: {:error, :rate_limited, non_neg_integer()}
 
@@ -109,15 +110,14 @@ defmodule MealPlannerApi.Services.EmailCodeAuth do
   Answers `{:error, :rate_limited, retry_after}` when `client_ip` has
   #{@max_verify_failures_per_ip_per_window} failed code verifications in
   the rolling 1-hour window, `:ok` otherwise. Nothing is recorded; the
-  caller records each failure with `record_verify_failure/1`.
+  caller reserves each failure with `reserve_verify_failure/1`.
 
   A `client_ip` that is not an IP address (`nil` included) draws from one
   shared bucket, as in `reserve_request_slots/2`.
 
   No lock is taken, so verifications from one IP never wait on each
-  other. Failures that land at the same moment may each pass the check
-  and run the counter a few past the limit; every later verification from
-  that IP is refused all the same.
+  other: this is the fast refusal of an IP already over the limit. The
+  limit itself is enforced exactly by `reserve_verify_failure/1`.
   """
   @spec check_verify_failures(String.t() | nil) :: :ok | rate_limited()
   def check_verify_failures(client_ip) do
@@ -131,12 +131,33 @@ defmodule MealPlannerApi.Services.EmailCodeAuth do
   end
 
   @doc """
-  Records one failed code verification against `client_ip`, in the
-  counter `check_verify_failures/1` reads.
+  Reserves one failed code verification for `client_ip` in the counter
+  `check_verify_failures/1` reads, or answers
+  `{:error, :rate_limited, retry_after}` and records nothing when the IP
+  already has #{@max_verify_failures_per_ip_per_window} in the window.
+
+  Must run inside a `Repo.transaction/2`, before the failure has any
+  other effect: the transaction holds the lock of this IP's failure
+  counter until it ends, so concurrent failures from one IP cannot run
+  past the limit together. Successful verifications never take it.
   """
-  @spec record_verify_failure(String.t() | nil) :: :ok
-  def record_verify_failure(client_ip) do
-    insert_event("verification_failure", nil, normalize_client_ip(client_ip), DateTime.utc_now())
+  @spec reserve_verify_failure(String.t() | nil) :: :ok | rate_limited()
+  def reserve_verify_failure(client_ip) do
+    ip = normalize_client_ip(client_ip)
+    now = DateTime.utc_now()
+
+    lock!(verify_failure_lock_key(ip))
+
+    with :ok <-
+           check_slot(
+             "verification_failure",
+             nil,
+             ip,
+             @max_verify_failures_per_ip_per_window,
+             now
+           ) do
+      insert_event("verification_failure", nil, ip, now)
+    end
   end
 
   @doc """
@@ -252,6 +273,10 @@ defmodule MealPlannerApi.Services.EmailCodeAuth do
 
   defp ip_lock_key(ip) do
     (@ip_lock_salt + truncated_hash(ip)) |> Integer.mod(1_000_000_007)
+  end
+
+  defp verify_failure_lock_key(ip) do
+    (@verify_failure_lock_salt + truncated_hash(ip)) |> Integer.mod(1_000_000_007)
   end
 
   defp truncated_hash(value) when is_binary(value) do

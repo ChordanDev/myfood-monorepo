@@ -228,12 +228,12 @@ defmodule MealPlannerApi.Services.EmailCodeAuthTest do
   describe "per-IP verify failures" do
     test "check_verify_failures/1 rate limits an IP once it has 20 failures in the hour" do
       for _ <- 1..19 do
-        in_transaction(fn -> EmailCodeAuth.record_verify_failure("203.0.113.90") end)
+        in_transaction(fn -> EmailCodeAuth.reserve_verify_failure("203.0.113.90") end)
       end
 
       assert :ok = in_transaction(fn -> EmailCodeAuth.check_verify_failures("203.0.113.90") end)
 
-      in_transaction(fn -> EmailCodeAuth.record_verify_failure("203.0.113.90") end)
+      in_transaction(fn -> EmailCodeAuth.reserve_verify_failure("203.0.113.90") end)
 
       assert {:error, :rate_limited, retry_after} =
                in_transaction(fn -> EmailCodeAuth.check_verify_failures("203.0.113.90") end)
@@ -243,13 +243,36 @@ defmodule MealPlannerApi.Services.EmailCodeAuthTest do
     end
 
     test "check_verify_failures/1 takes no lock, so verifications from one IP do not wait on each other" do
-      in_transaction(fn -> EmailCodeAuth.record_verify_failure("203.0.113.94") end)
+      # The sandbox keeps every transaction-scoped lock until the test
+      # ends, so the check is measured by the locks it adds, on an IP
+      # nothing has locked yet.
+      {before, after_check} =
+        in_transaction(fn ->
+          before = advisory_lock_count()
+          assert :ok = EmailCodeAuth.check_verify_failures("203.0.113.94")
+          {before, advisory_lock_count()}
+        end)
 
-      assert 0 ==
-               in_transaction(fn ->
-                 assert :ok = EmailCodeAuth.check_verify_failures("203.0.113.94")
-                 advisory_lock_count()
-               end)
+      assert after_check == before
+    end
+
+    test "reserve_verify_failure/1 refuses the failure past the limit and records nothing" do
+      for _ <- 1..20 do
+        assert :ok =
+                 in_transaction(fn -> EmailCodeAuth.reserve_verify_failure("203.0.113.95") end)
+      end
+
+      assert {:error, :rate_limited, retry_after} =
+               in_transaction(fn -> EmailCodeAuth.reserve_verify_failure("203.0.113.95") end)
+
+      assert retry_after in 3_590..3_600
+
+      assert Repo.aggregate(
+               from(e in "email_auth_events",
+                 where: e.kind == "verification_failure" and e.client_ip == "203.0.113.95"
+               ),
+               :count
+             ) == 20
     end
 
     test "verify failures and code requests are counted apart" do
@@ -257,7 +280,7 @@ defmodule MealPlannerApi.Services.EmailCodeAuthTest do
         assert :ok =
                  in_transaction(fn -> EmailCodeAuth.reserve_ip_request_slot("203.0.113.92") end)
 
-        in_transaction(fn -> EmailCodeAuth.record_verify_failure("203.0.113.93") end)
+        in_transaction(fn -> EmailCodeAuth.reserve_verify_failure("203.0.113.93") end)
       end
 
       assert :ok = in_transaction(fn -> EmailCodeAuth.check_verify_failures("203.0.113.92") end)
@@ -266,7 +289,7 @@ defmodule MealPlannerApi.Services.EmailCodeAuthTest do
 
     test "an unresolvable IP draws from one shared bucket" do
       for client_ip <- List.duplicate(nil, 10) ++ List.duplicate("not-an-ip", 10) do
-        in_transaction(fn -> EmailCodeAuth.record_verify_failure(client_ip) end)
+        in_transaction(fn -> EmailCodeAuth.reserve_verify_failure(client_ip) end)
       end
 
       assert {:error, :rate_limited, _retry_after} =
