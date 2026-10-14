@@ -20,6 +20,7 @@ import {
   COOKING_START,
 } from '@/features/cooking/fixtures';
 import { useInventoryStore, type InventoryItem } from '@/features/inventory';
+import { POTATO } from '@/features/inventory/mocks/inventoryApiFixtures';
 import { createPreparedLeftover } from '@/features/leftovers';
 import { LEFTOVER_LENTILS } from '@/features/leftovers/fixtures';
 import { useShoppingListStore } from '@/features/shopping/store';
@@ -144,7 +145,7 @@ jest.mock('@/context/RecipeThemeContext', () => ({
 const TODAY = formatDateKey(new Date());
 const OTHER_DAY = '2020-01-15';
 
-// The recipe of today's meal, whose ingredients are the ones the inventory catalog below has.
+// The recipe of today's meal, whose ingredients are the ones the inventory lots below hold.
 const RECIPE: Recipe = {
   id: 'r1',
   recipeVersionId: 'r1-version',
@@ -334,14 +335,7 @@ describe('RecipeScreen', () => {
     jest.mocked(removeFavorite).mockReset();
     mockRouteParams = { id: 'r1', entryId: 'e-today' };
     useMealPlanStore.setState({ entries: [entry()] });
-    useInventoryStore.setState({
-      items: [inventoryItem()],
-      ingredients: [
-        { id: 'i1', name: 'Arroz Blanco', category: 'almacen', basePrice: 2, unit: 'g' },
-        { id: 'i2', name: 'Pollo (Pechuga)', category: 'carnes', basePrice: 10, unit: 'g' },
-        { id: 'i3', name: 'Tomate', category: 'verduras', basePrice: 3, unit: 'unit' },
-      ],
-    });
+    useInventoryStore.setState({ items: [inventoryItem()] });
   });
 
   // A screen left mounted would re-render, outside `act`, when the next test resets the stores.
@@ -425,42 +419,37 @@ describe('RecipeScreen', () => {
       expect(renderedTexts(tree)).toContain('2 te faltan');
     });
 
-    it('does not count an inventory item without a catalog link as stock', async () => {
+    it('does not count a lot of the ingredient in another unit as stock', async () => {
       useInventoryStore.setState({
         items: [
           inventoryItem(),
           inventoryItem({
-            id: 'inv-free',
-            ingredientId: undefined,
-            name: 'Pollo',
+            id: 'inv-i2',
+            ingredientId: 'i2',
+            name: 'Pollo (Pechuga)',
             quantityMilli: 900_000,
+            unit: 'ml',
           }),
         ],
       });
       const tree = await renderSettledScreen();
 
-      expect(renderedTexts(tree)).toContain('2 te faltan');
       expect(ingredientStatus(tree, 'i2')).toBe('Falta');
+      expect(renderedTexts(tree)).toContain('2 te faltan');
     });
 
-    it('shows an ingredient outside the catalog as missing, like the others', async () => {
-      seedCachedRecipe({
-        ...RECIPE,
-        ingredients: [
-          ...RECIPE.ingredients,
-          {
-            ingredientId: 'ghost',
-            name: 'Ají molido',
-            category: null,
-            quantityMilli: 3_000,
-            unit: 'unit',
-          },
-        ],
-      });
+    it('reads the stock of a recipe from the API in the lots of the API inventory', async () => {
+      const apiRecipe = fixtureRecipe();
+      const [potato, ...others] = apiRecipe.ingredients;
+      seedCachedRecipe(apiRecipe);
+      mockRouteParams = { id: apiRecipe.id };
+      useInventoryStore.setState({ items: [POTATO] });
       const tree = await renderSettledScreen();
 
-      expect(ingredientStatus(tree, 'ghost')).toBe('Falta');
-      expect(hasAddAction(tree, 'ghost')).toBe(false);
+      expect(ingredientStatus(tree, potato.ingredientId)).toBe('En stock');
+      others.forEach((line) => {
+        expect(ingredientStatus(tree, line.ingredientId)).toBe('Falta');
+      });
       expect(renderedTexts(tree)).toContain('3 te faltan');
     });
   });

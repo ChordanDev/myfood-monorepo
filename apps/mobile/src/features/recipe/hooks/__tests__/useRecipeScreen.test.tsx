@@ -28,7 +28,7 @@ jest.mock('react-native/Libraries/Components/Keyboard/Keyboard', () => ({
 const mockAddExtra = jest.fn();
 jest.mock('@/features/inventory', () => ({
   useInventoryStore: (select: (state: unknown) => unknown) =>
-    select({ items: [], ingredients: [], addExtra: mockAddExtra }),
+    select({ items: [], addExtra: mockAddExtra }),
 }));
 jest.mock('@/features/leftovers', () => ({ createPreparedLeftover: jest.fn() }));
 

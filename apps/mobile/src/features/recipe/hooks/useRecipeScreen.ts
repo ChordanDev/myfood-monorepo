@@ -44,7 +44,6 @@ export function useRecipeScreen() {
   const toggleFavorite = useFavoritesStore((state) => state.toggle);
   const cooking = useMarkAsCooked();
   const inventory = useInventoryStore((state) => state.items);
-  const catalog = useInventoryStore((state) => state.ingredients);
   const addInventoryExtra = useInventoryStore((state) => state.addExtra);
   const [isCookedConfirmVisible, setIsCookedConfirmVisible] = useState(false);
   // The answer is taken once: a second tap on "Sí" lands before the sheet has closed.
@@ -57,8 +56,8 @@ export function useRecipeScreen() {
   );
   const ingredientLines = recipe?.ingredients;
   const rows = useMemo(
-    () => resolveRecipeIngredients({ lines: ingredientLines ?? [], catalog, inventory }),
-    [catalog, ingredientLines, inventory]
+    () => resolveRecipeIngredients({ lines: ingredientLines ?? [], inventory }),
+    [ingredientLines, inventory]
   );
 
   const handleBack = useCallback(() => router.back(), [router]);

@@ -82,6 +82,22 @@ export const CHICKEN: InventoryItem = {
   notes: null,
 };
 
+// A lot of the Ingredient the recipe fixture `recipe/fixtures/recipeDetail.json` asks for first.
+export const POTATO: InventoryItem = {
+  id: '0b7a1c52-6f0e-4d0a-9d3f-1c2b3a4d5e0a',
+  ingredientId: '1c3e5a7b-9d2f-4b6c-8e1a-3f5d7b9c2e4a',
+  name: 'Papa',
+  category: 'verduras',
+  quantityMilli: 800_000,
+  unit: 'g',
+  sourceKind: 'planned',
+  acquiredAt: '2026-10-06T12:00:00.000000Z',
+  expiresAt: '2026-11-05',
+  freshness: 'ok',
+  isLeftover: false,
+  notes: null,
+};
+
 // A lot for a test that only cares about some of its fields.
 export function buildInventoryItem(overrides: Partial<InventoryItem> = {}): InventoryItem {
   return { ...RICE, ...overrides };
