@@ -399,6 +399,35 @@ Then update `planningEvents.ts`, run `npm test` in `apps/mobile`, and commit the
 
 ---
 
+### shopping:* — Shopping and Inventory Notifications
+
+Pushes the Cart and Inventory changes of an Account to every member's device, so a change made by another User or device of the same Account shows without a refetch. The changes themselves are made over HTTP by the shopping and inventory controllers, which scope every write to the caller's Account; this channel repeats none of them.
+
+**Topic Pattern:** `shopping:<account_id>`
+
+#### Join
+
+The join succeeds only when the socket's Membership belongs to the topic's Account, is still active when read again from the database, and passes the capability check (`ChannelCapability.authorize/1`). Any other case replies `{"reason": "forbidden"}`.
+
+#### Incoming Events
+
+None. Every command pushed on the topic is answered with `{"reason": "unsupported_command"}`.
+
+#### Outgoing Events
+
+Before each push the channel checks the Membership again, the same way as the join, and drops the push when the check fails. Payload keys are snake_case.
+
+| Event | Payload | Sent when |
+|-------|---------|-----------|
+| `cart_reserved` | `{"session_id": "uuid", "status": "in_cart", "updated_rows": 2, "owner_user_id": "uuid", "lease_expires_at": "ISO8601", "reservations": [...]}` | A member reserved shopping items in their cart |
+| `cart_released` | `{"session_id": "uuid", "updated_rows": 1, "status": "pending"}` (`"abandoned"` when the whole cart was cancelled) | A member removed lines from their cart or cancelled it |
+| `cart_expired` | `{"session_id": "uuid"}` | A cart lease ran out and its items were released |
+| `cart_renewed` | `{"session_id": "uuid", "lease_expires_at": "ISO8601"}` | A member renewed their cart lease |
+| `purchase_confirmed` | `{"checkout_session_id": "uuid", "status": "string", "checkout_type": "string", "moved_to_inventory_count": 3, "checked_out_items_count": 3, "actual_total_cents": 1250}` | A member confirmed a purchase, or recorded the delivery of a confirmed order |
+| `inventory_changed` | `{"refresh": true}` | The Inventory changed: a purchase moved items into it, or a member edited it. Refetch the Inventory |
+
+---
+
 ## Reconnection Strategy
 
 Implement exponential backoff with jitter for WebSocket reconnection:

@@ -75,12 +75,34 @@ A single User with `:active` memberships on two different Accounts MUST be able 
 - WHEN socket 1 joins `"planning:<Account_A>"` and socket 2 joins `"planning:<Account_B>"`, and a broadcast is pushed to `"planning:<Account_A>"`
 - THEN only socket 1 receives the broadcast
 
-### Requirement: Only three channels exist; shopping/inventory isolate at the controller
+### Requirement: Four channels exist; shopping/inventory writes isolate at the controller
 
-`CalendarChannel`, `PlanningChannel`, and `AIChannel` are the only channel modules shipped in Phase A (`CookingChannel` was removed in issue #166: cooking goes over HTTP, where `CookingService` scopes every lookup to the Account). The `shopping` and `inventory` domains MUST enforce tenancy isolation through their HTTP controllers reading `current_membership.account_id`, not through a channel.
+The channel modules routed on `UserSocket` are `CalendarChannel` (`calendar:*`), `PlanningChannel` (`planning:*`), `AIChannel` (`ai_chat:*`) and `ShoppingChannel` (`shopping:*`). `CookingChannel` was removed in issue #166: cooking goes over HTTP, where `CookingService` scopes every lookup to the Account. There is no inventory channel. Every `shopping` and `inventory` write MUST go through its HTTP controller, which scopes it to `current_membership.account_id`; the shopping channel only pushes the outcome of those writes and accepts no command.
 
-#### Scenario: No shopping or inventory channel module exists
+#### Scenario: Channel modules match the routed channels
 
 - GIVEN the `lib/meal_planner_api_web/channels/` directory
-- WHEN its contents are listed
-- THEN only `calendar_channel.ex`, `planning_channel.ex`, and `ai_channel.ex` are present
+- WHEN its channel modules are listed (the `intent_atomizer.ex` helper and the `serializers/` directory are not channel modules)
+- THEN exactly `ai_channel.ex`, `calendar_channel.ex`, `planning_channel.ex` and `shopping_channel.ex` are present, one for each `channel/2` route of `UserSocket`
+
+### Requirement: `ShoppingChannel` pushes Account-scoped shopping and inventory changes
+
+`ShoppingChannel`'s topic is `"shopping:<account_id>"`. `join/3` MUST reject with `{:error, %{reason: "forbidden"}}` unless the socket's membership belongs to the topic's Account, is still `:active` when re-read from the database, and passes `ChannelCapability.authorize/1`. The channel is outbound only: it MUST push exactly `cart_reserved`, `cart_released`, `cart_expired`, `cart_renewed`, `purchase_confirmed` and `inventory_changed`, and it MUST re-check the membership the same way before each push, dropping the push when the check fails. Every inbound command MUST be answered with `{:error, %{reason: "unsupported_command"}}`.
+
+#### Scenario: Cross-Account shopping join rejected
+
+- GIVEN a socket whose membership is scoped to `Account_A`
+- WHEN it attempts to join `"shopping:<Account_B_id>"`
+- THEN the join is rejected with `{:error, %{reason: "forbidden"}}`
+
+#### Scenario: Push dropped after the membership stops being active
+
+- GIVEN a socket joined to `"shopping:<Account_A_id>"`
+- WHEN its membership stops being `:active` and a `cart_reserved` event is broadcast on that topic
+- THEN the socket receives no push
+
+#### Scenario: Inbound command rejected
+
+- GIVEN a socket joined to `"shopping:<account_id>"`
+- WHEN it pushes any command
+- THEN the reply is `{:error, %{reason: "unsupported_command"}}`
