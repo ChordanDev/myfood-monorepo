@@ -20,6 +20,8 @@ defmodule MealPlannerApiWeb.MobileAuthController do
   """
   use MealPlannerApiWeb, :controller
 
+  require Logger
+
   alias MealPlannerApi.Services.DeviceSessions
   alias MealPlannerApi.Services.EmailCodeLogin
   alias MealPlannerApi.Services.EmailCodeSignup
@@ -163,10 +165,16 @@ defmodule MealPlannerApiWeb.MobileAuthController do
       {:error, :session_issue_failed} ->
         conn |> ApiError.server_fault()
 
-      {:error, _unexpected} ->
+      {:error, unexpected} ->
+        Logger.error("verify-code failed with an unexpected error: #{describe_error(unexpected)}")
         conn |> ApiError.server_fault()
     end
   end
+
+  # Only an atom is logged as it is: any other reason may carry the email
+  # or other request data.
+  defp describe_error(reason) when is_atom(reason), do: inspect(reason)
+  defp describe_error(_reason), do: "a non-atom reason"
 
   # The `me` payload and the Device session of a verified code.
   defp build_session(user, membership, device_id) do
