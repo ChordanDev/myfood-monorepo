@@ -54,9 +54,13 @@ jobs:
             # `apps/api/lib/**` is here because the mobile contract test
             # (`authErrorCodeContract.test.ts`) scans the api source for the
             # error codes it emits, so an api-only change can break it.
+            # `apps/api/config/config.exs` is here because the mobile refresh
+            # tests (`authService.test.ts`) read `refresh_retry_window_seconds`
+            # from it: the refresh and its retry must fit inside that window.
             mobile:
               - 'apps/mobile/**'
               - 'apps/api/lib/**'
+              - 'apps/api/config/config.exs'
               - '.github/workflows/ci.yml'
 
   api:
