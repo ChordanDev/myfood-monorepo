@@ -1,5 +1,3 @@
-import { MOCK_INGREDIENTS } from '@/mocks/domainMocks';
-import type { Ingredient } from '@/types/domain';
 import {
   CHICKEN,
   INVENTORY_VIEW,
@@ -30,14 +28,6 @@ jest.mock('expo-secure-store', () => ({
 
 const API_URL = 'https://api.example.test';
 
-const INGREDIENTS: Ingredient[] = [
-  { id: 'rice', name: 'Rice', category: 'almacen', basePrice: 2, unit: 'g' },
-  { id: 'milk', name: 'Milk', category: 'lacteos', basePrice: 3, unit: 'ml' },
-];
-
-// A lot of the catalog ingredient `rice`, as the cooking shim finds it.
-const RICE_LOT: InventoryItem = { ...RICE, ingredientId: 'rice', quantityMilli: 500_000 };
-
 const fetchMock = jest.fn();
 const originalApiUrl = process.env.EXPO_PUBLIC_API_URL;
 
@@ -65,7 +55,6 @@ beforeEach(() => {
   process.env.EXPO_PUBLIC_API_URL = API_URL;
   useInventoryStore.setState({
     items: [RICE, MILK],
-    ingredients: INGREDIENTS,
     loadStatus: 'idle',
     loadError: null,
   });
@@ -84,8 +73,8 @@ describe('initial state', () => {
     });
   });
 
-  it('keeps the ingredient catalog', () => {
-    expect(useInventoryStore.getInitialState().ingredients).toEqual(MOCK_INGREDIENTS);
+  it('holds no ingredient catalog', () => {
+    expect(useInventoryStore.getInitialState()).not.toHaveProperty('ingredients');
   });
 });
 
@@ -389,31 +378,6 @@ describe('applyVoice', () => {
   });
 });
 
-describe('consumeIngredient', () => {
-  beforeEach(() => {
-    useInventoryStore.setState({ items: [RICE_LOT] });
-  });
-
-  it('subtracts the consumed thousandths, without calling the API', () => {
-    useInventoryStore.getState().consumeIngredient('rice', 200_000);
-
-    expect(getItems()).toEqual([{ ...RICE_LOT, quantityMilli: 300_000 }]);
-    expect(fetchMock).not.toHaveBeenCalled();
-  });
-
-  it('removes the lot when more than the stock is consumed', () => {
-    useInventoryStore.getState().consumeIngredient('rice', 900_000);
-
-    expect(getItems()).toEqual([]);
-  });
-
-  it('ignores an ingredient that is not in the inventory', () => {
-    useInventoryStore.getState().consumeIngredient('milk', 100_000);
-
-    expect(getItems()).toEqual([RICE_LOT]);
-  });
-});
-
 describe('migrateInventoryState', () => {
   it('discards the fixture items persisted before the store read the API', () => {
     const persisted = {
@@ -428,13 +392,12 @@ describe('migrateInventoryState', () => {
           confidence: 'estimated',
         },
       ],
-      ingredients: MOCK_INGREDIENTS,
+      ingredients: [
+        { id: 'i1', name: 'Arroz Blanco', category: 'almacen', basePrice: 2, unit: 'g' },
+      ],
     };
 
-    expect(migrateInventoryState(persisted, 1)).toEqual({
-      items: [],
-      ingredients: MOCK_INGREDIENTS,
-    });
+    expect(migrateInventoryState(persisted, 1)).toEqual({ items: [] });
   });
 
   it('discards the items of an unversioned payload and its retired catalog', () => {
@@ -445,19 +408,28 @@ describe('migrateInventoryState', () => {
       ],
     };
 
-    expect(migrateInventoryState(persisted, 0)).toEqual({
-      items: [],
-      ingredients: MOCK_INGREDIENTS,
-    });
+    expect(migrateInventoryState(persisted, 0)).toEqual({ items: [] });
   });
 
   it('starts with an empty inventory when nothing was persisted', () => {
-    expect(migrateInventoryState(null, 0)).toEqual({ items: [], ingredients: MOCK_INGREDIENTS });
+    expect(migrateInventoryState(null, 0)).toEqual({ items: [] });
+  });
+
+  it('drops the stored ingredient catalog and keeps the items of a version 2 payload', () => {
+    const persisted = {
+      items: [RICE],
+      ingredients: [{ id: 'rice', name: 'Rice', category: 'almacen', basePrice: 2, unit: 'g' }],
+    };
+
+    const migrated = migrateInventoryState(persisted, 2);
+
+    expect(migrated).toEqual({ items: [RICE] });
+    expect(migrated).not.toHaveProperty('ingredients');
   });
 
   it('keeps a payload that is already on the current version', () => {
-    const persisted = { items: [RICE], ingredients: INGREDIENTS };
+    const persisted = { items: [RICE] };
 
-    expect(migrateInventoryState(persisted, 2)).toEqual(persisted);
+    expect(migrateInventoryState(persisted, 3)).toEqual(persisted);
   });
 });

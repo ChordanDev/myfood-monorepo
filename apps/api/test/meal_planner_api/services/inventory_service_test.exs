@@ -222,10 +222,6 @@ defmodule MealPlannerApi.Services.InventoryServiceTest do
     test "adjust_item_quantity/3 is callable" do
       assert is_function(&InventoryService.adjust_item_quantity/3)
     end
-
-    test "get_inventory_item/2 is callable" do
-      assert is_function(&InventoryService.get_inventory_item/2)
-    end
   end
 
   describe "add_extra_item/2 — audited extra movements" do

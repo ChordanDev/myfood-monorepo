@@ -1,8 +1,6 @@
 import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
 import { ApiError, isApiError } from '@/api/errors';
-import { MOCK_INGREDIENTS } from '@/mocks/domainMocks';
-import type { Ingredient } from '@/types/domain';
 import { safeAsyncStorage } from '@/utils/safeAsyncStorage';
 import { addExtraItem, applyVoice, disposeItem, getInventory, setItemQuantity } from '../api';
 import type {
@@ -17,7 +15,6 @@ type InventoryLoadStatus = 'idle' | 'loading' | 'ready' | 'error';
 interface InventoryState {
   // Cache of the last read of the API, patched with the answer of each write since
   items: InventoryItem[];
-  ingredients: Ingredient[];
   loadStatus: InventoryLoadStatus;
   loadError: ApiError | null;
   refresh: () => Promise<void>;
@@ -25,11 +22,9 @@ interface InventoryState {
   setQuantity: (id: string, quantityMilli: number) => Promise<void>;
   dispose: (id: string) => Promise<void>;
   applyVoice: (payload: VoiceApplyPayload) => Promise<VoiceApplyResult>;
-  consumeIngredient: (ingredientId: string, quantityMilli: number) => void;
-  getIngredient: (id: string) => Ingredient | undefined;
 }
 
-type PersistedInventoryState = Pick<InventoryState, 'items' | 'ingredients'>;
+type PersistedInventoryState = Pick<InventoryState, 'items'>;
 
 // The API does not list a lot at zero, so the cache does not hold one either.
 function replaceLot(items: InventoryItem[], lot: InventoryItem): InventoryItem[] {
@@ -44,14 +39,16 @@ function toApiError(error: unknown): ApiError {
 }
 
 // Everything persisted before version 2 was local fixture stock in display units, never read
-// from the API, so no device keeps it. The catalog of version 0 used retired categories.
+// from the API, so no device keeps it. Version 2 also stored an ingredient catalog that nothing
+// reads any more: it is dropped, and the lots of the API stay.
 export function migrateInventoryState(
   persistedState: unknown,
   version: number
 ): PersistedInventoryState {
-  if (version >= 2) return persistedState as PersistedInventoryState;
+  if (version >= 3) return persistedState as PersistedInventoryState;
+  if (version === 2) return { items: (persistedState as PersistedInventoryState).items };
 
-  return { items: [], ingredients: MOCK_INGREDIENTS };
+  return { items: [] };
 }
 
 // The read that owns the load status, and how many writes the cache has taken. A read that
@@ -63,7 +60,6 @@ export const useInventoryStore = create<InventoryState>()(
   persist(
     (set, get) => ({
       items: [],
-      ingredients: MOCK_INGREDIENTS,
       loadStatus: 'idle',
       loadError: null,
       refresh: async () => {
@@ -122,28 +118,12 @@ export const useInventoryStore = create<InventoryState>()(
         }));
         return result;
       },
-      // Temporary: `consumeIngredient` (cooking) only patches the cache, in thousandths, until
-      // the cooking slice calls the API. The API never hears of it, so the next read replaces
-      // what it wrote.
-      consumeIngredient: (ingredientId, quantityMilli) => {
-        set((state) => {
-          const lot = state.items.find((item) => item.ingredientId === ingredientId);
-          if (!lot) return state;
-
-          // Inventory never goes negative
-          const quantity = Math.max(0, lot.quantityMilli - quantityMilli);
-          return { items: replaceLot(state.items, { ...lot, quantityMilli: quantity }) };
-        });
-      },
-      getIngredient: (id) => {
-        return get().ingredients.find((i) => i.id === id);
-      },
     }),
     {
       name: 'inventory-storage',
-      version: 2, // Lots as the API serves them, in thousandths; no local fixture stock
+      version: 3, // Lots as the API serves them, in thousandths; no local fixture stock or catalog
       storage: createJSONStorage(() => safeAsyncStorage),
-      partialize: ({ items, ingredients }) => ({ items, ingredients }),
+      partialize: ({ items }) => ({ items }),
       migrate: migrateInventoryState,
     }
   )
