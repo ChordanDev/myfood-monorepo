@@ -91,8 +91,8 @@ defmodule MealPlannerApiWeb.MobileAuthController do
   `me` is the same payload `GET /api/me` returns, or `code_invalid`,
   `code_expired`, `too_many_attempts`, `account_not_found`, or
   `rate_limited` (with a `retry-after` header in whole seconds) once the
-  client IP has #{@max_verify_failures_per_ip} failed verifications in the
-  last hour.
+  client IP (for IPv6, its whole /64 prefix) has
+  #{@max_verify_failures_per_ip} failed verifications in the last hour.
 
   The session is opened in the transaction that consumes the code: when
   it cannot be opened, the code stays pending and the user can retry.

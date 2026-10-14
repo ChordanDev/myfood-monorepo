@@ -17,9 +17,9 @@ defmodule MealPlannerApi.Services.EmailCodeLogin do
       email, so only the latest code can ever verify;
     * failed attempts are counted on the code row itself, and a code locks
       for good once it reaches the limit;
-    * failed login verifications are also counted per client IP, and an
-      IP that reaches the hourly limit is refused before its code is
-      checked;
+    * failed login verifications are also counted per client IP (an
+      IPv6 address together with its /64 prefix), and an IP that reaches
+      the hourly limit is refused before its code is checked;
     * verification resolves a single Membership for the User, so the
       answer has one shape however many Accounts the User belongs to, and
       opens the caller's session before the code is consumed.
@@ -272,7 +272,7 @@ defmodule MealPlannerApi.Services.EmailCodeLogin do
   `client_ip` is the address the request came from, as
   `MealPlannerApiWeb.ClientIp.resolve/1` gives it. Every verification
   answered `code_invalid`, `code_expired` or `too_many_attempts` counts
-  against it.
+  against it; an IPv6 address shares its count with its whole /64 prefix.
 
   Errors:
 

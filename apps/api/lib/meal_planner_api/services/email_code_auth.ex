@@ -11,11 +11,11 @@ defmodule MealPlannerApi.Services.EmailCodeAuth do
       canonical email, the six-digit code and the SHA-256 digest that
       is the only form of a code ever stored.
     * `reserve_request_slots/2` and `reserve_ip_request_slot/1` — the
-      rolling 1-hour request counters (5 per email, 20 per IP), kept in
+      rolling 1-hour request counters (5 per email, 20 per IP bucket), kept in
       `email_auth_events` and serialized by Postgres advisory locks so
       concurrent requesters cannot collectively exceed them.
     * `check_verify_failures/1` and `reserve_verify_failure/1` — the
-      rolling 1-hour counter of failed code verifications (20 per IP),
+      rolling 1-hour counter of failed code verifications (20 per IP bucket),
       kept in the same table under its own kind.
     * `max_code_attempts/0` — the failed attempts after which a code is
       locked for good.
@@ -114,8 +114,9 @@ defmodule MealPlannerApi.Services.EmailCodeAuth do
   the rolling 1-hour window, `:ok` otherwise. Nothing is recorded; the
   caller reserves each failure with `reserve_verify_failure/1`.
 
-  A `client_ip` that is not an IP address (`nil` included) draws from one
-  shared bucket, as in `reserve_request_slots/2`.
+  `client_ip` is bucketed as in `reserve_request_slots/2`: an IPv4
+  address on its own, an IPv6 address with its whole /64 prefix, and
+  anything that is not an address (`nil` included) in one shared bucket.
 
   No lock is taken, so verifications from one IP never wait on each
   other: this is the fast refusal of an IP already over the limit. The
@@ -171,8 +172,9 @@ defmodule MealPlannerApi.Services.EmailCodeAuth do
   def max_code_attempts, do: @max_code_attempts
 
   @doc """
-  Failed code verifications per client IP in the rolling 1-hour window
-  after which `check_verify_failures/1` refuses that IP.
+  Failed code verifications per IP bucket (see `check_verify_failures/1`)
+  in the rolling 1-hour window after which `check_verify_failures/1`
+  refuses that bucket.
   """
   @spec max_verify_failures_per_ip() :: pos_integer()
   def max_verify_failures_per_ip, do: @max_verify_failures_per_ip_per_window
