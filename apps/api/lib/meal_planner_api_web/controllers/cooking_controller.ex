@@ -75,6 +75,12 @@ defmodule MealPlannerApiWeb.CookingController do
     end
   end
 
+  # contentType is optional and defaults to "text", but a sent value that is
+  # not a string (null included) would fail CookingService's is_binary guard.
+  def ask(conn, %{"message" => message, "content_type" => content_type})
+      when is_binary(message) and not is_binary(content_type),
+      do: ApiError.validation_error(conn, "contentType")
+
   def ask(conn, %{"session_id" => session_id, "message" => message} = params)
       when is_binary(message) do
     user = scoped_user(conn)
