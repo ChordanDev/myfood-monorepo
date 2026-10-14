@@ -53,7 +53,7 @@ Error responses:
 - `404 email_not_found`: login only, no User has this email
 - `409 email_already_exists`: sign-up only, a User already has this email
 - `429 rate_limited`: resend cooldown or hourly request limit; the `retry-after` header carries the wait in seconds
-- `502 code_send_failed`: the email could not be sent; the request can be retried at once
+- `502 code_send_failed`: the email could not be sent; any earlier code stays valid, and the request can be retried at once (it still counts against the hourly limit)
 
 ### 2.2 Verify the code
 
@@ -123,6 +123,9 @@ Error responses:
 - `429 too_many_attempts`: the code is locked; request a new one
 - `401 account_not_found`: login only, the User has no active Membership
 - `409 email_already_exists`: sign-up only, the email got a User after the code was sent
+- `429 rate_limited`: login only, the client IP has 20 failed verifications in the last hour; the `retry-after` header carries the wait in seconds. The code is not checked, so it stays valid
+
+When the session cannot be opened after a right code (`account_not_found`, or a server error), the code is not spent and the same request can be retried.
 
 ### 2.3 Renew and end the session
 
