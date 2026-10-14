@@ -50,6 +50,10 @@ Observed on 2026-10-13 in `apps/mobile`.
 - `npm run lint`: 0 errors, 4 warnings for unused imports in files this change does not touch. Prettier check passed.
 - `npx jest --ci`: 151 suites, 2357 tests, all passed.
 
+## Native review
+
+- T1, commit `c82d003`: `gentle-ai review assess --base-ref 63427df --committed-only` answered risk `medium`, 362 changed lines, `review_due: false` (`under_budget`). No review was started.
+
 ## Found and left out
 
 - The Inventory store starts with no lots and only `InventoryScreen` and `ShoppingScreen` call its `refresh`. A Recipe opened before either of them still shows every line as missing. The Recipe screen loading the Inventory is not part of #236.
