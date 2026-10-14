@@ -689,7 +689,7 @@ defmodule MealPlannerApiWeb.PlanningChannel do
 
   # The most days a Planning session covers, and how far in the past its
   # first day may be. The Planner sends the day the member sees as today; a
-  # member east of UTC sees a date that is still yesterday in UTC, so one day
+  # member west of UTC sees a date that is still yesterday in UTC, so one day
   # back is accepted.
   @max_planning_days 7
   @max_days_in_past 1
