@@ -7,9 +7,9 @@ defmodule MealPlannerApi.Services.EmailCodeAuth do
   `MealPlannerApi.Services.EmailCodeSignup`. What those two share is
   here:
 
-    * `normalize_email/1`, `mint_code/0` and `hash_code/1` — the
-      canonical email, the six-digit code and the SHA-256 digest that
-      is the only form of a code ever stored.
+    * `mint_code/0` and `hash_code/1` — the six-digit code and the
+      SHA-256 digest that is the only form of a code ever stored. The
+      canonical email is `MealPlannerApi.Persistence.Accounts.UserEmail.normalize/1`.
     * `reserve_request_slots/2` and `reserve_ip_request_slot/1` — the
       rolling 1-hour request counters (5 per email, 20 per IP), kept in
       `email_auth_events` and serialized by Postgres advisory locks so
@@ -274,15 +274,6 @@ defmodule MealPlannerApi.Services.EmailCodeAuth do
   # ---------------------------------------------------------------------------
   # Helpers
   # ---------------------------------------------------------------------------
-
-  @doc """
-  Canonical form of an email address as stored on verification codes
-  and rate-limit events: trimmed and lower-cased.
-  """
-  @spec normalize_email(String.t()) :: String.t()
-  def normalize_email(email) when is_binary(email) do
-    email |> String.trim() |> String.downcase()
-  end
 
   # Coerce the IP into a stable rate-limit key that fits the schema's
   # `:string` column: the canonical text of an IPv4 or IPv6 address, so

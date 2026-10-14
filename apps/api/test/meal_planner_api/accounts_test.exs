@@ -42,6 +42,17 @@ defmodule MealPlannerApi.AccountsTest do
 
       assert Repo.aggregate(MealPlannerApi.Persistence.Accounts.User, :count) == 1
     end
+
+    # Login and invites trim the email before matching; sign-up's taken
+    # check does too, so a padded copy of a registered email is refused.
+    test "refuses a registered email given with surrounding whitespace" do
+      insert_identity!(email: "padded@example.com")
+
+      assert {:error, :email_already_registered} =
+               Accounts.register_with_verified_email("  Padded@Example.com ")
+
+      assert Repo.aggregate(MealPlannerApi.Persistence.Accounts.User, :count) == 1
+    end
   end
 
   test "claims include subscription tier" do

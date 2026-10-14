@@ -26,8 +26,8 @@ defmodule MealPlannerApi.Services.InviteService do
 
   alias MealPlannerApi.Persistence.Accounts.AccountMembership
   alias MealPlannerApi.Persistence.Accounts.User, as: PersistenceUser
+  alias MealPlannerApi.Persistence.Accounts.UserEmail
   alias MealPlannerApi.Repo
-  alias MealPlannerApi.Services.EmailCodeAuth
 
   @invite_ttl_days 7
 
@@ -106,9 +106,9 @@ defmodule MealPlannerApi.Services.InviteService do
   # Reuses the user whose email matches regardless of case, like sign-up
   # and login do, and stores a new invitee's email normalized.
   defp resolve_or_create_user(email) do
-    email = EmailCodeAuth.normalize_email(email)
+    email = UserEmail.normalize(email)
 
-    case user_by_email(email) do
+    case UserEmail.get_user(email) do
       %PersistenceUser{} = user ->
         {:ok, user}
 
@@ -121,16 +121,6 @@ defmodule MealPlannerApi.Services.InviteService do
         |> PersistenceUser.changeset(%{email: email, name: email, role: :member})
         |> Repo.insert()
     end
-  end
-
-  defp user_by_email(email) do
-    Repo.one(
-      from(u in PersistenceUser,
-        where: fragment("lower(?)", u.email) == ^email,
-        order_by: [asc: u.inserted_at],
-        limit: 1
-      )
-    )
   end
 
   defp fresh_token do
