@@ -12,8 +12,7 @@ defmodule MealPlannerApi.Data.RecipeRepo do
     FavoriteRecipe,
     Ingredient,
     Recipe,
-    RecipeIngredient,
-    RecipeStep
+    RecipeIngredient
   }
 
   @typedoc "The Account and the User a favorite belongs to."
@@ -22,33 +21,6 @@ defmodule MealPlannerApi.Data.RecipeRepo do
   # -------------------------------------------------------------------------
   # Ingredients
   # -------------------------------------------------------------------------
-
-  @spec create_ingredient(map()) :: {:ok, Ingredient.t()} | {:error, Ecto.Changeset.t()}
-  def create_ingredient(attrs),
-    do: %Ingredient{} |> Ingredient.changeset(attrs) |> Repo.insert()
-
-  @spec upsert_ingredient_by_name(map()) :: {:ok, Ingredient.t()} | {:error, Ecto.Changeset.t()}
-  def upsert_ingredient_by_name(attrs) do
-    %Ingredient{}
-    |> Ingredient.changeset(attrs)
-    |> Repo.insert(
-      on_conflict:
-        {:replace,
-         [
-           :category,
-           :sku_reference,
-           :calories_per_100,
-           :protein_g_per_100,
-           :carbs_g_per_100,
-           :fat_g_per_100,
-           :updated_at
-         ]},
-      conflict_target: [:name]
-    )
-  end
-
-  @spec get_ingredient!(Ecto.UUID.t()) :: Ingredient.t()
-  def get_ingredient!(id), do: Repo.get!(Ingredient, id)
 
   @doc """
   Returns the category of the given ingredients, keyed by ingredient id, in
@@ -95,38 +67,6 @@ defmodule MealPlannerApi.Data.RecipeRepo do
     )
   end
 
-  @spec get_recipe_with_details!(Ecto.UUID.t()) :: Recipe.t()
-  def get_recipe_with_details!(id) do
-    Recipe
-    |> Repo.get!(id)
-    |> Repo.preload([:recipe_steps, :recipe_ingredients, :daily_costs])
-  end
-
-  @spec get_recipe_with_ingredients!(Ecto.UUID.t()) :: Recipe.t()
-  def get_recipe_with_ingredients!(id) do
-    Recipe
-    |> Repo.get!(id)
-    |> Repo.preload(recipe_ingredients: [:ingredient])
-  end
-
-  # -------------------------------------------------------------------------
-  # Recipe steps
-  # -------------------------------------------------------------------------
-
-  @spec add_recipe_step(map()) :: {:ok, RecipeStep.t()} | {:error, Ecto.Changeset.t()}
-  def add_recipe_step(attrs),
-    do: %RecipeStep{} |> RecipeStep.changeset(attrs) |> Repo.insert()
-
-  @spec update_recipe_step(RecipeStep.t(), map()) ::
-          {:ok, RecipeStep.t()} | {:error, Ecto.Changeset.t()}
-  def update_recipe_step(step, attrs), do: step |> RecipeStep.changeset(attrs) |> Repo.update()
-
-  @spec delete_recipe_step(Ecto.UUID.t()) :: :ok
-  def delete_recipe_step(id) do
-    Repo.delete!(Repo.get!(RecipeStep, id))
-    :ok
-  end
-
   # -------------------------------------------------------------------------
   # Recipe ingredients (associations)
   # -------------------------------------------------------------------------
@@ -155,17 +95,6 @@ defmodule MealPlannerApi.Data.RecipeRepo do
     )
     |> Repo.all()
     |> Enum.group_by(& &1.recipe_id, &Map.delete(&1, :recipe_id))
-  end
-
-  @spec delete_recipe_ingredient(Ecto.UUID.t()) :: :ok
-  def delete_recipe_ingredient(id) do
-    Repo.delete!(Repo.get!(RecipeIngredient, id))
-    :ok
-  end
-
-  @spec get_recipe_ingredient_with_ingredient!(Ecto.UUID.t()) :: RecipeIngredient.t()
-  def get_recipe_ingredient_with_ingredient!(id) do
-    Repo.get!(RecipeIngredient, id) |> Repo.preload(:ingredient)
   end
 
   # -------------------------------------------------------------------------
@@ -223,32 +152,9 @@ defmodule MealPlannerApi.Data.RecipeRepo do
     |> Repo.one()
   end
 
-  @spec list_by_ids([Ecto.UUID.t()]) :: [Recipe.t()]
-  def list_by_ids(ids) when is_list(ids) do
-    from(r in Recipe, where: r.id in ^ids)
-    |> Repo.all()
-  end
-
-  @doc """
-  Returns recipes with their prices preloaded.
-  Used by GenerationServer to enrich optimizer responses with recipe names and prices.
-  """
-  @spec list_by_ids_with_prices([Ecto.UUID.t()]) :: [Recipe.t()]
-  def list_by_ids_with_prices(recipe_ids) when is_list(recipe_ids) do
-    from(r in Recipe,
-      where: r.id in ^recipe_ids,
-      preload: [:recipe_price]
-    )
-    |> Repo.all()
-  end
-
-  # -------------------------------------------------------------------------
-  # Favorite IDs (for GenerationServer optimization hints)
-  # -------------------------------------------------------------------------
-
   @doc """
   Returns the list of favorite recipe IDs of a User inside an Account.
-  Used by GenerationServer to inject preferred_recipe_ids into the OR-Tools payload.
+  Used by PlanningContext to keep only the requested favorites the User owns.
 
   Returns a list of maps with `:id` key, e.g. `[%{id: 1}, %{id: 5}]`.
   """
