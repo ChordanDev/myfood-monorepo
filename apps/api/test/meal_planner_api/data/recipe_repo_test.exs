@@ -9,51 +9,9 @@ defmodule MealPlannerApi.Data.RecipeRepoTest do
     end
   end
 
-  describe "get_recipe_with_details!/1" do
-    test "accepts recipe id" do
-      assert is_function(&RecipeRepo.get_recipe_with_details!/1)
-    end
-  end
-
-  describe "get_recipe_with_ingredients!/1" do
-    test "accepts recipe id" do
-      assert is_function(&RecipeRepo.get_recipe_with_ingredients!/1)
-    end
-  end
-
-  describe "add_recipe_step/1" do
-    test "accepts attrs map" do
-      assert is_function(&RecipeRepo.add_recipe_step/1)
-    end
-  end
-
-  describe "update_recipe_step/2" do
-    test "accepts step and attrs" do
-      assert is_function(&RecipeRepo.update_recipe_step/2)
-    end
-  end
-
-  describe "delete_recipe_step/1" do
-    test "accepts step id" do
-      assert is_function(&RecipeRepo.delete_recipe_step/1)
-    end
-  end
-
   describe "add_recipe_ingredient/1" do
     test "accepts attrs map" do
       assert is_function(&RecipeRepo.add_recipe_ingredient/1)
-    end
-  end
-
-  describe "delete_recipe_ingredient/1" do
-    test "accepts id" do
-      assert is_function(&RecipeRepo.delete_recipe_ingredient/1)
-    end
-  end
-
-  describe "get_recipe_ingredient_with_ingredient!/1" do
-    test "accepts id" do
-      assert is_function(&RecipeRepo.get_recipe_ingredient_with_ingredient!/1)
     end
   end
 
