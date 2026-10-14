@@ -115,6 +115,40 @@ defmodule MealPlannerApiWeb.PlanningStartTest do
 
       assert active == 1
     end
+
+    for {label, own_offsets, peer_offsets} <- [
+          {"before", {1, 2}, {3, 4}},
+          {"after", {3, 4}, {1, 2}}
+        ] do
+      test "an overlap with the caller's session starting #{label} a peer's names the peer", %{
+        account: account,
+        user: user,
+        token: token
+      } do
+        {own_from, own_to} = unquote(Macro.escape(own_offsets))
+        {peer_from, peer_to} = unquote(Macro.escape(peer_offsets))
+
+        {:ok, _own} =
+          insert_session(
+            account,
+            user,
+            owner_membership_id(account.id, user.id),
+            own_from,
+            own_to
+          )
+
+        {peer_user, peer_membership} = insert_peer(account, "Ana Peer")
+        {:ok, _peer} = insert_session(account, peer_user, peer_membership.id, peer_from, peer_to)
+
+        socket = join_planning!(token, account)
+
+        ref =
+          push(socket, "start_planning", %{"rangeFrom" => in_days(1), "rangeTo" => in_days(4)})
+
+        payload = assert_error_reply(ref, :planning_range_locked)
+        assert payload["error"]["details"] == %{"ownerName" => "Ana Peer"}
+      end
+    end
   end
 
   describe "params (T2)" do
