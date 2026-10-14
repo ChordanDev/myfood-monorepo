@@ -424,6 +424,34 @@ defmodule MealPlannerApiWeb.CookingControllerTest do
       assert %{"error" => %{"code" => "validation_error"}} = json_response(conn, 422)
     end
 
+    # The session id does not exist: reaching CookingService would answer 404
+    # (or crash on its is_binary guard), so a 422 proves the controller stops it.
+    test "ask with a non-string contentType is a validation error", %{conn: conn} do
+      conn =
+        post(conn, "/api/cooking/sessions/#{Ecto.UUID.generate()}/ask", %{
+          "message" => "How hot?",
+          "contentType" => 5
+        })
+
+      assert %{"error" => %{"code" => "validation_error", "message" => message}} =
+               json_response(conn, 422)
+
+      assert message =~ "contentType"
+    end
+
+    test "ask with a null contentType is a validation error", %{conn: conn} do
+      conn =
+        post(conn, "/api/cooking/sessions/#{Ecto.UUID.generate()}/ask", %{
+          "message" => "How hot?",
+          "contentType" => nil
+        })
+
+      assert %{"error" => %{"code" => "validation_error", "message" => message}} =
+               json_response(conn, 422)
+
+      assert message =~ "contentType"
+    end
+
     test "a request without a subscription is 403 subscription_required", %{
       conn: conn,
       account_id: account_id,
