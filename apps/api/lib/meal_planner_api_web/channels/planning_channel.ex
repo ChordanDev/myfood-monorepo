@@ -434,6 +434,7 @@ defmodule MealPlannerApiWeb.PlanningChannel do
          {:ok, request_text} <- parse_request_text(payload),
          {:ok, requested_favorite_ids} <- parse_favorite_recipe_ids(payload),
          :ok <- check_account_eligible(account_id),
+         :ok <- check_slots_free(account_id, range),
          planning_context = PlanningContext.read(account_id, user.id, requested_favorite_ids),
          {:ok, %{session_id: started_id, pid: pid}} <-
            start_session(account_id, user.id, membership.id, range, socket.channel_pid) do
@@ -488,6 +489,10 @@ defmodule MealPlannerApiWeb.PlanningChannel do
       {:error, {:range_locked, range}} ->
         details = range_lock_details(account_id, range, membership.id)
         {:reply, {:error, error_payload(:planning_range_locked, %{}, details)}, socket}
+
+      {:error, {:slots_occupied, occupied}} ->
+        details = %{occupied: Enum.map(occupied, &occupied_slot/1)}
+        {:reply, {:error, error_payload(:planning_slot_occupied, %{}, details)}, socket}
 
       {:error, reason} ->
         {:reply, {:error, error_payload(reason)}, socket}
@@ -802,13 +807,30 @@ defmodule MealPlannerApiWeb.PlanningChannel do
     end
   end
 
-  # What `Server.start_generation/4` is given: the dates of the session, the
-  # Planning context under `"planning_context"` and, when the member typed
-  # one, the free text under `"request"`.
+  # The slots a `start_planning` plans on each day of its range (issue #28).
+  # The engine is given them explicitly, so the slots checked free below are
+  # the slots it fills.
+  @planning_slot_types ~w(breakfast lunch dinner)
+
+  # The Planner never plans over a Scheduled meal (issue #28): a range with a
+  # Scheduled meal in a slot it plans is refused before a session starts.
+  defp check_slots_free(account_id, {date_from, date_to}) do
+    case PlanningRepo.occupied_slots(account_id, date_from, date_to, @planning_slot_types) do
+      [] -> :ok
+      occupied -> {:error, {:slots_occupied, occupied}}
+    end
+  end
+
+  defp occupied_slot({date, slot}), do: %{date: Date.to_iso8601(date), slot: to_string(slot)}
+
+  # What `Server.start_generation/4` is given: the dates and slots of the
+  # session, the Planning context under `"planning_context"` and, when the
+  # member typed one, the free text under `"request"`.
   defp start_constraints(date_from, date_to, request_text, planning_context) do
     base = %{
       "date_from" => Date.to_iso8601(date_from),
       "date_to" => Date.to_iso8601(date_to),
+      "slot_types" => @planning_slot_types,
       "planning_context" => planning_context
     }
 

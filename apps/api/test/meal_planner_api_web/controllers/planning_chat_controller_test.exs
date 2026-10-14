@@ -132,6 +132,122 @@ defmodule MealPlannerApiWeb.PlanningChatControllerTest do
     assert length(body["data"]["proposal"]["weeklyPlan"]["days"]) >= 2
   end
 
+  # Issue #28 — reject goes through the session flow: the generation server
+  # of the Account rejects the proposal and tells the planning topic. The
+  # controller answers only a pending proposal.
+  describe "POST /api/planning/proposals/:proposal_id/reject" do
+    test "rejects a pending proposal through the generation server and tells the topic",
+         %{conn: conn} do
+      %{token: token, user: user, account: account} = insert_identity_with_token!(plan: :family_4)
+      proposal = insert_pending_proposal(account, user)
+
+      start_supervised!(
+        {MealPlannerApi.Generation.Server, account_id: account.id, user_id: user.id}
+      )
+
+      Phoenix.PubSub.subscribe(MealPlannerApi.PubSub, "planning:#{account.id}")
+
+      body =
+        conn
+        |> put_req_header("authorization", "Bearer " <> token)
+        |> post("/api/planning/proposals/#{proposal.id}/reject")
+        |> json_response(200)
+
+      assert %{"proposalId" => proposal_id, "status" => "rejected"} = body["data"]
+      assert proposal_id == proposal.id
+      assert Repo.get!(PlanningProposal, proposal.id).status == :rejected
+
+      assert_receive %Phoenix.Socket.Broadcast{
+        event: "proposal_rejected",
+        payload: %{proposal_id: ^proposal_id}
+      }
+    end
+
+    test "rejects a pending proposal and tells the topic when no generation server is running",
+         %{conn: conn} do
+      %{token: token, user: user, account: account} = insert_identity_with_token!(plan: :family_4)
+      proposal = insert_pending_proposal(account, user)
+      Phoenix.PubSub.subscribe(MealPlannerApi.PubSub, "planning:#{account.id}")
+
+      conn =
+        conn
+        |> put_req_header("authorization", "Bearer " <> token)
+        |> post("/api/planning/proposals/#{proposal.id}/reject")
+
+      assert %{"data" => %{"status" => "rejected"}} = json_response(conn, 200)
+      assert Repo.get!(PlanningProposal, proposal.id).status == :rejected
+      proposal_id = proposal.id
+
+      assert_receive %Phoenix.Socket.Broadcast{
+        event: "proposal_rejected",
+        payload: %{proposal_id: ^proposal_id}
+      }
+    end
+
+    for status <- [:rejected, :accepted] do
+      test "answers 409 planning_proposal_not_pending for a proposal #{status}", %{conn: conn} do
+        %{token: token, user: user, account: account} =
+          insert_identity_with_token!(plan: :family_4)
+
+        proposal = insert_pending_proposal(account, user)
+        proposal |> Ecto.Changeset.change(%{status: unquote(status)}) |> Repo.update!()
+
+        conn =
+          conn
+          |> put_req_header("authorization", "Bearer " <> token)
+          |> post("/api/planning/proposals/#{proposal.id}/reject")
+
+        assert %{"error" => %{"code" => "planning_proposal_not_pending"}} =
+                 json_response(conn, 409)
+
+        assert Repo.get!(PlanningProposal, proposal.id).status == unquote(status)
+      end
+    end
+
+    test "answers 404 not_found for a proposal of another Account", %{conn: conn} do
+      %{user: user, account: account} = insert_identity_with_token!(plan: :family_4)
+      proposal = insert_pending_proposal(account, user)
+      %{token: other_token} = insert_identity_with_token!(plan: :family_4)
+
+      conn =
+        conn
+        |> put_req_header("authorization", "Bearer " <> other_token)
+        |> post("/api/planning/proposals/#{proposal.id}/reject")
+
+      assert %{"error" => %{"code" => "not_found"}} = json_response(conn, 404)
+      assert Repo.get!(PlanningProposal, proposal.id).status == :pending
+    end
+
+    test "answers 422 invalid_proposal_id for a malformed id", %{conn: conn} do
+      %{token: token} = insert_identity_with_token!(plan: :family_4)
+
+      conn =
+        conn
+        |> put_req_header("authorization", "Bearer " <> token)
+        |> post("/api/planning/proposals/nope/reject")
+
+      assert %{"error" => %{"code" => "invalid_proposal_id"}} = json_response(conn, 422)
+    end
+  end
+
+  defp insert_pending_proposal(account, user) do
+    run =
+      Repo.insert!(%PlanningGenerationRun{
+        account_id: account.id,
+        user_id: user.id,
+        status: :completed,
+        input_context: %{},
+        started_at: DateTime.utc_now(),
+        completed_at: DateTime.utc_now()
+      })
+
+    Repo.insert!(%PlanningProposal{
+      generation_run_id: run.id,
+      proposal_json: %{"slots" => []},
+      status: :pending
+    })
+  end
+
   describe "POST /api/planning/chat date range limit (issue #87)" do
     test "a range longer than the plan maximum answers 422 and creates no rows", %{conn: conn} do
       %{token: token, account: %{id: account_id}} = insert_identity_with_token!()

@@ -118,32 +118,20 @@ defmodule MealPlannerApiWeb.MobileCasingContractTest do
       assert_camel_case_keys(weekly)
     end
 
-    test "POST /api/planning/confirm reads camelCase params nested in a list", f do
-      today = Date.utc_today()
-
+    # Issue #28 — the confirm reads `proposalId` and `sessionId`. An unknown
+    # proposal answers `not_found`, which it reaches only with both read: an
+    # unread id would answer `invalid_proposal_id` or `missing_session_id`.
+    test "POST /api/planning/confirm reads camelCase proposalId and sessionId", f do
       body =
         f
         |> request(:post, "/api/planning/confirm", %{
-          "meals" => [
-            %{
-              "date" => Date.to_iso8601(today),
-              "slot" => "lunch",
-              "recipeId" => f.recipe.id,
-              "selectedQuantity" => 3
-            }
-          ]
+          "proposalId" => Ecto.UUID.generate(),
+          "sessionId" => Ecto.UUID.generate()
         })
-        |> success()
+        |> json_response(404)
+        |> assert_camel_case_keys()
 
-      assert body == %{"data" => %{"scheduledMealsCount" => 1}}
-
-      assert [lunch] =
-               f.account.id
-               |> Planning.list_scheduled_meals(Date.add(today, -7), Date.add(today, 7))
-               |> Enum.filter(&(&1.slot == :lunch))
-
-      assert lunch.recipe_id == f.recipe.id
-      assert lunch.selected_quantity == 3
+      assert %{"error" => %{"code" => "not_found"}} = body
     end
   end
 

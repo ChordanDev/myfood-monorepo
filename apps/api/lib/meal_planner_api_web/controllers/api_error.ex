@@ -139,6 +139,8 @@ defmodule MealPlannerApiWeb.ApiError do
           | :prepared_leftover_not_found
           | :scheduled_meal_cooked
           | :calendar_conflict
+          | :planning_proposal_not_pending
+          | :planning_slot_occupied
 
   @type envelope :: %{
           error:
@@ -225,6 +227,10 @@ defmodule MealPlannerApiWeb.ApiError do
     # the planning channel rows too.
     scheduled_meal_cooked: {409, "A cooked meal cannot be moved."},
     calendar_conflict: {409, "The calendar changed while the meal was moved. Nothing was saved."},
+    # Confirm and reject of a Planner proposal over HTTP (issue #28): only a
+    # pending proposal is confirmed or rejected. Keep it above the planning
+    # channel rows too.
+    planning_proposal_not_pending: {409, "The proposal is no longer pending."},
     # Planning channel (issue #11): every deliberate reason a join or a
     # command of `PlanningChannel` replies, named as the reason was.
     generation_in_progress: {409, "A menu generation is already in progress for this account."},
@@ -242,6 +248,10 @@ defmodule MealPlannerApiWeb.ApiError do
     planning_invalid_range:
       {422, "The planning range must be 1 to 7 days and start today or later."},
     planning_range_locked: {409, "Another planning session holds part of this date range."},
+    # `start_planning` (issue #28): the Planner never plans over a Scheduled
+    # meal. The details name the date and slot pairs that already hold one.
+    planning_slot_occupied:
+      {409, "A meal is already scheduled for one of the requested days and slots."},
     forbidden_intent: {422, "The intent contains a field that is not allowed."},
     unknown_intent: {422, "The intent kind is not recognized."},
     invalid_payload: {422, "The request payload is not valid."},

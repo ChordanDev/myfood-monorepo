@@ -181,6 +181,7 @@ defmodule MealPlannerApiWeb.Router do
     post("/planning/chat", PlanningChatController, :create)
     put("/planning/slots/favorite", PlanningController, :toggle_slot_favorite)
     post("/planning/proposals/:proposal_id/reject", PlanningChatController, :reject)
+    post("/planning/sessions/:session_id/activity", PlanningController, :renew_session)
 
     post("/cooking/start", CookingController, :start)
     get("/cooking/sessions/:session_id", CookingController, :show)

@@ -124,6 +124,8 @@ export type AuthErrorCode =
   | 'overlapping_range'
   | 'planning_invalid_range'
   | 'planning_range_locked'
+  | 'planning_slot_occupied'
+  | 'planning_proposal_not_pending'
   | 'forbidden_intent'
   | 'unknown_intent'
   | 'invalid_payload'

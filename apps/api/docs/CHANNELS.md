@@ -210,6 +210,7 @@ Refusals reply the error envelope with these codes:
 |------|-----------|
 | `planning_invalid_range` | A date is missing or is not an ISO 8601 date, the range ends before it starts, lasts more than 7 days, starts more than a day in the past, or `dayCount` is not an integer from 1 to 7 or disagrees with `rangeTo` |
 | `planning_range_locked` | An active session of the Account already holds part of the range |
+| `planning_slot_occupied` | A day of the range already has a Scheduled meal in a slot the session plans (breakfast, lunch or dinner). Refused before any session starts |
 | `invalid_payload` | `request` is not a string or is longer than 1000 characters, or `favoriteRecipeIds` is not a list of strings. Both are refused before any session starts |
 | `subscription_required` | The Account is not eligible |
 | `generation_in_progress` | A generation of the Account is already running (the session is cancelled) |
@@ -226,7 +227,29 @@ Refusals reply the error envelope with these codes:
 }
 ```
 
+`planning_slot_occupied` carries `details` naming every date and slot pair that already holds a Scheduled meal, ordered by date (issue #28). The Planner never plans over a Scheduled meal; a snack, or a day outside the range, does not block the start.
+
+```json
+{
+  "error": {
+    "code": "planning_slot_occupied",
+    "message": "A meal is already scheduled for one of the requested days and slots.",
+    "details": { "occupied": [{ "date": "2026-06-10", "slot": "lunch" }] }
+  }
+}
+```
+
 The older `invalid_range` and `overlapping_range` codes stay in the allowlist; `start_planning` no longer replies them.
+
+#### Confirm, reject and the session lease (HTTP)
+
+Per ADR 0004 the app confirms and rejects a proposal over HTTP, and the topic carries the notification (issue #28). Every error answers the mobile error envelope.
+
+| Route | Body | Answer |
+|-------|------|--------|
+| `POST /api/planning/confirm` | `{"proposalId", "sessionId"}` | `{"data": {"proposalId", "sessionId", "status": "committed", "scheduledMealsCount", "shoppingRebuilt": true}}`. Confirms through the generation server of the Account in one transaction, then broadcasts `session_committed` next to the engine's `proposal_confirmed`. A proposal already accepted answers the same result and writes nothing; any other status answers `planning_proposal_not_pending` (409). Engine refusals (`lost_lock`, `terminal_lock`, `missing_lock`, `transaction_failed`, ...) pass through, and `no_active_generation` (409) when no generation server runs |
+| `POST /api/planning/proposals/:proposalId/reject` | none | `{"data": {"proposalId", "generationRunId", "status": "rejected"}}`, after `proposal_rejected` was broadcast. Only a pending proposal; otherwise `planning_proposal_not_pending` (409) |
+| `POST /api/planning/sessions/:sessionId/activity` | none | `{"data": {"sessionId", "leaseExpiresAt"}}`. The Planner renews its session every 60 s while the screen is open. The lease moves to two minutes from now, never past 30 minutes from the start of the session. A lease that ran out answers `lost_lock`, an ended session `terminal_lock`, another member `forbidden` and an unknown id `not_found` |
 
 #### Planning context
 
@@ -377,7 +400,7 @@ The events of `PlanningChannel.outbound_events/0`. Every member joined to the to
 | `session_started` | `{"sessionId": "uuid"}` | A planning session was created by `start_planning` |
 | `session_resumed` | `{"sessionId": "uuid"}`; on join, `{"sessionId", "proposalId", "proposal", "messages": [{"role", "content", "intentKind"}]}` | A session server restarted and resumed an active session, or a socket joined while its Account has an active session (pushed to that socket only) |
 | `session_cancelled` | `{"sessionId": "uuid"}` | A session was cancelled by `cancel_planning`, or by a `start_planning` whose generation could not start |
-| `session_committed` | `{"sessionId": "uuid"}` | Declared, but not emitted today: `confirm_proposal` commits the session inside its transaction and announces it with `proposal_confirmed` |
+| `session_committed` | `{"sessionId", "proposalId", "scheduledMealsCount", "shoppingRebuilt": true}` | `POST /api/planning/confirm` committed the session, wrote its meals and rebuilt the Shopping list. The `confirm_proposal` command does not emit it |
 | `session_lost_lock` | `{"sessionId": "uuid"}` | The channel process that held the session's range lock exited abnormally |
 | `session_expired` | `{"sessionId": "uuid"}` | The session sweeper expired a session that stayed active too long |
 | `generation_started` | `{"requestId", "runId", "sessionId"}` | A generation started; see [Planner events](#planner-events-frozen-shapes) |
@@ -386,7 +409,7 @@ The events of `PlanningChannel.outbound_events/0`. Every member joined to the to
 | `generation_error` | `{"reason", "details", "runId", "requestId"}` | A generation failed or could not start; see [Planner events](#planner-events-frozen-shapes) |
 | `proposal_update` | `{"changeType": "string", "newValue": ...}` | The running generation applied a `chat` change |
 | `proposal_confirmed` | `{"proposalId", "scheduledMealsCount", "cart": [...], "shoppingItemsCount", "checkoutSessionId"}` | A proposal was confirmed and its meals and cart were written |
-| `proposal_rejected` | `{"proposalId": "uuid"}` (`generationRunId` and `status` too when no generation was running) | A proposal was rejected |
+| `proposal_rejected` | `{"proposalId": "uuid"}` (`generationRunId` and `status` too when the command rejected it with no generation running) | A proposal was rejected, by the command or by `POST /api/planning/proposals/:proposalId/reject` |
 | `send_intent` | `{"intent": {"kind": "string", ...}}` | A member sent a typed intent on the AI chat channel. A notification only: the session does not apply it until the client sends `send_message` |
 
 **Example Response (proposal_confirmed):**

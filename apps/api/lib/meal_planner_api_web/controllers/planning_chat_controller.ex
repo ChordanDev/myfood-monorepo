@@ -2,6 +2,7 @@ defmodule MealPlannerApiWeb.PlanningChatController do
   use MealPlannerApiWeb, :controller
 
   alias MealPlannerApi.Services.PlanningChatService
+  alias MealPlannerApiWeb.ApiError
   alias MealPlannerApiWeb.Controllers.AccountScopeHelpers
 
   # Phase A — Tenancy Refactor (PR 3c task 3.19): tenancy scope is always
@@ -38,19 +39,26 @@ defmodule MealPlannerApiWeb.PlanningChatController do
     end
   end
 
+  # Issue #28 — rejects a pending proposal of the Account through the session
+  # flow. Every error leaves through the `ApiError` envelope.
   def reject(conn, %{"proposal_id" => proposal_id}) do
-    user = scoped_user(conn)
+    account_id = conn.assigns.current_membership.account_id
 
-    case PlanningChatService.reject_proposal(user, proposal_id) do
-      {:ok, result} ->
-        json(conn, %{data: serialize_rejection(result)})
-
-      {:error, reason} ->
-        conn
-        |> put_status(:unprocessable_entity)
-        |> json(%{error: serialize_reason(reason)})
+    case PlanningChatService.reject_pending_proposal(account_id, proposal_id) do
+      {:ok, result} -> json(conn, %{data: serialize_rejection(result)})
+      {:error, reason} -> render_reject_error(conn, reason)
     end
   end
+
+  defp render_reject_error(conn, :invalid_proposal_id),
+    do: conn |> ApiError.error(:invalid_proposal_id)
+
+  defp render_reject_error(conn, :not_found), do: conn |> ApiError.error(:not_found)
+
+  defp render_reject_error(conn, :planning_proposal_not_pending),
+    do: conn |> ApiError.error(:planning_proposal_not_pending)
+
+  defp render_reject_error(conn, _reason), do: conn |> ApiError.server_fault()
 
   defp scoped_user(conn) do
     conn
