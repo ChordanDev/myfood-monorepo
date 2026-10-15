@@ -264,6 +264,23 @@ defmodule MealPlannerApiWeb.PlanningChatControllerTest do
       refute_receive {:busy_server_cast, ^server, _cast}
     end
 
+    # Native review R4-001: the reply must say what the server did, not that a
+    # reject was sent. A server that drops the cast leaves the proposal pending.
+    test "answers 500 when the generation server did not apply the reject", %{conn: conn} do
+      %{token: token, user: user, account: account} = insert_identity_with_token!(plan: :family_4)
+      proposal = insert_pending_proposal(account, user)
+      server = start_busy_generation_server(account.id, hold_first_call: false)
+
+      conn =
+        conn
+        |> put_req_header("authorization", "Bearer " <> token)
+        |> post("/api/planning/proposals/#{proposal.id}/reject")
+
+      assert %{"error" => %{"code" => "unknown_error"}} = json_response(conn, 500)
+      assert_received {:busy_server_cast, ^server, {:reject, _proposal_id}}
+      assert Repo.get!(PlanningProposal, proposal.id).status == :pending
+    end
+
     test "answers 422 invalid_proposal_id for a malformed id", %{conn: conn} do
       %{token: token} = insert_identity_with_token!(plan: :family_4)
 
@@ -279,8 +296,9 @@ defmodule MealPlannerApiWeb.PlanningChatControllerTest do
   # Registers a process as the generation server of the Account. It holds the
   # first call it gets until the test sends `:finish_confirm`, as a server still
   # running a confirm would, then answers every later call at once. With
-  # `exit_on_call: true` it dies on the first call instead. It reports every
-  # call and cast it gets to the test.
+  # `hold_first_call: false` it answers every call at once, and with
+  # `exit_on_call: true` it dies on the first call instead. It applies no cast
+  # and reports every call and cast it gets to the test.
   defp start_busy_generation_server(account_id, opts \\ []) do
     test_pid = self()
 
@@ -290,7 +308,12 @@ defmodule MealPlannerApiWeb.PlanningChatControllerTest do
           Registry.register(MealPlannerApi.Generation.Generations, {:generation, account_id}, nil)
 
         send(test_pid, :busy_server_registered)
-        busy_server_loop(test_pid, Keyword.get(opts, :exit_on_call, false), true)
+
+        busy_server_loop(
+          test_pid,
+          Keyword.get(opts, :exit_on_call, false),
+          Keyword.get(opts, :hold_first_call, true)
+        )
       end)
 
     assert_receive :busy_server_registered

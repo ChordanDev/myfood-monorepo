@@ -159,7 +159,8 @@ defmodule MealPlannerApi.Services.PlanningChatService do
   doing: a confirm still running there (its own HTTP call may have timed out)
   is not overwritten by a reject that read the proposal before it committed.
   A server that cannot be reached answers `:reject_unavailable` and rejects
-  nothing.
+  nothing; so does a reject the server did not apply, read back once it is
+  done.
   """
   @spec reject_pending_proposal(Ecto.UUID.t(), term()) :: {:ok, map()} | {:error, atom()}
   def reject_pending_proposal(account_id, proposal_id) do
@@ -240,20 +241,32 @@ defmodule MealPlannerApi.Services.PlanningChatService do
   defp reject_through_session_flow(account_id, proposal_id) do
     case generation_server(account_id) do
       {:ok, pid} ->
-        with :ok <- await_server(pid),
-             {:ok, proposal} <- fetch_pending(account_id, proposal_id) do
-          Server.reject(pid, proposal.id)
-          # A call sent after the cast is handled after it, so this returns once
-          # the server rejected the proposal and broadcast `proposal_rejected`.
-          _settled = await_server(pid)
-          {:ok, proposal}
-        end
+        reject_on_server(pid, account_id, proposal_id)
 
       {:error, :no_active_generation} ->
         with {:ok, proposal} <- fetch_pending(account_id, proposal_id),
              :ok <- reject_without_server(account_id, proposal) do
           {:ok, proposal}
         end
+    end
+  end
+
+  defp reject_on_server(pid, account_id, proposal_id) do
+    with :ok <- await_server(pid),
+         {:ok, proposal} <- fetch_pending(account_id, proposal_id) do
+      Server.reject(pid, proposal.id)
+      # A call sent after the cast is handled after it, so this returns once
+      # the server handled the reject. The answer is what the row says then.
+      with :ok <- await_server(pid), do: confirm_rejected(account_id, proposal)
+    end
+  end
+
+  # The cast says nothing of how the reject went: a server that crashed on it,
+  # or dropped it, leaves the proposal as it was.
+  defp confirm_rejected(account_id, proposal) do
+    case PlanningRepo.get_account_proposal(account_id, proposal.id) do
+      {:ok, %{status: :rejected} = rejected} -> {:ok, rejected}
+      _not_rejected -> {:error, :reject_unavailable}
     end
   end
 
