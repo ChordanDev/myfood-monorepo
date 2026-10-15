@@ -4,8 +4,8 @@ defmodule MealPlannerApiWeb.PreparedLeftoverController do
   Tenancy comes from `conn.assigns.current_membership.account_id`.
 
   Eating a portion takes an optional client `actionId` (issue #162): a retry
-  with the same one within 24 hours answers what the first one did and eats
-  nothing more.
+  with the same one on the same leftover within 24 hours answers what the first
+  one did and eats nothing more.
   """
 
   use MealPlannerApiWeb, :controller
@@ -42,20 +42,23 @@ defmodule MealPlannerApiWeb.PreparedLeftoverController do
   end
 
   def consume(conn, %{"id" => id} = params) do
-    case parse_action_id(params["action_id"]) do
-      {:ok, action_id} ->
-        account_id = account_id(conn)
+    with {:ok, action_id} <- parse_action_id(params["action_id"]),
+         {:ok, leftover_id} <- Ecto.UUID.cast(id) do
+      account_id = account_id(conn)
 
-        # The stored answer is the rendered one, so a replay renders nothing again.
-        result =
-          Idempotency.run(account_id, @consume_endpoint, action_id, fn ->
-            account_id |> Leftovers.consume(id) |> rendered()
-          end)
+      # The key belongs to one leftover, so reusing an actionId on another one
+      # eats from it. The stored answer is the rendered one, so a replay renders
+      # nothing again.
+      result =
+        Idempotency.run(account_id, "#{@consume_endpoint}:#{leftover_id}", action_id, fn ->
+          account_id |> Leftovers.consume(leftover_id) |> rendered()
+        end)
 
-        respond(conn, result)
-
-      {:error, field} ->
-        ApiError.validation_error(conn, field)
+      respond(conn, result)
+    else
+      {:error, field} -> ApiError.validation_error(conn, field)
+      # A malformed id names no leftover, and must not reach the stored key.
+      :error -> respond(conn, {:error, :not_found})
     end
   end
 
