@@ -374,7 +374,7 @@ Estas observaciones son estado actual, no evidencia de que el producto descrito 
 4. **Objetivos numéricos con varios participantes:** decidir si se optimiza un rango compartido, porciones por persona o múltiples objetivos individuales; no promediar por defecto.
 5. **Porciones:** definir cómo escalan nutrientes y costos para participantes distintos y si cada comida puede tener cantidades individuales.
 6. **Moneda canónica:** decidir dónde se persiste y cómo se rechazan o convierten costos en monedas distintas; no asumir que `ARS` siempre aplica.
-7. **Tier y semana:** confirmar si el pipeline canónico adopta 5 días para tiers no premium y 7 para premium, y cuál es la autoridad vigente del tier.
+7. **Tier y semana:** decidido el 2026-10-14 (#230): toda Account planifica de 1 a 7 días, sin límite por plan (`PlanningService.max_planning_days/0`).
 8. **Política para objetivos muy bajos:** obtener una regla de producto validada por especialistas sin convertir esta especificación en guía clínica.
 9. **Precio faltante:** confirmar si siempre excluye candidatos bajo presupuesto duro o si existe un modo explícito de estimación, claramente no garantizado.
 10. **Granularidad de ingredientes requeridos:** decidir si “al menos una vez” se evalúa por ingrediente base, variante, cantidad mínima o unidad normalizada.

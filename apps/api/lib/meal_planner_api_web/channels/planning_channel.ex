@@ -82,6 +82,7 @@ defmodule MealPlannerApiWeb.PlanningChannel do
   alias MealPlannerApi.Persistence.Planning
   alias MealPlannerApi.Planning.LockOwner
   alias MealPlannerApi.Services.PlanningContext
+  alias MealPlannerApi.Services.PlanningService
   alias MealPlannerApiWeb.ApiError
   alias MealPlannerApiWeb.Casing
   alias MealPlannerApiWeb.ChannelCapability
@@ -538,11 +539,10 @@ defmodule MealPlannerApiWeb.PlanningChannel do
     end
   end
 
-  # The most days a Planning session covers, and how far in the past its
-  # first day may be. The Planner sends the day the member sees as today; a
-  # member west of UTC sees a date that is still yesterday in UTC, so one day
-  # back is accepted.
-  @max_planning_days 7
+  # How far in the past the first day of a Planning session may be. The
+  # Planner sends the day the member sees as today; a member west of UTC sees
+  # a date that is still yesterday in UTC, so one day back is accepted. The
+  # most days a session covers is `PlanningService.max_planning_days/0`.
   @max_days_in_past 1
 
   # The longest free text a member may type with the request.
@@ -551,7 +551,8 @@ defmodule MealPlannerApiWeb.PlanningChannel do
   # The range of a `start_planning` payload: `range_from` is an ISO 8601 date
   # that is today or later, and the range ends with `range_to` or lasts
   # `day_count` days (when both are sent they must agree). It covers 1 to
-  # `@max_planning_days` days. Anything else is `:planning_invalid_range`.
+  # `PlanningService.max_planning_days/0` days. Anything else is
+  # `:planning_invalid_range`.
   defp parse_range(payload) do
     with {:ok, date_from} <- parse_iso_date(Map.get(payload, "range_from")),
          {:ok, date_to} <- range_end(date_from, payload),
@@ -594,7 +595,7 @@ defmodule MealPlannerApiWeb.PlanningChannel do
 
   defp check_range_length(date_from, date_to) do
     days = Date.diff(date_to, date_from) + 1
-    if days in 1..@max_planning_days, do: :ok, else: invalid_range()
+    if days in 1..PlanningService.max_planning_days(), do: :ok, else: invalid_range()
   end
 
   defp check_not_in_the_past(date_from) do

@@ -355,11 +355,12 @@ defmodule MealPlannerApiWeb.PlanningChatControllerTest do
   end
 
   describe "POST /api/planning/chat date range limit (issue #87)" do
-    test "a range longer than the plan maximum answers 422 and creates no rows", %{conn: conn} do
+    test "a range longer than seven days answers 422 and creates no rows", %{conn: conn} do
       %{token: token, account: %{id: account_id}} = insert_identity_with_token!()
 
-      # A free User plans five days at most; the second range is two years.
-      for {date_from, date_to} <- [{"2026-03-23", "2026-03-28"}, {"2026-01-01", "2027-12-31"}] do
+      # Every User plans seven days at most; the first range is eight days,
+      # the second two years.
+      for {date_from, date_to} <- [{"2026-03-23", "2026-03-30"}, {"2026-01-01", "2027-12-31"}] do
         conn =
           conn
           |> put_req_header("authorization", "Bearer " <> token)
@@ -375,26 +376,30 @@ defmodule MealPlannerApiWeb.PlanningChatControllerTest do
       assert planning_row_counts(account_id) == %{generation_runs: 0, proposals: 0}
     end
 
-    test "a range of the plan maximum still creates a proposal", %{conn: conn} do
-      %{token: token, account: %{id: account_id}} =
-        insert_identity_with_token!(subscription_tier: :premium)
+    for subscription_tier <- [:free, :premium] do
+      test "a range of seven days still creates a proposal for a #{subscription_tier} User", %{
+        conn: conn
+      } do
+        %{token: token, account: %{id: account_id}} =
+          insert_identity_with_token!(subscription_tier: unquote(subscription_tier))
 
-      conn =
-        conn
-        |> put_req_header("authorization", "Bearer " <> token)
-        |> post("/api/planning/chat", %{
-          "message" => "Necesito menu para la semana",
-          "date_from" => "2026-03-23",
-          "date_to" => "2026-03-29"
-        })
+        conn =
+          conn
+          |> put_req_header("authorization", "Bearer " <> token)
+          |> post("/api/planning/chat", %{
+            "message" => "Necesito menu para la semana",
+            "date_from" => "2026-03-23",
+            "date_to" => "2026-03-29"
+          })
 
-      body = json_response(conn, 200)
+        body = json_response(conn, 200)
 
-      assert is_binary(body["data"]["proposalId"])
-      assert body["data"]["dateFrom"] == "2026-03-23"
-      assert body["data"]["dateTo"] == "2026-03-29"
+        assert is_binary(body["data"]["proposalId"])
+        assert body["data"]["dateFrom"] == "2026-03-23"
+        assert body["data"]["dateTo"] == "2026-03-29"
 
-      assert planning_row_counts(account_id) == %{generation_runs: 1, proposals: 1}
+        assert planning_row_counts(account_id) == %{generation_runs: 1, proposals: 1}
+      end
     end
   end
 
