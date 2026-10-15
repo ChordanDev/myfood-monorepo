@@ -4,7 +4,7 @@ import React from 'react';
 import { StyleSheet, Text } from 'react-native';
 import { act, create, ReactTestInstance, ReactTestRendererJSON } from 'react-test-renderer';
 import { INVENTORY_CATEGORY_COLORS } from '../constants/categories';
-import { MILK as MILK_LOT } from '../mocks';
+import { MILK as MILK_LOT } from '../fixtures';
 import type { InventoryItem } from '../types';
 import { InventoryRow } from './InventoryRow';
 

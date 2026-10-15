@@ -1,4 +1,4 @@
-import { POTATO } from '@/features/inventory/mocks/inventoryApiFixtures';
+import { POTATO } from '@/features/inventory/fixtures/inventoryApiFixtures';
 import type { UnitType } from '@/types/domain';
 import { fixtureRecipe } from '../fixtures/recipeDetail';
 import type { RecipeIngredientLine } from '../types/recipe';

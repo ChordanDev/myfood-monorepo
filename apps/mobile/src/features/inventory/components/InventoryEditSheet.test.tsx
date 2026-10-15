@@ -4,7 +4,7 @@ import React from 'react';
 import { Text, TextInput } from 'react-native';
 import { act, create, ReactTestInstance } from 'react-test-renderer';
 import { ApiError } from '@/api/errors';
-import { MILK as MILK_LOT } from '../mocks';
+import { MILK as MILK_LOT } from '../fixtures';
 import type { InventoryItem } from '../types';
 import { InventoryEditSheet } from './InventoryEditSheet';
 

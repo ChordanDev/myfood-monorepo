@@ -13,7 +13,7 @@ import {
   VOICE_PREVIEW_LOW_CONFIDENCE,
   VOICE_TRANSCRIPT_HIGH,
   VOICE_TRANSCRIPT_LOW,
-} from '../mocks';
+} from '../fixtures';
 import type { VoiceApplyPayload, VoiceApplyResult, VoicePreview } from '../types';
 import { InventoryVoiceSheet } from './InventoryVoiceSheet';
 

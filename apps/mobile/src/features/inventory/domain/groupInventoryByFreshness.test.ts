@@ -1,4 +1,4 @@
-import { CHICKEN, MILK, ONION, RICE, STEW, buildInventoryItem } from '../mocks';
+import { CHICKEN, MILK, ONION, RICE, STEW, buildInventoryItem } from '../fixtures';
 import { groupInventoryByFreshness } from './groupInventoryByFreshness';
 
 describe('groupInventoryByFreshness', () => {

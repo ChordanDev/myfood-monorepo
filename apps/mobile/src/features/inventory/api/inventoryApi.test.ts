@@ -9,7 +9,7 @@ import {
   dataResponse,
   errorResponse,
   mutationEvent,
-} from '../mocks';
+} from '../fixtures';
 import {
   addExtraItem,
   applyVoice,
