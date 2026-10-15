@@ -145,9 +145,9 @@ export function usePlanningDraft(
 ): PlanningDraftController {
   const [draft, dispatch] = useReducer(planningDraftReducer, IDLE_PLANNING_DRAFT);
   const subscription = topic.status === 'joined' ? topic.subscription : null;
-  // The request of a generation the User cancelled before its session was known: the session is
-  // cancelled once `generation_started` names it.
-  const abandonedRequestRef = useRef<string | null>(null);
+  // The requests of the generations left behind before their session was known, by a cancel or by
+  // a retry after the time limit: each session is cancelled once `generation_started` names it.
+  const abandonedRequestsRef = useRef(new Set<string>());
 
   useEffect(() => {
     if (subscription === null) return;
@@ -165,9 +165,8 @@ export function usePlanningDraft(
 
         if (
           action.type === 'generation_started' &&
-          action.payload.requestId === abandonedRequestRef.current
+          abandonedRequestsRef.current.delete(action.payload.requestId)
         ) {
-          abandonedRequestRef.current = null;
           // A session that is already over answers an error, which changes nothing here.
           subscription.push('cancel_planning', { sessionId: action.payload.sessionId }).then(
             () => undefined,
@@ -265,6 +264,10 @@ export function usePlanningDraft(
   const retry = useCallback(() => {
     const last = lastStartRef.current;
     if (last === null) return;
+    // A generation that ran out of time may still be running: its session is cancelled once known.
+    if (draft.status === 'failed' && draft.timedOut !== undefined && draft.sessionId === null) {
+      abandonedRequestsRef.current.add(draft.requestId);
+    }
     const sessionToCancel =
       draft.status === 'failed' && draft.failure.kind === 'generation' ? draft.sessionId : null;
     start(last.range, last.request, last.favoriteRecipeIds, undefined, sessionToCancel);
@@ -359,7 +362,7 @@ export function usePlanningDraft(
     // A generation is left at once: whatever it still answers no longer moves the draft.
     if (generating !== null) {
       dispatch({ type: 'reset' });
-      if (generating.sessionId === null) abandonedRequestRef.current = generating.requestId;
+      if (generating.sessionId === null) abandonedRequestsRef.current.add(generating.requestId);
       else void cancelSession(generating.sessionId);
       return;
     }
