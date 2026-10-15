@@ -4,6 +4,8 @@
 **Date:** 2026-10-07
 **Feeds:** Wayfinder map #80; later prototype and decision issues.
 
+> **Note (2026-10-15):** this research reflects the code at its pinned revisions. Since then the `generate_menu`, `swap_constraints`, `chat`, `confirm_proposal` and `reject_proposal` channel commands have been retired (issue #15). A plan starts with the `start_planning` channel command and is confirmed or rejected over HTTP (`POST /api/planning/confirm`, `POST /api/planning/proposals/:proposal_id/reject`, ADR 0004). Confirm still runs through `Generation.Server.confirm/3` and its session lock. See `docs/CHANNELS.md`.
+
 ## 1. Scope, pinned revisions, method, limits
 
 ### Question
