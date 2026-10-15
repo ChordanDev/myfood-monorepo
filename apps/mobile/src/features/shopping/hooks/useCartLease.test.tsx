@@ -263,6 +263,168 @@ describe('useCartLease', () => {
     });
   });
 
+  describe('renewals that keep failing', () => {
+    const NETWORK_ERROR = new ApiError('network_error', 'Network request failed');
+    const TIMEOUT = new ApiError('timeout', 'Request timeout', 0);
+    const SERVER_ERROR = new ApiError('unknown_error', 'Request failed', 503);
+
+    // Minute by minute, so each renewal answers before the next one is due.
+    async function waitMinutes(count: number) {
+      for (let minute = 0; minute < count; minute += 1) await tick(60_000);
+    }
+
+    it('asks again at once on coming back to the app after a renewal failed with a network error', async () => {
+      api.renewCart.mockRejectedValueOnce(NETWORK_ERROR);
+      const { result, setAppState } = setup();
+      await tickItems(result);
+      await tick(60_000);
+      expect(api.renewCart).toHaveBeenCalledTimes(1);
+
+      setAppState('background');
+      await tick(10_000);
+      setAppState('active');
+      await tick(0);
+
+      // A failed attempt did not extend the lease, so it is still due.
+      expect(api.renewCart).toHaveBeenCalledTimes(2);
+      expect(result.current.cart).toEqual(LEASE);
+    });
+
+    it('asks again at once on coming back to the screen after a renewal failed', async () => {
+      api.renewCart.mockRejectedValueOnce(TIMEOUT);
+      const { result, setFocused } = setup();
+      await tickItems(result);
+      await tick(60_000);
+
+      setFocused(false);
+      await tick(5_000);
+      setFocused(true);
+      await tick(0);
+
+      expect(api.renewCart).toHaveBeenCalledTimes(2);
+    });
+
+    it('asks once a minute at most in place while renewals fail', async () => {
+      api.renewCart.mockRejectedValue(NETWORK_ERROR);
+      const { result } = setup();
+      await tickItems(result);
+
+      await tick(60_000);
+      expect(api.renewCart).toHaveBeenCalledTimes(1);
+
+      await tick(59_999);
+      expect(api.renewCart).toHaveBeenCalledTimes(1);
+
+      await tick(1);
+      expect(api.renewCart).toHaveBeenCalledTimes(2);
+    });
+
+    it('sends no second renewal while one is on its way', async () => {
+      api.renewCart.mockReturnValue(new Promise(() => {}));
+      const { result, setAppState } = setup();
+      await tickItems(result);
+      await tick(60_000);
+
+      setAppState('background');
+      setAppState('active');
+      await tick(60_000);
+
+      expect(api.renewCart).toHaveBeenCalledTimes(1);
+    });
+
+    it('keeps the once-a-minute cadence after a renewal that answers late', async () => {
+      api.renewCart.mockImplementation(
+        () => new Promise((resolve) => setTimeout(() => resolve(LEASE), 5_000))
+      );
+      const { result } = setup();
+      await tickItems(result);
+
+      await tick(60_000);
+      await tick(5_000);
+      await tick(55_000);
+
+      expect(api.renewCart).toHaveBeenCalledTimes(2);
+    });
+
+    it('says the renewals keep failing after three in a row, not before', async () => {
+      api.renewCart
+        .mockRejectedValueOnce(NETWORK_ERROR)
+        .mockRejectedValueOnce(TIMEOUT)
+        .mockRejectedValueOnce(SERVER_ERROR);
+      const { result } = setup();
+      await tickItems(result);
+
+      await tick(60_000);
+      await tick(60_000);
+      expect(result.current.isRenewalFailing).toBe(false);
+
+      await tick(60_000);
+      expect(result.current.isRenewalFailing).toBe(true);
+      expect(result.current.cart).toEqual(LEASE);
+    });
+
+    it('stops saying it at the first renewal that succeeds, and counts again from zero', async () => {
+      api.renewCart
+        .mockRejectedValueOnce(NETWORK_ERROR)
+        .mockRejectedValueOnce(NETWORK_ERROR)
+        .mockRejectedValueOnce(NETWORK_ERROR)
+        .mockResolvedValueOnce(LEASE)
+        .mockRejectedValueOnce(NETWORK_ERROR)
+        .mockRejectedValueOnce(NETWORK_ERROR);
+      const { result } = setup();
+      await tickItems(result);
+      await waitMinutes(3);
+      expect(result.current.isRenewalFailing).toBe(true);
+
+      await tick(60_000);
+      expect(result.current.isRenewalFailing).toBe(false);
+
+      await waitMinutes(2);
+      expect(result.current.isRenewalFailing).toBe(false);
+    });
+
+    it('stops saying it once a tick reaches the server', async () => {
+      api.renewCart.mockRejectedValue(NETWORK_ERROR);
+      const { result } = setup();
+      await tickItems(result);
+      await waitMinutes(3);
+      expect(result.current.isRenewalFailing).toBe(true);
+
+      await tickItems(result);
+
+      expect(result.current.isRenewalFailing).toBe(false);
+    });
+
+    it('does not count an answer the server refused for another reason', async () => {
+      api.renewCart.mockRejectedValue(new ApiError('unknown_error', 'Request failed', 422));
+      const { result } = setup();
+      await tickItems(result);
+
+      await waitMinutes(3);
+
+      expect(api.renewCart).toHaveBeenCalledTimes(3);
+      expect(result.current.isRenewalFailing).toBe(false);
+    });
+
+    it('still drops the Cart and reads the list again when the lease turns out gone', async () => {
+      api.renewCart
+        .mockRejectedValueOnce(NETWORK_ERROR)
+        .mockRejectedValueOnce(NETWORK_ERROR)
+        .mockRejectedValueOnce(NETWORK_ERROR)
+        .mockRejectedValueOnce(new ApiError('cart_expired', 'expired', 409));
+      const { result, refreshList } = setup();
+      await tickItems(result);
+      await waitMinutes(3);
+      refreshList.mockClear();
+
+      await tick(60_000);
+
+      expect(result.current.cart).toBeNull();
+      expect(refreshList).toHaveBeenCalledTimes(1);
+      expect(result.current.isRenewalFailing).toBe(false);
+    });
+  });
+
   describe('abandoning', () => {
     it('cancels the Cart, drops it and reads the list again', async () => {
       const { result, refreshList } = setup();

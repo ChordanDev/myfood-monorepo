@@ -17,6 +17,7 @@ import {
   ShoppingCartSheet,
   ShoppingDatePill,
   ShoppingGroupCard,
+  ShoppingLeaseNotice,
   ShoppingLoadError,
   ShoppingManualCard,
   ShoppingRestoreLine,
@@ -83,6 +84,7 @@ export function ShoppingScreen() {
     confirmErrorMessage,
     dismissConfirmError,
     errorMessage: cartErrorMessage,
+    isRenewalFailing,
   } = useCartLease({
     listCart,
     refreshList: refresh,
@@ -208,6 +210,8 @@ export function ShoppingScreen() {
           showsVerticalScrollIndicator={false}>
           {/* Above the cards: a list that could not be read again is still the last one read. */}
           {errorMessage ? <ShoppingLoadError message={errorMessage} onRetry={retry} /> : null}
+          {/* The Cart is still shown, but the server may have let it go meanwhile. */}
+          {isRenewalFailing ? <ShoppingLeaseNotice /> : null}
           {cartErrorMessage ? (
             <Animated.Text accessibilityRole="alert" style={[styles.emptyLabel, mutedStyle]}>
               {cartErrorMessage}

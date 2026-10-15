@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { AppState } from 'react-native';
 import { useFocusEffect } from 'expo-router';
-import { getAuthErrorMessage, isApiError } from '@/api/errors';
+import { getAuthErrorMessage, isApiError, isTransientAuthError } from '@/api/errors';
 import { cancelCart, confirmCheckout, markInCart, renewCart } from '../api/shoppingApi';
 import type { CartLease, CheckoutLine } from '../types';
 
@@ -20,6 +20,16 @@ const LEASE_GONE_CODES: readonly string[] = [
 
 function isLeaseGone(caught: unknown) {
   return isApiError(caught) && LEASE_GONE_CODES.includes(caught.code);
+}
+
+// How many renewals in a row may fail to reach the server before the screen says the Cart may
+// have run out. One or two missed minutes are absorbed by a lease that lasts an hour.
+export const CART_RENEW_FAILURES_BEFORE_NOTICE = 3;
+
+// A renewal that did not reach the server, or that the server could not serve: the lease is
+// unknown, not gone. A refusal for any other reason is not counted.
+function isUnreachable(caught: unknown) {
+  return isTransientAuthError(caught) || (isApiError(caught) && caught.status >= 500);
 }
 
 // How a confirm ended: the Cart was bought, the Cart is gone and there is nothing to confirm,
@@ -56,9 +66,15 @@ export function useCartLease({ listCart, refreshList }: UseCartLeaseOptions) {
   // because it is read while rendering. A lease the server reported gone is not kept here:
   // for that one the read of the list decides.
   const [endedSessionId, setEndedSessionId] = useState<string | null>(null);
-  // When the lease was last known to be extended: the last tick or the last renewal. Zero
-  // until one happened in this session, so a Cart found on opening the screen is due.
+  // When the lease was last known to be extended: the last tick or the last renewal that
+  // succeeded. Zero until one happened in this session, so a Cart found on opening the screen
+  // is due. A failed renewal does not set it, so coming back to the screen or to the app asks
+  // again at once.
   const lastActivityAt = useRef(0);
+  // A renewal on its way: nothing else is sent until it answers.
+  const isRenewingRef = useRef(false);
+  // The renewals in a row of this session that did not reach the server.
+  const [failedRenewals, setFailedRenewals] = useState({ sessionId: '', count: 0 });
 
   // What the server reports is the truth: a read that lands replaces the local Cart, unless
   // it still reports the Cart this device ended. This is React's "derive state from props"
@@ -97,20 +113,37 @@ export function useCartLease({ listCart, refreshList }: UseCartLeaseOptions) {
     if (sessionId === undefined || !isFocused || !isAppActive) return;
 
     const renewIfDue = () => {
-      if (Date.now() - lastActivityAt.current < CART_RENEW_INTERVAL_MS) return;
+      const now = Date.now();
 
-      lastActivityAt.current = Date.now();
+      if (isRenewingRef.current) return;
+      if (now - lastActivityAt.current < CART_RENEW_INTERVAL_MS) return;
+
+      isRenewingRef.current = true;
       renewCart(sessionId)
-        // A renewal that lands after the Cart was cancelled must not bring it back.
-        .then((lease) => setCart((prev) => (prev?.sessionId === lease.sessionId ? lease : prev)))
+        .then((lease) => {
+          // When it was sent, so the next one is due a minute after this one, not later.
+          lastActivityAt.current = Math.max(lastActivityAt.current, now);
+          setFailedRenewals({ sessionId, count: 0 });
+          // A renewal that lands after the Cart was cancelled must not bring it back.
+          setCart((prev) => (prev?.sessionId === lease.sessionId ? lease : prev));
+        })
         .catch((caught: unknown) => {
           if (isLeaseGone(caught)) {
             dropCart();
+          } else if (isUnreachable(caught)) {
+            setFailedRenewals((prev) => ({
+              sessionId,
+              count: prev.sessionId === sessionId ? prev.count + 1 : 1,
+            }));
           }
+        })
+        .finally(() => {
+          isRenewingRef.current = false;
         });
     };
 
-    // Back after a while away, the lease may be due already.
+    // Back after a while away, or after a renewal that failed, the lease may be due already.
+    // In place, the interval keeps renewals a minute apart even while they fail.
     renewIfDue();
     const interval = setInterval(renewIfDue, CART_RENEW_INTERVAL_MS);
 
@@ -125,6 +158,8 @@ export function useCartLease({ listCart, refreshList }: UseCartLeaseOptions) {
         const marked = await markInCart(itemIds);
 
         lastActivityAt.current = Date.now();
+        // The server was reached and extended the lease.
+        setFailedRenewals({ sessionId: marked.sessionId, count: 0 });
         setIsHeldByAnother(false);
         // A Cart started again: whatever session the server gave it is one to take from a read.
         setEndedSessionId(null);
@@ -210,6 +245,11 @@ export function useCartLease({ listCart, refreshList }: UseCartLeaseOptions) {
     dismissConfirmError,
     // Another member of the Account holds some of the items ticked.
     isHeldByAnother,
+    // Renewals of the Cart on screen keep failing to reach the server: it may have run out.
+    isRenewalFailing:
+      sessionId !== undefined &&
+      failedRenewals.sessionId === sessionId &&
+      failedRenewals.count >= CART_RENEW_FAILURES_BEFORE_NOTICE,
     errorMessage: error === null ? undefined : getAuthErrorMessage(error),
   };
 }
