@@ -12,8 +12,18 @@ import { usePreparedLeftovers } from '../hooks/usePreparedLeftovers';
 // (no Scheduled meal behind them) are added from here.
 export function LeftoversScreen() {
   const { theme } = useRecipeTheme();
-  const { leftovers, isLoading, isEmpty, errorMessage, busyId, consume, discard, add, retry } =
-    usePreparedLeftovers();
+  const {
+    leftovers,
+    isLoading,
+    isEmpty,
+    errorMessage,
+    busyId,
+    consume,
+    discard,
+    add,
+    startAdd,
+    retry,
+  } = usePreparedLeftovers();
   const [isAddSheetVisible, setIsAddSheetVisible] = useState(false);
 
   const groundStyle = useAnimatedThemeStyle({ backgroundColor: theme.appBg });
@@ -33,7 +43,10 @@ export function LeftoversScreen() {
           showsVerticalScrollIndicator={false}>
           <Pressable
             accessibilityRole="button"
-            onPress={() => setIsAddSheetVisible(true)}
+            onPress={() => {
+              startAdd();
+              setIsAddSheetVisible(true);
+            }}
             style={({ pressed }) => [
               styles.addButton,
               { borderColor: withOpacity(theme.textDark, 0.3), opacity: pressed ? 0.7 : 1 },

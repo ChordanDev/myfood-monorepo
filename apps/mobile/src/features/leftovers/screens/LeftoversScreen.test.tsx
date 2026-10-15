@@ -342,6 +342,63 @@ describe('LeftoversScreen', () => {
     expect(sentBody(3).title).toBe('Soups');
   });
 
+  it('stores two identical leftovers added one after the other under different actionIds', async () => {
+    const added = { ...LEFTOVER_RICE, id: 'leftover-3', title: 'Soup', portions: 2 };
+    fetchMock
+      .mockReturnValueOnce(jsonResponse(toLeftoversResponse(OPEN_LEFTOVERS)))
+      .mockReturnValueOnce(jsonResponse(toLeftoverResponse(added), true, 201))
+      .mockReturnValueOnce(jsonResponse(toLeftoversResponse([...OPEN_LEFTOVERS, added])))
+      .mockReturnValueOnce(
+        jsonResponse(toLeftoverResponse({ ...added, id: 'leftover-4' }), true, 201)
+      )
+      .mockReturnValueOnce(jsonResponse(toLeftoversResponse([...OPEN_LEFTOVERS, added])));
+
+    const root = await renderScreen();
+    for (let round = 0; round < 2; round += 1) {
+      await press(root, 'Agregar sobra');
+      type(root, 'Nombre de la sobra', 'Soup');
+      type(root, 'Porciones', '2');
+      await press(root, 'Guardar');
+    }
+
+    expect(requests()).toEqual([
+      `GET ${LIST_URL}`,
+      `POST ${LIST_URL}`,
+      `GET ${LIST_URL}`,
+      `POST ${LIST_URL}`,
+      `GET ${LIST_URL}`,
+    ]);
+    expect(sentBody(3).actionId).not.toBe(sentBody(1).actionId);
+  });
+
+  it('forgets a failed add once its sheet is closed, so reopening it stores a new leftover', async () => {
+    const added = { ...LEFTOVER_RICE, id: 'leftover-3', title: 'Soup', portions: 2 };
+    fetchMock
+      .mockReturnValueOnce(jsonResponse(toLeftoversResponse(OPEN_LEFTOVERS)))
+      .mockRejectedValueOnce(new TypeError('Network request failed'))
+      .mockReturnValueOnce(jsonResponse(toLeftoverResponse(added), true, 201))
+      .mockReturnValueOnce(jsonResponse(toLeftoversResponse([...OPEN_LEFTOVERS, added])));
+
+    const root = await renderScreen();
+    await press(root, 'Agregar sobra');
+    type(root, 'Nombre de la sobra', 'Soup');
+    type(root, 'Porciones', '2');
+    await press(root, 'Guardar');
+    await press(root, 'Cancelar');
+    await press(root, 'Agregar sobra');
+    type(root, 'Nombre de la sobra', 'Soup');
+    type(root, 'Porciones', '2');
+    await press(root, 'Guardar');
+
+    expect(requests()).toEqual([
+      `GET ${LIST_URL}`,
+      `POST ${LIST_URL}`,
+      `POST ${LIST_URL}`,
+      `GET ${LIST_URL}`,
+    ]);
+    expect(sentBody(2).actionId).not.toBe(sentBody(1).actionId);
+  });
+
   it('shows an error and retries when the list cannot be read', async () => {
     fetchMock
       .mockRejectedValueOnce(new TypeError('Network request failed'))

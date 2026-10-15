@@ -27,6 +27,8 @@ export function usePreparedLeftovers() {
   const pendingConsumesRef = useRef(new Map<string, { key: string; actionId: string }>());
   // The last add that may not have landed. Saving the same input again is the same leftover,
   // so it keeps the same actionId and the server stores it once; a changed input is a new one.
+  // It lives while one sheet is open: `startAdd` forgets it, so a sheet opened again stores a
+  // new leftover even with the same input.
   const pendingAddRef = useRef<{ key: string; actionId: string } | null>(null);
 
   const load = useCallback(async () => {
@@ -105,6 +107,10 @@ export function usePreparedLeftovers() {
     [load]
   );
 
+  const startAdd = useCallback(() => {
+    pendingAddRef.current = null;
+  }, []);
+
   return {
     leftovers,
     isLoading: status === 'loading',
@@ -114,6 +120,7 @@ export function usePreparedLeftovers() {
     consume,
     discard,
     add,
+    startAdd,
     retry: () => void load(),
   };
 }
