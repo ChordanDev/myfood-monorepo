@@ -109,7 +109,9 @@ defmodule MealPlannerApi.Persistence.Calendar.MealMove do
   end
 
   # Locks the meal and whatever sits at the destination in id order, so two
-  # opposite moves wait for each other instead of deadlocking.
+  # opposite moves wait for each other instead of deadlocking. The meals are
+  # locked before their Shopping items, as the lock order in the moduledoc of
+  # `MealPlannerApi.Cart` says.
   defp lock_meals(account_id, meal_id, {date, slot}) do
     meals =
       from(m in ScheduledMeal,

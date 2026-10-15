@@ -1,5 +1,39 @@
 defmodule MealPlannerApi.Cart do
-  @moduledoc "Account-scoped cart leases and the single atomic purchase authority."
+  @moduledoc """
+  Account-scoped cart leases and the single atomic purchase authority.
+
+  ## Lock order
+
+  The writers below lock Scheduled meals, Shopping items and Inventory in
+  one order: Scheduled meal, then Shopping items, then Inventory. Each locks
+  its Scheduled meals in id order; the Shopping items of a meal are taken in
+  whatever order the statement that locks them finds them.
+
+    * A purchase confirm (`purchase/3`) locks the Scheduled meals of its
+      Cart's items `FOR KEY SHARE`, then the items, then takes the Inventory
+      key. A partial purchase stores the remainder of an item, and the foreign
+      key check of that insert locks the item's meal: taken after the items,
+      it would wait for a finish or a move that holds the meal and waits for
+      the items.
+    * Finishing a Cooking session (`CookingService.finish_session/3`) locks
+      the meal `FOR UPDATE`, deletes its open Shopping items, then takes the
+      Inventory key.
+    * A meal move (`MealMove.move/5`) locks its meals `FOR UPDATE`, then moves
+      their planned Shopping items. It takes no Inventory key.
+    * A replacement of a date range
+      (`Persistence.Calendar.replace_scheduled_meals_for_range/3`) locks the
+      range's meals `FOR UPDATE`, then deletes them with their Shopping items.
+      It takes no Inventory key.
+
+  A delivery (`delivery/2`) is the exception: it takes the Inventory key
+  before it locks its `pending_delivery` Shopping items. A purchase does not
+  meet it, since both take the Cart's advisory lock of the Account first; a
+  finish only touches open items; a move and a range replacement take no
+  Inventory key.
+
+  The Cart's advisory lock of the Account (`lock_account!/1`) comes before
+  all of them in a Cart write.
+  """
   import Ecto.Query
   alias MealPlannerApi.Persistence.{Identity, Inventory}
   alias MealPlannerApi.Persistence.Planning.ScheduledMeal
@@ -257,8 +291,8 @@ defmodule MealPlannerApi.Cart do
   # from its items, locked, the allocations of each line nearest first
   # (date, then slot).
   defp cart_lines(cart) do
+    slots = lock_cart_meals(cart)
     items = cart_items(cart)
-    slots = meal_slots(items)
 
     items
     |> group_lines()
@@ -286,10 +320,21 @@ defmodule MealPlannerApi.Cart do
   defp line_id(%ShoppingItem{source: :manual} = item), do: item.id
   defp line_id(item), do: "#{item.ingredient_id}:#{item.unit}"
 
-  defp meal_slots(items) do
-    meal_ids = items |> Enum.map(& &1.scheduled_meal_id) |> Enum.reject(&is_nil/1)
+  # The slot of each Scheduled meal of the Cart's items. The meals are locked
+  # in id order before the items, as the lock order in the moduledoc says.
+  # `FOR KEY SHARE` is the lock the foreign key check of a remainder takes on
+  # its meal anyway, and it conflicts with the `FOR UPDATE` of a finish or a
+  # move. The Cart's lock of the Account keeps any item from joining the Cart
+  # until the confirm ends, so the items locked next have no other meal.
+  defp lock_cart_meals(cart) do
+    meal_ids = from(i in cart_items_query(cart), select: i.scheduled_meal_id)
 
-    from(m in ScheduledMeal, where: m.id in ^meal_ids, select: {m.id, m.slot})
+    from(m in ScheduledMeal,
+      where: m.account_id == ^cart.account_id and m.id in subquery(meal_ids),
+      order_by: m.id,
+      lock: "FOR KEY SHARE",
+      select: {m.id, m.slot}
+    )
     |> Repo.all()
     |> Map.new()
   end
