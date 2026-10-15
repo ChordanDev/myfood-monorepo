@@ -93,6 +93,9 @@ export interface VoiceApplyPayload {
   transcript: string;
   intent: VoiceIntent;
   confirmed: boolean;
+  // Names the User's action: a repeat with the same id within 24 h replays the first apply's
+  // result instead of subtracting again. Without one, every request applies.
+  actionId?: string;
 }
 
 export interface VoiceApplyResult {

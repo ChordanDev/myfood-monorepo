@@ -109,6 +109,32 @@ describe('useMarkAsCooked', () => {
     expect(hook.errorMessage).toContain('No pudimos descontar los ingredientes');
   });
 
+  // A finish whose answer was lost already cooked the meal; the retry hears it is finished.
+  it.each([
+    ['the finish', () => finishMock],
+    ['the start', () => startMock],
+  ])(
+    'treats cooking_already_finished from %s as success: marks the entry, shows nothing',
+    async (_step, refusing) => {
+      startMock.mockResolvedValue(COOKING_START);
+      refusing().mockRejectedValue(new ApiError('cooking_already_finished', 'x', 409));
+
+      let result: boolean | undefined;
+      await act(async () => {
+        result = await hook.markAsCooked(ENTRY.id);
+      });
+
+      expect(result).toBe(true);
+      expect(useMealPlanStore.getState().entries[0].isCooked).toBe(true);
+      expect(hook.summary).toBeNull();
+      expect(hook.errorMessage).toBeNull();
+      expect(hook.isPending).toBe(false);
+
+      act(() => hook.dismiss());
+      expect(hook.leftoverPrompt).toBeNull();
+    }
+  );
+
   it('ignores a second tap while the first is in flight', async () => {
     let release: (value: typeof COOKING_START) => void = () => {};
     startMock.mockReturnValue(new Promise((resolve) => (release = resolve)));

@@ -144,6 +144,7 @@ describe('InventoryVoiceSheet', () => {
         transcript: VOICE_TRANSCRIPT_HIGH,
         intent: VOICE_PREVIEW_HIGH_CONFIDENCE.intent,
         confirmed: false,
+        actionId: expect.any(String),
       });
       expect(getTexts(root)).toEqual(
         expect.arrayContaining(['Listo', 'Descontamos 500 g de Arroz de tu inventario.'])
@@ -176,6 +177,7 @@ describe('InventoryVoiceSheet', () => {
         transcript: VOICE_TRANSCRIPT_LOW,
         intent: VOICE_PREVIEW_LOW_CONFIDENCE.intent,
         confirmed: true,
+        actionId: expect.any(String),
       });
       expect(getTexts(root)).toContain('Descontamos 300 g de Arroz de tu inventario.');
       expect(getTexts(root).join(' ')).not.toContain('500 g');
@@ -214,6 +216,7 @@ describe('InventoryVoiceSheet', () => {
           transcript: VOICE_TRANSCRIPT_HIGH,
           intent: freshPreview.intent,
           confirmed: true,
+          actionId: expect.any(String),
         });
         expect(getTexts(root)).toEqual(
           expect.arrayContaining(['Listo', 'Descontamos 300 g de Arroz de tu inventario.'])
@@ -268,6 +271,62 @@ describe('InventoryVoiceSheet', () => {
         CONFIRMATION_REQUIRED_MESSAGE,
       ]);
       expect(findButtons(root, 'Confirmar')).toHaveLength(1);
+    });
+  });
+
+  describe('actionId', () => {
+    const NETWORK_ERROR = new ApiError('network_error', 'Network request failed');
+
+    function sentActionIds(onApply: jest.Mock): (string | undefined)[] {
+      return onApply.mock.calls.map(([payload]: [VoiceApplyPayload]) => payload.actionId);
+    }
+
+    it('sends the same actionId when the User retries the transcript after a failed apply', async () => {
+      const { root, onApply } = renderSheet();
+      onApply.mockRejectedValueOnce(NETWORK_ERROR);
+
+      await previewTranscript(root, VOICE_TRANSCRIPT_HIGH);
+      await pressAndSettle(root, 'Interpretar');
+
+      const [first, retry] = sentActionIds(onApply);
+      expect(first).toEqual(expect.any(String));
+      expect(retry).toBe(first);
+      expect(getTexts(root)).toContain('Descontamos 500 g de Arroz de tu inventario.');
+    });
+
+    it('keeps the actionId from the unconfirmed apply to the confirmed one', async () => {
+      const { root, onPreview, onApply } = renderSheet();
+      onPreview
+        .mockResolvedValueOnce(VOICE_PREVIEW_HIGH_CONFIDENCE)
+        .mockResolvedValueOnce(VOICE_PREVIEW_AFTER_DRIFT);
+      onApply.mockRejectedValueOnce(CONFIRMATION_REQUIRED);
+
+      await previewTranscript(root, VOICE_TRANSCRIPT_HIGH);
+      await pressAndSettle(root, 'Confirmar');
+
+      const [unconfirmed, confirmed] = sentActionIds(onApply);
+      expect(confirmed).toBe(unconfirmed);
+    });
+
+    it('sends a fresh actionId for another transcript', async () => {
+      const { root, onApply } = renderSheet();
+      onApply.mockRejectedValueOnce(NETWORK_ERROR);
+
+      await previewTranscript(root, VOICE_TRANSCRIPT_HIGH);
+      await previewTranscript(root, `${VOICE_TRANSCRIPT_HIGH} hoy`);
+
+      const [first, second] = sentActionIds(onApply);
+      expect(second).toEqual(expect.any(String));
+      expect(second).not.toBe(first);
+    });
+
+    it('sends a fresh actionId in a sheet opened again for the same transcript', async () => {
+      const first = renderSheet();
+      await previewTranscript(first.root, VOICE_TRANSCRIPT_HIGH);
+      const second = renderSheet();
+      await previewTranscript(second.root, VOICE_TRANSCRIPT_HIGH);
+
+      expect(sentActionIds(second.onApply)).not.toEqual(sentActionIds(first.onApply));
     });
   });
 });
