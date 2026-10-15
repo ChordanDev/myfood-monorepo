@@ -36,6 +36,26 @@ defmodule MealPlannerApi.Persistence.Catalog do
 
   def list_ingredients, do: Repo.all(Ingredient)
 
+  @doc """
+  The Ingredients whose name holds `query`, ignoring case, at most `limit` of
+  them: the names that start with it first, then by name. `%`, `_` and `\\`
+  in `query` match themselves.
+  """
+  @spec search_ingredients(String.t(), pos_integer()) :: [Ingredient.t()]
+  def search_ingredients(query, limit) when is_binary(query) and limit > 0 do
+    escaped = String.replace(query, ~r/[\\%_]/, "\\\\\\0")
+
+    from(i in Ingredient,
+      where: ilike(i.name, ^"%#{escaped}%"),
+      order_by: [
+        asc: fragment("CASE WHEN ? ILIKE ? THEN 0 ELSE 1 END", i.name, ^"#{escaped}%"),
+        asc: i.name
+      ],
+      limit: ^limit
+    )
+    |> Repo.all()
+  end
+
   def create_recipe(attrs), do: %Recipe{} |> Recipe.changeset(attrs) |> Repo.insert()
 
   def get_recipe!(id), do: Repo.get!(Recipe, id)
