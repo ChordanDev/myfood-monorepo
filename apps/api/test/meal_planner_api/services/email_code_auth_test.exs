@@ -15,6 +15,7 @@ defmodule MealPlannerApi.Services.EmailCodeAuthTest do
   alias Ecto.Adapters.SQL
   alias Ecto.Adapters.SQL.Sandbox
   alias MealPlannerApi.Persistence.Accounts.User, as: PersistenceUser
+  alias MealPlannerApi.Persistence.Auth.EmailAuthEvent
   alias MealPlannerApi.Repo
   alias MealPlannerApi.Services.EmailCodeAuth
 
@@ -187,7 +188,8 @@ defmodule MealPlannerApi.Services.EmailCodeAuthTest do
                  EmailCodeAuth.reserve_request_slots("slots@example.com", "2001:db8:1:2:abcd::1")
                end)
 
-      assert request_ips() == List.duplicate("2001:db8:1:2::/64", 3)
+      assert Enum.sort(request_ips()) ==
+               List.duplicate("2001:db8:1:2::/64", 3) ++ List.duplicate("2001:db8:1::/56", 3)
     end
 
     test "an IPv6 /64 is rate limited once its hourly limit is spent, however many addresses it used" do
@@ -239,6 +241,80 @@ defmodule MealPlannerApi.Services.EmailCodeAuthTest do
                in_transaction(fn ->
                  EmailCodeAuth.reserve_ip_request_slot("::ffff:203.0.113.73")
                end)
+    end
+  end
+
+  # One customer is often handed a whole /56, 256 /64s, so on top of its
+  # /64 every IPv6 code request also counts against its /56, with a wider
+  # limit.
+  describe "IPv6 /56 request slots" do
+    test "a /56 is rate limited after 100 requests, however many of its /64s they came from" do
+      fill_wide_bucket("2001:db8:7")
+
+      assert {:error, :rate_limited, retry_after} =
+               in_transaction(fn ->
+                 EmailCodeAuth.reserve_request_slots("wide@example.com", "2001:db8:7:ff::1")
+               end)
+
+      assert retry_after in 3_590..3_600
+
+      assert {:error, :rate_limited, _retry_after} =
+               in_transaction(fn -> EmailCodeAuth.reserve_ip_request_slot("2001:db8:7:80::1") end)
+
+      # The refused requests reserved nothing, in either bucket or for the
+      # email.
+      assert email_request_count("wide@example.com") == 0
+      refute "2001:db8:7:ff::/64" in request_ips()
+      refute "2001:db8:7:80::/64" in request_ips()
+      assert Enum.count(request_ips(), &(&1 == "2001:db8:7::/56")) == 100
+    end
+
+    test "two /56s do not share a bucket" do
+      fill_wide_bucket("2001:db8:7")
+
+      # 2001:db8:7:100::/64 is the first /64 of the next /56.
+      assert :ok =
+               in_transaction(fn ->
+                 EmailCodeAuth.reserve_ip_request_slot("2001:db8:7:100::1")
+               end)
+
+      assert :ok =
+               in_transaction(fn ->
+                 EmailCodeAuth.reserve_request_slots("next@example.com", "2001:db8:8::1")
+               end)
+    end
+
+    test "a /64 still stops at 20, and its refused request spends nothing of its /56" do
+      for n <- 1..20 do
+        client_ip = "2001:db8:8:1::#{Integer.to_string(n, 16)}"
+        assert :ok = in_transaction(fn -> EmailCodeAuth.reserve_ip_request_slot(client_ip) end)
+      end
+
+      assert {:error, :rate_limited, _retry_after} =
+               in_transaction(fn ->
+                 EmailCodeAuth.reserve_request_slots("narrow@example.com", "2001:db8:8:1::ff")
+               end)
+
+      assert Enum.count(request_ips(), &(&1 == "2001:db8:8::/56")) == 20
+      assert email_request_count("narrow@example.com") == 0
+    end
+
+    test "the Retry-After of a refusal by the /56 comes from the /56 bucket" do
+      half_an_hour_ago = DateTime.add(DateTime.utc_now(), -1_800, :second)
+
+      for _ <- 1..100 do
+        Repo.insert!(%EmailAuthEvent{
+          kind: "request",
+          email: "unknown",
+          client_ip: "2001:db8:9::/56",
+          occurred_at: half_an_hour_ago
+        })
+      end
+
+      assert {:error, :rate_limited, retry_after} =
+               in_transaction(fn -> EmailCodeAuth.reserve_ip_request_slot("2001:db8:9:1::1") end)
+
+      assert retry_after in 1_790..1_800
     end
   end
 
@@ -360,6 +436,20 @@ defmodule MealPlannerApi.Services.EmailCodeAuthTest do
                in_transaction(fn -> EmailCodeAuth.check_verify_failures("2001:db8:5:7::1") end)
     end
 
+    # Failed verifications keep the /64 bucket alone: no /56 limit applies.
+    test "failed verifications are not counted against the /56" do
+      for n <- 0..100 do
+        client_ip = "2001:db8:a:#{rem(n, 6)}::#{Integer.to_string(n + 1, 16)}"
+        assert :ok = in_transaction(fn -> EmailCodeAuth.reserve_verify_failure(client_ip) end)
+      end
+
+      assert :ok =
+               in_transaction(fn -> EmailCodeAuth.check_verify_failures("2001:db8:a:ff::1") end)
+
+      assert :ok =
+               in_transaction(fn -> EmailCodeAuth.reserve_verify_failure("2001:db8:a:ff::1") end)
+    end
+
     test "an IPv4-mapped IPv6 address shares the failure count of its IPv4 address" do
       for client_ip <-
             List.duplicate("::ffff:203.0.113.94", 10) ++
@@ -391,6 +481,15 @@ defmodule MealPlannerApi.Services.EmailCodeAuthTest do
       )
 
     count
+  end
+
+  # Spends the 100 requests of the /56 `prefix`::/56 from six of its /64s,
+  # none of them past its own limit of 20.
+  defp fill_wide_bucket(prefix) do
+    for n <- 0..99 do
+      client_ip = "#{prefix}:#{rem(n, 6)}::#{Integer.to_string(n + 1, 16)}"
+      assert :ok = in_transaction(fn -> EmailCodeAuth.reserve_ip_request_slot(client_ip) end)
+    end
   end
 
   # The per-email request events counted for `email`.

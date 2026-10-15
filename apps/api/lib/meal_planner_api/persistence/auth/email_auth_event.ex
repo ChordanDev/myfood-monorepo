@@ -20,8 +20,9 @@ defmodule MealPlannerApi.Persistence.Auth.EmailAuthEvent do
     field(:kind, :string)
     field(:email, :string)
     # Not a raw address: the rate-limit bucket key built by
-    # `MealPlannerApi.Services.EmailCodeAuth.normalize_client_ip/1` — an
-    # IPv4 address, an IPv6 /64 prefix such as "2001:db8::/64", or
+    # `MealPlannerApi.Services.EmailCodeAuth` — an IPv4 address, an IPv6
+    # /64 prefix such as "2001:db8::/64", the /56 prefix such as
+    # "2001:db8::/56" an IPv6 code request also counts against, or
     # "unresolved" — so the column is a plain string.
     field(:client_ip, :string)
     field(:occurred_at, :utc_datetime_usec)
