@@ -68,10 +68,11 @@ defmodule MealPlannerApi.Services.InviteService do
 
   The `account_memberships.user_id` FK requires a real `User` row. If
   the invitee email already maps to a `User`, that User's id is used.
-  Otherwise a stub `User` is created with the email, `role: :member`
-  and the email as a placeholder `name`. The caller fills in the real
-  `name` when the invitee accepts via `verify_and_consume/3` (which
-  receives a real `%User{}` at accept time).
+  Otherwise a stub `User` is created with the email, `role: :member`,
+  the email as a placeholder `name` and `invite_stub: true`. Only a stub
+  can be claimed by an accept that carries a `name` and no Bearer token
+  (see `AccountsMembership.accept_invite/2`); an existing User has to
+  accept with their own token.
   """
   @spec create_invite_row(AccountMembership.t(), String.t()) ::
           {:ok, %{membership: AccountMembership.t(), token: String.t()}}
@@ -114,11 +115,11 @@ defmodule MealPlannerApi.Services.InviteService do
 
       nil ->
         # Stub User with `name: email` so the `name` NOT NULL check is
-        # satisfied at insert time. The accept flow (`verify_and_consume`)
-        # receives a real `%User{}` and updates the membership to point at
-        # them. The name is filled in by the API at accept time.
+        # satisfied at insert time. The name is filled in when the invitee
+        # claims the stub at accept time.
         %PersistenceUser{}
         |> PersistenceUser.changeset(%{email: email, name: email, role: :member})
+        |> Ecto.Changeset.put_change(:invite_stub, true)
         |> Repo.insert()
     end
   end

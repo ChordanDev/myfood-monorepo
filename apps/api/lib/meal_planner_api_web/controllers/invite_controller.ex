@@ -49,8 +49,13 @@ defmodule MealPlannerApiWeb.InviteController do
   deliberately NOT behind the `:auth` pipeline because the "new User"
   case has no account/token yet, per `specs/invite-and-accept.md`
   §"New User accepts") or `{"name": ...}` for a brand new User. Any
-  other key in the body is ignored. Errors: `401 unauthorized` (no
-  `name` and no valid Bearer token), `410 invite_token_used`,
+  other key in the body is ignored. A `name` only claims the stub User
+  the invite created for an email nobody has signed in with; an invite
+  bound to any other User needs that User's Bearer token. Errors:
+  `401 unauthorized` (no `name` and no valid Bearer token, or a `name`
+  for an invite bound to a registered User), `403 invite_for_another_user`
+  (a Bearer token of a User the invite is not bound to),
+  `410 invite_token_used`,
   `410 invite_token_expired`.
   """
   def accept(conn, %{"token" => token} = params) do
@@ -65,6 +70,12 @@ defmodule MealPlannerApiWeb.InviteController do
               membership,
               claims
             )
+
+          # A `name` for an invite bound to a User who is not an unclaimed
+          # invite stub: that User has to accept with their own token.
+          {:error, :invitee_authentication_required} ->
+            Logger.warning("invite accept rejected reason=invitee_authentication_required")
+            conn |> put_status(:unauthorized) |> json(%{error: "unauthorized"})
 
           {:error, reason}
           when reason in [:invite_token_used, :invite_token_expired, :invite_token_unknown] ->
@@ -137,5 +148,6 @@ defmodule MealPlannerApiWeb.InviteController do
   defp error_status(:invite_token_expired), do: :gone
   defp error_status(:invite_token_unknown), do: :not_found
   defp error_status(:invalid_invitee), do: :bad_request
+  defp error_status(:invite_for_another_user), do: :forbidden
   defp error_status(_), do: :unprocessable_entity
 end
