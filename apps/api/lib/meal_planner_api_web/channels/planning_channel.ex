@@ -9,7 +9,7 @@ defmodule MealPlannerApiWeb.PlanningChannel do
   - `generate_menu` — inicia generación de menú (usa GenerationServer)
   - `start_planning` — abre la sesión de planificación del rango y arranca su primera generación (issue #25)
   - `chat` — mensaje de modificación del usuario (usa GenerationServer)
-  - `confirm_proposal` — confirma propuesta (canal atómico, PlanningSession-lock + Repo.transaction/1; sin fallback HTTP)
+  - `confirm_proposal` — confirma propuesta (PlanningSession-lock + Repo.transaction/1). La app confirma por HTTP, `POST /api/planning/confirm`, que usa la misma transacción del engine (issue #28)
   - `reject_proposal` — rechaza propuesta (usa PlanningChatService, backward compat)
 
   Eventos salientes (broadcast):

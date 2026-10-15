@@ -132,8 +132,10 @@ defmodule MealPlannerApi.Services.PlanningChatService do
   `planning:<account_id>` with the meal count, next to the
   `proposal_confirmed` the engine broadcasts.
 
-  A proposal already accepted answers the same result again and writes
-  nothing. Any other status answers `:planning_proposal_not_pending`.
+  A proposal already accepted answers the same result again, writes nothing
+  and broadcasts `session_committed` again, as long as `session_id` names a
+  committed session of the Account (`:missing_lock` otherwise). Any other
+  status answers `:planning_proposal_not_pending`.
   """
   @spec confirm_proposal(Ecto.UUID.t(), term(), term()) :: {:ok, map()} | {:error, atom()}
   def confirm_proposal(account_id, proposal_id, session_id) do
@@ -179,14 +181,9 @@ defmodule MealPlannerApi.Services.PlanningChatService do
   defp confirm_pending(account_id, proposal, session_id) do
     with {:ok, pid} <- generation_server(account_id),
          {:ok, summary} <- call_confirm(pid, proposal.id, session_id) do
-      broadcast(account_id, "session_committed", %{
-        session_id: session_id,
-        proposal_id: proposal.id,
-        scheduled_meals_count: summary.scheduled_meals_count,
-        shopping_rebuilt: true
-      })
-
-      {:ok, committed_result(proposal.id, session_id, summary.scheduled_meals_count)}
+      result = committed_result(proposal.id, session_id, summary.scheduled_meals_count)
+      broadcast_committed(account_id, result)
+      {:ok, result}
     else
       # Another confirm of the same proposal committed first.
       {:error, :already_confirmed} -> confirmed_result(account_id, proposal, session_id)
@@ -196,12 +193,30 @@ defmodule MealPlannerApi.Services.PlanningChatService do
 
   # The result of a proposal confirmed before. A confirm writes one Scheduled
   # meal per slot of the proposal or nothing at all, so the slots are the meal
-  # count it answered. The session must still be one of the Account.
+  # count it answered. The session named must be a committed one of the
+  # Account.
+  #
+  # The topic hears `session_committed` again: the first confirm may have
+  # committed after its HTTP call timed out, and then nobody told the other
+  # devices of the Account. Hearing it twice changes nothing for a client.
   defp confirmed_result(account_id, proposal, session_id) do
     case PlanningRepo.get_account_session(account_id, session_id) do
-      nil -> {:error, :missing_lock}
-      _session -> {:ok, committed_result(proposal.id, session_id, slot_count(proposal))}
+      %{status: :committed} ->
+        result = committed_result(proposal.id, session_id, slot_count(proposal))
+        broadcast_committed(account_id, result)
+        {:ok, result}
+
+      _not_committed ->
+        {:error, :missing_lock}
     end
+  end
+
+  defp broadcast_committed(account_id, result) do
+    broadcast(
+      account_id,
+      "session_committed",
+      Map.take(result, [:session_id, :proposal_id, :scheduled_meals_count, :shopping_rebuilt])
+    )
   end
 
   # `proposal_json` holds atom keys until it is read back from the database.

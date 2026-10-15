@@ -188,13 +188,87 @@ defmodule MealPlannerApiWeb.PlanningControllerTest do
       first_body = json_response(first, 200)
       carts = Repo.aggregate(CheckoutSession, :count)
 
-      Phoenix.PubSub.subscribe(MealPlannerApi.PubSub, "planning:#{ctx.account.id}")
-
       again = build_conn() |> authorized(ctx.token) |> post("/api/planning/confirm", params)
 
       assert json_response(again, 200) == first_body
       assert length(account_meals(ctx)) == 1
       assert Repo.aggregate(CheckoutSession, :count) == carts
+    end
+
+    # Jorge review of PR #278 (TR-1): a confirm whose HTTP call timed out still
+    # commits in the generation server, and only the retry tells the topic, so
+    # the other devices of the Account hear the commit too.
+    test "tells the topic of a commit whose first reply was lost, when the confirm is retried",
+         %{conn: conn} do
+      ctx = seed_pending_proposal()
+
+      [{server, _}] =
+        Registry.lookup(MealPlannerApi.Generation.Generations, {:generation, ctx.account.id})
+
+      # The commit the first, timed-out call asked for: no session_committed.
+      {:ok, _summary} = Server.confirm(server, ctx.proposal.id, ctx.session.id)
+      Phoenix.PubSub.subscribe(MealPlannerApi.PubSub, "planning:#{ctx.account.id}")
+
+      body =
+        conn
+        |> authorized(ctx.token)
+        |> post("/api/planning/confirm", %{
+          "proposalId" => ctx.proposal.id,
+          "sessionId" => ctx.session.id
+        })
+        |> json_response(200)
+
+      assert %{"status" => "committed", "scheduledMealsCount" => 1} = body["data"]
+      session_id = ctx.session.id
+      proposal_id = ctx.proposal.id
+
+      assert_receive %Phoenix.Socket.Broadcast{
+        event: "session_committed",
+        payload: %{
+          session_id: ^session_id,
+          proposal_id: ^proposal_id,
+          scheduled_meals_count: 1,
+          shopping_rebuilt: true
+        }
+      }
+
+      refute_receive %Phoenix.Socket.Broadcast{event: "session_committed"}
+    end
+
+    test "answers 409 missing_lock when a confirmed proposal is retried with a session that did not commit",
+         %{conn: conn} do
+      ctx = seed_pending_proposal()
+
+      conn
+      |> authorized(ctx.token)
+      |> post("/api/planning/confirm", %{
+        "proposalId" => ctx.proposal.id,
+        "sessionId" => ctx.session.id
+      })
+      |> json_response(200)
+
+      later = Date.add(Date.utc_today(), 3)
+
+      {:ok, active} =
+        PlanningRepo.create_session(ctx.account.id, %{
+          range_from: later,
+          range_to: later,
+          lock_owner_user_id: ctx.user.id,
+          lock_owner_membership_id: ctx.session.lock_owner_membership_id,
+          lease_expires_at: DateTime.add(DateTime.utc_now(), 120, :second)
+        })
+
+      Phoenix.PubSub.subscribe(MealPlannerApi.PubSub, "planning:#{ctx.account.id}")
+
+      retry =
+        build_conn()
+        |> authorized(ctx.token)
+        |> post("/api/planning/confirm", %{
+          "proposalId" => ctx.proposal.id,
+          "sessionId" => active.id
+        })
+
+      assert %{"error" => %{"code" => "missing_lock"}} = json_response(retry, 409)
       refute_receive %Phoenix.Socket.Broadcast{event: "session_committed"}
     end
 
