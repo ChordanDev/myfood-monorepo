@@ -414,7 +414,7 @@ The events of `PlanningChannel.outbound_events/0`. Every member joined to the to
 | Event | Payload | Description |
 |-------|---------|-------------|
 | `session_started` | `{"sessionId": "uuid"}` | A planning session was created by `start_planning` |
-| `session_resumed` | `{"sessionId": "uuid"}`; on join, `{"sessionId", "proposalId", "proposal", "messages": [{"role", "content", "intentKind"}]}` | A session server restarted and resumed an active session, or a socket joined while its Account has an active session (pushed to that socket only) |
+| `session_resumed` | `{"sessionId", "proposalId", "proposal", "messages": [{"role", "content", "intentKind"}]}` | A session server restarted and resumed an active session (pushed to every joined socket), or a socket joined while its Account has an active session (pushed to that socket only). `proposal` is the latest pending proposal of the session in the shape of `proposal_ready` (`null` when none is pending), and `messages` are its last 20 messages, oldest first, each at most 2000 characters |
 | `session_cancelled` | `{"sessionId": "uuid"}` | A session was cancelled by `cancel_planning`, or by a `start_planning` whose generation could not start |
 | `session_committed` | `{"sessionId", "proposalId", "scheduledMealsCount", "shoppingRebuilt": true}` | `POST /api/planning/confirm` committed the session, wrote its meals and rebuilt the Shopping list |
 | `session_lost_lock` | `{"sessionId": "uuid"}` | The channel process that held the session's range lock exited abnormally |

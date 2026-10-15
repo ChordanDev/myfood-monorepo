@@ -1710,6 +1710,86 @@ defmodule MealPlannerApiWeb.PlanningChannelTest do
       assert payload["proposal"] == nil
       assert payload["messages"] == []
     end
+
+    # Issue #146 — the app rebuilds its draft from the proposal of
+    # `session_resumed`, so a generation proposal comes in the shape of
+    # `proposal_ready`.
+    test "pushes a generation proposal in the shape of proposal_ready", %{
+      account: account,
+      user: user,
+      token: token
+    } do
+      insert_active_session(account, user)
+
+      proposal =
+        insert_proposal(account, user, %{
+          "slots" => [
+            %{
+              "slot_key" => "2030-01-01_lunch",
+              "recipe_id" => "recipe-1",
+              "recipe_name" => "Soup",
+              "price_cents" => 500,
+              "macros" => %{"protein_g" => 10, "carbs_g" => 20, "calories" => 300}
+            }
+          ]
+        })
+
+      {:ok, _reply, _socket} = join_planning(account, token)
+
+      assert_push "session_resumed", payload
+
+      assert payload["proposal"] == %{
+               "proposalId" => proposal.id,
+               "runId" => proposal.generation_run_id,
+               "estimatedCostCents" => 500,
+               "days" => [
+                 %{
+                   "date" => "2030-01-01",
+                   "costCents" => 500,
+                   "meals" => [
+                     %{
+                       "slot" => "lunch",
+                       "recipeId" => "recipe-1",
+                       "recipeName" => "Soup",
+                       "priceCents" => 500,
+                       "macros" => %{"proteinG" => 10, "carbsG" => 20, "calories" => 300}
+                     }
+                   ]
+                 }
+               ]
+             }
+    end
+
+    # Issue #146 — the session server broadcasts `session_resumed` with the
+    # session id alone when it restarts; every joined socket gets the payload
+    # of a join.
+    test "a session_resumed broadcast reaches each socket with the full payload", %{
+      account: account,
+      user: user,
+      token: token
+    } do
+      session = insert_active_session(account, user)
+      proposal = insert_proposal(account, user, %{"meals" => []})
+
+      {:ok, _reply, _socket} = join_planning(account, token)
+      assert_push "session_resumed", _join_payload
+
+      insert_planning_message(account, session, :user, "after the join", nil, 1)
+
+      Phoenix.Channel.Server.broadcast!(
+        MealPlannerApi.PubSub,
+        "planning:#{account.id}",
+        "session_resumed",
+        %{"session_id" => session.id}
+      )
+
+      assert_push "session_resumed", payload
+      assert payload["sessionId"] == session.id
+      assert payload["proposalId"] == proposal.id
+
+      assert [%{"role" => "user", "content" => "after the join", "intentKind" => nil}] =
+               payload["messages"]
+    end
   end
 
   describe "helper functions behavior" do
