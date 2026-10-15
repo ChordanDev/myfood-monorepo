@@ -206,7 +206,7 @@ defmodule MealPlannerApiWeb.MobileAuthControllerTest do
       end
 
       counted = EmailAuthEvent |> Repo.all() |> Enum.map(& &1.client_ip) |> Enum.sort()
-      assert counted == ["198.51.100.7", "2001:db8::/64"]
+      assert counted == ["198.51.100.7", "2001:db8::/56", "2001:db8::/64"]
     end
 
     test "an IPv6 client is rate limited once its /64 has spent its hourly limit", %{conn: conn} do
@@ -219,6 +219,20 @@ defmodule MealPlannerApiWeb.MobileAuthControllerTest do
       limited = post(conn, @request_path, %{"email" => "nobody@example.com"})
       assert_error(limited, 429, "rate_limited")
       assert retry_after(limited) in 2_990..3_000
+    end
+
+    test "an IPv6 client is rate limited once its /56 has spent its hourly limit, with that bucket's retry-after",
+         %{conn: conn} do
+      for n <- 1..100 do
+        insert_request_event!("other-#{n}@example.com", "2001:db8::/56", seconds_ago(1_200))
+      end
+
+      # Its own /64 has not been used at all.
+      conn = %{conn | remote_ip: {0x2001, 0xDB8, 0, 0x5, 0, 0, 0, 0x7}}
+
+      limited = post(conn, @request_path, %{"email" => "nobody@example.com"})
+      assert_error(limited, 429, "rate_limited")
+      assert retry_after(limited) in 2_390..2_400
     end
 
     test "a malformed or missing email gets invalid_email", %{conn: conn} do

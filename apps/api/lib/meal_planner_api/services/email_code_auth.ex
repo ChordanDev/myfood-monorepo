@@ -11,9 +11,10 @@ defmodule MealPlannerApi.Services.EmailCodeAuth do
       SHA-256 digest that is the only form of a code ever stored. The
       canonical email is `MealPlannerApi.Persistence.Accounts.UserEmail.normalize/1`.
     * `reserve_request_slots/2` and `reserve_ip_request_slot/1` — the
-      rolling 1-hour request counters (5 per email, 20 per IP bucket), kept in
-      `email_auth_events` and serialized by Postgres advisory locks so
-      concurrent requesters cannot collectively exceed them.
+      rolling 1-hour request counters (5 per email, 20 per IP bucket and,
+      for an IPv6 client, 100 per /56), kept in `email_auth_events` and
+      serialized by Postgres advisory locks so concurrent requesters cannot
+      collectively exceed them.
     * `check_verify_failures/1` and `reserve_verify_failure/1` — the
       rolling 1-hour counter of failed code verifications (20 per IP bucket),
       kept in the same table under its own kind.
@@ -35,6 +36,7 @@ defmodule MealPlannerApi.Services.EmailCodeAuth do
   @window_seconds 3600
   @max_per_email_per_window 5
   @max_per_ip_per_window 20
+  @max_per_ipv6_56_per_window 100
   @max_verify_failures_per_ip_per_window 20
   @code_length 6
   @max_code_attempts 5
@@ -63,16 +65,19 @@ defmodule MealPlannerApi.Services.EmailCodeAuth do
 
   @doc """
   Reserves one slot in the rolling 1-hour request window for `email`
-  (already normalized) and one for `client_ip`. Returns
-  `{:error, :rate_limited, retry_after}` when either counter is
-  exhausted, and then reserves neither: a refused request spends no
-  slot.
+  (already normalized) and one for each bucket of `client_ip`. Returns
+  `{:error, :rate_limited, retry_after}` when any of those counters is
+  exhausted, with the `retry_after` of the full one, and then reserves
+  none: a refused request spends no slot.
 
   `client_ip` is an IPv4 or IPv6 address as text. An IPv4 address has a
   counter of its own; an IPv6 address shares one with its whole /64
-  prefix, and an IPv4-mapped one (`::ffff:a.b.c.d`) counts as its IPv4
-  address. One that is not an address (`nil` included) is not let
-  through uncounted: all such requests draw from a single shared bucket.
+  prefix (#{@max_per_ip_per_window} an hour) and also draws from the
+  counter of its /56 (#{@max_per_ipv6_56_per_window} an hour), so a client
+  delegated a /56 or wider cannot rotate /64s for fresh slots. An
+  IPv4-mapped address (`::ffff:a.b.c.d`) counts as its IPv4 address. One
+  that is not an address (`nil` included) is not let through uncounted:
+  all such requests draw from a single shared bucket.
 
   Must run inside a `Repo.transaction/2`: the advisory locks that
   serialize concurrent requesters are transaction-scoped. Called by
@@ -81,14 +86,15 @@ defmodule MealPlannerApi.Services.EmailCodeAuth do
   """
   @spec reserve_request_slots(String.t(), String.t() | nil) :: :ok | rate_limited()
   def reserve_request_slots(email, client_ip) when is_binary(email) do
-    reserve_slots(email, normalize_client_ip(client_ip))
+    reserve_slots(email, request_buckets(client_ip))
   end
 
   @doc """
   Reserves one slot in the rolling 1-hour request window for `client_ip`
-  alone, in the same per-IP counter `reserve_request_slots/2` draws
-  from. No per-email event is recorded. Returns
-  `{:error, :rate_limited, retry_after}` when the counter is exhausted.
+  alone, in the same per-IP counters `reserve_request_slots/2` draws
+  from (the /64 and the /56 of an IPv6 client). No per-email event is
+  recorded. Returns `{:error, :rate_limited, retry_after}` when a counter
+  is exhausted, and then reserves nothing.
   A `client_ip` that is not an IP address (`nil` included) draws from the
   same shared bucket as in `reserve_request_slots/2`.
 
@@ -98,13 +104,13 @@ defmodule MealPlannerApi.Services.EmailCodeAuth do
   """
   @spec reserve_ip_request_slot(String.t() | nil) :: :ok | rate_limited()
   def reserve_ip_request_slot(client_ip) do
-    ip = normalize_client_ip(client_ip)
+    buckets = request_buckets(client_ip)
     now = DateTime.utc_now()
 
-    lock!(ip_lock_key(ip))
+    lock_in_order!(ip_lock_keys(buckets))
 
-    with :ok <- check_ip_slot(ip, now) do
-      insert_event("request", nil, ip, now)
+    with :ok <- check_ip_slots(buckets, now) do
+      insert_ip_events(buckets, now)
     end
   end
 
@@ -117,6 +123,7 @@ defmodule MealPlannerApi.Services.EmailCodeAuth do
   `client_ip` is bucketed as in `reserve_request_slots/2`: an IPv4
   address on its own, an IPv6 address with its whole /64 prefix, and
   anything that is not an address (`nil` included) in one shared bucket.
+  The /56 counter of code requests does not apply to failures.
 
   No lock is taken, so verifications from one IP never wait on each
   other: this is the fast refusal of an IP already over the limit. The
@@ -183,25 +190,38 @@ defmodule MealPlannerApi.Services.EmailCodeAuth do
   # Rate limiting
   # ---------------------------------------------------------------------------
 
-  # Reserves a slot in the rolling 1-hour window for the email and the
-  # IP (an address or the shared unresolved bucket), or neither: both
-  # counters are checked before either event is written. The two
-  # counters are serialized by hash-derived advisory locks so concurrent
-  # requesters cannot race past the limit on the same key.
-  defp reserve_slots(email, ip) do
+  # Reserves a slot in the rolling 1-hour window for the email and every
+  # IP bucket (an address, an IPv6 /64 and its /56, or the shared
+  # unresolved bucket), or none: every counter is checked before any
+  # event is written. The counters are serialized by hash-derived
+  # advisory locks so concurrent requesters cannot race past the limit on
+  # the same key.
+  defp reserve_slots(email, buckets) do
     now = DateTime.utc_now()
 
-    lock!(email_lock_key(email))
-    lock!(ip_lock_key(ip))
+    lock_in_order!([email_lock_key(email) | ip_lock_keys(buckets)])
 
     with :ok <- check_slot("request", email, nil, @max_per_email_per_window, now),
-         :ok <- check_ip_slot(ip, now),
+         :ok <- check_ip_slots(buckets, now),
          :ok <- insert_event("request", email, nil, now) do
-      insert_event("request", nil, ip, now)
+      insert_ip_events(buckets, now)
     end
   end
 
-  defp check_ip_slot(ip, now), do: check_slot("request", nil, ip, @max_per_ip_per_window, now)
+  # `:ok` while every bucket has room, or the refusal of the first full
+  # one, so its `retry_after` is that bucket's.
+  defp check_ip_slots(buckets, now) do
+    Enum.reduce_while(buckets, :ok, fn {ip, max}, :ok ->
+      case check_slot("request", nil, ip, max, now) do
+        :ok -> {:cont, :ok}
+        refused -> {:halt, refused}
+      end
+    end)
+  end
+
+  defp insert_ip_events(buckets, now) do
+    Enum.each(buckets, fn {ip, _max} -> insert_event("request", nil, ip, now) end)
+  end
 
   # `:ok` while the counter of `kind` scoped to `email` or `ip` holds
   # fewer than `max` events in the window ending at `now`.
@@ -216,6 +236,11 @@ defmodule MealPlannerApi.Services.EmailCodeAuth do
   end
 
   defp lock!(key), do: SQL.query!(Repo, "SELECT pg_advisory_xact_lock($1)", [key])
+
+  # Takes several locks in ascending key order, the one order every
+  # caller shares, so two transactions that need overlapping keys (an
+  # email and a /56, or two hashes that collide) cannot deadlock.
+  defp lock_in_order!(keys), do: keys |> Enum.uniq() |> Enum.sort() |> Enum.each(&lock!/1)
 
   defp compute_retry_after(email, kind, ip, window_start) do
     base = from(e in EmailAuthEvent, where: e.kind == ^kind, where: e.occurred_at > ^window_start)
@@ -279,6 +304,8 @@ defmodule MealPlannerApi.Services.EmailCodeAuth do
     (@ip_lock_salt + truncated_hash(ip)) |> Integer.mod(1_000_000_007)
   end
 
+  defp ip_lock_keys(buckets), do: Enum.map(buckets, fn {ip, _max} -> ip_lock_key(ip) end)
+
   defp verify_failure_lock_key(ip) do
     (@verify_failure_lock_salt + truncated_hash(ip)) |> Integer.mod(1_000_000_007)
   end
@@ -300,25 +327,53 @@ defmodule MealPlannerApi.Services.EmailCodeAuth do
   # a bucket. Anything else (`nil`, garbage, oversized input) collapses
   # to one fixed key, so a request whose address cannot be resolved is
   # still counted.
-  defp normalize_client_ip(ip) when is_binary(ip) do
-    ip |> String.trim() |> bucket_key() || @unresolved_ip_key
+  defp normalize_client_ip(client_ip) do
+    case parse_client_ip(client_ip) do
+      {:ok, address} -> address |> bucket_address() |> render_bucket()
+      :error -> @unresolved_ip_key
+    end
   end
 
-  defp normalize_client_ip(_), do: @unresolved_ip_key
+  # The `{key, max}` buckets a code request from `client_ip` draws from:
+  # its own, plus the /56 of an IPv6 /64. An IPv4 address, an IPv4-mapped
+  # one and an unresolved one keep a single bucket.
+  defp request_buckets(client_ip) do
+    case parse_client_ip(client_ip) do
+      {:ok, address} ->
+        bucket = bucket_address(address)
+        [{render_bucket(bucket), @max_per_ip_per_window} | wide_request_buckets(bucket)]
+
+      :error ->
+        [{@unresolved_ip_key, @max_per_ip_per_window}]
+    end
+  end
+
+  # ISPs and hosting providers commonly delegate a /56 to one customer,
+  # 256 /64s that would each be a fresh bucket of their own.
+  defp wide_request_buckets({:prefix64, {a, b, c, d, 0, 0, 0, 0}}) do
+    prefix56 = {a, b, c, Bitwise.band(d, 0xFF00), 0, 0, 0, 0}
+    [{List.to_string(:inet.ntoa(prefix56)) <> "/56", @max_per_ipv6_56_per_window}]
+  end
+
+  defp wide_request_buckets(_ipv4), do: []
 
   # `:inet.parse_strict_address/1` takes a charlist (given a binary it
   # answers `{:error, :einval}`) and, unlike `:inet.parse_address/1`,
   # refuses short forms such as "1.2.3". The length guard keeps
   # oversized input away from the parser; 45 bytes is the longest
   # textual IPv6 address.
-  defp bucket_key(ip) when byte_size(ip) <= 45 do
-    case ip |> String.to_charlist() |> :inet.parse_strict_address() do
-      {:ok, address} -> address |> bucket_address() |> render_bucket()
-      {:error, _reason} -> nil
+  defp parse_client_ip(ip) when is_binary(ip) do
+    trimmed = String.trim(ip)
+
+    with true <- byte_size(trimmed) <= 45,
+         {:ok, address} <- trimmed |> String.to_charlist() |> :inet.parse_strict_address() do
+      {:ok, address}
+    else
+      _ -> :error
     end
   end
 
-  defp bucket_key(_ip), do: nil
+  defp parse_client_ip(_), do: :error
 
   # An IPv4-mapped IPv6 address (`::ffff:a.b.c.d`) is the IPv4 client
   # `a.b.c.d` as a dual-stack listener reports it, so it counts as that
