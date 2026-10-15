@@ -38,8 +38,9 @@ defmodule MealPlannerApi.Services.EmailCodeSignup do
       `MealPlannerApi.Services.EmailCodeLogin.request_code/2`. An exhausted
       IP gets this answer for registered emails too.
     * `{:error, :code_send_failed}` — the mailer refused the message or
-      never answered. The whole request is rolled back, so the caller may
-      retry at once.
+      never answered, as in
+      `MealPlannerApi.Services.EmailCodeLogin.request_code/2`: the caller
+      may retry at once.
   """
   @spec request_code(term(), String.t() | nil) ::
           {:ok, EmailCodeLogin.code_sent()}
@@ -53,9 +54,12 @@ defmodule MealPlannerApi.Services.EmailCodeSignup do
 
   @doc """
   Verifies `code` against the latest pending sign-up code for `email` and,
-  on a match, registers the person: the User, their individual Account,
-  the owner Membership and the Trial are created together with the
-  consumption of the code, or not at all.
+  on a match, registers the person and opens their session with
+  `open_session`: the User, their individual Account, the owner
+  Membership, the Trial and whatever `open_session` writes are created
+  together with the consumption of the code, or not at all.
+  `open_session` receives the new User and Membership and answers
+  `{:ok, session}` or `{:error, reason}`.
 
   Errors:
 
@@ -66,32 +70,38 @@ defmodule MealPlannerApi.Services.EmailCodeSignup do
       took the email after the code was issued. Nothing is created.
     * `{:error, :registration_failed}` — the registration could not be
       written. Nothing is created and the code stays pending.
+    * any error `open_session` answers. Nothing is created and the code
+      stays pending.
   """
-  @spec verify_code(term(), term()) ::
-          {:ok, %{user: User.t(), membership: AccountMembership.t()}}
-          | {:error,
-             :code_invalid
-             | :code_expired
-             | :too_many_attempts
-             | :email_already_exists
-             | :registration_failed}
-  def verify_code(email, code) do
-    EmailCodeLogin.redeem_code(email, code, :signup, &register/2)
+  @spec verify_code(
+          term(),
+          term(),
+          (User.t(), AccountMembership.t() -> {:ok, session} | {:error, atom()})
+        ) ::
+          {:ok, session}
+          | {:error, atom()}
+        when session: term()
+  def verify_code(email, code, open_session) do
+    EmailCodeLogin.redeem_code(email, code, :signup, fn row, now ->
+      with {:ok, %{user: user, membership: membership}} <- register(row, now) do
+        open_session.(user, membership)
+      end
+    end)
   end
 
-  # Runs in the transaction that consumed the code. A failed registration
-  # may have aborted that transaction (a unique violation does), so every
-  # failure rolls it back instead of committing.
+  # Runs in the transaction that checked the code; any error it answers
+  # rolls that transaction back, which a failed registration needs (a
+  # unique violation aborts it).
   defp register(%EmailVerificationCode{email: email}, now) do
     case Accounts.register_with_verified_email(email, now) do
       {:ok, %{user: user, membership: membership}} ->
         {:ok, %{user: user, membership: membership}}
 
       {:error, :email_already_registered} ->
-        Repo.rollback(:email_already_exists)
+        {:error, :email_already_exists}
 
       {:error, :unable_to_issue_identity} ->
-        Repo.rollback(:registration_failed)
+        {:error, :registration_failed}
     end
   end
 
