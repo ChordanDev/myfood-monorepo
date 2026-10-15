@@ -202,10 +202,12 @@ export function useRecipeChat({ scheduledMealId, isEnabled, isCooked }: UseRecip
             ? null
             : await readStoredQuestion(sessionId, { text, clientMessageId });
 
+        // The recovered turns go after what is shown, as an answer's turns do: a fallback answer
+        // shown earlier is not stored, and stays above them.
         if (stored) {
           updateChat(mealId, (latest) => ({
             ...latest,
-            messages: mergeChatHistory(stored, withoutPending(latest.messages)),
+            messages: reconcileChatTurns(latest.messages, pendingId, stored),
             isThinking: false,
           }));
           return;

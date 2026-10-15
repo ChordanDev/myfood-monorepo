@@ -330,6 +330,54 @@ describe('useRecipeChat', () => {
       expect(result.current.errorMessage).toBeNull();
     });
 
+    it('keeps an earlier fallback answer above the turns it recovers', async () => {
+      // The provider failed on this question: its turns carry fresh ids and are not stored.
+      const fallback = {
+        ...COOKING_ANSWER,
+        message: 'No pude responder ahora.',
+        turns: [
+          {
+            ...COOKING_ANSWER.turns[0],
+            id: 'f1000000-0000-4000-8000-000000000001',
+            content: '¿Y la sal?',
+          },
+          {
+            ...COOKING_ANSWER.turns[1],
+            id: 'f1000000-0000-4000-8000-000000000002',
+            content: 'No pude responder ahora.',
+          },
+        ],
+      };
+      askMock
+        .mockResolvedValueOnce(fallback)
+        .mockRejectedValueOnce(new ApiError('network_error', 'offline'));
+      readMock
+        .mockResolvedValueOnce(COOKING_SESSION_WITH_HISTORY)
+        .mockImplementationOnce(async () => {
+          const [question, answer] = COOKING_ANSWER.turns;
+
+          return {
+            ...COOKING_SESSION_WITH_HISTORY,
+            chatMessages: [
+              ...COOKING_CHAT_HISTORY,
+              { ...question, clientMessageId: sentMessageIds()[1] },
+              answer,
+            ],
+          };
+        });
+      const { result } = await renderChat();
+
+      await ask(result, '¿Y la sal?');
+      await ask(result, COOKING_QUESTION);
+
+      expect(ids(result)).toEqual([
+        ...HISTORY_IDS,
+        ...fallback.turns.map((turn) => turn.id),
+        ...ANSWER_IDS,
+      ]);
+      expect(result.current.errorMessage).toBeNull();
+    });
+
     it('finds the stored question by its text when the API serves no client message ids', async () => {
       askMock.mockRejectedValue(new ApiError('network_error', 'offline'));
       readMock.mockResolvedValueOnce(COOKING_SESSION_WITH_HISTORY).mockResolvedValueOnce({
