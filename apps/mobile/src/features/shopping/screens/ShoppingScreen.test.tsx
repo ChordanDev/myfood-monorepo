@@ -2,7 +2,7 @@
 /// <reference types="node" />
 
 import React from 'react';
-import { ActivityIndicator, ScrollView, StyleSheet, Text } from 'react-native';
+import { ActivityIndicator, AppState, ScrollView, StyleSheet, Text } from 'react-native';
 import { act, create, ReactTestInstance } from 'react-test-renderer';
 import { Check } from 'lucide-react-native';
 import type { FloatingCalendarProps } from '@/features/home';
@@ -687,6 +687,92 @@ describe('ShoppingScreen', () => {
 
       expect(getTexts(root)).toContain('Tu carrito venció. Volvé a marcar los productos.');
       expect(requestedUrls().filter((url) => url.startsWith(LIST_URL))).toHaveLength(2);
+    });
+
+    describe('while renewals of the lease keep failing', () => {
+      const RENEW_URL = `${CART_URL}/activity`;
+      const LEASE_NOTICE =
+        'Perdimos la conexión y no pudimos renovar tu carrito. Puede que haya vencido.';
+      let renewAnswer: () => Promise<Response>;
+
+      const appState = AppState as { currentState: unknown };
+      let currentState: unknown;
+
+      // The interval and the clock are fake; the reads still land on their own. The lease is
+      // kept alive only with the app in the foreground.
+      beforeEach(() => {
+        jest.useFakeTimers({ doNotFake: ['setTimeout', 'clearTimeout'] });
+        currentState = appState.currentState;
+        appState.currentState = 'active';
+        renewAnswer = () =>
+          Promise.resolve(
+            jsonResponse({ error: { code: 'internal_error', message: 'down' } }, false, 503)
+          );
+        fetchMock.mockImplementation((url: string) =>
+          url === RENEW_URL ? renewAnswer() : Promise.resolve(listResponse(readFor(url)))
+        );
+      });
+
+      afterEach(() => {
+        jest.useRealTimers();
+        appState.currentState = currentState;
+      });
+
+      async function waitAMinute() {
+        act(() => {
+          jest.advanceTimersByTime(60_000);
+        });
+        await settle();
+      }
+
+      const renewals = () => requestedUrls().filter((url) => url === RENEW_URL);
+
+      it('says the Cart may have expired after three failed renewals, not before', async () => {
+        const root = await renderLoadedScreen();
+        await waitAMinute();
+        expect(renewals()).toHaveLength(2);
+        expect(getTexts(root)).not.toContain(LEASE_NOTICE);
+
+        await waitAMinute();
+
+        expect(renewals()).toHaveLength(3);
+        expect(getTexts(root)).toContain(LEASE_NOTICE);
+        expect(getTexts(root)).toContain('6 ítems · 1 en el carrito');
+      });
+
+      it('stops saying it once a renewal succeeds', async () => {
+        const root = await renderLoadedScreen();
+        await waitAMinute();
+        await waitAMinute();
+        renewAnswer = () => Promise.resolve(markedCart());
+
+        await waitAMinute();
+
+        expect(getTexts(root)).not.toContain(LEASE_NOTICE);
+      });
+
+      it('drops the notice with the Cart when the lease turns out gone', async () => {
+        const root = await renderLoadedScreen();
+        await waitAMinute();
+        await waitAMinute();
+        renewAnswer = () =>
+          Promise.resolve(
+            jsonResponse({ error: { code: 'stale_cart', message: 'expired' } }, false, 409)
+          );
+        // The read that follows no longer reports the Cart.
+        fetchMock.mockImplementation((url: string) =>
+          url === RENEW_URL
+            ? renewAnswer()
+            : Promise.resolve(listResponse({ ...SHOPPING_LIST_BY_INGREDIENT, cart: null }))
+        );
+
+        await waitAMinute();
+
+        expect(getTexts(root)).not.toContain(LEASE_NOTICE);
+        expect(getButtons(root).map((node) => node.props.accessibilityLabel)).not.toContain(
+          'Cancelar carrito'
+        );
+      });
     });
 
     it('abandons the Cart and reads the list again', async () => {
