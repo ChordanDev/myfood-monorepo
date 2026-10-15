@@ -29,12 +29,27 @@ defmodule MealPlannerApi.Persistence.Leftovers do
   #{@list_limit}: past that, the latest consume-by dates are left out.
   """
   def list_open(account_id) do
+    account_id |> open_query() |> Repo.all()
+  end
+
+  @doc """
+  Open leftovers of the Account still good to eat on `today`: one due `today`
+  is kept. Same order and cap as `list_open/1`, but the expired ones are left
+  out before the cap, so they cannot fill it and hide the good ones.
+  """
+  def list_open_from(account_id, %Date{} = today) do
+    account_id
+    |> open_query()
+    |> where([l], l.consume_by_date >= ^today)
+    |> Repo.all()
+  end
+
+  defp open_query(account_id) do
     from(l in PreparedLeftover,
       where: l.account_id == ^account_id and is_nil(l.consumed_at) and is_nil(l.discarded_at),
       order_by: [asc: l.consume_by_date, asc: l.stored_at, asc: l.id],
       limit: @list_limit
     )
-    |> Repo.all()
   end
 
   @doc """

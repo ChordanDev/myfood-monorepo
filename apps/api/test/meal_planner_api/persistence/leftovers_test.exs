@@ -138,6 +138,15 @@ defmodule MealPlannerApi.Persistence.LeftoversTest do
       assert Enum.count(listed, &(&1.consume_by_date == ~D[2026-10-30])) == 1
     end
 
+    test "list_open_from/2 leaves expired ones out before the cap and keeps one due today",
+         %{account_id: account_id} do
+      insert_open!(account_id, 200, ~D[2026-10-09])
+      insert_open!(account_id, 1, ~D[2026-10-10])
+
+      assert [%{consume_by_date: ~D[2026-10-10]}] =
+               Leftovers.list_open_from(account_id, ~D[2026-10-10])
+    end
+
     test "excludes closed leftovers and other Accounts", %{account_id: account_id} do
       other_id = account_id("leftovers-b@example.com")
       {:ok, open} = create(account_id, "open", ~D[2026-10-10], @now)

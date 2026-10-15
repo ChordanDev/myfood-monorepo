@@ -431,6 +431,34 @@ defmodule MealPlannerApi.Services.PlanningContextTest do
       assert Enum.map(context["leftovers"], & &1["title"]) == ["Due on the Auckland date"]
     end
 
+    test "keeps a leftover still good to eat behind 200 expired open ones", %{
+      user: user,
+      account: account
+    } do
+      stored_at = DateTime.add(@now, 0, :microsecond)
+
+      expired =
+        for n <- 1..200 do
+          %{
+            id: Ecto.UUID.generate(),
+            account_id: account.id,
+            title: "Expired #{n}",
+            portions: 1,
+            stored_at: stored_at,
+            consume_by_date: Date.add(@today, -1),
+            inserted_at: stored_at,
+            updated_at: stored_at
+          }
+        end
+
+      {200, _} = Repo.insert_all(PreparedLeftover, expired)
+      _tomorrow = leftover!(account, "Due tomorrow", Date.add(@today, 1))
+
+      context = PlanningContext.read(account.id, user.id, [], %{now: @now})
+
+      assert Enum.map(context["leftovers"], & &1["title"]) == ["Due tomorrow"]
+    end
+
     test "an Account with no leftovers gets an empty list", %{user: user, account: account} do
       assert PlanningContext.read(account.id, user.id, [], %{now: @now})["leftovers"] == []
     end

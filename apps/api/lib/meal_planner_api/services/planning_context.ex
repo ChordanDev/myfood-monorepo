@@ -16,8 +16,9 @@ defmodule MealPlannerApi.Services.PlanningContext do
       always `no_constraint`;
     * `favoriteRecipeIds`, the Favorite recipes the member preselected;
     * `leftovers`, the open Prepared leftovers of the Account that are not
-      past their consume-by date, soonest first, as meals already available
-      for the first days of the plan. Each one is `title`, `portions`,
+      past their consume-by date, soonest first and at most 200 (issue #162),
+      as meals already available for the first days of the plan. Expired
+      ones are left out before that cap, so they never crowd out good ones. Each one is `title`, `portions`,
       `consumeByDate` (ISO 8601 date) and `scheduledMealId`, the source meal
       (`nil` when the leftover was stored without one).
 
@@ -96,21 +97,22 @@ defmodule MealPlannerApi.Services.PlanningContext do
   never forwarded, because a client cache can be stale and the engine must not
   receive a recipe the caller cannot see.
 
-  The Prepared leftovers are the open ones of the Account, judged against the
-  Account's today (`MealPlannerApi.AccountClock`). `now` is an option (default
+  The Prepared leftovers are the open ones of the Account still good on the
+  Account's today (`MealPlannerApi.AccountClock`), filtered in the query. `now` is an option (default
   `DateTime.utc_now/0`) so tests pass the instant they need.
   """
   @spec read(Ecto.UUID.t(), Ecto.UUID.t(), [String.t()], map()) :: t()
   def read(account_id, user_id, requested_favorite_ids, opts \\ %{}) do
     now = Map.get(opts, :now, DateTime.utc_now())
+    today = AccountClock.today(account_id, now)
 
     assemble(%{
       preferences: UserPreferencesService.get(user_id),
       user: AccountRepo.get_user(user_id),
       slot_cooking_times: AccountRepo.list_slot_cooking_times(user_id),
       favorite_recipe_ids: owned_favorites(account_id, user_id, requested_favorite_ids),
-      prepared_leftovers: Leftovers.list_open(account_id),
-      today: AccountClock.today(account_id, now)
+      prepared_leftovers: Leftovers.list_open_from(account_id, today),
+      today: today
     })
   end
 
@@ -128,6 +130,8 @@ defmodule MealPlannerApi.Services.PlanningContext do
   end
 
   defp leftovers(prepared_leftovers, today) do
+    # `read/4` already reads only good ones; `assemble/1` is also called with
+    # signals read elsewhere, so it keeps the rule.
     for leftover <- prepared_leftovers,
         Date.compare(leftover.consume_by_date, today) != :lt do
       %{
