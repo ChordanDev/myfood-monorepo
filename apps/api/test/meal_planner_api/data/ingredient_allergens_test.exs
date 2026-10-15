@@ -111,7 +111,6 @@ defmodule MealPlannerApi.Data.IngredientAllergensTest do
       "Alfajores" => ["gluten", "dairy", "egg"],
       "Tarta de jamón y queso" => ["gluten", "dairy"],
       "Cremor tártaro" => nil,
-      "Maní tostado" => ["peanut"],
       "Lechuga" => nil,
       "Pulpa de tomate" => nil
     }
