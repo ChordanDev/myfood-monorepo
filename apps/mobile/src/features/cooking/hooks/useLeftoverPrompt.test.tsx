@@ -1,7 +1,7 @@
 import { act, create } from 'react-test-renderer';
 import { ApiError } from '@/api/errors';
 import { addExtraItem } from '@/features/inventory/api';
-import { buildInventoryItem, mutationEvent } from '@/features/inventory/mocks';
+import { buildInventoryItem, mutationEvent } from '@/features/inventory/fixtures';
 import { useInventoryStore } from '@/features/inventory/store';
 import { createPreparedLeftover } from '@/features/leftovers/api/leftoversApi';
 import { LEFTOVER_LENTILS } from '@/features/leftovers/fixtures';

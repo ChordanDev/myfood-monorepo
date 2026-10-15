@@ -20,7 +20,7 @@ import {
   COOKING_START,
 } from '@/features/cooking/fixtures';
 import { useInventoryStore, type InventoryItem } from '@/features/inventory';
-import { POTATO } from '@/features/inventory/mocks/inventoryApiFixtures';
+import { POTATO } from '@/features/inventory/fixtures/inventoryApiFixtures';
 import { createPreparedLeftover } from '@/features/leftovers';
 import { LEFTOVER_LENTILS } from '@/features/leftovers/fixtures';
 import { useShoppingListStore } from '@/features/shopping/store';

@@ -4,7 +4,7 @@ import React from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import { act, create, ReactTestInstance } from 'react-test-renderer';
 import { INVENTORY_CATEGORY_COLORS } from '../constants/categories';
-import { MILK, ONION } from '../mocks';
+import { MILK, ONION } from '../fixtures';
 import { InventorySection } from './InventorySection';
 
 jest.mock('@/components', () => {

@@ -1,7 +1,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import type { MealPlanEntry } from '@/types/domain';
 import { useInventoryStore } from '@/features/inventory/store';
-import { buildInventoryItem } from '@/features/inventory/mocks';
+import { buildInventoryItem } from '@/features/inventory/fixtures';
 import { loadLivePlan } from '@/features/home/hooks/useLoadLivePlan';
 import { useMealPlanStore } from './useMealPlanStore';
 

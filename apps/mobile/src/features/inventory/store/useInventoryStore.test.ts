@@ -12,7 +12,7 @@ import {
   dataResponse,
   errorResponse,
   mutationEvent,
-} from '../mocks';
+} from '../fixtures';
 import type { InventoryItem } from '../types';
 import { migrateInventoryState, useInventoryStore } from './useInventoryStore';
 

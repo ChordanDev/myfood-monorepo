@@ -23,7 +23,7 @@ import {
   dataResponse,
   errorResponse,
   mutationEvent,
-} from '../mocks';
+} from '../fixtures';
 import { useInventoryStore } from '../store';
 import type { InventoryItem, InventoryView } from '../types';
 import { InventoryScreen } from './InventoryScreen';

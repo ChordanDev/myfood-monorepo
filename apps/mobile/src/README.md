@@ -35,13 +35,13 @@ src/features/[feature-name]/
 ├── screens/       # Pantallas principales de la feature
 ├── store/         # Estado propio de la feature (opcional)
 ├── types/         # Tipos propios de la feature (opcional)
-├── mocks/         # Datos de prueba propios de la feature (opcional)
+├── fixtures/      # Respuestas congeladas de la API para los tests (opcional)
 ├── domain/        # Lógica pura de la feature (opcional)
 ├── constants/     # Constantes propias de la feature (opcional)
 └── index.ts       # Archivo de exportación (opcional)
 ```
 
-Una feature es dueña de todo lo que solo ella usa: su `store/`, `types/`, `mocks/`, `domain/` y `constants/` viven dentro de su carpeta. Las carpetas globales (`src/store`, `src/types`, `src/components`) quedan reservadas para lo que comparten varias features.
+Una feature es dueña de todo lo que solo ella usa: su `store/`, `types/`, `fixtures/`, `domain/` y `constants/` viven dentro de su carpeta. Las carpetas globales (`src/store`, `src/types`, `src/components`) quedan reservadas para lo que comparten varias features.
 
 Dentro de una feature los módulos se importan entre sí por ruta relativa. El `index.ts` raíz expone únicamente lo que usa el resto de la app. Los módulos sin UI de otra feature (por ejemplo, otro store) importan `@/features/[feature-name]/store` para no cargar sus pantallas.
 

@@ -2,7 +2,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useEffect } from 'react';
 import { act, create } from 'react-test-renderer';
 import type { AuthSession, CurrentMe } from '@/features/auth/types/auth';
-import { MILK, RICE } from '@/features/inventory/mocks';
+import { MILK, RICE } from '@/features/inventory/fixtures';
 import { useInventoryStore } from '@/features/inventory/store';
 import { SHOPPING_LIST_BY_INGREDIENT } from '@/features/shopping/fixtures';
 import { useShoppingListStore } from '@/features/shopping/store/useShoppingListStore';
