@@ -395,6 +395,36 @@ describe('useCartLease', () => {
       expect(result.current.isRenewalFailing).toBe(false);
     });
 
+    it('keeps counting the Cart on screen when a renewal of another Cart answers late', async () => {
+      const OTHER_LEASE = { sessionId: 'session-2', leaseExpiresAt: '2026-10-09T12:20:00Z' };
+      let failLateRenewal: () => void = () => {};
+      api.renewCart.mockImplementation((sessionId) =>
+        sessionId === LEASE.sessionId
+          ? new Promise((_resolve, reject) => {
+              failLateRenewal = () => reject(NETWORK_ERROR);
+            })
+          : Promise.reject(NETWORK_ERROR)
+      );
+      const { result, readListCart } = setup(OTHER_LEASE);
+      await tick(0);
+      await waitMinutes(1);
+      // A read reports another Cart, whose renewal is still on its way when the next read
+      // reports the first one again.
+      readListCart(LEASE);
+      readListCart(OTHER_LEASE);
+
+      await act(async () => failLateRenewal());
+      await waitMinutes(1);
+
+      expect(api.renewCart.mock.calls.map(([sessionId]) => sessionId)).toEqual([
+        'session-2',
+        'session-2',
+        'session-1',
+        'session-2',
+      ]);
+      expect(result.current.isRenewalFailing).toBe(true);
+    });
+
     it('does not count an answer the server refused for another reason', async () => {
       api.renewCart.mockRejectedValue(new ApiError('unknown_error', 'Request failed', 422));
       const { result } = setup();

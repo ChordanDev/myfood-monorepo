@@ -73,8 +73,9 @@ export function useCartLease({ listCart, refreshList }: UseCartLeaseOptions) {
   const lastActivityAt = useRef(0);
   // A renewal on its way: nothing else is sent until it answers.
   const isRenewingRef = useRef(false);
-  // The renewals in a row of this session that did not reach the server.
-  const [failedRenewals, setFailedRenewals] = useState({ sessionId: '', count: 0 });
+  // Per session, the renewals in a row that did not reach the server. Kept per session so that
+  // a renewal of another Cart that answers late does not touch the count of the one on screen.
+  const [failedRenewals, setFailedRenewals] = useState<Record<string, number>>({});
 
   // What the server reports is the truth: a read that lands replaces the local Cart, unless
   // it still reports the Cart this device ended. This is React's "derive state from props"
@@ -123,7 +124,7 @@ export function useCartLease({ listCart, refreshList }: UseCartLeaseOptions) {
         .then((lease) => {
           // When it was sent, so the next one is due a minute after this one, not later.
           lastActivityAt.current = Math.max(lastActivityAt.current, now);
-          setFailedRenewals({ sessionId, count: 0 });
+          setFailedRenewals(({ [sessionId]: _succeeded, ...others }) => others);
           // A renewal that lands after the Cart was cancelled must not bring it back.
           setCart((prev) => (prev?.sessionId === lease.sessionId ? lease : prev));
         })
@@ -131,10 +132,7 @@ export function useCartLease({ listCart, refreshList }: UseCartLeaseOptions) {
           if (isLeaseGone(caught)) {
             dropCart();
           } else if (isUnreachable(caught)) {
-            setFailedRenewals((prev) => ({
-              sessionId,
-              count: prev.sessionId === sessionId ? prev.count + 1 : 1,
-            }));
+            setFailedRenewals((prev) => ({ ...prev, [sessionId]: (prev[sessionId] ?? 0) + 1 }));
           }
         })
         .finally(() => {
@@ -159,7 +157,7 @@ export function useCartLease({ listCart, refreshList }: UseCartLeaseOptions) {
 
         lastActivityAt.current = Date.now();
         // The server was reached and extended the lease.
-        setFailedRenewals({ sessionId: marked.sessionId, count: 0 });
+        setFailedRenewals(({ [marked.sessionId]: _reached, ...others }) => others);
         setIsHeldByAnother(false);
         // A Cart started again: whatever session the server gave it is one to take from a read.
         setEndedSessionId(null);
@@ -248,8 +246,7 @@ export function useCartLease({ listCart, refreshList }: UseCartLeaseOptions) {
     // Renewals of the Cart on screen keep failing to reach the server: it may have run out.
     isRenewalFailing:
       sessionId !== undefined &&
-      failedRenewals.sessionId === sessionId &&
-      failedRenewals.count >= CART_RENEW_FAILURES_BEFORE_NOTICE,
+      (failedRenewals[sessionId] ?? 0) >= CART_RENEW_FAILURES_BEFORE_NOTICE,
     errorMessage: error === null ? undefined : getAuthErrorMessage(error),
   };
 }
