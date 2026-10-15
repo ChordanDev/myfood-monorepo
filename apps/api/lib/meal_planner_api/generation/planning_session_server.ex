@@ -14,7 +14,7 @@ defmodule MealPlannerApi.Generation.PlanningSessionServer do
 
       :initializing  ──start_session──►  :active
       :active        ──cancel_session──►  :cancelled
-      :active        ──mark_committed──►  :committed
+      :active        ──confirm─────────►  :committed   (DB-side, not this GS)
       :active        ──:DOWN abnormal──►  :lost_lock
       :active        ──sweeper─────────►  :expired     (DB-side, not this GS)
 
@@ -22,8 +22,17 @@ defmodule MealPlannerApi.Generation.PlanningSessionServer do
 
   Entitlement is re-checked at `start_session/5` via the injectable
   `:check_account_eligible_fn` opt (default `&AccountAccess.eligible?/1`).
-  Cancellation / commit delegate to `PlanningRepo` which already
-  enforces per-(account, actor) authorization.
+  Cancellation delegates to `PlanningRepo` which already enforces
+  per-(account, actor) authorization.
+
+  ## Commit
+
+  `POST /api/planning/confirm` commits the row inside the confirm
+  transaction (`PlanningRepo.mark_committed/3`) and
+  `PlanningChatService` broadcasts `session_committed`. This server
+  is not told, so its in-memory status stays `:active`; an abnormal
+  owner exit afterwards is harmless because `PlanningRepo.mark_lost_lock/2`
+  only matches `:active` rows.
 
   ## :DOWN semantics
 
@@ -48,7 +57,7 @@ defmodule MealPlannerApi.Generation.PlanningSessionServer do
   @type state :: %{
           account_id: Ecto.UUID.t(),
           session_id: Ecto.UUID.t(),
-          status: :initializing | :active | :cancelled | :committed | :lost_lock | :expired,
+          status: :initializing | :active | :cancelled | :lost_lock,
           owner_user_id: Ecto.UUID.t() | nil,
           owner_membership_id: Ecto.UUID.t() | nil,
           owner_channel_pid: pid() | nil,
@@ -183,17 +192,6 @@ defmodule MealPlannerApi.Generation.PlanningSessionServer do
     GenServer.call(server, {:apply_intent, session_id, intent})
   end
 
-  @doc """
-  Transitions the session to `:committed`. On success, broadcasts
-  `session_committed` on `planning:<account_id>`. Does NOT hard-delete
-  children — `:committed` is an audit-friendly terminal status.
-  """
-  @spec mark_committed(GenServer.server(), Ecto.UUID.t(), Ecto.UUID.t()) ::
-          :ok | {:error, :not_active}
-  def mark_committed(server, account_id, session_id) do
-    GenServer.call(server, {:mark_committed, account_id, session_id})
-  end
-
   # ===========================================================================
   # GenServer callbacks
   # ===========================================================================
@@ -319,19 +317,6 @@ defmodule MealPlannerApi.Generation.PlanningSessionServer do
       {:ok, validated} ->
         new_state = %{state | pending_intent: validated}
         {:reply, {:ok, validated}, new_state}
-
-      {:error, _} = err ->
-        {:reply, err, state}
-    end
-  end
-
-  @impl true
-  def handle_call({:mark_committed, account_id, session_id}, _from, state) do
-    case PlanningRepo.mark_committed(account_id, session_id) do
-      {:ok, _committed} ->
-        broadcast(account_id, "session_committed", %{"session_id" => session_id})
-        new_state = %{state | status: :committed}
-        {:reply, :ok, new_state}
 
       {:error, _} = err ->
         {:reply, err, state}
