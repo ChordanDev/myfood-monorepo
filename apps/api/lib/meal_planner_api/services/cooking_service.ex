@@ -33,6 +33,10 @@ defmodule MealPlannerApi.Services.CookingService do
   @max_question_length 2000
   # Questions an Account may ask the model per day (`AccountClock`).
   @daily_question_limit 100
+
+  # First key of the two-key advisory lock form for the Account chat lock;
+  # `DeviceSessions` and `EmailCodeLogin` take that form under their own keys.
+  @chat_lock_namespace 0x4348_4154
   # Prior turns replayed to the model, newest last.
   @prompt_history_turns 20
 
@@ -176,6 +180,9 @@ defmodule MealPlannerApi.Services.CookingService do
   `:cooking_chat_limit_reached`. The answer is built from the frozen Context
   snapshot and the prior turns; the provider is called outside any
   transaction, and nothing is stored when the session finished meanwhile.
+  The limit is counted again where the question is stored, under a lock of
+  the Account, so questions that passed the first count together are refused
+  `:cooking_chat_limit_reached` once the day is full.
 
   When the provider fails, the canned fallback is answered and nothing is
   stored, so a resend of the same id asks the provider again. Its turns carry
@@ -228,7 +235,7 @@ defmodule MealPlannerApi.Services.CookingService do
   defp store_answer(current_user, ids, session, question, answer, now) do
     with {:ok, _ids} <- RecipeAccess.authorize(current_user),
          {:ok, _session} <- chat_session(ids, session.id, now),
-         {:ok, turns} <- persist_turns(ids, session.id, question, answer) do
+         {:ok, turns} <- persist_turns(ids, session.id, question, answer, now) do
       {:ok, answer_payload(session.id, turns)}
     end
   end
@@ -242,6 +249,9 @@ defmodule MealPlannerApi.Services.CookingService do
   defp same_question?([stored_question, _answer], question),
     do: stored_question.content == question
 
+  # Counts the questions the Account stored on its day at `now`. The count
+  # before the provider call spares a call over the limit; the one inside
+  # `persist_turns/5` holds the Account chat lock and is the one that binds.
   defp within_daily_limit(account_id, now) do
     {from, to} = AccountClock.day_bounds(account_id, now)
 
@@ -323,13 +333,18 @@ defmodule MealPlannerApi.Services.CookingService do
   # The session lock orders this write against a concurrent finish, so a
   # finished session never gains turns. It also orders two requests carrying
   # the same client message id: the second one finds the pair of the first and
-  # stores nothing, and it is refused when its question differs.
-  defp persist_turns(ids, session_id, {question, message_id}, answer) do
+  # stores nothing, and it is refused when its question differs. A new question
+  # is counted again under the Account chat lock, so two questions stored at
+  # once in different sessions cannot both take the last place of the day.
+  defp persist_turns(ids, session_id, {question, message_id}, answer, now) do
     Repo.transaction(fn ->
       session = lock_active_session!(ids, session_id)
 
       case stored_pair(session.id, message_id) do
         nil ->
+          lock_account_chat!(ids.account_id)
+          within_daily_limit!(ids.account_id, now)
+
           {question, message_id}
           |> chat_turns(answer, ids.user_id)
           |> Enum.map(&insert_turn!(&1, session.id))
@@ -338,6 +353,22 @@ defmodule MealPlannerApi.Services.CookingService do
           stored_pair_of!(turns, question)
       end
     end)
+  end
+
+  # Makes the Account's new questions take turns at being counted and stored,
+  # until the transaction ends. Taken after the session row lock, and no path
+  # takes them in the other order, so two questions cannot deadlock.
+  defp lock_account_chat!(account_id) do
+    Repo.query!("SELECT pg_advisory_xact_lock($1, $2)", [
+      @chat_lock_namespace,
+      :erlang.phash2(account_id)
+    ])
+  end
+
+  # Call only inside a transaction: a full day rolls back.
+  defp within_daily_limit!(account_id, now) do
+    with {:error, reason} <- within_daily_limit(account_id, now),
+         do: Repo.rollback(reason)
   end
 
   # Call only inside a transaction: another question under the id rolls back.
