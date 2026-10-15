@@ -14,6 +14,7 @@ import {
   reconcileChatTurns,
   type RecipeChatAvailability,
   type RecipeChatMessage,
+  type SentQuestion,
 } from '../domain/recipeChat';
 
 type UseRecipeChatArgs = {
@@ -146,14 +147,12 @@ export function useRecipeChat({ scheduledMealId, isEnabled, isCooked }: UseRecip
 
   // After a failed question: the stored history when the server kept the question after all
   // (only its answer was lost on the way back), `null` when it did not or cannot be asked.
-  // The question is found by the id it was sent with.
+  // The question is found by the id it was sent with, or by its text when the API serves no ids.
   const readStoredQuestion = useCallback(
-    async (sessionId: string, clientMessageId: string): Promise<CookingChatMessage[] | null> => {
+    async (sessionId: string, question: SentQuestion): Promise<CookingChatMessage[] | null> => {
       try {
         const { chatMessages } = await getCookingSession(sessionId);
-        if (!hasUnseenQuestion(chatMessages, seenTurnIdsRef.current, clientMessageId)) {
-          return null;
-        }
+        if (!hasUnseenQuestion(chatMessages, seenTurnIdsRef.current, question)) return null;
 
         rememberTurns(chatMessages);
         return chatMessages;
@@ -201,7 +200,7 @@ export function useRecipeChat({ scheduledMealId, isEnabled, isCooked }: UseRecip
         const stored =
           isRefusal || isLimitReached(error) || sessionId === null
             ? null
-            : await readStoredQuestion(sessionId, clientMessageId);
+            : await readStoredQuestion(sessionId, { text, clientMessageId });
 
         if (stored) {
           updateChat(mealId, (latest) => ({

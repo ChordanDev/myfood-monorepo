@@ -330,6 +330,25 @@ describe('useRecipeChat', () => {
       expect(result.current.errorMessage).toBeNull();
     });
 
+    it('finds the stored question by its text when the API serves no client message ids', async () => {
+      askMock.mockRejectedValue(new ApiError('network_error', 'offline'));
+      readMock.mockResolvedValueOnce(COOKING_SESSION_WITH_HISTORY).mockResolvedValueOnce({
+        ...SESSION_WITH_ANSWER,
+        chatMessages: SESSION_WITH_ANSWER.chatMessages.map(
+          ({ clientMessageId: _id, ...turn }) => turn
+        ),
+      });
+      const { result } = await renderChat();
+
+      await ask(result, COOKING_QUESTION);
+
+      expect(readMock).toHaveBeenCalledTimes(2);
+      expect(ids(result)).toEqual([...HISTORY_IDS, ...ANSWER_IDS]);
+      expect(result.current.input).toBe('');
+      expect(result.current.isThinking).toBe(false);
+      expect(result.current.errorMessage).toBeNull();
+    });
+
     it('does not take an unseen question with the same text but another id', async () => {
       askMock.mockRejectedValue(new ApiError('network_error', 'offline'));
       readMock
