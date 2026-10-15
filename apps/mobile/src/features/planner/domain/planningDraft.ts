@@ -168,6 +168,9 @@ function isGenerationEvent(action: PlanningDraftAction): boolean {
     case 'clock_ticked':
     case 'reset':
       return false;
+    // A draft that ran out of time takes the proposal of its session_resumed through here.
+    case 'session_resumed':
+      return true;
     default:
       return true;
   }
@@ -189,7 +192,8 @@ function reduceTimedOut(
 
 // The events of a generation emitted while the socket was down never arrive. After the rejoin the
 // server pushes the active session and its pending proposal, which is the one this draft waits
-// for when the session is its own and the run, once known, is its own too. Without a proposal the
+// for when the session is its own and the run, once known, is its own too. A draft that failed
+// on the time limit gets here with the generation it kept, through `reduceTimedOut`. Without a proposal the
 // generation may still be running, or may have failed: the time limit settles that.
 function takeResumedProposal(
   draft: PlanningDraft,
