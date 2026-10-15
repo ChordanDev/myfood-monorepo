@@ -66,7 +66,26 @@ defmodule MealPlannerApi.Data.IngredientAllergensTest do
       "Tapa de asado" => [],
       "Panceta ahumada" => [],
       "Tomate" => [],
-      "Arroz largo fino" => []
+      "Arroz largo fino" => [],
+      "Frutos del mar" => ["shellfish"],
+      "Gambas" => ["shellfish"],
+      "Cereal de maíz" => ["gluten"],
+      "Spaguetti" => ["gluten"],
+      "Ñoqui de papa" => ["gluten", "egg"],
+      "ÑOQUIS" => ["gluten", "egg"],
+      "Merluza rebozada" => ["gluten", "egg"],
+      "Shoyu" => ["gluten", "soy"],
+      "Mozarella" => ["dairy"],
+      "Bebida láctea" => ["dairy"],
+      "Manchego" => ["dairy"],
+      "Mantequilla de maní" => ["peanut"],
+      "Pesto" => ["tree_nut", "dairy"],
+      "Garrapiñada" => ["peanut"],
+      "Alioli" => ["egg"],
+      "Nuez moscada" => [],
+      "Esencia de vainilla" => [],
+      "Fideos de arroz" => [],
+      "Pasta de ajo" => []
     }
 
     test "tags each untagged Ingredient with the codes its name names", %{migration: migration} do
