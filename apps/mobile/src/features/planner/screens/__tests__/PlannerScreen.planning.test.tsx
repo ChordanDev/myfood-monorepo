@@ -136,7 +136,6 @@ jest.mock('@/features/favorites/api/favoritesApi', () => ({ listFavorites: jest.
 
 jest.mock('@/features/assistant-chat', () => ({
   ...jest.requireActual('@/features/assistant-chat/constants'),
-  ChatTypingIndicator: () => null,
   ChatComposer: 'ChatComposer',
 }));
 
@@ -215,8 +214,16 @@ function type(request: string): void {
   );
 }
 
+function composer(): ReactTestInstance {
+  return tree.root.findByProps({ testIDPrefix: 'planner-composer' });
+}
+
 function composerValue(): string {
-  return tree.root.findByProps({ testIDPrefix: 'planner-composer' }).props.value;
+  return composer().props.value;
+}
+
+function submitComposer(): void {
+  act(() => composer().props.onSubmit());
 }
 
 function emit(event: string, payload: unknown): void {
@@ -282,10 +289,12 @@ describe('PlannerScreen first proposal', () => {
     });
 
     expect(byTestId('planner-start')?.props.disabled).toBe(true);
+    expect(composer().props.disabled).toBe(true);
 
     act(() => channel().replyOk());
 
     expect(byTestId('planner-start')?.props.disabled).toBe(false);
+    expect(composer().props.disabled).toBe(false);
   });
 
   it('names the range it will plan on the start button', () => {
@@ -363,6 +372,86 @@ describe('PlannerScreen first proposal', () => {
     press('planner-start');
 
     expect(lastPush().payload).not.toHaveProperty('request');
+  });
+
+  describe('the composer', () => {
+    it('starts planning with its text as the request, and sends nothing else', async () => {
+      renderJoined();
+      type('  sin carne  ');
+
+      submitComposer();
+
+      expect(channel().pushes.map((push) => push.event)).toEqual(['start_planning']);
+      expect(lastPush().payload).toEqual({
+        rangeFrom: '2030-01-01',
+        rangeTo: '2030-01-02',
+        requestId: 'req_fixture_1',
+        request: 'sin carne',
+      });
+
+      await replyOk();
+
+      expect(composerValue()).toBe('');
+      expect(channel().pushes.map((push) => push.event)).toEqual(['start_planning']);
+    });
+
+    it('shows no reply of its own after it sends', async () => {
+      jest.useFakeTimers();
+      try {
+        renderJoined();
+        type('sin carne');
+
+        submitComposer();
+        await replyOk();
+        act(() => {
+          jest.advanceTimersByTime(60_000);
+        });
+
+        // Only the progress of the generation: no message is made up while the server works.
+        const conversation = tree.root.findByProps({ testID: 'planner-conversation-list' });
+        expect(conversation.findAllByType(Text).map((text) => text.props.children)).toEqual([
+          'Armando tu menú…',
+          'Cancelar',
+        ]);
+        expect(composer().props.isThinking).toBe(false);
+      } finally {
+        jest.useRealTimers();
+      }
+    });
+
+    it('cannot send while a plan is running', async () => {
+      renderJoined();
+      type('sin carne');
+      submitComposer();
+
+      expect(composer().props.disabled).toBe(true);
+
+      await replyOk();
+      emitGenerationStarted();
+      emitProposal();
+      type('sin lacteos');
+      submitComposer();
+
+      expect(byTestId('planner-proposal')).toBeDefined();
+      expect(composer().props.disabled).toBe(true);
+      expect(channel().pushes.map((push) => push.event)).toEqual(['start_planning']);
+    });
+
+    it('sends again once the session is cancelled', async () => {
+      renderJoined();
+      press('planner-start');
+      await replyOk();
+      emitGenerationStarted();
+      press('planner-cancel');
+
+      expect(composer().props.disabled).toBe(false);
+
+      type('sin carne');
+      submitComposer();
+
+      expect(lastPush().event).toBe('start_planning');
+      expect(lastPush().payload).toMatchObject({ request: 'sin carne' });
+    });
   });
 
   describe('the favorites preselect step', () => {
