@@ -17,7 +17,10 @@ import { LeftoverPromptPanel } from './LeftoverPromptPanel';
 
 interface CookingResultSheetProps {
   summary: CookingSummary | null;
-  /** Why the meal could not be marked as cooked; shown instead of a summary. */
+  /**
+   * Shown instead of a summary: why the meal could not be marked as cooked, or that it was
+   * cooked already when the server has no summary to give.
+   */
   errorMessage: string | null;
   onClose: () => void;
   /** The finish to ask about leftovers for, once its summary was closed. */

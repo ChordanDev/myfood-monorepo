@@ -14,7 +14,8 @@ import { summarizeCookingFinish, type CookingSummary } from '../domain';
  *
  * `cooking_already_finished` is a success: the meal is cooked already, typically by a finish
  * whose answer was lost before a retry. The server does not consume again and its answer holds
- * no summary to rebuild, so the meal is marked cooked and no result or leftover prompt is shown.
+ * no summary to rebuild, so the meal is marked cooked and the result only says it was cooked
+ * already; closing it asks nothing about leftovers.
  */
 export function useMarkAsCooked() {
   const markEntryCooked = useMealPlanStore((state) => state.markAsCooked);
@@ -41,12 +42,15 @@ export function useMarkAsCooked() {
         setSummary(summarizeCookingFinish(finish));
         return true;
       } catch (error) {
+        const message = getAuthErrorMessage(error);
+
         if (isApiError(error) && error.code === 'cooking_already_finished') {
           markEntryCooked(entryId);
+          setErrorMessage(message);
           return true;
         }
 
-        setErrorMessage(getAuthErrorMessage(error));
+        setErrorMessage(message);
         return false;
       } finally {
         inFlightRef.current = false;

@@ -114,7 +114,7 @@ describe('useMarkAsCooked', () => {
     ['the finish', () => finishMock],
     ['the start', () => startMock],
   ])(
-    'treats cooking_already_finished from %s as success: marks the entry, shows nothing',
+    'treats cooking_already_finished from %s as success: marks the entry and says it was cooked',
     async (_step, refusing) => {
       startMock.mockResolvedValue(COOKING_START);
       refusing().mockRejectedValue(new ApiError('cooking_already_finished', 'x', 409));
@@ -127,10 +127,11 @@ describe('useMarkAsCooked', () => {
       expect(result).toBe(true);
       expect(useMealPlanStore.getState().entries[0].isCooked).toBe(true);
       expect(hook.summary).toBeNull();
-      expect(hook.errorMessage).toBeNull();
+      expect(hook.errorMessage).toBe('Esta comida ya figura como cocinada.');
       expect(hook.isPending).toBe(false);
 
       act(() => hook.dismiss());
+      expect(hook.errorMessage).toBeNull();
       expect(hook.leftoverPrompt).toBeNull();
     }
   );
