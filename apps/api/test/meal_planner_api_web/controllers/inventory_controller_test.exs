@@ -314,7 +314,10 @@ defmodule MealPlannerApiWeb.InventoryControllerTest do
       assert explicit["data"]["item"]["expiresAt"] == Date.to_iso8601(expires_on)
 
       # Added by name (D9), without an expiry: `no_perecederos` falls back to
-      # a 14-day shelf life.
+      # a 14-day shelf life. The add may land on the next UTC day, so the
+      # inferred expiry is counted from the day before and the day after it.
+      day_before_add = Date.utc_today()
+
       inferred =
         actor
         |> post_json("/api/inventory/items/add-extra", %{
@@ -327,7 +330,10 @@ defmodule MealPlannerApiWeb.InventoryControllerTest do
       assert %{"expiresAt" => inferred_on, "isLeftover" => false, "notes" => nil} =
                inferred["data"]["item"]
 
-      assert inferred_on == Date.to_iso8601(Date.add(today, 14))
+      assert inferred_on in Enum.map(
+               [day_before_add, Date.utc_today()],
+               &Date.to_iso8601(Date.add(&1, 14))
+             )
     end
 
     test "invalid input is a validation_error and stores nothing" do
@@ -348,7 +354,13 @@ defmodule MealPlannerApiWeb.InventoryControllerTest do
         Map.delete(valid, "unit"),
         Map.put(valid, "expiresAt", "tomorrow"),
         Map.put(valid, "notes", 42),
-        Map.put(valid, "isLeftover", "yes")
+        Map.put(valid, "isLeftover", "yes"),
+        Map.put(valid, "acquiredAt", "yesterday"),
+        Map.put(valid, "acquiredAt", "2026-10-15"),
+        Map.put(valid, "acquiredAt", 42),
+        Map.put(valid, "acquiredPriceCents", -1),
+        Map.put(valid, "acquiredPriceCents", 1.5),
+        Map.put(valid, "acquiredPriceCents", "120")
       ]
 
       for payload <- invalid_payloads do
@@ -358,6 +370,28 @@ defmodule MealPlannerApiWeb.InventoryControllerTest do
       end
 
       assert Inventory.list_inventory(actor.account_id) == []
+    end
+
+    test "acquiredAt and acquiredPriceCents are stored on the lot when they are valid" do
+      actor = actor()
+      rice = ingredient("Arroz Test Compra")
+
+      conn =
+        post_json(actor, "/api/inventory/items/add-extra", %{
+          "ingredientId" => rice.id,
+          "quantityMilli" => 100,
+          "unit" => "g",
+          "acquiredAt" => "2026-10-10T12:30:00Z",
+          "acquiredPriceCents" => 0
+        })
+
+      assert %{"acquiredAt" => "2026-10-10T12:30:00.000000Z"} =
+               json_response(conn, 200)["data"]["item"]
+
+      assert [%{acquired_price_cents: 0, acquired_at: acquired_at}] =
+               Inventory.list_inventory(actor.account_id)
+
+      assert DateTime.compare(acquired_at, ~U[2026-10-10 12:30:00Z]) == :eq
     end
 
     test "notes longer than 1000 characters are a validation_error and store nothing" do

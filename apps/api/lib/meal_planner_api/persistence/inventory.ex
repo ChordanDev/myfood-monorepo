@@ -38,6 +38,17 @@ defmodule MealPlannerApi.Persistence.Inventory do
     |> Repo.all()
   end
 
+  # The account's stock: a disposed or fully consumed lot stays at zero for the
+  # ledger and is left out here, in the query.
+  def list_stock_with_ingredient(account_id) do
+    from(i in InventoryItem,
+      where: i.account_id == ^account_id and i.quantity_milli > 0,
+      order_by: [asc: i.ingredient_id, asc: i.inserted_at, asc: i.id],
+      preload: [:ingredient]
+    )
+    |> Repo.all()
+  end
+
   def get_inventory_item!(id), do: Repo.get!(InventoryItem, id)
 
   def get_inventory_item_for_account(account_id, item_id) do

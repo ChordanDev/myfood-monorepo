@@ -6,6 +6,8 @@ defmodule MealPlannerApiWeb.InventoryController do
   alias MealPlannerApiWeb.ApiError
   alias MealPlannerApiWeb.Controllers.AccountScopeHelpers
 
+  require Logger
+
   # Phase A — Tenancy Refactor (PR 3c task 3.18): tenancy scope is always
   # resolved from `conn.assigns.current_membership.account_id`, never
   # from the legacy `current_user.account_id` field. See
@@ -91,13 +93,8 @@ defmodule MealPlannerApiWeb.InventoryController do
 
   # Every error leaves through the `ApiError` envelope. It carries a code and
   # the message of that code only, so it does not name the field that failed.
-  @validation_reasons ~w(
-    missing_ingredient invalid_ingredient_id ingredient_not_found
-    missing_quantity invalid_quantity
-    missing_unit invalid_unit
-    invalid_expires_at invalid_notes invalid_is_leftover
-    invalid_voice_payload no_ingredients_selected
-  )a
+  # The service owns the list of payload reasons, so the two cannot drift.
+  @validation_reasons InventoryService.validation_reasons()
 
   defp render_error(conn, reason) when reason in @validation_reasons do
     conn |> ApiError.error(:validation_error)
@@ -118,5 +115,10 @@ defmodule MealPlannerApiWeb.InventoryController do
 
   defp render_error(conn, :no_rescue_recipe_found), do: conn |> ApiError.error(:not_found)
   defp render_error(conn, :invalid_identity), do: conn |> ApiError.error(:invalid_identity)
-  defp render_error(conn, _reason), do: conn |> ApiError.server_fault()
+  # The answer stays `unknown_error`; the reason goes to the log, so the
+  # failure can still be found.
+  defp render_error(conn, reason) do
+    Logger.error("Inventory request failed: #{inspect(reason)}")
+    conn |> ApiError.server_fault()
+  end
 end
