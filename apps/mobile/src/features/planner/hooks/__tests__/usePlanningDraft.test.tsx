@@ -406,14 +406,43 @@ describe('usePlanningDraft', () => {
       });
     });
 
-    it('takes it and learns the session when generation_started was lost too', async () => {
+    // Jorge F2: until generation_started names the draft's session, the active session the server
+    // resumes may be another one: the session a retry is cancelling, or another member's.
+    it('leaves the draft generating while it does not know its session yet', async () => {
       act(() => controller.start(RANGE, '', []));
       await replyOk();
 
       rejoin();
       emit('session_resumed', resumedWith(proposalReady));
 
-      expect(controller.draft).toMatchObject({ status: 'ready', sessionId: SESSION_ID });
+      expect(controller.draft).toMatchObject({ status: 'generating', sessionId: null });
+    });
+
+    it('does not take the session a retry is cancelling', async () => {
+      act(() => controller.start(RANGE, '', []));
+      await replyOk();
+      emit('generation_started', generationStarted);
+      emit('generation_error', {
+        reason: 'pipeline_error',
+        details: {},
+        runId: null,
+        requestId: null,
+      });
+      expect(controller.draft).toMatchObject({ status: 'failed', sessionId: SESSION_ID });
+
+      // The socket drops; the retry's cancel and start wait for it to come back.
+      act(() => socket.open());
+      act(() => socket.drop());
+      act(() => controller.retry());
+      act(() => socket.backoffRetry());
+      act(() => socket.open());
+      act(() => channel().replyOk());
+
+      emit('session_resumed', resumedWith(proposalReady));
+      expect(controller.draft.status).toBe('generating');
+
+      emit('session_cancelled', { sessionId: SESSION_ID });
+      expect(controller.draft.status).toBe('generating');
     });
 
     it('takes it after the generation ran out of time', async () => {

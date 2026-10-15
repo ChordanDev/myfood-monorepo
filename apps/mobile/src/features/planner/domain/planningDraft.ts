@@ -192,15 +192,17 @@ function reduceTimedOut(
 
 // The events of a generation emitted while the socket was down never arrive. After the rejoin the
 // server pushes the active session and its pending proposal, which is the one this draft waits
-// for when the session is its own and the run, once known, is its own too. A draft that failed
-// on the time limit gets here with the generation it kept, through `reduceTimedOut`. Without a proposal the
-// generation may still be running, or may have failed: the time limit settles that.
+// for when the session is the one `generation_started` named and the run, once known, is its own
+// too. Until the draft knows its session it takes nothing: the active session may be the one a
+// retry is cancelling, or another member's. A draft that failed on the time limit gets here with
+// the generation it kept, through `reduceTimedOut`. Without a proposal the generation may still be
+// running, or may have failed: the time limit settles that.
 function takeResumedProposal(
   draft: PlanningDraft,
   { sessionId, proposal }: SessionResumedDraftPayload
 ): PlanningDraft {
   if (draft.status !== 'generating' || proposal === null) return draft;
-  if (draft.sessionId !== null && draft.sessionId !== sessionId) return draft;
+  if (draft.sessionId !== sessionId) return draft;
   if (draft.runId !== null && draft.runId !== proposal.runId) return draft;
   return {
     status: 'ready',
