@@ -12,6 +12,8 @@ import {
 import {
   describePlanningFailure,
   describePlanningMessage,
+  GENERATION_TIME_LIMIT_MS,
+  generationDeadline,
   IDLE_PLANNING_DRAFT,
   planningDraftReducer,
   type PlanningDraft,
@@ -30,7 +32,7 @@ function run(actions: PlanningDraftAction[], from: PlanningDraft = IDLE_PLANNING
   return actions.reduce(planningDraftReducer, from);
 }
 
-const requested: PlanningDraftAction = { type: 'start_requested', requestId: REQUEST_ID };
+const requested: PlanningDraftAction = { type: 'start_requested', requestId: REQUEST_ID, now: 0 };
 
 describe('planningDraftReducer', () => {
   it('starts idle', () => {
@@ -177,6 +179,171 @@ describe('planningDraftReducer', () => {
       ]);
 
       expect(draft.status).toBe('ready');
+    });
+  });
+
+  describe('a proposal_ready the app cannot read', () => {
+    // Like an error with no ids, a proposal whose run cannot be read is the one this draft waits
+    // for: the Account has at most one generation in flight.
+    const unreadable: PlanningDraftAction = {
+      type: 'proposal_unreadable',
+      payload: { runId: null },
+    };
+
+    it('fails the draft whose run is known, so the User can retry', () => {
+      const draft = run([requested, { type: 'generation_started', payload: started }, unreadable]);
+
+      expect(draft).toMatchObject({
+        status: 'failed',
+        sessionId: started.sessionId,
+        failure: { kind: 'generation', reason: 'proposal_unreadable' },
+      });
+    });
+
+    it('fails the draft that waits for generation_started', () => {
+      expect(run([requested, unreadable])).toMatchObject({
+        status: 'failed',
+        failure: { kind: 'generation', reason: 'proposal_unreadable' },
+      });
+    });
+
+    it('fails on one that names its run', () => {
+      const draft = run([
+        requested,
+        { type: 'generation_started', payload: started },
+        { type: 'proposal_unreadable', payload: { runId: started.runId } },
+      ]);
+
+      expect(draft.status).toBe('failed');
+    });
+
+    it('ignores one that names another run', () => {
+      const draft = run([
+        requested,
+        { type: 'generation_started', payload: started },
+        { type: 'proposal_unreadable', payload: { runId: 'other-run' } },
+      ]);
+
+      expect(draft.status).toBe('generating');
+    });
+
+    it('does not touch a draft that is ready', () => {
+      const draft = run([
+        requested,
+        { type: 'generation_started', payload: started },
+        { type: 'proposal_ready', payload: proposal },
+        unreadable,
+      ]);
+
+      expect(draft.status).toBe('ready');
+    });
+  });
+
+  describe('the time limit of a generation', () => {
+    const tick = (now: number): PlanningDraftAction => ({ type: 'clock_ticked', now });
+    const timedOut = () =>
+      run([
+        requested,
+        { type: 'generation_started', payload: started },
+        tick(GENERATION_TIME_LIMIT_MS),
+      ]);
+
+    it('is 90 seconds', () => {
+      expect(GENERATION_TIME_LIMIT_MS).toBe(90_000);
+    });
+
+    it('keeps generating before the limit', () => {
+      const draft = run([requested, tick(GENERATION_TIME_LIMIT_MS - 1)]);
+
+      expect(draft.status).toBe('generating');
+    });
+
+    it('counts from the start request', () => {
+      const draft = run([{ ...requested, now: 1_000 }, tick(GENERATION_TIME_LIMIT_MS + 999)]);
+
+      expect(draft.status).toBe('generating');
+    });
+
+    it('fails the draft at the limit, with its session for the retry to cancel', () => {
+      expect(timedOut()).toMatchObject({
+        status: 'failed',
+        requestId: REQUEST_ID,
+        sessionId: started.sessionId,
+        failure: { kind: 'generation', reason: 'generation_timed_out' },
+      });
+    });
+
+    it('fails a draft that never learned its run', () => {
+      expect(run([requested, tick(GENERATION_TIME_LIMIT_MS)])).toMatchObject({
+        status: 'failed',
+        sessionId: null,
+      });
+    });
+
+    it('still accepts the proposal of its run after the limit', () => {
+      const draft = run(
+        [
+          { type: 'planning_message', payload: message },
+          { type: 'proposal_ready', payload: proposal },
+        ],
+        timedOut()
+      );
+
+      expect(draft).toMatchObject({
+        status: 'ready',
+        sessionId: started.sessionId,
+        proposal,
+        message,
+      });
+    });
+
+    it('still learns its run after the limit, and accepts the proposal that follows', () => {
+      const late = run([requested, tick(GENERATION_TIME_LIMIT_MS)]);
+
+      const afterStart = planningDraftReducer(late, {
+        type: 'generation_started',
+        payload: started,
+      });
+      expect(afterStart).toMatchObject({ status: 'failed', sessionId: started.sessionId });
+
+      const draft = planningDraftReducer(afterStart, { type: 'proposal_ready', payload: proposal });
+      expect(draft).toMatchObject({ status: 'ready', sessionId: started.sessionId });
+    });
+
+    it('takes the reason of a generation_error that arrives after the limit', () => {
+      const draft = planningDraftReducer(timedOut(), { type: 'generation_error', payload: error });
+
+      expect(draft).toMatchObject({ status: 'failed', failure: { reason: error.reason } });
+    });
+
+    it('ignores the proposal of another run after the limit', () => {
+      const failed = timedOut();
+
+      const draft = planningDraftReducer(failed, {
+        type: 'proposal_ready',
+        payload: { ...proposal, runId: 'other-run' },
+      });
+
+      expect(draft).toBe(failed);
+    });
+
+    it('does not touch a draft that is not generating', () => {
+      const ready = run([
+        requested,
+        { type: 'generation_started', payload: started },
+        { type: 'proposal_ready', payload: proposal },
+      ]);
+
+      expect(planningDraftReducer(ready, tick(GENERATION_TIME_LIMIT_MS * 2))).toBe(ready);
+      expect(planningDraftReducer(IDLE_PLANNING_DRAFT, tick(0))).toBe(IDLE_PLANNING_DRAFT);
+    });
+
+    it('has a deadline only while generating', () => {
+      expect(generationDeadline(run([{ ...requested, now: 5 }]))).toBe(
+        5 + GENERATION_TIME_LIMIT_MS
+      );
+      expect(generationDeadline(timedOut())).toBeNull();
+      expect(generationDeadline(IDLE_PLANNING_DRAFT)).toBeNull();
     });
   });
 
@@ -338,7 +505,11 @@ describe('planningDraftReducer', () => {
       { type: 'start_rejected', requestId: REQUEST_ID, error: new ApiError('timeout', 't', 0) },
     ]);
 
-    const draft = planningDraftReducer(failed, { type: 'start_requested', requestId: 'req-2' });
+    const draft = planningDraftReducer(failed, {
+      type: 'start_requested',
+      requestId: 'req-2',
+      now: 0,
+    });
 
     expect(draft).toMatchObject({ status: 'generating', requestId: 'req-2', runId: null });
   });

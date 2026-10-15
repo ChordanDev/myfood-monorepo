@@ -36,7 +36,7 @@ export function describeCommittedPlan(scheduledMealsCount: number): string {
 
 /**
  * The first proposal in the conversation: the button that starts planning, the wait while it
- * generates, the day cards with the assistant's message once it is ready, with the buttons that
+ * generates with a way to cancel it, the day cards with the assistant's message once it is ready, with the buttons that
  * confirm, reject or cancel it, what was scheduled once it is confirmed, or why it failed with a
  * way to try again.
  */
@@ -69,12 +69,16 @@ export function PlanningDraftPanel({
 
   if (draft.status === 'generating') {
     return (
-      <View
-        accessibilityLiveRegion="polite"
-        testID="planner-progress"
-        style={[styles.progress, { backgroundColor: theme.colorLight }]}>
-        <ActivityIndicator color={theme.textDark} />
-        <Text style={[styles.progressText, { color: theme.textDark }]}>Armando tu menú…</Text>
+      <View style={styles.proposal}>
+        <View
+          accessibilityLiveRegion="polite"
+          testID="planner-progress"
+          style={[styles.progress, { backgroundColor: theme.colorLight }]}>
+          <ActivityIndicator color={theme.textDark} />
+          <Text style={[styles.progressText, { color: theme.textDark }]}>Armando tu menú…</Text>
+        </View>
+        {/* Cancelling goes through the topic: it needs it joined. */}
+        {action('Cancelar', onCancel, !canStart, 'planner-cancel')}
       </View>
     );
   }

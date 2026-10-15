@@ -5,6 +5,7 @@ import type { CalendarRange } from '@/features/home';
 import { loadLivePlan } from '@/features/home/hooks/useLoadLivePlan';
 import { confirmProposal, rejectProposal } from '../api/planningApi';
 import {
+  generationDeadline,
   IDLE_PLANNING_DRAFT,
   planningDraftReducer,
   type PlanningDraft,
@@ -37,9 +38,17 @@ const DRAFT_EVENTS: {
       payload: parseGenerationStarted(payload),
     }),
   },
+  // A proposal that does not parse fails its generation: nothing else will answer it.
   {
     event: 'proposal_ready',
-    toAction: (payload) => ({ type: 'proposal_ready', payload: parseProposalReady(payload) }),
+    toAction: (payload) => {
+      try {
+        return { type: 'proposal_ready', payload: parseProposalReady(payload) };
+      } catch (error) {
+        console.warn('[Planner] Failed the draft on a malformed proposal_ready:', error);
+        return { type: 'proposal_unreadable', payload: { runId: readRunId(payload) } };
+      }
+    },
   },
   {
     event: 'planning_message',
@@ -68,6 +77,12 @@ const DRAFT_EVENTS: {
     toAction: (payload) => ({ type: 'session_committed', payload: parseSessionCommitted(payload) }),
   },
 ];
+
+// The run id of a payload that did not parse, if it still carries one.
+function readRunId(payload: unknown): string | null {
+  const runId = (payload as { runId?: unknown } | null)?.runId;
+  return typeof runId === 'string' ? runId : null;
+}
 
 /** What the User asked to do with a ready proposal. */
 export type PlanningAction = 'confirm' | 'reject' | 'cancel';
@@ -101,7 +116,10 @@ export interface PlanningDraftController {
   confirm: () => void;
   /** Rejects the ready proposal and asks for another one with the range and request of the start. */
   reject: () => void;
-  /** Leaves the ready proposal without committing anything: its session is cancelled. */
+  /**
+   * Leaves the ready proposal, or the generation on its way, without committing anything: its
+   * session is cancelled.
+   */
   cancel: () => void;
   /** The action on its way, if any: one runs at a time. */
   pendingAction: PlanningAction | null;
@@ -118,27 +136,61 @@ export interface PlanningDraftController {
 /**
  * The first proposal of the joined planning topic: what `start` pushes and the events that answer
  * it become the state of the draft. A payload that does not parse is logged and dropped, so a
- * server that drifts leaves the draft where it was instead of crashing the screen.
+ * server that drifts leaves the draft where it was instead of crashing the screen; a proposal that
+ * does not parse fails its generation instead. `now` is the clock of the generation time limit.
  */
-export function usePlanningDraft(topic: PlanningTopicState): PlanningDraftController {
+export function usePlanningDraft(
+  topic: PlanningTopicState,
+  now: () => number = Date.now
+): PlanningDraftController {
   const [draft, dispatch] = useReducer(planningDraftReducer, IDLE_PLANNING_DRAFT);
   const subscription = topic.status === 'joined' ? topic.subscription : null;
+  // The request of a generation the User cancelled before its session was known: the session is
+  // cancelled once `generation_started` names it.
+  const abandonedRequestRef = useRef<string | null>(null);
 
   useEffect(() => {
     if (subscription === null) return;
 
     const unsubscribers = DRAFT_EVENTS.map(({ event, toAction }) =>
       subscription.on(event, (payload) => {
+        let action: PlanningDraftAction;
         try {
-          dispatch(toAction(payload));
+          action = toAction(payload);
         } catch (error) {
           console.warn(`[Planner] Ignored a malformed ${event}:`, error);
+          return;
+        }
+        dispatch(action);
+
+        if (
+          action.type === 'generation_started' &&
+          action.payload.requestId === abandonedRequestRef.current
+        ) {
+          abandonedRequestRef.current = null;
+          // A session that is already over answers an error, which changes nothing here.
+          subscription.push('cancel_planning', { sessionId: action.payload.sessionId }).then(
+            () => undefined,
+            () => undefined
+          );
         }
       })
     );
 
     return () => unsubscribers.forEach((unsubscribe) => unsubscribe());
   }, [subscription]);
+
+  // The reducer decides when a generation has run out of time; this only wakes it at the deadline.
+  const deadline = generationDeadline(draft);
+
+  useEffect(() => {
+    if (deadline === null) return;
+    const timer = setTimeout(
+      () => dispatch({ type: 'clock_ticked', now: now() }),
+      Math.max(0, deadline - now())
+    );
+    return () => clearTimeout(timer);
+  }, [deadline, now]);
 
   // What the last start asked for, so a retry sends the same thing under a new request id.
   const lastStartRef = useRef<{
@@ -161,7 +213,7 @@ export function usePlanningDraft(topic: PlanningTopicState): PlanningDraftContro
       if (params === null) return;
 
       lastStartRef.current = { range, request, favoriteRecipeIds };
-      dispatch({ type: 'start_requested', requestId });
+      dispatch({ type: 'start_requested', requestId, now: now() });
 
       // The server would refuse it as `invalid_payload`; say so without the round trip.
       if (isPlanningRequestTooLong(request)) {
@@ -207,7 +259,7 @@ export function usePlanningDraft(topic: PlanningTopicState): PlanningDraftContro
         }
       );
     },
-    [subscription]
+    [subscription, now]
   );
 
   const retry = useCallback(() => {
@@ -301,7 +353,16 @@ export function usePlanningDraft(topic: PlanningTopicState): PlanningDraftContro
     });
   }, [ready, isConfirmUnresolved, runAction, start, cancelSession]);
 
+  const generating = draft.status === 'generating' ? draft : null;
+
   const cancel = useCallback(() => {
+    // A generation is left at once: whatever it still answers no longer moves the draft.
+    if (generating !== null) {
+      dispatch({ type: 'reset' });
+      if (generating.sessionId === null) abandonedRequestRef.current = generating.requestId;
+      else void cancelSession(generating.sessionId);
+      return;
+    }
     if (ready === null || isConfirmUnresolved) return;
     const { sessionId } = ready;
 
@@ -309,7 +370,7 @@ export function usePlanningDraft(topic: PlanningTopicState): PlanningDraftContro
       if (sessionId !== null) await cancelSession(sessionId);
       dispatch({ type: 'reset' });
     });
-  }, [ready, isConfirmUnresolved, runAction, cancelSession]);
+  }, [generating, ready, isConfirmUnresolved, runAction, cancelSession]);
 
   // The committed proposal is the live plan now: the cached calendar is read again. A read that
   // fails leaves the cache as it was, and the next one of the app heals it.
