@@ -61,14 +61,14 @@ defmodule MealPlannerApi.Repo.Migrations.TagIngredientAllergens do
     %{
       code: "dairy",
       match:
-        ~S"\m(lechit|lacte|ques|requeson|ricot|moz+arel|muz+arel|parmesan|reggianit|provol|roquefort|mascarpon|cheddar|fontina|gruyer|camembert|gouda|fynbo|pategras|cuartirol|danbo|emmental|gorgonzol|halloumi|manchego|burrat|pecorin|stracchin|casancrem|mantec|mantequill|crem|yogur|suero|whey|casein|lactosa|kefir|helad|postrecit|chocolat|bombon|chantilly|bechamel|carbonara|capuchin|chipa|nutella|pesto|ghee|fraiche|alfajor|panqueq|crepe|scon)\w*|\m(leches?|natas?|brie|edam|feta|sardo|flan|flanes)\M|grana padano|port salut|dulce de leche|salsa blanca|formulas? infantil(es)?",
+        ~S"\m(lechit|lacte|ques|requeson|ricot|moz+arel|muz+arel|parmesan|reggianit|provol|roquefort|mascarpon|cheddar|fontina|gruyer|camembert|gouda|fynbo|pategras|cuartirol|danbo|emmental|gorgonzol|halloumi|manchego|burrat|pecorin|stracchin|casancrem|mantec|mantequill|crem|yogur|suero|whey|casein|lactosa|kefir|helad|postrecit|chocolat|bombon|chantilly|bechamel|carbonara|capuchin|chipa|nutella|pesto|ghee|fraiche|alfajor|panqueq|crepe|scon|masit|palmerit|rosquit|chocolin|sacrament)\w*|\m(leches?|natas?|brie|edam|feta|sardo|flan|flanes|pepas?)\M|grana padano|port salut|dulce de leche|salsa blanca|formulas? infantil(es)?",
       strip:
         ~S"leches? de (coco|almendras?|soja|soya|avena|arroz|castanas?|mani|caju)|(manteca|mantequilla) de (mani|cacao|cerdo)|crema de (mani|coco)|cremor tartaro"
     },
     %{
       code: "egg",
       match:
-        ~S"\m(huevo|yema|mayones|alioli|aioli|ovoalbum|albumin|merengu|vainill|bizcochuel|budin|magdalen|pionon|browni|cupcake|tort|raviol|sorrentin|canelon|capel|cappel|tortelin|tortellin|agnolot|lasagn|lasan|noqui|panqueq|crepe|omelet|alfajor|chipa|milanes|rebozad|apanad|nugget|scon)\w*|\m(huevos?|claras?|mayo|caesar|cesar|flan|flanes)\M|salsa golf",
+        ~S"\m(huevo|yema|mayones|alioli|aioli|ovoalbum|albumin|merengu|vainill|bizcochuel|budin|magdalen|pionon|browni|cupcake|tort|raviol|sorrentin|canelon|capel|cappel|tortelin|tortellin|agnolot|lasagn|lasan|noqui|panqueq|crepe|omelet|alfajor|chipa|milanes|rebozad|apanad|nugget|scon|masit|palmerit|rosquit|chocolin|sacrament)\w*|\m(huevos?|claras?|mayo|caesar|cesar|flan|flanes|pepas?)\M|salsa golf",
       strip: ~S"(esencia|extracto|aroma) de vainilla"
     },
     %{
