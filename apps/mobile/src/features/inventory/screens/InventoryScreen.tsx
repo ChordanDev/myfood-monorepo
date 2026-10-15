@@ -118,7 +118,7 @@ export function InventoryScreen() {
           }}
         />
         <Text style={[styles.subtitle, { color: mutedTextColor }]}>
-          Ordenado por vencimiento: usá primero lo de arriba.
+          Revisá primero lo de arriba: lo vencido y lo que vence pronto.
         </Text>
         <ScrollView
           showsVerticalScrollIndicator={false}

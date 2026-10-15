@@ -7,7 +7,7 @@
 > category groups. The edit button of a row opens the sheet that sets the quantity and disposes of the
 > lot; there is no trash button on the row. "Agregar producto" picks the Ingredient from
 > the API catalogue (`GET /api/ingredients`), and the voice sheet takes a typed transcript.
-> The subtitle reads "Ordenado por vencimiento: usá primero lo de arriba.". The code and
+> The subtitle reads "Revisá primero lo de arriba: lo vencido y lo que vence pronto.". The code and
 > its tests in `src/features/inventory` are the reference.
 
 Issue: ChordanDev/progra-3-front#45 — "Inventario: pantalla Lista con
