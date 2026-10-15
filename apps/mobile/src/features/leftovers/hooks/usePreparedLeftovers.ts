@@ -20,10 +20,11 @@ export function usePreparedLeftovers() {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
   const requestCounter = useRef(0);
-  // The last "Eat" that may not have landed: the leftover and the portions it showed. Eating
+  // Per leftover, the last "Eat" that may not have landed and the portions it showed. Eating
   // the same leftover at the same portions again is the same intent, so it keeps the same
   // actionId and the server eats once. Once the list shows fewer portions, a tap is a new one.
-  const pendingConsumeRef = useRef<{ key: string; actionId: string } | null>(null);
+  // Kept per leftover so a tap on another one in between does not forget it.
+  const pendingConsumesRef = useRef(new Map<string, { key: string; actionId: string }>());
 
   const load = useCallback(async () => {
     const requestId = ++requestCounter.current;
@@ -68,14 +69,17 @@ export function usePreparedLeftovers() {
     (id: string) => {
       const portions = leftovers.find((leftover) => leftover.id === id)?.portions;
       const key = `${id}:${portions}`;
-      if (pendingConsumeRef.current?.key !== key) {
-        pendingConsumeRef.current = { key, actionId: newRequestId() };
+      const pending = pendingConsumesRef.current;
+      let intent = pending.get(id);
+      if (intent?.key !== key) {
+        intent = { key, actionId: newRequestId() };
+        pending.set(id, intent);
       }
-      const { actionId } = pendingConsumeRef.current;
+      const { actionId } = intent;
 
       return act(id, async (leftoverId) => {
         const eaten = await consumePreparedLeftover(leftoverId, actionId);
-        pendingConsumeRef.current = null;
+        pending.delete(leftoverId);
         return eaten;
       });
     },

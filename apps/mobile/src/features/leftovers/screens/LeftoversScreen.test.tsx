@@ -224,6 +224,36 @@ describe('LeftoversScreen', () => {
     expect(sentBody(5).actionId).not.toBe(sentBody(1).actionId);
   });
 
+  it('keeps a failed Eat actionId while another leftover is eaten in between', async () => {
+    const network = () => Promise.reject(new TypeError('Network request failed'));
+    fetchMock
+      .mockReturnValueOnce(jsonResponse(toLeftoversResponse(OPEN_LEFTOVERS)))
+      .mockImplementationOnce(network)
+      .mockReturnValueOnce(jsonResponse(toLeftoversResponse(OPEN_LEFTOVERS)))
+      .mockImplementationOnce(network)
+      .mockReturnValueOnce(jsonResponse(toLeftoversResponse(OPEN_LEFTOVERS)))
+      .mockReturnValueOnce(jsonResponse(toLeftoverResponse({ ...LEFTOVER_LENTILS, portions: 2 })))
+      .mockReturnValueOnce(jsonResponse(toLeftoversResponse(OPEN_LEFTOVERS)));
+
+    const root = await renderScreen();
+    await press(root, 'Comer Lentil stew');
+    await press(root, 'Comer Rice');
+    await press(root, 'Comer Lentil stew');
+
+    expect(requests()).toEqual([
+      `GET ${LIST_URL}`,
+      `POST ${LIST_URL}/leftover-1/consume`,
+      `GET ${LIST_URL}`,
+      `POST ${LIST_URL}/leftover-2/consume`,
+      `GET ${LIST_URL}`,
+      `POST ${LIST_URL}/leftover-1/consume`,
+      `GET ${LIST_URL}`,
+    ]);
+    // The tap on Rice is its own intent; the second Lentil stew tap is still the first one.
+    expect(sentBody(5).actionId).toBe(sentBody(1).actionId);
+    expect(sentBody(3).actionId).not.toBe(sentBody(1).actionId);
+  });
+
   it('discards a leftover and reads the list again', async () => {
     fetchMock
       .mockReturnValueOnce(jsonResponse(toLeftoversResponse(OPEN_LEFTOVERS)))
