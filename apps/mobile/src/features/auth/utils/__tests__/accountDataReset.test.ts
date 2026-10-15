@@ -18,6 +18,17 @@ describe('resetAccountData', () => {
     expect(await AsyncStorage.getItem('meal-plan-storage')).toBeNull();
   });
 
+  it('removes the stored Recipe cache of a store that never loaded', async () => {
+    await AsyncStorage.setItem(
+      'recipe-cache-storage',
+      '{"state":{"recipesByVersionId":{"version-1":{"id":"recipe-1"}},"versionIdByRecipeId":{"recipe-1":"version-1"}}}'
+    );
+
+    await resetAccountData();
+
+    expect(await AsyncStorage.getItem('recipe-cache-storage')).toBeNull();
+  });
+
   it('keeps the stored Shopping preferences: the list is never stored and the day is kept with its user', async () => {
     const shopping = '{"state":{"groupBy":"meal"},"version":4}';
     await AsyncStorage.setItem('shopping-list-storage', shopping);
