@@ -11,6 +11,7 @@ import {
 } from '../../types/planningEvents';
 import {
   describePlanningFailure,
+  describePlanningMessage,
   IDLE_PLANNING_DRAFT,
   planningDraftReducer,
   type PlanningDraft,
@@ -390,6 +391,20 @@ describe('describePlanningFailure', () => {
   it('falls back to a generic text for a reason it does not know', () => {
     expect(describePlanningFailure({ kind: 'generation', reason: 'no_candidates_for_slot' })).toBe(
       'No pudimos armar tu menú. Probá de nuevo.'
+    );
+  });
+});
+
+describe('describePlanningMessage', () => {
+  it('words the first proposal in Spanish from its summary, without the cost', () => {
+    expect(describePlanningMessage(message.summary)).toBe(
+      'Acá tenés tu menú para 2 días: 3 comidas.'
+    );
+  });
+
+  it('uses the singular for one day and one meal', () => {
+    expect(describePlanningMessage({ dayCount: 1, mealCount: 1, estimatedCostCents: 500 })).toBe(
+      'Acá tenés tu menú para 1 día: 1 comida.'
     );
   });
 });

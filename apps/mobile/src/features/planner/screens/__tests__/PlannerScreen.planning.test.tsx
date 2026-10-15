@@ -507,10 +507,13 @@ describe('PlannerScreen first proposal', () => {
       'Lentil stew',
       '500 kcal · P 12.5 g · C 60 g',
     ]);
-    expect(textsOf('planner-proposal')).toContain(
-      'Here is your plan for 2 days: 3 meals, estimated cost 19.50.'
-    );
+    expect(textsOf('planner-proposal')).toContain('Acá tenés tu menú para 2 días: 3 comidas.');
+    expect(textsOf('planner-proposal')).not.toContain(planningMessage.text);
     expect(textsOf('planner-proposal-cost')).toEqual(['Costo estimado: $20']);
+    // The cost shows once, on its own line, and not again in the assistant message.
+    expect(
+      textsOf('planner-proposal').filter((text) => /costo|cost|\$20|19[.,]50/i.test(text))
+    ).toEqual(['Costo estimado: $20']);
   });
 
   it('shows the proposal before the assistant message, which follows it', async () => {
@@ -522,11 +525,11 @@ describe('PlannerScreen first proposal', () => {
     emit('proposal_ready', proposalReady);
 
     expect(byTestId('planner-proposal-day-2030-01-01')).toBeDefined();
-    expect(textsOf('planner-proposal')).not.toContain(planningMessage.text);
+    expect(textsOf('planner-proposal')).not.toContain('Acá tenés tu menú para 2 días: 3 comidas.');
 
     emit('planning_message', planningMessage);
 
-    expect(textsOf('planner-proposal')).toContain(planningMessage.text);
+    expect(textsOf('planner-proposal')).toContain('Acá tenés tu menú para 2 días: 3 comidas.');
   });
 
   it('ignores a payload that does not match the frozen shape, and keeps waiting', async () => {
