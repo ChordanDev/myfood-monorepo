@@ -7,9 +7,10 @@ defmodule MealPlannerApi.Repo.Migrations.AddInviteStubToUsers do
   into a session for an existing User.
 
   New columns default to `false`, so every existing User needs a Bearer token
-  to accept. The backfill marks the Users that are still unclaimed stubs: no
-  legacy `account_id`, no finished onboarding, at least one pending invite
-  and no `:active` or `:suspended` Membership.
+  to accept. The backfill marks the Users that are still unclaimed stubs: the
+  placeholder name an invite gives a stub (its email), no legacy
+  `account_id`, no finished onboarding, at least one pending invite and no
+  `:active` or `:suspended` Membership.
 
   The version has 15 digits so it sorts after every other migration: Ecto
   orders versions as integers and the folder already holds 15-digit versions.
@@ -26,7 +27,8 @@ defmodule MealPlannerApi.Repo.Migrations.AddInviteStubToUsers do
     execute("""
     UPDATE users u
     SET invite_stub = true
-    WHERE u.account_id IS NULL
+    WHERE u.name = u.email
+      AND u.account_id IS NULL
       AND u.onboarding_completed_at IS NULL
       AND EXISTS (
         SELECT 1 FROM account_memberships m

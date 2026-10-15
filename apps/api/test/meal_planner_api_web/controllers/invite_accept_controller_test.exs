@@ -451,6 +451,33 @@ defmodule MealPlannerApiWeb.InviteAcceptControllerTest do
       assert json_response(conn, 401)["error"] == "unauthorized"
       assert Repo.get!(User, member_id).name == "Removed Member"
     end
+
+    test "a claim whose membership update fails is undone", %{conn: conn} do
+      owner =
+        user_with_memberships(%{email: "owner_claim_rollback@example.com"}, [
+          {%{plan: :family_4, name: "Family Claim Rollback"}, :owner}
+        ])
+
+      [owner_membership] = owner.memberships
+
+      {:ok, %{membership: first}} =
+        InviteService.create_invite_row(owner_membership, "claim_rollback@example.com")
+
+      {:ok, %{token: second_token}} =
+        InviteService.create_invite_row(owner_membership, "claim_rollback@example.com")
+
+      # The stub already holds an active row on this Account, so activating
+      # the second invite fails after the stub has been claimed.
+      first |> AccountMembership.changeset(%{status: :active}) |> Repo.update!()
+
+      conn = post(conn, "/api/invites/#{second_token}/accept", %{"name" => "Rolled Back"})
+
+      assert json_response(conn, 409)["error"] == "already_a_member"
+
+      stub = Repo.get_by!(User, email: "claim_rollback@example.com")
+      assert stub.invite_stub
+      assert stub.name == "claim_rollback@example.com"
+    end
   end
 
   # The Bearer path accepts only for the User the invite is bound to.
