@@ -242,6 +242,30 @@ defmodule MealPlannerApiWeb.CheckoutDeliveredTest do
       assert [500, 1000] = stock(f) |> Enum.map(& &1.quantity_milli) |> Enum.sort()
     end
 
+    test "counts the items still waiting for a session confirmed before the count was stored",
+         f do
+      cart = reserve!(f)
+      f |> confirm(cart) |> json_response(200)
+
+      # A session confirmed by an earlier version stores no count of the items bought.
+      session = Repo.get!(CheckoutSession, cart.session_id)
+      assert Map.has_key?(session.purchase_result, "pending_bought")
+
+      session
+      |> CheckoutSession.changeset(%{
+        purchase_result: Map.delete(session.purchase_result, "pending_bought")
+      })
+      |> Repo.update!()
+
+      Repo.delete!(f.next_meal)
+
+      # Only the item still waiting is counted; the lots of both arrive.
+      assert %{"data" => %{"movedToInventoryCount" => 2, "checkedOutItemsCount" => 1}} =
+               f |> delivered(cart.session_id) |> json_response(200)
+
+      assert %{status: :checked_out} = reload(f.today_item)
+    end
+
     test "replays the result of a completed physical session", f do
       cart = reserve!(f)
       first = f |> confirm(cart, nil, "physical") |> json_response(200)
