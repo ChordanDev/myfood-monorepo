@@ -307,4 +307,16 @@ defmodule MealPlannerApi.Persistence.Accounts.UserTest do
       end)
     end)
   end
+
+  describe "changeset/2 email constraints" do
+    test "maps the lower(email) index to an :email error, like the exact-email index" do
+      changeset = User.changeset(%User{}, %{email: "a@example.com", name: "A", role: :member})
+
+      names =
+        for %{field: :email, type: :unique, constraint: name} <- changeset.constraints, do: name
+
+      assert "users_email_index" in names
+      assert "users_lower_email_index" in names
+    end
+  end
 end

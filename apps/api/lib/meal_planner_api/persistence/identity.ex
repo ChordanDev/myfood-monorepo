@@ -7,6 +7,7 @@ defmodule MealPlannerApi.Persistence.Identity do
 
   alias MealPlannerApi.Persistence.Accounts.{Account, AccountMembership, User}
   alias MealPlannerApi.Repo
+  alias MealPlannerApi.Services.EmailCodeAuth
 
   @spec ensure_persistent_identity(map()) ::
           {:ok, %{account_id: Ecto.UUID.t(), user_id: Ecto.UUID.t()}}
@@ -92,7 +93,7 @@ defmodule MealPlannerApi.Persistence.Identity do
   defp ensure_user(user_id, account_id, user) do
     attrs = %{
       account_id: account_id,
-      email: Map.get(user, :email, "#{user_id}@myfood.local"),
+      email: normalize_email(Map.get(user, :email, "#{user_id}@myfood.local")),
       name: map_user_name(user),
       role: :owner
     }
@@ -101,12 +102,47 @@ defmodule MealPlannerApi.Persistence.Identity do
       nil ->
         %User{id: user_id}
         |> User.changeset(attrs)
+        |> refuse_email_held_by_another_user(user_id)
         |> Repo.insert()
 
       persisted_user ->
         persisted_user
         |> User.changeset(attrs)
+        |> refuse_email_held_by_another_user(user_id)
         |> Repo.update()
+    end
+  end
+
+  # A missing email is left to the changeset's required check.
+  defp normalize_email(email) when is_binary(email), do: EmailCodeAuth.normalize_email(email)
+  defp normalize_email(email), do: email
+
+  # The email is stored lower-cased, but rows saved with capitals before
+  # that may still exist. Without this check a shadow user holding the
+  # lower-cased email of such a row would be written, and login, which
+  # prefers the exact-case match, would land in its empty account. Once
+  # `users_lower_email_index` is unique the database refuses that write
+  # too; the check stays so the refusal does not depend on deploy order.
+  defp refuse_email_held_by_another_user(%Ecto.Changeset{} = changeset, user_id) do
+    case Ecto.Changeset.get_field(changeset, :email) do
+      email when is_binary(email) -> refuse_if_taken(changeset, email, user_id)
+      _ -> changeset
+    end
+  end
+
+  defp refuse_if_taken(changeset, email, user_id) do
+    taken? =
+      Repo.exists?(
+        from(u in User, where: fragment("lower(?)", u.email) == ^email and u.id != ^user_id)
+      )
+
+    if taken? do
+      Ecto.Changeset.add_error(changeset, :email, "has already been taken",
+        constraint: :unique,
+        constraint_name: "users_lower_email_index"
+      )
+    else
+      changeset
     end
   end
 

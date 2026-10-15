@@ -19,6 +19,7 @@ defmodule MealPlannerApi.AccountsMembershipTest do
   """
   use ExUnit.Case, async: false
 
+  import Ecto.Query
   import ExUnit.CaptureLog
   import MealPlannerApi.FactoryHelpers
 
@@ -275,6 +276,45 @@ defmodule MealPlannerApi.AccountsMembershipTest do
 
       assert {:error, :already_a_member} =
                AccountsMembership.invite(account, owner_membership, "alreadymember@example.com")
+    end
+
+    test "inviting a case variant of an :invited email returns :already_invited" do
+      {account, owner_membership} = invite_owner("case-dup-owner@example.com")
+
+      assert {:ok, _} =
+               AccountsMembership.invite(account, owner_membership, "case-dup@example.com")
+
+      assert {:error, :already_invited} =
+               AccountsMembership.invite(account, owner_membership, " Case-Dup@Example.COM ")
+    end
+
+    test "inviting a case variant of an :active member's email returns :already_a_member" do
+      {account, owner_membership} = invite_owner("case-active-owner@example.com")
+      insert_member(account.id, "case-member@example.com", :active)
+
+      assert {:error, :already_a_member} =
+               AccountsMembership.invite(account, owner_membership, "Case-Member@Example.com")
+    end
+
+    test "an invite reuses the registered user whose email differs only in case" do
+      {account, owner_membership} = invite_owner("case-reuse-owner@example.com")
+      registered = user_with_memberships(%{email: "case-reuse@example.com"}, [])
+
+      assert {:ok, %{membership_id: membership_id}} =
+               AccountsMembership.invite(account, owner_membership, " Case-Reuse@Example.COM ")
+
+      assert Repo.get!(AccountMembership, membership_id).user_id == registered.id
+      assert users_with_email("case-reuse@example.com") == 1
+    end
+
+    test "an invite for a new email stores the normalized email" do
+      {account, owner_membership} = invite_owner("case-new-owner@example.com")
+
+      assert {:ok, %{membership_id: membership_id}} =
+               AccountsMembership.invite(account, owner_membership, "  New.Invitee@Example.COM ")
+
+      user_id = Repo.get!(AccountMembership, membership_id).user_id
+      assert Repo.get!(PersistenceUser, user_id).email == "new.invitee@example.com"
     end
   end
 
@@ -860,6 +900,19 @@ defmodule MealPlannerApi.AccountsMembershipTest do
   end
 
   # ---- test helpers ----------------------------------------------------------
+
+  defp invite_owner(email) do
+    owner = user_with_memberships(%{email: email}, [{%{plan: :family_4, name: "F"}, :owner}])
+    [owner_membership] = owner.memberships
+    {Repo.get!(PersistenceAccount, owner_membership.account_id), owner_membership}
+  end
+
+  defp users_with_email(email) do
+    Repo.aggregate(
+      from(u in PersistenceUser, where: fragment("lower(?)", u.email) == ^email),
+      :count
+    )
+  end
 
   defp insert_member(account_id, email, status) do
     {:ok, user} =

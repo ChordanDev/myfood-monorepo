@@ -7,6 +7,7 @@ defmodule MealPlannerApi.Data.AccountRepo do
 
   import Ecto.Query, warn: false
   alias MealPlannerApi.Repo
+  alias MealPlannerApi.Services.EmailCodeAuth
 
   alias MealPlannerApi.Persistence.Accounts.{
     Account,
@@ -95,7 +96,17 @@ defmodule MealPlannerApi.Data.AccountRepo do
   end
 
   @spec get_user_by_email(String.t()) :: User.t() | nil
-  def get_user_by_email(email), do: Repo.get_by(User, email: email)
+  def get_user_by_email(email) do
+    email = EmailCodeAuth.normalize_email(email)
+
+    Repo.one(
+      from(u in User,
+        where: fragment("lower(?)", u.email) == ^email,
+        order_by: [asc: u.inserted_at],
+        limit: 1
+      )
+    )
+  end
 
   @spec get_user_by_provider(String.t(), String.t()) :: User.t() | nil
   def get_user_by_provider(provider, provider_uid),

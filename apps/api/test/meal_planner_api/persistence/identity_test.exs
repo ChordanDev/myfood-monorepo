@@ -1,9 +1,11 @@
 defmodule MealPlannerApi.Persistence.IdentityTest do
   use ExUnit.Case, async: false
 
+  import Ecto.Query
   import MealPlannerApi.FactoryHelpers
 
   alias Ecto.Adapters.SQL.Sandbox
+  alias MealPlannerApi.Persistence.Accounts.User
   alias MealPlannerApi.Persistence.Identity
   alias MealPlannerApi.Repo
 
@@ -77,6 +79,75 @@ defmodule MealPlannerApi.Persistence.IdentityTest do
         })
 
       assert {:error, _reason} = result
+    end
+  end
+
+  describe "ensure_persistent_identity/1 — email normalization" do
+    test "stores the identity's email trimmed and lower-cased" do
+      assert {:ok, %{user_id: user_id}} =
+               Identity.ensure_persistent_identity(%{
+                 id: "external-user-normalized",
+                 account_id: "external-account-normalized",
+                 email: "  External.User@Example.COM "
+               })
+
+      assert Repo.get!(User, user_id).email == "external.user@example.com"
+    end
+
+    test "rejects an email that differs only in case from another user's instead of storing it twice" do
+      user_with_memberships(%{email: "identity-taken@example.com"}, [])
+
+      assert {:error, %Ecto.Changeset{errors: errors}} =
+               Identity.ensure_persistent_identity(%{
+                 id: "external-user-case-variant",
+                 account_id: "external-account-case-variant",
+                 email: "Identity-Taken@Example.com"
+               })
+
+      assert {:email, {_message, [{:constraint, :unique} | _]}} = List.keyfind(errors, :email, 0)
+    end
+
+    test "an identity without an email is a validation error, not a crash" do
+      assert {:error, %Ecto.Changeset{errors: errors}} =
+               Identity.ensure_persistent_identity(%{
+                 id: "external-user-nil-email",
+                 account_id: "external-account-nil-email",
+                 email: nil
+               })
+
+      assert {:email, {_message, [validation: :required]}} = List.keyfind(errors, :email, 0)
+    end
+
+    # A user stored with capitals (an invite from before emails were
+    # normalized) whose membership is gone must not get a lower-cased
+    # shadow user: login prefers the exact-case match, so the person would
+    # land in the shadow's empty account.
+    test "refuses to mint a shadow user for a stored email that only differs in case" do
+      user =
+        user_with_memberships(%{email: "Shadow-Case@Example.com"}, [
+          {%{plan: :family_4, name: "Shadow Case Account"}, :owner}
+        ])
+
+      stranger =
+        user_with_memberships(%{email: "shadow-case-stranger@example.com"}, [
+          {%{plan: :individual, name: "Shadow Case Stranger Account"}, :owner}
+        ])
+
+      [stranger_membership] = stranger.memberships
+
+      assert {:error, %Ecto.Changeset{errors: errors}} =
+               Identity.ensure_persistent_identity(%{
+                 id: user.id,
+                 account_id: stranger_membership.account_id,
+                 email: user.email
+               })
+
+      assert {:email, {_message, [{:constraint, :unique} | _]}} = List.keyfind(errors, :email, 0)
+
+      assert Repo.aggregate(
+               from(u in User, where: fragment("lower(?)", u.email) == "shadow-case@example.com"),
+               :count
+             ) == 1
     end
   end
 end
