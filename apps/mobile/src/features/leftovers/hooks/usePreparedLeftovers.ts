@@ -1,12 +1,14 @@
 import { useCallback, useRef, useState } from 'react';
 import { useFocusEffect } from 'expo-router';
 import { getAuthErrorMessage } from '@/api/errors';
+import { newRequestId } from '@/services/requestId';
 import {
   consumePreparedLeftover,
+  createPreparedLeftover,
   discardPreparedLeftover,
   listPreparedLeftovers,
 } from '../api/leftoversApi';
-import type { PreparedLeftover } from '../types';
+import type { CreatePreparedLeftoverInput, PreparedLeftover } from '../types';
 
 type LeftoversStatus = 'loading' | 'ready';
 
@@ -18,6 +20,10 @@ export function usePreparedLeftovers() {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
   const requestCounter = useRef(0);
+  // The last "Eat" that may not have landed: the leftover and the portions it showed. Eating
+  // the same leftover at the same portions again is the same intent, so it keeps the same
+  // actionId and the server eats once. Once the list shows fewer portions, a tap is a new one.
+  const pendingConsumeRef = useRef<{ key: string; actionId: string } | null>(null);
 
   const load = useCallback(async () => {
     const requestId = ++requestCounter.current;
@@ -58,8 +64,34 @@ export function usePreparedLeftovers() {
     [load]
   );
 
-  const consume = useCallback((id: string) => act(id, consumePreparedLeftover), [act]);
+  const consume = useCallback(
+    (id: string) => {
+      const portions = leftovers.find((leftover) => leftover.id === id)?.portions;
+      const key = `${id}:${portions}`;
+      if (pendingConsumeRef.current?.key !== key) {
+        pendingConsumeRef.current = { key, actionId: newRequestId() };
+      }
+      const { actionId } = pendingConsumeRef.current;
+
+      return act(id, async (leftoverId) => {
+        const eaten = await consumePreparedLeftover(leftoverId, actionId);
+        pendingConsumeRef.current = null;
+        return eaten;
+      });
+    },
+    [act, leftovers]
+  );
   const discard = useCallback((id: string) => act(id, discardPreparedLeftover), [act]);
+
+  // Online only: it throws what the server answered, for the sheet to show, and reads the
+  // list again once the leftover is stored.
+  const add = useCallback(
+    async (input: CreatePreparedLeftoverInput) => {
+      await createPreparedLeftover(input);
+      await load();
+    },
+    [load]
+  );
 
   return {
     leftovers,
@@ -69,6 +101,7 @@ export function usePreparedLeftovers() {
     busyId,
     consume,
     discard,
+    add,
     retry: () => void load(),
   };
 }

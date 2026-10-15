@@ -88,15 +88,16 @@ describe('prepared leftovers api', () => {
     expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual(input);
   });
 
-  it('consumes a leftover with a POST to its consume path', async () => {
+  it('consumes a leftover with a POST of its actionId to its consume path', async () => {
     const updated = { ...LEFTOVER_LENTILS, portions: 2 };
     fetchMock.mockReturnValueOnce(jsonResponse(toLeftoverResponse(updated)));
 
-    await expect(consumePreparedLeftover('leftover-1')).resolves.toEqual(updated);
+    await expect(consumePreparedLeftover('leftover-1', 'action-1')).resolves.toEqual(updated);
 
     const [url, init] = fetchMock.mock.calls[0];
     expect(url).toBe('https://api.example.test/api/leftovers/prepared/leftover-1/consume');
     expect(init.method).toBe('POST');
+    expect(JSON.parse(init.body)).toEqual({ actionId: 'action-1' });
   });
 
   it('discards a leftover with a POST to its discard path', async () => {
@@ -115,10 +116,26 @@ describe('prepared leftovers api', () => {
       jsonResponse({ error: { code: 'prepared_leftover_not_found', message: 'nope' } }, false)
     );
 
-    const failure = await consumePreparedLeftover('gone').catch((error: unknown) => error);
+    const failure = await consumePreparedLeftover('gone', 'action-1').catch(
+      (error: unknown) => error
+    );
 
     expect(failure).toBeInstanceOf(ApiError);
     expect(failure).toMatchObject({ code: 'prepared_leftover_not_found' });
+  });
+
+  it.each([
+    ['sourceMealId', { sourceMealId: 7 }],
+    ['sourceMealId', { sourceMealId: undefined }],
+    ['consumedAt', { consumedAt: 1 }],
+    ['discardedAt', { discardedAt: false }],
+  ])('rejects a leftover whose %s is neither a string nor null', async (_field, change) => {
+    // An undefined field is left out of the JSON, as a server that forgot it would.
+    fetchMock.mockReturnValueOnce(jsonResponse({ data: { ...LEFTOVER_LENTILS, ...change } }));
+
+    await expect(discardPreparedLeftover('leftover-1')).rejects.toMatchObject({
+      code: 'unknown_error',
+    });
   });
 
   it('rejects an answer without a leftover', async () => {
