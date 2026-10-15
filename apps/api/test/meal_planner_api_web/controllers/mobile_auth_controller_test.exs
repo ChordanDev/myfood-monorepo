@@ -870,6 +870,19 @@ defmodule MealPlannerApiWeb.MobileAuthControllerTest do
       assert Bamboo.SentEmail.all() == []
     end
 
+    test "an email registered with upper-case letters gets email_already_exists", %{
+      conn: conn
+    } do
+      insert_owner!("Signup-Taken-Case@Example.com")
+
+      conn = post(conn, @signup_request_path, %{"email" => "signup-taken-case@example.com"})
+
+      assert_error(conn, 409, "email_already_exists")
+      assert Repo.aggregate(EmailVerificationCode, :count) == 0
+      assert Bamboo.SentEmail.all() == []
+      assert Repo.aggregate(User, :count) == 1
+    end
+
     test "a registered email counts against the caller's IP and not against the email", %{
       conn: conn
     } do
@@ -1342,6 +1355,21 @@ defmodule MealPlannerApiWeb.MobileAuthControllerTest do
       assert Repo.aggregate(User, :count) == 1
       assert Repo.aggregate(Account, :count) == 1
       assert Repo.aggregate(AccountMembership, :count) == 1
+    end
+
+    test "an email that got a User with upper-case letters after the code was sent gets email_already_exists",
+         %{conn: conn} do
+      insert_signup_code!("signup-raced-case@example.com", "123456")
+      insert_owner!("Signup-Raced-Case@Example.com")
+
+      conn =
+        post(conn, @signup_verify_path, verify_body("signup-raced-case@example.com", "123456"))
+
+      assert_error(conn, 409, "email_already_exists")
+      assert Repo.aggregate(User, :count) == 1
+      assert Repo.aggregate(Account, :count) == 1
+      assert Repo.aggregate(AccountMembership, :count) == 1
+      assert [%EmailVerificationCode{consumed_at: nil}] = Repo.all(EmailVerificationCode)
     end
   end
 

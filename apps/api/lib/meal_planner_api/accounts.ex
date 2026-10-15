@@ -12,6 +12,8 @@ defmodule MealPlannerApi.Accounts do
   consumers continue to work without an app release.
   """
 
+  import Ecto.Query
+
   require Logger
 
   alias Ecto.Multi
@@ -33,7 +35,8 @@ defmodule MealPlannerApi.Accounts do
   later provider event finds a Trial already started and leaves it alone.
 
   Returns `{:error, :email_already_registered}` when a User has the email,
-  whether it is found up front or by the unique index on `users.email`.
+  in any case, whether it is found up front or by the unique index on
+  `users.email`.
   A failure leaves nothing behind; inside a caller's transaction it also
   leaves that transaction unusable, so the caller must roll it back.
   """
@@ -208,8 +211,19 @@ defmodule MealPlannerApi.Accounts do
     end)
   end
 
-  defp user_by_email(email) when is_binary(email),
-    do: Repo.get_by(PersistenceUser, email: email)
+  # Matches the stored email regardless of case, like login does, so an
+  # email that only differs in case from a registered one is taken.
+  defp user_by_email(email) when is_binary(email) do
+    email = String.downcase(email)
+
+    Repo.one(
+      from(u in PersistenceUser,
+        where: fragment("lower(?)", u.email) == ^email,
+        order_by: [asc: u.inserted_at],
+        limit: 1
+      )
+    )
+  end
 
   defp plan_from(account) when is_map(account) do
     case Map.get(account, :plan) do

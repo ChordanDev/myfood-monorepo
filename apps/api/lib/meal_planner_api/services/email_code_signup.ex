@@ -30,9 +30,9 @@ defmodule MealPlannerApi.Services.EmailCodeSignup do
   Errors:
 
     * `{:error, :invalid_email}` — not a string, or not shaped like an email.
-    * `{:error, :email_already_exists}` — a User already has this email. No
-      code is stored and nothing is sent, but the request still spends one
-      of the caller's hourly per-IP slots.
+    * `{:error, :email_already_exists}` — a User already has this email,
+      in any case. No code is stored and nothing is sent, but the request
+      still spends one of the caller's hourly per-IP slots.
     * `{:error, :rate_limited, retry_after}` — the resend cooldown or an
       hourly request limit applies, exactly as in
       `MealPlannerApi.Services.EmailCodeLogin.request_code/2`. An exhausted
@@ -119,5 +119,8 @@ defmodule MealPlannerApi.Services.EmailCodeSignup do
     end
   end
 
-  defp registered?(email), do: Repo.exists?(from(u in User, where: u.email == ^email))
+  # `email` is already lower-cased; a User whose stored email has upper-case
+  # letters has it too, as in login.
+  defp registered?(email),
+    do: Repo.exists?(from(u in User, where: fragment("lower(?)", u.email) == ^email))
 end
