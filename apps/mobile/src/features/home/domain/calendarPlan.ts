@@ -34,7 +34,6 @@ export function toPlanEntries(meals: CalendarMeal[]): MealPlanEntry[] {
             type: meal.slot,
             recipeId: meal.recipeId,
             isCooked: meal.isCooked,
-            selectedQuantity: meal.selectedQuantity,
           },
         ]
   );
