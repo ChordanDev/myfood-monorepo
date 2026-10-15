@@ -310,6 +310,35 @@ describe('usePlanningDraft', () => {
     });
   });
 
+  describe('the generation time limit', () => {
+    beforeEach(() => {
+      jest.useFakeTimers();
+    });
+
+    afterEach(() => {
+      jest.useRealTimers();
+    });
+
+    it('wakes again when the timer fires before the clock reaches the limit', () => {
+      act(() => controller.start(RANGE, '', []));
+
+      clockMs = GENERATION_TIME_LIMIT_MS - 1;
+      act(() => {
+        jest.advanceTimersByTime(GENERATION_TIME_LIMIT_MS);
+      });
+      expect(controller.draft.status).toBe('generating');
+
+      clockMs = GENERATION_TIME_LIMIT_MS;
+      act(() => {
+        jest.advanceTimersByTime(1);
+      });
+      expect(controller.draft).toMatchObject({
+        status: 'failed',
+        failure: { kind: 'generation', reason: 'generation_timed_out' },
+      });
+    });
+  });
+
   describe('a generation left behind before its session was known', () => {
     // The generation of the second request, which the server names in its own generation_started.
     const secondStarted = {
@@ -336,6 +365,47 @@ describe('usePlanningDraft', () => {
 
       expect(cancelledSessions()).toEqual([{ sessionId: SESSION_ID }, { sessionId: 'session-2' }]);
       expect(controller.draft.status).toBe('idle');
+    });
+
+    describe('by a retry after an unreadable proposal', () => {
+      function failUnreadable(): void {
+        const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+        act(() => controller.start(RANGE, '', []));
+        // A proposal that does not even say its run, before generation_started named the session.
+        emit('proposal_ready', {});
+        warn.mockRestore();
+        expect(controller.draft).toMatchObject({ status: 'failed', sessionId: null });
+      }
+
+      it('cancels its session once it is known and leaves the session of the retry alone', () => {
+        failUnreadable();
+
+        act(() => controller.retry());
+        expect(pushedEvents()).toEqual(['start_planning', 'start_planning']);
+
+        emit('generation_started', generationStarted);
+        emit('generation_started', secondStarted);
+
+        expect(cancelledSessions()).toEqual([{ sessionId: SESSION_ID }]);
+        expect(controller.draft).toMatchObject({ status: 'generating', sessionId: 'session-2' });
+      });
+    });
+
+    it('logs a cancel the server refuses', async () => {
+      const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+      act(() => controller.start(RANGE, '', []));
+      act(() => controller.cancel());
+      emit('generation_started', generationStarted);
+
+      await act(async () =>
+        lastPush().replyError({ error: { code: 'internal_error', message: 'boom' } })
+      );
+
+      expect(warn).toHaveBeenCalledWith(
+        '[Planner] Failed to cancel an abandoned generation:',
+        expect.anything()
+      );
+      warn.mockRestore();
     });
 
     describe('by a retry after the time limit', () => {

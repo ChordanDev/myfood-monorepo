@@ -146,7 +146,7 @@ export function usePlanningDraft(
   const [draft, dispatch] = useReducer(planningDraftReducer, IDLE_PLANNING_DRAFT);
   const subscription = topic.status === 'joined' ? topic.subscription : null;
   // The requests of the generations left behind before their session was known, by a cancel or by
-  // a retry after the time limit: each session is cancelled once `generation_started` names it.
+  // a retry after a failed generation: each session is cancelled once `generation_started` names it.
   const abandonedRequestsRef = useRef(new Set<string>());
 
   useEffect(() => {
@@ -167,10 +167,12 @@ export function usePlanningDraft(
           action.type === 'generation_started' &&
           abandonedRequestsRef.current.delete(action.payload.requestId)
         ) {
-          // A session that is already over answers an error, which changes nothing here.
+          // A session that is already over answers an error, which changes nothing here: it is only
+          // logged, since an error could also leave the abandoned session running.
           subscription.push('cancel_planning', { sessionId: action.payload.sessionId }).then(
             () => undefined,
-            () => undefined
+            (error: unknown) =>
+              console.warn('[Planner] Failed to cancel an abandoned generation:', error)
           );
         }
       })
@@ -184,10 +186,14 @@ export function usePlanningDraft(
 
   useEffect(() => {
     if (deadline === null) return;
-    const timer = setTimeout(
-      () => dispatch({ type: 'clock_ticked', now: now() }),
-      Math.max(0, deadline - now())
-    );
+    let timer: ReturnType<typeof setTimeout>;
+    const wake = () => {
+      const current = now();
+      dispatch({ type: 'clock_ticked', now: current });
+      // Woken early, the draft does not move and this effect does not run again: wake once more.
+      if (current < deadline) timer = setTimeout(wake, deadline - current);
+    };
+    timer = setTimeout(wake, Math.max(0, deadline - now()));
     return () => clearTimeout(timer);
   }, [deadline, now]);
 
@@ -264,12 +270,14 @@ export function usePlanningDraft(
   const retry = useCallback(() => {
     const last = lastStartRef.current;
     if (last === null) return;
-    // A generation that ran out of time may still be running: its session is cancelled once known.
-    if (draft.status === 'failed' && draft.timedOut !== undefined && draft.sessionId === null) {
-      abandonedRequestsRef.current.add(draft.requestId);
+    const failedGeneration =
+      draft.status === 'failed' && draft.failure.kind === 'generation' ? draft : null;
+    // A generation that failed before its session was known, by the time limit or an unreadable
+    // proposal, may still be running: its session is cancelled once known.
+    if (failedGeneration !== null && failedGeneration.sessionId === null) {
+      abandonedRequestsRef.current.add(failedGeneration.requestId);
     }
-    const sessionToCancel =
-      draft.status === 'failed' && draft.failure.kind === 'generation' ? draft.sessionId : null;
+    const sessionToCancel = failedGeneration?.sessionId ?? null;
     start(last.range, last.request, last.favoriteRecipeIds, undefined, sessionToCancel);
   }, [draft, start]);
 
