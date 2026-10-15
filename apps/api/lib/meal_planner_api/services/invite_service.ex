@@ -1,6 +1,6 @@
 defmodule MealPlannerApi.Services.InviteService do
   @moduledoc """
-  Token mint + verify + consume for `AccountMembership` invites.
+  Token minting and invite row creation for `AccountMembership` invites.
 
   Phase A — Tenancy Refactor, PR 2a task 2.7. Per design §6.1, design
   §10 (Q7), and `specs/invite-and-accept.md`:
@@ -15,14 +15,10 @@ defmodule MealPlannerApi.Services.InviteService do
       with `invite_token_hash`, `invite_expires_at = now + 7d`,
       `invited_by_user_id`, `role: :member`. Used by the
       `AccountsMembership.invite/3` use case.
-    * `verify_and_consume/3` looks up the membership by hash, flips
-      `:invited → :active`, sets `joined_at`, nulls `invite_token_hash`
-      and `invite_expires_at` (single-use enforcement). Returns
-      `:invite_token_used` on replay, `:invite_token_expired` on
-      expiry, `:invite_token_unknown` on no match.
-  """
 
-  import Ecto.Query
+  Accepting an invite lives in `AccountsMembership.accept_invite/2`,
+  which also checks who is allowed to accept it.
+  """
 
   alias MealPlannerApi.Persistence.Accounts.AccountMembership
   alias MealPlannerApi.Persistence.Accounts.User, as: PersistenceUser
@@ -123,75 +119,6 @@ defmodule MealPlannerApi.Services.InviteService do
     {plaintext, hash} = mint_token()
     expires_at = DateTime.add(DateTime.utc_now(), @invite_ttl_days * 86_400, :second)
     {:ok, plaintext, hash, expires_at}
-  end
-
-  @doc """
-  Verifies a plaintext invite token for the given `account_id` and
-  consumes the row (sets `invite_token_hash` + `invite_expires_at` to
-  `nil`, flips `status` to `:active`, sets `joined_at`, points
-  `user_id` at `invitee`).
-
-  Returns one of:
-
-    * `{:ok, %AccountMembership{}}` — the consumed, now-active membership
-    * `{:error, :invite_token_used}` — replay (token row has been
-      consumed already)
-    * `{:error, :invite_token_expired}` — token past `invite_expires_at`
-    * `{:error, :invite_token_unknown}` — no row matches
-    * `{:error, :invite_wrong_account}` — token belongs to a different
-      account_id
-  """
-  @spec verify_and_consume(String.t(), Ecto.UUID.t() | binary(), PersistenceUser.t()) ::
-          {:ok, AccountMembership.t()}
-          | {:error, atom()}
-  def verify_and_consume(plaintext, expected_account_id, %PersistenceUser{} = invitee)
-      when is_binary(plaintext) do
-    hash = hash_token(plaintext)
-    now = DateTime.utc_now()
-
-    query =
-      from(m in AccountMembership,
-        where: m.invite_token_hash == ^hash,
-        where: m.account_id == ^expected_account_id,
-        limit: 1
-      )
-
-    case Repo.one(query) do
-      nil ->
-        {:error, :invite_token_unknown}
-
-      %AccountMembership{status: status, invite_expires_at: expires_at} = membership ->
-        cond do
-          status != :invited ->
-            {:error, :invite_token_used}
-
-          is_nil(expires_at) ->
-            {:error, :invite_token_used}
-
-          DateTime.compare(expires_at, now) == :lt ->
-            {:error, :invite_token_expired}
-
-          true ->
-            consume_membership(membership, invitee)
-        end
-    end
-  end
-
-  # ---- internals -------------------------------------------------------------
-
-  defp consume_membership(membership, invitee) do
-    # Note: `invite_token_hash` and `invite_expires_at` are KEPT so a
-    # second `verify_and_consume/3` call with the same plaintext finds
-    # the row and sees `status: :active` → returns `:invite_token_used`
-    # (per spec `invite-and-accept.md` §"Token replay"). Only
-    # `joined_at`, `user_id`, and `status` change on accept.
-    membership
-    |> AccountMembership.changeset(%{
-      status: :active,
-      joined_at: DateTime.utc_now(),
-      user_id: invitee.id
-    })
-    |> Repo.update()
   end
 
   defp generate_url_safe_token(byte_size) do
