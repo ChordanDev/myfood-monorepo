@@ -62,7 +62,8 @@ defmodule MealPlannerApi.Services.PlanningService do
          {:ok, selected_days} <- resolve_selected_days(params, max_days),
          true <- requested_days_valid?(params, max_days),
          {:ok, candidates_by_slot} <- build_candidates(user, identity),
-         {:ok, result} <- run_optimizer(optimizer, selected_days, candidates_by_slot, user) do
+         {:ok, result} <- run_optimizer(optimizer, selected_days, candidates_by_slot, user),
+         :ok <- validate_meals_in_candidates(result["meals"], candidates_by_slot) do
       day_plans = build_day_plans(result["meals"], selected_days)
 
       estimated_cost =
@@ -183,6 +184,34 @@ defmodule MealPlannerApi.Services.PlanningService do
       {:ok, Map.new(slots, &{&1.slot, &1.candidates})}
     end
   end
+
+  # Issue #312: the optimizer's answer is external input. Every meal must be
+  # one of the candidates of its slot, so a recipe the dietary filter removed
+  # never reaches the plan. Same rule as `GenerationService.validate_assignments/3`,
+  # keyed by slot because this path builds its candidates by slot only.
+  defp validate_meals_in_candidates(meals, candidates_by_slot) when is_list(meals) do
+    candidate_ids =
+      Map.new(candidates_by_slot, fn {slot, candidates} ->
+        {slot, MapSet.new(candidates, & &1["recipe_id"])}
+      end)
+
+    if Enum.all?(meals, &meal_in_candidates?(&1, candidate_ids)),
+      do: :ok,
+      else: {:error, :optimization_failed}
+  end
+
+  defp validate_meals_in_candidates(_meals, _candidates_by_slot),
+    do: {:error, :optimization_failed}
+
+  # A `nil` meal carries no recipe; the plan has always skipped it.
+  defp meal_in_candidates?(nil, _candidate_ids), do: true
+
+  defp meal_in_candidates?(%{"slot" => slot, "recipe_id" => recipe_id}, candidate_ids)
+       when is_binary(recipe_id) do
+    candidate_ids |> Map.get(slot, MapSet.new()) |> MapSet.member?(recipe_id)
+  end
+
+  defp meal_in_candidates?(_meal, _candidate_ids), do: false
 
   defp available_slots(candidates_by_slot) do
     @slots

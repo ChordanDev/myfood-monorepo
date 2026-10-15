@@ -4,7 +4,10 @@ defmodule MealPlannerApi.Services.PlanningServiceWeeklyPlanTest do
   import MealPlannerApi.IdentityFixtures
 
   alias Ecto.Adapters.SQL.Sandbox
+  alias MealPlannerApi.Optimization.{OptimizerFallback, OptimizerMock}
+  alias MealPlannerApi.Persistence.Accounts.UserExcludedIngredient
   alias MealPlannerApi.Persistence.Catalog
+  alias MealPlannerApi.Persistence.Catalog.{Ingredient, Recipe, RecipeIngredient}
   alias MealPlannerApi.Persistence.Shopping
   alias MealPlannerApi.Repo
   alias MealPlannerApi.Services.PlanningService
@@ -18,6 +21,7 @@ defmodule MealPlannerApi.Services.PlanningServiceWeeklyPlanTest do
     on_exit(fn ->
       Application.put_env(:meal_planner_api, :planning_optimizer_client, previous_client)
       Application.delete_env(:meal_planner_api, :planning_optimizer_capture_pid)
+      Application.delete_env(:meal_planner_api, :out_of_candidate_recipe_id)
     end)
   end
 
@@ -80,6 +84,105 @@ defmodule MealPlannerApi.Services.PlanningServiceWeeklyPlanTest do
       end)
 
     assert breakfast_candidate["estimated_cost_cents"] == 3200
+  end
+
+  # Issue #312: the optimizer's answer is external input. A recipe it returns
+  # that is not among the candidates of its slot never reaches the plan.
+  describe "optimizer answers outside the candidates" do
+    test "refuses a recipe the User's Excluded ingredient removed from the candidates" do
+      %{user: user, account: account} =
+        create_identity_with_recipes("u_allergen", "free", "individual")
+
+      allergen_recipe = insert_excluded_breakfast!(user, account)
+
+      Application.put_env(:meal_planner_api, :out_of_candidate_recipe_id, allergen_recipe.id)
+
+      assert {:error, :optimization_failed} =
+               PlanningService.generate_weekly_plan(
+                 user,
+                 %{},
+                 MealPlannerApi.TestSupport.OutOfCandidateOptimizer
+               )
+    end
+
+    test "refuses a recipe that is a candidate of another slot only" do
+      %{user: user, recipes: recipes} =
+        create_identity_with_recipes("u_other_slot", "free", "individual")
+
+      # The first meal is a breakfast; the lunch recipe is not a breakfast candidate.
+      Application.put_env(:meal_planner_api, :out_of_candidate_recipe_id, recipes.lunch.id)
+
+      assert {:error, :optimization_failed} =
+               PlanningService.generate_weekly_plan(
+                 user,
+                 %{},
+                 MealPlannerApi.TestSupport.OutOfCandidateOptimizer
+               )
+    end
+
+    for optimizer <- [OptimizerMock, OptimizerFallback] do
+      test "keeps the plan of a valid #{inspect(optimizer)} answer unchanged" do
+        %{user: user, recipes: recipes} =
+          create_identity_with_recipes("u_valid", "free", "individual")
+
+        assert {:ok, plan} =
+                 PlanningService.generate_weekly_plan(user, %{"days" => 2}, unquote(optimizer))
+
+        assert Enum.map(plan.days, & &1.day) == ["monday", "tuesday"]
+
+        for day <- plan.days do
+          assert Enum.map(day.meals, &{&1["day"], &1["slot"], &1["recipe_id"]}) == [
+                   {day.day, "breakfast", recipes.breakfast.id},
+                   {day.day, "lunch", recipes.lunch.id},
+                   {day.day, "dinner", recipes.dinner.id}
+                 ]
+        end
+
+        assert plan.estimated_cost_cents ==
+                 plan.days
+                 |> Enum.flat_map(& &1.meals)
+                 |> Enum.map(&(&1["estimated_cost_cents"] || 0))
+                 |> Enum.sum()
+      end
+    end
+  end
+
+  defp insert_excluded_breakfast!(user, account) do
+    ingredient =
+      %Ingredient{}
+      |> Ingredient.changeset(%{name: "Mani #{user.id}", category: :otros})
+      |> Repo.insert!()
+
+    recipe =
+      %Recipe{}
+      |> Recipe.changeset(%{
+        account_id: account.id,
+        name: "Tostada con mani #{user.id}",
+        source: :user_created,
+        servings: 1,
+        calories_per_serving: 400,
+        suitable_for_slots: [:breakfast]
+      })
+      |> Repo.insert!()
+
+    %RecipeIngredient{}
+    |> RecipeIngredient.changeset(%{
+      recipe_id: recipe.id,
+      ingredient_id: ingredient.id,
+      quantity_milli: 100,
+      unit: :g
+    })
+    |> Repo.insert!()
+
+    %UserExcludedIngredient{}
+    |> UserExcludedIngredient.changeset(%{
+      user_id: user.id,
+      ingredient_id: ingredient.id,
+      reason: :allergy
+    })
+    |> Repo.insert!()
+
+    recipe
   end
 
   defp create_identity_with_recipes(user_id, subscription_tier, account_type) do

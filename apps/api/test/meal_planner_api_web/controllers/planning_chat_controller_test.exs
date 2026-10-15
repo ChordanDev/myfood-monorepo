@@ -490,6 +490,68 @@ defmodule MealPlannerApiWeb.PlanningChatControllerTest do
   end
 
   # The generation runs of the Account and the proposals made from them.
+  # Issue #312: an optimizer answer outside the candidates answers 422
+  # `optimization_failed` on both planning routes and writes nothing.
+  describe "optimizer answer outside the candidates (issue #312)" do
+    setup do
+      previous_client = Application.get_env(:meal_planner_api, :planning_optimizer_client)
+
+      on_exit(fn ->
+        Application.put_env(:meal_planner_api, :planning_optimizer_client, previous_client)
+        Application.delete_env(:meal_planner_api, :out_of_candidate_recipe_id)
+      end)
+
+      Application.put_env(
+        :meal_planner_api,
+        :planning_optimizer_client,
+        MealPlannerApi.TestSupport.OutOfCandidateOptimizer
+      )
+
+      Application.put_env(:meal_planner_api, :out_of_candidate_recipe_id, Ecto.UUID.generate())
+
+      %{token: token, user: user, account: account} = insert_identity_with_token!()
+
+      {:ok, _breakfast} =
+        Catalog.create_recipe(%{
+          account_id: account.id,
+          created_by_user_id: user.id,
+          name: "Out of candidates breakfast",
+          source: :user_created,
+          servings: 1,
+          suitable_for_slots: [:breakfast]
+        })
+
+      %{token: token, account_id: account.id}
+    end
+
+    test "POST /api/planning/chat answers 422 and creates no rows", %{
+      conn: conn,
+      token: token,
+      account_id: account_id
+    } do
+      conn =
+        conn
+        |> put_req_header("authorization", "Bearer " <> token)
+        |> post("/api/planning/chat", %{
+          "message" => "Necesito menu",
+          "date_from" => "2026-03-23",
+          "date_to" => "2026-03-29"
+        })
+
+      assert json_response(conn, 422) == %{"error" => "optimization_failed"}
+      assert planning_row_counts(account_id) == %{generation_runs: 0, proposals: 0}
+    end
+
+    test "GET /api/planning/weekly answers 422", %{conn: conn, token: token} do
+      conn =
+        conn
+        |> put_req_header("authorization", "Bearer " <> token)
+        |> get("/api/planning/weekly")
+
+      assert json_response(conn, 422) == %{"error" => "optimization_failed"}
+    end
+  end
+
   defp planning_row_counts(account_id) do
     runs = from(r in PlanningGenerationRun, where: r.account_id == ^account_id)
 
