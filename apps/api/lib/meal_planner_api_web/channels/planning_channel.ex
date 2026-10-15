@@ -6,11 +6,16 @@ defmodule MealPlannerApiWeb.PlanningChannel do
   `GenerationServer` hace broadcast directo al `channel_pid` del socket.
 
   Eventos entrantes del cliente:
-  - `generate_menu` — inicia generación de menú (usa GenerationServer)
   - `start_planning` — abre la sesión de planificación del rango y arranca su primera generación (issue #25)
-  - `chat` — mensaje de modificación del usuario (usa GenerationServer)
-  - `confirm_proposal` — confirma propuesta (PlanningSession-lock + Repo.transaction/1). La app confirma por HTTP, `POST /api/planning/confirm`, que usa la misma transacción del engine (issue #28)
-  - `reject_proposal` — rechaza propuesta (usa PlanningChatService, backward compat)
+  - `send_message` — aplica un intent validado a la sesión que abrió este socket
+  - `cancel_planning` — cancela la sesión
+
+  The session commands above are the only command set of the topic (issue
+  #15). Confirm and reject are HTTP requests (`POST /api/planning/confirm`,
+  `POST /api/planning/proposals/:proposal_id/reject`, ADR 0004), and the older commands
+  `generate_menu`, `swap_constraints`, `chat`, `confirm_proposal` and
+  `reject_proposal` are gone: like any event the channel does not know, they
+  reply the `invalid_payload` envelope.
 
   Eventos salientes (broadcast):
   - `generation_started` — generación iniciada
@@ -76,7 +81,7 @@ defmodule MealPlannerApiWeb.PlanningChannel do
   alias MealPlannerApi.Generation.{PlanningSessionServer, PlanningSessionSupervisor, Server}
   alias MealPlannerApi.Persistence.Planning
   alias MealPlannerApi.Planning.LockOwner
-  alias MealPlannerApi.Services.{PlanningChatService, PlanningContext}
+  alias MealPlannerApi.Services.PlanningContext
   alias MealPlannerApiWeb.ApiError
   alias MealPlannerApiWeb.Casing
   alias MealPlannerApiWeb.ChannelCapability
@@ -272,143 +277,6 @@ defmodule MealPlannerApiWeb.PlanningChannel do
     {:noreply, socket}
   end
 
-  defp handle_command("generate_menu", payload, socket) do
-    user = socket.assigns.current_user
-    membership = socket.assigns.current_membership
-    request_id = Map.get(payload, "request_id", build_request_id())
-
-    result =
-      with {:ok, constraints} <- generation_constraints(payload) do
-        Server.start_generation(membership.account_id, user.id, constraints, socket.channel_pid)
-      end
-
-    case result do
-      {:ok, run_id} ->
-        broadcast!(socket, "generation_started", %{request_id: request_id, run_id: run_id})
-        {:reply, {:ok, %{request_id: request_id, run_id: run_id}}, socket}
-
-      {:error, :already_running} ->
-        {:reply, {:error, error_payload(:generation_in_progress, request_id)}, socket}
-
-      {:error, reason} ->
-        # The `generation_error` event is not a command reply: it keeps its
-        # `reason` field instead of the error envelope. Its keys are still
-        # camelized on the way out by `handle_out/3` (`requestId`).
-        event = %{request_id: request_id, reason: serialize_reason(reason)}
-        broadcast!(socket, "generation_error", event)
-        {:reply, {:error, error_payload(reason, request_id)}, socket}
-    end
-  end
-
-  defp handle_command("swap_constraints", payload, socket) do
-    user = socket.assigns.current_user
-    request_id = Map.get(payload, "request_id", build_request_id())
-    base_payload = Map.get(payload, "base_payload", %{})
-    constraints = Map.get(payload, "constraints", %{})
-
-    broadcast!(socket, "generation_started", %{
-      request_id: request_id,
-      reason: "constraint_update"
-    })
-
-    case PlanningChatService.regenerate_menu(user, base_payload, constraints) do
-      {:ok, result} ->
-        event = %{
-          request_id: request_id,
-          run_id: result.run.id,
-          proposal_id: result.proposal.id,
-          date_from: Date.to_iso8601(result.date_from),
-          date_to: Date.to_iso8601(result.date_to),
-          proposal: result.proposal_json,
-          applied_constraints: constraints
-        }
-
-        broadcast!(socket, "proposal_ready", event)
-        {:reply, {:ok, event}, socket}
-
-      {:error, reason} ->
-        event = %{request_id: request_id, reason: serialize_reason(reason)}
-        broadcast!(socket, "generation_error", event)
-        {:reply, {:error, error_payload(reason, request_id)}, socket}
-    end
-  end
-
-  defp handle_command("chat", %{"message" => message, "proposal_id" => proposal_id}, socket) do
-    membership = socket.assigns.current_membership
-
-    # Obtener el PID del GenerationServer para este account
-    case Registry.lookup(
-           MealPlannerApi.Generation.Generations,
-           {:generation, membership.account_id}
-         ) do
-      [{server_pid, _}] ->
-        Server.chat(server_pid, proposal_id, message)
-        {:noreply, socket}
-
-      [] ->
-        {:reply, {:error, error_payload(:no_active_generation)}, socket}
-    end
-  end
-
-  defp handle_command("confirm_proposal", payload, socket) do
-    # PR2 of issue #35 — `session_id` is required and forwarded into
-    # `Server.do_confirm/3`. The session row IS the confirmation lock —
-    # no lock, no confirm. Missing or invalid payload returns
-    # `:missing_session_id` BEFORE any DB or GenerationServer lookup.
-    user = socket.assigns.current_user
-    membership = socket.assigns.current_membership
-
-    with {:ok, proposal_id} <- require_proposal_id(Map.get(payload, "proposal_id")),
-         {:ok, session_id} <- require_session_id(Map.get(payload, "session_id")),
-         :ok <- check_handler_entitlement(membership.account_id) do
-      confirm_with_lock(user, membership, proposal_id, session_id, socket)
-    else
-      {:error, :missing_session_id} ->
-        {:reply, {:error, error_payload(:missing_session_id)}, socket}
-
-      {:error, :account_expired} ->
-        {:reply, {:error, error_payload(:account_expired)}, socket}
-
-      {:error, :invalid_proposal_id} ->
-        {:reply, {:error, error_payload(:invalid_proposal_id)}, socket}
-    end
-  end
-
-  defp handle_command("reject_proposal", %{"proposal_id" => proposal_id}, socket) do
-    user = socket.assigns.current_user
-    membership = socket.assigns.current_membership
-
-    case Registry.lookup(
-           MealPlannerApi.Generation.Generations,
-           {:generation, membership.account_id}
-         ) do
-      [{server_pid, _}] ->
-        Server.reject(server_pid, proposal_id)
-        {:noreply, socket}
-
-      [] ->
-        # Fallback: usar PlanningChatService (REST API backward compat)
-        # Catch exceptions from service to return graceful errors
-        try do
-          case PlanningChatService.reject_proposal(user, proposal_id) do
-            {:ok, result} ->
-              event = Map.put(result, :status, "rejected")
-              broadcast!(socket, "proposal_rejected", event)
-              {:reply, {:ok, event}, socket}
-
-            {:error, reason} ->
-              {:reply, {:error, error_payload(reason)}, socket}
-          end
-        rescue
-          Ecto.NoResultsError ->
-            {:reply, {:error, error_payload(:not_found)}, socket}
-
-          Ecto.Query.CastError ->
-            {:reply, {:error, error_payload(:invalid_proposal_id)}, socket}
-        end
-    end
-  end
-
   defp handle_command("start_planning", payload, socket) do
     # Phase 5 PR5 — capability re-check fires here too, not only at
     # join/3. If the Account's trial/entitlement expired mid-session,
@@ -443,10 +311,10 @@ defmodule MealPlannerApiWeb.PlanningChannel do
       # other joined member) receives it as a pubsub broadcast.
       # Do NOT re-broadcast here or the event fires twice.
       #
-      # The generation starts through the same public call `generate_menu`
-      # uses, with the range of the session and the free text of the member
-      # as the request. A generation that cannot start leaves no session
-      # behind: the session is cancelled, so the member can start again.
+      # The generation starts with the range of the session and the free text
+      # of the member as the request. A generation that cannot start leaves no
+      # session behind: the session is cancelled, so the member can start
+      # again.
       constraints = start_constraints(date_from, date_to, request_text, planning_context)
 
       case start_generation(account_id, user.id, constraints, socket.channel_pid) do
@@ -468,8 +336,8 @@ defmodule MealPlannerApiWeb.PlanningChannel do
           {:reply, {:ok, %{session_id: started_id, status: :active}}, socket}
 
         {:error, :already_running} ->
-          # As `generate_menu` does: the run in flight is not ours, so the
-          # topic is not told of a failure, only this caller is refused.
+          # The run in flight is not ours, so the topic is not told of a
+          # failure, only this caller is refused.
           cancel_unstarted_session(membership, started_id, pid)
           {:reply, {:error, error_payload(:generation_in_progress, request_id)}, socket}
 
@@ -587,17 +455,6 @@ defmodule MealPlannerApiWeb.PlanningChannel do
     {:reply, {:error, error_payload(:invalid_payload)}, socket}
   end
 
-  # The constraints of `generate_menu` come nested under `constraints` and
-  # flat in the payload (date_from, date_to, budget_cents, etc.), a flat key
-  # winning over a nested one. A `constraints` that is not a map cannot be
-  # merged and fails the command as `invalid_payload`.
-  defp generation_constraints(payload) do
-    case Map.get(payload, "constraints", %{}) do
-      nested when is_map(nested) -> {:ok, Map.merge(nested, payload)}
-      _not_a_map -> {:error, :invalid_payload}
-    end
-  end
-
   defp camelize_ok_reply({:reply, {:ok, payload}, socket}),
     do: {:reply, {:ok, Casing.camelize_keys(payload)}, socket}
 
@@ -649,14 +506,6 @@ defmodule MealPlannerApiWeb.PlanningChannel do
   # and is looked up by name. A changeset means the payload did not pass a
   # validation and keeps the `invalid_payload` it has always been replied as;
   # its details stay on the server. Any other term is a fault, not a reason.
-  #
-  # `:invalid_format` is what `Date.from_iso8601/1` answers for a string that
-  # is not a date, and `PlanningChatService` hands it through for a date the
-  # client sent (`swap_constraints`). It is a mistake of the client, like an
-  # impossible date, so it replies `invalid_date` instead of being logged as
-  # a fault of the server.
-  defp error_code(:invalid_format), do: {:ok, :invalid_date}
-
   defp error_code(reason) when is_atom(reason),
     do: Map.fetch(@codes_by_reason, Atom.to_string(reason))
 
@@ -672,9 +521,6 @@ defmodule MealPlannerApiWeb.PlanningChannel do
   #     `"invalid_payload"` for a term that is neither an atom nor a string;
   #   * the reply names an allowlisted code (`error_code/1`) and falls back
   #     to `unknown_error`.
-  #
-  # A malformed date, for instance, is `"invalid_format"` in the event and
-  # `invalid_date` in the reply.
   defp serialize_reason(reason) when is_atom(reason), do: Atom.to_string(reason)
   defp serialize_reason(reason) when is_binary(reason), do: reason
   defp serialize_reason(_), do: "invalid_payload"
@@ -897,28 +743,6 @@ defmodule MealPlannerApiWeb.PlanningChannel do
 
   defp require_uuid(_), do: {:error, :invalid_session_id}
 
-  # PR2 of issue #35 — `confirm_proposal` payload guards. Both
-  # `proposal_id` and `session_id` are required UUIDs; absent or
-  # malformed values map to a single transport reason so the client
-  # gets a deterministic response.
-  defp require_proposal_id(value) when is_binary(value) do
-    case Ecto.UUID.cast(value) do
-      {:ok, uuid} -> {:ok, uuid}
-      :error -> {:error, :invalid_proposal_id}
-    end
-  end
-
-  defp require_proposal_id(_), do: {:error, :invalid_proposal_id}
-
-  defp require_session_id(value) when is_binary(value) do
-    case Ecto.UUID.cast(value) do
-      {:ok, uuid} -> {:ok, uuid}
-      :error -> {:error, :missing_session_id}
-    end
-  end
-
-  defp require_session_id(_), do: {:error, :missing_session_id}
-
   # Phase 4 PR4 task 4.8 — the caller's `session_id` MUST equal the
   # session cached on the socket assigns. Prevents a caller from
   # applying intents to a session they did not start on this socket.
@@ -935,42 +759,5 @@ defmodule MealPlannerApiWeb.PlanningChannel do
       "session_cancelled",
       %{"session_id" => session_id}
     )
-  end
-
-  # PR2 of issue #35 — AC #1 proof: when
-  # `:revenuecat_access_enforcement` is enabled, the per-handler re-check
-  # refuses an expired Account's `confirm_proposal` with `:account_expired`
-  # BEFORE `Server.do_confirm/3` is invoked. Mirrors the join-time
-  # `ChannelCapability.authorize/1` gate.
-  defp check_handler_entitlement(account_id) do
-    cond do
-      not ChannelCapability.enforcement_enabled?() -> :ok
-      AccountAccess.eligible?(account_id) -> :ok
-      true -> {:error, :account_expired}
-    end
-  end
-
-  defp confirm_with_lock(_user, membership, proposal_id, session_id, socket) do
-    case Registry.lookup(
-           MealPlannerApi.Generation.Generations,
-           {:generation, membership.account_id}
-         ) do
-      [{server_pid, _}] ->
-        case Server.confirm(server_pid, proposal_id, session_id) do
-          {:ok, result} -> {:reply, {:ok, result}, socket}
-          {:error, reason} -> {:reply, {:error, error_payload(reason)}, socket}
-        end
-
-      [] ->
-        # No GenerationServer registered — the legacy HTTP
-        # `PlanningChatService.confirm_proposal/2` bypass path is
-        # RETIRED in PR3. The channel is now the SOLE atomic
-        # confirmation path; if no GenerationServer is alive (no
-        # `generate_menu` / `start_planning` is in flight), reply
-        # `:no_active_generation` so the client can recover by
-        # starting a new session instead of silently losing the
-        # AC #4 atomicity guarantee.
-        {:reply, {:error, error_payload(:no_active_generation)}, socket}
-    end
   end
 end

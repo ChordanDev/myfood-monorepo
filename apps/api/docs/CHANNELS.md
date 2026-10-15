@@ -165,7 +165,7 @@ A failed join or command replies the error envelope, never a free-text reason:
 ```
 
 - `code` is always one of the codes of `MealPlannerApiWeb.ApiError` (`lib/meal_planner_api_web/controllers/api_error.ex`). A failure the server did not anticipate replies `unknown_error`. Clients branch on `code`; `message` is a human-readable description.
-- `generate_menu` and `swap_constraints` correlate their reply: it carries `requestId` (the one the command sent, or a generated one) next to `error`.
+- `start_planning` correlates the reply of a generation that could not start: it carries `requestId` (the one the command sent, or a generated one) next to `error`.
 
 **Example (start_planning, camelCase):**
 ```json
@@ -196,13 +196,13 @@ The command that starts a Planning session and its first generation (issue #25).
 | `favoriteRecipeIds` | list of UUID strings | Optional. The Favorite recipes the member preselected for this plan; absent or `null` means none. Only the ids that are favorites of the caller (their own, in this Account) reach the engine: any other id is dropped, because a client cache can be stale. Duplicates collapse onto their first place and the client's order is kept. See [Planning context](#planning-context) |
 | `requestId` | string | Optional. Correlates `generation_started`, and `generation_error` when that event carries it; generated when missing |
 
-The command validates the range, checks the Account is eligible, starts the session (`session_started`), then starts the generation through the same call `generate_menu` uses and replies:
+The command validates the range, checks the Account is eligible, starts the session (`session_started`), then starts the generation and replies:
 
 ```json
 { "sessionId": "550e8400-e29b-41d4-a716-446655440002", "status": "active" }
 ```
 
-`generation_started` follows with the `runId`. When the generation cannot start the session is cancelled (`session_cancelled`), its process is stopped, and the command replies the error envelope with `requestId`, so the member can start again. A `generation_error` event is pushed too, except when the account already has a run in flight: that case replies `generation_in_progress` only, as `generate_menu` does, and the topic is not told of a failure. A start that does not get an answer from the generation server in time is handled as a failed start. `rangeTo` and `dayCount` sent as `null` count as absent. The range is capped at 7 days because the window of the generation server holds 7 days; a longer range is refused before any session starts.
+`generation_started` follows with the `runId`. When the generation cannot start the session is cancelled (`session_cancelled`), its process is stopped, and the command replies the error envelope with `requestId`, so the member can start again. A `generation_error` event is pushed too, except when the account already has a run in flight: that case replies `generation_in_progress` only, and the topic is not told of a failure. A start that does not get an answer from the generation server in time is handled as a failed start. `rangeTo` and `dayCount` sent as `null` count as absent. The range is capped at 7 days because the window of the generation server holds 7 days; a longer range is refused before any session starts.
 
 Refusals reply the error envelope with these codes:
 
@@ -316,16 +316,13 @@ A User with no preferences, no profile or no Slot cooking times still gets a con
 
 Every command the channel handles. Any other event name replies `invalid_payload`.
 
+These session commands are the only command set of the topic (issue #15). Confirm and reject are HTTP requests, `POST /api/planning/confirm` and `POST /api/planning/proposals/:proposalId/reject` (ADR 0004). The older commands `generate_menu`, `swap_constraints`, `chat`, `confirm_proposal` and `reject_proposal` were retired and reply `invalid_payload` like any unknown event.
+
 | Event | Payload | Description |
 |-------|---------|-------------|
 | `start_planning` | `{"rangeFrom": "YYYY-MM-DD", "rangeTo": "YYYY-MM-DD", "request": "text", "favoriteRecipeIds": ["uuid"], "requestId": "string"}` (or `dayCount` instead of `rangeTo`; `request`, `favoriteRecipeIds` and `requestId` are optional) | Start a planning session and its first generation, see [start_planning](#start_planning). Replies `{"sessionId": "uuid", "status": "active"}` |
 | `send_message` | `{"sessionId": "uuid", "intent": {"kind": "change_constraints" \| "request_slot_swap" \| "request_recipe_suggestion", ...}}` | Apply a typed intent to the session this socket started. Replies the validated intent; emits no event |
-| `confirm_proposal` | `{"proposalId": "uuid", "sessionId": "uuid"}` | Confirm a proposal: writes its meals and the shopping cart and commits the session in one transaction. Replies the same payload as `proposal_confirmed` |
-| `reject_proposal` | `{"proposalId": "uuid"}` | Reject a proposal. With a generation running it gets no reply and `proposal_rejected` follows; otherwise it replies `{"proposalId", "generationRunId", "status": "rejected"}` |
 | `cancel_planning` | `{"sessionId": "uuid"}` | Cancel the planning session with that id. Only its lock owner or the Account owner may. Replies `{"sessionId": "uuid", "status": "cancelled"}` |
-| `generate_menu` | `{"requestId": "string", "constraints": {...}}` (flat keys such as `dateFrom`, `dateTo`, `budgetCents` are merged over `constraints`) | Start a generation outside a session. Replies `{"requestId", "runId"}` |
-| `swap_constraints` | `{"requestId": "string", "basePayload": {...}, "constraints": {...}}` | Regenerate a menu with changed constraints. Replies the same payload as its `proposal_ready` |
-| `chat` | `{"message": "text", "proposalId": "uuid"}` | Send a free-text change to the running generation. No reply; `proposal_update` or `generation_error` follows |
 
 **Example Payload (start_planning):**
 ```json
@@ -342,7 +339,7 @@ The Planner screen reads five events of `planning:<account_id>` (issue #25). The
 | Event | Emitted | Payload |
 |-------|---------|---------|
 | `session_started` | When the session row is created | `{ "sessionId": "uuid" }` |
-| `generation_started` | After `start_planning` started the generation | `{ "requestId": "string", "runId": "uuid", "sessionId": "uuid" }`. `generate_menu` emits it without `sessionId`, and `swap_constraints` with `{ "requestId", "reason": "constraint_update" }` |
+| `generation_started` | After `start_planning` started the generation | `{ "requestId": "string", "runId": "uuid", "sessionId": "uuid" }` |
 | `proposal_ready` | When the generation finished a proposal | see below |
 | `planning_message` | Right after `proposal_ready`, same socket | see below |
 | `generation_error` | When a generation failed or could not start | `{ "reason": "string", "details": {}, "runId": "uuid" \| null, "requestId": "string" \| null }` |
@@ -372,7 +369,7 @@ The Planner screen reads five events of `planning:<account_id>` (issue #25). The
 }
 ```
 
-Days are in calendar order and the meals of a day in `breakfast`, `lunch`, `dinner`, `snack` order. `priceCents` is `null` when the price of a recipe is unknown and then adds nothing to `costCents` and `estimatedCostCents`. The `proposal_ready` of `swap_constraints` is a different payload (`proposal` with `scheduledMeals` and `weeklyPlan`) and is pushed as it was.
+Days are in calendar order and the meals of a day in `breakfast`, `lunch`, `dinner`, `snack` order. `priceCents` is `null` when the price of a recipe is unknown and then adds nothing to `costCents` and `estimatedCostCents`. A `proposal_ready` of any other shape is pushed as it was broadcast, with camelCase keys.
 
 `planning_message` is the assistant's message about the proposal:
 
@@ -418,16 +415,16 @@ The events of `PlanningChannel.outbound_events/0`. Every member joined to the to
 | `session_started` | `{"sessionId": "uuid"}` | A planning session was created by `start_planning` |
 | `session_resumed` | `{"sessionId": "uuid"}`; on join, `{"sessionId", "proposalId", "proposal", "messages": [{"role", "content", "intentKind"}]}` | A session server restarted and resumed an active session, or a socket joined while its Account has an active session (pushed to that socket only) |
 | `session_cancelled` | `{"sessionId": "uuid"}` | A session was cancelled by `cancel_planning`, or by a `start_planning` whose generation could not start |
-| `session_committed` | `{"sessionId", "proposalId", "scheduledMealsCount", "shoppingRebuilt": true}` | `POST /api/planning/confirm` committed the session, wrote its meals and rebuilt the Shopping list. The `confirm_proposal` command does not emit it |
+| `session_committed` | `{"sessionId", "proposalId", "scheduledMealsCount", "shoppingRebuilt": true}` | `POST /api/planning/confirm` committed the session, wrote its meals and rebuilt the Shopping list |
 | `session_lost_lock` | `{"sessionId": "uuid"}` | The channel process that held the session's range lock exited abnormally |
 | `session_expired` | `{"sessionId": "uuid"}` | The session sweeper expired a session that stayed active too long |
 | `generation_started` | `{"requestId", "runId", "sessionId"}` | A generation started; see [Planner events](#planner-events-frozen-shapes) |
 | `proposal_ready` | `{"proposalId", "runId", "estimatedCostCents", "days": [...]}` | A generation finished a proposal; see [Planner events](#planner-events-frozen-shapes) |
 | `planning_message` | `{"role": "assistant", "text", "proposalId", "runId", "summary": {...}}` | The assistant's message about a proposal, pushed right after `proposal_ready` |
 | `generation_error` | `{"reason", "details", "runId", "requestId"}` | A generation failed or could not start; see [Planner events](#planner-events-frozen-shapes) |
-| `proposal_update` | `{"changeType": "string", "newValue": ...}` | The running generation applied a `chat` change |
+| `proposal_update` | `{"changeType": "string", "newValue": ...}` | The running generation applied a free-text change. No command sends one since `chat` was retired (issue #15) |
 | `proposal_confirmed` | `{"proposalId", "scheduledMealsCount", "cart": [...], "shoppingItemsCount", "checkoutSessionId"}` | A proposal was confirmed and its meals and cart were written |
-| `proposal_rejected` | `{"proposalId": "uuid"}` (`generationRunId` and `status` too when the command rejected it with no generation running) | A proposal was rejected, by the command or by `POST /api/planning/proposals/:proposalId/reject` |
+| `proposal_rejected` | `{"proposalId": "uuid"}` | A proposal was rejected by `POST /api/planning/proposals/:proposalId/reject` |
 | `send_intent` | `{"intent": {"kind": "string", ...}}` | A member sent a typed intent on the AI chat channel. A notification only: the session does not apply it until the client sends `send_message` |
 
 **Example Response (proposal_confirmed):**

@@ -22,8 +22,8 @@ defmodule MealPlannerApiWeb.Channels.Serializers.PlanningEvents do
   The `proposal_ready` payload and the `planning_message` the assistant says
   about it, for a proposal the generation server broadcast.
 
-  Returns `:passthrough` for a payload that is not that: the proposal of
-  `swap_constraints` has its own shape and reaches the client as it is.
+  Returns `:passthrough` for a payload that is not that, which reaches the
+  client as it was broadcast.
 
   `proposal_ready`:
 

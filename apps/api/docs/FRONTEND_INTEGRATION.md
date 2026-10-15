@@ -687,16 +687,23 @@ planningChannel.on("generation_started", payload => {
 
 planningChannel.on("proposal_ready", payload => {
   console.log("Propuesta lista!", payload);
-  // payload.proposal_id para confirmar/rechazar
+  // payload.proposalId para confirmar/rechazar por HTTP
 });
 
-// 4. Generar menú
-planningChannel.push("generate_menu", {
-  date_from: "2026-06-10",
-  date_to: "2026-06-16",
-  constraints: { budget_cents: 15000, protein_g: 30 }
+// 4. Abrir la sesión de planificación y su primera generación
+planningChannel.push("start_planning", {
+  rangeFrom: "2026-06-10",
+  rangeTo: "2026-06-16",
+  request: "algo liviano, sin pescado"
 });
 ```
+
+El tópico `planning:<account_id>` solo acepta los comandos de sesión
+(`start_planning`, `send_message`, `cancel_planning`). Confirmar y rechazar
+son requests HTTP (`POST /api/planning/confirm`,
+`POST /api/planning/proposals/:proposalId/reject`); los comandos viejos
+`generate_menu`, `swap_constraints`, `chat`, `confirm_proposal` y
+`reject_proposal` responden `invalid_payload`. Ver `docs/CHANNELS.md`.
 
 ### Canal de Calendario
 
@@ -1051,7 +1058,7 @@ class PlanningService {
     this.listeners = {};
   }
 
-  async generate(dateFrom, dateTo, constraints) {
+  async generate(dateFrom, dateTo, request) {
     return new Promise((resolve, reject) => {
       // Escuchar respuesta
       this.channel.on("proposal_ready", payload => {
@@ -1062,25 +1069,29 @@ class PlanningService {
         reject(new Error(payload.reason));
       });
 
-      // Unirse y generar
+      // Unirse y abrir la sesión
       this.channel.join().receive("ok", () => {
-        this.channel.push("generate_menu", {
-          date_from: dateFrom,
-          date_to: dateTo,
-          constraints
-        });
+        this.channel
+          .push("start_planning", { rangeFrom: dateFrom, rangeTo: dateTo, request })
+          .receive("ok", ({ sessionId }) => { this.sessionId = sessionId; });
       });
     });
   }
 
+  // Confirmar es un request HTTP, no un comando del canal
   async confirm(proposalId) {
-    return new Promise((resolve, reject) => {
-      this.channel.on("proposal_confirmed", payload => {
-        resolve(payload);
-      });
+    const token = await AsyncStorage.getItem("auth_token");
 
-      this.channel.push("confirm_proposal", { proposal_id: proposalId });
+    const response = await fetch("http://localhost:4000/api/planning/confirm", {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${token}`,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({ proposalId, sessionId: this.sessionId })
     });
+
+    return response.json();
   }
 }
 ```
@@ -1113,7 +1124,7 @@ function App() {
     const result = await service.generate(
       "2026-06-10",
       "2026-06-16",
-      { budget_cents: 15000, protein_g: 30 }
+      "algo liviano, sin pescado"
     );
     setPlanning(result);
   };

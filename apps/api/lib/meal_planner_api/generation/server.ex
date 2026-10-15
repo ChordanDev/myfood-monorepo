@@ -152,8 +152,8 @@ defmodule MealPlannerApi.Generation.Server do
     user_id = Keyword.get(opts, :user_id)
     # Optional pre-population for tests (channel-layer end-to-end coverage
     # at @task 4.3 in `planning-shopping-extraction`). Production callers
-    # (`PlanningChannel.handle_in("generate_menu", ...)`) set this via
-    # the `:start_generation` cast flow; the test path registers the
+    # (`PlanningChannel.handle_in("start_planning", ...)`) set this via
+    # the `:start_generation` call flow; the test path registers the
     # server directly with the test process as `channel_pid`.
     initial_channel_pid = Keyword.get(opts, :channel_pid)
 
