@@ -14,7 +14,7 @@ defmodule MealPlannerApi.Persistence.Calendar.MealMove do
   require Logger
 
   alias MealPlannerApi.Persistence.Catalog.SlotFavorite
-  alias MealPlannerApi.Persistence.Planning.ScheduledMeal
+  alias MealPlannerApi.Persistence.Planning.{CookingSession, ScheduledMeal}
   alias MealPlannerApi.Persistence.Shopping.ShoppingItem
   alias MealPlannerApi.Repo
 
@@ -43,6 +43,8 @@ defmodule MealPlannerApi.Persistence.Calendar.MealMove do
           :meal_not_found
           | :meal_cooked
           | :target_meal_cooked
+          | :meal_cooking_in_progress
+          | :target_meal_cooking_in_progress
           | :same_slot
           | :conflict
           | :move_not_possible
@@ -55,7 +57,9 @@ defmodule MealPlannerApi.Persistence.Calendar.MealMove do
   (`MealPlannerApi.AccountClock`): it decides which archived Shopping items are
   dropped so that the next Shopping list read derives them again.
 
-  A cooked meal is refused on either side. `:conflict` is a concurrent write
+  A cooked meal is refused on either side, and so is a meal with an `active`
+  Cooking session: the session is finished on the day it started (issue #207).
+  `:conflict` is a concurrent write
   that took the destination, and a retry can succeed. `:move_not_possible`
   is stored rows that cannot follow the meal, and a retry fails the same way.
   Nothing is written in either case.
@@ -102,7 +106,7 @@ defmodule MealPlannerApi.Persistence.Calendar.MealMove do
   defp move_locked(account_id, meal_id, to, today) do
     {source, displaced} = lock_meals(account_id, meal_id, to)
 
-    case refusal(source, displaced, to) do
+    case refusal(source, displaced, to) || cooking_refusal(source, displaced) do
       nil -> exchange(source, displaced, to, today)
       reason -> Repo.rollback(reason)
     end
@@ -131,6 +135,24 @@ defmodule MealPlannerApi.Persistence.Calendar.MealMove do
   defp refusal(%{is_cooked: true}, _displaced, _to), do: :meal_cooked
   defp refusal(_source, %{is_cooked: true}, _to), do: :target_meal_cooked
   defp refusal(_source, _displaced, _to), do: nil
+
+  # Read after the meals are locked: starting a Cooking session inserts a row
+  # that references its meal, and that insert waits on the lock this move
+  # holds, so no session of either meal starts until the move is over.
+  defp cooking_refusal(source, displaced) do
+    cooking =
+      from(s in CookingSession,
+        where: s.scheduled_meal_id in ^[source.id | ids(displaced)] and s.status == :active,
+        select: s.scheduled_meal_id
+      )
+      |> Repo.all()
+
+    cond do
+      source.id in cooking -> :meal_cooking_in_progress
+      displaced && displaced.id in cooking -> :target_meal_cooking_in_progress
+      true -> nil
+    end
+  end
 
   defp exchange(source, displaced, {date, slot} = to, today) do
     now = DateTime.utc_now()

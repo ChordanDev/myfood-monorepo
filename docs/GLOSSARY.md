@@ -112,7 +112,7 @@ This file and `docs/adr/` are the only durable docs in the repository. Specs, ma
 
 ## Cooking
 
-**Cooking session** — The runtime of cooking one Scheduled meal: `active` or `completed`, with its step events and chat. It can start only for a meal scheduled on the Account's today that is not cooked yet; finishing it consumes the recipe's Ingredients from Inventory oldest lot first and reports any shortfall as a shortage. `(code: Persistence.Planning.CookingSession, Services.CookingService)`
+**Cooking session** — The runtime of cooking one Scheduled meal: `active` or `completed`, with its step events and chat. It can start only for a meal scheduled on the Account's today that is not cooked yet; finishing it consumes the recipe's Ingredients from Inventory oldest lot first and reports any shortfall as a shortage. While a session is `active` its meal is neither moved nor displaced by a move. `(code: Persistence.Planning.CookingSession, Services.CookingService)`
 
 **Cooking step event** — A recorded progression through a recipe step during a Cooking session. `(code: Persistence.Planning.CookingStepEvent)`
 

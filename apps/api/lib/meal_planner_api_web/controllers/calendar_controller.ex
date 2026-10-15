@@ -75,6 +75,8 @@ defmodule MealPlannerApiWeb.CalendarController do
   `ApiError`: 404 `scheduled_meal_not_found`, 422 `validation_error` naming
   `date` or `slot` (the position the meal already has is not a valid
   destination), 409 `scheduled_meal_cooked` when either meal is cooked,
+  409 `calendar_meal_cooking_in_progress` when either meal has an active
+  Cooking session,
   409 `calendar_conflict` when a concurrent write took the destination, and
   409 `calendar_move_not_possible` when stored rows cannot follow the meal.
   """
@@ -161,6 +163,10 @@ defmodule MealPlannerApiWeb.CalendarController do
 
   defp render_move_error(conn, reason) when reason in [:meal_cooked, :target_meal_cooked],
     do: conn |> ApiError.error(:scheduled_meal_cooked)
+
+  defp render_move_error(conn, reason)
+       when reason in [:meal_cooking_in_progress, :target_meal_cooking_in_progress],
+       do: conn |> ApiError.error(:calendar_meal_cooking_in_progress)
 
   defp validate_date_range(start_date, end_date) do
     if Date.compare(start_date, end_date) in [:lt, :eq] do
@@ -254,6 +260,7 @@ defmodule MealPlannerApiWeb.CalendarController do
       meal_id: meal.id,
       date: Date.to_iso8601(meal.date),
       is_cooked: meal.is_cooked,
+      is_cooking: meal.is_cooking,
       is_skipped: meal.is_skipped,
       recipe_version_id: meal.recipe_version_id,
       selected_quantity: meal.selected_quantity,
@@ -279,6 +286,7 @@ defmodule MealPlannerApiWeb.CalendarController do
       recipe_id: nil,
       recipe_name: nil,
       is_cooked: false,
+      is_cooking: false,
       is_skipped: false,
       is_favorite: false,
       can_create: true,
