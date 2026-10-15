@@ -639,13 +639,19 @@ defmodule MealPlannerApi.Services.InventoryService do
 
   defp parse_acquired_at(_), do: {:error, :invalid_acquired_at}
 
-  # Whole cents at or above zero, as a number or as the digits of one.
+  # The acquired_price_cents column is an int4.
+  @max_price_cents 2_147_483_647
+
+  # Whole cents from zero up to what the column holds, as a number or as the digits of one.
   defp parse_price_cents(nil), do: {:ok, nil}
-  defp parse_price_cents(cents) when is_integer(cents) and cents >= 0, do: {:ok, cents}
+
+  defp parse_price_cents(cents)
+       when is_integer(cents) and cents >= 0 and cents <= @max_price_cents,
+       do: {:ok, cents}
 
   defp parse_price_cents(cents) when is_binary(cents) do
     case Integer.parse(cents) do
-      {value, ""} when value >= 0 -> {:ok, value}
+      {value, ""} when value >= 0 and value <= @max_price_cents -> {:ok, value}
       _ -> {:error, :invalid_acquired_price_cents}
     end
   end
