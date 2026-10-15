@@ -299,6 +299,22 @@ describe('planningDraftReducer', () => {
       expect(draft.status).toBe('failed');
     });
 
+    it('still fails at the time limit after it dropped one', () => {
+      const generating = run([requested, strayError]);
+      expect(generating.status).toBe('generating');
+
+      const draft = planningDraftReducer(generating, {
+        type: 'clock_ticked',
+        now: GENERATION_TIME_LIMIT_MS,
+      });
+
+      expect(draft).toMatchObject({
+        status: 'failed',
+        requestId: REQUEST_ID,
+        failure: { kind: 'generation', reason: 'generation_timed_out' },
+      });
+    });
+
     it('still fails on a generation_error that carries its requestId', () => {
       const draft = run([
         requested,
