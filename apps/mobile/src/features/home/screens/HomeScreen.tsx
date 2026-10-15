@@ -13,7 +13,11 @@ import {
   PendingDayCard,
 } from '../components';
 import { FoodCard } from '../components/FoodCard';
-import { getAvailableEatTodayDestinations, type EatTodayDestinationType } from '../domain/eatToday';
+import {
+  getAvailableEatTodayDestinations,
+  getCookingEatTodayDestinations,
+  type EatTodayDestinationType,
+} from '../domain/eatToday';
 import { useHomeResponsiveScale } from '../hooks/useHomeResponsiveScale';
 import { useEatToday } from '../hooks/useEatToday';
 import { useHomeState } from '../hooks/useHomeState';
@@ -47,7 +51,8 @@ export function HomeScreen() {
   const [eatTodaySheet, setEatTodaySheet] = useState<{
     visible: boolean;
     destinations: EatTodayDestinationType[];
-  }>({ visible: false, destinations: [] });
+    cookingDestinations: EatTodayDestinationType[];
+  }>({ visible: false, destinations: [], cookingDestinations: [] });
 
   const {
     selectedDate,
@@ -122,6 +127,7 @@ export function HomeScreen() {
     setEatTodaySheet({
       visible: true,
       destinations: getAvailableEatTodayDestinations(planByDate[todayKey] ?? [], new Date()),
+      cookingDestinations: getCookingEatTodayDestinations(planByDate[todayKey] ?? []),
     });
   };
 
@@ -278,6 +284,7 @@ export function HomeScreen() {
       <EatTodaySheet
         visible={eatTodaySheet.visible}
         destinations={eatTodaySheet.destinations}
+        cookingDestinations={eatTodaySheet.cookingDestinations}
         onSelect={handleSelectEatTodayDestination}
         onClose={handleCloseEatTodaySheet}
       />

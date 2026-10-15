@@ -4,6 +4,7 @@ import {
   EAT_TODAY_DESTINATION_TYPES,
   EAT_TODAY_LABEL,
   getAvailableEatTodayDestinations,
+  getCookingEatTodayDestinations,
   planEatTodayMove,
 } from './eatToday';
 
@@ -80,6 +81,20 @@ describe('getAvailableEatTodayDestinations', () => {
   });
 });
 
+describe('getCookingEatTodayDestinations', () => {
+  it('names the destinations whose meal has a Cooking session in progress', () => {
+    const entries = [{ ...buildEntry('lunch'), isCooking: true }, buildEntry('dinner')];
+
+    expect(getCookingEatTodayDestinations(entries)).toEqual(['lunch']);
+  });
+
+  it('ignores meals being cooked in other slots and meals without the flag', () => {
+    const entries = [{ ...buildEntry('breakfast'), isCooking: true }, buildEntry('lunch')];
+
+    expect(getCookingEatTodayDestinations(entries)).toEqual([]);
+  });
+});
+
 describe('planEatTodayMove', () => {
   function entry(
     id: string,
@@ -145,6 +160,21 @@ describe('planEatTodayMove', () => {
     ];
 
     expect(planEatTodayMove(entries, params)).toBeNull();
+  });
+
+  it('plans nothing when either meal has a Cooking session in progress', () => {
+    expect(
+      planEatTodayMove(
+        [
+          entry('source', '2026-08-27', 'dinner'),
+          entry('today-lunch', TODAY_KEY, 'lunch', { isCooking: true }),
+        ],
+        params
+      )
+    ).toBeNull();
+    expect(
+      planEatTodayMove([entry('source', '2026-08-27', 'dinner', { isCooking: true })], params)
+    ).toBeNull();
   });
 
   it('plans nothing when the source already sits at the destination', () => {

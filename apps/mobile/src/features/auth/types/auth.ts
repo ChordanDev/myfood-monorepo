@@ -166,6 +166,7 @@ export type AuthErrorCode =
   | 'scheduled_meal_cooked'
   | 'calendar_conflict'
   | 'calendar_move_not_possible'
+  | 'calendar_meal_cooking_in_progress'
   | 'configuration_error'
   | 'network_error'
   | 'timeout'

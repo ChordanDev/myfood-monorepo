@@ -10,6 +10,9 @@ export interface CalendarMeal {
   recipeName: string | null;
   isFavorite: boolean;
   isCooked: boolean;
+  // The meal has an active Cooking session, so the server refuses to move it. Optional: a server
+  // older than issue #207 does not send it.
+  isCooking?: boolean;
   selectedQuantity: number | null;
   prepTimeMinutes: number | null;
   macros: { calories: number | null };

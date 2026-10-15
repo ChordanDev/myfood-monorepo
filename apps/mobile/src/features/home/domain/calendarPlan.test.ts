@@ -35,8 +35,13 @@ describe('plan entries from the calendar', () => {
         type: 'lunch',
         recipeId: 'recipe-1',
         isCooked: false,
+        isCooking: false,
       },
     ]);
+  });
+
+  it('carries whether the meal has a Cooking session in progress', () => {
+    expect(toPlanEntries([meal({ isCooking: true })])).toMatchObject([{ isCooking: true }]);
   });
 
   it('leaves out slots that have no recipe', () => {
