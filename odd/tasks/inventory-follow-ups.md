@@ -18,11 +18,11 @@ Assumptions: the search needs a non-blank `query` of at most 100 characters and 
 
 | Task | Specs | Route | Status | Commit |
 | ---- | ----- | ----- | ------ | ------ |
-| T1 API Ingredient search route and guide | S2 | inline | pending | |
-| T2 API advisory fixes | S7 | inline | pending | |
-| T3 Mobile add sheet picks from the catalogue, notes 1000 | S3, S5 | inline | pending | |
-| T4 Mobile sign-out clears Inventory and Shopping | S1 | inline | pending | |
-| T5 Subtitle and design docs | S6 | inline | pending | |
+| T1 API Ingredient search route and guide | S2 | inline | done | `f4167ffb` |
+| T2 API advisory fixes | S7 | inline | done | `702fbc26` |
+| T3 Mobile add sheet picks from the catalogue, notes 1000 | S3, S5 | inline | done | `fcb0fb75` |
+| T4 Mobile sign-out clears Inventory and Shopping | S1 | inline | done | `fd503bdf` |
+| T5 Subtitle and design docs | S6 | inline | done | `55317a7b` |
 
 S4 needs no task: see L2.
 
@@ -31,3 +31,9 @@ S4 needs no task: see L2.
 - L1 (2026-10-15, user request): "Implement issue #116 of ChordanDev/myfood-monorepo: \"Inventory read and manual edits: follow-ups to #42\"." Open one pull request with the label `jorge:required`; do not merge.
 - L2: on `main` at `e7b6f673`, S4 and the catalogue half of S3 are already done. `consumeIngredient` and `MOCK_INGREDIENTS` no longer exist in `apps/mobile/src`; `useMarkAsCooked` starts and finishes a Cooking session, whose finish consumes Inventory on the server; `resolveRecipeIngredients` matches recipe lines to lots by the API Ingredient id. `markAsCooked` in `useMealPlanStore` only marks the entry. No change to `useMealPlanStore.ts`.
 - L3: a reset registry already exists (`features/auth/utils/accountDataReset.ts`); `applySession(null)`, called by `signOut`, runs it, and only the meal plan store registers. T4 registers the Inventory and Shopping stores there.
+- L4 (T1): `GET /api/ingredients` sits in the mobile product scope (`:mobile_casing`, `:auth`, `:enforce_capability`), one router line. `IngredientService.search/1` trims the query, refuses a blank one or one over 100 characters, and `Catalog.search_ingredients/2` runs `ILIKE` with `%`, `_` and `\` escaped, names that start with the query first, limit 20. RED 7 of 7 failing (404), GREEN 7.
+- L5 (T2): add-extra now refuses `acquiredAt` that is not an ISO datetime and `acquiredPriceCents` that is not a non-negative integer; before, an invalid `acquiredAt` was stored as nil with a 200 (RED 1 failing of 24). `InventoryService.validation_reasons/0` owns the reason list the controller reads at compile time; the catch-all logs the reason with `Logger.error`. `list_stock_with_ingredient/1` filters `quantity_milli > 0` in the query and replaces the in-memory filter in the service (RED: undefined function). The inferred-expiry test accepts the day before and after the add. `CookingService.frozen_inventory/2` keeps its own filter: out of this change.
+- L6 (T3): the add sheet searches 300 ms after typing pauses (`useIngredientSearch`), drops answers of an older query, sends `ingredientId` of the chosen option, forgets it when the name is typed again; notes cap 1000. RED 21 failing of 26, GREEN 26; screen add-flow tests now answer the catalogue search.
+- L7 (T4): Inventory and Shopping register with `registerAccountDataReset`; Inventory bumps its read and write generation so an answer for the previous Account is dropped; Shopping reads for nobody and forgets the chosen day, keeping `groupBy`. RED 3 failing (inventory), 2 failing (shopping), and the `AuthContext.signOut` test fails 3 of 4 with the registrations removed.
+- L8 (T5): subtitle "Ordenado por vencimiento: usá primero lo de arriba."; `Inventario.dc.html` and `apps/mobile/odd/tasks/inventory-screen.md` marked as superseded with what the screen does now.
+- L9 (checks on `55317a7b`): API `mix format --check-formatted` and `mix compile --warnings-as-errors` clean, `mix test` 2005 passed, 28 skipped. Mobile `npm run lint` 0 errors, 4 warnings (already on `main`), `npm run typecheck` clean, `npx jest` 156 suites, 2556 passed. Native assessment: high (`hot_path`, `AuthContext.tsx`), review due.
