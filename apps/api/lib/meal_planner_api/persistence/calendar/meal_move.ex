@@ -59,7 +59,8 @@ defmodule MealPlannerApi.Persistence.Calendar.MealMove do
 
   A cooked meal is refused on either side, and so is a meal on `today` with an
   `active` Cooking session (issue #207). A session off `today` does not count:
-  it can no longer be finished, and it must not pin its meal (issue #337).
+  the app cannot finish it, since starting refuses a meal off today, so it
+  must not pin its meal (issue #337).
   `:conflict` is a concurrent write
   that took the destination, and a retry can succeed. `:move_not_possible`
   is stored rows that cannot follow the meal, and a retry fails the same way.
@@ -140,7 +141,7 @@ defmodule MealPlannerApi.Persistence.Calendar.MealMove do
   # Read after the meals are locked: starting a Cooking session inserts a row
   # that references its meal, and that insert waits on the lock this move
   # holds, so no session of either meal starts until the move is over. Only a
-  # meal on `today` is held: off today its session can no longer be finished.
+  # meal on `today` is held: off today the app cannot finish its session.
   defp cooking_refusal(source, displaced, today) do
     on_today = for meal <- [source, displaced], meal && meal.date == today, do: meal.id
 

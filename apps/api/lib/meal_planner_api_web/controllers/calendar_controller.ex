@@ -75,8 +75,8 @@ defmodule MealPlannerApiWeb.CalendarController do
   `ApiError`: 404 `scheduled_meal_not_found`, 422 `validation_error` naming
   `date` or `slot` (the position the meal already has is not a valid
   destination), 409 `scheduled_meal_cooked` when either meal is cooked,
-  409 `calendar_meal_cooking_in_progress` when either meal has an active
-  Cooking session,
+  409 `calendar_meal_cooking_in_progress` when either meal is on the
+  Account's today and has an active Cooking session,
   409 `calendar_conflict` when a concurrent write took the destination, and
   409 `calendar_move_not_possible` when stored rows cannot follow the meal.
   """

@@ -326,7 +326,7 @@ defmodule MealPlannerApi.Persistence.Calendar do
 
   # The `active` Cooking sessions of the meal bound as `:meal`, when that meal is
   # on the Account's `today`. A meal with one cannot be moved (issue #207); off
-  # today the session cannot be finished, so it does not count (issue #337).
+  # today the app cannot finish the session, so it does not count (issue #337).
   defp active_cooking_session(today) do
     from(s in CookingSession,
       where:
