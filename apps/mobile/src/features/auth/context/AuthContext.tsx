@@ -147,8 +147,9 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
   const applySession = useCallback((session: AuthSession | null) => {
     const nextMe = session?.me ?? null;
-    // Stores that cache the signed-in account's data (the meal plan) are dropped when the session
-    // ends or another account signs in, so the next account never sees or writes the previous one.
+    // Stores that cache the signed-in account's data (the meal plan, the Inventory and the
+    // Shopping list) are dropped when the session ends or another account signs in, so the next
+    // account never sees or writes the previous one.
     const previousAccountId = meRef.current?.account.id ?? null;
     if (!nextMe || (previousAccountId !== null && previousAccountId !== nextMe.account.id)) {
       resetAccountData();

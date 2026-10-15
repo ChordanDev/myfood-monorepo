@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
 import { ApiError, isApiError } from '@/api/errors';
+import { registerAccountDataReset } from '@/features/auth/utils/accountDataReset';
 import { safeAsyncStorage } from '@/utils/safeAsyncStorage';
 import { addExtraItem, applyVoice, disposeItem, getInventory, setItemQuantity } from '../api';
 import type {
@@ -22,6 +23,8 @@ interface InventoryState {
   setQuantity: (id: string, quantityMilli: number) => Promise<void>;
   dispose: (id: string) => Promise<void>;
   applyVoice: (payload: VoiceApplyPayload) => Promise<VoiceApplyResult>;
+  /** Drops the lots of the signed-in Account, and any answer still on its way for it. */
+  resetAccountData: () => void;
 }
 
 type PersistedInventoryState = Pick<InventoryState, 'items'>;
@@ -55,6 +58,8 @@ export function migrateInventoryState(
 // was on its way during a write may have been answered before it.
 let latestRead = 0;
 let writeCount = 0;
+// Bumped when the Account's data is dropped: a write asked for before it lands nowhere.
+let accountGeneration = 0;
 
 export const useInventoryStore = create<InventoryState>()(
   persist(
@@ -87,26 +92,34 @@ export const useInventoryStore = create<InventoryState>()(
       // The writes are online only: the cache changes with the answer of the API, so a
       // failed one leaves it as it was and rejects with the envelope error.
       addExtra: async (payload) => {
+        const generation = accountGeneration;
         const { item } = await addExtraItem(payload);
+        if (generation !== accountGeneration) return item;
         writeCount += 1;
         // A plain add accumulates in the lot the API already had, which comes back whole
         set((state) => ({ items: replaceLot(state.items, item) }));
         return item;
       },
       setQuantity: async (id, quantityMilli) => {
+        const generation = accountGeneration;
         const { item } = await setItemQuantity(id, quantityMilli);
+        if (generation !== accountGeneration) return;
         writeCount += 1;
         set((state) => ({ items: replaceLot(state.items, item) }));
       },
       dispose: async (id) => {
+        const generation = accountGeneration;
         await disposeItem(id);
+        if (generation !== accountGeneration) return;
         writeCount += 1;
         set((state) => ({ items: state.items.filter((item) => item.id !== id) }));
       },
       // Each event of the answer says what its lot holds now, so the cache takes it as is. The
       // answer goes back to the caller: it says how much the API subtracted.
       applyVoice: async (payload) => {
+        const generation = accountGeneration;
         const result = await applyVoice(payload);
+        if (generation !== accountGeneration) return result;
         writeCount += 1;
         set((state) => ({
           items: result.mutationEvents.reduce((items, event) => {
@@ -118,6 +131,12 @@ export const useInventoryStore = create<InventoryState>()(
         }));
         return result;
       },
+      // A read on its way stops being the latest, so its answer is dropped too.
+      resetAccountData: () => {
+        latestRead += 1;
+        accountGeneration += 1;
+        set({ items: [], loadStatus: 'idle', loadError: null });
+      },
     }),
     {
       name: 'inventory-storage',
@@ -128,3 +147,5 @@ export const useInventoryStore = create<InventoryState>()(
     }
   )
 );
+
+registerAccountDataReset(() => useInventoryStore.getState().resetAccountData());
