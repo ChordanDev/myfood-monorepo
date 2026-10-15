@@ -315,8 +315,9 @@ defmodule MealPlannerApiWeb.InventoryControllerTest do
 
       # Added by name (D9), without an expiry: `no_perecederos` falls back to
       # a 14-day shelf life. The add may land on the next UTC day, so the
-      # inferred expiry is counted from the day before and the day after it.
-      day_before_add = Date.utc_today()
+      # inferred expiry may be counted from the date read before the request
+      # or from the date read after it.
+      date_before_add = Date.utc_today()
 
       inferred =
         actor
@@ -331,7 +332,7 @@ defmodule MealPlannerApiWeb.InventoryControllerTest do
                inferred["data"]["item"]
 
       assert inferred_on in Enum.map(
-               [day_before_add, Date.utc_today()],
+               [date_before_add, Date.utc_today()],
                &Date.to_iso8601(Date.add(&1, 14))
              )
     end
@@ -813,7 +814,6 @@ defmodule MealPlannerApiWeb.InventoryControllerTest do
     assert Enum.any?(meals, &(&1.recipe_id == recipe.id))
   end
 
-  # A User with an Account of their own, their token and their ids.
   describe "the failure summary the catch-all logs" do
     test "names the reason without the terms it carries" do
       alias MealPlannerApiWeb.InventoryController
@@ -834,6 +834,7 @@ defmodule MealPlannerApiWeb.InventoryControllerTest do
     end
   end
 
+  # A User with an Account of their own, their token and their ids.
   defp actor do
     %{token: token, user: user, account: account} = insert_identity_with_token!(plan: :family_4)
 

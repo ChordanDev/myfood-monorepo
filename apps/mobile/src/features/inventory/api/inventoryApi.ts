@@ -38,8 +38,8 @@ export async function getInventory(): Promise<InventoryView> {
   return view;
 }
 
-// The Ingredients of the catalogue whose name holds `query`, at most 20. The add sheet picks
-// the Ingredient it adds from them.
+// The Ingredients of the catalogue whose name holds `query`, as many as the API answers. The add
+// sheet picks the Ingredient it adds from them.
 export async function searchIngredients(query: string): Promise<IngredientOption[]> {
   const ingredients = unwrapData<IngredientOption[]>(
     await apiClient.get<unknown>(`/api/ingredients?query=${encodeURIComponent(query)}`, {
