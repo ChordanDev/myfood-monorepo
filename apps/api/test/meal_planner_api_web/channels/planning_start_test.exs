@@ -241,9 +241,7 @@ defmodule MealPlannerApiWeb.PlanningStartTest do
     for {label, params} <- [
           {"no end and no day count", %{"rangeFrom" => :from}},
           {"a day count of zero", %{"rangeFrom" => :from, "dayCount" => 0}},
-          {"a day count of eight", %{"rangeFrom" => :from, "dayCount" => 8}},
           {"a day count that is a string", %{"rangeFrom" => :from, "dayCount" => "3"}},
-          {"a range of eight days", %{"rangeFrom" => :from, "rangeTo" => {:days, 7}}},
           {"a day count that disagrees with the end",
            %{"rangeFrom" => :from, "rangeTo" => {:days, 2}, "dayCount" => 5}},
           {"a start two days in the past", %{"rangeFrom" => {:days, -2}, "dayCount" => 2}},
@@ -265,6 +263,37 @@ defmodule MealPlannerApiWeb.PlanningStartTest do
         ref = push(socket, "start_planning", params)
 
         assert_error_reply(ref, :planning_invalid_range)
+        assert active_sessions(account) == 0
+
+        assert Registry.lookup(MealPlannerApi.Generation.Generations, {:generation, account.id}) ==
+                 []
+      end
+    end
+
+    # Issue #213: a range longer than seven days gets its own code, with the
+    # allowed maximum, so the Planner can tell it from a reversed range.
+    for {label, params} <- [
+          {"a day count of eight", %{"rangeFrom" => :from, "dayCount" => 8}},
+          {"a range of eight days", %{"rangeFrom" => :from, "rangeTo" => {:days, 7}}},
+          {"a range of two years", %{"rangeFrom" => :from, "rangeTo" => {:days, 730}}}
+        ] do
+      test "#{label} replies planning_date_range_too_long and starts nothing", %{
+        account: account,
+        token: token
+      } do
+        socket = join_planning!(token, account)
+
+        params =
+          Map.new(unquote(Macro.escape(params)), fn
+            {key, :from} -> {key, in_days(0)}
+            {key, {:days, offset}} -> {key, in_days(offset)}
+            other -> other
+          end)
+
+        ref = push(socket, "start_planning", params)
+
+        payload = assert_error_reply(ref, :planning_date_range_too_long)
+        assert payload["error"]["details"] == %{"maxDays" => 7}
         assert active_sessions(account) == 0
 
         assert Registry.lookup(MealPlannerApi.Generation.Generations, {:generation, account.id}) ==

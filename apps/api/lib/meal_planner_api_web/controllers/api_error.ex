@@ -102,6 +102,7 @@ defmodule MealPlannerApiWeb.ApiError do
           | :invalid_range
           | :overlapping_range
           | :planning_invalid_range
+          | :planning_date_range_too_long
           | :planning_range_locked
           | :forbidden_intent
           | :unknown_intent
@@ -120,6 +121,7 @@ defmodule MealPlannerApiWeb.ApiError do
           | :invalid_identity
           | :invalid_date
           | :invalid_date_range
+          | :date_range_too_long
           | :optimization_failed
           | :optimizer_unavailable
           | :optimizer_timeout
@@ -258,6 +260,9 @@ defmodule MealPlannerApiWeb.ApiError do
     # display name of the member who holds it, see `envelope/2`.
     planning_invalid_range:
       {422, "The planning range must be 1 to 7 days and start today or later."},
+    # Issue #213: a range longer than `PlanningService.max_planning_days/0`.
+    # Its details carry that maximum as `max_days`.
+    planning_date_range_too_long: {422, "The date range must not be longer than 7 days."},
     planning_range_locked: {409, "Another planning session holds part of this date range."},
     # `start_planning` (issue #28): the Planner never plans over a Scheduled
     # meal. The details name the date and slot pairs that already hold one.
@@ -281,6 +286,9 @@ defmodule MealPlannerApiWeb.ApiError do
     invalid_identity: {401, "The identity of this session could not be resolved."},
     invalid_date: {422, "The date is not valid."},
     invalid_date_range: {422, "The start date must not be after the end date."},
+    # `POST /api/planning/chat` (issue #213): the counterpart of
+    # `planning_date_range_too_long`, with the same `max_days` details.
+    date_range_too_long: {422, "The date range must not be longer than 7 days."},
     optimization_failed: {422, "A menu could not be generated for this request."},
     optimizer_unavailable: {503, "The menu optimizer is not available. Try again later."},
     optimizer_timeout: {504, "The menu optimizer took too long. Try again later."}

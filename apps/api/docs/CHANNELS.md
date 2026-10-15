@@ -202,13 +202,14 @@ The command validates the range, checks the Account is eligible, starts the sess
 { "sessionId": "550e8400-e29b-41d4-a716-446655440002", "status": "active" }
 ```
 
-`generation_started` follows with the `runId`. When the generation cannot start the session is cancelled (`session_cancelled`), its process is stopped, and the command replies the error envelope with `requestId`, so the member can start again. A `generation_error` event is pushed too, except when the account already has a run in flight: that case replies `generation_in_progress` only, and the topic is not told of a failure. A start that does not get an answer from the generation server in time is handled as a failed start. `rangeTo` and `dayCount` sent as `null` count as absent. The range is capped at 7 days on every plan (`PlanningService.max_planning_days/0`, the same cap as `POST /api/planning/chat`), which is also the window of the generation server; a longer range is refused before any session starts.
+`generation_started` follows with the `runId`. When the generation cannot start the session is cancelled (`session_cancelled`), its process is stopped, and the command replies the error envelope with `requestId`, so the member can start again. A `generation_error` event is pushed too, except when the account already has a run in flight: that case replies `generation_in_progress` only, and the topic is not told of a failure. A start that does not get an answer from the generation server in time is handled as a failed start. `rangeTo` and `dayCount` sent as `null` count as absent. The range is capped at 7 days on every plan (`PlanningService.max_planning_days/0`, the same cap as `POST /api/planning/chat`), which is also the window of the generation server; a longer range is refused with `planning_date_range_too_long` before any session starts.
 
 Refusals reply the error envelope with these codes:
 
 | Code | Condition |
 |------|-----------|
-| `planning_invalid_range` | A date is missing or is not an ISO 8601 date, the range ends before it starts, lasts more than 7 days, starts more than a day in the past, or `dayCount` is not an integer from 1 to 7 or disagrees with `rangeTo` |
+| `planning_invalid_range` | A date is missing or is not an ISO 8601 date, the range ends before it starts, starts more than a day in the past, or `dayCount` is not a positive integer or disagrees with `rangeTo` |
+| `planning_date_range_too_long` | The range lasts more than 7 days, by `rangeTo` or by `dayCount`. `details.maxDays` is the allowed maximum (`{"maxDays": 7}`) |
 | `planning_range_locked` | An active session of the Account already holds part of the range |
 | `planning_slot_occupied` | A day of the range already has a Scheduled meal in a slot the session plans (breakfast, lunch or dinner). Refused before any session starts |
 | `invalid_payload` | `request` is not a string or is longer than 1000 characters, or `favoriteRecipeIds` is not a list of strings. Both are refused before any session starts |

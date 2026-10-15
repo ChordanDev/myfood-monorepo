@@ -204,6 +204,21 @@ describe('auth error code contract (api -> mobile allowlist)', () => {
     );
   });
 
+  it('errorFromEnvelope() keeps the codes of a range that is too long and their maxDays', () => {
+    // Issue #213: the api renders these two with `ApiError.envelope/2`, not
+    // `error(:atom)`, so the scan above does not see them.
+    for (const code of ['date_range_too_long', 'planning_date_range_too_long'] as const) {
+      const error = errorFromEnvelope(
+        { error: { code, message: 'x', details: { maxDays: 7 } } },
+        422
+      );
+
+      expect(error.code).toBe(code);
+      expect(error.details).toEqual({ maxDays: 7 });
+      expect(AUTH_ERROR_MESSAGES[code]).toBe('Elegí un rango de hasta 7 días.');
+    }
+  });
+
   it('does not know rate_limit_record_failed, a code the api never emits', () => {
     // The api records a rate-limit event with `:ok = insert_event(...)`,
     // so a failed record raises instead of answering a code. The catalog

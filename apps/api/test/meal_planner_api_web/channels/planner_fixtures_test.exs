@@ -138,7 +138,9 @@ defmodule MealPlannerApiWeb.PlannerFixturesTest do
   end
 
   test "planning_invalid_range error envelope", %{socket: socket} do
-    ref = push(socket, "start_planning", %{"rangeFrom" => in_days(0), "dayCount" => 8})
+    # A day count of zero: since #213 a range longer than seven days replies
+    # `planning_date_range_too_long` instead.
+    ref = push(socket, "start_planning", %{"rangeFrom" => in_days(0), "dayCount" => 0})
 
     assert_receive %Phoenix.Socket.Reply{ref: ^ref, status: :error, payload: payload}
     PlannerFixtures.check!("planningInvalidRangeError", payload)

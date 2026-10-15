@@ -502,7 +502,20 @@ Request body:
 }
 ```
 
-`date_from` to `date_to` covers 1 to 7 days, both ends counted, on every plan. A longer range, or one that ends before it starts, answers `422` with `{"error": "invalid_date_range"}` and plans nothing.
+`date_from` to `date_to` covers 1 to 7 days, both ends counted, on every plan. Neither refusal plans anything:
+
+- A range that ends before it starts answers `422` with `{"error": "invalid_date_range"}`.
+- A longer range answers `422` with the error envelope, `details.maxDays` holding the allowed maximum:
+
+```json
+{
+  "error": {
+    "code": "date_range_too_long",
+    "message": "The date range must not be longer than 7 days.",
+    "details": { "maxDays": 7 }
+  }
+}
+```
 
 Success response:
 
