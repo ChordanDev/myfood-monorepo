@@ -49,7 +49,13 @@ defmodule MealPlannerApi.Generation.Server do
           constraints: map() | nil
         }
 
-  @type reason :: :already_running | :not_found | :forbidden | :optimization_failed | term()
+  @type reason ::
+          :already_running
+          | :not_found
+          | :forbidden
+          | :not_pending
+          | :optimization_failed
+          | term()
 
   # The longest window a generation covers, in days. Seven is the default
   # window of this pipeline (today plus six days) and the most days a User
@@ -130,9 +136,11 @@ defmodule MealPlannerApi.Generation.Server do
     GenServer.call(pid, {:confirm, proposal_id, session_id})
   end
 
-  @spec reject(pid(), proposal_id :: Ecto.UUID.t()) :: :ok
+  # Only a pending proposal is rejected. Any other answers `:not_pending` and
+  # writes nothing (issue #287).
+  @spec reject(pid(), proposal_id :: Ecto.UUID.t()) :: :ok | {:error, reason()}
   def reject(pid, proposal_id) when is_pid(pid) do
-    GenServer.cast(pid, {:reject, proposal_id})
+    GenServer.call(pid, {:reject, proposal_id})
   end
 
   @spec get_status(Ecto.UUID.t()) :: state() | nil
@@ -214,14 +222,13 @@ defmodule MealPlannerApi.Generation.Server do
   end
 
   @impl true
-  def handle_cast({:chat, proposal_id, message}, state) do
-    handle_chat(state, proposal_id, message)
-    {:noreply, state}
+  def handle_call({:reject, proposal_id}, _from, state) do
+    {:reply, handle_reject(state, proposal_id), state}
   end
 
   @impl true
-  def handle_cast({:reject, proposal_id}, state) do
-    handle_reject(state, proposal_id)
+  def handle_cast({:chat, proposal_id, message}, state) do
+    handle_chat(state, proposal_id, message)
     {:noreply, state}
   end
 
@@ -341,7 +348,7 @@ defmodule MealPlannerApi.Generation.Server do
     with :ok <- PlanningRequestValidator.validate_actor(state.account_id, state.user_id),
          :ok <- verify_ownership(proposal_id, state.account_id),
          {:ok, proposal, run} <- fetch_proposal_with_run(proposal_id),
-         :ok <- guard_not_already_confirmed(proposal),
+         :ok <- guard_confirmable(proposal),
          :ok <- verify_session_lock(state.account_id, session_id),
          {:ok, summary} <-
            run_confirm_transaction(state, proposal, run, session_id) do
@@ -465,12 +472,22 @@ defmodule MealPlannerApi.Generation.Server do
   # second `CheckoutSession` and no extra `ShoppingItem` rows. Concurrency:
   # `update_proposal(:accepted)` in the next call serializes on the row,
   # so a race between two confirms still terminates with at most one cart.
-  defp guard_not_already_confirmed(%{status: :accepted}), do: {:error, :already_confirmed}
-  defp guard_not_already_confirmed(_proposal), do: :ok
+  #
+  # Issue #287: only a pending proposal is confirmed. A rejected one answers
+  # `:not_pending` before any write, so a proposal never ends both rejected
+  # and confirmed.
+  defp guard_confirmable(%{status: :pending}), do: :ok
+  defp guard_confirmable(%{status: :accepted}), do: {:error, :already_confirmed}
+  defp guard_confirmable(_proposal), do: {:error, :not_pending}
 
+  # Issue #287: only a pending proposal is rejected. Any other answers
+  # `:not_pending` and writes nothing: no proposal or run update and no
+  # `proposal_rejected` broadcast. The server runs one message at a time, so
+  # a confirm handled first is seen here.
   defp handle_reject(state, proposal_id) do
     with :ok <- verify_ownership(proposal_id, state.account_id),
          {:ok, proposal, run} <- fetch_proposal_with_run(proposal_id),
+         :ok <- guard_pending(proposal),
          {:ok, _} <- PlanningRepo.update_proposal(proposal, %{status: :rejected}) do
       PlanningRepo.update_generation_run(run, %{
         status: :completed,
@@ -478,8 +495,12 @@ defmodule MealPlannerApi.Generation.Server do
       })
 
       broadcast(state, "proposal_rejected", %{proposal_id: proposal_id})
+      :ok
     end
   end
+
+  defp guard_pending(%{status: :pending}), do: :ok
+  defp guard_pending(_proposal), do: {:error, :not_pending}
 
   # -------------------------------------------------------------------------
   # Chat / modificación
