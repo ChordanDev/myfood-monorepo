@@ -165,4 +165,37 @@ defmodule MealPlannerApi.Services.PlanningChatServiceTest do
       refute_planning_rows(account.id)
     end
   end
+
+  # Issue #312: an optimizer answer outside the candidates leaves as
+  # `:optimization_failed` and writes no generation run and no proposal.
+  describe "generate_menu/2 with an optimizer answer outside the candidates" do
+    setup do
+      previous_client = Application.get_env(:meal_planner_api, :planning_optimizer_client)
+
+      on_exit(fn ->
+        Application.put_env(:meal_planner_api, :planning_optimizer_client, previous_client)
+        Application.delete_env(:meal_planner_api, :out_of_candidate_recipe_id)
+      end)
+
+      Application.put_env(
+        :meal_planner_api,
+        :planning_optimizer_client,
+        MealPlannerApi.TestSupport.OutOfCandidateOptimizer
+      )
+    end
+
+    test "refuses the menu and writes nothing", %{user: user, account: account} do
+      # The first meal is a breakfast; the lunch recipe is not a breakfast candidate.
+      lunch = Repo.get_by!(Catalog.Recipe, account_id: account.id, name: "Range cap lunch")
+      Application.put_env(:meal_planner_api, :out_of_candidate_recipe_id, lunch.id)
+
+      assert {:error, :optimization_failed} =
+               PlanningChatService.generate_menu(
+                 current_user(user, account, :free),
+                 range("2026-06-15", "2026-06-21")
+               )
+
+      refute_planning_rows(account.id)
+    end
+  end
 end
