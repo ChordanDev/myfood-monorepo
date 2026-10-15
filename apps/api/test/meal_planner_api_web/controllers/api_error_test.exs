@@ -144,7 +144,8 @@ defmodule MealPlannerApiWeb.ApiErrorTest do
       for {code, status} <- [
             scheduled_meal_cooked: 409,
             calendar_conflict: 409,
-            calendar_move_not_possible: 409
+            calendar_move_not_possible: 409,
+            calendar_meal_cooking_in_progress: 409
           ] do
         assert {code, ApiError.error(conn, code).status} == {code, status}
       end
@@ -361,7 +362,9 @@ defmodule MealPlannerApiWeb.ApiErrorTest do
       voice_codes = ~w(voice_parse_failed voice_confirmation_required)a
 
       # The codes of the Scheduled meal move (issue #144) that are its own.
-      meal_move_codes = ~w(scheduled_meal_cooked calendar_conflict calendar_move_not_possible)a
+      # Issue #207 adds the refusal of a meal being cooked.
+      meal_move_codes =
+        ~w(scheduled_meal_cooked calendar_conflict calendar_move_not_possible calendar_meal_cooking_in_progress)a
 
       # The code of the Planner confirm and reject routes (issue #28).
       proposal_codes = [:planning_proposal_not_pending]

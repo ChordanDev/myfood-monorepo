@@ -6,11 +6,19 @@ import { EAT_TODAY_LABEL, type EatTodayDestinationType } from '../domain/eatToda
 interface EatTodaySheetProps {
   visible: boolean;
   destinations: EatTodayDestinationType[];
+  // Destinations whose meal is being cooked: shown, but they cannot be chosen.
+  cookingDestinations?: EatTodayDestinationType[];
   onSelect: (mealType: EatTodayDestinationType) => void;
   onClose: () => void;
 }
 
-export function EatTodaySheet({ visible, destinations, onSelect, onClose }: EatTodaySheetProps) {
+export function EatTodaySheet({
+  visible,
+  destinations,
+  cookingDestinations = [],
+  onSelect,
+  onClose,
+}: EatTodaySheetProps) {
   const insets = useSafeAreaInsets();
   const { theme } = useRecipeTheme();
   const hasDestinations = destinations.length > 0;
@@ -47,24 +55,35 @@ export function EatTodaySheet({ visible, destinations, onSelect, onClose }: EatT
           </Text>
 
           <View style={styles.actions}>
-            {destinations.map((mealType) => (
-              <Pressable
-                key={mealType}
-                accessibilityRole="button"
-                onPress={() => onSelect(mealType)}
-                style={({ pressed }) => [
-                  styles.optionButton,
-                  {
-                    backgroundColor: theme.primaryAccent,
-                    borderColor: theme.primaryAccentIntense,
-                    opacity: pressed ? 0.9 : 1,
-                  },
-                ]}>
-                <Text style={[styles.optionLabel, { color: theme.textBlack }]}>
-                  {EAT_TODAY_LABEL[mealType]}
-                </Text>
-              </Pressable>
-            ))}
+            {destinations.map((mealType) => {
+              const isCooking = cookingDestinations.includes(mealType);
+
+              return (
+                <Pressable
+                  key={mealType}
+                  accessibilityRole="button"
+                  accessibilityState={{ disabled: isCooking }}
+                  disabled={isCooking}
+                  onPress={() => onSelect(mealType)}
+                  style={({ pressed }) => [
+                    styles.optionButton,
+                    {
+                      backgroundColor: theme.primaryAccent,
+                      borderColor: theme.primaryAccentIntense,
+                      opacity: isCooking ? 0.5 : pressed ? 0.9 : 1,
+                    },
+                  ]}>
+                  <Text style={[styles.optionLabel, { color: theme.textBlack }]}>
+                    {EAT_TODAY_LABEL[mealType]}
+                  </Text>
+                  {isCooking && (
+                    <Text style={[styles.optionHint, { color: theme.textBlack }]}>
+                      Se está cocinando. Terminá de cocinarla primero.
+                    </Text>
+                  )}
+                </Pressable>
+              );
+            })}
 
             <Pressable
               accessibilityRole="button"
@@ -107,6 +126,12 @@ const styles = StyleSheet.create({
     minHeight: 48,
     paddingHorizontal: 16,
     width: '100%',
+  },
+  optionHint: {
+    fontFamily: 'Inter_500Medium',
+    fontSize: 13,
+    lineHeight: 18,
+    textAlign: 'center',
   },
   optionLabel: {
     fontFamily: 'Inter_600SemiBold',

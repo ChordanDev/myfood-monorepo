@@ -20,14 +20,23 @@ jest.mock('@/context/RecipeThemeContext', () => ({
   }),
 }));
 
-function renderSheet(destinations: EatTodayDestinationType[]) {
+function renderSheet(
+  destinations: EatTodayDestinationType[],
+  cookingDestinations?: EatTodayDestinationType[]
+) {
   const onSelect = jest.fn();
   const onClose = jest.fn();
   let tree: ReturnType<typeof create>;
 
   act(() => {
     tree = create(
-      <EatTodaySheet visible destinations={destinations} onSelect={onSelect} onClose={onClose} />
+      <EatTodaySheet
+        visible
+        destinations={destinations}
+        cookingDestinations={cookingDestinations}
+        onSelect={onSelect}
+        onClose={onClose}
+      />
     );
   });
 
@@ -87,6 +96,23 @@ describe('EatTodaySheet', () => {
     expect(onSelect).toHaveBeenCalledTimes(1);
     expect(onSelect).toHaveBeenCalledWith('dinner');
     expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it('disables a destination whose meal is being cooked and says why', () => {
+    const { root } = renderSheet(['lunch', 'dinner'], ['lunch']);
+
+    const [lunch, dinner] = getButtons(root).filter((button) =>
+      ['Mediodía', 'Cena'].some((label) => getTexts(button).includes(label))
+    );
+
+    expect(getTexts(lunch)).toEqual([
+      'Mediodía',
+      'Se está cocinando. Terminá de cocinarla primero.',
+    ]);
+    expect(lunch.props.disabled).toBe(true);
+    expect(lunch.props.accessibilityState).toEqual({ disabled: true });
+    expect(dinner.props.disabled).toBe(false);
+    expect(dinner.props.accessibilityState).toEqual({ disabled: false });
   });
 
   it('closes from the cancel action without selecting', () => {

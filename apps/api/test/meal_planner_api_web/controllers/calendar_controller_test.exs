@@ -769,6 +769,86 @@ defmodule MealPlannerApiWeb.CalendarControllerTest do
     end
   end
 
+  # Issue #207: the Eat today sheet disables a destination whose meal is being
+  # cooked, so the calendar says which meals have an active Cooking session.
+  describe "isCooking" do
+    test "GET /api/calendar and /api/calendar/slot flag only a meal with an active Cooking session" do
+      %{token: token, account: %{id: account_id}} = insert_identity_with_token!(plan: :family_4)
+      today = pin_account_to_midday!(account_id)
+
+      {:ok, cooking} = Calendar.upsert_scheduled_meal(account_id, %{date: today, slot: :lunch})
+      {:ok, finished} = Calendar.upsert_scheduled_meal(account_id, %{date: today, slot: :dinner})
+      {:ok, idle} = Calendar.upsert_scheduled_meal(account_id, %{date: today, slot: :snack})
+      cooking_session!(cooking, :active)
+      cooking_session!(finished, :completed)
+
+      body =
+        build_conn()
+        |> put_req_header("authorization", "Bearer " <> token)
+        |> get("/api/calendar", %{
+          "start_date" => Date.to_iso8601(today),
+          "end_date" => Date.to_iso8601(today)
+        })
+        |> json_response(200)
+
+      assert Map.new(body["data"]["meals"], &{&1["mealId"], &1["isCooking"]}) == %{
+               cooking.id => true,
+               finished.id => false,
+               idle.id => false
+             }
+
+      for {slot, is_cooking} <- [{"lunch", true}, {"dinner", false}, {"breakfast", false}] do
+        data =
+          build_conn()
+          |> put_req_header("authorization", "Bearer " <> token)
+          |> get("/api/calendar/slot", %{"date" => Date.to_iso8601(today), "slot" => slot})
+          |> json_response(200)
+          |> Map.fetch!("data")
+
+        assert {slot, data["isCooking"]} == {slot, is_cooking}
+      end
+    end
+
+    # Issue #337: an active session counts only while its meal is on the
+    # Account's today; before or after it, the meal can be moved.
+    test "GET /api/calendar and /api/calendar/slot do not flag an active session off today" do
+      %{token: token, account: %{id: account_id}} = insert_identity_with_token!(plan: :family_4)
+      today = pin_account_to_midday!(account_id)
+      yesterday = Date.add(today, -1)
+      tomorrow = Date.add(today, 1)
+
+      {:ok, past} = Calendar.upsert_scheduled_meal(account_id, %{date: yesterday, slot: :lunch})
+      {:ok, future} = Calendar.upsert_scheduled_meal(account_id, %{date: tomorrow, slot: :lunch})
+      cooking_session!(past, :active)
+      cooking_session!(future, :active)
+
+      body =
+        build_conn()
+        |> put_req_header("authorization", "Bearer " <> token)
+        |> get("/api/calendar", %{
+          "start_date" => Date.to_iso8601(yesterday),
+          "end_date" => Date.to_iso8601(tomorrow)
+        })
+        |> json_response(200)
+
+      assert Map.new(body["data"]["meals"], &{&1["mealId"], &1["isCooking"]}) == %{
+               past.id => false,
+               future.id => false
+             }
+
+      for date <- [yesterday, tomorrow] do
+        data =
+          build_conn()
+          |> put_req_header("authorization", "Bearer " <> token)
+          |> get("/api/calendar/slot", %{"date" => Date.to_iso8601(date), "slot" => "lunch"})
+          |> json_response(200)
+          |> Map.fetch!("data")
+
+        assert {date, data["isCooking"]} == {date, false}
+      end
+    end
+  end
+
   describe "POST /api/calendar/meals/:id/move" do
     setup do
       %{token: token, account: account} = insert_identity_with_token!(plan: :family_4)
@@ -859,6 +939,22 @@ defmodule MealPlannerApiWeb.CalendarControllerTest do
 
       assert stored_position(cooked) == {f.tomorrow, :dinner}
       assert stored_position(source) == {f.tomorrow, :lunch}
+    end
+
+    test "answers 409 for a meal being cooked on either side", f do
+      cooking = scheduled!(f.account_id, f.today, :lunch)
+      source = scheduled!(f.account_id, f.tomorrow, :dinner)
+      cooking_session!(cooking, :active)
+
+      for {meal, {date, slot}} <- [{cooking, {f.tomorrow, "lunch"}}, {source, {f.today, "lunch"}}] do
+        conn = move(f.token, meal.id, %{"date" => Date.to_iso8601(date), "slot" => slot})
+
+        assert %{"error" => %{"code" => "calendar_meal_cooking_in_progress"}} =
+                 json_response(conn, 409)
+      end
+
+      assert stored_position(cooking) == {f.today, :lunch}
+      assert stored_position(source) == {f.tomorrow, :dinner}
     end
 
     test "answers 422 naming the field for an invalid slot or date", f do
@@ -996,6 +1092,21 @@ defmodule MealPlannerApiWeb.CalendarControllerTest do
       })
       |> Repo.insert!()
     end
+  end
+
+  defp cooking_session!(meal, status) do
+    now = DateTime.utc_now()
+
+    {:ok, session} =
+      PlanningRepo.create_cooking_session(%{
+        account_id: meal.account_id,
+        scheduled_meal_id: meal.id,
+        status: status,
+        started_at: now,
+        completed_at: if(status == :completed, do: now)
+      })
+
+    session
   end
 
   # `Date.from_iso8601/1` reads years from -9999 and PostgreSQL raises on a
