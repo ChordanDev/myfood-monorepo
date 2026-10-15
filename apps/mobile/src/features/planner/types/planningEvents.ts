@@ -227,6 +227,21 @@ export const parseProposalReady = parseWith(
   })
 );
 
+/** What the draft reads of `session_resumed`: its session and the pending proposal, if any. */
+export interface SessionResumedDraftPayload {
+  sessionId: string;
+  proposal: ProposalReadyPayload | null;
+}
+
+// `session_resumed` also carries the recent messages, which the draft does not read: only the two
+// keys it needs are vouched for. Its proposal has the shape of `proposal_ready`.
+export function parseSessionResumed(payload: unknown): SessionResumedDraftPayload {
+  if (!isRecord(payload)) return fail('sessionResumed', 'an object');
+  const sessionId = str(payload.sessionId, 'sessionResumed.sessionId');
+  const proposal = payload.proposal === null ? null : parseProposalReady(payload.proposal);
+  return { sessionId, proposal };
+}
+
 export const parsePlanningMessage = parseWith(
   'planningMessage',
   record<PlanningMessagePayload>({

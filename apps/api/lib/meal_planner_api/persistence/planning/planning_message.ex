@@ -20,6 +20,14 @@ defmodule MealPlannerApi.Persistence.Planning.PlanningMessage do
 
   @type t :: %__MODULE__{}
 
+  # Issue #146 — `session_resumed` pushes the recent messages of the session
+  # on every join, so a message is bounded.
+  @max_content_chars 2_000
+
+  @doc "The most characters the content of a message can have."
+  @spec max_content_chars() :: pos_integer()
+  def max_content_chars, do: @max_content_chars
+
   schema "planning_messages" do
     field(:role, Ecto.Enum, values: [:user, :assistant, :system])
     field(:content, :string)
@@ -36,6 +44,7 @@ defmodule MealPlannerApi.Persistence.Planning.PlanningMessage do
     |> cast(attrs, [:account_id, :session_id, :role, :content, :intent_kind])
     |> validate_required([:account_id, :session_id, :role, :content])
     |> validate_inclusion(:role, [:user, :assistant, :system])
+    |> validate_length(:content, max: @max_content_chars)
     |> foreign_key_constraint(:account_id)
     |> foreign_key_constraint(:session_id)
   end

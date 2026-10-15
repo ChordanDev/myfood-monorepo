@@ -6,7 +6,7 @@ import { fixtureRecipe } from '@/features/recipe/fixtures/recipeDetail';
 import { useRecipeCacheStore } from '@/features/recipe/store';
 import { useMealPlanStore } from '@/store';
 import { formatDateKey } from '../../utils/calendarDate';
-import { useLoadLivePlan } from '../useLoadLivePlan';
+import { loadLivePlan, useLoadLivePlan } from '../useLoadLivePlan';
 
 jest.mock('@react-native-async-storage/async-storage', () =>
   jest.requireActual('@react-native-async-storage/async-storage/jest/async-storage-mock')
@@ -55,6 +55,19 @@ function fetchedRecipeIds() {
 function Harness() {
   useLoadLivePlan();
   return null;
+}
+
+// A calendar answer the test hands out when it chooses.
+function deferredCalendar() {
+  let resolve: (calendar: unknown) => void = () => undefined;
+  const promise = new Promise((done) => {
+    resolve = done;
+  });
+  return { promise, resolve };
+}
+
+function plannedRecipeIds() {
+  return useMealPlanStore.getState().entries.map((entry) => entry.recipeId);
 }
 
 beforeEach(() => {
@@ -177,5 +190,73 @@ describe('useLoadLivePlan', () => {
 
     expect(fetchedRecipeIds()).toEqual(['r-dinner']);
     expect(useRecipeCacheStore.getState().getCachedRecipe('r-lunch')).toBe(cached);
+  });
+
+  // Issue #146: Home and the Planner both mount the hook.
+  it('shares one calendar read between the callers mounted together', async () => {
+    const answer = deferredCalendar();
+    mockGetCalendar.mockReturnValue(answer.promise);
+
+    await act(async () => {
+      tree = create(
+        <>
+          <Harness />
+          <Harness />
+        </>
+      );
+    });
+
+    expect(mockGetCalendar).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      answer.resolve({ meals: [calendarMeal('m1', TOMORROW, 'lunch', 'r-shared')] });
+    });
+
+    expect(plannedRecipeIds()).toEqual(['r-shared']);
+  });
+
+  it('reads again once the shared read has answered', async () => {
+    mockGetCalendar.mockResolvedValue({ meals: [] });
+
+    await act(async () => {
+      tree = create(<Harness />);
+    });
+    await act(async () => {
+      comeToForeground();
+    });
+
+    expect(mockGetCalendar).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe('loadLivePlan', () => {
+  it('keeps the answer of the newest read when an older one answers last', async () => {
+    const older = deferredCalendar();
+    const newer = deferredCalendar();
+    mockGetCalendar.mockReturnValueOnce(older.promise).mockReturnValueOnce(newer.promise);
+
+    const olderRead = loadLivePlan();
+    const newerRead = loadLivePlan();
+
+    newer.resolve({ meals: [calendarMeal('m1', TOMORROW, 'lunch', 'r-newer')] });
+    await newerRead;
+    older.resolve({ meals: [calendarMeal('m1', TOMORROW, 'lunch', 'r-older')] });
+    await olderRead;
+
+    expect(plannedRecipeIds()).toEqual(['r-newer']);
+  });
+
+  it('keeps the answer of an older read when the newer one fails', async () => {
+    const older = deferredCalendar();
+    mockGetCalendar
+      .mockReturnValueOnce(older.promise)
+      .mockReturnValueOnce(Promise.reject(new Error('offline')));
+
+    const olderRead = loadLivePlan();
+    await expect(loadLivePlan()).rejects.toThrow('offline');
+    older.resolve({ meals: [calendarMeal('m1', TOMORROW, 'lunch', 'r-older')] });
+    await olderRead;
+
+    expect(plannedRecipeIds()).toEqual(['r-older']);
   });
 });

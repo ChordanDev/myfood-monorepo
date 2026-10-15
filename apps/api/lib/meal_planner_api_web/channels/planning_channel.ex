@@ -167,7 +167,7 @@ defmodule MealPlannerApiWeb.PlanningChannel do
     Casing.camelize_keys(%{
       session_id: session.id,
       proposal_id: proposal && proposal.id,
-      proposal: proposal && proposal.proposal_json,
+      proposal: proposal && resumed_proposal(proposal),
       messages:
         account_id
         |> Planning.recent_planning_messages(session.id)
@@ -179,6 +179,22 @@ defmodule MealPlannerApiWeb.PlanningChannel do
           }
         end)
     })
+  end
+
+  # Issue #146 — a proposal of the generation is pushed in the shape of
+  # `proposal_ready`, so the client rebuilds its draft with the parser of that
+  # event. Any other stored proposal is pushed as it was stored.
+  defp resumed_proposal(proposal) do
+    payload = %{
+      proposal: proposal.proposal_json,
+      proposal_id: proposal.id,
+      run_id: proposal.generation_run_id
+    }
+
+    case PlanningEvents.proposal_ready(payload) do
+      {:ok, ready, _message} -> ready
+      :passthrough -> proposal.proposal_json
+    end
   end
 
   # `UserSocket.connect/3` verifies the token once and the socket can stay
@@ -270,6 +286,24 @@ defmodule MealPlannerApiWeb.PlanningChannel do
       payload |> PlanningEvents.generation_error() |> Casing.camelize_keys()
     )
 
+    {:noreply, socket}
+  end
+
+  # Issue #146 — `PlanningSessionServer` broadcasts `session_resumed` with the
+  # session id alone when it restarts. While that session is the Account's
+  # active one, each socket gets the payload a join pushes; otherwise the
+  # payload goes out as it was broadcast.
+  def handle_out("session_resumed", payload, socket) do
+    account_id = socket.assigns.account_id
+    session_id = payload |> Casing.snake_keys() |> Map.get("session_id")
+
+    resumed =
+      case Planning.get_active_planning_session(account_id) do
+        %{id: ^session_id} = session -> resumed_payload(account_id, session)
+        _other -> Casing.camelize_keys(payload)
+      end
+
+    push(socket, "session_resumed", resumed)
     {:noreply, socket}
   end
 

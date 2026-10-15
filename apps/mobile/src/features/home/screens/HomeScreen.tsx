@@ -48,11 +48,13 @@ export function HomeScreen() {
   const addInventoryExtra = useInventoryStore((state) => state.addExtra);
   const markAsSkipped = useMealPlanStore((state) => state.markAsSkipped);
   // Destinations are captured when the sheet opens so the options cannot change while it is shown.
+  // A move that did not go as asked opens the sheet again with its message alone.
   const [eatTodaySheet, setEatTodaySheet] = useState<{
     visible: boolean;
     destinations: EatTodayDestinationType[];
     cookingDestinations: EatTodayDestinationType[];
-  }>({ visible: false, destinations: [], cookingDestinations: [] });
+    errorMessage: string | null;
+  }>({ visible: false, destinations: [], cookingDestinations: [], errorMessage: null });
 
   const {
     selectedDate,
@@ -128,6 +130,7 @@ export function HomeScreen() {
       visible: true,
       destinations: getAvailableEatTodayDestinations(planByDate[todayKey] ?? [], new Date()),
       cookingDestinations: getCookingEatTodayDestinations(planByDate[todayKey] ?? []),
+      errorMessage: null,
     });
   };
 
@@ -143,7 +146,7 @@ export function HomeScreen() {
       return;
     }
 
-    const moved = await eatToday({
+    const { moved, errorMessage } = await eatToday({
       sourceDate: selectedDate,
       sourceType: selectedMealType,
       targetDate: todayKey,
@@ -152,6 +155,10 @@ export function HomeScreen() {
 
     if (moved) {
       handleSelectDate(todayKey, mealType);
+    }
+
+    if (errorMessage !== null) {
+      setEatTodaySheet({ visible: true, destinations: [], cookingDestinations: [], errorMessage });
     }
   };
 
@@ -285,6 +292,7 @@ export function HomeScreen() {
         visible={eatTodaySheet.visible}
         destinations={eatTodaySheet.destinations}
         cookingDestinations={eatTodaySheet.cookingDestinations}
+        errorMessage={eatTodaySheet.errorMessage}
         onSelect={handleSelectEatTodayDestination}
         onClose={handleCloseEatTodaySheet}
       />

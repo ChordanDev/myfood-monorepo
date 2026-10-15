@@ -3,7 +3,7 @@ import React from 'react';
 import { act, create } from 'react-test-renderer';
 import type { MealPlanEntry } from '@/types/domain';
 import { useMealPlanStore } from '@/store';
-import { useEatToday } from '../useEatToday';
+import { useEatToday, type EatTodayResult } from '../useEatToday';
 
 // The calendar API module is the real one: these tests watch the requests the hook really makes,
 // so a move that goes back to replacing the range fails here.
@@ -131,15 +131,16 @@ afterAll(() => {
 
 describe('useEatToday', () => {
   it('moves the meal by id with one POST and never replaces the range', async () => {
-    let moved: boolean | undefined;
+    let result: EatTodayResult | undefined;
     await act(async () => {
-      moved = await eatToday(params);
+      result = await eatToday(params);
     });
 
     const requests = sentRequests();
     const writes = requests.filter((request) => request.method !== 'GET');
 
-    expect(moved).toBe(true);
+    expect(result?.moved).toBe(true);
+    expect(result?.errorMessage).toBeNull();
     expect(writes).toEqual([
       { method: 'POST', url: MOVE_URL, body: { date: '2026-10-09', slot: 'lunch' } },
     ]);
@@ -149,14 +150,14 @@ describe('useEatToday', () => {
   });
 
   it('takes the plan from the calendar read after the move', async () => {
-    let moved: boolean | undefined;
+    let result: EatTodayResult | undefined;
     await act(async () => {
-      moved = await eatToday(params);
+      result = await eatToday(params);
     });
 
     const requests = sentRequests();
 
-    expect(moved).toBe(true);
+    expect(result?.moved).toBe(true);
     expect(requests.map((request) => request.method)).toEqual(['POST', 'GET']);
     expect(requests[1].url).toContain(`${API_URL}/api/calendar?startDate=`);
     expect(useMealPlanStore.getState().entries).toEqual([
@@ -167,12 +168,16 @@ describe('useEatToday', () => {
   it('reports the move as done when the calendar read after it fails', async () => {
     serverAnswers({ calendar: () => jsonResponse({ data: { meals: 'none' } }) });
 
-    let moved: boolean | undefined;
+    let result: EatTodayResult | undefined;
     await act(async () => {
-      moved = await eatToday(params);
+      result = await eatToday(params);
     });
 
-    expect(moved).toBe(true);
+    expect(result?.moved).toBe(true);
+    // Issue #146: the User learns that the plan on screen is not the server's yet.
+    expect(result?.errorMessage).toBe(
+      'La comida se movió, pero no pudimos actualizar tu plan. Se va a actualizar en un rato.'
+    );
     expect(useMealPlanStore.getState().entries).toEqual(entries);
   });
 
@@ -183,12 +188,14 @@ describe('useEatToday', () => {
         jsonResponse({ error: { code: 'scheduled_meal_not_found', message: 'Gone' } }, 404),
     });
 
-    let moved: boolean | undefined;
+    let result: EatTodayResult | undefined;
     await act(async () => {
-      moved = await eatToday(params);
+      result = await eatToday(params);
     });
 
-    expect(moved).toBe(false);
+    expect(result?.moved).toBe(false);
+    // Issue #146: a refused move says why.
+    expect(result?.errorMessage).toBe('No encontramos esa comida en tu plan.');
     expect(sentRequests().map((request) => request.method)).toEqual(['POST', 'GET']);
     expect(useMealPlanStore.getState().entries).toEqual([
       expect.objectContaining({ id: 'm2', date: '2026-10-09', type: 'lunch' }),
@@ -200,12 +207,13 @@ describe('useEatToday', () => {
     // would only make the User wait for the same failure.
     fetchMock.mockRejectedValue(new TypeError('Network request failed'));
 
-    let moved: boolean | undefined;
+    let result: EatTodayResult | undefined;
     await act(async () => {
-      moved = await eatToday(params);
+      result = await eatToday(params);
     });
 
-    expect(moved).toBe(false);
+    expect(result?.moved).toBe(false);
+    expect(result?.errorMessage).toBe('No pudimos conectar con el servidor. Revisá tu conexión.');
     expect(sentRequests().map((request) => request.method)).toEqual(['POST']);
     expect(useMealPlanStore.getState().entries).toEqual(entries);
   });
@@ -216,12 +224,15 @@ describe('useEatToday', () => {
       move: () => Promise.reject(Object.assign(new Error('Aborted'), { name: 'AbortError' })),
     });
 
-    let moved: boolean | undefined;
+    let result: EatTodayResult | undefined;
     await act(async () => {
-      moved = await eatToday(params);
+      result = await eatToday(params);
     });
 
-    expect(moved).toBe(false);
+    expect(result?.moved).toBe(false);
+    expect(result?.errorMessage).toBe(
+      'La conexión tardó demasiado. Revisá tu señal e intentá nuevamente.'
+    );
     expect(sentRequests().map((request) => request.method)).toEqual(['POST', 'GET']);
     expect(useMealPlanStore.getState().entries).toEqual([
       expect.objectContaining({ id: 'm2', date: '2026-10-09', type: 'lunch' }),
@@ -231,12 +242,13 @@ describe('useEatToday', () => {
   it('sends nothing when the move is not allowed', async () => {
     useMealPlanStore.setState({ entries: [{ ...entries[1], isCooked: true }] });
 
-    let moved: boolean | undefined;
+    let result: EatTodayResult | undefined;
     await act(async () => {
-      moved = await eatToday(params);
+      result = await eatToday(params);
     });
 
-    expect(moved).toBe(false);
+    expect(result?.moved).toBe(false);
+    expect(result?.errorMessage).toBe('Esta comida ya no se puede mover a hoy.');
     expect(fetchMock).not.toHaveBeenCalled();
   });
 });

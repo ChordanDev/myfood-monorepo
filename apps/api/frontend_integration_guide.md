@@ -380,39 +380,41 @@ Example:
 GET /api/planning/weekly?kcal_target=2200&weekly_budget_cents=60000&currency=ARS
 ```
 
+This route is in the mobile casing scope: keys are camelCase in the response.
+
 Success response (`200`):
 
 ```json
 {
   "data": {
-    "account_type": "individual",
-    "subscription_tier": "free",
     "days": [
       {
         "day": "monday",
         "meals": [
           {
+            "recipeId": "...",
+            "recipeName": "...",
+            "isFavorite": false,
             "slot": "breakfast",
-            "recipe_id": "...",
-            "label": "...",
-            "estimated_cost_cents": 1200
+            "macros": { "calories": 450 },
+            "prepTimeMinutes": null
           }
         ]
       }
     ],
-    "notes": ["..."],
-    "budget": {
-      "account_id": "...",
-      "weekly_limit_cents": 60000,
-      "currency": "ARS"
-    },
-    "budget_within_limit": true,
-    "estimated_total_cost_cents": 21500,
-    "inventory_items": ["..."],
-    "max_planning_days": 7
+    "estimatedCostCents": 21500,
+    "optimizerUsed": true,
+    "maxPlanningDays": 7,
+    "subscriptionTier": "free"
   }
 }
 ```
+
+- Each meal is the shared meal summary of the calendar. A meal carries neither its day nor its cost:
+  the day is the `day` of the entry that lists it, and only the whole plan has a cost,
+  `estimatedCostCents`.
+- `isFavorite` is always `false` and `prepTimeMinutes` always `null` here: the candidates of the
+  optimizer know neither.
 
 Error responses:
 

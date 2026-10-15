@@ -83,6 +83,8 @@ jest.mock('@/features/inventory', () => ({
   useInventoryStore: (select: (state: unknown) => unknown) => select({ addExtra: mockAddExtra }),
 }));
 jest.mock('@/features/leftovers', () => ({ createPreparedLeftover: jest.fn() }));
+const mockEatToday = jest.fn();
+jest.mock('../../hooks/useEatToday', () => ({ useEatToday: () => mockEatToday }));
 
 function mount() {
   let tree: ReturnType<typeof create>;
@@ -164,5 +166,35 @@ describe('HomeScreen leftover prompt', () => {
     expect(sheet.props.onAddLeftoverIngredient).toBe(mockAddExtra);
     expect(sheet.props.onCreatePreparedLeftover).toBe(createPreparedLeftover);
     expect(sheet.props.onCloseLeftoverPrompt).toBe(mockCloseLeftoverPrompt);
+  });
+});
+
+// Issue #146: a move to today that did not go as asked is told to the User.
+describe('HomeScreen eat today', () => {
+  it('opens the sheet again with the message of a move that did not go as asked', async () => {
+    mockEatToday.mockResolvedValue({
+      moved: false,
+      errorMessage: 'No encontramos esa comida en tu plan.',
+    });
+    const tree = mount();
+
+    await act(async () => {
+      await tree.root.findByType('EatTodaySheet' as never).props.onSelect('dinner');
+    });
+
+    const sheet = tree.root.findByType('EatTodaySheet' as never);
+    expect(sheet.props.visible).toBe(true);
+    expect(sheet.props.errorMessage).toBe('No encontramos esa comida en tu plan.');
+  });
+
+  it('keeps the sheet closed after a move that went well', async () => {
+    mockEatToday.mockResolvedValue({ moved: true, errorMessage: null });
+    const tree = mount();
+
+    await act(async () => {
+      await tree.root.findByType('EatTodaySheet' as never).props.onSelect('dinner');
+    });
+
+    expect(tree.root.findByType('EatTodaySheet' as never).props.visible).toBe(false);
   });
 });

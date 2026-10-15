@@ -287,6 +287,20 @@ describe('usePlanningTopic', () => {
       }
     );
 
+    // Issue #146: the end of a session is not news once another one has moved on.
+    it.each(['session_started', 'session_cancelled', 'session_committed'] as const)(
+      'forgets the end of the previous session on %s',
+      async (event) => {
+        await renderJoined();
+        act(() => socket.channels[0].serverPush('session_expired', {}));
+
+        act(() => socket.channels[0].serverPush(event, { sessionId: 'session-2' }));
+
+        expect(planningTopic).toMatchObject({ status: 'joined' });
+        expect(planningTopic).not.toHaveProperty('sessionOver');
+      }
+    );
+
     it('starts a new session when the server resumes one after the previous ended', async () => {
       await renderJoined();
       act(() => socket.channels[0].serverPush('session_expired', {}));

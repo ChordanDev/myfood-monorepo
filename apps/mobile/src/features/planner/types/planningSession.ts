@@ -10,7 +10,8 @@ export interface ResumedSessionMessage {
 export interface SessionResumedPayload {
   sessionId: string;
   proposalId: string | null;
-  // The pending proposal, as the server serializes it; null when none is pending.
+  // The pending proposal, in the shape of `proposal_ready` when the generation made it; null when
+  // none is pending.
   proposal: unknown;
   // The recent messages of the conversation, oldest first.
   messages: ResumedSessionMessage[];
@@ -24,6 +25,14 @@ export const SESSION_OVER_EVENTS: readonly SessionOverReason[] = [
   'session_expired',
   'session_lost_lock',
 ];
+
+// A session started, or the one in course was cancelled or committed: an earlier session that
+// ended is no longer news.
+export const SESSION_MOVED_ON_EVENTS = [
+  'session_started',
+  'session_cancelled',
+  'session_committed',
+] as const;
 
 // The lease of the session after `POST /api/planning/sessions/:sessionId/activity` renewed it.
 export interface PlanningLease {

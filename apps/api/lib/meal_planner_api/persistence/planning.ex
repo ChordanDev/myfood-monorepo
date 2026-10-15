@@ -45,7 +45,8 @@ defmodule MealPlannerApi.Persistence.Planning do
   @doc """
   The most recent `:pending` proposal generated for the account since the
   given session started, or `nil`. Proposals older than the session belong to
-  an earlier flow and are ignored. Read-only.
+  an earlier flow and are ignored, and so is the empty placeholder of a
+  generation that has not completed (issue #146). Read-only.
   """
   @spec latest_pending_proposal(Ecto.UUID.t(), PlanningSession.t()) ::
           PlanningProposal.t() | nil
@@ -54,8 +55,8 @@ defmodule MealPlannerApi.Persistence.Planning do
       join: r in PlanningGenerationRun,
       on: r.id == p.generation_run_id,
       where:
-        r.account_id == ^account_id and p.status == :pending and
-          p.inserted_at >= ^started_at,
+        r.account_id == ^account_id and r.status == :completed and
+          p.status == :pending and p.inserted_at >= ^started_at,
       order_by: [desc: p.inserted_at],
       limit: 1
     )

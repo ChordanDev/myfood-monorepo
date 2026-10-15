@@ -8,6 +8,8 @@ interface EatTodaySheetProps {
   destinations: EatTodayDestinationType[];
   // Destinations whose meal is being cooked: shown, but they cannot be chosen.
   cookingDestinations?: EatTodayDestinationType[];
+  // How the last move went wrong: the sheet only says so, without destinations.
+  errorMessage?: string | null;
   onSelect: (mealType: EatTodayDestinationType) => void;
   onClose: () => void;
 }
@@ -16,12 +18,15 @@ export function EatTodaySheet({
   visible,
   destinations,
   cookingDestinations = [],
+  errorMessage = null,
   onSelect,
   onClose,
 }: EatTodaySheetProps) {
   const insets = useSafeAreaInsets();
   const { theme } = useRecipeTheme();
-  const hasDestinations = destinations.length > 0;
+  const hasError = errorMessage !== null;
+  const hasDestinations = !hasError && destinations.length > 0;
+  const shownDestinations = hasError ? [] : destinations;
 
   return (
     <Modal
@@ -46,16 +51,22 @@ export function EatTodaySheet({
             { backgroundColor: theme.colorDark, paddingBottom: insets.bottom + 16 },
           ]}>
           <Text accessibilityRole="header" style={[styles.title, { color: theme.textLight }]}>
-            {hasDestinations ? '¿Cuándo querés comerlo hoy?' : 'No hay horarios disponibles'}
+            {hasError
+              ? 'Algo no salió bien'
+              : hasDestinations
+                ? '¿Cuándo querés comerlo hoy?'
+                : 'No hay horarios disponibles'}
           </Text>
           <Text style={[styles.body, { color: theme.textLight }]}>
-            {hasDestinations
-              ? 'Elegí el horario para intercambiar o mover esta comida a hoy.'
-              : 'El mediodía y la cena ya pasaron o sus comidas ya fueron marcadas como cocinadas.'}
+            {hasError
+              ? errorMessage
+              : hasDestinations
+                ? 'Elegí el horario para intercambiar o mover esta comida a hoy.'
+                : 'El mediodía y la cena ya pasaron o sus comidas ya fueron marcadas como cocinadas.'}
           </Text>
 
           <View style={styles.actions}>
-            {destinations.map((mealType) => {
+            {shownDestinations.map((mealType) => {
               const isCooking = cookingDestinations.includes(mealType);
 
               return (
