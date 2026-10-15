@@ -53,7 +53,7 @@ export interface MealPlanEntry {
   recipeId: string; // Id of the recipe, as `GET /api/recipes/:id` names it.
   isCooked: boolean;
   isSkipped?: boolean; // The meal passed and was not cooked. Never true together with isCooked.
-  isCooking?: boolean; // The meal has a Cooking session in progress, so it cannot be moved.
+  isCooking?: boolean; // The meal is today's and has a Cooking session in progress, so it cannot be moved.
 }
 
 // What the calendar read says about a recipe of the plan: enough to name it on Home. The full
