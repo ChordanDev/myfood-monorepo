@@ -1,7 +1,7 @@
 defmodule MealPlannerApi.Services.PlanningContext do
   @moduledoc """
-  The Planning context (issue #29): what the engine is told about the User
-  when a plan starts, next to the dates and the free-text request.
+  The Planning context (issues #29 and #123): what the engine is told about
+  the User when a plan starts, next to the dates and the free-text request.
 
   It is one map of camelCase string keys, always complete:
 
@@ -14,17 +14,25 @@ defmodule MealPlannerApi.Services.PlanningContext do
       is `no_constraint`, a stored 0 minutes is `do_not_cook` and any other
       value is `limited` to those minutes. The snack is never stored, so it is
       always `no_constraint`;
-    * `favoriteRecipeIds`, the Favorite recipes the member preselected.
+    * `favoriteRecipeIds`, the Favorite recipes the member preselected;
+    * `leftovers`, the open Prepared leftovers of the Account that are not
+      past their consume-by date, soonest first, as meals already available
+      for the first days of the plan. Each one is `title`, `portions`,
+      `consumeByDate` (ISO 8601 date) and `scheduledMealId`, the source meal
+      (`nil` when the leftover was stored without one).
 
   `diet`, `cookingSkill` and `householdSize` are `nil` until the User sets
   them. The context is a contract for the engine, not a payload the client
   receives: `apps/api/docs/CHANNELS.md` ("Planning context") documents it.
 
-  `assemble/1` builds the map from signals already read; `read/3` loads them.
+  `assemble/1` builds the map from signals already read; `read/4` loads them.
   """
 
+  alias MealPlannerApi.AccountClock
   alias MealPlannerApi.Data.{AccountRepo, RecipeRepo}
   alias MealPlannerApi.Persistence.Accounts.User
+  alias MealPlannerApi.Persistence.Leftovers
+  alias MealPlannerApi.Persistence.Leftovers.PreparedLeftover
   alias MealPlannerApi.Services.UserPreferencesService
 
   # The Meal slots of a plan, in meal order.
@@ -40,7 +48,9 @@ defmodule MealPlannerApi.Services.PlanningContext do
           preferences: UserPreferencesService.preferences(),
           user: User.t() | nil,
           slot_cooking_times: [slot_time()],
-          favorite_recipe_ids: [String.t()]
+          favorite_recipe_ids: [String.t()],
+          prepared_leftovers: [%PreparedLeftover{}],
+          today: Date.t()
         }
 
   @type t :: %{required(String.t()) => term()}
@@ -51,15 +61,18 @@ defmodule MealPlannerApi.Services.PlanningContext do
   `user` supplies the Cooking skill and the Household size; `nil` stands for a
   User who cannot be found, and both are then `nil`. `slot_cooking_times` is
   what `AccountRepo.list_slot_cooking_times/1` returns, a set that can be
-  empty or partial. `favorite_recipe_ids` is taken as given: see `read/3` for
-  the ids a caller owns.
+  empty or partial. `favorite_recipe_ids` is taken as given: see `read/4` for
+  the ids a caller owns. `prepared_leftovers` keep their order; the ones whose
+  consume-by date is before `today` are dropped, and one due `today` is kept.
   """
   @spec assemble(signals()) :: t()
   def assemble(%{
         preferences: preferences,
         user: user,
         slot_cooking_times: slot_cooking_times,
-        favorite_recipe_ids: favorite_recipe_ids
+        favorite_recipe_ids: favorite_recipe_ids,
+        prepared_leftovers: prepared_leftovers,
+        today: today
       }) do
     %{
       "diet" => preferences.diet,
@@ -68,7 +81,8 @@ defmodule MealPlannerApi.Services.PlanningContext do
       "cookingSkill" => user && user.cooking_skill,
       "householdSize" => user && user.household_size,
       "slotCookingTimes" => slot_cooking_times_map(slot_cooking_times),
-      "favoriteRecipeIds" => favorite_recipe_ids
+      "favoriteRecipeIds" => favorite_recipe_ids,
+      "leftovers" => leftovers(prepared_leftovers, today)
     }
   end
 
@@ -81,14 +95,22 @@ defmodule MealPlannerApi.Services.PlanningContext do
   each once, in the client's order. An id the caller does not own is dropped,
   never forwarded, because a client cache can be stale and the engine must not
   receive a recipe the caller cannot see.
+
+  The Prepared leftovers are the open ones of the Account, judged against the
+  Account's today (`MealPlannerApi.AccountClock`). `now` is an option (default
+  `DateTime.utc_now/0`) so tests pass the instant they need.
   """
-  @spec read(Ecto.UUID.t(), Ecto.UUID.t(), [String.t()]) :: t()
-  def read(account_id, user_id, requested_favorite_ids) do
+  @spec read(Ecto.UUID.t(), Ecto.UUID.t(), [String.t()], map()) :: t()
+  def read(account_id, user_id, requested_favorite_ids, opts \\ %{}) do
+    now = Map.get(opts, :now, DateTime.utc_now())
+
     assemble(%{
       preferences: UserPreferencesService.get(user_id),
       user: AccountRepo.get_user(user_id),
       slot_cooking_times: AccountRepo.list_slot_cooking_times(user_id),
-      favorite_recipe_ids: owned_favorites(account_id, user_id, requested_favorite_ids)
+      favorite_recipe_ids: owned_favorites(account_id, user_id, requested_favorite_ids),
+      prepared_leftovers: Leftovers.list_open(account_id),
+      today: AccountClock.today(account_id, now)
     })
   end
 
@@ -103,6 +125,18 @@ defmodule MealPlannerApi.Services.PlanningContext do
     requested_ids
     |> Enum.uniq()
     |> Enum.filter(&MapSet.member?(owned, &1))
+  end
+
+  defp leftovers(prepared_leftovers, today) do
+    for leftover <- prepared_leftovers,
+        Date.compare(leftover.consume_by_date, today) != :lt do
+      %{
+        "title" => leftover.title,
+        "portions" => leftover.portions,
+        "consumeByDate" => Date.to_iso8601(leftover.consume_by_date),
+        "scheduledMealId" => leftover.scheduled_meal_id
+      }
+    end
   end
 
   defp slot_cooking_times_map(rows) do

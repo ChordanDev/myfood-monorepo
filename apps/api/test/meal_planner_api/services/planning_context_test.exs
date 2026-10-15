@@ -1,7 +1,8 @@
 defmodule MealPlannerApi.Services.PlanningContextTest do
   @moduledoc """
-  The Planning context (issue #29): what `assemble/1` makes of the signals
-  already read, and what `read/3` loads for a User, favorites included.
+  The Planning context (issues #29 and #123): what `assemble/1` makes of the
+  signals already read, and what `read/4` loads for a User, favorites and
+  Prepared leftovers included.
   """
   use ExUnit.Case, async: true
 
@@ -11,11 +12,16 @@ defmodule MealPlannerApi.Services.PlanningContextTest do
   alias Ecto.Adapters.SQL.Sandbox
   alias MealPlannerApi.Data.{AccountRepo, RecipeRepo}
   alias MealPlannerApi.Persistence.Accounts.User
+  alias MealPlannerApi.Persistence.{Calendar, Leftovers}
+  alias MealPlannerApi.Persistence.Leftovers.PreparedLeftover
   alias MealPlannerApi.Repo
   alias MealPlannerApi.Services.{PlanningContext, UserPreferencesService}
 
-  @keys ~w(cookingSkill diet favoriteRecipeIds hardRestrictionCodes householdSize
+  @keys ~w(cookingSkill diet favoriteRecipeIds hardRestrictionCodes householdSize leftovers
            slotCookingTimes softPreferences)
+
+  @today ~D[2026-10-15]
+  @now ~U[2026-10-15 12:00:00Z]
 
   @no_constraint %{"cooking" => "no_constraint", "maxMinutes" => nil, "hungerLevel" => nil}
 
@@ -34,7 +40,9 @@ defmodule MealPlannerApi.Services.PlanningContextTest do
             %{slot: :lunch, cooking_time_minutes: 0, hunger_level: :normal},
             %{slot: :dinner, cooking_time_minutes: 45, hunger_level: :strong}
           ],
-          favorite_recipe_ids: ["recipe-a", "recipe-b"]
+          favorite_recipe_ids: ["recipe-a", "recipe-b"],
+          prepared_leftovers: [],
+          today: @today
         })
 
       assert context == %{
@@ -53,7 +61,8 @@ defmodule MealPlannerApi.Services.PlanningContextTest do
                  "snack" => @no_constraint,
                  "dinner" => limited(45, "strong")
                },
-               "favoriteRecipeIds" => ["recipe-a", "recipe-b"]
+               "favoriteRecipeIds" => ["recipe-a", "recipe-b"],
+               "leftovers" => []
              }
     end
 
@@ -63,7 +72,9 @@ defmodule MealPlannerApi.Services.PlanningContextTest do
           preferences: %{diet: nil, hard_restrictions: [], soft_preferences: []},
           user: nil,
           slot_cooking_times: [],
-          favorite_recipe_ids: []
+          favorite_recipe_ids: [],
+          prepared_leftovers: [],
+          today: @today
         })
 
       assert context |> Map.keys() |> Enum.sort() == @keys
@@ -73,6 +84,7 @@ defmodule MealPlannerApi.Services.PlanningContextTest do
       assert context["hardRestrictionCodes"] == []
       assert context["softPreferences"] == []
       assert context["favoriteRecipeIds"] == []
+      assert context["leftovers"] == []
     end
 
     test "a User with no profile data has null skill and household size" do
@@ -81,7 +93,9 @@ defmodule MealPlannerApi.Services.PlanningContextTest do
           preferences: %{diet: "vegan", hard_restrictions: [], soft_preferences: []},
           user: %User{cooking_skill: nil, household_size: nil},
           slot_cooking_times: [],
-          favorite_recipe_ids: []
+          favorite_recipe_ids: [],
+          prepared_leftovers: [],
+          today: @today
         })
 
       assert context["diet"] == "vegan"
@@ -124,20 +138,67 @@ defmodule MealPlannerApi.Services.PlanningContextTest do
       assert %{"cooking" => "limited", "maxMinutes" => 240} = times["dinner"]
     end
 
+    test "carries each Prepared leftover with camelCase keys, in the given order" do
+      context =
+        assemble_leftovers([
+          %PreparedLeftover{
+            title: "Lentil stew",
+            portions: 3,
+            consume_by_date: @today,
+            scheduled_meal_id: "meal-1"
+          },
+          %PreparedLeftover{
+            title: "Rice",
+            portions: 1,
+            consume_by_date: Date.add(@today, 2),
+            scheduled_meal_id: nil
+          }
+        ])
+
+      assert context["leftovers"] == [
+               %{
+                 "title" => "Lentil stew",
+                 "portions" => 3,
+                 "consumeByDate" => "2026-10-15",
+                 "scheduledMealId" => "meal-1"
+               },
+               %{
+                 "title" => "Rice",
+                 "portions" => 1,
+                 "consumeByDate" => "2026-10-17",
+                 "scheduledMealId" => nil
+               }
+             ]
+    end
+
+    test "drops a leftover past its consume-by date and keeps one due today" do
+      context =
+        assemble_leftovers([
+          %PreparedLeftover{title: "Expired", portions: 2, consume_by_date: Date.add(@today, -1)},
+          %PreparedLeftover{title: "Due today", portions: 2, consume_by_date: @today}
+        ])
+
+      assert Enum.map(context["leftovers"], & &1["title"]) == ["Due today"]
+    end
+
     test "the output survives a JSON round trip unchanged" do
       context =
         PlanningContext.assemble(%{
           preferences: %{diet: "vegan", hard_restrictions: ["gluten"], soft_preferences: []},
           user: %User{cooking_skill: "beginner", household_size: 2},
           slot_cooking_times: [%{slot: :breakfast, cooking_time_minutes: 5, hunger_level: :light}],
-          favorite_recipe_ids: []
+          favorite_recipe_ids: [],
+          prepared_leftovers: [
+            %PreparedLeftover{title: "Stew", portions: 2, consume_by_date: @today}
+          ],
+          today: @today
         })
 
       assert context |> Jason.encode!() |> Jason.decode!() == context
     end
   end
 
-  describe "read/3" do
+  describe "read/4" do
     setup do
       :ok = Sandbox.checkout(Repo)
       :ok = MealPlannerApi.SubscriptionPlanFixtures.ensure_plans!()
@@ -301,6 +362,63 @@ defmodule MealPlannerApi.Services.PlanningContextTest do
 
       assert context["favoriteRecipeIds"] == [second.id, first.id]
     end
+
+    test "carries the open Prepared leftovers of the Account, soonest first", %{
+      user: user,
+      account: account
+    } do
+      {:ok, meal} =
+        Calendar.upsert_scheduled_meal(account.id, %{date: ~D[2026-10-14], slot: :dinner})
+
+      later = leftover!(account, "Rice", Date.add(@today, 2))
+
+      sooner =
+        leftover!(account, "Lentil stew", @today, %{portions: 3, scheduled_meal_id: meal.id})
+
+      context = PlanningContext.read(account.id, user.id, [], %{now: @now})
+
+      assert context["leftovers"] == [
+               %{
+                 "title" => sooner.title,
+                 "portions" => 3,
+                 "consumeByDate" => "2026-10-15",
+                 "scheduledMealId" => meal.id
+               },
+               %{
+                 "title" => later.title,
+                 "portions" => 2,
+                 "consumeByDate" => "2026-10-17",
+                 "scheduledMealId" => nil
+               }
+             ]
+    end
+
+    test "leaves out expired, consumed, discarded and other Accounts' leftovers", %{
+      user: user,
+      account: account
+    } do
+      _expired = leftover!(account, "Expired", Date.add(@today, -1))
+      eaten = leftover!(account, "Eaten", @today, %{portions: 1})
+      {:ok, _closed} = Leftovers.consume(account.id, eaten.id, %{now: @now})
+      thrown = leftover!(account, "Thrown", @today)
+      {:ok, _discarded} = Leftovers.discard(account.id, thrown.id, %{now: @now})
+      _kept = leftover!(account, "Kept", @today)
+
+      other =
+        user_with_memberships(%{email: "planning_context_other@example.com", name: "Other"}, [
+          {%{plan: :individual, name: "Other context"}, :owner}
+        ])
+
+      _foreign = leftover!(other.memberships |> hd() |> Map.fetch!(:account), "Foreign", @today)
+
+      context = PlanningContext.read(account.id, user.id, [], %{now: @now})
+
+      assert Enum.map(context["leftovers"], & &1["title"]) == ["Kept"]
+    end
+
+    test "an Account with no leftovers gets an empty list", %{user: user, account: account} do
+      assert PlanningContext.read(account.id, user.id, [], %{now: @now})["leftovers"] == []
+    end
   end
 
   defp limited(minutes, hunger_level),
@@ -312,10 +430,34 @@ defmodule MealPlannerApi.Services.PlanningContextTest do
         preferences: %{diet: nil, hard_restrictions: [], soft_preferences: []},
         user: nil,
         slot_cooking_times: rows,
-        favorite_recipe_ids: []
+        favorite_recipe_ids: [],
+        prepared_leftovers: [],
+        today: @today
       })
 
     context["slotCookingTimes"]
+  end
+
+  defp assemble_leftovers(leftovers) do
+    PlanningContext.assemble(%{
+      preferences: %{diet: nil, hard_restrictions: [], soft_preferences: []},
+      user: nil,
+      slot_cooking_times: [],
+      favorite_recipe_ids: [],
+      prepared_leftovers: leftovers,
+      today: @today
+    })
+  end
+
+  defp leftover!(account, title, consume_by, attrs \\ %{}) do
+    {:ok, leftover} =
+      Leftovers.create(
+        account.id,
+        Map.merge(%{title: title, portions: 2, consume_by_date: consume_by}, attrs),
+        %{now: @now}
+      )
+
+    leftover
   end
 
   defp set_profile!(user, household_size, cooking_skill) do
