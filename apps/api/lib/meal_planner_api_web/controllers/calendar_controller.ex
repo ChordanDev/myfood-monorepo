@@ -74,8 +74,9 @@ defmodule MealPlannerApiWeb.CalendarController do
   Unlike the older actions of this controller, errors use the envelope of
   `ApiError`: 404 `scheduled_meal_not_found`, 422 `validation_error` naming
   `date` or `slot` (the position the meal already has is not a valid
-  destination), 409 `scheduled_meal_cooked` when either meal is cooked, and
-  409 `calendar_conflict` when a concurrent write took the destination.
+  destination), 409 `scheduled_meal_cooked` when either meal is cooked,
+  409 `calendar_conflict` when a concurrent write took the destination, and
+  409 `calendar_move_not_possible` when stored rows cannot follow the meal.
   """
   def move_meal(conn, %{"id" => meal_id} = params) do
     account_id = conn.assigns.current_membership.account_id
@@ -154,6 +155,9 @@ defmodule MealPlannerApiWeb.CalendarController do
 
   defp render_move_error(conn, :same_slot), do: conn |> ApiError.validation_error("slot")
   defp render_move_error(conn, :conflict), do: conn |> ApiError.error(:calendar_conflict)
+
+  defp render_move_error(conn, :move_not_possible),
+    do: conn |> ApiError.error(:calendar_move_not_possible)
 
   defp render_move_error(conn, reason) when reason in [:meal_cooked, :target_meal_cooked],
     do: conn |> ApiError.error(:scheduled_meal_cooked)

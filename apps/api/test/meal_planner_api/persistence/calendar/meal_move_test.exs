@@ -252,9 +252,10 @@ defmodule MealPlannerApi.Persistence.Calendar.MealMoveTest do
       assert position(foreign_target) == {@today, :lunch}
     end
 
-    # No second connection writes here, so the unique violation comes from two
-    # open items of one meal that only differ in their planned date.
-    test "a unique violation rolls the whole move back and reports a conflict", f do
+    # No second connection writes here: the unique violation comes from two
+    # open items of one meal that only differ in their planned date, so a
+    # retry would fail the same way.
+    test "stored items that cannot follow the meal roll the move back as not possible", f do
       source = meal!(f.account, @later, :dinner, %{recipe_id: f.recipe.id})
       target = meal!(f.account, @tomorrow, :lunch)
       favorite = slot_favorite!(f.user, source)
@@ -263,13 +264,12 @@ defmodule MealPlannerApi.Persistence.Calendar.MealMoveTest do
 
       log =
         capture_log(fn ->
-          assert {:error, :conflict} =
+          assert {:error, :move_not_possible} =
                    MealMove.move(f.account.id, source.id, @tomorrow, :lunch, @today)
         end)
 
-      # The refusal names what fired, so one that comes from stored rows can
-      # be told from a concurrent write.
-      assert log =~ "calendar meal move conflict"
+      # The log names what fired, for the rows to be found and fixed.
+      assert log =~ "calendar meal move not possible"
       assert log =~ "account_id=#{f.account.id}"
       assert log =~ "meal_id=#{source.id}"
       assert log =~ "code=unique_violation"

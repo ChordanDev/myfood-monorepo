@@ -163,6 +163,7 @@ export type AuthErrorCode =
   | 'prepared_leftover_not_found'
   | 'scheduled_meal_cooked'
   | 'calendar_conflict'
+  | 'calendar_move_not_possible'
   | 'configuration_error'
   | 'network_error'
   | 'timeout'

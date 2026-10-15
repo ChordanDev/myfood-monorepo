@@ -92,6 +92,7 @@ export const KNOWN_AUTH_ERROR_CODES = new Set<AuthErrorCode>([
   'prepared_leftover_not_found',
   'scheduled_meal_cooked',
   'calendar_conflict',
+  'calendar_move_not_possible',
   'configuration_error',
   'network_error',
   'timeout',
@@ -199,6 +200,8 @@ export const AUTH_ERROR_MESSAGES: Partial<Record<AuthErrorCode, string>> = {
   prepared_leftover_not_found: 'No encontramos esa sobra.',
   scheduled_meal_cooked: 'Una comida ya cocinada no se puede mover.',
   calendar_conflict: 'Tu plan cambió mientras movíamos la comida. Probá de nuevo.',
+  calendar_move_not_possible:
+    'Esta comida no se puede mover a ese lugar. No se guardó ningún cambio.',
   configuration_error: 'Falta configurar EXPO_PUBLIC_API_URL para conectar con la API.',
   network_error: 'No pudimos conectar con el servidor. Revisá tu conexión.',
   timeout: 'La conexión tardó demasiado. Revisá tu señal e intentá nuevamente.',
