@@ -237,6 +237,26 @@ describe('planningDraftReducer', () => {
 
       expect(draft.status).toBe('ready');
     });
+
+    it('learns the session of its generation when generation_started comes after it', () => {
+      const draft = run([requested, unreadable, { type: 'generation_started', payload: started }]);
+
+      expect(draft).toMatchObject({
+        status: 'failed',
+        sessionId: started.sessionId,
+        failure: { kind: 'generation', reason: 'proposal_unreadable' },
+      });
+    });
+
+    it('does not learn the session of another request', () => {
+      const draft = run([
+        requested,
+        unreadable,
+        { type: 'generation_started', payload: { ...started, requestId: 'req_other' } },
+      ]);
+
+      expect(draft).toMatchObject({ status: 'failed', sessionId: null });
+    });
   });
 
   describe('the time limit of a generation', () => {

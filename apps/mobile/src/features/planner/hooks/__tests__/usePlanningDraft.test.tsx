@@ -389,6 +389,33 @@ describe('usePlanningDraft', () => {
         expect(cancelledSessions()).toEqual([{ sessionId: SESSION_ID }]);
         expect(controller.draft).toMatchObject({ status: 'generating', sessionId: 'session-2' });
       });
+
+      it('cancels its session before starting again when it was named before the retry', async () => {
+        failUnreadable();
+        emit('generation_started', generationStarted);
+
+        act(() => controller.retry());
+
+        expect(pushedEvents()).toEqual(['start_planning', 'cancel_planning']);
+        expect(lastPush().payload).toEqual({ sessionId: SESSION_ID });
+
+        await act(async () => lastPush().replyOk({ sessionId: SESSION_ID, status: 'cancelled' }));
+        emit('generation_started', secondStarted);
+
+        expect(cancelledSessions()).toEqual([{ sessionId: SESSION_ID }]);
+      });
+    });
+
+    it('forgets a cancelled generation whose start the server refused', async () => {
+      act(() => controller.start(RANGE, '', []));
+      act(() => controller.cancel());
+      await act(async () =>
+        lastPush().replyError({ error: { code: 'planning_range_locked', message: 'locked' } })
+      );
+
+      emit('generation_started', generationStarted);
+
+      expect(cancelledSessions()).toEqual([]);
     });
 
     it('logs a cancel the server refuses', async () => {

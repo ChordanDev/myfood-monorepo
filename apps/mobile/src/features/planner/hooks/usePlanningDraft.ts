@@ -256,6 +256,8 @@ export function usePlanningDraft(
         (error: unknown) => {
           // The server may be slow, not gone: the events still resolve the draft.
           if (isApiError(error) && error.code === 'timeout') return;
+          // A refused start runs no generation, so a cancel of it has nothing left to wait for.
+          abandonedRequestsRef.current.delete(requestId);
           dispatch({
             type: 'start_rejected',
             requestId,

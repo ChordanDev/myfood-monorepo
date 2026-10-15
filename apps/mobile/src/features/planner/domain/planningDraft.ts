@@ -215,6 +215,15 @@ export function planningDraftReducer(
           }
         : draft;
     case 'generation_started': {
+      // A generation that failed before its session was known still learns it: a retry cancels it.
+      if (
+        draft.status === 'failed' &&
+        draft.failure.kind === 'generation' &&
+        draft.sessionId === null &&
+        draft.requestId === action.payload.requestId
+      ) {
+        return { ...draft, sessionId: action.payload.sessionId };
+      }
       if (
         draft.status !== 'generating' ||
         draft.runId !== null ||
