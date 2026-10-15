@@ -21,11 +21,18 @@ defmodule MealPlannerApi.Persistence.Leftovers do
 
   @default_days_to_consume 3
 
-  @doc "Open leftovers of the Account, soonest consume-by date first."
+  # The v1 cap for per-Account reads (issue #162): a bounded answer, no pagination.
+  @list_limit 200
+
+  @doc """
+  Open leftovers of the Account, soonest consume-by date first. At most
+  #{@list_limit}: past that, the latest consume-by dates are left out.
+  """
   def list_open(account_id) do
     from(l in PreparedLeftover,
       where: l.account_id == ^account_id and is_nil(l.consumed_at) and is_nil(l.discarded_at),
-      order_by: [asc: l.consume_by_date, asc: l.stored_at, asc: l.id]
+      order_by: [asc: l.consume_by_date, asc: l.stored_at, asc: l.id],
+      limit: @list_limit
     )
     |> Repo.all()
   end

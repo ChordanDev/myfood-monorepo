@@ -7,6 +7,7 @@ defmodule MealPlannerApi.Persistence.LeftoversTest do
   alias MealPlannerApi.Persistence.Accounts.Account
   alias MealPlannerApi.Persistence.Calendar
   alias MealPlannerApi.Persistence.Leftovers
+  alias MealPlannerApi.Persistence.Leftovers.PreparedLeftover
   alias MealPlannerApi.Repo
 
   @now ~U[2026-10-08 23:30:00.000000Z]
@@ -95,6 +96,18 @@ defmodule MealPlannerApi.Persistence.LeftoversTest do
       assert Leftovers.list_open(other_id) == []
     end
 
+    test "caps notes at 500 characters", %{account_id: account_id} do
+      attrs = %{title: "Soup", portions: 1, notes: String.duplicate("n", 501)}
+
+      assert {:error, changeset} = Leftovers.create(account_id, attrs, %{now: @now})
+      assert %{notes: [_ | _]} = errors_on(changeset)
+      assert Leftovers.list_open(account_id) == []
+
+      attrs = %{attrs | notes: String.duplicate("n", 500)}
+      assert {:ok, leftover} = Leftovers.create(account_id, attrs, %{now: @now})
+      assert String.length(leftover.notes) == 500
+    end
+
     test "reports an invalid field before looking the Scheduled meal up",
          %{account_id: account_id} do
       attrs = %{title: "x", portions: 0, scheduled_meal_id: Ecto.UUID.generate()}
@@ -112,6 +125,17 @@ defmodule MealPlannerApi.Persistence.LeftoversTest do
 
       assert Enum.map(Leftovers.list_open(account_id), & &1.id) ==
                [soon_old.id, soon_new.id, late.id]
+    end
+
+    test "lists at most 200, leaving out the latest consume-by dates",
+         %{account_id: account_id} do
+      insert_open!(account_id, 199, ~D[2026-10-10])
+      insert_open!(account_id, 2, ~D[2026-10-30])
+
+      listed = Leftovers.list_open(account_id)
+
+      assert length(listed) == 200
+      assert Enum.count(listed, &(&1.consume_by_date == ~D[2026-10-30])) == 1
     end
 
     test "excludes closed leftovers and other Accounts", %{account_id: account_id} do
@@ -186,6 +210,24 @@ defmodule MealPlannerApi.Persistence.LeftoversTest do
       %{title: title, portions: 2, consume_by_date: consume_by},
       %{now: now}
     )
+  end
+
+  defp insert_open!(account_id, count, consume_by) do
+    rows =
+      for n <- 1..count do
+        %{
+          id: Ecto.UUID.generate(),
+          account_id: account_id,
+          title: "Leftover #{n}",
+          portions: 1,
+          stored_at: @now,
+          consume_by_date: consume_by,
+          inserted_at: @now,
+          updated_at: @now
+        }
+      end
+
+    {^count, _} = Repo.insert_all(PreparedLeftover, rows)
   end
 
   defp scheduled_meal_id!(account_id) do

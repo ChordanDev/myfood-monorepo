@@ -2,12 +2,20 @@ defmodule MealPlannerApiWeb.PreparedLeftoverController do
   @moduledoc """
   Prepared leftovers (issue #45): cooked portions kept apart from Inventory.
   Tenancy comes from `conn.assigns.current_membership.account_id`.
+
+  Eating a portion takes an optional client `actionId` (issue #162): a retry
+  with the same one within 24 hours answers what the first one did and eats
+  nothing more.
   """
 
   use MealPlannerApiWeb, :controller
 
+  alias MealPlannerApi.Persistence.Idempotency
   alias MealPlannerApi.Persistence.Leftovers
   alias MealPlannerApiWeb.ApiError
+
+  @consume_endpoint "leftovers.consume"
+  @max_action_id_length 128
 
   def index(conn, _params) do
     leftovers = conn |> account_id() |> Leftovers.list_open()
@@ -33,10 +41,31 @@ defmodule MealPlannerApiWeb.PreparedLeftoverController do
     end
   end
 
-  def consume(conn, %{"id" => id}), do: respond(conn, Leftovers.consume(account_id(conn), id))
-  def discard(conn, %{"id" => id}), do: respond(conn, Leftovers.discard(account_id(conn), id))
+  def consume(conn, %{"id" => id} = params) do
+    case parse_action_id(params["action_id"]) do
+      {:ok, action_id} ->
+        account_id = account_id(conn)
 
-  defp respond(conn, {:ok, leftover}), do: json(conn, %{data: render_leftover(leftover)})
+        # The stored answer is the rendered one, so a replay renders nothing again.
+        result =
+          Idempotency.run(account_id, @consume_endpoint, action_id, fn ->
+            account_id |> Leftovers.consume(id) |> rendered()
+          end)
+
+        respond(conn, result)
+
+      {:error, field} ->
+        ApiError.validation_error(conn, field)
+    end
+  end
+
+  def discard(conn, %{"id" => id}),
+    do: respond(conn, conn |> account_id() |> Leftovers.discard(id) |> rendered())
+
+  defp rendered({:ok, leftover}), do: {:ok, render_leftover(leftover)}
+  defp rendered(error), do: error
+
+  defp respond(conn, {:ok, data}), do: json(conn, %{data: data})
 
   defp respond(conn, {:error, :not_found}),
     do: conn |> ApiError.error(:prepared_leftover_not_found)
@@ -49,10 +78,17 @@ defmodule MealPlannerApiWeb.PreparedLeftoverController do
          {:ok, consume_by} <- parse_consume_by(params["consume_by_date"]),
          {:ok, notes} <- parse_notes(params["notes"]),
          {:ok, meal_id} <- parse_scheduled_meal_id(params["scheduled_meal_id"]) do
-      attrs = %{title: title, portions: portions, notes: notes, scheduled_meal_id: meal_id}
-      {:ok, if(consume_by, do: Map.put(attrs, :consume_by_date, consume_by), else: attrs)}
+      attrs =
+        %{title: title, portions: portions, notes: notes, scheduled_meal_id: meal_id}
+        |> put_consume_by(consume_by)
+
+      {:ok, attrs}
     end
   end
+
+  # Left out when the client sends none, so the persistence boundary defaults it.
+  defp put_consume_by(attrs, nil), do: attrs
+  defp put_consume_by(attrs, consume_by), do: Map.put(attrs, :consume_by_date, consume_by)
 
   defp parse_title(title) when is_binary(title) do
     if String.trim(title) == "", do: {:error, "title"}, else: {:ok, title}
@@ -83,6 +119,15 @@ defmodule MealPlannerApiWeb.PreparedLeftoverController do
   defp parse_scheduled_meal_id(nil), do: {:ok, nil}
   defp parse_scheduled_meal_id(meal_id) when is_binary(meal_id), do: {:ok, meal_id}
   defp parse_scheduled_meal_id(_), do: {:error, "scheduledMealId"}
+
+  defp parse_action_id(nil), do: {:ok, nil}
+
+  defp parse_action_id(action_id)
+       when is_binary(action_id) and action_id != "" and
+              byte_size(action_id) <= @max_action_id_length,
+       do: {:ok, action_id}
+
+  defp parse_action_id(_), do: {:error, "actionId"}
 
   defp wire_field(%Ecto.Changeset{errors: [{field, _} | _]}) do
     case field do
