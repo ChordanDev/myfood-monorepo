@@ -8,6 +8,7 @@ defmodule MealPlannerApi.Persistence.ShoppingTest do
   alias MealPlannerApi.Persistence.Identity
   alias MealPlannerApi.Persistence.Planning
   alias MealPlannerApi.Persistence.Shopping
+  alias MealPlannerApi.Persistence.Shopping.ShoppingItem
   alias MealPlannerApi.Repo
 
   setup do
@@ -364,6 +365,28 @@ defmodule MealPlannerApi.Persistence.ShoppingTest do
       items = Shopping.list_items_for_account(account_id)
       assert Enum.sort(Enum.map(items, & &1.unit)) == [:g, :unit]
       assert Enum.all?(items, &(&1.ingredient_id == attrs.ingredient_id))
+    end
+  end
+
+  describe "restore_removed_items/4" do
+    test "sets back to removed the pending planned items whose key it remembers" do
+      %{account_id: account_id, planned_date: date} = attrs = planned_key_attrs()
+      {:ok, item} = Shopping.create_shopping_item(attrs)
+      {:ok, other_unit} = Shopping.create_shopping_item(%{attrs | unit: :ml})
+      keys = MapSet.new([{date, :lunch, attrs.ingredient_id, :g}])
+
+      assert Shopping.restore_removed_items(account_id, keys, date, date) == 1
+
+      assert Repo.get!(ShoppingItem, item.id).status == :removed
+      assert Repo.get!(ShoppingItem, other_unit.id).status == :pending
+    end
+
+    test "changes nothing when it remembers no key" do
+      %{account_id: account_id, planned_date: date} = attrs = planned_key_attrs()
+      {:ok, item} = Shopping.create_shopping_item(attrs)
+
+      assert Shopping.restore_removed_items(account_id, MapSet.new(), date, date) == 0
+      assert Repo.get!(ShoppingItem, item.id).status == :pending
     end
   end
 

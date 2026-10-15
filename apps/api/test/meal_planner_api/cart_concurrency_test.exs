@@ -5,6 +5,7 @@ defmodule MealPlannerApi.CartConcurrencyTest do
   alias MealPlannerApi.{Cart, Repo}
   alias MealPlannerApi.Persistence.Calendar.MealMove
   alias MealPlannerApi.Persistence.Planning.ScheduledMeal
+  alias MealPlannerApi.Persistence.Shopping
   alias MealPlannerApi.Persistence.Shopping.{CheckoutSession, ShoppingItem}
   alias MealPlannerApi.Services.{CookingService, ShoppingService}
 
@@ -404,6 +405,49 @@ defmodule MealPlannerApi.CartConcurrencyTest do
     assert {:error, :validation_error} = checkout_result
     refute Repo.get(ScheduledMeal, first.id) || Repo.get(ScheduledMeal, second.id)
     assert stock(f) == []
+  end
+
+  # Issue #307. A restore of removed items reads the `:pending` items of its
+  # window and then marks the ones it remembers `:removed`, with no Cart lock.
+  # A reserve that commits between the two keeps its item in the Cart.
+  test "a restore of removed items leaves an item reserved after its read in the Cart", f do
+    item = hd(f.items)
+    keys = MapSet.new([{item.planned_date, f.meal.slot, item.ingredient_id, item.unit}])
+    supervisor = start_supervised!(Task.Supervisor)
+    gate = "NEW.id = '#{item.id}'::uuid AND NEW.status = 'in_cart'"
+
+    {reserve_result, restored} =
+      with_gate("UPDATE", "shopping_items", gate, fn holder, open_gate ->
+        # The reserve holds the item's row lock and has not committed.
+        reserve = worker(supervisor, f, fn -> Cart.reserve(f.actor, [item.id]) end)
+        wait_until_blocked_by(reserve.backend, holder)
+
+        # The restore still reads the item as `:pending`, so it waits for the
+        # row in its update.
+        restore =
+          worker(supervisor, f, fn ->
+            Shopping.restore_removed_items(
+              f.account.id,
+              keys,
+              item.planned_date,
+              item.planned_date
+            )
+          end)
+
+        wait_until_blocked_by(restore.backend, reserve.backend)
+        open_gate.()
+        {Task.await(reserve.task, 12_000), Task.await(restore.task, 12_000)}
+      end)
+
+    assert {:ok, %{session_id: session_id, reservations: [%{reservation_token: token}]}} =
+             reserve_result
+
+    assert restored == 0
+
+    assert %{status: :in_cart, checkout_session_id: ^session_id, reservation_token: ^token} =
+             Repo.get!(ShoppingItem, item.id)
+
+    assert [%{quantity_milli: 1000}] = Cart.lines(Repo.get!(CheckoutSession, session_id))
   end
 
   for table <- ["inventory_mutation_events", "shopping_items", "checkout_sessions"] do

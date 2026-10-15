@@ -471,6 +471,10 @@ defmodule MealPlannerApi.Persistence.Shopping do
   Sets back to `:removed` the `:pending` planned items of `[from_date, to_date]` whose key is
   in `keys`, and returns how many it changed. A key no item has any more (the meals do not
   need that Ingredient now) is dropped by doing nothing.
+
+  It takes no Cart lock, so a Membership can reserve an item between the read and the update.
+  The update only changes items that are still `:pending`: a reserved item stays in its Cart
+  and is not counted.
   """
   @spec restore_removed_items(Ecto.UUID.t(), MapSet.t(removed_key()), Date.t(), Date.t()) ::
           non_neg_integer()
@@ -484,7 +488,11 @@ defmodule MealPlannerApi.Persistence.Shopping do
         |> Enum.filter(fn {_id, key} -> MapSet.member?(keys, key) end)
         |> Enum.map(fn {id, _key} -> id end)
 
-      set_items_status(ids, :removed)
+      {updated, _} =
+        from(i in ShoppingItem, where: i.id in ^ids and i.status == :pending)
+        |> Repo.update_all(set: [status: :removed, updated_at: DateTime.utc_now()])
+
+      updated
     end
   end
 
