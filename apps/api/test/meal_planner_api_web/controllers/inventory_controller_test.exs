@@ -584,6 +584,105 @@ defmodule MealPlannerApiWeb.InventoryControllerTest do
     end
   end
 
+  describe "voice apply with an actionId" do
+    test "a repeat with the same actionId subtracts once and returns the first response" do
+      actor = actor()
+      lot = seed_lot(actor, ingredient("Queso Voz Repetido"), 400_000)
+      payload = actor |> voice_apply_payload("Queso Voz Repetido") |> Map.put("actionId", "a-1")
+
+      first = actor |> post_json("/api/inventory/voice/apply", payload) |> json_response(200)
+      repeat = actor |> post_json("/api/inventory/voice/apply", payload) |> json_response(200)
+
+      assert first["data"]["quantityDeltaMilli"] == -200_000
+      assert repeat == first
+      assert [%{quantity_after_milli: 200_000}] = voice_events(lot)
+      assert Repo.reload!(lot).quantity_milli == 200_000
+    end
+
+    test "a different actionId applies again" do
+      actor = actor()
+      lot = seed_lot(actor, ingredient("Queso Voz Otra Clave"), 400_000)
+      payload = voice_apply_payload(actor, "Queso Voz Otra Clave")
+
+      for action_id <- ["b-1", "b-2"] do
+        assert actor
+               |> post_json("/api/inventory/voice/apply", Map.put(payload, "actionId", action_id))
+               |> json_response(200)
+      end
+
+      assert [_, _] = voice_events(lot)
+      assert Repo.reload!(lot).quantity_milli == 0
+    end
+
+    test "without an actionId every request applies, as before" do
+      actor = actor()
+      lot = seed_lot(actor, ingredient("Queso Voz Sin Clave"), 400_000)
+      payload = voice_apply_payload(actor, "Queso Voz Sin Clave")
+
+      for _ <- 1..2 do
+        assert actor |> post_json("/api/inventory/voice/apply", payload) |> json_response(200)
+      end
+
+      assert [_, _] = voice_events(lot)
+      assert Repo.reload!(lot).quantity_milli == 0
+    end
+
+    test "the same actionId in another Account applies there" do
+      [actor_a, actor_b] = [actor(), actor()]
+      cheese = ingredient("Queso Voz Cuenta")
+      lot_a = seed_lot(actor_a, cheese, 400_000)
+      lot_b = seed_lot(actor_b, cheese, 400_000)
+
+      for actor <- [actor_a, actor_b] do
+        payload = actor |> voice_apply_payload("Queso Voz Cuenta") |> Map.put("actionId", "c-1")
+        assert actor |> post_json("/api/inventory/voice/apply", payload) |> json_response(200)
+      end
+
+      assert Repo.reload!(lot_a).quantity_milli == 200_000
+      assert Repo.reload!(lot_b).quantity_milli == 200_000
+    end
+
+    test "a failed apply stores nothing, so a retry with the same actionId applies" do
+      actor = actor()
+      lot = seed_lot(actor, ingredient("Queso Voz Reintento"), 400_000)
+
+      payload =
+        actor |> voice_apply_payload("Queso Voz Reintento") |> Map.put("actionId", "d-1")
+
+      # An edited quantity, unconfirmed.
+      edited =
+        payload
+        |> put_in(["intent", "quantityMilli"], 100_000)
+        |> Map.put("confirmed", false)
+
+      assert %{"error" => %{"code" => "voice_confirmation_required"}} =
+               actor
+               |> post_json("/api/inventory/voice/apply", edited)
+               |> json_response(422)
+
+      assert [] = voice_events(lot)
+
+      assert actor
+             |> post_json("/api/inventory/voice/apply", payload)
+             |> json_response(200)
+             |> get_in(["data", "quantityDeltaMilli"]) == -200_000
+    end
+
+    test "an actionId that is not a non-empty string of at most 128 bytes is a validation error" do
+      actor = actor()
+      lot = seed_lot(actor, ingredient("Queso Voz Clave Mala"), 400_000)
+      payload = voice_apply_payload(actor, "Queso Voz Clave Mala")
+
+      for action_id <- ["", 42, String.duplicate("x", 129)] do
+        assert actor
+               |> post_json("/api/inventory/voice/apply", Map.put(payload, "actionId", action_id))
+               |> json_response(422) == validation_error()
+      end
+
+      assert [] = voice_events(lot)
+    end
+  end
+
   test "rescue errors use the error envelope too" do
     assert actor()
            |> post_json("/api/planning/rescue", %{"ingredientIds" => []})
@@ -712,6 +811,21 @@ defmodule MealPlannerApiWeb.InventoryControllerTest do
       )
     )
   end
+
+  # Half of the 400 g lot, as the transcript says; confirmed so the
+  # confidence never gets in the way.
+  defp voice_apply_payload(actor, name) do
+    transcript = "me comí la mitad del #{String.downcase(name)}"
+
+    preview =
+      actor
+      |> post_json("/api/inventory/voice/preview", %{"transcript" => transcript})
+      |> json_response(200)
+
+    %{"transcript" => transcript, "intent" => preview["data"]["intent"], "confirmed" => true}
+  end
+
+  defp voice_events(lot), do: Enum.filter(ledger(lot.id), &(&1.trigger_type == :voice))
 
   defp validation_error do
     %{"error" => %{"code" => "validation_error", "message" => "The request is not valid."}}

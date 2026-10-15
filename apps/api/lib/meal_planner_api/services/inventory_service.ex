@@ -18,6 +18,7 @@ defmodule MealPlannerApi.Services.InventoryService do
   alias MealPlannerApi.Data.PlanningRepo
   alias MealPlannerApi.Inventory.LotFreshness
   alias MealPlannerApi.Persistence.Catalog.Ingredient
+  alias MealPlannerApi.Persistence.Idempotency
   alias MealPlannerApi.Persistence.Identity
   alias MealPlannerApi.Persistence.Inventory, as: InventoryPersistence
   alias MealPlannerApi.Repo
@@ -30,6 +31,10 @@ defmodule MealPlannerApi.Services.InventoryService do
   # The longest spoken transcript the voice endpoints read, in codepoints and
   # counted as sent. `InventoryMutationEvent` holds the same bound.
   @max_transcript_length 500
+  # The endpoint a voice apply's `action_id` is unique within, per Account.
+  @voice_apply_endpoint "inventory.voice_apply"
+  # The longest `action_id` a voice apply takes. A client sends a UUID.
+  @max_action_id_length 128
 
   @doc "Returns usable inventory for one account without changing inventory state."
   @spec list_for_account(Ecto.UUID.t(), Date.t()) :: [map()]
@@ -251,11 +256,24 @@ defmodule MealPlannerApi.Services.InventoryService do
 
   The Account's usable lots are read once, for the parse and for that cap. The
   subtraction then locks the lots it takes from and reads what they hold.
+
+  An optional client-generated `action_id` makes the apply safe to retry: a
+  repeat with the same `action_id` within 24 hours returns the first apply's
+  response and subtracts nothing (see `Persistence.Idempotency`). Without one,
+  every request applies.
   """
   @spec voice_apply(map(), map()) :: {:ok, map()} | {:error, term()}
   def voice_apply(user, payload) do
     with {:ok, identity} <- Identity.ensure_persistent_identity(user),
-         {:ok, transcript} <- voice_transcript(payload),
+         {:ok, action_id} <- voice_action_id(param(payload, :action_id)) do
+      Idempotency.run(identity.account_id, @voice_apply_endpoint, action_id, fn ->
+        apply_voice(identity, payload)
+      end)
+    end
+  end
+
+  defp apply_voice(identity, payload) do
+    with {:ok, transcript} <- voice_transcript(payload),
          {:ok, intent} <- voice_intent(param(payload, :intent)),
          stock = usable_stock(identity.account_id),
          {:ok, parsed} <- InventoryIntentParser.parse(transcript, stock),
@@ -264,6 +282,15 @@ defmodule MealPlannerApi.Services.InventoryService do
       subtract_voice(identity, entry, min(intent.quantity_milli, entry.total_milli), transcript)
     end
   end
+
+  defp voice_action_id(nil), do: {:ok, nil}
+
+  defp voice_action_id(action_id)
+       when is_binary(action_id) and action_id != "" and
+              byte_size(action_id) <= @max_action_id_length,
+       do: {:ok, action_id}
+
+  defp voice_action_id(_), do: {:error, :invalid_voice_payload}
 
   # Checked before the stock is loaded or the transcript parsed: the parser
   # works in proportion to the transcript, and an apply stores it once per lot.
