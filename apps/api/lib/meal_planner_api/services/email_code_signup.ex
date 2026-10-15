@@ -14,13 +14,11 @@ defmodule MealPlannerApi.Services.EmailCodeSignup do
   never finished leaves no User, Account or Membership behind.
   """
 
-  import Ecto.Query
-
   alias MealPlannerApi.Accounts
   alias MealPlannerApi.Persistence.Accounts.AccountMembership
   alias MealPlannerApi.Persistence.Accounts.User
+  alias MealPlannerApi.Persistence.Accounts.UserEmail
   alias MealPlannerApi.Persistence.Auth.EmailVerificationCode
-  alias MealPlannerApi.Repo
   alias MealPlannerApi.Services.EmailCodeAuth
   alias MealPlannerApi.Services.EmailCodeLogin
 
@@ -110,7 +108,7 @@ defmodule MealPlannerApi.Services.EmailCodeSignup do
   # probe emails without limit. The event is kept because the transaction
   # commits on this error.
   defp admit_new_email(email, client_ip) do
-    if registered?(email) do
+    if UserEmail.registered?(email) do
       with :ok <- EmailCodeAuth.reserve_ip_request_slot(client_ip) do
         {:error, :email_already_exists}
       end
@@ -118,9 +116,4 @@ defmodule MealPlannerApi.Services.EmailCodeSignup do
       {:ok, nil}
     end
   end
-
-  # `email` is already lower-cased; a User whose stored email has upper-case
-  # letters has it too, as in login.
-  defp registered?(email),
-    do: Repo.exists?(from(u in User, where: fragment("lower(?)", u.email) == ^email))
 end

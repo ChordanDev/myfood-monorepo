@@ -19,8 +19,8 @@ defmodule MealPlannerApi.AccountsMembership do
   alias MealPlannerApi.Persistence.Accounts.AccountMembership
   alias MealPlannerApi.Persistence.Accounts.AccountMembershipQueries
   alias MealPlannerApi.Persistence.Accounts.User, as: PersistenceUser
+  alias MealPlannerApi.Persistence.Accounts.UserEmail
   alias MealPlannerApi.Repo
-  alias MealPlannerApi.Services.EmailCodeAuth
   alias MealPlannerApi.Services.InviteService
 
   import Ecto.Query
@@ -650,7 +650,7 @@ defmodule MealPlannerApi.AccountsMembership do
   end
 
   defp check_existing_membership(%Account{id: account_id}, email) do
-    email = EmailCodeAuth.normalize_email(email)
+    email = UserEmail.normalize(email)
 
     query =
       from(m in AccountMembership,

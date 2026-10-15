@@ -12,8 +12,6 @@ defmodule MealPlannerApi.Accounts do
   consumers continue to work without an app release.
   """
 
-  import Ecto.Query
-
   require Logger
 
   alias Ecto.Multi
@@ -22,6 +20,7 @@ defmodule MealPlannerApi.Accounts do
   alias MealPlannerApi.Persistence.Accounts.Account, as: PersistenceAccount
   alias MealPlannerApi.Persistence.Accounts.AccountMembership
   alias MealPlannerApi.Persistence.Accounts.User, as: PersistenceUser
+  alias MealPlannerApi.Persistence.Accounts.UserEmail
   alias MealPlannerApi.Repo
   alias MealPlannerApi.Subscriptions
 
@@ -50,7 +49,7 @@ defmodule MealPlannerApi.Accounts do
           | {:error, :email_already_registered | :unable_to_issue_identity}
   def register_with_verified_email(email, %DateTime{} = now \\ DateTime.utc_now())
       when is_binary(email) do
-    with nil <- user_by_email(email),
+    with nil <- UserEmail.get_user(email),
          {:ok, subscription_plan_id} <- Subscriptions.ensure_default_plan_id(:individual) do
       [name | _] = String.split(email, "@", parts: 2)
       trial = AccountAccess.trial_window(now)
@@ -209,20 +208,6 @@ defmodule MealPlannerApi.Accounts do
         joined_at: joined_at
       })
     end)
-  end
-
-  # Matches the stored email regardless of case, like login does, so an
-  # email that only differs in case from a registered one is taken.
-  defp user_by_email(email) when is_binary(email) do
-    email = String.downcase(email)
-
-    Repo.one(
-      from(u in PersistenceUser,
-        where: fragment("lower(?)", u.email) == ^email,
-        order_by: [asc: u.inserted_at],
-        limit: 1
-      )
-    )
   end
 
   defp plan_from(account) when is_map(account) do

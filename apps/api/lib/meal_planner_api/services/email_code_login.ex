@@ -44,6 +44,7 @@ defmodule MealPlannerApi.Services.EmailCodeLogin do
   alias MealPlannerApi.Mailer.EmailCodeEmail
   alias MealPlannerApi.Persistence.Accounts.AccountMembership
   alias MealPlannerApi.Persistence.Accounts.User
+  alias MealPlannerApi.Persistence.Accounts.UserEmail
   alias MealPlannerApi.Persistence.Auth.EmailVerificationCode
   alias MealPlannerApi.Repo
   alias MealPlannerApi.Services.EmailCodeAuth
@@ -100,7 +101,7 @@ defmodule MealPlannerApi.Services.EmailCodeLogin do
   # is not a string or not shaped like an email.
   @spec cast_email(term()) :: {:ok, String.t()} | {:error, :invalid_email}
   def cast_email(email) when is_binary(email) do
-    normalized_email = EmailCodeAuth.normalize_email(email)
+    normalized_email = UserEmail.normalize(email)
 
     if Regex.match?(@email_format, normalized_email) do
       {:ok, normalized_email}
@@ -187,19 +188,8 @@ defmodule MealPlannerApi.Services.EmailCodeLogin do
   # IP, in the bucket known emails draw from, so the answer cannot be used
   # to probe emails without limit. The event is kept because the
   # transaction commits on this error.
-  #
-  # `email` is already lower-cased; a User whose stored email has
-  # upper-case letters matches too, and an exact match wins over one that
-  # only differs in case.
   defp fetch_known_user(email, client_ip) do
-    query =
-      from(u in User,
-        where: fragment("lower(?)", u.email) == ^email,
-        order_by: [desc: u.email == ^email, asc: u.inserted_at],
-        limit: 1
-      )
-
-    case Repo.one(query) do
+    case UserEmail.get_user(email) do
       %User{} = user ->
         {:ok, user}
 
@@ -342,7 +332,7 @@ defmodule MealPlannerApi.Services.EmailCodeLogin do
 
   def redeem_code(email, code, flow, on_match, opts)
       when is_binary(email) and is_binary(code) and flow in [:login, :signup] do
-    normalized_email = EmailCodeAuth.normalize_email(email)
+    normalized_email = UserEmail.normalize(email)
     failure_limit = Keyword.fetch(opts, :limit_failures_by)
 
     Repo.transaction(
