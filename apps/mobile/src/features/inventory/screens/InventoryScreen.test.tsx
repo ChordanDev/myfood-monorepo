@@ -723,6 +723,7 @@ describe('InventoryScreen', () => {
         transcript: VOICE_TRANSCRIPT_HIGH,
         intent: VOICE_PREVIEW_HIGH_CONFIDENCE.intent,
         confirmed: false,
+        actionId: expect.any(String),
       });
       expect(getTexts(root)).toEqual(
         expect.arrayContaining(['Listo', 'Descontamos 500 g de Arroz de tu inventario.', '1 kg'])
@@ -798,6 +799,8 @@ describe('InventoryScreen', () => {
         transcript: VOICE_TRANSCRIPT_HIGH,
         intent: VOICE_PREVIEW_AFTER_DRIFT.intent,
         confirmed: true,
+        // The confirmed apply is the same User action as the refused one.
+        actionId: voiceCalls()[1].body.actionId,
       });
       // The API subtracted the 300 g the lot held, which emptied it.
       expect(getTexts(root)).toContain('Descontamos 300 g de Arroz de tu inventario.');

@@ -1,7 +1,8 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { StyleSheet, Text } from 'react-native';
 import { isApiError } from '@/api/errors';
 import { useRecipeTheme } from '@/context/RecipeThemeContext';
+import { newRequestId } from '@/services/requestId';
 import { formatQuantityMilli } from '../domain';
 import type { VoiceApplyPayload, VoiceApplyResult, VoiceIntent, VoicePreview } from '../types';
 import {
@@ -85,12 +86,27 @@ function InventoryVoiceForm({
   const [transcript, setTranscript] = useState('');
   const [step, setStep] = useState<Step>({ name: 'entry' });
   const trimmed = transcript.trim();
+  // One action per transcript the User sends: until it is applied, sending the same transcript
+  // again is a retry and carries the same id, so an apply whose answer was lost is replayed by
+  // the API instead of subtracted twice. Another transcript is another action.
+  const actionRef = useRef<{ transcript: string; actionId: string } | null>(null);
 
   // Every step stays open on success: the next step, or the result, is drawn in the sheet.
   const stayOpen = () => false;
 
+  const actionIdFor = (forTranscript: string): string => {
+    if (actionRef.current?.transcript !== forTranscript) {
+      actionRef.current = { transcript: forTranscript, actionId: newRequestId() };
+    }
+
+    return actionRef.current.actionId;
+  };
+
   const apply = async (payload: VoiceApplyPayload) => {
-    const { quantityDeltaMilli } = await onApply(payload);
+    const { quantityDeltaMilli } = await onApply({
+      ...payload,
+      actionId: actionIdFor(payload.transcript),
+    });
     const { name, unit } = payload.intent;
 
     setStep({ name: 'done', subtracted: { name, unit, quantityMilli: -quantityDeltaMilli } });

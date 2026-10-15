@@ -1,5 +1,5 @@
 import { useCallback, useRef, useState } from 'react';
-import { getAuthErrorMessage } from '@/api/errors';
+import { getAuthErrorMessage, isApiError } from '@/api/errors';
 import { useMealPlanStore } from '@/store';
 import { finishCookingSession, startCookingSession } from '../api';
 import { summarizeCookingFinish, type CookingSummary } from '../domain';
@@ -11,6 +11,11 @@ import { summarizeCookingFinish, type CookingSummary } from '../domain';
  *
  * Closing the result of a finish that succeeded is when the app asks about leftovers:
  * `leftoverPrompt` then holds that finish until the prompt is closed.
+ *
+ * `cooking_already_finished` is a success: the meal is cooked already, typically by a finish
+ * whose answer was lost before a retry. The server does not consume again and its answer holds
+ * no summary to rebuild, so the meal is marked cooked and the result only says it was cooked
+ * already; closing it asks nothing about leftovers.
  */
 export function useMarkAsCooked() {
   const markEntryCooked = useMealPlanStore((state) => state.markAsCooked);
@@ -37,7 +42,15 @@ export function useMarkAsCooked() {
         setSummary(summarizeCookingFinish(finish));
         return true;
       } catch (error) {
-        setErrorMessage(getAuthErrorMessage(error));
+        const message = getAuthErrorMessage(error);
+
+        if (isApiError(error) && error.code === 'cooking_already_finished') {
+          markEntryCooked(entryId);
+          setErrorMessage(message);
+          return true;
+        }
+
+        setErrorMessage(message);
         return false;
       } finally {
         inFlightRef.current = false;

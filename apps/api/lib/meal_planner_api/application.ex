@@ -23,6 +23,7 @@ defmodule MealPlannerApi.Application do
       # 30_000 ms; override via `:planning_session_sweeper_interval` config.
       MealPlannerApi.Generation.PlanningSession.Sweeper,
       MealPlannerApi.CartSweeper,
+      MealPlannerApi.IdempotencySweeper,
       # Start a worker by calling: MealPlannerApi.Worker.start_link(arg)
       # {MealPlannerApi.Worker, arg},
       # Start to serve requests, typically the last entry
