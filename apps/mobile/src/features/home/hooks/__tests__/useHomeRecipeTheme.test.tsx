@@ -16,6 +16,10 @@ jest.mock('@react-native-async-storage/async-storage', () =>
 
 jest.mock('@/features/recipe/api/recipeApi', () => ({ getRecipe: jest.fn() }));
 
+// Whether Home is the screen on top. A test sets it before re-rendering the tree.
+let mockIsFocused = true;
+jest.mock('expo-router', () => ({ useIsFocused: () => mockIsFocused }));
+
 // The real provider is used on purpose: what is asserted is the palette the app ends up with.
 const LUNCH_THEME: RecipeThemeConfig = {
   colorBlack: '#101010',
@@ -91,14 +95,17 @@ const mountedTrees: ReactTestRenderer[] = [];
 
 let activeTheme: RecipeThemeConfig;
 let homeImageUrl: string | null;
+// Writes the shared palette the way another screen, such as the Recipe screen, does.
+let setSharedTheme: (palette: RecipeThemeConfig | null) => void;
 
 function Harness({ meal, date }: { meal: LocalMealSelection | null; date: string | null }) {
   const { imageUrl } = useHomeRecipeTheme(meal, date);
-  const { theme } = useRecipeTheme();
+  const { theme, setRecipeTheme } = useRecipeTheme();
   useEffect(() => {
     activeTheme = theme;
     homeImageUrl = imageUrl;
-  }, [imageUrl, theme]);
+    setSharedTheme = setRecipeTheme;
+  }, [imageUrl, setRecipeTheme, theme]);
   return null;
 }
 
@@ -127,6 +134,7 @@ function defaultTheme(): RecipeThemeConfig {
 }
 
 beforeEach(() => {
+  mockIsFocused = true;
   useRecipeCacheStore.getState().clear();
   getRecipeMock.mockReset();
 });
@@ -248,6 +256,51 @@ describe('useHomeRecipeTheme', () => {
     act(() => {
       tree.update(<Tree meal={buildMeal('r-lunch')} date={TODAY} />);
     });
+    expect(activeTheme).toEqual(LUNCH_THEME);
+  });
+
+  it('does not write the palette while another screen is on top', async () => {
+    const fallback = defaultTheme();
+    const { request, resolve } = pendingRequest();
+    getRecipeMock.mockReturnValue(request);
+    const tree = mount(buildMeal('r-lunch'), TODAY);
+
+    mockIsFocused = false;
+    act(() => {
+      tree.update(<Tree meal={buildMeal('r-lunch')} date={TODAY} />);
+    });
+    await act(async () => {
+      resolve(LUNCH_RECIPE);
+      await request;
+    });
+
+    expect(activeTheme).toEqual(fallback);
+  });
+
+  it('applies its palette again when it comes back from a screen that restored another one', async () => {
+    const fallback = defaultTheme();
+    const { request, resolve } = pendingRequest();
+    getRecipeMock.mockReturnValue(request);
+    const tree = mount(buildMeal('r-lunch'), TODAY);
+
+    // The Recipe screen opens while the Recipe is loading, so it keeps the default to restore.
+    mockIsFocused = false;
+    act(() => {
+      tree.update(<Tree meal={buildMeal('r-lunch')} date={TODAY} />);
+    });
+    await act(async () => {
+      resolve(LUNCH_RECIPE);
+      await request;
+    });
+    act(() => setSharedTheme(LUNCH_THEME));
+    act(() => setSharedTheme(null));
+    expect(activeTheme).toEqual(fallback);
+
+    mockIsFocused = true;
+    act(() => {
+      tree.update(<Tree meal={buildMeal('r-lunch')} date={TODAY} />);
+    });
+
     expect(activeTheme).toEqual(LUNCH_THEME);
   });
 });

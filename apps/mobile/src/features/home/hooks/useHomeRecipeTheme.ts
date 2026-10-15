@@ -1,4 +1,5 @@
 import { useEffect, useLayoutEffect } from 'react';
+import { useIsFocused } from 'expo-router';
 import { useRecipeTheme } from '@/context/RecipeThemeContext';
 import { useRecipeCacheStore } from '@/features/recipe/store';
 import type { LocalMealSelection } from '../domain/localMealPlan';
@@ -13,6 +14,7 @@ export function useHomeRecipeTheme(
   selectedDate: string | null
 ) {
   const { theme, setRecipeTheme } = useRecipeTheme();
+  const isFocused = useIsFocused();
   const isTodaySelected = selectedDate === formatDateKey(new Date());
   const recipeId = isTodaySelected ? selectedMeal?.recipeId : undefined;
   const recipe = useRecipeCacheStore((state) =>
@@ -30,10 +32,14 @@ export function useHomeRecipeTheme(
       .catch(() => undefined);
   }, [recipe, recipeId]);
 
-  // Before paint, so a cached palette shows without a flash of the default one.
+  // Before paint, so a cached palette shows without a flash of the default one. Only while Home
+  // is on top: a screen pushed over it, such as the Recipe screen, owns the palette and restores
+  // the one it found when it closes, so Home applies its own again when it comes back.
   useLayoutEffect(() => {
+    if (!isFocused) return;
+
     setRecipeTheme(recipe?.theme ?? null);
-  }, [recipe, setRecipeTheme]);
+  }, [isFocused, recipe, setRecipeTheme]);
 
   return { theme, imageUrl: recipe?.imageUrl ?? null };
 }
