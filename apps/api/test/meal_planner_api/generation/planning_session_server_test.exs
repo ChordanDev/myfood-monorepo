@@ -19,6 +19,8 @@ defmodule MealPlannerApi.Generation.PlanningSessionServerTest do
       `session_lost_lock` on `planning:<account_id>`.
     * `@task 3.7` — `:DOWN` with `:normal` / `:shutdown` reason MUST NOT
       transition (clean exit path).
+    * #261 — an abnormal `:DOWN` after a confirm committed the session
+      leaves the row `:committed` and broadcasts nothing.
 
   Entitlement is stubbed via the `:check_account_eligible_fn` opt that
   the server exposes for test injection; this avoids `Mox` overhead for
@@ -34,6 +36,7 @@ defmodule MealPlannerApi.Generation.PlanningSessionServerTest do
   import Ecto.Query, warn: false
 
   alias Ecto.Adapters.SQL.Sandbox
+  alias MealPlannerApi.Data.PlanningRepo
   alias MealPlannerApi.Generation.PlanningSessionServer
   alias MealPlannerApi.Persistence.Accounts.Account, as: PersistenceAccount
   alias MealPlannerApi.Persistence.Accounts.AccountMembership
@@ -509,6 +512,58 @@ defmodule MealPlannerApi.Generation.PlanningSessionServerTest do
 
       row = Repo.get!(PlanningSession, session_id)
       assert row.status == :active
+    end
+  end
+
+  # ---------------------------------------------------------------------------
+  # #261 — owner crash after a confirm committed the session
+  # ---------------------------------------------------------------------------
+
+  describe "handle_info({:DOWN, ...}) — after a confirm committed the session (#261)" do
+    test "abnormal DOWN leaves the row :committed and broadcasts nothing" do
+      account = insert_account("261 committed then crash")
+      user = insert_user_with_membership(account, "261-committed-crash@example.com", :owner)
+      membership_id = owner_membership_id(account.id, user.id)
+
+      pid =
+        start_session_server!(
+          account_id: account.id,
+          owner_user_id: user.id,
+          owner_membership_id: membership_id,
+          check_account_eligible_fn: fn _ -> true end
+        )
+
+      topic = "planning:#{account.id}"
+      :ok = Phoenix.PubSub.subscribe(PubSub, topic)
+
+      assert {:ok, %{session_id: session_id}} =
+               PlanningSessionServer.start_session(
+                 pid,
+                 account.id,
+                 user.id,
+                 membership_id,
+                 {~D[2026-03-01], ~D[2026-03-08]}
+               )
+
+      assert_receive %Phoenix.Socket.Broadcast{event: "session_started"}, 1_000
+
+      # The confirm commits the row in its own transaction, outside this
+      # server, so the server still holds `status: :active` in memory.
+      assert {:ok, %PlanningSession{status: :committed}} =
+               PlanningRepo.mark_committed(account.id, session_id)
+
+      committed = Repo.get!(PlanningSession, session_id)
+      assert :sys.get_state(pid).status == :active
+
+      send(pid, {:DOWN, make_ref(), :process, self(), :killed})
+      _ = :sys.get_state(pid)
+
+      refute_receive %Phoenix.Socket.Broadcast{topic: ^topic}, 200
+
+      row = Repo.get!(PlanningSession, session_id)
+      assert row.status == :committed
+      assert row.terminal_at == committed.terminal_at
+      assert Process.alive?(pid)
     end
   end
 
