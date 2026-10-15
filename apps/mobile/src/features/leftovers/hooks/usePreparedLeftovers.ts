@@ -1,12 +1,14 @@
 import { useCallback, useRef, useState } from 'react';
 import { useFocusEffect } from 'expo-router';
 import { getAuthErrorMessage } from '@/api/errors';
+import { newRequestId } from '@/services/requestId';
 import {
   consumePreparedLeftover,
+  createPreparedLeftover,
   discardPreparedLeftover,
   listPreparedLeftovers,
 } from '../api/leftoversApi';
-import type { PreparedLeftover } from '../types';
+import type { CreatePreparedLeftoverInput, PreparedLeftover } from '../types';
 
 type LeftoversStatus = 'loading' | 'ready';
 
@@ -18,6 +20,16 @@ export function usePreparedLeftovers() {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
   const requestCounter = useRef(0);
+  // Per leftover, the last "Eat" that may not have landed and the portions it showed. Eating
+  // the same leftover at the same portions again is the same intent, so it keeps the same
+  // actionId and the server eats once. Once the list shows fewer portions, a tap is a new one.
+  // Kept per leftover so a tap on another one in between does not forget it.
+  const pendingConsumesRef = useRef(new Map<string, { key: string; actionId: string }>());
+  // The last add that may not have landed. Saving the same input again is the same leftover,
+  // so it keeps the same actionId and the server stores it once; a changed input is a new one.
+  // It lives while one sheet is open: `startAdd` forgets it, so a sheet opened again stores a
+  // new leftover even with the same input.
+  const pendingAddRef = useRef<{ key: string; actionId: string } | null>(null);
 
   const load = useCallback(async () => {
     const requestId = ++requestCounter.current;
@@ -58,8 +70,46 @@ export function usePreparedLeftovers() {
     [load]
   );
 
-  const consume = useCallback((id: string) => act(id, consumePreparedLeftover), [act]);
+  const consume = useCallback(
+    (id: string) => {
+      const portions = leftovers.find((leftover) => leftover.id === id)?.portions;
+      const key = `${id}:${portions}`;
+      const pending = pendingConsumesRef.current;
+      let intent = pending.get(id);
+      if (intent?.key !== key) {
+        intent = { key, actionId: newRequestId() };
+        pending.set(id, intent);
+      }
+      const { actionId } = intent;
+
+      return act(id, async (leftoverId) => {
+        const eaten = await consumePreparedLeftover(leftoverId, actionId);
+        pending.delete(leftoverId);
+        return eaten;
+      });
+    },
+    [act, leftovers]
+  );
   const discard = useCallback((id: string) => act(id, discardPreparedLeftover), [act]);
+
+  // Online only: it throws what the server answered, for the sheet to show, and reads the
+  // list again once the leftover is stored.
+  const add = useCallback(
+    async (input: CreatePreparedLeftoverInput) => {
+      const key = JSON.stringify(input);
+      if (pendingAddRef.current?.key !== key) {
+        pendingAddRef.current = { key, actionId: newRequestId() };
+      }
+      await createPreparedLeftover({ ...input, actionId: pendingAddRef.current.actionId });
+      pendingAddRef.current = null;
+      await load();
+    },
+    [load]
+  );
+
+  const startAdd = useCallback(() => {
+    pendingAddRef.current = null;
+  }, []);
 
   return {
     leftovers,
@@ -69,6 +119,8 @@ export function usePreparedLeftovers() {
     busyId,
     consume,
     discard,
+    add,
+    startAdd,
     retry: () => void load(),
   };
 }

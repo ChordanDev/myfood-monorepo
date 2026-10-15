@@ -20,4 +20,7 @@ export interface CreatePreparedLeftoverInput {
   notes?: string;
   // The Scheduled meal the portions were cooked for; the answer names it as `sourceMealId`.
   scheduledMealId?: string;
+  // The server stores once per actionId within 24 hours, so a retry after a timeout that
+  // sends the same one stores nothing more.
+  actionId?: string;
 }

@@ -71,6 +71,7 @@ defmodule MealPlannerApiWeb.PreparedLeftoverControllerTest do
             {%{"title" => "x", "portions" => 1, "consumeByDate" => "tomorrow"}, "consumeByDate"},
             {%{"title" => String.duplicate("a", 256), "portions" => 1}, "title"},
             {%{"title" => "x", "portions" => 1_001}, "portions"},
+            {%{"title" => "x", "portions" => 1, "notes" => String.duplicate("n", 501)}, "notes"},
             {%{"title" => "x", "portions" => 2_147_483_648}, "portions"}
           ] do
         body = conn |> post(@path, params) |> json_response(422)
@@ -79,11 +80,63 @@ defmodule MealPlannerApiWeb.PreparedLeftoverControllerTest do
       end
     end
 
-    test "accepts a title at the length limit and portions at the cap", %{conn: conn} do
-      params = %{"title" => String.duplicate("a", 255), "portions" => 1_000}
+    test "create with a repeated actionId stores one leftover and answers the same",
+         %{conn: conn, account_id: account_id} do
+      params = %{"title" => "Rice", "portions" => 2, "actionId" => Ecto.UUID.generate()}
 
-      assert %{"data" => %{"portions" => 1_000}} =
+      first = conn |> post(@path, params) |> json_response(201)
+      retry = conn |> post(@path, params) |> json_response(201)
+
+      assert retry == first
+      assert [%{title: "Rice"}] = Leftovers.list_open(account_id)
+
+      other = conn |> post(@path, %{params | "actionId" => Ecto.UUID.generate()})
+      assert json_response(other, 201)["data"]["id"] != first["data"]["id"]
+      assert length(Leftovers.list_open(account_id)) == 2
+    end
+
+    test "create that fails stores nothing under its actionId",
+         %{conn: conn, account_id: account_id} do
+      action_id = Ecto.UUID.generate()
+
+      missing_meal = %{
+        "title" => "Rice",
+        "portions" => 2,
+        "scheduledMealId" => Ecto.UUID.generate(),
+        "actionId" => action_id
+      }
+
+      assert conn |> post(@path, missing_meal) |> json_response(404)
+
+      params = %{"title" => "Rice", "portions" => 2, "actionId" => action_id}
+      assert conn |> post(@path, params) |> json_response(201)
+      assert [%{title: "Rice"}] = Leftovers.list_open(account_id)
+    end
+
+    test "create rejects an actionId that is not a non-empty string up to 128 bytes",
+         %{conn: conn, account_id: account_id} do
+      for value <- ["", String.duplicate("a", 129), 7, %{"id" => "x"}] do
+        params = %{"title" => "Rice", "portions" => 2, "actionId" => value}
+        body = conn |> post(@path, params) |> json_response(422)
+        assert body["error"]["code"] == "validation_error"
+        assert body["error"]["message"] =~ "actionId"
+      end
+
+      assert Leftovers.list_open(account_id) == []
+    end
+
+    test "accepts a title and notes at their length limits and portions at the cap",
+         %{conn: conn} do
+      params = %{
+        "title" => String.duplicate("a", 255),
+        "portions" => 1_000,
+        "notes" => String.duplicate("n", 500)
+      }
+
+      assert %{"data" => %{"portions" => 1_000, "notes" => notes}} =
                conn |> post(@path, params) |> json_response(201)
+
+      assert String.length(notes) == 500
     end
 
     test "stores a Scheduled meal of the Account as the source",
@@ -167,6 +220,28 @@ defmodule MealPlannerApiWeb.PreparedLeftoverControllerTest do
 
       assert ids == [soon.id, late.id]
     end
+
+    test "answers at most 200 leftovers", %{conn: conn, account_id: account_id} do
+      now = DateTime.utc_now()
+
+      rows =
+        for n <- 1..201 do
+          %{
+            id: Ecto.UUID.generate(),
+            account_id: account_id,
+            title: "Leftover #{n}",
+            portions: 1,
+            stored_at: now,
+            consume_by_date: ~D[2030-01-01],
+            inserted_at: now,
+            updated_at: now
+          }
+        end
+
+      {201, _} = Repo.insert_all(PreparedLeftover, rows)
+
+      assert conn |> get(@path) |> json_response(200) |> Map.fetch!("data") |> length() == 200
+    end
   end
 
   describe "consume and discard" do
@@ -184,6 +259,85 @@ defmodule MealPlannerApiWeb.PreparedLeftoverControllerTest do
 
       assert conn |> post(url) |> json_response(404) |> get_in(["error", "code"]) ==
                "prepared_leftover_not_found"
+    end
+
+    test "consume with a repeated actionId eats one portion and answers the same",
+         %{conn: conn, account_id: account_id} do
+      {:ok, leftover} = Leftovers.create(account_id, %{title: "Rice", portions: 3})
+      url = "#{@path}/#{leftover.id}/consume"
+      action_id = Ecto.UUID.generate()
+
+      first = conn |> post(url, %{"actionId" => action_id}) |> json_response(200)
+      retry = conn |> post(url, %{"actionId" => action_id}) |> json_response(200)
+
+      assert first["data"]["portions"] == 2
+      assert retry == first
+      assert [%{portions: 2}] = Leftovers.list_open(account_id)
+
+      other = conn |> post(url, %{"actionId" => Ecto.UUID.generate()}) |> json_response(200)
+      assert other["data"]["portions"] == 1
+    end
+
+    test "consume that fails stores nothing under its actionId",
+         %{conn: conn, account_id: account_id} do
+      action_id = Ecto.UUID.generate()
+      missing = "#{@path}/#{Ecto.UUID.generate()}/consume"
+
+      assert conn |> post(missing, %{"actionId" => action_id}) |> json_response(404)
+
+      {:ok, leftover} = Leftovers.create(account_id, %{title: "Rice", portions: 2})
+      url = "#{@path}/#{leftover.id}/consume"
+
+      # The same key on a different leftover was never claimed, so it runs.
+      data = conn |> post(url, %{"actionId" => action_id}) |> json_response(200)
+      assert data["data"]["portions"] == 1
+    end
+
+    test "consume reusing an actionId that succeeded on another leftover eats from this one",
+         %{conn: conn, account_id: account_id} do
+      {:ok, first} = Leftovers.create(account_id, %{title: "Rice", portions: 2})
+      {:ok, second} = Leftovers.create(account_id, %{title: "Soup", portions: 2})
+      action_id = Ecto.UUID.generate()
+
+      eaten =
+        conn
+        |> post("#{@path}/#{first.id}/consume", %{"actionId" => action_id})
+        |> json_response(200)
+
+      reused =
+        conn
+        |> post("#{@path}/#{second.id}/consume", %{"actionId" => action_id})
+        |> json_response(200)
+
+      assert eaten["data"]["id"] == first.id and eaten["data"]["portions"] == 1
+      assert reused["data"]["id"] == second.id and reused["data"]["portions"] == 1
+
+      assert account_id |> Leftovers.list_open() |> Enum.map(&{&1.id, &1.portions}) |> Enum.sort() ==
+               Enum.sort([{first.id, 1}, {second.id, 1}])
+    end
+
+    test "consume with an actionId and a malformed id is not found",
+         %{conn: conn} do
+      long_id = String.duplicate("x", 300)
+
+      body =
+        conn |> post("#{@path}/#{long_id}/consume", %{"actionId" => "a"}) |> json_response(404)
+
+      assert body["error"]["code"] == "prepared_leftover_not_found"
+    end
+
+    test "consume rejects an actionId that is not a non-empty string up to 128 bytes",
+         %{conn: conn, account_id: account_id} do
+      {:ok, leftover} = Leftovers.create(account_id, %{title: "Rice", portions: 2})
+      url = "#{@path}/#{leftover.id}/consume"
+
+      for value <- ["", String.duplicate("a", 129), 7, %{"id" => "x"}] do
+        body = conn |> post(url, %{"actionId" => value}) |> json_response(422)
+        assert body["error"]["code"] == "validation_error"
+        assert body["error"]["message"] =~ "actionId"
+      end
+
+      assert [%{portions: 2}] = Leftovers.list_open(account_id)
     end
 
     test "discard closes the leftover", %{conn: conn, account_id: account_id} do

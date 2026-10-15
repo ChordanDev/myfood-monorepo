@@ -21,6 +21,10 @@ export async function listPreparedLeftovers(options?: RequestOptions): Promise<P
   return data;
 }
 
+/**
+ * Stores a leftover. With an `actionId`, the server stores once per one within 24 hours, so a
+ * retry after a timeout sends the same one and stores nothing more.
+ */
 export async function createPreparedLeftover(
   input: CreatePreparedLeftoverInput,
   options?: RequestOptions
@@ -30,15 +34,20 @@ export async function createPreparedLeftover(
   );
 }
 
-/** Eats one portion; the leftover closes when none are left. */
+/**
+ * Eats one portion; the leftover closes when none are left. The server eats once per
+ * `actionId` within 24 hours, so a retry after a timeout sends the same one and eats nothing
+ * more.
+ */
 export async function consumePreparedLeftover(
   id: string,
+  actionId: string,
   options?: RequestOptions
 ): Promise<PreparedLeftover> {
   return parseItem(
     await apiClient.post<unknown>(
       `${LEFTOVERS_PATH}/${encodeURIComponent(id)}/consume`,
-      undefined,
+      { actionId },
       {
         ...options,
         auth: true,
@@ -71,6 +80,10 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
+function isStringOrNull(value: unknown): value is string | null {
+  return value === null || typeof value === 'string';
+}
+
 // The transport does not check the shape of a 2xx answer, so a guard stands between it and
 // the screen.
 function isPreparedLeftover(value: unknown): value is PreparedLeftover {
@@ -81,7 +94,10 @@ function isPreparedLeftover(value: unknown): value is PreparedLeftover {
     typeof value.portions === 'number' &&
     typeof value.storedAt === 'string' &&
     typeof value.consumeByDate === 'string' &&
-    (value.notes === null || typeof value.notes === 'string')
+    isStringOrNull(value.sourceMealId) &&
+    isStringOrNull(value.notes) &&
+    isStringOrNull(value.consumedAt) &&
+    isStringOrNull(value.discardedAt)
   );
 }
 
