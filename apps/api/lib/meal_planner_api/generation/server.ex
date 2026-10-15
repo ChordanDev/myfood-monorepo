@@ -25,10 +25,10 @@ defmodule MealPlannerApi.Generation.Server do
 
   alias MealPlannerApi.Optimization.OptimizerServer
   alias MealPlannerApi.Optimization.PayloadAdapter
-  alias MealPlannerApi.Persistence.Accounts
   alias MealPlannerApi.Persistence.Planning.PlanningSession
   alias MealPlannerApi.Persistence.Shopping
   alias MealPlannerApi.Repo
+  alias MealPlannerApi.Services.BudgetService
   alias MealPlannerApi.Services.GenerationService
   alias MealPlannerApi.Services.{PlanningCandidateBuilder, PlanningRequestValidator}
   alias MealPlannerApi.Services.ShoppingRebuilder
@@ -693,12 +693,7 @@ defmodule MealPlannerApi.Generation.Server do
     }
   end
 
-  defp server_owned_budget(account_id) do
-    case Accounts.get_account(account_id) do
-      %{default_budget_cents: budget} when is_integer(budget) and budget >= 0 -> budget
-      _ -> 10_000
-    end
-  end
+  defp server_owned_budget(account_id), do: BudgetService.weekly_limit_cents(account_id)
 
   defp recipe_data_from_candidates(canonical_slots) do
     canonical_slots
