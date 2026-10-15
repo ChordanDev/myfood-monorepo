@@ -242,11 +242,12 @@ describe('parseQuantityMilli', () => {
     [' 0,001 ', 1],
     ['500', 500_000],
     ['3.', 3_000],
+    ['2147483,647', 2_147_483_647],
   ])('reads "%s" as %d thousandths', (text, milli) => {
     expect(parseQuantityMilli(text)).toBe(milli);
   });
 
-  it.each(['', ' ', '0', '0,0', '-1', 'abc', '1,2,3', '1e3', '0,0004', '1 2'])(
+  it.each(['', ' ', '0', '0,0', '-1', 'abc', '1,2,3', '1e3', '0,0004', '1 2', '2147483,648'])(
     'refuses "%s"',
     (text) => {
       expect(parseQuantityMilli(text)).toBeUndefined();

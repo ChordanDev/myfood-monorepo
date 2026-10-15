@@ -37,9 +37,10 @@ interface ShoppingListState {
   // How the lines are grouped. Unlike the day, it is a preference of the device: it stays
   // when the user changes.
   groupBy: ShoppingGroupBy;
-  // Changes of the list asked for and not answered yet.
+  // Changes of the list the user of the cache asked for and that are not answered yet.
   pendingChanges: number;
-  // What the last change failed with. It is cleared when the next change starts.
+  // What the last change of the user of the cache failed with. It is cleared when the next
+  // change starts, and when the user of the cache changes.
   changeError: unknown;
   // Each change goes to the server and, once it is accepted, the list is read again: the
   // server owns the list, so what the change did to it is never worked out on the device.
@@ -98,6 +99,10 @@ const STALE_LIST_CODES: readonly string[] = [
   'shopping_item_not_planned',
 ];
 
+// A change whose answer never came: the server may have taken it. The list is read again to
+// find out, and the change is never sent twice: an item added by hand would be added again.
+const LOST_ANSWER_CODES: readonly string[] = ['timeout', 'network_error'];
+
 // Settles once the stored preferences are in the state, or could not be read. A read waits
 // for it, so a list asked for while the app starts is never read without them.
 let storedPreferences: Promise<void> = Promise.resolve();
@@ -106,6 +111,10 @@ let storedPreferences: Promise<void> = Promise.resolve();
 // an earlier read would otherwise overwrite the list of the preferences chosen after it, or
 // the list of the user who signed in after it.
 let lastReadNumber = 0;
+
+// Counts the changes of the user of the cache. A change asked for by an earlier user settles
+// nothing of the next one, even when the same user signs in again before it is answered.
+let ownerNumber = 0;
 
 export const useShoppingListStore = create<ShoppingListState>()(
   persist(
@@ -117,7 +126,17 @@ export const useShoppingListStore = create<ShoppingListState>()(
 
         // What was read for another user goes first, so it is gone whatever this read comes
         // to. The preferences are looked at below, once the stored ones are in the state.
-        if (get().ownerId !== ownerId) set({ ownerId, list: null, status: 'idle', error: null });
+        if (get().ownerId !== ownerId) {
+          ownerNumber += 1;
+          set({
+            ownerId,
+            list: null,
+            status: 'idle',
+            error: null,
+            pendingChanges: 0,
+            changeError: null,
+          });
+        }
         if (ownerId === null) return;
 
         set({ status: 'loading', error: null });
@@ -177,23 +196,33 @@ export const useShoppingListStore = create<ShoppingListState>()(
         const { ownerId } = get();
         if (ownerId === null) return false;
 
+        const changeOwnerNumber = ownerNumber;
+        const isSameOwner = () => changeOwnerNumber === ownerNumber;
         set((state) => ({ pendingChanges: state.pendingChanges + 1, changeError: null }));
-        const settle = () => set((state) => ({ pendingChanges: state.pendingChanges - 1 }));
+        // The count was reset when the user of the cache changed: it is not this change's.
+        const settle = () => {
+          if (isSameOwner()) set((state) => ({ pendingChanges: state.pendingChanges - 1 }));
+        };
 
         try {
           await run();
         } catch (error) {
           settle();
-          if (get().ownerId !== ownerId) return false;
+          if (!isSameOwner() || get().ownerId !== ownerId) return false;
 
           set({ changeError: error });
-          if (isApiError(error) && STALE_LIST_CODES.includes(error.code)) await read(ownerId);
+          if (
+            isApiError(error) &&
+            (STALE_LIST_CODES.includes(error.code) || LOST_ANSWER_CODES.includes(error.code))
+          ) {
+            await read(ownerId);
+          }
           return false;
         }
 
         settle();
         // This read is the last one asked for, so no read that was on its way lands over it.
-        if (get().ownerId === ownerId) await read(ownerId);
+        if (isSameOwner() && get().ownerId === ownerId) await read(ownerId);
         return true;
       };
 

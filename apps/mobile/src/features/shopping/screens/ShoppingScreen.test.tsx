@@ -1428,6 +1428,21 @@ describe('ShoppingScreen: items added by hand, removed and restored', () => {
     expect(texts).toContain('5 ítems · 1 en el carrito');
   });
 
+  it('does not say there is nothing to buy while the manual card lists items', async () => {
+    serverList = {
+      ...EMPTY_SHOPPING_LIST,
+      manual: [MANUAL_DISH_SOAP],
+      totals: { ...EMPTY_SHOPPING_LIST.totals, needed: 1 },
+    };
+    serveChanges({});
+
+    const root = await renderLoadedScreen();
+    const texts = getTexts(root);
+
+    expect(texts).toContain(SOAP_ROW);
+    expect(texts).not.toContain(EMPTY_LABEL);
+  });
+
   it('shows no restore line while nothing is removed', async () => {
     serveChanges({});
 

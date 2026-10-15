@@ -161,8 +161,8 @@ export function useShoppingList() {
     // A read is on its way over the list on show: after a retry, a change of preference or a
     // return to the screen. Never together with `isLoading`, which has no list.
     isReadingAgain: list !== null && status === 'loading',
-    // A read landed and it has no line to buy.
-    isEmpty: list !== null && groups.length === 0,
+    // A read landed and it has no line to buy, planned or added by hand.
+    isEmpty: list !== null && groups.length === 0 && manualItems.length === 0,
     // Set while the last read failed. The list of the read before it, if any, stays.
     errorMessage: status === 'error' ? getAuthErrorMessage(error) : undefined,
     // Asks again for the read that failed.
