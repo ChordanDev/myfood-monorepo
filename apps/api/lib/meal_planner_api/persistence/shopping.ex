@@ -80,6 +80,28 @@ defmodule MealPlannerApi.Persistence.Shopping do
     do: %ShoppingItem{} |> ShoppingItem.manual_changeset(attrs) |> Repo.insert()
 
   @doc """
+  Deletes the Account's manual Shopping item with this id while it is still on the list
+  (`:pending` or `:in_cart`), in one conditional statement. `{:ok, id}` when it was deleted,
+  `:error` when no such item is on the list (unknown, of another Account, not a UUID, planned,
+  or already closed).
+  """
+  @spec delete_open_manual_item(Ecto.UUID.t(), term()) :: {:ok, Ecto.UUID.t()} | :error
+  def delete_open_manual_item(account_id, item_id) do
+    with {:ok, uuid} <- Ecto.UUID.cast(item_id),
+         {1, _} <-
+           from(i in ShoppingItem,
+             where:
+               i.account_id == ^account_id and i.id == ^uuid and i.source == :manual and
+                 i.status in [:pending, :in_cart]
+           )
+           |> Repo.delete_all() do
+      {:ok, uuid}
+    else
+      _not_deleted -> :error
+    end
+  end
+
+  @doc """
   The Account's Shopping item with this id, with its Ingredient loaded, or
   `nil` when the id is unknown, of another Account or not a UUID.
   """

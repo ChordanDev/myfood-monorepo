@@ -146,13 +146,14 @@ defmodule MealPlannerApiWeb.CheckoutDeliveredTest do
 
       before_delivery = DateTime.utc_now()
 
+      # Three lots; four items bought, the soap without an Ingredient included.
       assert %{
                "data" => %{
                  "checkoutSessionId" => session_id,
                  "status" => "completed",
                  "checkoutType" => "online",
                  "movedToInventoryCount" => 3,
-                 "checkedOutItemsCount" => 3,
+                 "checkedOutItemsCount" => 4,
                  "actualTotalCents" => 690
                }
              } = f |> delivered(cart.session_id) |> json_response(200)
