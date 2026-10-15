@@ -3,8 +3,7 @@ defmodule MealPlannerApi.Persistence.Planning do
 
   import Ecto.Query, warn: false
 
-  alias MealPlannerApi.Persistence.Accounts
-  alias MealPlannerApi.Persistence.Catalog.{FavoriteRecipe, Recipe, RecipeIngredient}
+  alias MealPlannerApi.Persistence.Catalog.{FavoriteRecipe, Recipe}
   alias MealPlannerApi.Repo
 
   alias MealPlannerApi.Persistence.Planning.{
@@ -115,34 +114,6 @@ defmodule MealPlannerApi.Persistence.Planning do
       ]
     )
     |> Repo.all()
-  end
-
-  def candidate_recipe_ids_for_users(account_id, user_ids, slot) do
-    excluded_ids = Accounts.list_user_excluded_ingredient_ids(user_ids) |> MapSet.to_list()
-
-    base_ids =
-      from(r in Recipe,
-        where: is_nil(r.account_id) or r.account_id == ^account_id,
-        where: is_nil(r.superseded_by_id),
-        where: ^slot in r.suitable_for_slots,
-        select: r.id
-      )
-      |> Repo.all()
-
-    if excluded_ids == [] or base_ids == [] do
-      base_ids
-    else
-      blocked_ids =
-        from(ri in RecipeIngredient,
-          where: ri.recipe_id in ^base_ids and ri.ingredient_id in ^excluded_ids,
-          select: ri.recipe_id,
-          distinct: true
-        )
-        |> Repo.all()
-        |> MapSet.new()
-
-      Enum.reject(base_ids, &MapSet.member?(blocked_ids, &1))
-    end
   end
 
   def create_cooking_session(attrs),

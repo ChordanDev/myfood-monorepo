@@ -40,10 +40,12 @@ defmodule MealPlannerApi.Data.PlanningRepoTest do
 
   alias Ecto.Adapters.SQL.Sandbox
   alias MealPlannerApi.Data.PlanningRepo
+  alias MealPlannerApi.Data.UserHardRestrictionRepo
   alias MealPlannerApi.Persistence.Accounts.Account, as: PersistenceAccount
   alias MealPlannerApi.Persistence.Accounts.AccountMembership
   alias MealPlannerApi.Persistence.Accounts.User, as: PersistenceUser
   alias MealPlannerApi.Persistence.Accounts.UserExcludedIngredient
+  alias MealPlannerApi.Persistence.Accounts.UserHardRestriction
   alias MealPlannerApi.Persistence.Catalog.Ingredient
   alias MealPlannerApi.Persistence.Catalog.Recipe
   alias MealPlannerApi.Persistence.Catalog.RecipeIngredient
@@ -505,6 +507,132 @@ defmodule MealPlannerApi.Data.PlanningRepoTest do
 
       assert allowed_recipe.id in candidate_ids
       refute blocked_recipe.id in candidate_ids
+    end
+  end
+
+  describe "candidate_recipe_ids_for_slots/3 — Hard restrictions" do
+    setup do
+      account = insert_account("Hard Restriction Filtering")
+      owner = insert_user_with_active_membership(account.id, "hard-owner@example.com", :owner)
+      member = insert_user_with_active_membership(account.id, "hard-member@example.com", :member)
+
+      %{account: account, owner: owner, member: member}
+    end
+
+    for code <- UserHardRestriction.codes() do
+      test "excludes a recipe with an Ingredient tagged #{code} for a participant with #{code}",
+           %{account: account, owner: owner} do
+        code = unquote(code)
+        :ok = UserHardRestrictionRepo.replace_codes(owner.id, [code])
+
+        blocked = recipe_with_allergens("Tagged #{code}", [code])
+
+        allowed =
+          recipe_with_allergens("Other codes than #{code}", UserHardRestriction.codes() -- [code])
+
+        candidate_ids =
+          PlanningRepo.candidate_recipe_ids_for_slots(account.id, [owner.id], ["lunch"])
+
+        refute blocked.id in candidate_ids
+        assert allowed.id in candidate_ids
+      end
+    end
+
+    test "excludes the union of the Hard restrictions of every participant",
+         %{account: account, owner: owner, member: member} do
+      :ok = UserHardRestrictionRepo.replace_codes(owner.id, ["dairy"])
+      :ok = UserHardRestrictionRepo.replace_codes(member.id, ["peanut", "egg"])
+
+      dairy = recipe_with_allergens("Union dairy", ["dairy"])
+      peanut = recipe_with_allergens("Union peanut", ["peanut"])
+      egg = recipe_with_allergens("Union egg", ["egg"])
+      soy = recipe_with_allergens("Union soy", ["soy"])
+      none = recipe_with_allergens("Union none", [])
+
+      candidate_ids =
+        PlanningRepo.candidate_recipe_ids_for_slots(account.id, [owner.id, member.id], ["lunch"])
+
+      refute dairy.id in candidate_ids
+      refute peanut.id in candidate_ids
+      refute egg.id in candidate_ids
+      assert soy.id in candidate_ids
+      assert none.id in candidate_ids
+    end
+
+    test "ignores the Hard restrictions of a member who is not participating",
+         %{account: account, owner: owner, member: member} do
+      :ok = UserHardRestrictionRepo.replace_codes(member.id, ["shellfish"])
+
+      shellfish = recipe_with_allergens("Not participating shellfish", ["shellfish"])
+
+      candidate_ids =
+        PlanningRepo.candidate_recipe_ids_for_slots(account.id, [owner.id], ["lunch"])
+
+      assert shellfish.id in candidate_ids
+    end
+
+    test "stops excluding once the Hard restriction is removed",
+         %{account: account, owner: owner} do
+      :ok = UserHardRestrictionRepo.replace_codes(owner.id, ["gluten"])
+      gluten = recipe_with_allergens("Removed gluten", ["gluten"])
+
+      refute gluten.id in PlanningRepo.candidate_recipe_ids_for_slots(account.id, [owner.id], [
+               "lunch"
+             ])
+
+      :ok = UserHardRestrictionRepo.replace_codes(owner.id, [])
+
+      assert gluten.id in PlanningRepo.candidate_recipe_ids_for_slots(account.id, [owner.id], [
+               "lunch"
+             ])
+    end
+
+    test "treats an Ingredient nobody reviewed as carrying every code",
+         %{account: account, owner: owner, member: member} do
+      unreviewed = recipe_with_allergens("Unreviewed ingredient", nil)
+
+      assert unreviewed.id in PlanningRepo.candidate_recipe_ids_for_slots(
+               account.id,
+               [owner.id],
+               ["lunch"]
+             )
+
+      :ok = UserHardRestrictionRepo.replace_codes(member.id, ["soy"])
+
+      refute unreviewed.id in PlanningRepo.candidate_recipe_ids_for_slots(
+               account.id,
+               [owner.id, member.id],
+               [
+                 "lunch"
+               ]
+             )
+    end
+
+    test "keeps excluding Excluded ingredients alongside Hard restrictions",
+         %{account: account, owner: owner, member: member} do
+      :ok = UserHardRestrictionRepo.replace_codes(owner.id, ["tree_nut"])
+
+      excluded_ingredient = insert_ingredient("Excluded alongside codes")
+      excluded = insert_recipe("Excluded alongside codes recipe")
+      insert_recipe_ingredient(excluded, excluded_ingredient, 100)
+
+      %UserExcludedIngredient{}
+      |> UserExcludedIngredient.changeset(%{
+        user_id: member.id,
+        ingredient_id: excluded_ingredient.id,
+        reason: :dislike
+      })
+      |> Repo.insert!()
+
+      tree_nut = recipe_with_allergens("Alongside tree nut", ["tree_nut"])
+      allowed = recipe_with_allergens("Alongside allowed", [])
+
+      candidate_ids =
+        PlanningRepo.candidate_recipe_ids_for_slots(account.id, [owner.id, member.id], ["lunch"])
+
+      refute excluded.id in candidate_ids
+      refute tree_nut.id in candidate_ids
+      assert allowed.id in candidate_ids
     end
   end
 
@@ -1335,10 +1463,17 @@ defmodule MealPlannerApi.Data.PlanningRepoTest do
     |> Repo.insert!()
   end
 
-  defp insert_ingredient(name) do
+  defp insert_ingredient(name, allergens \\ []) do
     %Ingredient{}
-    |> Ingredient.changeset(%{name: name, category: :otros})
+    |> Ingredient.changeset(%{name: name, category: :otros, allergens: allergens})
     |> Repo.insert!()
+  end
+
+  # A recipe with one Ingredient that carries `allergens` (nil: not reviewed).
+  defp recipe_with_allergens(name, allergens) do
+    recipe = insert_recipe(name)
+    insert_recipe_ingredient(recipe, insert_ingredient("#{name} ingredient", allergens), 100)
+    recipe
   end
 
   defp insert_recipe_ingredient(recipe, ingredient, quantity_milli) do

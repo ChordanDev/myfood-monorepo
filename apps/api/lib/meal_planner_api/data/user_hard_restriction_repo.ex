@@ -17,6 +17,19 @@ defmodule MealPlannerApi.Data.UserHardRestrictionRepo do
     |> Repo.all()
   end
 
+  @doc "The Hard restriction codes stored for any of `user_ids`, each once."
+  @spec list_codes_for_users([Ecto.UUID.t()]) :: [String.t()]
+  def list_codes_for_users([]), do: []
+
+  def list_codes_for_users(user_ids) when is_list(user_ids) do
+    from(r in UserHardRestriction,
+      where: r.user_id in ^user_ids,
+      select: r.code,
+      distinct: true
+    )
+    |> Repo.all()
+  end
+
   @doc """
   Makes the codes stored for a User exactly `codes`: the rows of the other
   codes are deleted and the missing ones inserted. A code already stored

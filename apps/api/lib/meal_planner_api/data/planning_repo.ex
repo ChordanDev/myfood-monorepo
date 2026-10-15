@@ -8,10 +8,12 @@ defmodule MealPlannerApi.Data.PlanningRepo do
   import Ecto.Query, warn: false
   alias MealPlannerApi.Repo
 
+  alias MealPlannerApi.Data.UserHardRestrictionRepo
   alias MealPlannerApi.Persistence.Accounts
 
   alias MealPlannerApi.Persistence.Catalog.{
     FavoriteRecipe,
+    Ingredient,
     Recipe,
     RecipeDailyCost,
     RecipeIngredient,
@@ -218,18 +220,24 @@ defmodule MealPlannerApi.Data.PlanningRepo do
   # Candidate recipes (exclusion filtering)
   # -------------------------------------------------------------------------
 
+  # A recipe is dropped when one of its Ingredients is an Excluded ingredient
+  # of a participant, or carries a Hard restriction code of a participant. An
+  # Ingredient nobody reviewed (`allergens` NULL) counts as carrying every
+  # code, so it is dropped for anyone with a Hard restriction.
   @spec candidate_recipe_ids_for_slots(Ecto.UUID.t(), [Ecto.UUID.t()], [atom() | String.t()]) :: [
           Ecto.UUID.t()
         ]
   def candidate_recipe_ids_for_slots(account_id, participant_ids, slots)
       when is_list(participant_ids) and is_list(slots) do
     slot_strings = Enum.map(slots, &to_string/1)
+    active_ids = active_participant_ids(participant_ids, account_id)
 
     excluded_ids =
-      participant_ids
-      |> active_participant_ids(account_id)
+      active_ids
       |> Accounts.list_user_excluded_ingredient_ids()
       |> MapSet.to_list()
+
+    hard_restriction_codes = UserHardRestrictionRepo.list_codes_for_users(active_ids)
 
     base_ids =
       from(r in Recipe,
@@ -240,12 +248,19 @@ defmodule MealPlannerApi.Data.PlanningRepo do
       )
       |> Repo.all()
 
-    if excluded_ids == [] or base_ids == [] do
+    if (excluded_ids == [] and hard_restriction_codes == []) or base_ids == [] do
       base_ids
     else
       blocked_ids =
         from(ri in RecipeIngredient,
-          where: ri.recipe_id in ^base_ids and ri.ingredient_id in ^excluded_ids,
+          join: i in Ingredient,
+          on: i.id == ri.ingredient_id,
+          where: ri.recipe_id in ^base_ids,
+          where:
+            ri.ingredient_id in ^excluded_ids or
+              (^(hard_restriction_codes != []) and
+                 (is_nil(i.allergens) or
+                    fragment("? && ?::varchar[]", i.allergens, ^hard_restriction_codes))),
           select: ri.recipe_id,
           distinct: true
         )
