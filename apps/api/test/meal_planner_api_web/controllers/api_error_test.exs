@@ -6,6 +6,7 @@ defmodule MealPlannerApiWeb.ApiErrorTest do
   """
   use MealPlannerApiWeb.ConnCase, async: true
 
+  alias MealPlannerApi.Services.PlanningService
   alias MealPlannerApiWeb.ApiError
 
   describe "error/2" do
@@ -308,6 +309,21 @@ defmodule MealPlannerApiWeb.ApiErrorTest do
 
       assert %{error: %{message: "The start date must not be after the end date."}} =
                ApiError.envelope(:invalid_date_range)
+    end
+
+    test "name the most days a User plans, the number `details.maxDays` carries" do
+      # The messages spell the number out; this ties it to the rule.
+      max_days = PlanningService.max_planning_days()
+
+      for code <- [:date_range_too_long, :planning_date_range_too_long] do
+        assert %{error: %{message: message}} = ApiError.envelope(code)
+        assert message == "The date range must not be longer than #{max_days} days."
+      end
+
+      assert %{error: %{message: message}} = ApiError.envelope(:planning_invalid_range)
+
+      assert message ==
+               "The planning range must be 1 to #{max_days} days and start today or later."
     end
 
     test "map to their HTTP status", %{conn: conn} do

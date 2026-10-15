@@ -128,6 +128,20 @@ describe('auth error code contract (api -> mobile allowlist)', () => {
     return extractAuthErrorCodeUnionMembersFrom(authTypesSource);
   }
 
+  function readMaxPlanningDays(): number {
+    const apiLib = resolveApiLibPath();
+    if (!apiLib) {
+      throw new Error(
+        '[authErrorCodeContract] apps/api/lib not found next to apps/mobile. ' +
+          'This test depends on the monorepo layout.'
+      );
+    }
+    const servicePath = path.join(apiLib, 'meal_planner_api', 'services', 'planning_service.ex');
+    const match = fs.readFileSync(servicePath, 'utf8').match(/^\s*@max_planning_days (\d+)$/m);
+    expect(match).not.toBeNull();
+    return Number(match![1]);
+  }
+
   function scanApiErrorCodes(): string[] {
     const apiLib = resolveApiLibPath();
     if (!apiLib) {
@@ -215,8 +229,23 @@ describe('auth error code contract (api -> mobile allowlist)', () => {
 
       expect(error.code).toBe(code);
       expect(error.details).toEqual({ maxDays: 7 });
-      expect(AUTH_ERROR_MESSAGES[code]).toBe('Elegí un rango de hasta 7 días.');
     }
+  });
+
+  it('the copies of the range codes name the most days a User plans, as the api has it', () => {
+    // The api keeps that maximum in `PlanningService` (`@max_planning_days`)
+    // and sends it as `details.maxDays`; the copies spell the number out.
+    const maxDays = readMaxPlanningDays();
+
+    expect(AUTH_ERROR_MESSAGES.date_range_too_long).toBe(
+      `Elegí un rango de hasta ${maxDays} días.`
+    );
+    expect(AUTH_ERROR_MESSAGES.planning_date_range_too_long).toBe(
+      `Elegí un rango de hasta ${maxDays} días.`
+    );
+    expect(AUTH_ERROR_MESSAGES.planning_invalid_range).toBe(
+      `Elegí entre 1 y ${maxDays} días, empezando hoy o más adelante.`
+    );
   });
 
   it('does not know rate_limit_record_failed, a code the api never emits', () => {
