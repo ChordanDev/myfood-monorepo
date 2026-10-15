@@ -235,7 +235,8 @@ defmodule MealPlannerApiWeb.CheckoutDeliveredTest do
       Repo.delete!(f.next_meal)
       assert Repo.get(f.next_item.__struct__, f.next_item.id) == nil
 
-      assert %{"data" => %{"movedToInventoryCount" => 2}} =
+      # The item of the deleted meal was bought: it is counted as checked out.
+      assert %{"data" => %{"movedToInventoryCount" => 2, "checkedOutItemsCount" => 2}} =
                f |> delivered(cart.session_id) |> json_response(200)
 
       assert [500, 1000] = stock(f) |> Enum.map(& &1.quantity_milli) |> Enum.sort()

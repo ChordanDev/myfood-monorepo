@@ -282,6 +282,40 @@ defmodule MealPlannerApiWeb.ShoppingManualItemsTest do
     end
   end
 
+  describe "a manual item stored before the codepoint bound" do
+    test "a partial purchase stores its remainder", c do
+      # 101 graphemes, 202 codepoints: stored when the bound counted graphemes.
+      name = String.duplicate("👍🏽", 101)
+
+      item =
+        Repo.insert!(%ShoppingItem{
+          account_id: c.account.id,
+          name: name,
+          quantity_milli: 2000,
+          unit: :unit,
+          status: :pending,
+          source: :manual
+        })
+
+      mark = mark_cart!(c.token, [item.id])
+
+      conn =
+        build_conn()
+        |> put_req_header("authorization", "Bearer " <> c.token)
+        |> post("/api/checkout/confirm", %{
+          "checkout_type" => "physical",
+          "session_id" => mark["data"]["sessionId"],
+          "lines" => [%{"item_id" => item.id, "quantity_milli" => 500}]
+        })
+
+      assert %{"data" => %{"status" => "completed", "checkedOutItemsCount" => 1}} =
+               json_response(conn, 200)
+
+      assert [%{"name" => ^name, "quantityMilli" => 1500, "status" => "needed"}] =
+               shopping_list(c.token)["manual"]
+    end
+  end
+
   describe "POST /api/shopping-items/set-status" do
     setup c do
       later = Date.add(Date.utc_today(), 2)

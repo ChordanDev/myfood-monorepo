@@ -181,10 +181,14 @@ defmodule MealPlannerApi.Cart do
         total_cents: total,
         confirmed_by_user_id: ids.user_id,
         confirmed_at: now,
-        # The lots wait in the session, not in its Shopping items: those are
-        # deleted with their Scheduled meal, and what was bought must still
-        # arrive.
-        purchase_result: if(online?, do: Map.put(result, :pending_lots, lots), else: result)
+        # The lots and the count of items bought wait in the session, not in
+        # its Shopping items: those are deleted with their Scheduled meal, and
+        # what was bought must still arrive and be counted.
+        purchase_result:
+          if(online?,
+            do: Map.merge(result, %{pending_lots: lots, pending_bought: length(purchased)}),
+            else: result
+          )
       })
 
       {:confirmed, result}
@@ -508,6 +512,8 @@ defmodule MealPlannerApi.Cart do
     moved = add_lots!(ids, session, pending_lots(session), now)
 
     # Only bought items wait for the delivery, each with a quantity above zero.
+    # Some may be gone with their Scheduled meal: the count is the one stored
+    # at the confirm.
     delivered =
       Repo.all(
         from(i in ShoppingItem,
@@ -527,13 +533,18 @@ defmodule MealPlannerApi.Cart do
         :completed,
         "online",
         moved,
-        length(delivered),
+        pending_bought(session, delivered),
         session.total_cents
       )
 
     update!(session, %{status: :completed, purchase_result: result})
     result
   end
+
+  # A session confirmed before the count was stored counts the items still
+  # waiting for it.
+  defp pending_bought(%CheckoutSession{purchase_result: stored}, delivered),
+    do: Map.get(stored, "pending_bought") || length(delivered)
 
   # The lots an online confirm left in the session, back from JSON.
   defp pending_lots(%CheckoutSession{purchase_result: stored}) do
@@ -699,9 +710,12 @@ defmodule MealPlannerApi.Cart do
 
   @doc """
   Takes the Cart's advisory lock of the Account until the current
-  transaction ends. Every Cart write takes it first, before any row lock; a
-  write outside this module that locks Shopping items takes it first too, so
-  the two cannot lock the same items in opposite orders.
+  transaction ends. Every Cart write takes it first, before any row lock.
+  Outside this module only `set-status`
+  (`ShoppingService.set_item_status/2`) takes it, before it locks Shopping
+  items, so it cannot lock them in the opposite order to a Cart write. The
+  other writers of Shopping items (cooking, meal moves, plan confirms) do not
+  take it.
   """
   def lock_account!(account_id) do
     Repo.query!("SELECT pg_advisory_xact_lock(hashtext($1))", ["cart:#{account_id}"])

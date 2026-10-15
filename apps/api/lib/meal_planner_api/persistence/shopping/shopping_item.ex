@@ -96,6 +96,13 @@ defmodule MealPlannerApi.Persistence.Shopping.ShoppingItem do
     |> put_change(:status, :pending)
     |> put_change(:scheduled_meal_id, nil)
     |> put_change(:planned_date, nil)
+    |> update_change(:name, &String.trim/1)
+    # Only what a User types now is bounded this way. Counted in codepoints:
+    # a grapheme count lets a run of combining marks or emoji pass as a few.
+    # Rows stored before keep the grapheme bound of `changeset/2`, so the
+    # remainder a purchase stores from one of them is never refused.
+    |> validate_length(:name, max: @max_name_length, count: :codepoints)
+    |> validate_change(:name, &reject_nul/2)
     |> changeset(%{})
   end
 
@@ -107,10 +114,7 @@ defmodule MealPlannerApi.Persistence.Shopping.ShoppingItem do
         changeset
         |> update_change(:name, &String.trim/1)
         |> validate_required([:name])
-        # Counted in codepoints: Postgres bounds text by them, and a grapheme
-        # count lets a run of combining marks or emoji pass as a few.
-        |> validate_length(:name, max: @max_name_length, count: :codepoints)
-        |> validate_change(:name, &reject_nul/2)
+        |> validate_length(:name, max: @max_name_length)
 
       _planned ->
         validate_required(changeset, [:scheduled_meal_id, :planned_date, :ingredient_id])
