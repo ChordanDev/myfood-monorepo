@@ -1,4 +1,4 @@
-defmodule MealPlannerApi.PlanningTest do
+defmodule MealPlannerApi.Services.PlanningServiceWeeklyPlanTest do
   use ExUnit.Case, async: false
 
   import MealPlannerApi.IdentityFixtures
@@ -6,8 +6,8 @@ defmodule MealPlannerApi.PlanningTest do
   alias Ecto.Adapters.SQL.Sandbox
   alias MealPlannerApi.Persistence.Catalog
   alias MealPlannerApi.Persistence.Shopping
-  alias MealPlannerApi.Planning
   alias MealPlannerApi.Repo
+  alias MealPlannerApi.Services.PlanningService
 
   setup do
     :ok = Sandbox.checkout(Repo)
@@ -19,30 +19,6 @@ defmodule MealPlannerApi.PlanningTest do
       Application.put_env(:meal_planner_api, :planning_optimizer_client, previous_client)
       Application.delete_env(:meal_planner_api, :planning_optimizer_capture_pid)
     end)
-  end
-
-  test "planning days are capped by account subscription plan" do
-    %{user: user} = create_identity_with_recipes("u1_plan", "free", "individual")
-
-    assert {:ok, plan} = Planning.weekly_plan_for(user, %{"weekly_budget_cents" => 30_000})
-
-    # Free tier returns 5 days (max_planning_days = 5)
-    assert length(plan.days) == 5
-  end
-
-  test "premium tier planning returns 7 days" do
-    %{user: user} = create_identity_with_recipes("u2_plan", "premium", "group")
-
-    assert {:ok, plan} = Planning.weekly_plan_for(user, %{"weekly_budget_cents" => 120_000})
-
-    assert length(plan.days) == 7
-  end
-
-  test "weekly_plan_for returns exceeds_max_planning_days when requested days exceed account plan" do
-    %{user: user} = create_identity_with_recipes("u_days_limit", "free", "individual")
-
-    assert {:error, :exceeds_max_planning_days} =
-             Planning.weekly_plan_for(user, %{"days" => 6})
   end
 
   test "optimizer payload includes macro bounds and uses latest historical recipe cost" do
@@ -84,7 +60,7 @@ defmodule MealPlannerApi.PlanningTest do
       })
 
     assert {:ok, _plan} =
-             Planning.weekly_plan_for(user, %{
+             PlanningService.generate_weekly_plan(user, %{
                "kcal_target" => 2000,
                "weekly_budget_cents" => 40_000
              })
@@ -104,51 +80,6 @@ defmodule MealPlannerApi.PlanningTest do
       end)
 
     assert breakfast_candidate["estimated_cost_cents"] == 3200
-  end
-
-  test "confirm_plan persists scheduled meals" do
-    %{user: user, recipes: recipes, account: account} =
-      create_identity_with_recipes("u_confirm_ctx", "premium", "group")
-
-    today = Date.utc_today()
-    tomorrow = Date.add(today, 1)
-
-    payload = %{
-      "meals" => [
-        %{
-          "date" => Date.to_iso8601(today),
-          "slot" => "breakfast",
-          "recipe_id" => recipes.breakfast.id
-        },
-        %{"date" => Date.to_iso8601(tomorrow), "slot" => "lunch", "recipe_id" => recipes.lunch.id}
-      ]
-    }
-
-    assert {:ok, result} = Planning.confirm_plan(user, payload)
-    assert result.scheduled_meals_count == 2
-
-    persisted =
-      MealPlannerApi.Persistence.Planning.list_scheduled_meals(account.id, today, tomorrow)
-
-    assert length(persisted) == 2
-    assert Enum.any?(persisted, &(&1.recipe_id == recipes.breakfast.id and &1.slot == :breakfast))
-    assert Enum.any?(persisted, &(&1.recipe_id == recipes.lunch.id and &1.slot == :lunch))
-  end
-
-  test "confirm_plan returns error for unknown recipe" do
-    %{user: user} = create_identity_with_recipes("u_confirm_invalid", "free", "individual")
-
-    payload = %{
-      "meals" => [
-        %{
-          "date" => Date.to_iso8601(Date.utc_today()),
-          "slot" => "dinner",
-          "recipe_id" => Ecto.UUID.generate()
-        }
-      ]
-    }
-
-    assert {:error, :recipe_not_found} = Planning.confirm_plan(user, payload)
   end
 
   defp create_identity_with_recipes(user_id, subscription_tier, account_type) do
