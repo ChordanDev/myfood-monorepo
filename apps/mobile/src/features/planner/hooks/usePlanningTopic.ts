@@ -3,6 +3,7 @@ import type { ApiError } from '@/api/errors';
 import { getSocketClient, planningTopic, type TopicSubscription } from '@/api/socket';
 import { useAuth } from '@/features/auth/hooks/useAuth';
 import {
+  SESSION_MOVED_ON_EVENTS,
   SESSION_OVER_EVENTS,
   type SessionOverReason,
   type SessionResumedPayload,
@@ -92,6 +93,14 @@ export function usePlanningTopic(): PlanningTopicState {
             reason,
             () => {
               if (isCurrent) setSessionEvents({ sessionOver: reason });
+            },
+          ])
+        ),
+        ...Object.fromEntries(
+          SESSION_MOVED_ON_EVENTS.map((event) => [
+            event,
+            () => {
+              if (isCurrent) setSessionEvents({});
             },
           ])
         ),
