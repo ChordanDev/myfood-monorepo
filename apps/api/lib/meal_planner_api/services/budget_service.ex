@@ -3,6 +3,9 @@ defmodule MealPlannerApi.Services.BudgetService do
   Budget resolution service.
 
   Resolves weekly budget limits based on account type and subscription tier.
+
+  An Account `default_budget_cents` of 0 means "not set": the tier default
+  applies instead (#212).
   """
 
   alias MealPlannerApi.Budgets.Budget
@@ -28,6 +31,14 @@ defmodule MealPlannerApi.Services.BudgetService do
     }
   end
 
+  @doc """
+  Weekly limit in cents for an Account: its `default_budget_cents` when above 0,
+  otherwise the standard tier default. The tier belongs to a User, so a caller
+  with only the Account never gets the premium default.
+  """
+  @spec weekly_limit_cents(term()) :: pos_integer()
+  def weekly_limit_cents(account_id), do: resolve_default_limit(account_id, :free)
+
   @spec within_limit?(Budget.t(), non_neg_integer()) :: boolean()
   def within_limit?(%Budget{weekly_limit_cents: limit}, estimated_cents)
       when is_integer(estimated_cents) and estimated_cents >= 0 do
@@ -47,7 +58,7 @@ defmodule MealPlannerApi.Services.BudgetService do
     case Ecto.UUID.cast(account_id) do
       {:ok, _} ->
         case AccountRepo.get_account(account_id) do
-          %{default_budget_cents: cents} when is_integer(cents) and cents >= 0 -> cents
+          %{default_budget_cents: cents} when is_integer(cents) and cents > 0 -> cents
           _ -> tier_default_limit(tier)
         end
 

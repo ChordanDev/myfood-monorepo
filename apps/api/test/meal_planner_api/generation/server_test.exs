@@ -515,6 +515,76 @@ defmodule MealPlannerApi.Generation.ServerTest do
     end
   end
 
+  # A new Account stores a Budget of 0, which means "not set": the run gets the
+  # standard tier default, so a priced recipe still reaches a proposal (#212).
+  describe "start_generation/4 Budget" do
+    test "a run for an Account at 0 with a priced recipe broadcasts proposal_ready" do
+      account = insert_account("generation unset budget account")
+      assert account.default_budget_cents == 0
+      actor = insert_user_with_membership(account, "generation-unset-budget@example.com")
+      recipe = insert_recipe("Priced recipe")
+      insert_recipe_cost(recipe, 1_500)
+
+      assert {:ok, run_id} = start_priced_lunch_run(account, actor)
+
+      assert_receive %Phoenix.Socket.Broadcast{event: "proposal_ready", payload: ready}, 5_000
+      assert %{run_id: ^run_id, proposal: %{slots: [slot]}} = ready
+      assert slot.recipe_id == recipe.id
+      assert generation_run(run_id).status == :completed
+
+      stop_generation_server(account.id)
+    end
+
+    test "a run for an Account with a positive Budget uses that Budget" do
+      account = insert_account("generation set budget account")
+
+      account =
+        account
+        |> Ecto.Changeset.change(%{default_budget_cents: 1_000})
+        |> MealPlannerApi.Repo.update!()
+
+      actor = insert_user_with_membership(account, "generation-set-budget@example.com")
+      recipe = insert_recipe("Priced recipe over budget")
+      insert_recipe_cost(recipe, 1_500)
+
+      assert {:ok, run_id} = start_priced_lunch_run(account, actor)
+
+      assert_receive %Phoenix.Socket.Broadcast{event: "generation_error", payload: error}, 5_000
+      assert %{run_id: ^run_id, reason: "budget_exceeded"} = error
+      refute_received %Phoenix.Socket.Broadcast{event: "proposal_ready"}
+      assert generation_run(run_id).status == :error
+
+      stop_generation_server(account.id)
+    end
+  end
+
+  defp start_priced_lunch_run(account, actor) do
+    optimizer = start_optimizer_server!()
+    Phoenix.PubSub.subscribe(MealPlannerApi.PubSub, "planning:#{account.id}")
+
+    result =
+      Server.start_generation(
+        account.id,
+        actor.id,
+        %{"date_from" => "2026-02-01", "date_to" => "2026-02-01", "slot_types" => ["lunch"]},
+        self()
+      )
+
+    answer_optimizer_request(optimizer)
+    result
+  end
+
+  defp insert_recipe_cost(recipe, cents) do
+    {:ok, market} = Shopping.create_supermarket(%{name: "Market for #{recipe.name}"})
+
+    MealPlannerApi.Repo.insert!(%MealPlannerApi.Persistence.Catalog.RecipeDailyCost{
+      recipe_id: recipe.id,
+      supermarket_id: market.id,
+      date: ~D[2026-01-31],
+      total_cents_ars: cents
+    })
+  end
+
   test "confirmation after a correction keeps the proposal version and rebuilds its frozen quantities" do
     account = insert_account("Versioned confirmation")
     user = insert_user_with_membership(account, "versioned-confirmation@example.com")
