@@ -17,7 +17,8 @@ defmodule MealPlannerApi.Persistence.Calendar do
   The Home view of a date range. "Today" is the Account's (`AccountClock`) at
   `opts[:now]`, the current instant by default, and every meal carries
   `is_skipped`: its date is before that today and it was not cooked, and
-  `is_cooking`: it has an `active` Cooking session, so it cannot be moved.
+  `is_cooking`: its date is that today and it has an `active` Cooking session,
+  so it cannot be moved.
   """
   def monthly_overview(account_id, user_id, start_date, end_date, opts \\ %{}) do
     today = AccountClock.today(account_id, Map.get(opts, :now, DateTime.utc_now()))
@@ -41,7 +42,7 @@ defmodule MealPlannerApi.Persistence.Calendar do
           date: m.date,
           slot: m.slot,
           is_cooked: m.is_cooked,
-          is_cooking: exists(subquery(active_cooking_session())),
+          is_cooking: exists(subquery(active_cooking_session(today))),
           recipe_id: m.recipe_id,
           recipe_name:
             fragment(
@@ -272,6 +273,8 @@ defmodule MealPlannerApi.Persistence.Calendar do
           map() | nil
   def get_slot_meal(account_id, user_id, date, slot, now \\ DateTime.utc_now())
       when is_atom(slot) do
+    today = AccountClock.today(account_id, now)
+
     from(m in ScheduledMeal,
       as: :meal,
       where: m.account_id == ^account_id and m.date == ^date and m.slot == ^slot,
@@ -286,7 +289,7 @@ defmodule MealPlannerApi.Persistence.Calendar do
         date: m.date,
         slot: m.slot,
         is_cooked: m.is_cooked,
-        is_cooking: exists(subquery(active_cooking_session())),
+        is_cooking: exists(subquery(active_cooking_session(today))),
         recipe_id: m.recipe_id,
         recipe_name:
           fragment(
@@ -317,15 +320,18 @@ defmodule MealPlannerApi.Persistence.Calendar do
     |> Repo.one()
     |> case do
       nil -> nil
-      meal -> put_is_skipped(meal, AccountClock.today(account_id, now))
+      meal -> put_is_skipped(meal, today)
     end
   end
 
-  # The `active` Cooking sessions of the meal bound as `:meal`. A meal with one
-  # cannot be moved (issue #207).
-  defp active_cooking_session do
+  # The `active` Cooking sessions of the meal bound as `:meal`, when that meal is
+  # on the Account's `today`. A meal with one cannot be moved (issue #207); off
+  # today the session cannot be finished, so it does not count (issue #337).
+  defp active_cooking_session(today) do
     from(s in CookingSession,
-      where: s.scheduled_meal_id == parent_as(:meal).id and s.status == :active,
+      where:
+        s.scheduled_meal_id == parent_as(:meal).id and parent_as(:meal).date == ^today and
+          s.status == :active,
       select: 1
     )
   end

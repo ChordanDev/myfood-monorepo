@@ -253,6 +253,55 @@ defmodule MealPlannerApi.Persistence.Calendar.MealMoveTest do
       assert Repo.get!(CookingSession, session.id).status == :active
     end
 
+    # Issue #337: an active session holds its meal only on the Account's today.
+    # A session left unfinished cannot be finished after its day, so it must not
+    # pin the meal for good.
+    test "a meal whose day passed with an active Cooking session is moved", f do
+      source = meal!(f.account, @yesterday, :dinner)
+      session = cooking_session!(source)
+
+      assert {:ok, _result} = MealMove.move(f.account.id, source.id, @tomorrow, :lunch, @today)
+
+      assert position(source) == {@tomorrow, :lunch}
+      assert Repo.get!(CookingSession, session.id).status == :active
+    end
+
+    test "a meal whose day passed with an active Cooking session is displaced", f do
+      source = meal!(f.account, @tomorrow, :dinner)
+      target = meal!(f.account, @yesterday, :lunch)
+      session = cooking_session!(target)
+
+      assert {:ok, _result} = MealMove.move(f.account.id, source.id, @yesterday, :lunch, @today)
+
+      assert position(source) == {@yesterday, :lunch}
+      assert position(target) == {@tomorrow, :dinner}
+      assert Repo.get!(CookingSession, session.id).status == :active
+    end
+
+    test "a future meal with an active Cooking session is moved and displaced", f do
+      source = meal!(f.account, @tomorrow, :dinner)
+      target = meal!(f.account, @later, :lunch)
+      cooking_session!(source)
+      cooking_session!(target)
+
+      assert {:ok, _result} = MealMove.move(f.account.id, source.id, @later, :lunch, @today)
+
+      assert position(source) == {@later, :lunch}
+      assert position(target) == {@tomorrow, :dinner}
+    end
+
+    test "a stale active Cooking session holds its meal again once it is moved to today", f do
+      source = meal!(f.account, @yesterday, :dinner)
+      cooking_session!(source)
+
+      assert {:ok, _result} = MealMove.move(f.account.id, source.id, @today, :dinner, @today)
+
+      assert {:error, :meal_cooking_in_progress} =
+               MealMove.move(f.account.id, source.id, @tomorrow, :dinner, @today)
+
+      assert position(source) == {@today, :dinner}
+    end
+
     test "a completed Cooking session does not hold its meal on either side", f do
       source = meal!(f.account, @today, :dinner)
       target = meal!(f.account, @tomorrow, :lunch)

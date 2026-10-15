@@ -808,6 +808,45 @@ defmodule MealPlannerApiWeb.CalendarControllerTest do
         assert {slot, data["isCooking"]} == {slot, is_cooking}
       end
     end
+
+    # Issue #337: an active session counts only while its meal is on the
+    # Account's today; before or after it, the meal can be moved.
+    test "GET /api/calendar and /api/calendar/slot do not flag an active session off today" do
+      %{token: token, account: %{id: account_id}} = insert_identity_with_token!(plan: :family_4)
+      today = pin_account_to_midday!(account_id)
+      yesterday = Date.add(today, -1)
+      tomorrow = Date.add(today, 1)
+
+      {:ok, past} = Calendar.upsert_scheduled_meal(account_id, %{date: yesterday, slot: :lunch})
+      {:ok, future} = Calendar.upsert_scheduled_meal(account_id, %{date: tomorrow, slot: :lunch})
+      cooking_session!(past, :active)
+      cooking_session!(future, :active)
+
+      body =
+        build_conn()
+        |> put_req_header("authorization", "Bearer " <> token)
+        |> get("/api/calendar", %{
+          "start_date" => Date.to_iso8601(yesterday),
+          "end_date" => Date.to_iso8601(tomorrow)
+        })
+        |> json_response(200)
+
+      assert Map.new(body["data"]["meals"], &{&1["mealId"], &1["isCooking"]}) == %{
+               past.id => false,
+               future.id => false
+             }
+
+      for date <- [yesterday, tomorrow] do
+        data =
+          build_conn()
+          |> put_req_header("authorization", "Bearer " <> token)
+          |> get("/api/calendar/slot", %{"date" => Date.to_iso8601(date), "slot" => "lunch"})
+          |> json_response(200)
+          |> Map.fetch!("data")
+
+        assert {date, data["isCooking"]} == {date, false}
+      end
+    end
   end
 
   describe "POST /api/calendar/meals/:id/move" do

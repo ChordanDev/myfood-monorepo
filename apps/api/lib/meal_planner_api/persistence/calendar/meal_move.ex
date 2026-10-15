@@ -57,8 +57,9 @@ defmodule MealPlannerApi.Persistence.Calendar.MealMove do
   (`MealPlannerApi.AccountClock`): it decides which archived Shopping items are
   dropped so that the next Shopping list read derives them again.
 
-  A cooked meal is refused on either side, and so is a meal with an `active`
-  Cooking session: the session is finished on the day it started (issue #207).
+  A cooked meal is refused on either side, and so is a meal on `today` with an
+  `active` Cooking session (issue #207). A session off `today` does not count:
+  it can no longer be finished, and it must not pin its meal (issue #337).
   `:conflict` is a concurrent write
   that took the destination, and a retry can succeed. `:move_not_possible`
   is stored rows that cannot follow the meal, and a retry fails the same way.
@@ -106,7 +107,7 @@ defmodule MealPlannerApi.Persistence.Calendar.MealMove do
   defp move_locked(account_id, meal_id, to, today) do
     {source, displaced} = lock_meals(account_id, meal_id, to)
 
-    case refusal(source, displaced, to) || cooking_refusal(source, displaced) do
+    case refusal(source, displaced, to) || cooking_refusal(source, displaced, today) do
       nil -> exchange(source, displaced, to, today)
       reason -> Repo.rollback(reason)
     end
@@ -138,11 +139,14 @@ defmodule MealPlannerApi.Persistence.Calendar.MealMove do
 
   # Read after the meals are locked: starting a Cooking session inserts a row
   # that references its meal, and that insert waits on the lock this move
-  # holds, so no session of either meal starts until the move is over.
-  defp cooking_refusal(source, displaced) do
+  # holds, so no session of either meal starts until the move is over. Only a
+  # meal on `today` is held: off today its session can no longer be finished.
+  defp cooking_refusal(source, displaced, today) do
+    on_today = for meal <- [source, displaced], meal && meal.date == today, do: meal.id
+
     cooking =
       from(s in CookingSession,
-        where: s.scheduled_meal_id in ^[source.id | ids(displaced)] and s.status == :active,
+        where: s.scheduled_meal_id in ^on_today and s.status == :active,
         select: s.scheduled_meal_id
       )
       |> Repo.all()
