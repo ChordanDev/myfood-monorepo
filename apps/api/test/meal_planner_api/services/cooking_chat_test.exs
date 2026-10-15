@@ -653,6 +653,35 @@ defmodule MealPlannerApi.Services.CookingChatTest do
       assert {:error, :cooking_chat_limit_reached} = ask(f, session, "New?")
       refute_received {:cooking_ai, _, _, _}
     end
+
+    # The check before the provider call lets questions asked together through,
+    # so the count is taken again where the question is stored. Stored turns
+    # carry the wall clock, so this test asks at the wall clock too.
+    test "questions that passed the check together store at most the limit", f do
+      now = DateTime.utc_now()
+      stored_questions!(f, 99, now)
+      session = start!(f, meal!(f, AccountClock.today(f.account.id, now)), now)
+      supervisor = start_supervised!(Task.Supervisor, id: make_ref())
+
+      [first, second] =
+        for message <- ["Asked first?", "Asked second?"] do
+          task = Task.Supervisor.async_nolink(supervisor, fn -> ask(f, session, message, now) end)
+          assert_receive {:cooking_ai, worker, ^message, _opts}
+          {task, worker}
+        end
+
+      # Both are past the check and waiting on the provider.
+      {first_task, first_worker} = first
+      send(first_worker, :answer)
+      assert {:ok, _} = Task.await(first_task)
+
+      {second_task, second_worker} = second
+      send(second_worker, :answer)
+      assert {:error, :cooking_chat_limit_reached} = Task.await(second_task)
+
+      assert [%{content: "Asked first?"}, %{role: :assistant}] =
+               Enum.filter(stored_turns(), &(&1.cooking_session_id == session.session_id))
+    end
   end
 
   describe "Context snapshot" do

@@ -53,20 +53,32 @@ export function mergeChatHistory(
   return appendUnseen(history.map(toRecipeChatMessage), shown);
 }
 
+/** A question as the app sent it: its text and the id that names it. */
+export interface SentQuestion {
+  text: string;
+  clientMessageId: string;
+}
+
 /**
- * Whether the stored history holds the question sent with `clientMessageId` and the
- * conversation has not seen it: after a failed question it tells a lost answer (the server
- * stored both turns) from a question never stored.
+ * Whether the stored history holds `question` and the conversation has not seen it: after a
+ * failed question it tells a lost answer (the server stored both turns) from a question never
+ * stored. A turn is matched by its client message id; one from an API that does not serve the
+ * id at all is matched by its text.
  */
 export function hasUnseenQuestion(
   history: CookingChatMessage[],
   seenTurnIds: ReadonlySet<string>,
-  clientMessageId: string
+  question: SentQuestion
 ): boolean {
   return history.some(
-    (turn) =>
-      turn.role === 'user' && turn.clientMessageId === clientMessageId && !seenTurnIds.has(turn.id)
+    (turn) => turn.role === 'user' && !seenTurnIds.has(turn.id) && isSentAs(turn, question)
   );
+}
+
+function isSentAs(turn: CookingChatMessage, question: SentQuestion): boolean {
+  return turn.clientMessageId === undefined
+    ? turn.content === question.text
+    : turn.clientMessageId === question.clientMessageId;
 }
 
 /** Swaps the pending question for the turns the server stored: the question, then its answer. */

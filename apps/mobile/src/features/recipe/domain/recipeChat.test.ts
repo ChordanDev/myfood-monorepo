@@ -90,23 +90,44 @@ describe('hasUnseenQuestion', () => {
   const history = [...COOKING_CHAT_HISTORY, ...COOKING_ANSWER.turns];
   const seen = new Set(COOKING_CHAT_HISTORY.map((turn) => turn.id));
   const [newQuestion, newAnswer] = COOKING_ANSWER.turns;
+  const sent = { text: newQuestion.content, clientMessageId: newQuestion.clientMessageId! };
+  // A history from an API that does not serve the id the app sent each question with.
+  const withoutIds = history.map(({ clientMessageId: _id, ...turn }) => turn);
 
   it('finds the question the server stored under its client message id', () => {
-    expect(hasUnseenQuestion(history, seen, newQuestion.clientMessageId!)).toBe(true);
+    expect(hasUnseenQuestion(history, seen, sent)).toBe(true);
   });
 
   it('does not take a question with the same text but another id for it', () => {
-    expect(hasUnseenQuestion(history, seen, 'e9000000-0000-4000-8000-000000000009')).toBe(false);
+    const otherId = { ...sent, clientMessageId: 'e9000000-0000-4000-8000-000000000009' };
+    expect(hasUnseenQuestion(history, seen, otherId)).toBe(false);
   });
 
   it('does not take a question that was already seen for a new one', () => {
-    expect(hasUnseenQuestion(history, seen, STORED_QUESTION.clientMessageId!)).toBe(false);
-    expect(hasUnseenQuestion(COOKING_CHAT_HISTORY, seen, newQuestion.clientMessageId!)).toBe(false);
+    const earlier = {
+      text: STORED_QUESTION.content,
+      clientMessageId: STORED_QUESTION.clientMessageId!,
+    };
+    expect(hasUnseenQuestion(history, seen, earlier)).toBe(false);
+    expect(hasUnseenQuestion(COOKING_CHAT_HISTORY, seen, sent)).toBe(false);
   });
 
   it('only matches user turns', () => {
     const answerWithId = { ...newAnswer, clientMessageId: newQuestion.clientMessageId };
-    expect(hasUnseenQuestion([answerWithId], seen, newQuestion.clientMessageId!)).toBe(false);
+    expect(hasUnseenQuestion([answerWithId], seen, sent)).toBe(false);
+  });
+
+  it('finds the question by its text when the history carries no client message ids', () => {
+    expect(hasUnseenQuestion(withoutIds, seen, sent)).toBe(true);
+    expect(hasUnseenQuestion(withoutIds, seen, { ...sent, text: 'Otra pregunta' })).toBe(false);
+    expect(hasUnseenQuestion(withoutIds.slice(0, 2), seen, sent)).toBe(false);
+  });
+
+  it('does not take a question stored without an id for one sent with an id', () => {
+    const storedWithoutId = history.map((turn) =>
+      turn.id === newQuestion.id ? { ...turn, clientMessageId: null } : turn
+    );
+    expect(hasUnseenQuestion(storedWithoutId, seen, sent)).toBe(false);
   });
 });
 

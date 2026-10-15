@@ -9,7 +9,7 @@ defmodule MealPlannerApi.Services.CookingAtomicityTest do
   alias MealPlannerApi.Persistence.Catalog
   alias MealPlannerApi.Persistence.Inventory.{InventoryItem, InventoryMutationEvent}
   alias MealPlannerApi.Persistence.Planning
-  alias MealPlannerApi.Persistence.Planning.{CookingSession, ScheduledMeal}
+  alias MealPlannerApi.Persistence.Planning.{CookingChatMessage, CookingSession, ScheduledMeal}
   alias MealPlannerApi.Persistence.Shopping
   alias MealPlannerApi.Persistence.Shopping.{CheckoutSession, ShoppingItem}
   alias MealPlannerApi.Repo
@@ -289,6 +289,49 @@ defmodule MealPlannerApi.Services.CookingAtomicityTest do
     assert Enum.frequencies_by(events(f), & &1.trigger_type) == %{purchase: 1, cooking: 2}
   end
 
+  test "two new questions stored at once in two sessions stop at the daily limit", f do
+    {:ok, lunch} =
+      Planning.schedule_meal(%{
+        account_id: f.account.id,
+        recipe_id: f.recipe.id,
+        date: f.meal.date,
+        slot: :lunch
+      })
+
+    other = session!(f.account.id, lunch.id)
+    stored_questions!(f, 99)
+    supervisor = start_supervised!(Task.Supervisor)
+
+    {gated, second} =
+      with_chat_gate("Gated question?", fn holder, open_gate ->
+        gated = worker(supervisor, f, fn -> ask(f, f.session.id, "Gated question?") end)
+
+        # The question waits inside its insert, with the 99 counted and the
+        # Account chat lock held.
+        wait_until_blocked_by(gated.backend, holder)
+
+        # The other session passes the count before the provider call, which
+        # sees 99, and waits for the Account chat lock to count again.
+        second = worker(supervisor, f, fn -> ask(f, other.id, "Second question?") end)
+        wait_until_blocked_by(second.backend, gated.backend)
+
+        open_gate.()
+        {Task.await(gated.task, 12_000), Task.await(second.task, 12_000)}
+      end)
+
+    assert {:ok, %{message: _}} = gated
+    assert {:error, :cooking_chat_limit_reached} = second
+
+    assert Repo.aggregate(
+             from(m in CookingChatMessage,
+               join: s in CookingSession,
+               on: s.id == m.cooking_session_id,
+               where: s.account_id == ^f.account.id and m.role == :user
+             ),
+             :count
+           ) == 100
+  end
+
   # A planned Shopping item of the fixture's meal, reserved in the actor's Cart.
   defp in_cart_item!(f, ingredient, quantity_milli) do
     {:ok, item} =
@@ -315,10 +358,28 @@ defmodule MealPlannerApi.Services.CookingAtomicityTest do
   end
 
   # Pauses the real `Cart.purchase/3` between its Shopping row locks and the
-  # Inventory key, a point where `cart.ex` has no seam: a trigger makes the
-  # update that closes `item` wait for an advisory lock this connection holds
-  # until `open_gate` is called. Every other lock is the checkout's own.
+  # Inventory key, a point where `cart.ex` has no seam: the update that closes
+  # `item` waits at the gate. Every other lock is the checkout's own.
   defp with_checkout_gate(item, fun) do
+    with_gate(
+      "UPDATE",
+      "shopping_items",
+      "NEW.id = '#{item.id}'::uuid AND NEW.status = 'checked_out'",
+      fun
+    )
+  end
+
+  # Pauses the real `CookingService.answer_question/6` inside the insert of the
+  # question `content`, after it counted the Account's day: the insert waits
+  # at the gate. Every other lock is the question's own.
+  defp with_chat_gate(content, fun) do
+    with_gate("INSERT", "cooking_chat_messages", "NEW.content = '#{content}'", fun)
+  end
+
+  # A trigger before each `event` on `table` makes the rows that meet
+  # `condition` wait for an advisory lock this connection holds until
+  # `open_gate` is called.
+  defp with_gate(event, table, condition, fun) do
     # Above every `hashtext/1` key (an int4), so it is no Cart or Inventory key.
     gate = 0x1_0000_0000 + System.unique_integer([:positive])
 
@@ -327,9 +388,9 @@ defmodule MealPlannerApi.Services.CookingAtomicityTest do
       Repo.query!("SELECT pg_advisory_lock($1)", [gate])
 
       Repo.query!("""
-      CREATE FUNCTION cooking_checkout_gate() RETURNS trigger LANGUAGE plpgsql AS $$
+      CREATE FUNCTION cooking_test_gate() RETURNS trigger LANGUAGE plpgsql AS $$
       BEGIN
-        IF NEW.id = '#{item.id}'::uuid AND NEW.status = 'checked_out' THEN
+        IF #{condition} THEN
           PERFORM pg_advisory_xact_lock(#{gate});
         END IF;
         RETURN NEW;
@@ -338,16 +399,16 @@ defmodule MealPlannerApi.Services.CookingAtomicityTest do
 
       try do
         Repo.query!("""
-        CREATE TRIGGER cooking_checkout_gate BEFORE UPDATE ON shopping_items
-        FOR EACH ROW EXECUTE FUNCTION cooking_checkout_gate()
+        CREATE TRIGGER cooking_test_gate BEFORE #{event} ON #{table}
+        FOR EACH ROW EXECUTE FUNCTION cooking_test_gate()
         """)
 
         fun.(holder, fn -> Repo.query!("SELECT pg_advisory_unlock($1)", [gate]) end)
       after
-        # Open the gate first, so a paused checkout ends and the DDL can run.
+        # Open the gate first, so a paused writer ends and the DDL can run.
         Repo.query!("SELECT pg_advisory_unlock_all()")
-        Repo.query!("DROP TRIGGER IF EXISTS cooking_checkout_gate ON shopping_items")
-        Repo.query!("DROP FUNCTION cooking_checkout_gate()")
+        Repo.query!("DROP TRIGGER IF EXISTS cooking_test_gate ON #{table}")
+        Repo.query!("DROP FUNCTION cooking_test_gate()")
       end
     end)
   end
@@ -559,6 +620,29 @@ defmodule MealPlannerApi.Services.CookingAtomicityTest do
     }
 
     Map.put(f, :lots, Enum.map(ingredients, &lot!(f, &1, %{})))
+  end
+
+  defp ask(f, session_id, message),
+    do: CookingService.answer_question(f.actor, session_id, message)
+
+  # Questions of the Account stored now in the fixture's session.
+  defp stored_questions!(f, count) do
+    now = DateTime.utc_now()
+
+    rows =
+      for n <- 1..count//1 do
+        %{
+          id: Ecto.UUID.generate(),
+          cooking_session_id: f.session.id,
+          user_id: f.user.id,
+          role: :user,
+          content: "Earlier question #{n}",
+          inserted_at: now,
+          updated_at: now
+        }
+      end
+
+    Repo.insert_all(CookingChatMessage, rows)
   end
 
   defp session!(account_id, meal_id) do
