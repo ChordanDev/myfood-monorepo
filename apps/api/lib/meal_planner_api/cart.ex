@@ -4,9 +4,10 @@ defmodule MealPlannerApi.Cart do
 
   ## Lock order
 
-  Every writer that touches Scheduled meals, Shopping items and Inventory
-  locks them in one order: Scheduled meal, then Shopping items, then
-  Inventory. Rows of one kind are locked in id order.
+  The writers below lock Scheduled meals, Shopping items and Inventory in
+  one order: Scheduled meal, then Shopping items, then Inventory. Each locks
+  its Scheduled meals in id order; the Shopping items of a meal are taken in
+  whatever order the statement that locks them finds them.
 
     * A purchase confirm (`purchase/3`) locks the Scheduled meals of its
       Cart's items `FOR KEY SHARE`, then the items, then takes the Inventory
@@ -19,6 +20,16 @@ defmodule MealPlannerApi.Cart do
       Inventory key.
     * A meal move (`MealMove.move/5`) locks its meals `FOR UPDATE`, then moves
       their planned Shopping items. It takes no Inventory key.
+    * A replacement of a date range
+      (`Persistence.Calendar.replace_scheduled_meals_for_range/3`) locks the
+      range's meals `FOR UPDATE`, then deletes them with their Shopping items.
+      It takes no Inventory key.
+
+  A delivery (`delivery/2`) is the exception: it takes the Inventory key
+  before it locks its `pending_delivery` Shopping items. A purchase does not
+  meet it, since both take the Cart's advisory lock of the Account first; a
+  finish only touches open items; a move and a range replacement take no
+  Inventory key.
 
   The Cart's advisory lock of the Account (`lock_account!/1`) comes before
   all of them in a Cart write.

@@ -356,6 +356,56 @@ defmodule MealPlannerApi.CartConcurrencyTest do
            ] = Enum.sort_by(meal_lines(f, f.meal), & &1.quantity_milli)
   end
 
+  # A replacement of a date range deletes its Scheduled meals. A confirm locks
+  # the meals of its Cart in id order, so the replacement locks them in id
+  # order too: deleting them in the order it finds them, it would hold one
+  # meal while it waits for another that the confirm holds.
+  test "a range replacement that meets a purchase of two of its meals does not deadlock", f do
+    # The meal the replacement reaches first, the earlier and the first
+    # stored, has the higher id.
+    [low, high] = Enum.sort([Ecto.UUID.generate(), Ecto.UUID.generate()])
+    first = meal!(f, high, Date.add(Date.utc_today(), 5))
+    second = meal!(f, low, Date.add(Date.utc_today(), 6))
+    items = Enum.map([first, second], &planned_item!(f, &1))
+    {:ok, cart} = Cart.reserve(f.actor, Enum.map(items, & &1.id))
+    supervisor = start_supervised!(Task.Supervisor)
+    gate = "OLD.id = '#{first.id}'::uuid"
+
+    {replace_result, checkout_result} =
+      with_gate("DELETE", "scheduled_meals", gate, fn holder, open_gate ->
+        replace =
+          worker(supervisor, f, fn ->
+            ShoppingService.replace_scheduled_meals_for_range(
+              f.account.id,
+              {first.date, second.date},
+              []
+            )
+          end)
+
+        # The replacement waits inside the delete of its first meal.
+        wait_until_blocked_by(replace.backend, holder)
+
+        checkout =
+          worker(supervisor, f, fn ->
+            Cart.purchase(f.actor, cart.session_id, payload(cart, nil))
+          end)
+
+        wait_until_blocked_by(checkout.backend, replace.backend)
+        open_gate.()
+        {Task.await(replace.task, 12_000), Task.await(checkout.task, 12_000)}
+      end)
+
+    # The replacement answers a deadlock it lost as `:persistence_error`.
+    refute {:aborted, :deadlock_detected} in [replace_result, checkout_result]
+    assert {:ok, %{replaced: 0}} = replace_result
+
+    # The replacement went first: it deleted the meals and, with them, the
+    # items of the Cart, so the confirm finds nothing left to buy.
+    assert {:error, :validation_error} = checkout_result
+    refute Repo.get(ScheduledMeal, first.id) || Repo.get(ScheduledMeal, second.id)
+    assert stock(f) == []
+  end
+
   for table <- ["inventory_mutation_events", "shopping_items", "checkout_sessions"] do
     test "failure writing #{table} rolls back stock, audit, remainder and spend without a broadcast",
          f do
@@ -446,13 +496,51 @@ defmodule MealPlannerApi.CartConcurrencyTest do
   # The Shopping items of `meal`, in every status.
   defp meal_lines(f, meal), do: Enum.filter(lines(f), &(&1.scheduled_meal_id == meal.id))
 
+  # A Scheduled meal of the Account with the id `id`, at dinner on `date`.
+  defp meal!(f, id, date) do
+    %ScheduledMeal{id: id}
+    |> ScheduledMeal.changeset(%{
+      account_id: f.account.id,
+      recipe_id: f.recipe.id,
+      date: date,
+      slot: :dinner
+    })
+    |> Repo.insert!()
+  end
+
+  # An open planned Shopping item of `meal`, 500 g of the fixture Ingredient.
+  defp planned_item!(f, meal) do
+    %ShoppingItem{}
+    |> ShoppingItem.changeset(%{
+      account_id: f.account.id,
+      scheduled_meal_id: meal.id,
+      planned_date: meal.date,
+      ingredient_id: f.ingredient.id,
+      unit: :g,
+      quantity_milli: 500,
+      status: :pending
+    })
+    |> Repo.insert!()
+  end
+
   # Pauses the real `Cart.purchase/3` inside the update that closes `item` as
-  # bought, before it stores the item's remainder: the update waits for an
-  # advisory lock this connection holds until `open_gate` is called.
+  # bought, before it stores the item's remainder.
   defp with_purchase_gate(item, fun) do
+    with_gate(
+      "UPDATE",
+      "shopping_items",
+      "NEW.id = '#{item.id}'::uuid AND NEW.status = 'checked_out'",
+      fun
+    )
+  end
+
+  # A trigger before each `event` on `table` makes the rows that meet
+  # `condition` wait for an advisory lock this connection holds until
+  # `open_gate` is called.
+  defp with_gate(event, table, condition, fun) do
     # Above every `hashtext/1` key (an int4), so it is no Cart or Inventory key.
     gate = 0x1_0000_0000 + System.unique_integer([:positive])
-    trigger = "cart_purchase_gate_" <> String.replace(Ecto.UUID.generate(), "-", "")
+    trigger = "cart_test_gate_" <> String.replace(Ecto.UUID.generate(), "-", "")
 
     Repo.checkout(fn ->
       %{rows: [[holder]]} = Repo.query!("SELECT pg_backend_pid()")
@@ -461,23 +549,23 @@ defmodule MealPlannerApi.CartConcurrencyTest do
       Repo.query!("""
       CREATE FUNCTION #{trigger}() RETURNS trigger LANGUAGE plpgsql AS $$
       BEGIN
-        IF NEW.id = '#{item.id}'::uuid AND NEW.status = 'checked_out' THEN
+        IF #{condition} THEN
           PERFORM pg_advisory_xact_lock(#{gate});
         END IF;
-        RETURN NEW;
+        RETURN COALESCE(NEW, OLD);
       END $$
       """)
 
       try do
         Repo.query!(
-          "CREATE TRIGGER #{trigger} BEFORE UPDATE ON shopping_items FOR EACH ROW EXECUTE FUNCTION #{trigger}()"
+          "CREATE TRIGGER #{trigger} BEFORE #{event} ON #{table} FOR EACH ROW EXECUTE FUNCTION #{trigger}()"
         )
 
         fun.(holder, fn -> Repo.query!("SELECT pg_advisory_unlock($1)", [gate]) end)
       after
         # Open the gate first, so a paused writer ends and the DDL can run.
         Repo.query!("SELECT pg_advisory_unlock_all()")
-        Repo.query!("DROP TRIGGER IF EXISTS #{trigger} ON shopping_items")
+        Repo.query!("DROP TRIGGER IF EXISTS #{trigger} ON #{table}")
         Repo.query!("DROP FUNCTION IF EXISTS #{trigger}()")
       end
     end)

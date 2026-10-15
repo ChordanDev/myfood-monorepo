@@ -628,8 +628,8 @@ defmodule MealPlannerApi.Services.CookingService do
       if meal.is_cooked, do: Repo.rollback(:cooking_already_finished)
 
       # Lock order: Cooking session, then Scheduled meal, Shopping rows and
-      # the Inventory key, the order every stock writer follows (see the
-      # moduledoc of `MealPlannerApi.Cart`).
+      # the Inventory key, the order of the lock order in the moduledoc of
+      # `MealPlannerApi.Cart`.
       Shopping.delete_open_items_for_meal(ids.account_id, meal.id)
       {mutations, shortages} = deduct_ingredients(ids, session, meal, today)
 
