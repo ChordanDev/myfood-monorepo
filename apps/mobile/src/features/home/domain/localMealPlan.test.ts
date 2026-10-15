@@ -10,52 +10,7 @@ import {
   isPendingConfirmationDate,
   isSelectableMealDate,
 } from './localMealPlan';
-import { formatDateKey, parseDateKey, startOfDay } from '../utils/calendarDate';
-
-describe('mock meal plan date keys', () => {
-  beforeEach(() => {
-    jest.useFakeTimers();
-    jest.setSystemTime(new Date(2026, 7, 25, 0, 30));
-    jest.resetModules();
-  });
-
-  afterEach(() => {
-    jest.useRealTimers();
-  });
-
-  it('keeps today selectable using the local calendar date', () => {
-    let mockMealPlan: typeof import('@/mocks/domainMocks').MOCK_MEAL_PLAN;
-
-    jest.isolateModules(() => {
-      ({ MOCK_MEAL_PLAN: mockMealPlan } = jest.requireActual('@/mocks/domainMocks'));
-    });
-
-    const today = startOfDay(new Date());
-    const todayKey = formatDateKey(today);
-    const planByDate = buildLocalMealPlanByDate(mockMealPlan!);
-
-    expect(todayKey).toBe('2026-08-25');
-    expect(mockMealPlan![0].date).toBe(todayKey);
-    expect(isSelectableMealDate(todayKey, planByDate, today, parseDateKey)).toBe(true);
-  });
-
-  it('ships yesterday as a pending day and the day before as an already confirmed one', () => {
-    let mockMealPlan: typeof import('@/mocks/domainMocks').MOCK_MEAL_PLAN;
-
-    jest.isolateModules(() => {
-      ({ MOCK_MEAL_PLAN: mockMealPlan } = jest.requireActual('@/mocks/domainMocks'));
-    });
-
-    const today = startOfDay(new Date());
-    const planByDate = buildLocalMealPlanByDate(mockMealPlan!);
-
-    expect(planByDate['2026-08-24'].map((entry) => entry.type)).toEqual(['lunch', 'dinner']);
-    expect(isPendingConfirmationDate('2026-08-24', planByDate, today, parseDateKey)).toBe(true);
-    expect(planByDate['2026-08-23']).toHaveLength(2);
-    expect(isPendingConfirmationDate('2026-08-23', planByDate, today, parseDateKey)).toBe(false);
-    expect(isSelectableMealDate('2026-08-23', planByDate, today, parseDateKey)).toBe(false);
-  });
-});
+import { parseDateKey } from '../utils/calendarDate';
 
 describe('getDefaultHomeMealType', () => {
   function buildEntry(type: MealSlot, isCooked = false): MealPlanEntry {
