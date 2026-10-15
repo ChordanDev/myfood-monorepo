@@ -58,6 +58,41 @@ defmodule MealPlannerApi.AccountClock do
 
   def today(nil, %DateTime{} = now), do: date_in(nil, now)
 
+  @doc """
+  The Account's today at `now` as UTC instants: its first instant and the
+  first instant of the next day, so a stored timestamp `t` is on that day when
+  `start <= t < next`.
+
+  The zone is the one `today/2` uses. A midnight that falls in a daylight
+  saving gap starts at the first instant after it, and an ambiguous one at
+  its earlier instant.
+  """
+  @spec day_bounds(Ecto.UUID.t(), DateTime.t()) :: {DateTime.t(), DateTime.t()}
+  def day_bounds(account_id, %DateTime{} = now \\ DateTime.utc_now())
+      when is_binary(account_id) do
+    zone = account_id |> stored_timezone() |> usable_zone(now)
+    today = date_in(zone, now)
+
+    {midnight(today, zone), midnight(Date.add(today, 1), zone)}
+  end
+
+  defp usable_zone(timezone, now) when is_binary(timezone) do
+    case DateTime.shift_zone(now, timezone) do
+      {:ok, _local} -> timezone
+      {:error, _reason} -> "Etc/UTC"
+    end
+  end
+
+  defp usable_zone(_timezone, _now), do: "Etc/UTC"
+
+  defp midnight(date, zone) do
+    case DateTime.new(date, ~T[00:00:00], zone) do
+      {:ok, instant} -> DateTime.shift_zone!(instant, "Etc/UTC")
+      {:ambiguous, earlier, _later} -> DateTime.shift_zone!(earlier, "Etc/UTC")
+      {:gap, _before, just_after} -> DateTime.shift_zone!(just_after, "Etc/UTC")
+    end
+  end
+
   defp stored_timezone(account_id) do
     case Ecto.UUID.cast(account_id) do
       {:ok, uuid} -> Repo.one(from(a in Account, where: a.id == ^uuid, select: a.timezone))

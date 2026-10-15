@@ -552,7 +552,8 @@ defmodule MealPlannerApiWeb.CookingControllerTest do
                %{"role" => "assistant"}
              ] = read_body["data"]["chatMessages"]
 
-      assert first |> Map.keys() |> Enum.sort() == ~w(content id insertedAt role)
+      assert first |> Map.keys() |> Enum.sort() == ~w(clientMessageId content id insertedAt role)
+      assert first["clientMessageId"] == nil
       assert {:ok, _, _} = DateTime.from_iso8601(first["insertedAt"])
       refute Map.has_key?(read_body["data"]["snapshot"], "frozen")
 
@@ -583,8 +584,13 @@ defmodule MealPlannerApiWeb.CookingControllerTest do
 
       assert body["data"]["message"] == answer
 
+      assert question |> Map.keys() |> Enum.sort() ==
+               ~w(clientMessageId content id insertedAt role)
+
+      assert question["clientMessageId"] == params["clientMessageId"]
+      assert reply |> Map.keys() |> Enum.sort() == ~w(content id insertedAt role)
+
       for turn <- [question, reply] do
-        assert turn |> Map.keys() |> Enum.sort() == ~w(content id insertedAt role)
         assert {:ok, _} = Ecto.UUID.cast(turn["id"])
         assert {:ok, _, _} = DateTime.from_iso8601(turn["insertedAt"])
       end
@@ -596,6 +602,77 @@ defmodule MealPlannerApiWeb.CookingControllerTest do
 
       assert repeat["data"] == body["data"]
       assert chat_count() == 2
+    end
+
+    test "the session read exposes the clientMessageId of each question",
+         %{conn: conn, session_id: session_id} do
+      id = Ecto.UUID.generate()
+
+      conn
+      |> post("/api/cooking/sessions/#{session_id}/ask", %{
+        "message" => "Which pan?",
+        "clientMessageId" => id
+      })
+      |> json_response(200)
+
+      assert [%{"role" => "user", "clientMessageId" => ^id}, %{"role" => "assistant"} = answer] =
+               conn
+               |> get("/api/cooking/sessions/#{session_id}")
+               |> json_response(200)
+               |> get_in(["data", "chatMessages"])
+
+      refute Map.has_key?(answer, "clientMessageId")
+    end
+
+    test "a reused clientMessageId with another message is 409 cooking_message_id_conflict",
+         %{conn: conn, session_id: session_id} do
+      id = Ecto.UUID.generate()
+      path = "/api/cooking/sessions/#{session_id}/ask"
+
+      post(conn, path, %{"message" => "First?", "clientMessageId" => id}) |> json_response(200)
+
+      conn = post(conn, path, %{"message" => "Second?", "clientMessageId" => id})
+      assert %{"error" => %{"code" => "cooking_message_id_conflict"}} = json_response(conn, 409)
+      assert chat_count() == 2
+    end
+
+    test "a resend of a stored clientMessageId gets its pair after the session finished",
+         %{conn: conn, session_id: session_id} do
+      params = %{"message" => "Before?", "clientMessageId" => Ecto.UUID.generate()}
+      path = "/api/cooking/sessions/#{session_id}/ask"
+
+      first = conn |> post(path, params) |> json_response(200)
+      conn |> post("/api/cooking/sessions/#{session_id}/finish") |> json_response(200)
+
+      assert conn |> post(path, params) |> json_response(200) == first
+      assert chat_count() == 2
+    end
+
+    test "the 101st question of the day is 429 cooking_chat_limit_reached",
+         %{conn: conn, session_id: session_id} do
+      now = DateTime.utc_now()
+
+      rows =
+        for n <- 1..100 do
+          %{
+            id: Ecto.UUID.generate(),
+            cooking_session_id: session_id,
+            role: :user,
+            content: "Earlier #{n}",
+            inserted_at: now,
+            updated_at: now
+          }
+        end
+
+      MealPlannerApi.Repo.insert_all(MealPlannerApi.Persistence.Planning.CookingChatMessage, rows)
+
+      conn = post(conn, "/api/cooking/sessions/#{session_id}/ask", %{"message" => "Again?"})
+
+      assert %{"error" => %{"code" => "cooking_chat_limit_reached", "message" => message}} =
+               json_response(conn, 429)
+
+      assert message =~ "daily limit"
+      assert chat_count() == 100
     end
 
     test "a malformed clientMessageId is a validation error",

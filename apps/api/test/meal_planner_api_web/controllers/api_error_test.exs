@@ -131,6 +131,8 @@ defmodule MealPlannerApiWeb.ApiErrorTest do
             cooking_session_not_active: 409,
             cooking_already_finished: 409,
             cooking_chat_unavailable: 409,
+            cooking_chat_limit_reached: 429,
+            cooking_message_id_conflict: 409,
             inventory_mutation_failed: 422
           ] do
         assert {code, ApiError.error(conn, code).status} == {code, status}
@@ -310,10 +312,11 @@ defmodule MealPlannerApiWeb.ApiErrorTest do
       # The codes of `PUT /api/me/preferences` (issue #18) that are its own.
       preferences_codes = ~w(invalid_diet invalid_hard_restriction)a
 
-      # The codes of the Cooking session routes (issue #35).
+      # The codes of the Cooking session routes (issues #35 and #185).
       cooking_codes =
         ~w(scheduled_meal_not_found cooking_session_not_active cooking_already_finished
-           cooking_chat_unavailable inventory_mutation_failed)a
+           cooking_chat_unavailable cooking_chat_limit_reached cooking_message_id_conflict
+           inventory_mutation_failed)a
 
       # The codes of the Cart lease routes (issue #41).
       cart_codes = ~w(cart_locked stale_cart cart_not_found)a

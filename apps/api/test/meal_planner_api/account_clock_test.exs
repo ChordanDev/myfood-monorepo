@@ -92,6 +92,36 @@ defmodule MealPlannerApi.AccountClockTest do
     end
   end
 
+  describe "day_bounds/2" do
+    setup do
+      :ok = Sandbox.checkout(Repo)
+      :ok = MealPlannerApi.SubscriptionPlanFixtures.ensure_plans!()
+    end
+
+    test "are the UTC instants of the Account's midnights" do
+      account = insert_account!(%{timezone: "Pacific/Auckland"})
+
+      # The 9th in Auckland (UTC+13) runs from 11:00 UTC on the 8th.
+      assert AccountClock.day_bounds(account.id, ~U[2026-10-08 23:30:00Z]) ==
+               {~U[2026-10-08 11:00:00Z], ~U[2026-10-09 11:00:00Z]}
+    end
+
+    test "are the UTC day's midnights without a stored timezone" do
+      account = insert_account!(%{})
+
+      assert AccountClock.day_bounds(account.id, ~U[2026-10-08 23:30:00Z]) ==
+               {~U[2026-10-08 00:00:00Z], ~U[2026-10-09 00:00:00Z]}
+    end
+
+    test "a midnight skipped by daylight saving starts at the first instant after it" do
+      # Chile moves 00:00 to 01:00 on 6 September 2026 (UTC-4 to UTC-3).
+      account = insert_account!(%{timezone: "America/Santiago"})
+
+      assert AccountClock.day_bounds(account.id, ~U[2026-09-06 12:00:00Z]) ==
+               {~U[2026-09-06 04:00:00Z], ~U[2026-09-07 03:00:00Z]}
+    end
+  end
+
   describe "today/1" do
     test "defaults the instant to the current time" do
       before = Date.utc_today()

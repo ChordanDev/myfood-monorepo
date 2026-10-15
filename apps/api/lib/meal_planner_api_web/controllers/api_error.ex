@@ -127,6 +127,8 @@ defmodule MealPlannerApiWeb.ApiError do
           | :cooking_session_not_active
           | :cooking_already_finished
           | :cooking_chat_unavailable
+          | :cooking_chat_limit_reached
+          | :cooking_message_id_conflict
           | :inventory_mutation_failed
           | :cart_locked
           | :stale_cart
@@ -193,6 +195,12 @@ defmodule MealPlannerApiWeb.ApiError do
     cooking_session_not_active: {409, "The cooking session is not active."},
     cooking_already_finished: {409, "This meal has already been cooked."},
     cooking_chat_unavailable: {409, "Cooking is only available for a meal scheduled for today."},
+    # Cooking chat (issue #185): the Account's questions per day are capped, and
+    # a client message id names one question only.
+    cooking_chat_limit_reached:
+      {429, "The daily limit of Cooking chat questions was reached. Try again tomorrow."},
+    cooking_message_id_conflict:
+      {409, "This message id was already used for a different question."},
     inventory_mutation_failed: {422, "The inventory could not be updated. Nothing was saved."},
     # Manual Shopping items (issue #40). An id that is unknown, of another
     # Account, not a UUID or of an item no longer on the list shares

@@ -6,7 +6,7 @@ defmodule MealPlannerApi.Services.CookingService do
   - Session lifecycle (start, state, finish)
   - Step tracking with snapshot persistence
   - Cooking chat: AI answers built from the frozen Context snapshot and the
-    session's prior turns, with both turns of every question stored
+    session's prior turns, with both turns of every answered question stored
   - Inventory deduction on session completion
 
   Stateless service — all DB via PlanningRepo and InventoryRepo.
@@ -17,6 +17,7 @@ defmodule MealPlannerApi.Services.CookingService do
   alias MealPlannerApi.Data.{InventoryRepo, PlanningRepo}
   alias MealPlannerApi.Inventory.LotFreshness
   alias MealPlannerApi.Persistence.Planning
+  alias MealPlannerApi.Persistence.Planning.CookingChatMessage
   alias MealPlannerApi.Persistence.Shopping
   alias MealPlannerApi.Repo
   alias MealPlannerApi.Services.{RecipeAccess, RecipeVersions}
@@ -30,6 +31,8 @@ defmodule MealPlannerApi.Services.CookingService do
   @frozen_key "frozen"
 
   @max_question_length 2000
+  # Questions an Account may ask the model per day (`AccountClock`).
+  @daily_question_limit 100
   # Prior turns replayed to the model, newest last.
   @prompt_history_turns 20
 
@@ -159,18 +162,27 @@ defmodule MealPlannerApi.Services.CookingService do
   @doc """
   Answers a Cooking chat question and stores both turns.
 
-  Refusals, in order: an unknown session is `:session_not_found`, a finished
-  one `:cooking_already_finished`, and a meal that is not on the Account's
-  today at `now` `:cooking_chat_unavailable`. The answer is built from the
-  frozen Context snapshot and the prior turns; the provider is called outside
-  any transaction, and nothing is stored when the session finished meanwhile.
+  `client_message_id` is the UUID the client gave the question; a malformed
+  one is `:validation_error`. A repeat of an id the session already stored is
+  answered first, before any gate: with the same question it returns the
+  stored pair, even after the session finished or the meal left today, and
+  with another question it is `:cooking_message_id_conflict`. The provider is
+  not called and nothing is written.
+
+  Refusals of a new question, in order: an unknown session is
+  `:session_not_found`, a finished one `:cooking_already_finished`, a meal
+  that is not on the Account's today at `now` `:cooking_chat_unavailable`, and
+  an Account that already stored #{@daily_question_limit} questions that day
+  `:cooking_chat_limit_reached`. The answer is built from the frozen Context
+  snapshot and the prior turns; the provider is called outside any
+  transaction, and nothing is stored when the session finished meanwhile.
+
+  When the provider fails, the canned fallback is answered and nothing is
+  stored, so a resend of the same id asks the provider again. Its turns carry
+  fresh ids that no session read returns.
 
   The Context snapshot is frozen by the first question of the Account's day
   and reused by the later ones.
-
-  `client_message_id` is the UUID the client gave the question. A repeat of an
-  id the session already stored returns that stored pair: the provider is not
-  called and nothing is written. A malformed id is `:validation_error`.
   """
   @spec answer_question(map(), binary(), binary(), String.t(), DateTime.t(), term()) ::
           {:ok, map()} | {:error, term()}
@@ -186,25 +198,66 @@ defmodule MealPlannerApi.Services.CookingService do
     with {:ok, ids} <- RecipeAccess.authorize(current_user),
          {:ok, question} <- chat_question(message),
          {:ok, message_id} <- cast_client_message_id(client_message_id),
-         {:ok, session} <- chat_session(ids, session_id, now) do
+         {:ok, session} <- account_session(ids, session_id) do
       case stored_pair(session.id, message_id) do
-        nil ->
-          ask_and_store(current_user, ids, session, {question, message_id}, content_type, now)
-
-        turns ->
-          {:ok, answer_payload(session.id, turns)}
+        nil -> ask_new(current_user, ids, session, {question, message_id}, content_type, now)
+        turns -> replay(session.id, turns, question)
       end
     end
   end
 
+  defp ask_new(current_user, ids, session, question, content_type, now) do
+    with :ok <- chat_available(session, now),
+         :ok <- within_daily_limit(ids.account_id, now) do
+      ask_and_store(current_user, ids, session, question, content_type, now)
+    end
+  end
+
   defp ask_and_store(current_user, ids, session, {question, message_id}, content_type, now) do
-    with {:ok, frozen} <- freeze_context(ids, session, now),
-         assistant_text <- build_contextual_answer(session.id, frozen, question, content_type),
-         {:ok, _ids} <- RecipeAccess.authorize(current_user),
+    with {:ok, frozen} <- freeze_context(ids, session, now) do
+      case build_contextual_answer(session.id, frozen, question, content_type) do
+        {:ok, answer} ->
+          store_answer(current_user, ids, session, {question, message_id}, answer, now)
+
+        {:fallback, answer} ->
+          {:ok, fallback_payload(session.id, {question, message_id}, answer)}
+      end
+    end
+  end
+
+  defp store_answer(current_user, ids, session, question, answer, now) do
+    with {:ok, _ids} <- RecipeAccess.authorize(current_user),
          {:ok, _session} <- chat_session(ids, session.id, now),
-         {:ok, turns} <- persist_turns(ids, session.id, {question, message_id}, assistant_text) do
+         {:ok, turns} <- persist_turns(ids, session.id, question, answer) do
       {:ok, answer_payload(session.id, turns)}
     end
+  end
+
+  defp replay(session_id, turns, question) do
+    if same_question?(turns, question),
+      do: {:ok, answer_payload(session_id, turns)},
+      else: {:error, :cooking_message_id_conflict}
+  end
+
+  defp same_question?([stored_question, _answer], question),
+    do: stored_question.content == question
+
+  defp within_daily_limit(account_id, now) do
+    {from, to} = AccountClock.day_bounds(account_id, now)
+
+    if PlanningRepo.count_chat_questions(account_id, from, to) < @daily_question_limit,
+      do: :ok,
+      else: {:error, :cooking_chat_limit_reached}
+  end
+
+  # The fallback is not stored: these turns only carry it back to the client.
+  defp fallback_payload(session_id, {question, message_id}, answer) do
+    turns =
+      {question, message_id}
+      |> chat_turns(answer, nil)
+      |> Enum.map(&struct!(CookingChatMessage, Map.put(&1, :id, Ecto.UUID.generate())))
+
+    answer_payload(session_id, turns)
   end
 
   defp answer_payload(session_id, [_question, answer] = turns) do
@@ -244,10 +297,15 @@ defmodule MealPlannerApi.Services.CookingService do
   end
 
   defp chat_session(ids, session_id, now) do
+    with {:ok, session} <- account_session(ids, session_id),
+         :ok <- chat_available(session, now),
+         do: {:ok, session}
+  end
+
+  defp account_session(ids, session_id) do
     with {:ok, session_id} <- cast_id(session_id, :session_not_found),
          session when not is_nil(session) <-
-           PlanningRepo.get_cooking_session_for_account(ids.account_id, session_id),
-         :ok <- chat_available(session, now) do
+           PlanningRepo.get_cooking_session_for_account(ids.account_id, session_id) do
       {:ok, session}
     else
       nil -> {:error, :session_not_found}
@@ -265,32 +323,44 @@ defmodule MealPlannerApi.Services.CookingService do
   # The session lock orders this write against a concurrent finish, so a
   # finished session never gains turns. It also orders two requests carrying
   # the same client message id: the second one finds the pair of the first and
-  # stores nothing. The user turn is stamped first.
+  # stores nothing, and it is refused when its question differs.
   defp persist_turns(ids, session_id, {question, message_id}, answer) do
     Repo.transaction(fn ->
       session = lock_active_session!(ids, session_id)
 
       case stored_pair(session.id, message_id) do
-        nil -> insert_turns!(ids, session.id, {question, message_id}, answer)
-        turns -> turns
+        nil ->
+          {question, message_id}
+          |> chat_turns(answer, ids.user_id)
+          |> Enum.map(&insert_turn!(&1, session.id))
+
+        turns ->
+          stored_pair_of!(turns, question)
       end
     end)
   end
 
-  defp insert_turns!(ids, session_id, {question, message_id}, answer) do
+  # Call only inside a transaction: another question under the id rolls back.
+  defp stored_pair_of!(turns, question) do
+    if same_question?(turns, question),
+      do: turns,
+      else: Repo.rollback(:cooking_message_id_conflict)
+  end
+
+  # The two turns of an answered question. The user turn is stamped first.
+  defp chat_turns({question, message_id}, answer, user_id) do
     asked_at = DateTime.utc_now()
 
     [
       %{
         role: :user,
         content: question,
-        user_id: ids.user_id,
+        user_id: user_id,
         client_message_id: message_id,
         inserted_at: asked_at
       },
       %{role: :assistant, content: answer, inserted_at: DateTime.add(asked_at, 1, :microsecond)}
     ]
-    |> Enum.map(&insert_turn!(&1, session_id))
   end
 
   # Call only inside a transaction: a missing or a finished session rolls back.
@@ -669,10 +739,10 @@ defmodule MealPlannerApi.Services.CookingService do
 
     case AI.generate_text(question, system_prompt: system_prompt) do
       {:ok, text} ->
-        text
+        {:ok, text}
 
       {:error, _reason} ->
-        fallback_answer(question, content_type, recipe["name"], step_text)
+        {:fallback, fallback_answer(question, content_type, recipe["name"], step_text)}
     end
   end
 
@@ -807,7 +877,14 @@ defmodule MealPlannerApi.Services.CookingService do
   # The step state clients read; the frozen Context snapshot stays server-side.
   defp step_state(snapshot), do: Map.delete(snapshot || %{}, @frozen_key)
 
-  defp serialize_turn(turn) do
+  # A user turn also carries the id the client gave its question, `nil` when
+  # it was asked without one.
+  defp serialize_turn(%{role: :user} = turn),
+    do: turn |> serialize_turn_fields() |> Map.put(:client_message_id, turn.client_message_id)
+
+  defp serialize_turn(turn), do: serialize_turn_fields(turn)
+
+  defp serialize_turn_fields(turn) do
     %{
       id: turn.id,
       role: Atom.to_string(turn.role),
