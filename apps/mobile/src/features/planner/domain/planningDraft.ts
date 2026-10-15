@@ -7,6 +7,7 @@ import type {
   ProposalReadyPayload,
   SessionCommittedPayload,
   SessionEndedPayload,
+  SessionResumedDraftPayload,
 } from '../types/planningEvents';
 
 // The state of the first proposal, derived from the events of the planning topic: nothing is
@@ -76,6 +77,8 @@ export type PlanningDraftAction =
   | { type: 'start_rejected'; requestId: string; error: ApiError }
   | { type: 'generation_started'; payload: GenerationStartedPayload }
   | { type: 'session_committed'; payload: SessionCommittedPayload }
+  /** The server says, after a join, which session is active and what proposal it holds. */
+  | { type: 'session_resumed'; payload: SessionResumedDraftPayload }
   /** The clock read `now`: a generation past its time limit fails. */
   | { type: 'clock_ticked'; now: number }
   /** The User left the proposal: the draft starts over. */
@@ -184,6 +187,26 @@ function reduceTimedOut(
     : next;
 }
 
+// The events of a generation emitted while the socket was down never arrive. After the rejoin the
+// server pushes the active session and its pending proposal, which is the one this draft waits
+// for when the session is its own and the run, once known, is its own too. Without a proposal the
+// generation may still be running, or may have failed: the time limit settles that.
+function takeResumedProposal(
+  draft: PlanningDraft,
+  { sessionId, proposal }: SessionResumedDraftPayload
+): PlanningDraft {
+  if (draft.status !== 'generating' || proposal === null) return draft;
+  if (draft.sessionId !== null && draft.sessionId !== sessionId) return draft;
+  if (draft.runId !== null && draft.runId !== proposal.runId) return draft;
+  return {
+    status: 'ready',
+    requestId: draft.requestId,
+    sessionId,
+    proposal,
+    message: draft.message,
+  };
+}
+
 export function planningDraftReducer(
   draft: PlanningDraft,
   action: PlanningDraftAction
@@ -268,6 +291,8 @@ export function planningDraftReducer(
             scheduledMealsCount: action.payload.scheduledMealsCount,
           }
         : draft;
+    case 'session_resumed':
+      return takeResumedProposal(draft, action.payload);
     case 'clock_ticked':
       return draft.status === 'generating' &&
         action.now >= draft.startedAt + GENERATION_TIME_LIMIT_MS

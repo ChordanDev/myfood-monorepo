@@ -21,6 +21,7 @@ import {
   parseSessionCommitted,
   parseSessionExpired,
   parseSessionLostLock,
+  parseSessionResumed,
   parseStartPlanningReply,
 } from '../types/planningEvents';
 import type { PlanningTopicState } from './usePlanningTopic';
@@ -70,6 +71,12 @@ const DRAFT_EVENTS: {
   {
     event: 'session_lost_lock',
     toAction: (payload) => ({ type: 'session_lost_lock', payload: parseSessionLostLock(payload) }),
+  },
+  // Pushed after every join, so also after a rejoin: it carries the proposal of a generation whose
+  // events were emitted while the socket was down.
+  {
+    event: 'session_resumed',
+    toAction: (payload) => ({ type: 'session_resumed', payload: parseSessionResumed(payload) }),
   },
   // The commit of the draft's session, also when the reply of its confirm was lost on the way.
   {

@@ -339,6 +339,149 @@ describe('usePlanningDraft', () => {
     });
   });
 
+  // Issue #146: with the socket down, start_planning gets no answer and no event arrives.
+  describe('a start sent while the socket is down', () => {
+    beforeEach(() => {
+      jest.useFakeTimers();
+    });
+
+    afterEach(() => {
+      jest.useRealTimers();
+    });
+
+    it('fails at the time limit and starts again once the topic is back', async () => {
+      // The harness never opens the connection: the socket is down from the start.
+      act(() => controller.start(RANGE, '', []));
+      await act(async () => lastPush().timeout());
+      expect(controller.draft.status).toBe('generating');
+
+      clockMs = GENERATION_TIME_LIMIT_MS;
+      act(() => {
+        jest.advanceTimersByTime(GENERATION_TIME_LIMIT_MS);
+      });
+      expect(controller.draft).toMatchObject({
+        status: 'failed',
+        failure: { kind: 'generation', reason: 'generation_timed_out' },
+      });
+
+      act(() => socket.open());
+      act(() => channel().replyOk());
+      act(() => controller.retry());
+
+      expect(controller.draft.status).toBe('generating');
+      expect(lastPush().event).toBe('start_planning');
+    });
+  });
+
+  // Issue #146: the events of a generation emitted while the socket was down never arrive; the
+  // session_resumed the server pushes after the rejoin carries what they would have said.
+  describe('the session_resumed of a rejoin', () => {
+    const resumedWith = (proposal: unknown, sessionId: string = SESSION_ID) => ({
+      sessionId,
+      proposalId: proposal === null ? null : proposalReady.proposalId,
+      proposal,
+      messages: [],
+    });
+
+    function rejoin(): void {
+      act(() => socket.open());
+      act(() => socket.drop());
+      act(() => socket.backoffRetry());
+      act(() => socket.open());
+      act(() => channel().replyOk());
+    }
+
+    it('takes the pending proposal of the session the draft generates in', async () => {
+      act(() => controller.start(RANGE, '', []));
+      await replyOk();
+      emit('generation_started', generationStarted);
+
+      rejoin();
+      emit('session_resumed', resumedWith(proposalReady));
+
+      expect(controller.draft).toMatchObject({
+        status: 'ready',
+        sessionId: SESSION_ID,
+        proposal: { proposalId: proposalReady.proposalId },
+      });
+    });
+
+    it('takes it and learns the session when generation_started was lost too', async () => {
+      act(() => controller.start(RANGE, '', []));
+      await replyOk();
+
+      rejoin();
+      emit('session_resumed', resumedWith(proposalReady));
+
+      expect(controller.draft).toMatchObject({ status: 'ready', sessionId: SESSION_ID });
+    });
+
+    it('takes it after the generation ran out of time', async () => {
+      jest.useFakeTimers();
+      act(() => controller.start(RANGE, '', []));
+      await replyOk();
+      emit('generation_started', generationStarted);
+      clockMs = GENERATION_TIME_LIMIT_MS;
+      act(() => {
+        jest.advanceTimersByTime(GENERATION_TIME_LIMIT_MS);
+      });
+      expect(controller.draft.status).toBe('failed');
+      jest.useRealTimers();
+
+      emit('session_resumed', resumedWith(proposalReady));
+
+      expect(controller.draft).toMatchObject({ status: 'ready', sessionId: SESSION_ID });
+    });
+
+    it('keeps generating while the session has no proposal yet', async () => {
+      act(() => controller.start(RANGE, '', []));
+      await replyOk();
+      emit('generation_started', generationStarted);
+
+      emit('session_resumed', resumedWith(null));
+
+      expect(controller.draft.status).toBe('generating');
+    });
+
+    it('ignores the session of another member', async () => {
+      act(() => controller.start(RANGE, '', []));
+      await replyOk();
+      emit('generation_started', generationStarted);
+
+      emit('session_resumed', resumedWith(proposalReady, 'a-session-of-another-member'));
+
+      expect(controller.draft.status).toBe('generating');
+    });
+
+    it('ignores a proposal of another run', async () => {
+      act(() => controller.start(RANGE, '', []));
+      await replyOk();
+      emit('generation_started', generationStarted);
+
+      emit('session_resumed', resumedWith({ ...proposalReady, runId: 'another-run' }));
+
+      expect(controller.draft.status).toBe('generating');
+    });
+
+    it('leaves a draft that is not generating alone', () => {
+      emit('session_resumed', resumedWith(proposalReady));
+
+      expect(controller.draft.status).toBe('idle');
+    });
+
+    it('keeps generating when the proposal does not parse', async () => {
+      const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+      act(() => controller.start(RANGE, '', []));
+      await replyOk();
+      emit('generation_started', generationStarted);
+
+      emit('session_resumed', resumedWith({ meals: [] }));
+
+      expect(controller.draft.status).toBe('generating');
+      warn.mockRestore();
+    });
+  });
+
   describe('a generation left behind before its session was known', () => {
     // The generation of the second request, which the server names in its own generation_started.
     const secondStarted = {
