@@ -489,7 +489,6 @@ defmodule MealPlannerApiWeb.PlanningChatControllerTest do
     assert planner_favorite_ids.() == []
   end
 
-  # The generation runs of the Account and the proposals made from them.
   # Issue #312: an optimizer answer outside the candidates answers 422
   # `optimization_failed` on both planning routes and writes nothing.
   describe "optimizer answer outside the candidates (issue #312)" do
@@ -552,6 +551,7 @@ defmodule MealPlannerApiWeb.PlanningChatControllerTest do
     end
   end
 
+  # The generation runs of the Account and the proposals made from them.
   defp planning_row_counts(account_id) do
     runs = from(r in PlanningGenerationRun, where: r.account_id == ^account_id)
 
