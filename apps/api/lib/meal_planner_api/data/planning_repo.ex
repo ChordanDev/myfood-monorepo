@@ -487,6 +487,118 @@ defmodule MealPlannerApi.Data.PlanningRepo do
     end)
   end
 
+  @doc """
+  The proposal `proposal_id` of a Generation run of the Account, with its run
+  preloaded, or `{:error, :not_found}`: a proposal of another Account answers
+  as if it did not exist (issue #28).
+  """
+  @spec get_account_proposal(Ecto.UUID.t(), Ecto.UUID.t()) ::
+          {:ok, PlanningProposal.t()} | {:error, :not_found}
+  def get_account_proposal(account_id, proposal_id) do
+    query =
+      from(p in PlanningProposal,
+        join: r in assoc(p, :generation_run),
+        where: p.id == ^proposal_id and r.account_id == ^account_id,
+        preload: [generation_run: r]
+      )
+
+    case Repo.one(query) do
+      nil -> {:error, :not_found}
+      %PlanningProposal{} = proposal -> {:ok, proposal}
+    end
+  end
+
+  @doc "The Planning session `session_id` of the Account, or `nil`."
+  @spec get_account_session(Ecto.UUID.t(), Ecto.UUID.t()) :: PlanningSession.t() | nil
+  def get_account_session(account_id, session_id),
+    do: Repo.get_by(PlanningSession, id: session_id, account_id: account_id)
+
+  # The lease a renewal grants, and the most a session can be renewed for,
+  # counted from its start (issue #28). The lease length matches the one
+  # `PlanningSessionServer` sets when the session starts.
+  @session_lease_seconds 120
+  @session_lease_cap_seconds 30 * 60
+
+  @doc """
+  Renews the lease of an `:active` Planning session (issue #28): the Planner
+  calls it while its screen is open, as the Shopping screen renews a Cart.
+
+  The lease moves to two minutes past `now`, but never past 30 minutes from
+  `started_at`. Only the membership that holds the session may renew it.
+
+  A lease that already ran out is not brought back: the answer is
+  `{:error, :lost_lock}` and the row is left for the sweeper. A session that
+  already ended answers `{:error, :terminal_lock}`, one of another Account or
+  an unknown id `{:error, :not_found}`, and another member `{:error,
+  :forbidden}`.
+  """
+  @spec renew_session_lease(Ecto.UUID.t(), Ecto.UUID.t(), Ecto.UUID.t(), DateTime.t()) ::
+          {:ok, PlanningSession.t()}
+          | {:error, :not_found | :forbidden | :lost_lock | :terminal_lock}
+  def renew_session_lease(account_id, session_id, membership_id, now \\ DateTime.utc_now()) do
+    Repo.transaction(fn ->
+      query =
+        from(s in PlanningSession,
+          where: s.id == ^session_id and s.account_id == ^account_id,
+          lock: "FOR UPDATE"
+        )
+
+      case fetch_for_renewal(Repo.one(query), membership_id, now) do
+        {:ok, session} ->
+          session
+          |> Ecto.Changeset.change(%{lease_expires_at: renewed_lease(session, now)})
+          |> Repo.update!()
+
+        {:error, reason} ->
+          Repo.rollback(reason)
+      end
+    end)
+  end
+
+  defp fetch_for_renewal(nil, _membership_id, _now), do: {:error, :not_found}
+
+  defp fetch_for_renewal(%PlanningSession{status: :lost_lock}, _membership_id, _now),
+    do: {:error, :lost_lock}
+
+  defp fetch_for_renewal(%PlanningSession{status: status}, _membership_id, _now)
+       when status != :active,
+       do: {:error, :terminal_lock}
+
+  defp fetch_for_renewal(%PlanningSession{} = session, membership_id, now) do
+    cond do
+      session.lock_owner_membership_id != membership_id -> {:error, :forbidden}
+      DateTime.compare(session.lease_expires_at, now) != :gt -> {:error, :lost_lock}
+      true -> {:ok, session}
+    end
+  end
+
+  defp renewed_lease(%PlanningSession{started_at: started_at}, now) do
+    lease = DateTime.add(now, @session_lease_seconds, :second)
+    cap = DateTime.add(started_at, @session_lease_cap_seconds, :second)
+
+    if DateTime.compare(lease, cap) == :gt, do: cap, else: lease
+  end
+
+  @doc """
+  The pairs of `slots` (names, such as `"lunch"`) and dates in `[from, to]`
+  that already hold a Scheduled meal of the Account, ordered by date and
+  slot. `start_planning` refuses a range with any of them (issue #28): the
+  Planner never plans over a Scheduled meal.
+  """
+  @spec occupied_slots(Ecto.UUID.t(), Date.t(), Date.t(), [String.t()]) ::
+          [{Date.t(), atom()}]
+  def occupied_slots(account_id, from_date, to_date, slots) do
+    from(m in ScheduledMeal,
+      where:
+        m.account_id == ^account_id and m.date >= ^from_date and m.date <= ^to_date and
+          m.slot in ^slots,
+      distinct: true,
+      select: {m.date, m.slot},
+      order_by: [asc: m.date, asc: m.slot]
+    )
+    |> Repo.all()
+  end
+
   # -------------------------------------------------------------------------
   # Planning-session helpers (PR2 — private to PlanningRepo)
   # -------------------------------------------------------------------------

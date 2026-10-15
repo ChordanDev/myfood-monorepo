@@ -132,6 +132,228 @@ defmodule MealPlannerApiWeb.PlanningChatControllerTest do
     assert length(body["data"]["proposal"]["weeklyPlan"]["days"]) >= 2
   end
 
+  # Issue #28 — reject goes through the session flow: the generation server
+  # of the Account rejects the proposal and tells the planning topic. The
+  # controller answers only a pending proposal.
+  describe "POST /api/planning/proposals/:proposal_id/reject" do
+    test "rejects a pending proposal through the generation server and tells the topic",
+         %{conn: conn} do
+      %{token: token, user: user, account: account} = insert_identity_with_token!(plan: :family_4)
+      proposal = insert_pending_proposal(account, user)
+
+      start_supervised!(
+        {MealPlannerApi.Generation.Server, account_id: account.id, user_id: user.id}
+      )
+
+      Phoenix.PubSub.subscribe(MealPlannerApi.PubSub, "planning:#{account.id}")
+
+      body =
+        conn
+        |> put_req_header("authorization", "Bearer " <> token)
+        |> post("/api/planning/proposals/#{proposal.id}/reject")
+        |> json_response(200)
+
+      assert %{"proposalId" => proposal_id, "status" => "rejected"} = body["data"]
+      assert proposal_id == proposal.id
+      assert Repo.get!(PlanningProposal, proposal.id).status == :rejected
+
+      assert_receive %Phoenix.Socket.Broadcast{
+        event: "proposal_rejected",
+        payload: %{proposal_id: ^proposal_id}
+      }
+    end
+
+    test "rejects a pending proposal and tells the topic when no generation server is running",
+         %{conn: conn} do
+      %{token: token, user: user, account: account} = insert_identity_with_token!(plan: :family_4)
+      proposal = insert_pending_proposal(account, user)
+      Phoenix.PubSub.subscribe(MealPlannerApi.PubSub, "planning:#{account.id}")
+
+      conn =
+        conn
+        |> put_req_header("authorization", "Bearer " <> token)
+        |> post("/api/planning/proposals/#{proposal.id}/reject")
+
+      assert %{"data" => %{"status" => "rejected"}} = json_response(conn, 200)
+      assert Repo.get!(PlanningProposal, proposal.id).status == :rejected
+      proposal_id = proposal.id
+
+      assert_receive %Phoenix.Socket.Broadcast{
+        event: "proposal_rejected",
+        payload: %{proposal_id: ^proposal_id}
+      }
+    end
+
+    for status <- [:rejected, :accepted] do
+      test "answers 409 planning_proposal_not_pending for a proposal #{status}", %{conn: conn} do
+        %{token: token, user: user, account: account} =
+          insert_identity_with_token!(plan: :family_4)
+
+        proposal = insert_pending_proposal(account, user)
+        proposal |> Ecto.Changeset.change(%{status: unquote(status)}) |> Repo.update!()
+
+        conn =
+          conn
+          |> put_req_header("authorization", "Bearer " <> token)
+          |> post("/api/planning/proposals/#{proposal.id}/reject")
+
+        assert %{"error" => %{"code" => "planning_proposal_not_pending"}} =
+                 json_response(conn, 409)
+
+        assert Repo.get!(PlanningProposal, proposal.id).status == unquote(status)
+      end
+    end
+
+    test "answers 404 not_found for a proposal of another Account", %{conn: conn} do
+      %{user: user, account: account} = insert_identity_with_token!(plan: :family_4)
+      proposal = insert_pending_proposal(account, user)
+      %{token: other_token} = insert_identity_with_token!(plan: :family_4)
+
+      conn =
+        conn
+        |> put_req_header("authorization", "Bearer " <> other_token)
+        |> post("/api/planning/proposals/#{proposal.id}/reject")
+
+      assert %{"error" => %{"code" => "not_found"}} = json_response(conn, 404)
+      assert Repo.get!(PlanningProposal, proposal.id).status == :pending
+    end
+
+    # Jorge review of PR #278: a confirm still running in the generation server
+    # (its HTTP call timed out) must not be overwritten by a reject that read the
+    # proposal as pending before the confirm committed.
+    test "waits for a confirm in flight and answers 409 once it accepted the proposal",
+         %{conn: conn} do
+      %{token: token, user: user, account: account} = insert_identity_with_token!(plan: :family_4)
+      proposal = insert_pending_proposal(account, user)
+      server = start_busy_generation_server(account.id)
+
+      request =
+        Task.async(fn ->
+          conn
+          |> put_req_header("authorization", "Bearer " <> token)
+          |> post("/api/planning/proposals/#{proposal.id}/reject")
+        end)
+
+      # The server is still busy with the confirm, which commits meanwhile.
+      assert_receive {:busy_server_called, ^server, :get_status}
+      proposal |> Ecto.Changeset.change(%{status: :accepted}) |> Repo.update!()
+      send(server, :finish_confirm)
+
+      conn = Task.await(request)
+
+      assert %{"error" => %{"code" => "planning_proposal_not_pending"}} =
+               json_response(conn, 409)
+
+      assert Repo.get!(PlanningProposal, proposal.id).status == :accepted
+      refute_receive {:busy_server_cast, ^server, {:reject, _proposal_id}}
+    end
+
+    test "answers 500 and rejects nothing when the generation server cannot be reached",
+         %{conn: conn} do
+      %{token: token, user: user, account: account} = insert_identity_with_token!(plan: :family_4)
+      proposal = insert_pending_proposal(account, user)
+      server = start_busy_generation_server(account.id, exit_on_call: true)
+
+      conn =
+        conn
+        |> put_req_header("authorization", "Bearer " <> token)
+        |> post("/api/planning/proposals/#{proposal.id}/reject")
+
+      assert %{"error" => %{"code" => "unknown_error"}} = json_response(conn, 500)
+      assert Repo.get!(PlanningProposal, proposal.id).status == :pending
+      refute_receive {:busy_server_cast, ^server, _cast}
+    end
+
+    # Native review R4-001: the reply must say what the server did, not that a
+    # reject was sent. A server that drops the cast leaves the proposal pending.
+    test "answers 500 when the generation server did not apply the reject", %{conn: conn} do
+      %{token: token, user: user, account: account} = insert_identity_with_token!(plan: :family_4)
+      proposal = insert_pending_proposal(account, user)
+      server = start_busy_generation_server(account.id, hold_first_call: false)
+
+      conn =
+        conn
+        |> put_req_header("authorization", "Bearer " <> token)
+        |> post("/api/planning/proposals/#{proposal.id}/reject")
+
+      assert %{"error" => %{"code" => "unknown_error"}} = json_response(conn, 500)
+      assert_received {:busy_server_cast, ^server, {:reject, _proposal_id}}
+      assert Repo.get!(PlanningProposal, proposal.id).status == :pending
+    end
+
+    test "answers 422 invalid_proposal_id for a malformed id", %{conn: conn} do
+      %{token: token} = insert_identity_with_token!(plan: :family_4)
+
+      conn =
+        conn
+        |> put_req_header("authorization", "Bearer " <> token)
+        |> post("/api/planning/proposals/nope/reject")
+
+      assert %{"error" => %{"code" => "invalid_proposal_id"}} = json_response(conn, 422)
+    end
+  end
+
+  # Registers a process as the generation server of the Account. It holds the
+  # first call it gets until the test sends `:finish_confirm`, as a server still
+  # running a confirm would, then answers every later call at once. With
+  # `hold_first_call: false` it answers every call at once, and with
+  # `exit_on_call: true` it dies on the first call instead. It applies no cast
+  # and reports every call and cast it gets to the test.
+  defp start_busy_generation_server(account_id, opts \\ []) do
+    test_pid = self()
+
+    pid =
+      spawn(fn ->
+        {:ok, _owner} =
+          Registry.register(MealPlannerApi.Generation.Generations, {:generation, account_id}, nil)
+
+        send(test_pid, :busy_server_registered)
+
+        busy_server_loop(
+          test_pid,
+          Keyword.get(opts, :exit_on_call, false),
+          Keyword.get(opts, :hold_first_call, true)
+        )
+      end)
+
+    assert_receive :busy_server_registered
+    on_exit(fn -> Process.exit(pid, :kill) end)
+    pid
+  end
+
+  defp busy_server_loop(test_pid, exit_on_call?, held?) do
+    receive do
+      {:"$gen_call", from, request} ->
+        send(test_pid, {:busy_server_called, self(), request})
+        if exit_on_call?, do: exit(:boom)
+        if held?, do: receive(do: (:finish_confirm -> :ok))
+        GenServer.reply(from, %{})
+        busy_server_loop(test_pid, exit_on_call?, false)
+
+      {:"$gen_cast", request} ->
+        send(test_pid, {:busy_server_cast, self(), request})
+        busy_server_loop(test_pid, exit_on_call?, held?)
+    end
+  end
+
+  defp insert_pending_proposal(account, user) do
+    run =
+      Repo.insert!(%PlanningGenerationRun{
+        account_id: account.id,
+        user_id: user.id,
+        status: :completed,
+        input_context: %{},
+        started_at: DateTime.utc_now(),
+        completed_at: DateTime.utc_now()
+      })
+
+    Repo.insert!(%PlanningProposal{
+      generation_run_id: run.id,
+      proposal_json: %{"slots" => []},
+      status: :pending
+    })
+  end
+
   describe "POST /api/planning/chat date range limit (issue #87)" do
     test "a range longer than the plan maximum answers 422 and creates no rows", %{conn: conn} do
       %{token: token, account: %{id: account_id}} = insert_identity_with_token!()

@@ -1,7 +1,10 @@
 defmodule MealPlannerApiWeb.PlanningController do
   use MealPlannerApiWeb, :controller
 
+  alias MealPlannerApi.Data.PlanningRepo
+  alias MealPlannerApi.Services.PlanningChatService
   alias MealPlannerApi.Services.PlanningService
+  alias MealPlannerApiWeb.ApiError
   alias MealPlannerApiWeb.Controllers.AccountScopeHelpers
   alias MealPlannerApiWeb.MealSummary
 
@@ -24,23 +27,34 @@ defmodule MealPlannerApiWeb.PlanningController do
     end
   end
 
+  # Issue #28 — confirms a proposal through the session flow, with the
+  # Planning session that holds its range (`{proposalId, sessionId}`). Every
+  # error leaves through the `ApiError` envelope.
   def confirm(conn, payload) do
-    user = Guardian.Plug.current_resource(conn)
+    account_id = conn.assigns.current_membership.account_id
+
+    case PlanningChatService.confirm_proposal(
+           account_id,
+           payload["proposal_id"],
+           payload["session_id"]
+         ) do
+      {:ok, result} -> json(conn, %{data: result})
+      {:error, reason} -> render_session_error(conn, reason)
+    end
+  end
+
+  # Issue #28 — the Planner renews the lease of its session while its screen
+  # is open, as the Shopping screen renews a Cart.
+  def renew_session(conn, %{"session_id" => session_id}) do
     membership = conn.assigns.current_membership
-    meals = Map.get(payload, "meals", [])
 
-    if is_list(meals) do
-      case PlanningService.save_plan(membership.account_id, user.id, meals) do
-        {:ok, %{proposal_id: _proposal_id, meal_ids: meal_ids}} ->
-          json(conn, %{data: %{scheduled_meals_count: length(meal_ids)}})
-
-        {:error, reason} ->
-          render_error(conn, reason)
-      end
+    with {:ok, session_id} <- Ecto.UUID.cast(session_id),
+         {:ok, session} <-
+           PlanningRepo.renew_session_lease(membership.account_id, session_id, membership.id) do
+      json(conn, %{data: %{session_id: session.id, lease_expires_at: session.lease_expires_at}})
     else
-      conn
-      |> put_status(:bad_request)
-      |> json(%{error: "invalid_payload"})
+      :error -> render_session_error(conn, :not_found)
+      {:error, reason} -> render_session_error(conn, reason)
     end
   end
 
@@ -103,6 +117,34 @@ defmodule MealPlannerApiWeb.PlanningController do
     |> put_status(:unprocessable_entity)
     |> json(%{error: "optimization_failed"})
   end
+
+  # The reasons of a confirm or a lease renewal, the engine's included. Any
+  # other reason is a fault of the server.
+  defp render_session_error(conn, :invalid_proposal_id),
+    do: conn |> ApiError.error(:invalid_proposal_id)
+
+  defp render_session_error(conn, :missing_session_id),
+    do: conn |> ApiError.error(:missing_session_id)
+
+  defp render_session_error(conn, :not_found), do: conn |> ApiError.error(:not_found)
+
+  defp render_session_error(conn, :planning_proposal_not_pending),
+    do: conn |> ApiError.error(:planning_proposal_not_pending)
+
+  defp render_session_error(conn, :no_active_generation),
+    do: conn |> ApiError.error(:no_active_generation)
+
+  defp render_session_error(conn, :forbidden), do: conn |> ApiError.error(:forbidden)
+  defp render_session_error(conn, :not_a_member), do: conn |> ApiError.error(:not_a_member)
+  defp render_session_error(conn, :missing_lock), do: conn |> ApiError.error(:missing_lock)
+  defp render_session_error(conn, :foreign_lock), do: conn |> ApiError.error(:foreign_lock)
+  defp render_session_error(conn, :lost_lock), do: conn |> ApiError.error(:lost_lock)
+  defp render_session_error(conn, :terminal_lock), do: conn |> ApiError.error(:terminal_lock)
+
+  defp render_session_error(conn, :transaction_failed),
+    do: conn |> ApiError.error(:transaction_failed)
+
+  defp render_session_error(conn, _reason), do: conn |> ApiError.server_fault()
 
   defp status_for(:invalid_identity), do: :unauthorized
   defp status_for(:optimization_failed), do: :unprocessable_entity

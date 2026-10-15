@@ -37,6 +37,10 @@ jest.mock('@/features/auth/hooks/useAuth', () => ({
 // The pure modules behind the Home barrel: the barrel itself loads its screens.
 jest.mock('@/features/home', () => ({}));
 
+// The confirm, the reject and the calendar read after a commit are the screen suite's.
+jest.mock('../../api/planningApi');
+jest.mock('@/features/home/hooks/useLoadLivePlan', () => ({ loadLivePlan: jest.fn() }));
+
 const RANGE = { start: '2030-01-01', end: '2030-01-02' };
 const SESSION_ID = generationStarted.sessionId;
 

@@ -226,6 +226,69 @@ describe('planningDraftReducer', () => {
     });
   });
 
+  describe('confirming, rejecting and cancelling the proposal', () => {
+    const ready = run([
+      requested,
+      { type: 'generation_started', payload: started },
+      { type: 'proposal_ready', payload: proposal },
+    ]);
+    const committed = {
+      sessionId: started.sessionId,
+      proposalId: proposal.proposalId,
+      scheduledMealsCount: 4,
+      shoppingRebuilt: true,
+    };
+
+    it('keeps the session of its generation once the proposal is ready', () => {
+      expect(ready).toMatchObject({ status: 'ready', sessionId: started.sessionId });
+    });
+
+    it('is committed on session_committed of its session, with the meal count', () => {
+      const draft = planningDraftReducer(ready, { type: 'session_committed', payload: committed });
+
+      expect(draft).toEqual({
+        status: 'committed',
+        requestId: REQUEST_ID,
+        sessionId: started.sessionId,
+        scheduledMealsCount: 4,
+      });
+    });
+
+    it('ignores session_committed of another session', () => {
+      const draft = planningDraftReducer(ready, {
+        type: 'session_committed',
+        payload: { ...committed, sessionId: 'a-session-of-another-member' },
+      });
+
+      expect(draft).toBe(ready);
+    });
+
+    it('is idle again when its session is cancelled', () => {
+      const draft = planningDraftReducer(ready, {
+        type: 'session_cancelled',
+        payload: { sessionId: started.sessionId },
+      });
+
+      expect(draft).toEqual(IDLE_PLANNING_DRAFT);
+    });
+
+    it.each(['session_expired', 'session_lost_lock'] as const)(
+      'fails when its session ends on %s',
+      (type) => {
+        const draft = planningDraftReducer(ready, {
+          type,
+          payload: { sessionId: started.sessionId },
+        });
+
+        expect(draft).toMatchObject({ status: 'failed', failure: { reason: type } });
+      }
+    );
+
+    it('is idle again on reset', () => {
+      expect(planningDraftReducer(ready, { type: 'reset' })).toEqual(IDLE_PLANNING_DRAFT);
+    });
+  });
+
   it('fails with the error of a rejected start request', () => {
     const rejection = new ApiError('planning_invalid_range', 'bad range', 0);
 

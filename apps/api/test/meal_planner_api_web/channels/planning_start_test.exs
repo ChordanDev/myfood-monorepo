@@ -435,6 +435,60 @@ defmodule MealPlannerApiWeb.PlanningStartTest do
     end
   end
 
+  # Issue #28 — the Planner never plans over a Scheduled meal: a start whose
+  # range holds one in a slot it plans is refused before any session starts.
+  describe "occupied slots (#28)" do
+    test "a Scheduled meal on a day and slot of the range replies planning_slot_occupied", %{
+      account: account,
+      user: user,
+      token: token
+    } do
+      schedule_meal!(account, user, in_days(2), :lunch)
+      schedule_meal!(account, user, in_days(1), :dinner)
+      socket = join_planning!(token, account)
+
+      ref = push(socket, "start_planning", %{"rangeFrom" => in_days(1), "rangeTo" => in_days(3)})
+
+      payload = assert_error_reply(ref, :planning_slot_occupied)
+
+      assert payload["error"]["details"] == %{
+               "occupied" => [
+                 %{"date" => in_days(1), "slot" => "dinner"},
+                 %{"date" => in_days(2), "slot" => "lunch"}
+               ]
+             }
+
+      assert active_sessions(account) == 0
+      assert Server.get_status(account.id) == nil
+
+      MealPlannerApiWeb.PlannerFixtures.check!("planningSlotOccupiedError", payload, %{
+        in_days(1) => "2030-01-01",
+        in_days(2) => "2030-01-02"
+      })
+    end
+
+    test "a meal outside the range or in a slot it does not plan leaves the start free", %{
+      account: account,
+      user: user,
+      token: token
+    } do
+      schedule_meal!(account, user, in_days(2), :snack)
+      schedule_meal!(account, user, in_days(4), :lunch)
+      socket = join_planning!(token, account)
+
+      ref = push(socket, "start_planning", %{"rangeFrom" => in_days(1), "rangeTo" => in_days(3)})
+
+      assert_reply(ref, :ok, %{"sessionId" => _session_id})
+      assert_push("generation_started", %{"runId" => _run_id})
+
+      # The engine plans exactly the slots the check covered.
+      assert %{constraints: constraints} = Server.get_status(account.id)
+      assert constraints["slot_types"] == ~w(breakfast lunch dinner)
+
+      stop_generation_server(account.id)
+    end
+  end
+
   describe "planning context (#29)" do
     test "hands the engine a context with every signal, read back from the run", %{
       account: account,
@@ -957,6 +1011,19 @@ defmodule MealPlannerApiWeb.PlanningStartTest do
         1_000 -> flunk("expected #{count} proposal_ready / planning_message pushes")
       end
     end
+  end
+
+  defp schedule_meal!(account, user, date, slot) do
+    {:ok, meal} =
+      PlanningRepo.schedule_meal(%{
+        account_id: account.id,
+        user_id: user.id,
+        date: Date.from_iso8601!(date),
+        slot: slot,
+        is_cooked: false
+      })
+
+    meal
   end
 
   defp active_sessions(account) do

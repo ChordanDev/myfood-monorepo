@@ -21,6 +21,7 @@ import { CUSTOM_TAB_BAR_CONTENT_HEIGHT } from '../constants';
 import { formatPlanningStartLabel } from '../domain/planningRange';
 import { usePlanningDraft } from '../hooks/usePlanningDraft';
 import { usePlanningFavorites } from '../hooks/usePlanningFavorites';
+import { usePlanningLease } from '../hooks/usePlanningLease';
 import { usePlanningRange } from '../hooks/usePlanningRange';
 import { usePlanningTopic } from '../hooks/usePlanningTopic';
 import { resolveTurnTrailingSpace } from './turnAnchor';
@@ -51,6 +52,11 @@ const INITIAL_MESSAGES: PlannerMessage[] = [
   { id: 'confirmation', author: 'user', text: 'Si, me parece perfecto' },
 ];
 
+// Shown after a confirm that got no answer: the menu may be saved already, and a new confirm
+// answers the result of the first one.
+const CONFIRM_UNRESOLVED_MESSAGE =
+  'No sabemos si tu menú se guardó. Tocá Confirmar menú de nuevo para comprobarlo.';
+
 // Shown on `session_expired` and `session_lost_lock` alike: the user only needs to know that the
 // conversation cannot continue and a new one is needed.
 const SESSION_OVER_MESSAGE = 'Esta sesión de planificación terminó. Empezá una nueva para seguir.';
@@ -67,7 +73,13 @@ export const PlannerScreen = () => {
   const reduceMotion = useReducedMotion();
   const planningTopic = usePlanningTopic();
   const planningRange = usePlanningRange();
-  const { draft, start: startPlanning, retry: retryPlanning } = usePlanningDraft(planningTopic);
+  const planningDraft = usePlanningDraft(planningTopic);
+  const { draft, start: startPlanning, retry: retryPlanning } = planningDraft;
+  // The session of the draft is kept alive while it generates and while its proposal waits for
+  // the User.
+  const planningLease = usePlanningLease(
+    draft.status === 'generating' || draft.status === 'ready' ? draft.sessionId : null
+  );
   const planningFavorites = usePlanningFavorites();
   const scrollViewRef = useRef<ScrollView>(null);
   const responseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -280,7 +292,8 @@ export const PlannerScreen = () => {
         <PlanningJoinNotice message={getAuthErrorMessage(planningTopic.error)} />
       ) : null}
 
-      {planningTopic.status === 'joined' && planningTopic.sessionOver ? (
+      {(planningTopic.status === 'joined' && planningTopic.sessionOver) ||
+      planningLease.isLeaseLost ? (
         <PlanningJoinNotice message={SESSION_OVER_MESSAGE} />
       ) : null}
 
@@ -343,6 +356,18 @@ export const PlannerScreen = () => {
           canStart={planningTopic.status === 'joined'}
           onStart={handleStartPlanning}
           onRetry={retryPlanning}
+          onConfirm={planningDraft.confirm}
+          onReject={planningDraft.reject}
+          onCancel={planningDraft.cancel}
+          pendingAction={planningDraft.pendingAction}
+          actionErrorMessage={
+            planningDraft.actionError === null
+              ? undefined
+              : planningDraft.isConfirmUnresolved
+                ? CONFIRM_UNRESOLVED_MESSAGE
+                : getAuthErrorMessage(planningDraft.actionError)
+          }
+          isConfirmUnresolved={planningDraft.isConfirmUnresolved}
         />
         <View
           testID="planner-turn-trailing-space"
