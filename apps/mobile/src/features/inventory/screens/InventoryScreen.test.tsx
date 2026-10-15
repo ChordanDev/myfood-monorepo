@@ -164,6 +164,25 @@ function deferredResponse() {
   return { response, resolve };
 }
 
+// Types a name in the add sheet, lets the catalogue search answer `ingredient` and chooses it.
+async function chooseFromCatalogue(
+  root: ReactTestInstance,
+  text: string,
+  ingredient: { id: string; name: string }
+) {
+  fetchMock.mockReturnValueOnce(dataResponse([ingredient]));
+  jest.useFakeTimers();
+  try {
+    type(root, 'Nombre', text);
+    await act(async () => {
+      jest.advanceTimersByTime(300);
+    });
+  } finally {
+    jest.useRealTimers();
+  }
+  press(root, ingredient.name);
+}
+
 function sentRequest(call: number) {
   const [url, init] = fetchMock.mock.calls[call];
   return { url, method: init.method, body: init.body ? JSON.parse(init.body) : undefined };
@@ -597,7 +616,7 @@ describe('InventoryScreen', () => {
       const root = await renderScreen();
 
       press(root, 'Agregar producto');
-      type(root, 'Nombre', 'Yogur');
+      await chooseFromCatalogue(root, 'yog', { id: YOGURT.ingredientId, name: 'Yogur' });
       type(root, 'Cantidad', '2');
       press(root, 'Unidades', 'radio');
       type(root, 'Vence', '20/10/2026');
@@ -609,10 +628,15 @@ describe('InventoryScreen', () => {
       await pressAndSettle(root, 'Agregar');
 
       expect(sentRequest(1)).toEqual({
+        url: `${API_URL}/api/ingredients?query=yog`,
+        method: 'GET',
+        body: undefined,
+      });
+      expect(sentRequest(2)).toEqual({
         url: `${API_URL}/api/inventory/items/add-extra`,
         method: 'POST',
         body: {
-          ingredientName: 'Yogur',
+          ingredientId: YOGURT.ingredientId,
           quantityMilli: 2_000,
           unit: 'unit',
           expiresAt: '2026-10-20',
@@ -625,21 +649,21 @@ describe('InventoryScreen', () => {
       expect(root.findAllByType(TextInput)).toHaveLength(0);
     });
 
-    it('sends only the name, the quantity and the unit when the rest is left blank', async () => {
+    it('sends only the Ingredient, the quantity and the unit when the rest is left blank', async () => {
       const moreRice = { ...RICE, quantityMilli: 2_000_000 };
       queueRead();
       const root = await renderScreen();
 
       press(root, 'Agregar producto');
-      type(root, 'Nombre', 'Arroz');
+      await chooseFromCatalogue(root, 'Arroz', { id: RICE.ingredientId, name: 'Arroz' });
       type(root, 'Cantidad', '500');
       fetchMock.mockReturnValueOnce(
         dataResponse({ item: moreRice, mutationEvent: mutationEvent(moreRice) })
       );
       await pressAndSettle(root, 'Agregar');
 
-      expect(sentRequest(1).body).toEqual({
-        ingredientName: 'Arroz',
+      expect(sentRequest(2).body).toEqual({
+        ingredientId: RICE.ingredientId,
         quantityMilli: 500_000,
         unit: 'g',
       });
@@ -654,7 +678,7 @@ describe('InventoryScreen', () => {
       const itemsBefore = useInventoryStore.getState().items;
 
       press(root, 'Agregar producto');
-      type(root, 'Nombre', 'Algo que el catálogo no tiene');
+      await chooseFromCatalogue(root, 'Yogur', { id: YOGURT.ingredientId, name: 'Yogur' });
       type(root, 'Cantidad', '1');
       queueValidationError();
       await pressAndSettle(root, 'Agregar');
@@ -670,11 +694,12 @@ describe('InventoryScreen', () => {
       const root = await renderScreen();
 
       press(root, 'Agregar producto');
-      type(root, 'Nombre', 'Yogur');
+      await chooseFromCatalogue(root, 'Yogur', { id: YOGURT.ingredientId, name: 'Yogur' });
       type(root, 'Cantidad', '0');
       await pressAndSettle(root, 'Agregar');
 
-      expect(fetchMock).toHaveBeenCalledTimes(1);
+      // The read and the catalogue search, and no add.
+      expect(fetchMock).toHaveBeenCalledTimes(2);
     });
 
     it('can add to an empty inventory', async () => {
@@ -682,7 +707,10 @@ describe('InventoryScreen', () => {
       const root = await renderScreen();
 
       press(root, 'Agregar producto');
-      type(root, 'Nombre', 'Guiso de lentejas');
+      await chooseFromCatalogue(root, 'Guiso', {
+        id: STEW.ingredientId,
+        name: 'Guiso de lentejas',
+      });
       type(root, 'Cantidad', '0,5');
       press(root, 'Unidades', 'radio');
       fetchMock.mockReturnValueOnce(

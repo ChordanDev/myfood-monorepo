@@ -4,8 +4,25 @@ import React from 'react';
 import { StyleSheet, Text, TextInput, View } from 'react-native';
 import { act, create, ReactTestInstance } from 'react-test-renderer';
 import { ApiError } from '@/api/errors';
-import type { AddExtraItemPayload } from '../types';
+import type { AddExtraItemPayload, IngredientOption } from '../types';
 import { InventoryAddSheet } from './InventoryAddSheet';
+
+const CATALOGUE: IngredientOption[] = [
+  { id: 'ing-milk', name: 'Leche' },
+  { id: 'ing-dulce', name: 'Dulce de leche' },
+  { id: 'ing-stew', name: 'Guiso de lentejas' },
+];
+
+// The catalogue search of the API: the names that hold the query, ignoring case.
+const mockSearchIngredients = jest.fn((query: string) =>
+  Promise.resolve(
+    CATALOGUE.filter((ingredient) => ingredient.name.toLowerCase().includes(query.toLowerCase()))
+  )
+);
+
+jest.mock('../api', () => ({
+  searchIngredients: (query: string) => mockSearchIngredients(query),
+}));
 
 jest.mock('react-native/Libraries/Utilities/useWindowDimensions', () => ({
   __esModule: true,
@@ -138,12 +155,38 @@ function getPanelMaxHeight(root: ReactTestInstance) {
   return StyleSheet.flatten(panel?.props.style).maxHeight;
 }
 
-afterEach(() => {
-  mockKeyboardLift = 0;
+beforeEach(() => {
+  jest.useFakeTimers();
 });
 
-function fillRequiredFields(root: ReactTestInstance) {
-  type(root, 'Nombre', 'Leche');
+afterEach(() => {
+  mockKeyboardLift = 0;
+  mockSearchIngredients.mockClear();
+  jest.useRealTimers();
+});
+
+// Types a name and lets the search it starts once typing pauses be answered.
+async function typeAndSearch(root: ReactTestInstance, text: string) {
+  type(root, 'Nombre', text);
+  await act(async () => {
+    jest.advanceTimersByTime(300);
+  });
+}
+
+async function chooseIngredient(root: ReactTestInstance, text: string, name: string) {
+  await typeAndSearch(root, text);
+  press(root, name);
+}
+
+function getOptionNames(root: ReactTestInstance): string[] {
+  return root
+    .findAll((node) => node.props.accessibilityHint === 'Elegí este ingrediente')
+    .filter((node) => typeof node.props.onPress === 'function')
+    .map((node) => node.props.accessibilityLabel as string);
+}
+
+async function fillRequiredFields(root: ReactTestInstance) {
+  await chooseIngredient(root, 'Leche', 'Leche');
   type(root, 'Cantidad', '750');
 }
 
@@ -164,26 +207,127 @@ describe('InventoryAddSheet', () => {
     });
   });
 
-  it('adds the item by name with its quantity in thousandths and closes once the API took it', async () => {
+  it('lists the Ingredients whose name holds what was typed once typing pauses', async () => {
+    const { root } = renderSheet();
+
+    type(root, 'Nombre', '  lec');
+
+    expect(mockSearchIngredients).not.toHaveBeenCalled();
+
+    await act(async () => {
+      jest.advanceTimersByTime(300);
+    });
+
+    expect(mockSearchIngredients).toHaveBeenCalledTimes(1);
+    expect(mockSearchIngredients).toHaveBeenCalledWith('lec');
+    expect(getOptionNames(root)).toEqual(['Leche', 'Dulce de leche']);
+  });
+
+  it('searches once for a name typed quickly, with the last text typed', async () => {
+    const { root } = renderSheet();
+
+    type(root, 'Nombre', 'l');
+    type(root, 'Nombre', 'le');
+    await typeAndSearch(root, 'leche');
+
+    expect(mockSearchIngredients).toHaveBeenCalledTimes(1);
+    expect(mockSearchIngredients).toHaveBeenCalledWith('leche');
+  });
+
+  it('adds the chosen Ingredient by its id with its quantity in thousandths and closes once the API took it', async () => {
     const { root, onAdd, onClose } = renderSheet();
 
-    type(root, 'Nombre', '  Leche ');
+    await chooseIngredient(root, 'dulce', 'Dulce de leche');
     type(root, 'Cantidad', '1,5');
     await pressAndSettle(root, 'Agregar');
 
+    expect(getInput(root, 'Nombre').props.value).toBe('Dulce de leche');
     expect(onAdd).toHaveBeenCalledTimes(1);
     expect(onAdd.mock.calls[0][0]).toStrictEqual({
-      ingredientName: 'Leche',
+      ingredientId: 'ing-dulce',
       quantityMilli: 1500,
       unit: 'g',
     });
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 
+  it('hides the list once an Ingredient is chosen and does not search its name again', async () => {
+    const { root } = renderSheet();
+
+    await chooseIngredient(root, 'lec', 'Leche');
+    await act(async () => {
+      jest.advanceTimersByTime(300);
+    });
+
+    expect(getOptionNames(root)).toEqual([]);
+    expect(mockSearchIngredients).toHaveBeenCalledTimes(1);
+  });
+
+  it('forgets the chosen Ingredient when the name is typed again', async () => {
+    const { root } = renderSheet();
+
+    await fillRequiredFields(root);
+    await typeAndSearch(root, 'Lech');
+
+    expect(getControl(root, 'button', 'Agregar').props.disabled).toBe(true);
+    expect(getOptionNames(root)).toEqual(['Leche', 'Dulce de leche']);
+  });
+
+  it('says so when the catalogue has no Ingredient with that name', async () => {
+    const { root } = renderSheet();
+
+    await typeAndSearch(root, 'Kiwi');
+
+    expect(getOptionNames(root)).toEqual([]);
+    expect(getTexts(root)).toContain('No encontramos ese ingrediente.');
+  });
+
+  it('says so when the search failed, and searches again when the name changes', async () => {
+    const { root } = renderSheet();
+    mockSearchIngredients.mockRejectedValueOnce(new ApiError('network_error', 'Offline'));
+
+    await typeAndSearch(root, 'Leche');
+
+    expect(getTexts(root)).toContain('No pudimos buscar ingredientes. Probá de nuevo.');
+
+    await typeAndSearch(root, 'Lech');
+
+    expect(getOptionNames(root)).toEqual(['Leche', 'Dulce de leche']);
+  });
+
+  it('shows only the answer of the last search', async () => {
+    const { root } = renderSheet();
+    let answerFirst: (ingredients: IngredientOption[]) => void = () => {};
+    mockSearchIngredients.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          answerFirst = resolve;
+        })
+    );
+
+    await typeAndSearch(root, 'Guiso');
+    await typeAndSearch(root, 'Leche');
+    await act(async () => {
+      answerFirst([CATALOGUE[2]]);
+    });
+
+    expect(getOptionNames(root)).toEqual(['Leche', 'Dulce de leche']);
+  });
+
+  it('sends at most 100 characters of the name to the search', async () => {
+    const { root } = renderSheet();
+
+    expect(getInput(root, 'Nombre').props.maxLength).toBe(100);
+
+    await typeAndSearch(root, 'a'.repeat(150));
+
+    expect(mockSearchIngredients).toHaveBeenCalledWith('a'.repeat(100));
+  });
+
   it('sends the unit, the expiry as an ISO date, the notes and the leftover flag it was given', async () => {
     const { root, onAdd } = renderSheet();
 
-    type(root, 'Nombre', 'Guiso de lentejas');
+    await chooseIngredient(root, 'lentejas', 'Guiso de lentejas');
     type(root, 'Cantidad', '2');
     press(root, 'Unidades', 'radio');
     type(root, 'Vence', '12/10/2026');
@@ -192,7 +336,7 @@ describe('InventoryAddSheet', () => {
     await pressAndSettle(root, 'Agregar');
 
     expect(onAdd.mock.calls[0][0]).toStrictEqual({
-      ingredientName: 'Guiso de lentejas',
+      ingredientId: 'ing-stew',
       quantityMilli: 2000,
       unit: 'unit',
       expiresAt: '2026-10-12',
@@ -201,21 +345,21 @@ describe('InventoryAddSheet', () => {
     });
   });
 
-  it('limits the notes to 500 characters', () => {
+  it('limits the notes to the 1000 characters the API accepts', () => {
     const { root } = renderSheet();
 
-    expect(getInput(root, 'Notas').props.maxLength).toBe(500);
+    expect(getInput(root, 'Notas').props.maxLength).toBe(1000);
   });
 
-  it('sends at most 500 characters of notes, whatever reached the field', async () => {
+  it('sends at most 1000 characters of notes, whatever reached the field', async () => {
     const { root, onAdd } = renderSheet();
 
-    fillRequiredFields(root);
+    await fillRequiredFields(root);
     // A paste can get past `maxLength` on some keyboards
-    type(root, 'Notas', 'a'.repeat(600));
+    type(root, 'Notas', 'a'.repeat(1200));
     await pressAndSettle(root, 'Agregar');
 
-    expect(onAdd.mock.calls[0][0].notes).toBe('a'.repeat(500));
+    expect(onAdd.mock.calls[0][0].notes).toBe('a'.repeat(1000));
   });
 
   it('marks the unit it was last given as the chosen one', () => {
@@ -231,16 +375,17 @@ describe('InventoryAddSheet', () => {
     });
   });
 
-  it('cannot be added until it has a name and a quantity', () => {
+  it('cannot be added until an Ingredient is chosen and it has a quantity', async () => {
     const { root } = renderSheet();
 
     expect(getControl(root, 'button', 'Agregar').props.disabled).toBe(true);
 
-    type(root, 'Nombre', 'Leche');
+    await typeAndSearch(root, 'Leche');
+    type(root, 'Cantidad', '750');
 
     expect(getControl(root, 'button', 'Agregar').props.disabled).toBe(true);
 
-    type(root, 'Cantidad', '750');
+    press(root, 'Leche');
 
     expect(getControl(root, 'button', 'Agregar').props.disabled).toBe(false);
   });
@@ -254,7 +399,7 @@ describe('InventoryAddSheet', () => {
   ])('does not send %s to the API', async (_label, field, text) => {
     const { root, onAdd } = renderSheet();
 
-    fillRequiredFields(root);
+    await fillRequiredFields(root);
     type(root, field, text);
 
     expect(getControl(root, 'button', 'Agregar').props.disabled).toBe(true);
@@ -268,7 +413,7 @@ describe('InventoryAddSheet', () => {
     const { root, onAdd, onClose } = renderSheet();
     onAdd.mockRejectedValueOnce(VALIDATION_ERROR);
 
-    fillRequiredFields(root);
+    await fillRequiredFields(root);
     await pressAndSettle(root, 'Agregar');
 
     const alert = root.find((node) => node.props.accessibilityRole === 'alert');
@@ -282,7 +427,7 @@ describe('InventoryAddSheet', () => {
   it('keeps what it shows while it fades out and adds nothing from a late press', async () => {
     const { root, onAdd, close } = renderSheet();
 
-    fillRequiredFields(root);
+    await fillRequiredFields(root);
     close();
 
     expect(getInput(root, 'Nombre').props.value).toBe('Leche');
@@ -296,7 +441,7 @@ describe('InventoryAddSheet', () => {
     const { root, onAdd, reopen } = renderSheet();
     onAdd.mockRejectedValueOnce(VALIDATION_ERROR);
 
-    fillRequiredFields(root);
+    await fillRequiredFields(root);
     await pressAndSettle(root, 'Agregar');
     reopen();
 

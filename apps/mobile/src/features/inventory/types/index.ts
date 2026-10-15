@@ -1,6 +1,7 @@
 export { INVENTORY_CATEGORIES } from './inventory';
 export type {
   AddExtraItemPayload,
+  IngredientOption,
   InventoryCategory,
   InventoryFreshness,
   InventoryItem,

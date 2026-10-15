@@ -16,6 +16,7 @@ import {
   disposeItem,
   getInventory,
   previewVoice,
+  searchIngredients,
   setItemQuantity,
 } from './inventoryApi';
 
@@ -44,6 +45,29 @@ describe('inventoryApi', () => {
   function sentBody() {
     return JSON.parse(fetchMock.mock.calls[0][1].body);
   }
+
+  it('searches the Ingredient catalogue by name with the bearer token and unwraps the list', async () => {
+    const ingredients = [{ id: 'ing-milk', name: 'Dulce de leche' }];
+    fetchMock.mockReturnValueOnce(dataResponse(ingredients));
+
+    await expect(searchIngredients('dulce de leche & co')).resolves.toEqual(ingredients);
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      `${API_URL}/api/ingredients?query=dulce%20de%20leche%20%26%20co`,
+      expect.objectContaining({
+        method: 'GET',
+        headers: expect.objectContaining({ Authorization: 'Bearer access-1' }),
+      })
+    );
+  });
+
+  it('rejects a search answer whose data is not a list as unknown_error', async () => {
+    fetchMock.mockReturnValueOnce(dataResponse({ id: 'ing-milk' }));
+
+    const error = await searchIngredients('leche').catch((caught: unknown) => caught);
+
+    expect(isApiError(error) && error.code).toBe('unknown_error');
+  });
 
   it('reads the inventory view with the bearer token and unwraps it', async () => {
     fetchMock.mockReturnValueOnce(dataResponse(INVENTORY_VIEW));

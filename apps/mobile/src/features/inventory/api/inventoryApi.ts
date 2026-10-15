@@ -2,6 +2,7 @@ import { apiClient } from '@/api/client';
 import { ApiError } from '@/api/errors';
 import type {
   AddExtraItemPayload,
+  IngredientOption,
   InventoryItemDisposal,
   InventoryItemWrite,
   InventoryView,
@@ -35,6 +36,20 @@ export async function getInventory(): Promise<InventoryView> {
     throw new ApiError('unknown_error', 'Malformed inventory response');
   }
   return view;
+}
+
+// The Ingredients of the catalogue whose name holds `query`, at most 20. The add sheet picks
+// the Ingredient it adds from them.
+export async function searchIngredients(query: string): Promise<IngredientOption[]> {
+  const ingredients = unwrapData<IngredientOption[]>(
+    await apiClient.get<unknown>(`/api/ingredients?query=${encodeURIComponent(query)}`, {
+      auth: true,
+    })
+  );
+  if (!Array.isArray(ingredients)) {
+    throw new ApiError('unknown_error', 'Malformed ingredient search response');
+  }
+  return ingredients;
 }
 
 export async function addExtraItem(payload: AddExtraItemPayload): Promise<InventoryItemWrite> {

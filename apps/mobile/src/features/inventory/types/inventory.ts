@@ -52,6 +52,12 @@ export interface InventoryView {
   totals: { itemsCount: number; warningCount: number; expiredCount: number };
 }
 
+// An Ingredient of the catalogue, as the name search serves it
+export interface IngredientOption {
+  id: string;
+  name: string;
+}
+
 // The ingredient goes by id or by its exact catalog name; the id wins when both are sent.
 export interface AddExtraItemPayload {
   ingredientId?: string;
