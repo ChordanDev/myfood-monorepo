@@ -12,7 +12,8 @@ import type {
 // The state of the first proposal, derived from the events of the planning topic: nothing is
 // stored on the server about it. `generating` covers the time between the tap and the answer,
 // and the run id is learned from `generation_started`, which can arrive after the events of
-// its own run.
+// its own run. A generation that gives no answer within `GENERATION_TIME_LIMIT_MS` fails, but its
+// late proposal is still taken.
 
 export type PlanningFailure =
   | { kind: 'request'; error: ApiError }
@@ -20,6 +21,8 @@ export type PlanningFailure =
 
 type RunEvent =
   | { type: 'proposal_ready'; payload: ProposalReadyPayload }
+  /** A `proposal_ready` that does not parse, with its run id when that much can be read. */
+  | { type: 'proposal_unreadable'; payload: { runId: string | null } }
   | { type: 'planning_message'; payload: PlanningMessagePayload }
   | { type: 'generation_error'; payload: GenerationErrorPayload };
 
@@ -34,6 +37,8 @@ export type PlanningDraft =
   | {
       status: 'generating';
       requestId: string;
+      /** Clock time of the start request, in milliseconds: the time limit counts from it. */
+      startedAt: number;
       runId: string | null;
       /** Learned from `generation_started`; the events that end a session name it. */
       sessionId: string | null;
@@ -62,13 +67,17 @@ export type PlanningDraft =
       /** The session the generation ran in, if known: a retry cancels it first. */
       sessionId: string | null;
       failure: PlanningFailure;
+      /** The generation that ran out of time: its events still reduce it, and its proposal wins. */
+      timedOut?: Generating;
     };
 
 export type PlanningDraftAction =
-  | { type: 'start_requested'; requestId: string }
+  | { type: 'start_requested'; requestId: string; now: number }
   | { type: 'start_rejected'; requestId: string; error: ApiError }
   | { type: 'generation_started'; payload: GenerationStartedPayload }
   | { type: 'session_committed'; payload: SessionCommittedPayload }
+  /** The clock read `now`: a generation past its time limit fails. */
+  | { type: 'clock_ticked'; now: number }
   /** The User left the proposal: the draft starts over. */
   | { type: 'reset' }
   | SessionEndEvent
@@ -80,17 +89,32 @@ export const IDLE_PLANNING_DRAFT: PlanningDraft = { status: 'idle' };
 // can arrive: the buffer is bounded and a held event is dropped when its run is another one.
 const MAX_EARLY_EVENTS = 10;
 
+/** How long a generation may go without a proposal or an error before the draft fails. */
+export const GENERATION_TIME_LIMIT_MS = 90_000;
+
 type Generating = Extract<PlanningDraft, { status: 'generating' }>;
+type Failed = Extract<PlanningDraft, { status: 'failed' }>;
+
+/** The clock time at which the generation of `draft` runs out of time, if it is generating. */
+export function generationDeadline(draft: PlanningDraft): number | null {
+  return draft.status === 'generating' ? draft.startedAt + GENERATION_TIME_LIMIT_MS : null;
+}
+
+function failGeneration(draft: Generating, reason: string): Failed {
+  return {
+    status: 'failed',
+    requestId: draft.requestId,
+    sessionId: draft.sessionId,
+    failure: { kind: 'generation', reason },
+  };
+}
 
 function applyRunEvent(draft: Generating, action: RunEvent): PlanningDraft {
   switch (action.type) {
     case 'generation_error':
-      return {
-        status: 'failed',
-        requestId: draft.requestId,
-        sessionId: draft.sessionId,
-        failure: { kind: 'generation', reason: action.payload.reason },
-      };
+      return failGeneration(draft, action.payload.reason);
+    case 'proposal_unreadable':
+      return failGeneration(draft, 'proposal_unreadable');
     case 'proposal_ready':
       return {
         status: 'ready',
@@ -105,14 +129,16 @@ function applyRunEvent(draft: Generating, action: RunEvent): PlanningDraft {
 }
 
 // Whether `action` is about the run of `draft`: by the run id, or for an error by the request id.
-// An error with neither id comes from a reason-only path of the engine. The Account has at most
-// one generation in flight, so it is the failure of the one this draft waits for.
+// An error with neither id comes from a reason-only path of the engine, and a proposal that does
+// not parse may not say its run. The Account has at most one generation in flight, so either is
+// about the one this draft waits for.
 function belongsToRun(draft: Generating, action: RunEvent): boolean {
   const { payload } = action;
   if (action.type === 'generation_error') {
     const { requestId, runId } = action.payload;
     if (requestId === draft.requestId || (requestId === null && runId === null)) return true;
   }
+  if (action.type === 'proposal_unreadable' && action.payload.runId === null) return true;
   return draft.runId !== null && payload.runId === draft.runId;
 }
 
@@ -130,15 +156,48 @@ function reduceRunEvent(draft: PlanningDraft, action: RunEvent): PlanningDraft {
   return { ...draft, early: [...draft.early, action] };
 }
 
+// The events a generation answers with, which go on reducing one that ran out of time.
+function isGenerationEvent(action: PlanningDraftAction): boolean {
+  switch (action.type) {
+    case 'start_requested':
+    case 'start_rejected':
+    case 'session_committed':
+    case 'clock_ticked':
+    case 'reset':
+      return false;
+    default:
+      return true;
+  }
+}
+
+// A generation that ran out of time still answers: what it ends in replaces the failure, and
+// while it is still generating the failure only learns its session.
+function reduceTimedOut(
+  draft: Failed,
+  timedOut: Generating,
+  action: PlanningDraftAction
+): PlanningDraft {
+  const next = planningDraftReducer(timedOut, action);
+  if (next === timedOut) return draft;
+  return next.status === 'generating'
+    ? { ...draft, sessionId: next.sessionId, timedOut: next }
+    : next;
+}
+
 export function planningDraftReducer(
   draft: PlanningDraft,
   action: PlanningDraftAction
 ): PlanningDraft {
+  if (draft.status === 'failed' && draft.timedOut !== undefined && isGenerationEvent(action)) {
+    return reduceTimedOut(draft, draft.timedOut, action);
+  }
+
   switch (action.type) {
     case 'start_requested':
       return {
         status: 'generating',
         requestId: action.requestId,
+        startedAt: action.now,
         runId: null,
         sessionId: null,
         message: null,
@@ -156,6 +215,15 @@ export function planningDraftReducer(
           }
         : draft;
     case 'generation_started': {
+      // A generation that failed before its session was known still learns it: a retry cancels it.
+      if (
+        draft.status === 'failed' &&
+        draft.failure.kind === 'generation' &&
+        draft.sessionId === null &&
+        draft.requestId === action.payload.requestId
+      ) {
+        return { ...draft, sessionId: action.payload.sessionId };
+      }
       if (
         draft.status !== 'generating' ||
         draft.runId !== null ||
@@ -199,6 +267,11 @@ export function planningDraftReducer(
             sessionId: action.payload.sessionId,
             scheduledMealsCount: action.payload.scheduledMealsCount,
           }
+        : draft;
+    case 'clock_ticked':
+      return draft.status === 'generating' &&
+        action.now >= draft.startedAt + GENERATION_TIME_LIMIT_MS
+        ? { ...failGeneration(draft, 'generation_timed_out'), timedOut: draft }
         : draft;
     case 'reset':
       return IDLE_PLANNING_DRAFT;

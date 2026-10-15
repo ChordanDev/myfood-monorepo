@@ -10,6 +10,7 @@ import generationStarted from '../../fixtures/generationStarted.json';
 import planningMessage from '../../fixtures/planningMessage.json';
 import proposalReady from '../../fixtures/proposalReady.json';
 import startPlanningReply from '../../fixtures/startPlanningReply.json';
+import { GENERATION_TIME_LIMIT_MS } from '../../domain/planningDraft';
 import { MAX_PLANNING_REQUEST_CHARS } from '../../domain/startPlanning';
 import { usePlanningDraft, type PlanningDraftController } from '../usePlanningDraft';
 import { usePlanningTopic } from '../usePlanningTopic';
@@ -47,11 +48,14 @@ const SESSION_ID = generationStarted.sessionId;
 let socket: FakeSocket;
 let tree: ReturnType<typeof create>;
 let controller: PlanningDraftController;
+// The clock of the generation time limit, in milliseconds: a test moves it by hand.
+let clockMs = 0;
+const readClock = () => clockMs;
 
 function Harness() {
   const topic = usePlanningTopic();
   // eslint-disable-next-line react-hooks/globals -- Test harness captures the hook result for assertions.
-  controller = usePlanningDraft(topic);
+  controller = usePlanningDraft(topic, readClock);
   return null;
 }
 
@@ -77,6 +81,7 @@ async function replyOk(): Promise<void> {
 
 beforeEach(() => {
   mockRequestCount = 0;
+  clockMs = 0;
   mockSocketClient = createSocketClient({
     url: 'wss://api.example.test/socket',
     createSocket: (url, options) => {
@@ -302,6 +307,174 @@ describe('usePlanningDraft', () => {
       act(() => controller.retry());
 
       expect(pushedEvents()).toEqual(['start_planning', 'start_planning']);
+    });
+  });
+
+  describe('the generation time limit', () => {
+    beforeEach(() => {
+      jest.useFakeTimers();
+    });
+
+    afterEach(() => {
+      jest.useRealTimers();
+    });
+
+    it('wakes again when the timer fires before the clock reaches the limit', () => {
+      act(() => controller.start(RANGE, '', []));
+
+      clockMs = GENERATION_TIME_LIMIT_MS - 1;
+      act(() => {
+        jest.advanceTimersByTime(GENERATION_TIME_LIMIT_MS);
+      });
+      expect(controller.draft.status).toBe('generating');
+
+      clockMs = GENERATION_TIME_LIMIT_MS;
+      act(() => {
+        jest.advanceTimersByTime(1);
+      });
+      expect(controller.draft).toMatchObject({
+        status: 'failed',
+        failure: { kind: 'generation', reason: 'generation_timed_out' },
+      });
+    });
+  });
+
+  describe('a generation left behind before its session was known', () => {
+    // The generation of the second request, which the server names in its own generation_started.
+    const secondStarted = {
+      ...generationStarted,
+      requestId: 'req_2',
+      runId: 'run-2',
+      sessionId: 'session-2',
+    };
+
+    function cancelledSessions(): unknown[] {
+      return channel()
+        .pushes.filter((push) => push.event === 'cancel_planning')
+        .map((push) => push.payload);
+    }
+
+    it('cancels the session of every generation cancelled that way, once each is known', () => {
+      act(() => controller.start(RANGE, '', []));
+      act(() => controller.cancel());
+      act(() => controller.start(RANGE, '', []));
+      act(() => controller.cancel());
+
+      emit('generation_started', generationStarted);
+      emit('generation_started', secondStarted);
+
+      expect(cancelledSessions()).toEqual([{ sessionId: SESSION_ID }, { sessionId: 'session-2' }]);
+      expect(controller.draft.status).toBe('idle');
+    });
+
+    describe('by a retry after an unreadable proposal', () => {
+      function failUnreadable(): void {
+        const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+        act(() => controller.start(RANGE, '', []));
+        // A proposal that does not even say its run, before generation_started named the session.
+        emit('proposal_ready', {});
+        warn.mockRestore();
+        expect(controller.draft).toMatchObject({ status: 'failed', sessionId: null });
+      }
+
+      it('cancels its session once it is known and leaves the session of the retry alone', () => {
+        failUnreadable();
+
+        act(() => controller.retry());
+        expect(pushedEvents()).toEqual(['start_planning', 'start_planning']);
+
+        emit('generation_started', generationStarted);
+        emit('generation_started', secondStarted);
+
+        expect(cancelledSessions()).toEqual([{ sessionId: SESSION_ID }]);
+        expect(controller.draft).toMatchObject({ status: 'generating', sessionId: 'session-2' });
+      });
+
+      it('cancels its session before starting again when it was named before the retry', async () => {
+        failUnreadable();
+        emit('generation_started', generationStarted);
+
+        act(() => controller.retry());
+
+        expect(pushedEvents()).toEqual(['start_planning', 'cancel_planning']);
+        expect(lastPush().payload).toEqual({ sessionId: SESSION_ID });
+
+        await act(async () => lastPush().replyOk({ sessionId: SESSION_ID, status: 'cancelled' }));
+        emit('generation_started', secondStarted);
+
+        expect(cancelledSessions()).toEqual([{ sessionId: SESSION_ID }]);
+      });
+    });
+
+    it('forgets a cancelled generation whose start the server refused', async () => {
+      act(() => controller.start(RANGE, '', []));
+      act(() => controller.cancel());
+      await act(async () =>
+        lastPush().replyError({ error: { code: 'planning_range_locked', message: 'locked' } })
+      );
+
+      emit('generation_started', generationStarted);
+
+      expect(cancelledSessions()).toEqual([]);
+    });
+
+    it('logs a cancel the server refuses', async () => {
+      const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+      act(() => controller.start(RANGE, '', []));
+      act(() => controller.cancel());
+      emit('generation_started', generationStarted);
+
+      await act(async () =>
+        lastPush().replyError({ error: { code: 'internal_error', message: 'boom' } })
+      );
+
+      expect(warn).toHaveBeenCalledWith(
+        '[Planner] Failed to cancel an abandoned generation:',
+        expect.anything()
+      );
+      warn.mockRestore();
+    });
+
+    describe('by a retry after the time limit', () => {
+      beforeEach(() => {
+        jest.useFakeTimers();
+      });
+
+      afterEach(() => {
+        jest.useRealTimers();
+      });
+
+      function timeOut(): void {
+        act(() => controller.start(RANGE, '', []));
+        clockMs = GENERATION_TIME_LIMIT_MS;
+        act(() => {
+          jest.advanceTimersByTime(GENERATION_TIME_LIMIT_MS);
+        });
+        expect(controller.draft).toMatchObject({ status: 'failed', sessionId: null });
+      }
+
+      it('cancels its session once it is known', () => {
+        timeOut();
+
+        act(() => controller.retry());
+        // There is no session to cancel yet: the retry starts at once.
+        expect(pushedEvents()).toEqual(['start_planning', 'start_planning']);
+
+        emit('generation_started', generationStarted);
+
+        expect(cancelledSessions()).toEqual([{ sessionId: SESSION_ID }]);
+        expect(controller.draft).toMatchObject({ status: 'generating', requestId: 'req_2' });
+      });
+
+      it('leaves the session of the retry alone', () => {
+        timeOut();
+        act(() => controller.retry());
+
+        emit('generation_started', secondStarted);
+
+        expect(cancelledSessions()).toEqual([]);
+        expect(controller.draft).toMatchObject({ status: 'generating', sessionId: 'session-2' });
+      });
     });
   });
 });

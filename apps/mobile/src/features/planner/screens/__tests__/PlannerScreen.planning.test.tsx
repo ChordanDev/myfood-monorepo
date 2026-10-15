@@ -532,23 +532,221 @@ describe('PlannerScreen first proposal', () => {
     expect(textsOf('planner-proposal')).toContain('Acá tenés tu menú para 2 días: 3 comidas.');
   });
 
-  it('ignores a payload that does not match the frozen shape, and keeps waiting', async () => {
+  it('ignores an error or a message that does not match the frozen shape, and keeps waiting', async () => {
     const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
     renderJoined();
     press('planner-start');
     await replyOk();
     emitGenerationStarted();
 
-    emit('proposal_ready', { ...proposalReady, days: 'none' });
     emit('generation_error', { reason: 42 });
     emit('planning_message', null);
 
     expect(byTestId('planner-progress')).toBeDefined();
-    expect(warn).toHaveBeenCalledTimes(3);
+    expect(warn).toHaveBeenCalledTimes(2);
 
     emitProposal();
     expect(byTestId('planner-proposal')).toBeDefined();
     warn.mockRestore();
+  });
+
+  describe('a proposal the app cannot read', () => {
+    // The proposal of the fixtures with its first meal patched, as a drifted engine or a bad row
+    // would send it.
+    function withFirstMeal(patch: Record<string, unknown>) {
+      const [first, ...rest] = proposalReady.days;
+      const [meal, ...meals] = first.meals;
+      return {
+        ...proposalReady,
+        days: [{ ...first, meals: [{ ...meal, ...patch }, ...meals] }, ...rest],
+      };
+    }
+
+    let warn: jest.SpyInstance;
+
+    beforeEach(() => {
+      warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    });
+
+    afterEach(() => warn.mockRestore());
+
+    it.each([
+      ['a meal with no recipe name', withFirstMeal({ recipeName: null })],
+      ['a slot outside the four', withFirstMeal({ slot: 'brunch' })],
+    ])('fails the generation on %s, with a retry button', async (_case, payload) => {
+      renderJoined();
+      press('planner-start');
+      await replyOk();
+      emitGenerationStarted();
+
+      emit('proposal_ready', payload);
+
+      expect(byTestId('planner-progress')).toBeUndefined();
+      expect(textsOf('planner-failure')).toEqual(['No pudimos armar tu menú. Probá de nuevo.']);
+      expect(byTestId('planner-retry')).toBeDefined();
+      expect(warn).toHaveBeenCalledTimes(1);
+    });
+
+    it('fails on one whose run cannot be read either', async () => {
+      renderJoined();
+      press('planner-start');
+      await replyOk();
+      emitGenerationStarted();
+
+      emit('proposal_ready', { runId: 42 });
+
+      expect(byTestId('planner-failure')).toBeDefined();
+    });
+
+    it('ignores one of a run the screen did not start', async () => {
+      renderJoined();
+      press('planner-start');
+      await replyOk();
+      emitGenerationStarted();
+
+      emit('proposal_ready', {
+        ...withFirstMeal({ slot: 'brunch' }),
+        runId: 'a-run-of-another-member',
+      });
+
+      expect(byTestId('planner-progress')).toBeDefined();
+    });
+
+    it('retries after it, cancelling the session of the generation first', async () => {
+      renderJoined();
+      press('planner-start');
+      await replyOk();
+      emitGenerationStarted();
+      emit('proposal_ready', withFirstMeal({ slot: 'brunch' }));
+
+      press('planner-retry');
+
+      expect(channel().pushes.map((push) => push.event)).toEqual([
+        'start_planning',
+        'cancel_planning',
+      ]);
+      expect(lastPush().payload).toEqual({ sessionId: generationStarted.sessionId });
+    });
+  });
+
+  describe('a generation that takes too long', () => {
+    beforeEach(() => {
+      jest.useFakeTimers();
+    });
+
+    afterEach(() => {
+      jest.useRealTimers();
+    });
+
+    async function startGeneration(): Promise<void> {
+      renderJoined();
+      press('planner-start');
+      await replyOk();
+      emitGenerationStarted();
+    }
+
+    function wait(ms: number): void {
+      act(() => {
+        jest.advanceTimersByTime(ms);
+      });
+    }
+
+    it('keeps waiting for 90 seconds from the tap, then fails with a retry button', async () => {
+      await startGeneration();
+
+      wait(89_999);
+      expect(byTestId('planner-progress')).toBeDefined();
+
+      wait(1);
+      expect(byTestId('planner-progress')).toBeUndefined();
+      expect(textsOf('planner-failure')).toEqual(['No pudimos armar tu menú. Probá de nuevo.']);
+      expect(byTestId('planner-retry')).toBeDefined();
+    });
+
+    it('shows a proposal that arrives after the limit instead of the failure', async () => {
+      await startGeneration();
+      wait(90_000);
+
+      emitProposal();
+
+      expect(byTestId('planner-failure')).toBeUndefined();
+      expect(byTestId('planner-proposal-day-2030-01-01')).toBeDefined();
+    });
+
+    it('retries after the limit, cancelling the session of the generation first', async () => {
+      await startGeneration();
+      wait(90_000);
+
+      press('planner-retry');
+
+      expect(channel().pushes.map((push) => push.event)).toEqual([
+        'start_planning',
+        'cancel_planning',
+      ]);
+      expect(lastPush().payload).toEqual({ sessionId: generationStarted.sessionId });
+      expect(byTestId('planner-progress')).toBeDefined();
+    });
+
+    it('starts counting again from the tap of a retry', async () => {
+      await startGeneration();
+      wait(90_000);
+      press('planner-retry');
+      await act(async () => lastPush().replyOk({ sessionId: 's', status: 'cancelled' }));
+      await replyOk();
+
+      wait(89_999);
+
+      expect(byTestId('planner-progress')).toBeDefined();
+    });
+  });
+
+  describe('cancelling a generation', () => {
+    it('offers to cancel from the tap', () => {
+      renderJoined();
+
+      press('planner-start');
+
+      expect(byTestId('planner-progress')).toBeDefined();
+      expect(textsOf('planner-cancel')).toEqual(['Cancelar']);
+    });
+
+    it('cancels the session of the generation and offers to start again', async () => {
+      renderJoined();
+      press('planner-start');
+      await replyOk();
+      emitGenerationStarted();
+
+      press('planner-cancel');
+
+      expect(lastPush().event).toBe('cancel_planning');
+      expect(lastPush().payload).toEqual({ sessionId: generationStarted.sessionId });
+      expect(byTestId('planner-progress')).toBeUndefined();
+      expect(byTestId('planner-start')).toBeDefined();
+
+      // The generation it left behind no longer moves the draft.
+      emitProposal();
+      expect(byTestId('planner-proposal')).toBeUndefined();
+    });
+
+    it('cancels the session as soon as it is known when cancelled before it', async () => {
+      renderJoined();
+      press('planner-start');
+      await replyOk();
+
+      press('planner-cancel');
+
+      expect(channel().pushes.map((push) => push.event)).toEqual(['start_planning']);
+      expect(byTestId('planner-start')).toBeDefined();
+
+      emitGenerationStarted();
+
+      expect(channel().pushes.map((push) => push.event)).toEqual([
+        'start_planning',
+        'cancel_planning',
+      ]);
+      expect(lastPush().payload).toEqual({ sessionId: generationStarted.sessionId });
+      expect(byTestId('planner-start')).toBeDefined();
+    });
   });
 
   describe('a start the server refuses', () => {
