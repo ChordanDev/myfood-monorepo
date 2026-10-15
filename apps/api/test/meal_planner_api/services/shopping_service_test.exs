@@ -553,6 +553,41 @@ defmodule MealPlannerApi.ShoppingServiceTest do
     end
   end
 
+  describe "ensure_shopping_items_from_schedule/2 with a repeated planned key" do
+    test "a snapshot listing the same Ingredient and unit twice stores one item with the summed quantity" do
+      {account_id, user} = identity!("repeated_key")
+      ingredient = create_test_ingredient(account_id)
+      meal = schedule_meal!(account_id, user.id, Date.add(Date.utc_today(), 1), :lunch)
+
+      # The database freezes a confirmed snapshot, so the repeated line is
+      # handed in with the loaded meal.
+      snapshot = %{
+        "selected_quantity" => 1,
+        "recipe_ingredients" => [
+          snapshot_ingredient(ingredient, 200_000),
+          snapshot_ingredient(ingredient, 50_000)
+        ]
+      }
+
+      [loaded] = loaded_meals(account_id)
+
+      assert :ok =
+               ShoppingService.ensure_shopping_items_from_schedule(account_id, [
+                 %{loaded | recipe_snapshot: snapshot}
+               ])
+
+      assert [{meal.id, meal.date, ingredient.id, :g, 250_000, :pending}] ==
+               Repo.all(
+                 from(i in Shopping.ShoppingItem,
+                   where: i.account_id == ^account_id,
+                   select:
+                     {i.scheduled_meal_id, i.planned_date, i.ingredient_id, i.unit,
+                      i.quantity_milli, i.status}
+                 )
+               )
+    end
+  end
+
   # The Scheduled meals of the Account, in the order a Shopping list read
   # loads them.
   defp loaded_meals(account_id) do
@@ -617,6 +652,17 @@ defmodule MealPlannerApi.ShoppingServiceTest do
       })
 
     meal
+  end
+
+  # One line of a frozen recipe snapshot: `quantity_milli` grams of the
+  # Ingredient.
+  defp snapshot_ingredient(ingredient, quantity_milli) do
+    %{
+      "ingredient_id" => ingredient.id,
+      "unit" => "g",
+      "quantity_milli" => quantity_milli,
+      "ingredient" => %{"id" => ingredient.id, "name" => ingredient.name}
+    }
   end
 
   defp pending_item!(account_id, meal, ingredient, quantity_milli, overrides \\ %{}) do

@@ -86,6 +86,29 @@ export interface PlanningRangeLockedError {
   };
 }
 
+// `POST /api/planning/confirm` committed the session (issue #28): its meals are scheduled and the
+// Shopping list was rebuilt. The topic says the same with `session_committed`.
+export interface SessionCommittedPayload {
+  sessionId: string;
+  proposalId: string;
+  scheduledMealsCount: number;
+  shoppingRebuilt: boolean;
+}
+
+// The `data` of `POST /api/planning/confirm`. A proposal confirmed before answers the same.
+export interface ConfirmProposalReply extends SessionCommittedPayload {
+  status: 'committed';
+}
+
+// `start_planning` refused a range that already has Scheduled meals in the slots it plans.
+export interface PlanningSlotOccupiedError {
+  error: {
+    code: 'planning_slot_occupied';
+    message: string;
+    details: { occupied: { date: string; slot: PlannerMealSlot }[] };
+  };
+}
+
 type Shape<T> = (value: unknown, path: string) => T;
 
 function fail(path: string, expected: string): never {
@@ -101,6 +124,9 @@ const str: Shape<string> = (value, path) =>
 
 const int: Shape<number> = (value, path) =>
   typeof value === 'number' && Number.isInteger(value) ? value : fail(path, 'an integer');
+
+const bool: Shape<boolean> = (value, path) =>
+  typeof value === 'boolean' ? value : fail(path, 'a boolean');
 
 const num: Shape<number> = (value, path) =>
   typeof value === 'number' && Number.isFinite(value) ? value : fail(path, 'a number');
@@ -241,5 +267,39 @@ export const parsePlanningRangeLockedError = parseWith(
       },
       ['details']
     ),
+  })
+);
+
+export const parseSessionCommitted = parseWith(
+  'sessionCommitted',
+  record<SessionCommittedPayload>({
+    sessionId: str,
+    proposalId: str,
+    scheduledMealsCount: int,
+    shoppingRebuilt: bool,
+  })
+);
+
+export const parseConfirmProposalReply = parseWith(
+  'confirmProposalReply',
+  record<ConfirmProposalReply>({
+    sessionId: str,
+    proposalId: str,
+    scheduledMealsCount: int,
+    shoppingRebuilt: bool,
+    status: literal(['committed'] as const),
+  })
+);
+
+export const parsePlanningSlotOccupiedError = parseWith(
+  'planningSlotOccupiedError',
+  record<PlanningSlotOccupiedError>({
+    error: record<PlanningSlotOccupiedError['error']>({
+      code: literal(['planning_slot_occupied'] as const),
+      message: str,
+      details: record({
+        occupied: list(record({ date: str, slot: literal(PLANNER_MEAL_SLOTS) })),
+      }),
+    }),
   })
 );

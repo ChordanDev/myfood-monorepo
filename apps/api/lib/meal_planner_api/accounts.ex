@@ -20,6 +20,7 @@ defmodule MealPlannerApi.Accounts do
   alias MealPlannerApi.Persistence.Accounts.Account, as: PersistenceAccount
   alias MealPlannerApi.Persistence.Accounts.AccountMembership
   alias MealPlannerApi.Persistence.Accounts.User, as: PersistenceUser
+  alias MealPlannerApi.Persistence.Accounts.UserEmail
   alias MealPlannerApi.Repo
   alias MealPlannerApi.Subscriptions
 
@@ -33,7 +34,8 @@ defmodule MealPlannerApi.Accounts do
   later provider event finds a Trial already started and leaves it alone.
 
   Returns `{:error, :email_already_registered}` when a User has the email,
-  whether it is found up front or by the unique index on `users.email`.
+  in any case, whether it is found up front or by the unique index on
+  `users.email`.
   A failure leaves nothing behind; inside a caller's transaction it also
   leaves that transaction unusable, so the caller must roll it back.
   """
@@ -47,7 +49,7 @@ defmodule MealPlannerApi.Accounts do
           | {:error, :email_already_registered | :unable_to_issue_identity}
   def register_with_verified_email(email, %DateTime{} = now \\ DateTime.utc_now())
       when is_binary(email) do
-    with nil <- user_by_email(email),
+    with nil <- UserEmail.get_user(email),
          {:ok, subscription_plan_id} <- Subscriptions.ensure_default_plan_id(:individual) do
       [name | _] = String.split(email, "@", parts: 2)
       trial = AccountAccess.trial_window(now)
@@ -207,9 +209,6 @@ defmodule MealPlannerApi.Accounts do
       })
     end)
   end
-
-  defp user_by_email(email) when is_binary(email),
-    do: Repo.get_by(PersistenceUser, email: email)
 
   defp plan_from(account) when is_map(account) do
     case Map.get(account, :plan) do

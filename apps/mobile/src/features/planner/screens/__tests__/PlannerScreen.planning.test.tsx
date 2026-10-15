@@ -1,6 +1,7 @@
 import React from 'react';
-import { Text } from 'react-native';
+import { AppState, Text } from 'react-native';
 import { act, create, ReactTestInstance } from 'react-test-renderer';
+import { ApiError } from '@/api/errors';
 import { createSocketClient, type SocketClient } from '@/api/socket/socketClient';
 import {
   createFakeSocket,
@@ -8,17 +9,21 @@ import {
   type FakePush,
   type FakeSocket,
 } from '@/api/socket/testing/fakeSocket';
+import confirmProposalReply from '../../fixtures/confirmProposalReply.json';
 import generationError from '../../fixtures/generationError.json';
 import generationStarted from '../../fixtures/generationStarted.json';
 import planningInvalidRangeError from '../../fixtures/planningInvalidRangeError.json';
 import planningMessage from '../../fixtures/planningMessage.json';
 import planningRangeLockedError from '../../fixtures/planningRangeLockedError.json';
+import planningSlotOccupiedError from '../../fixtures/planningSlotOccupiedError.json';
 import proposalReady from '../../fixtures/proposalReady.json';
+import sessionCommitted from '../../fixtures/sessionCommitted.json';
 import sessionStarted from '../../fixtures/sessionStarted.json';
 import startPlanningReply from '../../fixtures/startPlanningReply.json';
 import { listFavorites } from '@/features/favorites/api/favoritesApi';
 import { useFavoritesStore } from '@/features/favorites/store';
 import type { FavoriteSummary } from '@/features/favorites';
+import { confirmProposal, rejectProposal, renewPlanningSession } from '../../api/planningApi';
 import { PlannerScreen } from '../PlannerScreen';
 
 // The server payloads are the fixtures the API channel tests record, so a change of the API that
@@ -90,6 +95,26 @@ jest.mock('@/features/home', () => ({
   ...jest.requireActual('@/features/home/utils/calendarDate'),
 }));
 
+const mockLoadLivePlan = jest.fn();
+
+// The read of the calendar the screen asks for after a commit.
+jest.mock('@/features/home/hooks/useLoadLivePlan', () => ({
+  loadLivePlan: () => mockLoadLivePlan(),
+}));
+
+jest.mock('../../api/planningApi');
+
+// The screen is in focus for the whole suite.
+jest.mock('expo-router', () => {
+  const { useEffect } = jest.requireActual('react') as typeof import('react');
+
+  return {
+    useFocusEffect: (effect: () => void | (() => void)) => {
+      useEffect(() => effect(), [effect]);
+    },
+  };
+});
+
 jest.mock('@/api/socket', () => ({
   ...jest.requireActual('@/api/socket/topics'),
   getSocketClient: () => mockSocketClient,
@@ -116,6 +141,18 @@ jest.mock('@/features/assistant-chat', () => ({
 }));
 
 const mockListFavorites = jest.mocked(listFavorites);
+const mockConfirmProposal = jest.mocked(confirmProposal);
+const mockRejectProposal = jest.mocked(rejectProposal);
+const mockRenewPlanningSession = jest.mocked(renewPlanningSession);
+
+// The confirm of the proposal the fixtures generate, in the session they run in.
+const CONFIRMED = {
+  ...confirmProposalReply,
+  proposalId: proposalReady.proposalId,
+  sessionId: generationStarted.sessionId,
+  status: 'committed' as const,
+  scheduledMealsCount: 4,
+};
 
 function favorite(recipeId: string, name: string): FavoriteSummary {
   return { recipeId, name, mainIngredients: [], durationMinutes: null };
@@ -211,6 +248,15 @@ describe('PlannerScreen first proposal', () => {
     useFavoritesStore.getState().clear();
     mockListFavorites.mockReturnValue(new Promise(() => {}));
     mockRange = { start: '2030-01-01', end: '2030-01-02' };
+    // The app is in the foreground: the session of a draft is renewed.
+    (AppState as { currentState: string }).currentState = 'active';
+    mockLoadLivePlan.mockReset().mockResolvedValue(undefined);
+    mockConfirmProposal.mockReset().mockResolvedValue(CONFIRMED);
+    mockRejectProposal.mockReset().mockResolvedValue(undefined);
+    mockRenewPlanningSession.mockReset().mockResolvedValue({
+      sessionId: generationStarted.sessionId,
+      leaseExpiresAt: '2030-01-01T12:02:00Z',
+    });
     mockSocketClient = createSocketClient({
       url: 'wss://api.example.test/socket',
       createSocket: (url, options) => {
@@ -668,5 +714,187 @@ describe('PlannerScreen first proposal', () => {
       ]);
       expect(byTestId('planner-proposal')).toBeDefined();
     });
+  });
+  describe('a proposal to confirm, reject or cancel', () => {
+    async function renderProposal(): Promise<void> {
+      renderJoined();
+      press('planner-start');
+      await replyOk();
+      emitGenerationStarted();
+      emitProposal();
+    }
+
+    async function pressAsync(testID: string): Promise<void> {
+      const button = byTestId(testID);
+      if (button === undefined) throw new Error(`No ${testID} on screen`);
+      await act(async () => button.props.onPress());
+    }
+
+    it('confirms over HTTP, says how many meals it scheduled and refreshes the calendar', async () => {
+      await renderProposal();
+
+      await pressAsync('planner-confirm');
+
+      expect(mockConfirmProposal).toHaveBeenCalledWith({
+        proposalId: proposalReady.proposalId,
+        sessionId: generationStarted.sessionId,
+      });
+      expect(textsOf('planner-committed')).toEqual([
+        'Listo: agendamos 4 comidas en tu calendario y actualizamos tu lista de compras.',
+      ]);
+      expect(byTestId('planner-proposal')).toBeUndefined();
+      expect(mockLoadLivePlan).toHaveBeenCalledTimes(1);
+    });
+
+    it('commits on session_committed of its session too, as when the reply was lost', async () => {
+      mockConfirmProposal.mockReturnValue(new Promise(() => {}));
+      await renderProposal();
+      press('planner-confirm');
+
+      emit('session_committed', {
+        ...sessionCommitted,
+        proposalId: proposalReady.proposalId,
+        sessionId: generationStarted.sessionId,
+      });
+
+      expect(textsOf('planner-committed')).toEqual([
+        'Listo: agendamos 1 comida en tu calendario y actualizamos tu lista de compras.',
+      ]);
+      expect(mockLoadLivePlan).toHaveBeenCalledTimes(1);
+    });
+
+    it('keeps the proposal and says why when the confirm is refused', async () => {
+      mockConfirmProposal.mockRejectedValue(
+        new ApiError('planning_proposal_not_pending', 'not pending', 409)
+      );
+      await renderProposal();
+
+      await pressAsync('planner-confirm');
+
+      expect(textsOf('planner-action-error')).toEqual([
+        'Esta propuesta ya no está pendiente. Pedí una nueva.',
+      ]);
+      expect(byTestId('planner-proposal')).toBeDefined();
+      expect(mockLoadLivePlan).not.toHaveBeenCalled();
+      // A refusal is an answer: the User may still leave the proposal.
+      expect(byTestId('planner-reject')?.props.disabled).toBe(false);
+      expect(byTestId('planner-cancel')?.props.disabled).toBe(false);
+    });
+
+    // Jorge review of PR #278: a confirm that ends without an answer may still commit on the
+    // server, so leaving the proposal could reject a menu that is already scheduled. Only a new
+    // confirm, which answers the result of the first one, is offered.
+    it.each([
+      ['unknown_error', 500],
+      ['network_error', 0],
+      ['timeout', 0],
+    ] as const)(
+      'offers only to confirm again after a confirm that ends in %s',
+      async (code, status) => {
+        mockConfirmProposal.mockRejectedValueOnce(new ApiError(code, 'no answer', status));
+        await renderProposal();
+
+        await pressAsync('planner-confirm');
+
+        expect(textsOf('planner-action-error')).toEqual([
+          'No sabemos si tu menú se guardó. Tocá Confirmar menú de nuevo para comprobarlo.',
+        ]);
+        expect(byTestId('planner-reject')?.props.disabled).toBe(true);
+        expect(byTestId('planner-cancel')?.props.disabled).toBe(true);
+        expect(byTestId('planner-confirm')?.props.disabled).toBe(false);
+
+        await pressAsync('planner-confirm');
+
+        expect(mockConfirmProposal).toHaveBeenCalledTimes(2);
+        expect(textsOf('planner-committed')).toEqual([
+          'Listo: agendamos 4 comidas en tu calendario y actualizamos tu lista de compras.',
+        ]);
+      }
+    );
+
+    it('lets the User leave the proposal once a new confirm is refused with an answer', async () => {
+      mockConfirmProposal
+        .mockRejectedValueOnce(new ApiError('unknown_error', 'no answer', 500))
+        .mockRejectedValueOnce(new ApiError('lost_lock', 'lost', 409));
+      await renderProposal();
+
+      await pressAsync('planner-confirm');
+      await pressAsync('planner-confirm');
+
+      expect(byTestId('planner-reject')?.props.disabled).toBe(false);
+      expect(byTestId('planner-cancel')?.props.disabled).toBe(false);
+    });
+
+    it('disables the actions while the confirm is on its way', async () => {
+      mockConfirmProposal.mockReturnValue(new Promise(() => {}));
+      await renderProposal();
+
+      press('planner-confirm');
+
+      for (const id of ['planner-confirm', 'planner-reject', 'planner-cancel']) {
+        expect(byTestId(id)?.props.disabled).toBe(true);
+      }
+      press('planner-confirm');
+      expect(mockConfirmProposal).toHaveBeenCalledTimes(1);
+    });
+
+    it('rejects the proposal and asks for another one with the same range and request', async () => {
+      await renderProposal();
+      const firstStart = channel().pushes[0].payload;
+
+      await pressAsync('planner-reject');
+
+      expect(mockRejectProposal).toHaveBeenCalledWith(proposalReady.proposalId);
+      expect(lastPush().event).toBe('cancel_planning');
+      expect(lastPush().payload).toEqual({ sessionId: generationStarted.sessionId });
+
+      await act(async () => lastPush().replyOk({ sessionId: 's', status: 'cancelled' }));
+
+      expect(lastPush().event).toBe('start_planning');
+      expect(lastPush().payload).toEqual(firstStart);
+      expect(byTestId('planner-progress')).toBeDefined();
+    });
+
+    it('cancels the session and offers to start again', async () => {
+      await renderProposal();
+
+      press('planner-cancel');
+
+      expect(lastPush().event).toBe('cancel_planning');
+      expect(lastPush().payload).toEqual({ sessionId: generationStarted.sessionId });
+
+      await act(async () => lastPush().replyOk({ sessionId: 's', status: 'cancelled' }));
+
+      expect(byTestId('planner-proposal')).toBeUndefined();
+      expect(byTestId('planner-start')).toBeDefined();
+      expect(mockConfirmProposal).not.toHaveBeenCalled();
+    });
+
+    it('keeps the session alive while the proposal is open', async () => {
+      await renderProposal();
+
+      expect(mockRenewPlanningSession).toHaveBeenCalledWith(generationStarted.sessionId);
+    });
+
+    it('says the session is over when its lease is lost', async () => {
+      mockRenewPlanningSession.mockRejectedValue(new ApiError('lost_lock', 'lost', 409));
+      await renderProposal();
+      await act(async () => undefined);
+
+      expect(textsOf('planner-join-notice')).toEqual([
+        'Esta sesión de planificación terminó. Empezá una nueva para seguir.',
+      ]);
+    });
+  });
+
+  it('says the range already has meals when the server refuses it as occupied', async () => {
+    renderJoined();
+    press('planner-start');
+
+    await replyError(planningSlotOccupiedError);
+
+    expect(textsOf('planner-failure')).toEqual([
+      'Ya tenés comidas planificadas en esos días. Elegí días libres.',
+    ]);
   });
 });

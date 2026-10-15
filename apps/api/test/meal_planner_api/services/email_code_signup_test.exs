@@ -2,7 +2,8 @@ defmodule MealPlannerApi.Services.EmailCodeSignupTest do
   @moduledoc """
   Branches of `MealPlannerApi.Services.EmailCodeSignup` that the HTTP tests
   in `mobile_auth_controller_test.exs` do not reach: login codes sharing
-  the table, and what a failed delivery leaves behind.
+  the table, what a failed delivery leaves behind, and a session that
+  cannot be opened.
   """
   use ExUnit.Case, async: false
 
@@ -42,12 +43,12 @@ defmodule MealPlannerApi.Services.EmailCodeSignupTest do
   # Login codes (`MealPlannerApi.Services.EmailCodeLogin`) share the table
   # and name a User; sign-up must behave as if they were not there.
   describe "login codes" do
-    test "verify_code/2 refuses a login code and leaves it pending" do
+    test "verify_code/3 refuses a login code and leaves it pending" do
       user = insert_owner!()
       insert_code!(user.id, "123456")
 
-      assert {:error, :code_invalid} = EmailCodeSignup.verify_code(@email, "123456")
-      assert {:error, :code_invalid} = EmailCodeSignup.verify_code(@email, "000000")
+      assert {:error, :code_invalid} = EmailCodeSignup.verify_code(@email, "123456", &session/2)
+      assert {:error, :code_invalid} = EmailCodeSignup.verify_code(@email, "000000", &session/2)
 
       assert [%EmailVerificationCode{consumed_at: nil, attempts: 0}] =
                Repo.all(EmailVerificationCode)
@@ -58,23 +59,24 @@ defmodule MealPlannerApi.Services.EmailCodeSignupTest do
 
   describe "request_code/2 when delivery fails" do
     @tag :capture_log
-    test "an adapter that raises is reported as code_send_failed and stores nothing" do
+    test "an adapter that raises is reported as code_send_failed and stores no code" do
       assert {:error, :code_send_failed} =
                with_mail_adapter(RaisingMailAdapter, fn ->
                  EmailCodeSignup.request_code(@email, "203.0.113.1")
                end)
 
       assert Repo.aggregate(EmailVerificationCode, :count) == 0
-      assert Repo.aggregate(EmailAuthEvent, :count) == 0
+      # The request was made, so it is counted against the email and the IP.
+      assert Repo.aggregate(EmailAuthEvent, :count) == 2
     end
   end
 
-  describe "verify_code/2" do
+  describe "verify_code/3" do
     test "returns the new User with the Membership the session is scoped to" do
       insert_code!(nil, "123456")
 
       assert {:ok, %{user: user, membership: membership}} =
-               EmailCodeSignup.verify_code(@email, "123456")
+               EmailCodeSignup.verify_code(@email, "123456", &session/2)
 
       assert user.email == @email
       assert membership.user_id == user.id
@@ -82,11 +84,31 @@ defmodule MealPlannerApi.Services.EmailCodeSignupTest do
       assert [%EmailVerificationCode{consumed_at: %DateTime{}}] = Repo.all(EmailVerificationCode)
     end
 
+    test "a session that cannot be opened registers nothing and leaves the code pending" do
+      insert_code!(nil, "123456")
+
+      assert {:error, :session_issue_failed} =
+               EmailCodeSignup.verify_code(@email, "123456", fn _user, _membership ->
+                 {:error, :session_issue_failed}
+               end)
+
+      assert Repo.aggregate(User, :count) == 0
+
+      assert [%EmailVerificationCode{consumed_at: nil, attempts: 0}] =
+               Repo.all(EmailVerificationCode)
+
+      assert {:ok, %{user: %User{email: @email}}} =
+               EmailCodeSignup.verify_code(@email, "123456", &session/2)
+    end
+
     test "non-string input gets code_invalid" do
-      assert {:error, :code_invalid} = EmailCodeSignup.verify_code(nil, "123456")
-      assert {:error, :code_invalid} = EmailCodeSignup.verify_code(@email, 123_456)
+      assert {:error, :code_invalid} = EmailCodeSignup.verify_code(nil, "123456", &session/2)
+      assert {:error, :code_invalid} = EmailCodeSignup.verify_code(@email, 123_456, &session/2)
     end
   end
+
+  # Stands in for the Device session the controller opens.
+  defp session(user, membership), do: {:ok, %{user: user, membership: membership}}
 
   defp insert_owner! do
     user_with_memberships(%{email: @email}, [

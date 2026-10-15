@@ -1076,6 +1076,213 @@ defmodule MealPlannerApi.Data.PlanningRepoTest do
 
   # ---- helpers --------------------------------------------------------------
 
+  # Issue #28 — the Planner renews the lease of its session over HTTP while
+  # the screen is open. A renewal moves the lease two minutes past `now`, never
+  # past 30 minutes from the start of the session, and never brings back a
+  # lease that already ran out.
+  describe "renew_session_lease/4" do
+    setup do
+      account = insert_account("Renew Lease")
+      owner = insert_user_with_active_membership(account.id, "renew-owner@example.com", :owner)
+      %{account: account, owner: owner, membership_id: owner_membership_id(account.id, owner.id)}
+    end
+
+    test "moves the lease of an active session two minutes past now", ctx do
+      now = ~U[2026-03-01 12:00:00.000000Z]
+      session = insert_session(ctx, started_at: now, lease_expires_at: DateTime.add(now, 60))
+
+      renewed_at = DateTime.add(now, 30)
+
+      assert {:ok, %PlanningSession{} = renewed} =
+               PlanningRepo.renew_session_lease(
+                 ctx.account.id,
+                 session.id,
+                 ctx.membership_id,
+                 renewed_at
+               )
+
+      assert renewed.lease_expires_at == DateTime.add(renewed_at, 120)
+      assert Repo.get!(PlanningSession, session.id).lease_expires_at == renewed.lease_expires_at
+    end
+
+    test "never moves the lease past 30 minutes from the start of the session", ctx do
+      started_at = ~U[2026-03-01 12:00:00.000000Z]
+      now = DateTime.add(started_at, 29 * 60)
+
+      session =
+        insert_session(ctx, started_at: started_at, lease_expires_at: DateTime.add(now, 30))
+
+      assert {:ok, renewed} =
+               PlanningRepo.renew_session_lease(
+                 ctx.account.id,
+                 session.id,
+                 ctx.membership_id,
+                 now
+               )
+
+      assert renewed.lease_expires_at == DateTime.add(started_at, 30 * 60)
+    end
+
+    test "answers lost_lock and leaves the row alone when the lease already ran out", ctx do
+      now = ~U[2026-03-01 12:00:00.000000Z]
+
+      session =
+        insert_session(ctx,
+          started_at: DateTime.add(now, -300),
+          lease_expires_at: DateTime.add(now, -1)
+        )
+
+      assert {:error, :lost_lock} =
+               PlanningRepo.renew_session_lease(
+                 ctx.account.id,
+                 session.id,
+                 ctx.membership_id,
+                 now
+               )
+
+      fetched = Repo.get!(PlanningSession, session.id)
+      assert fetched.status == :active
+      assert fetched.lease_expires_at == DateTime.add(now, -1)
+    end
+
+    test "answers lost_lock once the 30-minute cap has passed", ctx do
+      started_at = ~U[2026-03-01 12:00:00.000000Z]
+      cap = DateTime.add(started_at, 30 * 60)
+      session = insert_session(ctx, started_at: started_at, lease_expires_at: cap)
+
+      assert {:error, :lost_lock} =
+               PlanningRepo.renew_session_lease(
+                 ctx.account.id,
+                 session.id,
+                 ctx.membership_id,
+                 DateTime.add(cap, 1)
+               )
+    end
+
+    test "answers forbidden to a member who does not hold the session", ctx do
+      now = DateTime.utc_now()
+      session = insert_session(ctx, started_at: now, lease_expires_at: DateTime.add(now, 60))
+      peer = insert_user_with_active_membership(ctx.account.id, "renew-peer@example.com", :member)
+
+      assert {:error, :forbidden} =
+               PlanningRepo.renew_session_lease(
+                 ctx.account.id,
+                 session.id,
+                 owner_membership_id(ctx.account.id, peer.id),
+                 now
+               )
+    end
+
+    test "answers not_found for a session of another Account or an unknown id", ctx do
+      now = DateTime.utc_now()
+      session = insert_session(ctx, started_at: now, lease_expires_at: DateTime.add(now, 60))
+      other = insert_account("Renew Lease Other")
+
+      assert {:error, :not_found} =
+               PlanningRepo.renew_session_lease(other.id, session.id, ctx.membership_id, now)
+
+      assert {:error, :not_found} =
+               PlanningRepo.renew_session_lease(
+                 ctx.account.id,
+                 Ecto.UUID.generate(),
+                 ctx.membership_id,
+                 now
+               )
+    end
+
+    test "answers terminal_lock for an ended session and lost_lock for a lost one", ctx do
+      now = DateTime.utc_now()
+      cancelled = insert_session(ctx, started_at: now, lease_expires_at: DateTime.add(now, 60))
+
+      {:ok, _} =
+        PlanningRepo.cancel_session(ctx.account.id, cancelled.id, ctx.membership_id, true)
+
+      assert {:error, :terminal_lock} =
+               PlanningRepo.renew_session_lease(
+                 ctx.account.id,
+                 cancelled.id,
+                 ctx.membership_id,
+                 now
+               )
+
+      lost =
+        insert_session(ctx,
+          started_at: now,
+          lease_expires_at: DateTime.add(now, 60),
+          range_from: ~D[2026-04-01],
+          range_to: ~D[2026-04-02]
+        )
+
+      {:ok, _} = PlanningRepo.mark_lost_lock(ctx.account.id, lost.id)
+
+      assert {:error, :lost_lock} =
+               PlanningRepo.renew_session_lease(ctx.account.id, lost.id, ctx.membership_id, now)
+    end
+
+    defp insert_session(ctx, opts) do
+      {:ok, session} =
+        PlanningRepo.create_session(ctx.account.id, %{
+          range_from: Keyword.get(opts, :range_from, ~D[2026-03-01]),
+          range_to: Keyword.get(opts, :range_to, ~D[2026-03-03]),
+          lock_owner_user_id: ctx.owner.id,
+          lock_owner_membership_id: ctx.membership_id,
+          started_at: Keyword.fetch!(opts, :started_at),
+          lease_expires_at: Keyword.fetch!(opts, :lease_expires_at)
+        })
+
+      session
+    end
+  end
+
+  # Issue #28 — `start_planning` never plans over a Scheduled meal: it asks
+  # which of the requested date and slot pairs already hold one.
+  describe "occupied_slots/4" do
+    test "lists the requested date and slot pairs that hold a Scheduled meal of the Account" do
+      account = insert_account("Occupied Slots")
+      owner = insert_user_with_active_membership(account.id, "occupied@example.com", :owner)
+      other = insert_account("Occupied Slots Other")
+
+      other_owner =
+        insert_user_with_active_membership(other.id, "occupied-other@example.com", :owner)
+
+      for {account_id, user_id, date, slot} <- [
+            {account.id, owner.id, ~D[2026-03-02], :dinner},
+            {account.id, owner.id, ~D[2026-03-01], :lunch},
+            # A slot that is not requested, a day outside the range, another Account.
+            {account.id, owner.id, ~D[2026-03-01], :snack},
+            {account.id, owner.id, ~D[2026-03-04], :lunch},
+            {other.id, other_owner.id, ~D[2026-03-01], :breakfast}
+          ] do
+        {:ok, _meal} =
+          PlanningRepo.schedule_meal(%{
+            account_id: account_id,
+            user_id: user_id,
+            date: date,
+            slot: slot,
+            is_cooked: false
+          })
+      end
+
+      assert PlanningRepo.occupied_slots(
+               account.id,
+               ~D[2026-03-01],
+               ~D[2026-03-03],
+               ~w(breakfast lunch dinner)
+             ) == [{~D[2026-03-01], :lunch}, {~D[2026-03-02], :dinner}]
+    end
+
+    test "is empty when every requested pair is free" do
+      account = insert_account("Occupied Slots Free")
+
+      assert PlanningRepo.occupied_slots(
+               account.id,
+               ~D[2026-03-01],
+               ~D[2026-03-03],
+               ~w(breakfast lunch dinner)
+             ) == []
+    end
+  end
+
   defp insert_account(name) do
     plan = Repo.get_by!(MealPlannerApi.Subscriptions.Plan, name: "family_4")
 

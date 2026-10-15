@@ -53,8 +53,10 @@ defmodule MealPlannerApi.Services.ShoppingRebuilder do
   ## Returns
 
   A flat list of `%{scheduled_meal_id, planned_date, ingredient_id,
-  unit, quantity_milli}` maps, one per ingredient-unit with a positive
-  shortage. No rounding, no Float, no package math.
+  unit, quantity_milli}` maps, one per planned key (Scheduled meal, planned
+  date, Ingredient, unit) with a positive shortage. A recipe that lists an
+  Ingredient and unit twice yields one line with the summed shortage, in the
+  place of the first. No rounding, no Float, no package math.
   """
   @spec compute_net_shortages([map()], %{{term(), atom()} => non_neg_integer()}) :: [map()]
   def compute_net_shortages(meals, pool) when is_list(meals) and is_map(pool) do
@@ -70,7 +72,9 @@ defmodule MealPlannerApi.Services.ShoppingRebuilder do
         end
       end)
 
-    Enum.reverse(rows)
+    rows
+    |> Enum.reverse()
+    |> sum_by_planned_key()
   end
 
   @doc """
@@ -225,6 +229,24 @@ defmodule MealPlannerApi.Services.ShoppingRebuilder do
       _ -> fallback
     end
   end
+
+  # One line per planned key, in the place of its first line. Recipe
+  # snapshots are not constrained to one line per Ingredient and unit, and
+  # both the plan confirm rebuild and the Shopping list read store a planned
+  # key once, so a repeated key sums here (issue #112).
+  defp sum_by_planned_key(rows) do
+    sums =
+      Enum.reduce(rows, %{}, fn row, sums ->
+        Map.update(sums, planned_key(row), row.quantity_milli, &(&1 + row.quantity_milli))
+      end)
+
+    rows
+    |> Enum.uniq_by(&planned_key/1)
+    |> Enum.map(&%{&1 | quantity_milli: Map.fetch!(sums, planned_key(&1))})
+  end
+
+  defp planned_key(row),
+    do: {row.scheduled_meal_id, row.planned_date, row.ingredient_id, row.unit}
 
   defp get_recipe_ingredients(meal) do
     case RecipeVersions.recipe_for_meal(meal) do

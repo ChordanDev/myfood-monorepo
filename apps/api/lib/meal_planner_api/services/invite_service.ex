@@ -22,6 +22,7 @@ defmodule MealPlannerApi.Services.InviteService do
 
   alias MealPlannerApi.Persistence.Accounts.AccountMembership
   alias MealPlannerApi.Persistence.Accounts.User, as: PersistenceUser
+  alias MealPlannerApi.Persistence.Accounts.UserEmail
   alias MealPlannerApi.Repo
 
   @invite_ttl_days 7
@@ -99,8 +100,12 @@ defmodule MealPlannerApi.Services.InviteService do
     end
   end
 
+  # Reuses the user whose email matches regardless of case, like sign-up
+  # and login do, and stores a new invitee's email normalized.
   defp resolve_or_create_user(email) do
-    case Repo.get_by(PersistenceUser, email: email) do
+    email = UserEmail.normalize(email)
+
+    case UserEmail.get_user(email) do
       %PersistenceUser{} = user ->
         {:ok, user}
 

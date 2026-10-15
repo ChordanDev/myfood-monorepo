@@ -19,6 +19,7 @@ defmodule MealPlannerApi.AccountsMembership do
   alias MealPlannerApi.Persistence.Accounts.AccountMembership
   alias MealPlannerApi.Persistence.Accounts.AccountMembershipQueries
   alias MealPlannerApi.Persistence.Accounts.User, as: PersistenceUser
+  alias MealPlannerApi.Persistence.Accounts.UserEmail
   alias MealPlannerApi.Repo
   alias MealPlannerApi.Services.InviteService
 
@@ -445,14 +446,29 @@ defmodule MealPlannerApi.AccountsMembership do
     end
   end
 
+  # One transaction that locks the invite row first: a concurrent accept of
+  # the same token waits for this one and then sees a used invite, and a
+  # failed membership update also undoes the stub claim.
   defp accept_invite_with_lookup(plaintext, resolve_user) when is_binary(plaintext) do
     hash = InviteService.hash_token(plaintext)
 
+    Repo.transaction(fn ->
+      with {:ok, membership} <- lock_invited_membership(hash),
+           {:ok, result} <- activate_membership(membership, resolve_user) do
+        result
+      else
+        {:error, reason} -> Repo.rollback(reason)
+      end
+    end)
+  end
+
+  defp lock_invited_membership(hash) do
     query =
       from(m in AccountMembership,
         where: m.invite_token_hash == ^hash,
         where: m.status == :invited,
-        limit: 1
+        limit: 1,
+        lock: "FOR UPDATE"
       )
 
     case Repo.one(query) do
@@ -477,20 +493,9 @@ defmodule MealPlannerApi.AccountsMembership do
             {:error, :invite_token_expired}
 
           true ->
-            consume_invite(membership, resolve_user)
+            {:ok, membership}
         end
     end
-  end
-
-  # One transaction, so a failed membership update also undoes the stub
-  # claim and the invitee can try again.
-  defp consume_invite(membership, resolve_user) do
-    Repo.transaction(fn ->
-      case activate_membership(membership, resolve_user) do
-        {:ok, result} -> result
-        {:error, reason} -> Repo.rollback(reason)
-      end
-    end)
   end
 
   defp activate_membership(membership, resolve_user) do
@@ -691,11 +696,13 @@ defmodule MealPlannerApi.AccountsMembership do
   end
 
   defp check_existing_membership(%Account{id: account_id}, email) do
+    email = UserEmail.normalize(email)
+
     query =
       from(m in AccountMembership,
         join: u in PersistenceUser,
         on: u.id == m.user_id,
-        where: m.account_id == ^account_id and u.email == ^email,
+        where: m.account_id == ^account_id and fragment("lower(?)", u.email) == ^email,
         where: m.status in [:invited, :active],
         limit: 1,
         select: m.status

@@ -8,6 +8,7 @@ defmodule MealPlannerApi.Services.PlanningChatService do
 
   alias MealPlannerApi.Data.PlanningRepo
   alias MealPlannerApi.Data.RecipeRepo
+  alias MealPlannerApi.Generation.Server
   alias MealPlannerApi.Persistence.Identity
   alias MealPlannerApi.Services.BudgetService
   alias MealPlannerApi.Services.PlanningService
@@ -117,6 +118,225 @@ defmodule MealPlannerApi.Services.PlanningChatService do
     else
       {:error, _} = error -> error
     end
+  end
+
+  # -------------------------------------------------------------------------
+  # Confirm / reject over HTTP (issue #28)
+  # -------------------------------------------------------------------------
+
+  @doc """
+  Confirms a pending proposal of the Account through the session flow:
+  `Generation.Server.confirm/3` writes the Scheduled meals, rebuilds the
+  Shopping list and commits the Planning session `session_id` in one
+  transaction. Once it commits, `session_committed` is broadcast on
+  `planning:<account_id>` with the meal count, next to the
+  `proposal_confirmed` the engine broadcasts.
+
+  A proposal already accepted answers the same result again, writes nothing
+  and broadcasts `session_committed` again, as long as `session_id` names a
+  committed session of the Account (`:missing_lock` otherwise). Any other
+  status answers `:planning_proposal_not_pending`.
+  """
+  @spec confirm_proposal(Ecto.UUID.t(), term(), term()) :: {:ok, map()} | {:error, atom()}
+  def confirm_proposal(account_id, proposal_id, session_id) do
+    with {:ok, proposal_id} <- cast_id(proposal_id, :invalid_proposal_id),
+         {:ok, session_id} <- cast_id(session_id, :missing_session_id),
+         {:ok, proposal} <- PlanningRepo.get_account_proposal(account_id, proposal_id) do
+      case proposal.status do
+        :pending -> confirm_pending(account_id, proposal, session_id)
+        :accepted -> confirmed_result(account_id, proposal, session_id)
+        _status -> {:error, :planning_proposal_not_pending}
+      end
+    end
+  end
+
+  @doc """
+  Rejects a pending proposal of the Account. The generation server of the
+  Account rejects it when one is running, as the `reject_proposal` channel
+  command does; otherwise the proposal is rejected here. Either way the topic
+  hears `proposal_rejected`. Any status but pending answers
+  `:planning_proposal_not_pending`.
+
+  The proposal is read once the generation server has finished what it was
+  doing: a confirm still running there (its own HTTP call may have timed out)
+  is not overwritten by a reject that read the proposal before it committed.
+  A server that cannot be reached answers `:reject_unavailable` and rejects
+  nothing; so does a reject the server did not apply, read back once it is
+  done.
+  """
+  @spec reject_pending_proposal(Ecto.UUID.t(), term()) :: {:ok, map()} | {:error, atom()}
+  def reject_pending_proposal(account_id, proposal_id) do
+    with {:ok, proposal_id} <- cast_id(proposal_id, :invalid_proposal_id),
+         {:ok, _proposal} <- PlanningRepo.get_account_proposal(account_id, proposal_id),
+         {:ok, proposal} <- reject_through_session_flow(account_id, proposal_id) do
+      {:ok,
+       %{
+         proposal_id: proposal.id,
+         generation_run_id: proposal.generation_run_id,
+         status: "rejected"
+       }}
+    end
+  end
+
+  defp confirm_pending(account_id, proposal, session_id) do
+    with {:ok, pid} <- generation_server(account_id),
+         {:ok, summary} <- call_confirm(pid, proposal.id, session_id) do
+      result = committed_result(proposal.id, session_id, summary.scheduled_meals_count)
+      broadcast_committed(account_id, result)
+      {:ok, result}
+    else
+      # Another confirm of the same proposal committed first.
+      {:error, :already_confirmed} -> confirmed_result(account_id, proposal, session_id)
+      {:error, _reason} = error -> error
+    end
+  end
+
+  # The result of a proposal confirmed before. A confirm writes one Scheduled
+  # meal per slot of the proposal or nothing at all, so the slots are the meal
+  # count it answered. The session named must be a committed one of the
+  # Account.
+  #
+  # The topic hears `session_committed` again: the first confirm may have
+  # committed after its HTTP call timed out, and then nobody told the other
+  # devices of the Account. Hearing it twice changes nothing for a client.
+  defp confirmed_result(account_id, proposal, session_id) do
+    case PlanningRepo.get_account_session(account_id, session_id) do
+      %{status: :committed} ->
+        result = committed_result(proposal.id, session_id, slot_count(proposal))
+        broadcast_committed(account_id, result)
+        {:ok, result}
+
+      _not_committed ->
+        {:error, :missing_lock}
+    end
+  end
+
+  defp broadcast_committed(account_id, result) do
+    broadcast(
+      account_id,
+      "session_committed",
+      Map.take(result, [:session_id, :proposal_id, :scheduled_meals_count, :shopping_rebuilt])
+    )
+  end
+
+  # `proposal_json` holds atom keys until it is read back from the database.
+  defp slot_count(%{proposal_json: json}) when is_map(json) do
+    case Map.get(json, :slots) || Map.get(json, "slots") do
+      slots when is_list(slots) -> length(slots)
+      _none -> 0
+    end
+  end
+
+  defp slot_count(_proposal), do: 0
+
+  defp committed_result(proposal_id, session_id, meals_count) do
+    %{
+      proposal_id: proposal_id,
+      session_id: session_id,
+      status: "committed",
+      scheduled_meals_count: meals_count,
+      shopping_rebuilt: true
+    }
+  end
+
+  # An exit of the call (the server died, or it took longer than the call
+  # timeout) says nothing of whether the transaction committed, so it is not
+  # reported as a failed confirm. A retry reads the outcome.
+  defp call_confirm(pid, proposal_id, session_id) do
+    Server.confirm(pid, proposal_id, session_id)
+  catch
+    :exit, _reason -> {:error, :confirm_unavailable}
+  end
+
+  # The server handles its messages one at a time, so a call returns once
+  # whatever it was running (a confirm included) is done. Only then is the
+  # proposal read and, still pending, rejected. A confirm that reaches the
+  # server between that read and the cast is not caught here: closing that
+  # needs a pending guard in the engine's own reject.
+  defp reject_through_session_flow(account_id, proposal_id) do
+    case generation_server(account_id) do
+      {:ok, pid} ->
+        reject_on_server(pid, account_id, proposal_id)
+
+      {:error, :no_active_generation} ->
+        with {:ok, proposal} <- fetch_pending(account_id, proposal_id),
+             :ok <- reject_without_server(account_id, proposal) do
+          {:ok, proposal}
+        end
+    end
+  end
+
+  defp reject_on_server(pid, account_id, proposal_id) do
+    with :ok <- await_server(pid),
+         {:ok, proposal} <- fetch_pending(account_id, proposal_id) do
+      Server.reject(pid, proposal.id)
+      # A call sent after the cast is handled after it, so this returns once
+      # the server handled the reject. The answer is what the row says then.
+      with :ok <- await_server(pid), do: confirm_rejected(account_id, proposal)
+    end
+  end
+
+  # The cast says nothing of how the reject went: a server that crashed on it,
+  # or dropped it, leaves the proposal as it was.
+  defp confirm_rejected(account_id, proposal) do
+    case PlanningRepo.get_account_proposal(account_id, proposal.id) do
+      {:ok, %{status: :rejected} = rejected} -> {:ok, rejected}
+      _not_rejected -> {:error, :reject_unavailable}
+    end
+  end
+
+  defp fetch_pending(account_id, proposal_id) do
+    with {:ok, proposal} <- PlanningRepo.get_account_proposal(account_id, proposal_id),
+         :ok <- ensure_pending(proposal) do
+      {:ok, proposal}
+    end
+  end
+
+  defp await_server(pid) do
+    _state = GenServer.call(pid, :get_status)
+    :ok
+  catch
+    :exit, _reason -> {:error, :reject_unavailable}
+  end
+
+  # What the server does on `reject`, for a proposal no server is running for.
+  defp reject_without_server(account_id, proposal) do
+    with {:ok, _rejected} <- PlanningRepo.update_proposal(proposal, %{status: :rejected}),
+         {:ok, _run} <-
+           PlanningRepo.update_generation_run(proposal.generation_run, %{
+             status: :completed,
+             completed_at: DateTime.utc_now()
+           }) do
+      broadcast(account_id, "proposal_rejected", %{proposal_id: proposal.id})
+    end
+  end
+
+  defp ensure_pending(%{status: :pending}), do: :ok
+  defp ensure_pending(_proposal), do: {:error, :planning_proposal_not_pending}
+
+  defp generation_server(account_id) do
+    case Registry.lookup(MealPlannerApi.Generation.Generations, {:generation, account_id}) do
+      [{pid, _}] -> {:ok, pid}
+      [] -> {:error, :no_active_generation}
+    end
+  end
+
+  defp cast_id(value, reason) when is_binary(value) do
+    case Ecto.UUID.cast(value) do
+      {:ok, uuid} -> {:ok, uuid}
+      :error -> {:error, reason}
+    end
+  end
+
+  defp cast_id(_value, reason), do: {:error, reason}
+
+  defp broadcast(account_id, event, payload) do
+    Phoenix.Channel.Server.broadcast!(
+      MealPlannerApi.PubSub,
+      "planning:#{account_id}",
+      event,
+      payload
+    )
   end
 
   # -------------------------------------------------------------------------

@@ -261,6 +261,7 @@ defmodule MealPlannerApiWeb.ApiErrorTest do
       overlapping_range: 409,
       planning_invalid_range: 422,
       planning_range_locked: 409,
+      planning_slot_occupied: 409,
       forbidden_intent: 422,
       unknown_intent: 422,
       invalid_payload: 422,
@@ -326,11 +327,15 @@ defmodule MealPlannerApiWeb.ApiErrorTest do
       # The codes of the Scheduled meal move (issue #144) that are its own.
       meal_move_codes = ~w(scheduled_meal_cooked calendar_conflict)a
 
+      # The code of the Planner confirm and reject routes (issue #28).
+      proposal_codes = [:planning_proposal_not_pending]
+
       assert Enum.sort(ApiError.codes()) ==
                Enum.sort(
                  auth_codes ++
                    [:recipe_not_found, :prepared_leftover_not_found] ++
                    meal_move_codes ++
+                   proposal_codes ++
                    profile_codes ++
                    slot_cooking_times_codes ++
                    preferences_codes ++

@@ -143,9 +143,13 @@ Content-Type: application/json
 `me` es el mismo payload que devuelve `GET /api/me`.
 
 **Errores:** `422 code_invalid` (código incorrecto, o `deviceId` ausente o vacío), `401 code_expired`,
-`429 too_many_attempts` (el código quedó bloqueado; pedir uno nuevo) y `401 account_not_found` (el usuario
-no tiene una membership activa). Al pedir el código: `422 invalid_email`, `404 email_not_found`,
-`429 rate_limited` (con el header `retry-after` en segundos) y `502 code_send_failed`.
+`429 too_many_attempts` (el código quedó bloqueado; pedir uno nuevo), `401 account_not_found` (el usuario
+no tiene una membership activa) y `429 rate_limited` (la IP del cliente acumuló 20 verificaciones fallidas
+en la última hora; el header `retry-after` trae la espera en segundos y el código no se revisa, así que
+sigue valiendo). Si la sesión no se puede abrir después de un código correcto, el código no se gasta y se
+puede reintentar. Al pedir el código: `422 invalid_email`, `404 email_not_found`, `429 rate_limited` (con
+el header `retry-after` en segundos) y `502 code_send_failed` (el código anterior sigue valiendo y se puede
+reintentar enseguida, aunque el pedido cuenta para el límite por hora).
 
 ### Registro
 

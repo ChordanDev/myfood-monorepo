@@ -72,6 +72,7 @@ Endpoint contract:
 Field notes:
 
 * `code`: the six-digit code from the email. It expires after 10 minutes, and a new one can be requested after 60 seconds
+* Limits: 5 code requests per email and 20 per client IP in a rolling hour, and 20 failed login verifications per client IP in a rolling hour; over a limit the answer is `429 rate_limited` with a `retry-after` header in seconds
 * `deviceId`: a non-blank string that names the phone, in practice a UUID the app generates. The session it opens replaces the one the same User had on that device
 
 Example calls:

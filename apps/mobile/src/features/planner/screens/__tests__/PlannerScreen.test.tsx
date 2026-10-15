@@ -72,6 +72,20 @@ jest.mock('@/features/home', () => ({
   ...jest.requireActual('@/features/home/utils/calendarDate'),
 }));
 
+// The session lease and the confirm are another suite's: this one never starts a plan.
+jest.mock('../../api/planningApi');
+jest.mock('@/features/home/hooks/useLoadLivePlan', () => ({ loadLivePlan: jest.fn() }));
+
+jest.mock('expo-router', () => {
+  const { useEffect } = jest.requireActual('react') as typeof import('react');
+
+  return {
+    useFocusEffect: (effect: () => void | (() => void)) => {
+      useEffect(() => effect(), [effect]);
+    },
+  };
+});
+
 jest.mock('@react-native-async-storage/async-storage', () =>
   jest.requireActual('@react-native-async-storage/async-storage/jest/async-storage-mock')
 );

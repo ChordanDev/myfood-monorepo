@@ -206,12 +206,12 @@ defmodule MealPlannerApiWeb.MobileAuthControllerTest do
       end
 
       counted = EmailAuthEvent |> Repo.all() |> Enum.map(& &1.client_ip) |> Enum.sort()
-      assert counted == ["198.51.100.7", "2001:db8::7"]
+      assert counted == ["198.51.100.7", "2001:db8::/64"]
     end
 
-    test "an IPv6 client is rate limited once its hourly limit is spent", %{conn: conn} do
+    test "an IPv6 client is rate limited once its /64 has spent its hourly limit", %{conn: conn} do
       for n <- 1..20 do
-        insert_request_event!("other-#{n}@example.com", "2001:db8::7", seconds_ago(600))
+        insert_request_event!("other-#{n}@example.com", "2001:db8::/64", seconds_ago(600))
       end
 
       conn = %{conn | remote_ip: {0x2001, 0xDB8, 0, 0, 0, 0, 0, 0x7}}
@@ -287,6 +287,26 @@ defmodule MealPlannerApiWeb.MobileAuthControllerTest do
       assert_error(conn, 429, "rate_limited")
       assert retry_after(conn) in 2_990..3_000
       assert Bamboo.SentEmail.all() == []
+      # The refused request spent none of the email's hourly slots.
+      refute Enum.any?(Repo.all(EmailAuthEvent), &(&1.email == user.email))
+    end
+
+    test "a User whose stored email has upper-case letters gets a code that opens a session", %{
+      conn: conn
+    } do
+      user = insert_owner!("Login-Mixed-Case@Example.com")
+
+      assert %{"status" => "code_sent"} =
+               conn
+               |> post(@request_path, %{"email" => "login-mixed-case@example.com"})
+               |> json_response(200)
+
+      body =
+        conn
+        |> post(@verify_path, verify_body("login-mixed-case@example.com", mailed_code()))
+        |> json_response(200)
+
+      assert body["me"]["user"]["id"] == user.id
     end
 
     @tag :capture_log
@@ -509,6 +529,100 @@ defmodule MealPlannerApiWeb.MobileAuthControllerTest do
     end
   end
 
+  describe "POST /api/auth/login/verify-code — per-IP failure limit" do
+    test "a failed verification is counted against the caller's IP", %{conn: conn} do
+      user = insert_owner!("login-ip-failure@example.com")
+      insert_code!(user, "123456")
+
+      conn
+      |> from_client("203.0.113.30")
+      |> post(@verify_path, verify_body(user.email, "000000"))
+      |> assert_error(422, "code_invalid")
+
+      assert [%EmailAuthEvent{kind: "verification_failure", client_ip: "203.0.113.30"}] =
+               Repo.all(EmailAuthEvent)
+    end
+
+    test "a successful verification is not counted", %{conn: conn} do
+      user = insert_owner!("login-ip-success@example.com")
+      insert_code!(user, "123456")
+
+      assert %{"accessToken" => _} =
+               conn
+               |> from_client("203.0.113.31")
+               |> post(@verify_path, verify_body(user.email, "123456"))
+               |> json_response(200)
+
+      assert Repo.all(EmailAuthEvent) == []
+    end
+
+    test "twenty failures from one IP rate limit its next verification, across emails", %{
+      conn: conn
+    } do
+      user = insert_owner!("login-ip-spray@example.com")
+      insert_code!(user, "123456")
+
+      for n <- 1..20 do
+        conn
+        |> from_client("203.0.113.32")
+        |> post(@verify_path, verify_body("login-spray-#{n}@example.com", "123456"))
+        |> assert_error(422, "code_invalid")
+      end
+
+      limited =
+        conn
+        |> from_client("203.0.113.32")
+        |> post(@verify_path, verify_body(user.email, "123456"))
+
+      assert_error(limited, 429, "rate_limited")
+      assert retry_after(limited) in 3_590..3_600
+    end
+
+    test "a limited IP is refused even with the right code, which stays usable elsewhere", %{
+      conn: conn
+    } do
+      user = insert_owner!("login-ip-limited@example.com")
+      insert_code!(user, "123456")
+
+      for _ <- 1..20 do
+        insert_verify_failure_event!("203.0.113.33", seconds_ago(600))
+      end
+
+      limited =
+        conn
+        |> from_client("203.0.113.33")
+        |> post(@verify_path, verify_body(user.email, "123456"))
+
+      assert_error(limited, 429, "rate_limited")
+      assert retry_after(limited) in 2_990..3_000
+
+      # The refused request neither spent the code nor counted as an attempt.
+      assert [%EmailVerificationCode{consumed_at: nil, attempts: 0}] =
+               Repo.all(EmailVerificationCode)
+
+      assert %{"accessToken" => _} =
+               conn
+               |> from_client("203.0.113.34")
+               |> post(@verify_path, verify_body(user.email, "123456"))
+               |> json_response(200)
+    end
+
+    test "failures older than an hour are not counted", %{conn: conn} do
+      user = insert_owner!("login-ip-old-failures@example.com")
+      insert_code!(user, "123456")
+
+      for _ <- 1..20 do
+        insert_verify_failure_event!("203.0.113.35", seconds_ago(3_601))
+      end
+
+      assert %{"accessToken" => _} =
+               conn
+               |> from_client("203.0.113.35")
+               |> post(@verify_path, verify_body(user.email, "123456"))
+               |> json_response(200)
+    end
+  end
+
   describe "POST /api/auth/login/verify-code — session" do
     test "me equals the GET /api/me body obtained with the returned access token", %{conn: conn} do
       user = insert_owner!("login-me@example.com")
@@ -606,6 +720,7 @@ defmodule MealPlannerApiWeb.MobileAuthControllerTest do
       conn = post(conn, @verify_path, verify_body(invited.email, "123456"))
 
       assert_error(conn, 401, "account_not_found")
+      assert [%EmailVerificationCode{consumed_at: nil}] = Repo.all(EmailVerificationCode)
     end
 
     test "a User who has not finished onboarding still gets a session", %{conn: conn} do
@@ -755,6 +870,19 @@ defmodule MealPlannerApiWeb.MobileAuthControllerTest do
       assert Bamboo.SentEmail.all() == []
     end
 
+    test "an email registered with upper-case letters gets email_already_exists", %{
+      conn: conn
+    } do
+      insert_owner!("Signup-Taken-Case@Example.com")
+
+      conn = post(conn, @signup_request_path, %{"email" => "signup-taken-case@example.com"})
+
+      assert_error(conn, 409, "email_already_exists")
+      assert Repo.aggregate(EmailVerificationCode, :count) == 0
+      assert Bamboo.SentEmail.all() == []
+      assert Repo.aggregate(User, :count) == 1
+    end
+
     test "a registered email counts against the caller's IP and not against the email", %{
       conn: conn
     } do
@@ -897,7 +1025,9 @@ defmodule MealPlannerApiWeb.MobileAuthControllerTest do
     end
 
     @tag :capture_log
-    test "a delivery failure gets code_send_failed and stores nothing", %{conn: conn} do
+    test "a delivery failure gets code_send_failed, stores no code and spends the request", %{
+      conn: conn
+    } do
       body = %{"email" => "signup-mail-down@example.com"}
 
       with_mailer(FailingMailAdapter, fn ->
@@ -905,7 +1035,7 @@ defmodule MealPlannerApiWeb.MobileAuthControllerTest do
       end)
 
       assert Repo.aggregate(EmailVerificationCode, :count) == 0
-      assert Repo.aggregate(EmailAuthEvent, :count) == 0
+      assert Repo.aggregate(EmailAuthEvent, :count) == 2
 
       assert %{"status" => "code_sent"} =
                conn |> post(@signup_request_path, body) |> json_response(200)
@@ -1226,6 +1356,21 @@ defmodule MealPlannerApiWeb.MobileAuthControllerTest do
       assert Repo.aggregate(Account, :count) == 1
       assert Repo.aggregate(AccountMembership, :count) == 1
     end
+
+    test "an email that got a User with upper-case letters after the code was sent gets email_already_exists",
+         %{conn: conn} do
+      insert_signup_code!("signup-raced-case@example.com", "123456")
+      insert_owner!("Signup-Raced-Case@Example.com")
+
+      conn =
+        post(conn, @signup_verify_path, verify_body("signup-raced-case@example.com", "123456"))
+
+      assert_error(conn, 409, "email_already_exists")
+      assert Repo.aggregate(User, :count) == 1
+      assert Repo.aggregate(Account, :count) == 1
+      assert Repo.aggregate(AccountMembership, :count) == 1
+      assert [%EmailVerificationCode{consumed_at: nil}] = Repo.all(EmailVerificationCode)
+    end
   end
 
   # ---- helpers ---------------------------------------------------------------
@@ -1353,6 +1498,15 @@ defmodule MealPlannerApiWeb.MobileAuthControllerTest do
     Repo.insert!(%EmailAuthEvent{
       kind: "request",
       email: email,
+      client_ip: client_ip,
+      occurred_at: occurred_at
+    })
+  end
+
+  defp insert_verify_failure_event!(client_ip, occurred_at) do
+    Repo.insert!(%EmailAuthEvent{
+      kind: "verification_failure",
+      email: "unknown",
       client_ip: client_ip,
       occurred_at: occurred_at
     })

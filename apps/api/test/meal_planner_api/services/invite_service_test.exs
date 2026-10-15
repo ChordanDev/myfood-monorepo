@@ -8,13 +8,25 @@ defmodule MealPlannerApi.Services.InviteServiceTest do
       hash (SHA-256 lower-case hex)
     * `hash_token/1` is a stable hashing function usable by external
       callers (e.g. tests, future API surface)
+    * `create_invite_row/2` reuses a user whose email differs only in
+      case, and stores new emails normalized
 
   Accepting an invite is covered by the `AccountsMembership.accept_invite/2`
   tests.
   """
-  use ExUnit.Case, async: true
+  use ExUnit.Case, async: false
 
+  import MealPlannerApi.FactoryHelpers
+
+  alias Ecto.Adapters.SQL.Sandbox
+  alias MealPlannerApi.Persistence.Accounts.User, as: PersistenceUser
+  alias MealPlannerApi.Repo
   alias MealPlannerApi.Services.InviteService
+
+  setup do
+    :ok = Sandbox.checkout(Repo)
+    :ok = MealPlannerApi.SubscriptionPlanFixtures.ensure_plans!()
+  end
 
   describe "mint_token/0" do
     test "produces a plaintext of at least 40 chars and a 64-char hex hash" do
@@ -49,6 +61,28 @@ defmodule MealPlannerApi.Services.InviteServiceTest do
       # And both round-trip.
       assert InviteService.hash_token(a) == ha
       assert InviteService.hash_token(b) == hb
+    end
+  end
+
+  describe "create_invite_row/2" do
+    test "reuses the user whose email differs only in case, and stores new emails normalized" do
+      owner =
+        user_with_memberships(%{email: "row-owner@example.com"}, [
+          {%{plan: :family_4, name: "F"}, :owner}
+        ])
+
+      [owner_membership] = owner.memberships
+      registered = user_with_memberships(%{email: "row-invitee@example.com"}, [])
+
+      assert {:ok, %{membership: reused}} =
+               InviteService.create_invite_row(owner_membership, "Row-Invitee@Example.com ")
+
+      assert reused.user_id == registered.id
+
+      assert {:ok, %{membership: created}} =
+               InviteService.create_invite_row(owner_membership, " Row-New@Example.COM")
+
+      assert Repo.get!(PersistenceUser, created.user_id).email == "row-new@example.com"
     end
   end
 end

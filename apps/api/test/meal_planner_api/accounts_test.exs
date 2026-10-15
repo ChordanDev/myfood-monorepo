@@ -33,6 +33,28 @@ defmodule MealPlannerApi.AccountsTest do
     assert {:error, :individual_limit_reached} = Accounts.link_user(updated, Ecto.UUID.generate())
   end
 
+  describe "register_with_verified_email/2" do
+    test "refuses an email registered with upper-case letters and writes nothing" do
+      insert_identity!(email: "Verified-Case@Example.com")
+
+      assert {:error, :email_already_registered} =
+               Accounts.register_with_verified_email("verified-case@example.com")
+
+      assert Repo.aggregate(MealPlannerApi.Persistence.Accounts.User, :count) == 1
+    end
+
+    # Login and invites trim the email before matching; sign-up's taken
+    # check does too, so a padded copy of a registered email is refused.
+    test "refuses a registered email given with surrounding whitespace" do
+      insert_identity!(email: "padded@example.com")
+
+      assert {:error, :email_already_registered} =
+               Accounts.register_with_verified_email("  Padded@Example.com ")
+
+      assert Repo.aggregate(MealPlannerApi.Persistence.Accounts.User, :count) == 1
+    end
+  end
+
   test "claims include subscription tier" do
     %{user: user, account: account} = insert_identity!()
 

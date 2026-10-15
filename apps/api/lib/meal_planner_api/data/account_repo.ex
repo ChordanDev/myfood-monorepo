@@ -13,6 +13,7 @@ defmodule MealPlannerApi.Data.AccountRepo do
     AccountMembership,
     User,
     UserDietaryProfile,
+    UserEmail,
     UserExcludedIngredient,
     UserSlotCookingTime
   }
@@ -95,7 +96,7 @@ defmodule MealPlannerApi.Data.AccountRepo do
   end
 
   @spec get_user_by_email(String.t()) :: User.t() | nil
-  def get_user_by_email(email), do: Repo.get_by(User, email: email)
+  def get_user_by_email(email), do: UserEmail.get_user(email)
 
   @spec get_user_by_provider(String.t(), String.t()) :: User.t() | nil
   def get_user_by_provider(provider, provider_uid),

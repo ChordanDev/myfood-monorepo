@@ -20,12 +20,17 @@ defmodule MealPlannerApiWeb.MobileAuthController do
   """
   use MealPlannerApiWeb, :controller
 
+  require Logger
+
   alias MealPlannerApi.Services.DeviceSessions
+  alias MealPlannerApi.Services.EmailCodeAuth
   alias MealPlannerApi.Services.EmailCodeLogin
   alias MealPlannerApi.Services.EmailCodeSignup
   alias MealPlannerApiWeb.ApiError
   alias MealPlannerApiWeb.ClientIp
   alias MealPlannerApiWeb.CurrentMe
+
+  @max_verify_failures_per_ip EmailCodeAuth.max_verify_failures_per_ip()
 
   @doc """
   `POST /api/auth/login/request-code`.
@@ -84,7 +89,13 @@ defmodule MealPlannerApiWeb.MobileAuthController do
 
   `200 { "accessToken", "refreshToken", "tokenType": "Bearer", "me" }`, where
   `me` is the same payload `GET /api/me` returns, or `code_invalid`,
-  `code_expired`, `too_many_attempts` or `account_not_found`.
+  `code_expired`, `too_many_attempts`, `account_not_found`, or
+  `rate_limited` (with a `retry-after` header in whole seconds) once the
+  client IP (for IPv6, its whole /64 prefix) has
+  #{@max_verify_failures_per_ip} failed verifications in the last hour.
+
+  The session is opened in the transaction that consumes the code: when
+  it cannot be opened, the code stays pending and the user can retry.
 
   `deviceId` must be one `MealPlannerApi.Services.DeviceSessions.valid_device_id?/1`
   accepts: a string that is not blank, in practice the UUID the app
@@ -95,7 +106,10 @@ defmodule MealPlannerApiWeb.MobileAuthController do
   code nor counts as an attempt.
   """
   def verify_login_code(conn, params) do
-    conn |> open_session(params, &EmailCodeLogin.verify_code/2)
+    client_ip = ClientIp.resolve(conn)
+
+    conn
+    |> open_session(params, &EmailCodeLogin.verify_code(&1, &2, client_ip, &3))
   end
 
   @doc """
@@ -108,17 +122,17 @@ defmodule MealPlannerApiWeb.MobileAuthController do
   `email_already_exists` when the email got a User after the code was sent.
   """
   def verify_signup_code(conn, params) do
-    conn |> open_session(params, &EmailCodeSignup.verify_code/2)
+    conn |> open_session(params, &EmailCodeSignup.verify_code/3)
   end
 
-  # `verify` checks the code and answers the User and Membership the
-  # Device session is opened for.
+  # `verify` checks the code and opens the session through the function
+  # it is given, in the transaction that consumes the code.
   defp open_session(conn, params, verify) do
-    with :ok <- validate_device_id(params["deviceId"]),
-         {:ok, %{user: user, membership: membership}} <-
-           verify.(params["email"], params["code"]),
-         {:ok, me} <- CurrentMe.load(user, membership),
-         {:ok, tokens} <- DeviceSessions.open(user, membership, params["deviceId"]) do
+    device_id = params["deviceId"]
+
+    with :ok <- validate_device_id(device_id),
+         {:ok, %{me: me, tokens: tokens}} <-
+           verify.(params["email"], params["code"], &build_session(&1, &2, device_id)) do
       json(conn, %{
         accessToken: tokens.access_token,
         refreshToken: tokens.refresh_token,
@@ -126,14 +140,51 @@ defmodule MealPlannerApiWeb.MobileAuthController do
         me: me
       })
     else
-      {:error, :device_id_invalid} -> conn |> ApiError.error(:code_invalid)
-      {:error, :code_invalid} -> conn |> ApiError.error(:code_invalid)
-      {:error, :code_expired} -> conn |> ApiError.error(:code_expired)
-      {:error, :too_many_attempts} -> conn |> ApiError.error(:too_many_attempts)
-      {:error, :account_not_found} -> conn |> ApiError.error(:account_not_found)
-      {:error, :email_already_exists} -> conn |> ApiError.error(:email_already_exists)
-      {:error, :registration_failed} -> conn |> ApiError.server_fault()
-      {:error, :session_issue_failed} -> conn |> ApiError.server_fault()
+      {:error, :rate_limited, retry_after} ->
+        conn
+        |> put_resp_header("retry-after", Integer.to_string(retry_after))
+        |> ApiError.error(:rate_limited)
+
+      {:error, :device_id_invalid} ->
+        conn |> ApiError.error(:code_invalid)
+
+      {:error, :code_invalid} ->
+        conn |> ApiError.error(:code_invalid)
+
+      {:error, :code_expired} ->
+        conn |> ApiError.error(:code_expired)
+
+      {:error, :too_many_attempts} ->
+        conn |> ApiError.error(:too_many_attempts)
+
+      {:error, :account_not_found} ->
+        conn |> ApiError.error(:account_not_found)
+
+      {:error, :email_already_exists} ->
+        conn |> ApiError.error(:email_already_exists)
+
+      {:error, :registration_failed} ->
+        conn |> ApiError.server_fault()
+
+      {:error, :session_issue_failed} ->
+        conn |> ApiError.server_fault()
+
+      {:error, unexpected} ->
+        Logger.error("verify-code failed with an unexpected error: #{describe_error(unexpected)}")
+        conn |> ApiError.server_fault()
+    end
+  end
+
+  # Only an atom is logged as it is: any other reason may carry the email
+  # or other request data.
+  defp describe_error(reason) when is_atom(reason), do: inspect(reason)
+  defp describe_error(_reason), do: "a non-atom reason"
+
+  # The `me` payload and the Device session of a verified code.
+  defp build_session(user, membership, device_id) do
+    with {:ok, me} <- CurrentMe.load(user, membership),
+         {:ok, tokens} <- DeviceSessions.open(user, membership, device_id) do
+      {:ok, %{me: me, tokens: tokens}}
     end
   end
 

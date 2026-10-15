@@ -1,7 +1,9 @@
-import { useCallback, useEffect, useReducer, useRef } from 'react';
+import { useCallback, useEffect, useReducer, useRef, useState } from 'react';
 import { ApiError, isApiError } from '@/api/errors';
 import { newRequestId } from '@/api/requestId';
 import type { CalendarRange } from '@/features/home';
+import { loadLivePlan } from '@/features/home/hooks/useLoadLivePlan';
+import { confirmProposal, rejectProposal } from '../api/planningApi';
 import {
   IDLE_PLANNING_DRAFT,
   planningDraftReducer,
@@ -15,6 +17,7 @@ import {
   parsePlanningMessage,
   parseProposalReady,
   parseSessionCancelled,
+  parseSessionCommitted,
   parseSessionExpired,
   parseSessionLostLock,
   parseStartPlanningReply,
@@ -59,7 +62,18 @@ const DRAFT_EVENTS: {
     event: 'session_lost_lock',
     toAction: (payload) => ({ type: 'session_lost_lock', payload: parseSessionLostLock(payload) }),
   },
+  // The commit of the draft's session, also when the reply of its confirm was lost on the way.
+  {
+    event: 'session_committed',
+    toAction: (payload) => ({ type: 'session_committed', payload: parseSessionCommitted(payload) }),
+  },
 ];
+
+/** What the User asked to do with a ready proposal. */
+export type PlanningAction = 'confirm' | 'reject' | 'cancel';
+
+// How a confirm ends without an answer: the server may still have committed it.
+const UNANSWERED_CODES: readonly string[] = ['unknown_error', 'network_error', 'timeout'];
 
 export interface PlanningDraftController {
   draft: PlanningDraft;
@@ -80,6 +94,25 @@ export interface PlanningDraftController {
    * the session is still active and holds the range, so it is cancelled first.
    */
   retry: () => void;
+  /**
+   * Confirms the ready proposal: its meals become the live plan and the Shopping list is rebuilt.
+   * The cached calendar is read again once the session is committed.
+   */
+  confirm: () => void;
+  /** Rejects the ready proposal and asks for another one with the range and request of the start. */
+  reject: () => void;
+  /** Leaves the ready proposal without committing anything: its session is cancelled. */
+  cancel: () => void;
+  /** The action on its way, if any: one runs at a time. */
+  pendingAction: PlanningAction | null;
+  /** Why the last action was refused, while the proposal is still there to act on. */
+  actionError: ApiError | null;
+  /**
+   * The last confirm of the ready proposal ended without an answer, so it may have committed on
+   * the server. Until a new confirm reads the result, rejecting or cancelling could undo a menu
+   * that is already scheduled: only confirming again is offered.
+   */
+  isConfirmUnresolved: boolean;
 }
 
 /**
@@ -185,5 +218,117 @@ export function usePlanningDraft(topic: PlanningTopicState): PlanningDraftContro
     start(last.range, last.request, last.favoriteRecipeIds, undefined, sessionToCancel);
   }, [draft, start]);
 
-  return { draft, start, retry };
+  const [pendingAction, setPendingAction] = useState<PlanningAction | null>(null);
+  const [actionError, setActionError] = useState<ApiError | null>(null);
+  // A ref next to the state: two presses can land before the first one has re-rendered anything.
+  const isActingRef = useRef(false);
+
+  const runAction = useCallback(async (action: PlanningAction, work: () => Promise<void>) => {
+    if (isActingRef.current) return;
+    isActingRef.current = true;
+    setPendingAction(action);
+    setActionError(null);
+
+    try {
+      await work();
+    } catch (error) {
+      setActionError(isApiError(error) ? error : new ApiError('unknown_error', 'Request failed'));
+    } finally {
+      isActingRef.current = false;
+      setPendingAction(null);
+    }
+  }, []);
+
+  // Cancels a session; one that is already over answers an error, which changes nothing here.
+  const cancelSession = useCallback(
+    (sessionId: string) =>
+      subscription === null
+        ? Promise.resolve()
+        : subscription.push('cancel_planning', { sessionId }).then(
+            () => undefined,
+            () => undefined
+          ),
+    [subscription]
+  );
+
+  const ready = draft.status === 'ready' ? draft : null;
+  // The proposal whose last confirm got no answer.
+  const [unresolvedProposalId, setUnresolvedProposalId] = useState<string | null>(null);
+  const isConfirmUnresolved = ready !== null && ready.proposal.proposalId === unresolvedProposalId;
+
+  const confirm = useCallback(() => {
+    if (ready === null || ready.sessionId === null) return;
+    const { sessionId } = ready;
+    const { proposalId } = ready.proposal;
+
+    void runAction('confirm', async () => {
+      let reply;
+      try {
+        reply = await confirmProposal({ proposalId, sessionId });
+      } catch (error) {
+        const unanswered = !isApiError(error) || UNANSWERED_CODES.includes(error.code);
+        setUnresolvedProposalId(unanswered ? proposalId : null);
+        throw error;
+      }
+      setUnresolvedProposalId(null);
+      dispatch({
+        type: 'session_committed',
+        payload: {
+          sessionId: reply.sessionId,
+          proposalId: reply.proposalId,
+          scheduledMealsCount: reply.scheduledMealsCount,
+          shoppingRebuilt: reply.shoppingRebuilt,
+        },
+      });
+    });
+  }, [ready, runAction]);
+
+  const reject = useCallback(() => {
+    if (ready === null || isConfirmUnresolved) return;
+    const { sessionId } = ready;
+    const { proposalId } = ready.proposal;
+
+    void runAction('reject', async () => {
+      await rejectProposal(proposalId);
+      const last = lastStartRef.current;
+      // The session still holds the range, so the next start cancels it first.
+      if (last !== null) {
+        start(last.range, last.request, last.favoriteRecipeIds, undefined, sessionId);
+      } else {
+        if (sessionId !== null) await cancelSession(sessionId);
+        dispatch({ type: 'reset' });
+      }
+    });
+  }, [ready, isConfirmUnresolved, runAction, start, cancelSession]);
+
+  const cancel = useCallback(() => {
+    if (ready === null || isConfirmUnresolved) return;
+    const { sessionId } = ready;
+
+    void runAction('cancel', async () => {
+      if (sessionId !== null) await cancelSession(sessionId);
+      dispatch({ type: 'reset' });
+    });
+  }, [ready, isConfirmUnresolved, runAction, cancelSession]);
+
+  // The committed proposal is the live plan now: the cached calendar is read again. A read that
+  // fails leaves the cache as it was, and the next one of the app heals it.
+  const committedSessionId = draft.status === 'committed' ? draft.sessionId : null;
+
+  useEffect(() => {
+    if (committedSessionId === null) return;
+    loadLivePlan().catch(() => undefined);
+  }, [committedSessionId]);
+
+  return {
+    draft,
+    start,
+    retry,
+    confirm,
+    reject,
+    cancel,
+    pendingAction,
+    actionError,
+    isConfirmUnresolved,
+  };
 }

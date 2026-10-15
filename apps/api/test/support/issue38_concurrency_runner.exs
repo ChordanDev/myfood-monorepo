@@ -41,5 +41,6 @@ Mix.Task.run("ecto.migrate", ["--quiet"])
 
 Mix.Task.run("test", [
   "test/meal_planner_api/services/cooking_atomicity_test.exs",
-  "test/meal_planner_api/cart_concurrency_test.exs"
+  "test/meal_planner_api/cart_concurrency_test.exs",
+  "test/meal_planner_api/invite_accept_concurrency_test.exs"
 ])

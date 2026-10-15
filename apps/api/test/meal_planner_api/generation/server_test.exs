@@ -859,6 +859,45 @@ defmodule MealPlannerApi.Generation.ServerTest do
     end
   end
 
+  # ---------------------------------------------------------------------------
+  # #112 — an open Shopping item stored after the rebuild's wipe
+  #
+  # A Shopping list read can store an open item with a planned key of the
+  # rebuild between its wipe and its insert. The trigger stores that item the
+  # moment the rebuild opens its checkout session, which is after the wipe.
+  # ---------------------------------------------------------------------------
+
+  describe "confirm/3 — open Shopping item stored after the wipe (#112)" do
+    test "the confirm succeeds and the item carries the rebuild's quantity and checkout session" do
+      account = insert_account("112 acct")
+      user = insert_user_with_membership(account, "open-item-after-wipe@example.com")
+      recipe = insert_recipe("112 recipe")
+      ingredient = insert_ingredient("112 ingredient")
+      attach_recipe_ingredient(recipe, ingredient, 500_000, :g)
+
+      {_run, proposal} =
+        insert_proposal_with_slots(account, user, [slot(~D[2026-08-03], :lunch, recipe.id)])
+
+      session = insert_active_session(account, user)
+      start_server!(account, user)
+
+      try do
+        store_open_item_after_wipe!(account.id, ingredient.id)
+
+        assert {:ok, reply} = Server.confirm(pid_for_account(account), proposal.id, session.id)
+
+        assert [item] = account_items(account)
+        assert item.ingredient_id == ingredient.id
+        assert item.planned_date == ~D[2026-08-03]
+        assert item.status == :pending
+        assert item.quantity_milli == 500_000
+        assert item.checkout_session_id == reply.checkout_session_id
+      after
+        drop_open_item_after_wipe!()
+      end
+    end
+  end
+
   describe "confirm — provenance against proposal_json (#36 AC 4)" do
     test "unrelated proposal_json fields cannot influence the confirmed cart" do
       account_a = insert_account("36 provenance account A")
@@ -1512,6 +1551,40 @@ defmodule MealPlannerApi.Generation.ServerTest do
   end
 
   defp get_proposal(id), do: MealPlannerApi.Repo.get!(PlanningProposal, id)
+
+  # Stores an open Shopping item for every Scheduled meal of the Account, with
+  # the given Ingredient in grams, as soon as a checkout session of the Account
+  # is inserted: what a Shopping list read could store after the wipe.
+  defp store_open_item_after_wipe!(account_id, ingredient_id) do
+    SQL.query!(
+      MealPlannerApi.Repo,
+      """
+      CREATE FUNCTION store_test_open_item() RETURNS trigger LANGUAGE plpgsql AS $$
+      BEGIN
+        IF NEW.account_id = '#{account_id}'::uuid THEN
+          INSERT INTO shopping_items
+            (id, account_id, scheduled_meal_id, planned_date, ingredient_id, unit,
+             quantity_milli, status, source, inserted_at, updated_at)
+          SELECT gen_random_uuid(), m.account_id, m.id, m.date, '#{ingredient_id}'::uuid, 'g',
+                 1, 'pending', 'planned_meal', now(), now()
+          FROM scheduled_meals m
+          WHERE m.account_id = NEW.account_id;
+        END IF;
+        RETURN NEW;
+      END $$
+      """
+    )
+
+    SQL.query!(
+      MealPlannerApi.Repo,
+      "CREATE TRIGGER store_test_open_item AFTER INSERT ON checkout_sessions FOR EACH ROW EXECUTE FUNCTION store_test_open_item()"
+    )
+  end
+
+  defp drop_open_item_after_wipe! do
+    SQL.query!(MealPlannerApi.Repo, "DROP TRIGGER store_test_open_item ON checkout_sessions")
+    SQL.query!(MealPlannerApi.Repo, "DROP FUNCTION store_test_open_item()")
+  end
 
   # Sandbox-scoped failure injection preserves immutable recipe versions.
   defp reject_shopping_inserts!(account_id) do

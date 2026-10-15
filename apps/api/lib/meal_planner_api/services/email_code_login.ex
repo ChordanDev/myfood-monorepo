@@ -11,12 +11,19 @@ defmodule MealPlannerApi.Services.EmailCodeLogin do
   `MealPlannerApi.Services.EmailCodeAuth`. What this module adds:
 
     * a 60-second resend cooldown per email;
-    * a new code consumes every earlier pending code for that email, so
-      only the latest code can ever verify;
+    * the code is stored and committed before it is mailed, so a slow
+      mail provider holds no database connection or lock;
+    * a delivered code consumes every earlier pending code for that
+      email, so only the latest code can ever verify;
     * failed attempts are counted on the code row itself, and a code locks
       for good once it reaches the limit;
+    * failed login verifications are also counted per client IP bucket
+      (an IPv4 address, or the /64 prefix of an IPv6 address), and a
+      bucket that reaches the hourly limit is refused before its code is
+      checked;
     * verification resolves a single Membership for the User, so the
-      answer has one shape however many Accounts the User belongs to.
+      answer has one shape however many Accounts the User belongs to, and
+      opens the caller's session before the code is consumed.
 
   The plaintext code is never returned or logged; the email is the only
   delivery channel.
@@ -37,6 +44,7 @@ defmodule MealPlannerApi.Services.EmailCodeLogin do
   alias MealPlannerApi.Mailer.EmailCodeEmail
   alias MealPlannerApi.Persistence.Accounts.AccountMembership
   alias MealPlannerApi.Persistence.Accounts.User
+  alias MealPlannerApi.Persistence.Accounts.UserEmail
   alias MealPlannerApi.Persistence.Auth.EmailVerificationCode
   alias MealPlannerApi.Repo
   alias MealPlannerApi.Services.EmailCodeAuth
@@ -44,6 +52,7 @@ defmodule MealPlannerApi.Services.EmailCodeLogin do
   @ttl_seconds 600
   @resend_cooldown_seconds 60
   @max_attempts EmailCodeAuth.max_code_attempts()
+  @max_verify_failures_per_ip EmailCodeAuth.max_verify_failures_per_ip()
 
   # First key of the two-key advisory lock form, which lives in a separate
   # key space from the single-key locks `EmailCodeAuth` takes.
@@ -73,8 +82,9 @@ defmodule MealPlannerApi.Services.EmailCodeLogin do
       this answer for unknown emails too. `retry_after` is in whole seconds,
       at least 1.
     * `{:error, :code_send_failed}` — the mailer refused the message or
-      never answered. The whole request is rolled back, so the caller may
-      retry at once.
+      never answered. The unsent code is deleted and any earlier code
+      stays pending; the request still counts against the hourly limits,
+      but not toward the cooldown, so the caller may retry at once.
   """
   @spec request_code(term(), String.t() | nil) ::
           {:ok, code_sent()}
@@ -91,7 +101,7 @@ defmodule MealPlannerApi.Services.EmailCodeLogin do
   # is not a string or not shaped like an email.
   @spec cast_email(term()) :: {:ok, String.t()} | {:error, :invalid_email}
   def cast_email(email) when is_binary(email) do
-    normalized_email = EmailCodeAuth.normalize_email(email)
+    normalized_email = UserEmail.normalize(email)
 
     if Regex.match?(@email_format, normalized_email) do
       {:ok, normalized_email}
@@ -108,6 +118,11 @@ defmodule MealPlannerApi.Services.EmailCodeLogin do
   # `{:ok, user}` with the User the code belongs to, `{:ok, nil}` for a
   # code that belongs to nobody yet, or the error to give up with. It runs
   # inside the transaction, under the email lock.
+  #
+  # The code is committed before the mail is sent, outside the
+  # transaction. Earlier pending codes are consumed only once the mail is
+  # out; a failed delivery deletes the new code instead, so they stay
+  # usable.
   @spec issue_code(
           String.t(),
           String.t() | nil,
@@ -122,15 +137,19 @@ defmodule MealPlannerApi.Services.EmailCodeLogin do
           | {:error, :rate_limited, pos_integer()}
   def issue_code(email, client_ip, flow, admit) do
     Repo.transaction(
-      fn -> issue_code_under_lock(email, client_ip, flow, admit) end,
+      fn -> store_code_under_lock(email, client_ip, admit) end,
       timeout: :timer.seconds(5)
     )
     |> unwrap_transaction()
+    |> case do
+      {:ok, %{row: row, mail: mail}} -> deliver_code(row, mail, flow)
+      error -> error
+    end
   end
 
-  # Runs inside the caller's transaction: it takes the email lock and may
-  # roll back.
-  defp issue_code_under_lock(email, client_ip, flow, admit) do
+  # Runs inside the caller's transaction and takes the email lock. Every
+  # domain error commits, so the slots it reserved stay spent.
+  defp store_code_under_lock(email, client_ip, admit) do
     lock_email(email)
     now = DateTime.utc_now()
 
@@ -138,13 +157,23 @@ defmodule MealPlannerApi.Services.EmailCodeLogin do
          :ok <- check_resend_cooldown(email, now),
          :ok <- EmailCodeAuth.reserve_request_slots(email, client_ip) do
       code = EmailCodeAuth.mint_code()
-      consume_pending_codes(email, flow, now)
-      insert_code!(user, email, code, now)
+      row = insert_code!(user, email, code, now)
 
-      case deliver(code_email(user, email, code), flow) do
-        :ok -> {:ok, code_sent()}
-        :error -> Repo.rollback(:code_send_failed)
-      end
+      {:ok, %{row: row, mail: code_email(user, email, code)}}
+    end
+  end
+
+  # Runs after the code is committed: no connection or lock is held while
+  # the mail provider answers.
+  defp deliver_code(%EmailVerificationCode{} = row, mail, flow) do
+    case deliver(mail, flow) do
+      :ok ->
+        consume_codes_issued_before(row, flow)
+        {:ok, code_sent()}
+
+      :error ->
+        Repo.delete_all(from(c in EmailVerificationCode, where: c.id == ^row.id))
+        {:error, :code_send_failed}
     end
   end
 
@@ -160,7 +189,7 @@ defmodule MealPlannerApi.Services.EmailCodeLogin do
   # to probe emails without limit. The event is kept because the
   # transaction commits on this error.
   defp fetch_known_user(email, client_ip) do
-    case Repo.one(from(u in User, where: u.email == ^email, limit: 1)) do
+    case UserEmail.get_user(email) do
       %User{} = user ->
         {:ok, user}
 
@@ -188,10 +217,13 @@ defmodule MealPlannerApi.Services.EmailCodeLogin do
     end
   end
 
-  defp consume_pending_codes(email, flow, now) do
-    email
+  # Codes issued for the same email and flow after `row` are left alone:
+  # they belong to a later request.
+  defp consume_codes_issued_before(%EmailVerificationCode{} = row, flow) do
+    row.email
     |> pending_codes(flow)
-    |> Repo.update_all(set: [consumed_at: now])
+    |> where([c], c.inserted_at < ^row.inserted_at)
+    |> Repo.update_all(set: [consumed_at: DateTime.utc_now()])
   end
 
   # The unconsumed codes `flow` issued for `email`. A login code names its
@@ -222,10 +254,23 @@ defmodule MealPlannerApi.Services.EmailCodeLogin do
 
   @doc """
   Verifies `code` against the latest pending code for `email` and, on a
-  match, consumes it and resolves the Membership the session is scoped to.
+  match, resolves the Membership the session is scoped to, opens the
+  session with `open_session` and consumes the code, all in one
+  transaction. `open_session` receives the User and the Membership and
+  answers `{:ok, session}` or `{:error, reason}`; on an error nothing it
+  wrote is kept and the code stays pending, so the user can try again.
+
+  `client_ip` is the address the request came from, as
+  `MealPlannerApiWeb.ClientIp.resolve/1` gives it. Every verification
+  answered `code_invalid`, `code_expired` or `too_many_attempts` counts
+  against it; an IPv6 address shares its count with its whole /64 prefix.
 
   Errors:
 
+    * `{:error, :rate_limited, retry_after}` — `client_ip` has
+      #{@max_verify_failures_per_ip} failed verifications in the last
+      hour. The code is not looked at, so it neither verifies nor counts
+      an attempt. `retry_after` is in whole seconds, at least 1.
     * `{:error, :code_invalid}` — no pending code for this email (unknown
       email, never requested, already used, or replaced by a newer code),
       or the code does not match.
@@ -233,45 +278,71 @@ defmodule MealPlannerApi.Services.EmailCodeLogin do
     * `{:error, :too_many_attempts}` — the pending code has reached
       #{@max_attempts} failed attempts, this one included. Only a new code
       lifts the lockout; the right code is refused too.
-    * `{:error, :account_not_found}` — the code was right and is now
-      consumed, but the User has no active Membership.
+    * `{:error, :account_not_found}` — the code was right, but the User has
+      no active Membership. The code stays pending.
+    * any error `open_session` answers. The code stays pending.
 
-  A mismatch is the only outcome that counts as an attempt.
+  A mismatch is the only outcome that counts as an attempt on the code.
   """
-  @spec verify_code(term(), term()) ::
-          {:ok, %{user: User.t(), membership: AccountMembership.t()}}
-          | {:error, :code_invalid | :code_expired | :too_many_attempts | :account_not_found}
-  def verify_code(email, code) do
-    redeem_code(email, code, :login, fn row, _now -> resolve_session(row.user_id) end)
+  @spec verify_code(
+          term(),
+          term(),
+          String.t() | nil,
+          (User.t(), AccountMembership.t() -> {:ok, session} | {:error, atom()})
+        ) ::
+          {:ok, session}
+          | {:error, atom()}
+          | {:error, :rate_limited, pos_integer()}
+        when session: term()
+  def verify_code(email, code, client_ip, open_session) do
+    redeem_code(
+      email,
+      code,
+      :login,
+      fn row, _now ->
+        with {:ok, %{user: user, membership: membership}} <- resolve_session(row.user_id) do
+          open_session.(user, membership)
+        end
+      end,
+      limit_failures_by: client_ip
+    )
   end
 
   @doc false
   # Checks `code` against the latest pending code `flow` issued for
-  # `email` and, on a match, consumes it and returns what `on_match`
-  # answers. `on_match` receives the consumed row and the time of the
-  # check, and runs inside the transaction, under the email lock; it may
-  # call `Repo.rollback/1` to give the code back.
+  # `email` and, on a match, returns what `on_match` answers and consumes
+  # the code. `on_match` receives the row and the time of the check, and
+  # runs inside the transaction, under the email lock; when it answers an
+  # error the transaction rolls back, so nothing it wrote is kept and the
+  # code stays pending.
+  #
+  # With `limit_failures_by: client_ip`, a failed code check is counted
+  # against `client_ip`, and an IP over the hourly limit is refused before
+  # the code is looked at.
   @spec redeem_code(
           term(),
           term(),
           flow(),
-          (EmailVerificationCode.t(), DateTime.t() -> {:ok, result} | {:error, atom()})
+          (EmailVerificationCode.t(), DateTime.t() -> {:ok, result} | {:error, atom()}),
+          keyword()
         ) ::
-          {:ok, result} | {:error, atom()}
+          {:ok, result} | {:error, atom()} | {:error, :rate_limited, pos_integer()}
         when result: term()
-  def redeem_code(email, code, flow, on_match)
+  def redeem_code(email, code, flow, on_match, opts \\ [])
+
+  def redeem_code(email, code, flow, on_match, opts)
       when is_binary(email) and is_binary(code) and flow in [:login, :signup] do
-    normalized_email = EmailCodeAuth.normalize_email(email)
+    normalized_email = UserEmail.normalize(email)
+    failure_limit = Keyword.fetch(opts, :limit_failures_by)
 
     Repo.transaction(
       fn ->
         lock_email(normalized_email)
         now = DateTime.utc_now()
 
-        with {:ok, row} <- latest_pending_code(normalized_email, flow),
-             :ok <- check_code(row, code, now) do
-          consume_code(row, now)
-          on_match.(row, now)
+        with :ok <- check_failure_limit(failure_limit),
+             {:ok, row} <- match_code(normalized_email, code, flow, now, failure_limit) do
+          redeem_matched(row, on_match, now)
         end
       end,
       timeout: :timer.seconds(5)
@@ -279,7 +350,44 @@ defmodule MealPlannerApi.Services.EmailCodeLogin do
     |> unwrap_transaction()
   end
 
-  def redeem_code(_email, _code, _flow, _on_match), do: {:error, :code_invalid}
+  def redeem_code(_email, _code, _flow, _on_match, _opts), do: {:error, :code_invalid}
+
+  # The code is consumed only once `on_match` succeeds; its error rolls
+  # back the transaction, `on_match`'s writes included.
+  defp redeem_matched(row, on_match, now) do
+    case on_match.(row, now) do
+      {:ok, _result} = matched ->
+        consume_code(row, now)
+        matched
+
+      {:error, reason} ->
+        Repo.rollback(reason)
+    end
+  end
+
+  defp check_failure_limit({:ok, client_ip}), do: EmailCodeAuth.check_verify_failures(client_ip)
+  defp check_failure_limit(:error), do: :ok
+
+  # A failed check first reserves its place in the per-IP failure counter;
+  # only then does it count as an attempt on the code, so a failure
+  # refused by the IP limit leaves the code untouched.
+  defp match_code(email, code, flow, now, failure_limit) do
+    case classify_code(latest_pending_code(email, flow), code, now) do
+      {:ok, row} ->
+        {:ok, row}
+
+      {:error, reason, row} ->
+        with :ok <- reserve_failure(failure_limit) do
+          charge_failure(reason, row)
+        end
+    end
+  end
+
+  defp reserve_failure({:ok, client_ip}), do: EmailCodeAuth.reserve_verify_failure(client_ip)
+  defp reserve_failure(:error), do: :ok
+
+  defp charge_failure(:mismatch, row), do: record_failed_attempt(row)
+  defp charge_failure(reason, _row), do: {:error, reason}
 
   defp latest_pending_code(email, flow) do
     query = from(c in pending_codes(email, flow), order_by: [desc: c.inserted_at], limit: 1)
@@ -290,19 +398,23 @@ defmodule MealPlannerApi.Services.EmailCodeLogin do
     end
   end
 
-  defp check_code(%EmailVerificationCode{} = row, code, now) do
+  # Decides the outcome of a check without writing anything: the row on a
+  # match, or the reason it failed and the row it failed against.
+  defp classify_code({:error, reason}, _code, _now), do: {:error, reason, nil}
+
+  defp classify_code({:ok, %EmailVerificationCode{} = row}, code, now) do
     cond do
       row.attempts >= @max_attempts ->
-        {:error, :too_many_attempts}
+        {:error, :too_many_attempts, row}
 
       DateTime.compare(row.expires_at, now) != :gt ->
-        {:error, :code_expired}
+        {:error, :code_expired, row}
 
       Plug.Crypto.secure_compare(row.code_hash, EmailCodeAuth.hash_code(code)) ->
-        :ok
+        {:ok, row}
 
       true ->
-        record_failed_attempt(row)
+        {:error, :mismatch, row}
     end
   end
 
@@ -386,8 +498,9 @@ defmodule MealPlannerApi.Services.EmailCodeLogin do
     ])
   end
 
-  # The transaction commits on every domain error except a failed delivery,
-  # which rolls back; both arrive here as plain error tuples.
+  # The transaction commits on every domain error and rolls back when a
+  # matched code's `on_match` fails; both arrive here as plain error
+  # tuples.
   defp unwrap_transaction({:ok, result}), do: result
   defp unwrap_transaction({:error, reason}), do: {:error, reason}
 end
