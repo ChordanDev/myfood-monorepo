@@ -264,6 +264,31 @@ defmodule MealPlannerApiWeb.PlanningChatControllerTest do
       refute_receive {:busy_server_called, ^server, {:reject, _proposal_id}}
     end
 
+    # Jorge review of PR #346: the reject call itself can exit (the server dies
+    # on it, or the call times out). That says nothing of whether it rejected,
+    # so it is not reported as a rejection.
+    test "answers 500 and tells nobody when the generation server exits on the reject",
+         %{conn: conn} do
+      %{token: token, user: user, account: account} = insert_identity_with_token!(plan: :family_4)
+      proposal = insert_pending_proposal(account, user)
+
+      server =
+        start_busy_generation_server(account.id, hold_first_call: false, exit_on_reject: true)
+
+      Phoenix.PubSub.subscribe(MealPlannerApi.PubSub, "planning:#{account.id}")
+
+      conn =
+        conn
+        |> put_req_header("authorization", "Bearer " <> token)
+        |> post("/api/planning/proposals/#{proposal.id}/reject")
+
+      assert %{"error" => %{"code" => "unknown_error"}} = json_response(conn, 500)
+      assert_received {:busy_server_called, ^server, :get_status}
+      assert_received {:busy_server_called, ^server, {:reject, _proposal_id}}
+      assert Repo.get!(PlanningProposal, proposal.id).status == :pending
+      refute_receive %Phoenix.Socket.Broadcast{event: "proposal_rejected"}
+    end
+
     # Native review R4-001: the reply must say what the server did, not that a
     # reject was sent. A server that answers anything but `:ok` rejected nothing.
     test "answers 500 when the generation server did not apply the reject", %{conn: conn} do
@@ -324,7 +349,9 @@ defmodule MealPlannerApiWeb.PlanningChatControllerTest do
   # first call it gets until the test sends `:finish_confirm`, as a server still
   # running a confirm would, then answers every later call at once. With
   # `hold_first_call: false` it answers every call at once, and with
-  # `exit_on_call: true` it dies on the first call instead. It answers
+  # `exit_on_call: true` it dies on the first call instead, and with
+  # `exit_on_reject: true` it answers `:get_status` and dies on the reject call
+  # instead. It answers
   # `:get_status` with a state and any other call with `reply` (`%{}` by
   # default). It applies nothing and reports every call it gets to the test.
   defp start_busy_generation_server(account_id, opts \\ []) do
@@ -339,7 +366,7 @@ defmodule MealPlannerApiWeb.PlanningChatControllerTest do
 
         busy_server_loop(
           test_pid,
-          Keyword.get(opts, :exit_on_call, false),
+          exits_on(opts),
           Keyword.get(opts, :hold_first_call, true),
           Keyword.get(opts, :reply, %{})
         )
@@ -350,14 +377,22 @@ defmodule MealPlannerApiWeb.PlanningChatControllerTest do
     pid
   end
 
-  defp busy_server_loop(test_pid, exit_on_call?, held?, reply) do
+  defp exits_on(opts) do
+    cond do
+      Keyword.get(opts, :exit_on_call, false) -> fn _request -> true end
+      Keyword.get(opts, :exit_on_reject, false) -> &match?({:reject, _proposal_id}, &1)
+      true -> fn _request -> false end
+    end
+  end
+
+  defp busy_server_loop(test_pid, exits_on, held?, reply) do
     receive do
       {:"$gen_call", from, request} ->
         send(test_pid, {:busy_server_called, self(), request})
-        if exit_on_call?, do: exit(:boom)
+        if exits_on.(request), do: exit(:boom)
         if held?, do: receive(do: (:finish_confirm -> :ok))
         GenServer.reply(from, if(request == :get_status, do: %{}, else: reply))
-        busy_server_loop(test_pid, exit_on_call?, false, reply)
+        busy_server_loop(test_pid, exits_on, false, reply)
     end
   end
 
