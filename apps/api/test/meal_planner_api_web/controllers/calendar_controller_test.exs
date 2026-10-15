@@ -1055,9 +1055,6 @@ defmodule MealPlannerApiWeb.CalendarControllerTest do
     end
   end
 
-  # `Date.from_iso8601/1` reads years from -9999 and PostgreSQL raises on a
-  # date before 4713 BC, so such a date used to answer 500. Every route that
-  # reads a date rejects one before year 1.
   defp cooking_session!(meal, status) do
     now = DateTime.utc_now()
 
@@ -1073,6 +1070,9 @@ defmodule MealPlannerApiWeb.CalendarControllerTest do
     session
   end
 
+  # `Date.from_iso8601/1` reads years from -9999 and PostgreSQL raises on a
+  # date before 4713 BC, so such a date used to answer 500. Every route that
+  # reads a date rejects one before year 1.
   describe "a date before year 1" do
     @before_year_one "-9999-01-01"
 
