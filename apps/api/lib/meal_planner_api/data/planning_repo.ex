@@ -636,7 +636,12 @@ defmodule MealPlannerApi.Data.PlanningRepo do
     )
   end
 
-  @doc "Locks the meal before checking completion, including across distinct cooking sessions."
+  @doc """
+  Locks the meal before checking completion, including across distinct cooking sessions.
+
+  The meal is locked before its Shopping items and the Inventory key, as the
+  lock order in the moduledoc of `MealPlannerApi.Cart` says.
+  """
   def lock_cooking_meal_for_account(account_id, meal_id) do
     Repo.one(
       from(m in ScheduledMeal,

@@ -3,8 +3,10 @@ defmodule MealPlannerApi.CartConcurrencyTest do
   import MealPlannerApi.CartFixtures
   alias Ecto.Adapters.SQL
   alias MealPlannerApi.{Cart, Repo}
-  alias MealPlannerApi.Persistence.Shopping.CheckoutSession
-  alias MealPlannerApi.Services.ShoppingService
+  alias MealPlannerApi.Persistence.Calendar.MealMove
+  alias MealPlannerApi.Persistence.Planning.ScheduledMeal
+  alias MealPlannerApi.Persistence.Shopping.{CheckoutSession, ShoppingItem}
+  alias MealPlannerApi.Services.{CookingService, ShoppingService}
 
   @moduletag :runtime_db_concurrency
   unless MealPlannerApi.Issue38Database.enabled?() do
@@ -279,6 +281,81 @@ defmodule MealPlannerApi.CartConcurrencyTest do
     assert {:ok, %{updated_rows: 1}} = Task.await(writer, 5000)
   end
 
+  # Issue #190. A partial purchase stores the remainder of the bought item,
+  # and the foreign key of that insert needs the item's Scheduled meal. A
+  # finish locks the meal and then deletes its open Shopping items. Unless the
+  # checkout locks the meal before the items, each waits for the other.
+  test "a partial purchase and a finish of the meal it buys for both complete", f do
+    {:ok, %{session_id: session_id}} = CookingService.start_session(f.actor, f.meal.id)
+    cart = reserve!(f)
+    supervisor = start_supervised!(Task.Supervisor)
+
+    {checkout_result, finish_result} =
+      with_purchase_gate(hd(f.items), fn holder, open_gate ->
+        # 300 of the 1000 reserved for today's meal: the rest is a remainder.
+        checkout =
+          worker(supervisor, f, fn -> Cart.purchase(f.actor, cart.session_id, payload(cart)) end)
+
+        wait_until_blocked_by(checkout.backend, holder)
+
+        finish =
+          worker(supervisor, f, fn -> CookingService.finish_session(f.actor, session_id) end)
+
+        wait_until_blocked_by(finish.backend, checkout.backend)
+        open_gate.()
+        {Task.await(checkout.task, 12_000), Task.await(finish.task, 12_000)}
+      end)
+
+    refute {:aborted, :deadlock_detected} in [checkout_result, finish_result]
+    assert {:ok, %{status: "completed", moved_to_inventory_count: 1}} = checkout_result
+    assert {:ok, %{scheduled_meal: _}} = finish_result
+    assert Repo.get!(ScheduledMeal, f.meal.id).is_cooked
+    assert Enum.sum(Enum.map(stock(f), & &1.quantity_milli)) == 300
+
+    # The finish locked the meal after the checkout committed, so it deleted
+    # the remainder too: the cooked meal keeps only what was bought.
+    assert [%{status: :checked_out, quantity_milli: 300}] = meal_lines(f, f.meal)
+  end
+
+  # Issue #190. A move locks the meal and then moves its planned Shopping
+  # items, so it meets a partial purchase the way a finish does.
+  test "a partial purchase and a move of the meal it buys for both complete", f do
+    cart = reserve!(f)
+    to = Date.add(f.meal.date, 3)
+    supervisor = start_supervised!(Task.Supervisor)
+
+    {checkout_result, move_result} =
+      with_purchase_gate(hd(f.items), fn holder, open_gate ->
+        checkout =
+          worker(supervisor, f, fn -> Cart.purchase(f.actor, cart.session_id, payload(cart)) end)
+
+        wait_until_blocked_by(checkout.backend, holder)
+
+        move =
+          worker(supervisor, f, fn ->
+            MealMove.move(f.account.id, f.meal.id, to, :lunch, Date.utc_today())
+          end)
+
+        wait_until_blocked_by(move.backend, checkout.backend)
+        open_gate.()
+        {Task.await(checkout.task, 12_000), Task.await(move.task, 12_000)}
+      end)
+
+    # The move answers a deadlock it lost as `:conflict`.
+    refute {:aborted, :deadlock_detected} in [checkout_result, move_result]
+    refute move_result == {:error, :conflict}
+    assert {:ok, %{status: "completed", moved_to_inventory_count: 1}} = checkout_result
+    assert {:ok, %{moved: %{date: ^to, slot: :lunch}}} = move_result
+    assert %{date: ^to, slot: :lunch} = Repo.get!(ScheduledMeal, f.meal.id)
+
+    # The move locked the meal after the checkout committed, so the remainder
+    # moved with the bought item.
+    assert [
+             %{status: :checked_out, quantity_milli: 300, planned_date: ^to},
+             %{status: :pending, quantity_milli: 700, planned_date: ^to}
+           ] = Enum.sort_by(meal_lines(f, f.meal), & &1.quantity_milli)
+  end
+
   for table <- ["inventory_mutation_events", "shopping_items", "checkout_sessions"] do
     test "failure writing #{table} rolls back stock, audit, remainder and spend without a broadcast",
          f do
@@ -364,6 +441,96 @@ defmodule MealPlannerApi.CartConcurrencyTest do
         5000 -> raise "cart concurrency barrier timed out"
       end
     end)
+  end
+
+  # The Shopping items of `meal`, in every status.
+  defp meal_lines(f, meal), do: Enum.filter(lines(f), &(&1.scheduled_meal_id == meal.id))
+
+  # Pauses the real `Cart.purchase/3` inside the update that closes `item` as
+  # bought, before it stores the item's remainder: the update waits for an
+  # advisory lock this connection holds until `open_gate` is called.
+  defp with_purchase_gate(item, fun) do
+    # Above every `hashtext/1` key (an int4), so it is no Cart or Inventory key.
+    gate = 0x1_0000_0000 + System.unique_integer([:positive])
+    trigger = "cart_purchase_gate_" <> String.replace(Ecto.UUID.generate(), "-", "")
+
+    Repo.checkout(fn ->
+      %{rows: [[holder]]} = Repo.query!("SELECT pg_backend_pid()")
+      Repo.query!("SELECT pg_advisory_lock($1)", [gate])
+
+      Repo.query!("""
+      CREATE FUNCTION #{trigger}() RETURNS trigger LANGUAGE plpgsql AS $$
+      BEGIN
+        IF NEW.id = '#{item.id}'::uuid AND NEW.status = 'checked_out' THEN
+          PERFORM pg_advisory_xact_lock(#{gate});
+        END IF;
+        RETURN NEW;
+      END $$
+      """)
+
+      try do
+        Repo.query!(
+          "CREATE TRIGGER #{trigger} BEFORE UPDATE ON shopping_items FOR EACH ROW EXECUTE FUNCTION #{trigger}()"
+        )
+
+        fun.(holder, fn -> Repo.query!("SELECT pg_advisory_unlock($1)", [gate]) end)
+      after
+        # Open the gate first, so a paused writer ends and the DDL can run.
+        Repo.query!("SELECT pg_advisory_unlock_all()")
+        Repo.query!("DROP TRIGGER IF EXISTS #{trigger} ON shopping_items")
+        Repo.query!("DROP FUNCTION IF EXISTS #{trigger}()")
+      end
+    end)
+  end
+
+  # Starts `command` on a connection of its own and returns the task with
+  # that connection's backend pid.
+  defp worker(supervisor, f, command) do
+    parent = self()
+
+    task =
+      Task.Supervisor.async_nolink(supervisor, fn ->
+        Repo.put_dynamic_repo(f.repo)
+
+        Repo.checkout(fn ->
+          %{rows: [[backend]]} = Repo.query!("SELECT pg_backend_pid()")
+          send(parent, {:backend, self(), backend})
+          outcome(command)
+        end)
+      end)
+
+    worker = task.pid
+    assert_receive {:backend, ^worker, backend}, 5_000
+    %{task: task, backend: backend}
+  end
+
+  # The result of `command`, or `{:aborted, code}` when Postgres aborted one
+  # of its statements, whether the caller raised or returned the error.
+  defp outcome(command) do
+    case command.() do
+      {:error, %Postgrex.Error{postgres: %{code: code}}} -> {:aborted, code}
+      result -> result
+    end
+  rescue
+    error in Postgrex.Error -> {:aborted, error.postgres.code}
+  end
+
+  # Returns once `blocked` waits for a lock that `blocker` holds, as the lock
+  # table shows it; gives up after about two seconds.
+  defp wait_until_blocked_by(blocked, blocker, attempts \\ 200)
+
+  defp wait_until_blocked_by(blocked, blocker, 0),
+    do: flunk("backend #{blocked} never waited for a lock of backend #{blocker}")
+
+  defp wait_until_blocked_by(blocked, blocker, attempts) do
+    %{rows: [[blocking]]} = Repo.query!("SELECT pg_blocking_pids($1)", [blocked])
+
+    if blocker in blocking do
+      :ok
+    else
+      Process.sleep(10)
+      wait_until_blocked_by(blocked, blocker, attempts - 1)
+    end
   end
 
   defp migration_snapshot do
