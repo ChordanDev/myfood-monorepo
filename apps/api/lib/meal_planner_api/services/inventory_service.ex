@@ -52,7 +52,6 @@ defmodule MealPlannerApi.Services.InventoryService do
   def validation_reasons, do: @validation_reasons
 
   @doc "Returns usable inventory for one account without changing inventory state."
-
   @spec list_for_account(Ecto.UUID.t(), Date.t()) :: [map()]
   def list_for_account(account_id, today \\ Date.utc_today()) do
     InventoryPersistence.list_stock_with_ingredient(account_id)

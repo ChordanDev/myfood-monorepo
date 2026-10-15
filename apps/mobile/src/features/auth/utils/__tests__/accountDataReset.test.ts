@@ -1,10 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { registerAccountDataReset, resetAccountData } from '../accountDataReset';
 
-jest.mock('@react-native-async-storage/async-storage', () =>
-  jest.requireActual('@react-native-async-storage/async-storage/jest/async-storage-mock')
-);
-
 // No store is imported here: the stored data of a store that never loaded in this session is
 // dropped all the same, so it cannot load later for the next Account.
 describe('resetAccountData', () => {
