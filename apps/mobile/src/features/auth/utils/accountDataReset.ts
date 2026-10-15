@@ -17,6 +17,7 @@ const resetters = new Set<() => void>();
 export const ACCOUNT_DATA_STORAGE_KEYS: readonly string[] = [
   'inventory-storage',
   'meal-plan-storage',
+  'recipe-cache-storage',
 ];
 
 export function registerAccountDataReset(reset: () => void): void {

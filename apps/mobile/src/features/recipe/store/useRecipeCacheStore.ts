@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
+import { registerAccountDataReset } from '@/features/auth/utils/accountDataReset';
 import { safeAsyncStorage } from '@/utils/safeAsyncStorage';
 import { getRecipe } from '../api/recipeApi';
 import type { Recipe } from '../types/recipe';
@@ -98,3 +99,6 @@ export const useRecipeCacheStore = create<RecipeCacheState>()(
     }
   )
 );
+
+// The cached Recipes were fetched for the signed-in account, so the next account starts empty.
+registerAccountDataReset(() => useRecipeCacheStore.getState().clear());

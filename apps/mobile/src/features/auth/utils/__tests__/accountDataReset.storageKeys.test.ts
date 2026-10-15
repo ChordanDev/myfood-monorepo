@@ -1,4 +1,5 @@
 import { useInventoryStore } from '@/features/inventory/store';
+import { useRecipeCacheStore } from '@/features/recipe/store/useRecipeCacheStore';
 import { useMealPlanStore } from '@/store/useMealPlanStore';
 import { ACCOUNT_DATA_STORAGE_KEYS } from '../accountDataReset';
 
@@ -12,6 +13,10 @@ jest.mock('expo-secure-store', () => ({
 // its key must rename it there too.
 it('removes the keys the Account data stores persist under', () => {
   expect([...ACCOUNT_DATA_STORAGE_KEYS].sort()).toEqual(
-    [useInventoryStore.persist.getOptions().name, useMealPlanStore.persist.getOptions().name].sort()
+    [
+      useInventoryStore.persist.getOptions().name,
+      useMealPlanStore.persist.getOptions().name,
+      useRecipeCacheStore.persist.getOptions().name,
+    ].sort()
   );
 });
