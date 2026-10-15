@@ -13,8 +13,9 @@ defmodule MealPlannerApi.Generation.PlanningSession.Sweeper do
        concurrently with `cancel_session/4` — both serialize on the
        row, and at most one of them can transition a given session to a
        terminal status.
-    3. Calls `PlanningRepo.expire_session/2` on the locked row and
-       broadcasts `session_expired` on `planning:<account_id>`.
+    3. Moves the locked row to `:expired`, hard-deletes its messages and
+       exceptions in the same transaction, and broadcasts
+       `session_expired` on `planning:<account_id>`.
 
   Skips rows whose status has already moved to a terminal value
   (`:cancelled`, `:committed`, `:lost_lock`, `:expired`) since the

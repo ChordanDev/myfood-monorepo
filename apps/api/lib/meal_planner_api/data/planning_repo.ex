@@ -377,23 +377,9 @@ defmodule MealPlannerApi.Data.PlanningRepo do
           {:ok, PlanningSession.t()} | {:error, :forbidden | :not_active}
   def cancel_session(account_id, session_id, actor_membership_id, account_owner?)
       when is_boolean(account_owner?) do
-    with {:ok, session} <- fetch_active_session(account_id, session_id),
-         :ok <- authorize_actor(session, actor_membership_id, account_owner?) do
-      Repo.transaction(fn ->
-        {:ok, cancelled} =
-          session
-          |> Ecto.Changeset.change(%{
-            status: :cancelled,
-            terminal_at: DateTime.utc_now()
-          })
-          |> Repo.update()
-
-        session_id
-        |> delete_children_by_session_id()
-
-        cancelled
-      end)
-    end
+    end_session(account_id, session_id, :cancelled, fn session ->
+      authorize_actor(session, actor_membership_id, account_owner?)
+    end)
   end
 
   @doc """
@@ -404,24 +390,8 @@ defmodule MealPlannerApi.Data.PlanningRepo do
   """
   @spec expire_session(Ecto.UUID.t(), Ecto.UUID.t()) ::
           {:ok, PlanningSession.t()} | {:error, :not_active}
-  def expire_session(account_id, session_id) do
-    with {:ok, session} <- fetch_active_session(account_id, session_id) do
-      Repo.transaction(fn ->
-        {:ok, expired} =
-          session
-          |> Ecto.Changeset.change(%{
-            status: :expired,
-            terminal_at: DateTime.utc_now()
-          })
-          |> Repo.update()
-
-        session_id
-        |> delete_children_by_session_id()
-
-        expired
-      end)
-    end
-  end
+  def expire_session(account_id, session_id),
+    do: end_session(account_id, session_id, :expired, fn _session -> :ok end)
 
   @doc """
   Transitions `:active` → `:lost_lock` (owner process crash path). Same
@@ -432,24 +402,8 @@ defmodule MealPlannerApi.Data.PlanningRepo do
   """
   @spec mark_lost_lock(Ecto.UUID.t(), Ecto.UUID.t()) ::
           {:ok, PlanningSession.t()} | {:error, :not_active}
-  def mark_lost_lock(account_id, session_id) do
-    with {:ok, session} <- fetch_active_session(account_id, session_id) do
-      Repo.transaction(fn ->
-        {:ok, lost_lock} =
-          session
-          |> Ecto.Changeset.change(%{
-            status: :lost_lock,
-            terminal_at: DateTime.utc_now()
-          })
-          |> Repo.update()
-
-        session_id
-        |> delete_children_by_session_id()
-
-        lost_lock
-      end)
-    end
-  end
+  def mark_lost_lock(account_id, session_id),
+    do: end_session(account_id, session_id, :lost_lock, fn _session -> :ok end)
 
   @doc """
   Transitions `:active` → `:committed` (confirm_proposal path). Does
@@ -618,10 +572,32 @@ defmodule MealPlannerApi.Data.PlanningRepo do
   # Planning-session helpers (PR2 — private to PlanningRepo)
   # -------------------------------------------------------------------------
 
-  defp fetch_active_session(account_id, session_id) do
+  # Moves an `:active` session to the terminal `status` and hard-deletes its
+  # children, in one transaction. The row is locked first, as
+  # `mark_committed/3` locks it, so an end transition that races a confirm
+  # waits for it and then finds the row no longer `:active` (issue #303).
+  defp end_session(account_id, session_id, status, authorize) do
+    Repo.transaction(fn ->
+      with {:ok, session} <- lock_active_session(account_id, session_id),
+           :ok <- authorize.(session) do
+        ended =
+          session
+          |> Ecto.Changeset.change(%{status: status, terminal_at: DateTime.utc_now()})
+          |> Repo.update!()
+
+        :ok = delete_children_by_session_id(session_id)
+        ended
+      else
+        {:error, reason} -> Repo.rollback(reason)
+      end
+    end)
+  end
+
+  defp lock_active_session(account_id, session_id) do
     query =
       from(s in PlanningSession,
-        where: s.id == ^session_id and s.account_id == ^account_id and s.status == :active
+        where: s.id == ^session_id and s.account_id == ^account_id and s.status == :active,
+        lock: "FOR UPDATE"
       )
 
     case Repo.one(query) do
