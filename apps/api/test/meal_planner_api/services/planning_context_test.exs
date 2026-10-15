@@ -416,6 +416,21 @@ defmodule MealPlannerApi.Services.PlanningContextTest do
       assert Enum.map(context["leftovers"], & &1["title"]) == ["Kept"]
     end
 
+    test "judges the consume-by date against the Account's today, not UTC's", %{
+      user: user,
+      account: account
+    } do
+      # At @now it is already 2026-10-16 in Auckland, one day ahead of UTC.
+      account |> Ecto.Changeset.change(timezone: "Pacific/Auckland") |> Repo.update!()
+
+      _utc_today = leftover!(account, "Due on the UTC date", @today)
+      _local_today = leftover!(account, "Due on the Auckland date", Date.add(@today, 1))
+
+      context = PlanningContext.read(account.id, user.id, [], %{now: @now})
+
+      assert Enum.map(context["leftovers"], & &1["title"]) == ["Due on the Auckland date"]
+    end
+
     test "an Account with no leftovers gets an empty list", %{user: user, account: account} do
       assert PlanningContext.read(account.id, user.id, [], %{now: @now})["leftovers"] == []
     end
