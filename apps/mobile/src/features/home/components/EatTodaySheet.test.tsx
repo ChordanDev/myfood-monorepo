@@ -22,7 +22,8 @@ jest.mock('@/context/RecipeThemeContext', () => ({
 
 function renderSheet(
   destinations: EatTodayDestinationType[],
-  cookingDestinations?: EatTodayDestinationType[]
+  cookingDestinations?: EatTodayDestinationType[],
+  errorMessage?: string
 ) {
   const onSelect = jest.fn();
   const onClose = jest.fn();
@@ -34,6 +35,7 @@ function renderSheet(
         visible
         destinations={destinations}
         cookingDestinations={cookingDestinations}
+        errorMessage={errorMessage}
         onSelect={onSelect}
         onClose={onClose}
       />
@@ -70,6 +72,20 @@ function pressButton(root: ReactTestInstance, label: string) {
 }
 
 describe('EatTodaySheet', () => {
+  // Issue #146: a move that did not go as asked is told to the User.
+  it('shows the message of a move that did not go as asked, with only a way to close it', () => {
+    const { root, onClose } = renderSheet(['lunch'], [], 'No encontramos esa comida en tu plan.');
+
+    expect(getTexts(root)).toEqual(
+      expect.arrayContaining(['Algo no salió bien', 'No encontramos esa comida en tu plan.'])
+    );
+    expect(getButtonLabels(root)).toEqual(['Entendido']);
+
+    pressButton(root, 'Entendido');
+
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
   it('renders one button per destination followed by the cancel action', () => {
     const { root } = renderSheet(['lunch', 'dinner']);
 
