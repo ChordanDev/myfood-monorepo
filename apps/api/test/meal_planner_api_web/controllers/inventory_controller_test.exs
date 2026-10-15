@@ -364,7 +364,9 @@ defmodule MealPlannerApiWeb.InventoryControllerTest do
         Map.put(valid, "acquiredPriceCents", "-120"),
         Map.put(valid, "acquiredPriceCents", "12.5"),
         Map.put(valid, "acquiredPriceCents", "doce"),
-        Map.put(valid, "acquiredPriceCents", "")
+        Map.put(valid, "acquiredPriceCents", ""),
+        Map.put(valid, "acquiredPriceCents", 2_147_483_648),
+        Map.put(valid, "acquiredPriceCents", "2147483648")
       ]
 
       for payload <- invalid_payloads do
@@ -418,6 +420,24 @@ defmodule MealPlannerApiWeb.InventoryControllerTest do
                Inventory.list_inventory(actor.account_id)
 
       assert DateTime.compare(acquired_at, ~U[2026-10-10 12:30:00Z]) == :eq
+    end
+
+    test "the largest price the lot can hold is stored" do
+      actor = actor()
+      rice = ingredient("Arroz Test Precio Maximo")
+
+      conn =
+        post_json(actor, "/api/inventory/items/add-extra", %{
+          "ingredientId" => rice.id,
+          "quantityMilli" => 100,
+          "unit" => "g",
+          "acquiredPriceCents" => 2_147_483_647
+        })
+
+      assert json_response(conn, 200)
+
+      assert [%{acquired_price_cents: 2_147_483_647}] =
+               Inventory.list_inventory(actor.account_id)
     end
 
     test "notes longer than 1000 characters are a validation_error and store nothing" do
