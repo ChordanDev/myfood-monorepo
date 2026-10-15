@@ -267,6 +267,7 @@ asumir un tipo específico.
 | `POST` | `/api/shopping/checkout` | Confirmar compra |
 | `GET` | `/api/recipes` | Lista de recetas |
 | `GET` | `/api/inventory` | Inventario del usuario |
+| `GET` | `/api/ingredients?query=leche` | Buscar Ingredientes del catálogo por nombre |
 | `PUT` | `/api/me/profile` | Editar el perfil de Onboarding del usuario actual |
 | `GET` | `/api/me/favorites` | Recetas favoritas del usuario actual |
 | `POST` | `/api/me/favorites` | Marcar una receta como favorita (idempotente) |
@@ -342,6 +343,28 @@ string da `422 validation_error`; una receta inexistente, con id mal formado o d
 `404 recipe_not_found`.
 
 `DELETE /api/me/favorites/:recipeId` responde `204` sin cuerpo, aunque la receta no fuera favorita.
+
+### Buscar Ingredientes
+
+`GET /api/ingredients?query=leche` busca en el catálogo de Ingredientes, que es el mismo para todas las
+cuentas. Es la lista de la que la app elige el Ingrediente que agrega al inventario: `POST
+/api/inventory/items/add-extra` recibe su `id` como `ingredientId`.
+
+- `query` se recorta y debe tener entre 1 y 100 caracteres. Uno ausente, vacío o más largo da
+  `422 validation_error`, con un `message` que nombra `query`.
+- Encuentra los nombres que contienen `query` sin distinguir mayúsculas. `%` y `_` se buscan tal cual.
+- Responde a lo sumo 20 Ingredientes: primero los nombres que empiezan con `query`, después el resto, y
+  cada grupo por nombre. Sin coincidencias responde `200` con una lista vacía.
+- Requiere acceso vigente, como el resto de las rutas del inventario.
+
+```json
+{
+  "data": [
+    { "id": "6f1d2c3b-4a59-4e68-8a77-1b2c3d4e5f60", "name": "Leche entera" },
+    { "id": "7a2e3d4c-5b6a-4f79-9b88-2c3d4e5f6071", "name": "Dulce de leche" }
+  ]
+}
+```
 
 ### Ejemplo: Obtener Calendario
 

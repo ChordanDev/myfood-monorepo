@@ -95,3 +95,4 @@ Advisory reviews (Jorge) of #88 to #91 on 2026-10-08: #89, #90 and #91 approved,
 - Checks on the rebuilt head: `mix format --check-formatted` and `mix compile --warnings-as-errors` clean, `mix test` 1464 passed, 20 skipped on a fresh database; `npm run lint` 0 errors, 4 warnings, `npm run typecheck` clean, `npm test` 108 suites, 1688 passed. Each slice head was run on its own side: API after T1 (1446 passed) and T2 (1464), mobile after T3 (106 suites, 1626) and T4 (108 suites, 1688).
 - The rebuilt commits have not been reviewed; the earlier native approval of T1 and T2 and the advisory reviews cover the previous commits.
 - The mobile notes limit (500) is lower than the API one (1000).
+- The open follow-ups above were tracked in #116 and are closed in `odd/tasks/inventory-follow-ups.md`.

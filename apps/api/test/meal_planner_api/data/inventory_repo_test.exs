@@ -91,6 +91,38 @@ defmodule MealPlannerApi.Data.InventoryRepoTest do
     end
   end
 
+  describe "list_stock_with_ingredient/1" do
+    test "lists the account's lots above zero with their Ingredient, leaving out the ones at zero" do
+      account = insert_account("Inv Stock")
+      other = insert_account("Inv Stock Other")
+      flour = insert_ingredient("Stock Flour")
+      sugar = insert_ingredient("Stock Sugar")
+
+      lot = fn account_id, ingredient, quantity_milli ->
+        {:ok, item} =
+          InventoryRepo.upsert_inventory_item(%{
+            account_id: account_id,
+            ingredient_id: ingredient.id,
+            quantity_milli: quantity_milli,
+            unit: :g,
+            source_kind: :planned,
+            last_mutation_at: DateTime.utc_now()
+          })
+
+        item
+      end
+
+      in_stock = lot.(account.id, flour, 500)
+      _consumed = lot.(account.id, sugar, 0)
+      _foreign = lot.(other.id, flour, 700)
+
+      assert [%{id: id, ingredient: %Ingredient{name: "Stock Flour"}}] =
+               InventoryRepo.list_stock_with_ingredient(account.id)
+
+      assert id == in_stock.id
+    end
+  end
+
   describe "get_inventory_item_for_account/2 — rejects cross-account item_ids" do
     test "returns the item when it belongs to the requested account" do
       account = insert_account("Self Inv")

@@ -2,10 +2,21 @@
 <html lang="es">
 <head>
 <meta charset="utf-8">
-<title>Inventario</title>
+<title>Inventario (superseded)</title>
 <script src="./support.js"></script>
 </head>
 <body>
+<!--
+Superseded on 2026-10-15 (ChordanDev/myfood-monorepo#116). This describes the first
+Inventory screen, not the current one. The screen now lists the lots read from
+`GET /api/inventory`, grouped by freshness (Vencidos, Por vencer, En buen estado), what to
+use first on top. Quantities are exact, so there is no "aprox." pill, and there are no
+category groups. The edit button of a row opens the sheet that sets the quantity and disposes of the
+lot; there is no trash button on the row. "Agregar producto" picks the Ingredient from
+the API catalogue (`GET /api/ingredients`), and the voice sheet takes a typed transcript.
+The subtitle reads "Revisá primero lo de arriba: lo vencido y lo que vence pronto.". The code and
+its tests in `src/features/inventory` are the reference.
+-->
 <x-dc>
 <helmet>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=Montserrat:wght@600;700&amp;display=swap">

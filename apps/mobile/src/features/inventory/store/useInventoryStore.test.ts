@@ -378,6 +378,49 @@ describe('applyVoice', () => {
   });
 });
 
+describe('resetAccountData', () => {
+  it('empties the cache, its load status and its error', () => {
+    useInventoryStore.setState({ loadStatus: 'error', loadError: new Error('offline') as never });
+
+    useInventoryStore.getState().resetAccountData();
+
+    expect(useInventoryStore.getState()).toMatchObject({
+      items: [],
+      loadStatus: 'idle',
+      loadError: null,
+    });
+  });
+
+  it('drops the answer of a read that was on its way, which belongs to the previous Account', async () => {
+    const stale = deferredResponse();
+    fetchMock.mockReturnValueOnce(stale.response);
+
+    const staleRead = useInventoryStore.getState().refresh();
+    useInventoryStore.getState().resetAccountData();
+    stale.resolve(dataResponse(INVENTORY_VIEW));
+    await staleRead;
+
+    expect(getItems()).toEqual([]);
+    expect(useInventoryStore.getState().loadStatus).toBe('idle');
+  });
+
+  it('drops the answer of a write that was on its way', async () => {
+    const stale = deferredResponse();
+    fetchMock.mockReturnValueOnce(stale.response);
+
+    const staleWrite = useInventoryStore
+      .getState()
+      .addExtra({ ingredientId: ONION.ingredientId, quantityMilli: 3_000, unit: 'unit' });
+    useInventoryStore.getState().resetAccountData();
+    stale.resolve(
+      dataResponse({ item: ONION, mutationEvent: mutationEvent(ONION, { operation: 'add' }) })
+    );
+    await staleWrite;
+
+    expect(getItems()).toEqual([]);
+  });
+});
+
 describe('migrateInventoryState', () => {
   it('discards the fixture items persisted before the store read the API', () => {
     const persisted = {

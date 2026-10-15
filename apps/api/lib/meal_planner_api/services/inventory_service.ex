@@ -36,11 +36,26 @@ defmodule MealPlannerApi.Services.InventoryService do
   # The longest `action_id` a voice apply takes. A client sends a UUID.
   @max_action_id_length 128
 
+  # The reasons this service refuses a payload with. The controller answers
+  # each of them with `validation_error`, so a new one is added here.
+  @validation_reasons ~w(
+    missing_ingredient invalid_ingredient_id ingredient_not_found
+    missing_quantity invalid_quantity
+    missing_unit invalid_unit
+    invalid_expires_at invalid_notes invalid_is_leftover
+    invalid_acquired_at invalid_acquired_price_cents
+    invalid_voice_payload no_ingredients_selected
+  )a
+
+  @doc "The reasons a request is refused with because its payload is not valid."
+  @spec validation_reasons() :: [atom()]
+  def validation_reasons, do: @validation_reasons
+
   @doc "Returns usable inventory for one account without changing inventory state."
   @spec list_for_account(Ecto.UUID.t(), Date.t()) :: [map()]
   def list_for_account(account_id, today \\ Date.utc_today()) do
-    InventoryPersistence.list_inventory_with_ingredient(account_id)
-    |> Enum.filter(fn item -> item.quantity_milli > 0 and LotFreshness.usable?(item, today) end)
+    InventoryPersistence.list_stock_with_ingredient(account_id)
+    |> Enum.filter(&LotFreshness.usable?(&1, today))
   end
 
   # -------------------------------------------------------------------------
@@ -52,12 +67,9 @@ defmodule MealPlannerApi.Services.InventoryService do
     with {:ok, identity} <- Identity.ensure_persistent_identity(user) do
       now = DateTime.utc_now()
 
-      # A disposed or fully consumed lot is kept at quantity zero for the ledger;
-      # it is not stock.
       decorated =
         identity.account_id
-        |> InventoryPersistence.list_inventory_with_ingredient()
-        |> Enum.filter(&(&1.quantity_milli > 0))
+        |> InventoryPersistence.list_stock_with_ingredient()
         |> Enum.map(&view_item(&1, now))
 
       {:ok,
@@ -429,8 +441,8 @@ defmodule MealPlannerApi.Services.InventoryService do
     today = AccountClock.today(account_id)
 
     account_id
-    |> InventoryPersistence.list_inventory_with_ingredient()
-    |> Enum.filter(&(&1.quantity_milli > 0 and LotFreshness.usable?(&1, today)))
+    |> InventoryPersistence.list_stock_with_ingredient()
+    |> Enum.filter(&LotFreshness.usable?(&1, today))
   end
 
   defp view_voice_intent(intent) do
@@ -572,11 +584,13 @@ defmodule MealPlannerApi.Services.InventoryService do
   defp lot_metadata_from_payload(payload) do
     with {:ok, expired_at} <- parse_expires_at(param(payload, :expires_at)),
          {:ok, notes} <- parse_notes(param(payload, :notes)),
-         {:ok, is_leftover} <- parse_is_leftover(param(payload, :is_leftover)) do
+         {:ok, is_leftover} <- parse_is_leftover(param(payload, :is_leftover)),
+         {:ok, acquired_at} <- parse_acquired_at(param(payload, :acquired_at)),
+         {:ok, price_cents} <- parse_price_cents(param(payload, :acquired_price_cents)) do
       metadata =
         %{
-          acquired_at: param(payload, :acquired_at),
-          acquired_price_cents: param(payload, :acquired_price_cents),
+          acquired_at: acquired_at,
+          acquired_price_cents: price_cents,
           expired_at: expired_at,
           notes: notes
         }
@@ -604,6 +618,39 @@ defmodule MealPlannerApi.Services.InventoryService do
   end
 
   defp parse_expires_at(_), do: {:error, :invalid_expires_at}
+
+  # A moment, so an ISO datetime; one without an offset is read as UTC, as
+  # the column cast did. A bare date is not a moment.
+  defp parse_acquired_at(nil), do: {:ok, nil}
+
+  defp parse_acquired_at(value) when is_binary(value) do
+    case DateTime.from_iso8601(value) do
+      {:ok, datetime, _offset} ->
+        {:ok, datetime}
+
+      {:error, :missing_offset} ->
+        {:ok, naive} = NaiveDateTime.from_iso8601(value)
+        {:ok, DateTime.from_naive!(naive, "Etc/UTC")}
+
+      {:error, _} ->
+        {:error, :invalid_acquired_at}
+    end
+  end
+
+  defp parse_acquired_at(_), do: {:error, :invalid_acquired_at}
+
+  # Whole cents at or above zero, as a number or as the digits of one.
+  defp parse_price_cents(nil), do: {:ok, nil}
+  defp parse_price_cents(cents) when is_integer(cents) and cents >= 0, do: {:ok, cents}
+
+  defp parse_price_cents(cents) when is_binary(cents) do
+    case Integer.parse(cents) do
+      {value, ""} when value >= 0 -> {:ok, value}
+      _ -> {:error, :invalid_acquired_price_cents}
+    end
+  end
+
+  defp parse_price_cents(_), do: {:error, :invalid_acquired_price_cents}
 
   defp parse_notes(nil), do: {:ok, nil}
 

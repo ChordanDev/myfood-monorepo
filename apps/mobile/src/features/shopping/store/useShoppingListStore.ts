@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
 import { isApiError } from '@/api/errors';
+import { registerAccountDataReset } from '@/features/auth/utils/accountDataReset';
 import { safeAsyncStorage } from '@/utils/safeAsyncStorage';
 import {
   addManualShoppingItem,
@@ -58,6 +59,9 @@ interface ShoppingListState {
   // day is kept as theirs: without a user of the cache no day is kept.
   setChosenUntilDate: (dateKey: string | undefined) => Promise<void>;
   setGroupBy: (groupBy: ShoppingGroupBy) => Promise<void>;
+  // Drops what belongs to the signed-in Account: the list, its user and the day they chose.
+  // The grouping is the device's and stays. Run when the session ends or the Account changes.
+  resetAccountData: () => void;
 }
 
 type PersistedShoppingListState = Pick<
@@ -254,6 +258,11 @@ export const useShoppingListStore = create<ShoppingListState>()(
           set({ groupBy });
           return read(get().ownerId);
         },
+        // A read for nobody drops the list at once and overtakes any read on its way.
+        resetAccountData: () => {
+          void read(null);
+          set(NO_CHOSEN_DATE);
+        },
       };
     },
     {
@@ -286,3 +295,5 @@ export const useShoppingListStore = create<ShoppingListState>()(
     }
   )
 );
+
+registerAccountDataReset(() => useShoppingListStore.getState().resetAccountData());

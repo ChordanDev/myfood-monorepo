@@ -17,6 +17,9 @@ defmodule MealPlannerApi.Data.InventoryRepo do
   @spec list_inventory_with_ingredient(Ecto.UUID.t()) :: [InventoryItem.t()]
   defdelegate list_inventory_with_ingredient(account_id), to: InventoryPersistence
 
+  @spec list_stock_with_ingredient(Ecto.UUID.t()) :: [InventoryItem.t()]
+  defdelegate list_stock_with_ingredient(account_id), to: InventoryPersistence
+
   @spec get_inventory_item!(Ecto.UUID.t()) :: InventoryItem.t()
   defdelegate get_inventory_item!(id), to: InventoryPersistence
 

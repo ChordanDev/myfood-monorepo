@@ -534,6 +534,41 @@ describe('the user the list was read for', () => {
   });
 });
 
+describe('dropping the data of the signed-in Account', () => {
+  it('drops the list, its user and the day they chose, and keeps the grouping', async () => {
+    holdChosenDay('2026-10-10');
+    useShoppingListStore.setState({ groupBy: 'meal' });
+    answerWith(SHOPPING_LIST_UNTIL_OCT_10);
+    await shopping().refresh(USER_A);
+
+    shopping().resetAccountData();
+    await nextTick();
+
+    expect(shopping()).toMatchObject({
+      ownerId: null,
+      list: null,
+      status: 'idle',
+      error: null,
+      chosenUntilDate: undefined,
+      chosenUntilDateOwnerId: undefined,
+      groupBy: 'meal',
+    });
+    expect(storedState()).toEqual({ version: 4, state: { groupBy: 'meal' } });
+  });
+
+  it('ignores the answer to a read that was still on its way', async () => {
+    const request = holdTheNextRequest();
+    const read = shopping().refresh(USER_A);
+    await nextTick();
+
+    shopping().resetAccountData();
+    request.answer(SHOPPING_LIST_BY_INGREDIENT);
+    await read;
+
+    expect(shopping()).toMatchObject({ ownerId: null, list: null, status: 'idle' });
+  });
+});
+
 describe('the user who chose the day', () => {
   it('is recorded with the day', async () => {
     answerWith(SHOPPING_LIST_UNTIL_OCT_10);

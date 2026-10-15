@@ -4,5 +4,6 @@ export {
   disposeItem,
   getInventory,
   previewVoice,
+  searchIngredients,
   setItemQuantity,
 } from './inventoryApi';

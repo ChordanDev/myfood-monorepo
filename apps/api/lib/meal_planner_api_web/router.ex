@@ -212,6 +212,7 @@ defmodule MealPlannerApiWeb.Router do
     post("/inventory/voice/preview", InventoryController, :voice_preview)
     post("/inventory/voice/apply", InventoryController, :voice_apply)
     post("/planning/rescue", InventoryController, :rescue_plan)
+    get("/ingredients", IngredientController, :index)
 
     get("/leftovers/prepared", PreparedLeftoverController, :index)
     post("/leftovers/prepared", PreparedLeftoverController, :create)
