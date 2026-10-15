@@ -8,18 +8,17 @@ defmodule MealPlannerApi.Services.InviteServiceTest do
       hash (SHA-256 lower-case hex)
     * `hash_token/1` is a stable hashing function usable by external
       callers (e.g. tests, future API surface)
-    * `verify_and_consume/2` flips `:invited → :active`, sets `joined_at`,
-      nulls `invite_token_hash` + `invite_expires_at`
-    * replay (second call after consume) returns `:invite_token_used`
-    * an expired token returns `:invite_token_expired`
-    * a wrong-plaintext lookup returns `:invite_token_unknown`
+    * `create_invite_row/2` reuses a user whose email differs only in
+      case, and stores new emails normalized
+
+  Accepting an invite is covered by the `AccountsMembership.accept_invite/2`
+  tests.
   """
   use ExUnit.Case, async: false
 
   import MealPlannerApi.FactoryHelpers
 
   alias Ecto.Adapters.SQL.Sandbox
-  alias MealPlannerApi.Persistence.Accounts.AccountMembership
   alias MealPlannerApi.Persistence.Accounts.User, as: PersistenceUser
   alias MealPlannerApi.Repo
   alias MealPlannerApi.Services.InviteService
@@ -62,124 +61,6 @@ defmodule MealPlannerApi.Services.InviteServiceTest do
       # And both round-trip.
       assert InviteService.hash_token(a) == ha
       assert InviteService.hash_token(b) == hb
-    end
-  end
-
-  describe "verify_and_consume/2" do
-    test "flips :invited → :active, sets joined_at, points user_id at invitee" do
-      user =
-        user_with_memberships(
-          %{email: "invitee@example.com"},
-          []
-        )
-
-      owner =
-        user_with_memberships(
-          %{email: "owner@example.com"},
-          [
-            {%{plan: :family_4, name: "F"}, :owner}
-          ]
-        )
-
-      [owner_membership] = owner.memberships
-
-      {:ok, %{membership: invited, token: plaintext}} =
-        InviteService.create_invite_row(owner_membership, "invitee@example.com")
-
-      assert invited.status == :invited
-      assert is_binary(invited.invite_token_hash)
-      assert %DateTime{} = invited.invite_expires_at
-
-      {:ok, accepted_membership} =
-        InviteService.verify_and_consume(plaintext, owner_membership.account_id, user)
-
-      assert accepted_membership.status == :active
-      assert %DateTime{} = accepted_membership.joined_at
-      assert accepted_membership.user_id == user.id
-      # Token fields are KEPT so a replay can detect :invite_token_used
-      # (per spec `invite-and-accept.md` §"Token replay").
-      assert is_binary(accepted_membership.invite_token_hash)
-      assert %DateTime{} = accepted_membership.invite_expires_at
-    end
-
-    test "replay (second call) returns :invite_token_used" do
-      user =
-        user_with_memberships(
-          %{email: "replay@example.com"},
-          []
-        )
-
-      owner =
-        user_with_memberships(
-          %{email: "replay-owner@example.com"},
-          [
-            {%{plan: :family_4, name: "F"}, :owner}
-          ]
-        )
-
-      [owner_membership] = owner.memberships
-
-      {:ok, %{token: plaintext}} =
-        InviteService.create_invite_row(owner_membership, "replay@example.com")
-
-      assert {:ok, _} =
-               InviteService.verify_and_consume(plaintext, owner_membership.account_id, user)
-
-      assert {:error, :invite_token_used} =
-               InviteService.verify_and_consume(plaintext, owner_membership.account_id, user)
-    end
-
-    test "an expired token returns :invite_token_expired" do
-      user =
-        user_with_memberships(
-          %{email: "expired@example.com"},
-          []
-        )
-
-      owner =
-        user_with_memberships(
-          %{email: "expired-owner@example.com"},
-          [
-            {%{plan: :family_4, name: "F"}, :owner}
-          ]
-        )
-
-      [owner_membership] = owner.memberships
-
-      {:ok, %{membership: invited, token: plaintext}} =
-        InviteService.create_invite_row(owner_membership, "expired@example.com")
-
-      # Backdate the row past its expiry.
-      past = DateTime.add(DateTime.utc_now(), -1, :day)
-
-      invited
-      |> AccountMembership.changeset(%{invite_expires_at: past})
-      |> Repo.update!()
-
-      assert {:error, :invite_token_expired} =
-               InviteService.verify_and_consume(plaintext, owner_membership.account_id, user)
-    end
-
-    test "a wrong-plaintext lookup returns :invite_token_unknown" do
-      owner =
-        user_with_memberships(
-          %{email: "unknown-owner@example.com"},
-          [
-            {%{plan: :family_4, name: "F"}, :owner}
-          ]
-        )
-
-      [owner_membership] = owner.memberships
-
-      {:ok, %{token: _real_token}} =
-        InviteService.create_invite_row(owner_membership, "unknown@example.com")
-
-      assert {:error, :invite_token_unknown} =
-               InviteService.verify_and_consume(
-                 "definitely-wrong-token",
-                 owner_membership.account_id,
-                 owner
-               )
     end
   end
 
