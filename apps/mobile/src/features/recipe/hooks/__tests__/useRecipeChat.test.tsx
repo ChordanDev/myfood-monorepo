@@ -1,6 +1,6 @@
 import React from 'react';
 import { act, create, type ReactTestRenderer } from 'react-test-renderer';
-import { ApiError } from '@/api/errors';
+import { AUTH_ERROR_MESSAGES, ApiError } from '@/api/errors';
 import { askCookingSession, getCookingSession, startCookingSession } from '@/features/cooking/api';
 import {
   COOKING_ANSWER,
@@ -42,6 +42,19 @@ const SESSION_WITH_ANSWER = {
   chatMessages: [...COOKING_CHAT_HISTORY, ...COOKING_ANSWER.turns],
 };
 const sentMessageIds = () => askMock.mock.calls.map(([, , clientMessageId]) => clientMessageId);
+// The same read, with the question stored under the id the app sent.
+const sessionWithSentAnswer = () => {
+  const [question, answer] = COOKING_ANSWER.turns;
+
+  return {
+    ...COOKING_SESSION_WITH_HISTORY,
+    chatMessages: [
+      ...COOKING_CHAT_HISTORY,
+      { ...question, clientMessageId: sentMessageIds()[0] },
+      answer,
+    ],
+  };
+};
 
 function deferred<T>() {
   let resolve: (value: T) => void = () => {};
@@ -305,7 +318,7 @@ describe('useRecipeChat', () => {
       askMock.mockRejectedValue(new ApiError('network_error', 'offline'));
       readMock
         .mockResolvedValueOnce(COOKING_SESSION_WITH_HISTORY)
-        .mockResolvedValueOnce(SESSION_WITH_ANSWER);
+        .mockImplementationOnce(async () => sessionWithSentAnswer());
       const { result } = await renderChat();
 
       await ask(result, COOKING_QUESTION);
@@ -315,6 +328,35 @@ describe('useRecipeChat', () => {
       expect(result.current.input).toBe('');
       expect(result.current.isThinking).toBe(false);
       expect(result.current.errorMessage).toBeNull();
+    });
+
+    it('does not take an unseen question with the same text but another id', async () => {
+      askMock.mockRejectedValue(new ApiError('network_error', 'offline'));
+      readMock
+        .mockResolvedValueOnce(COOKING_SESSION_WITH_HISTORY)
+        .mockResolvedValueOnce(SESSION_WITH_ANSWER);
+      const { result } = await renderChat();
+
+      await ask(result, COOKING_QUESTION);
+
+      expect(readMock).toHaveBeenCalledTimes(2);
+      expect(ids(result)).toEqual(HISTORY_IDS);
+      expect(result.current.input).toBe(COOKING_QUESTION);
+      expect(result.current.errorMessage).toEqual(expect.any(String));
+    });
+
+    it('says the daily limit was reached and keeps the question, without reading again', async () => {
+      askMock.mockRejectedValue(new ApiError('cooking_chat_limit_reached', 'limit', 429));
+      const { result } = await renderChat();
+
+      await ask(result, COOKING_QUESTION);
+
+      expect(result.current.errorMessage).toBe(AUTH_ERROR_MESSAGES.cooking_chat_limit_reached);
+      expect(result.current.availability).toBe('available');
+      expect(result.current.input).toBe(COOKING_QUESTION);
+      expect(ids(result)).toEqual(HISTORY_IDS);
+      // The limit is checked before anything is stored.
+      expect(readMock).toHaveBeenCalledTimes(1);
     });
 
     it('does not take an earlier, identical question for the one that failed', async () => {

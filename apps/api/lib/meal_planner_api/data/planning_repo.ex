@@ -717,6 +717,22 @@ defmodule MealPlannerApi.Data.PlanningRepo do
   end
 
   @doc """
+  The Cooking chat questions stored for the Account in `[from, to)`, over all
+  its sessions.
+  """
+  @spec count_chat_questions(Ecto.UUID.t(), DateTime.t(), DateTime.t()) :: non_neg_integer()
+  def count_chat_questions(account_id, from, to) do
+    from(m in CookingChatMessage,
+      join: s in CookingSession,
+      on: s.id == m.cooking_session_id,
+      where:
+        s.account_id == ^account_id and m.role == :user and m.inserted_at >= ^from and
+          m.inserted_at < ^to
+    )
+    |> Repo.aggregate(:count)
+  end
+
+  @doc """
   The stored question that carries a client message id and the answer stored
   with it, or `nil` when the session has no such complete pair.
   """

@@ -58,9 +58,12 @@ export async function getCookingSession(
 
 /**
  * Asks the Cooking chat a question. The answer arrives whole, with the two turns the server
- * stored; it refuses a meal not on its today and a session that already finished.
+ * stored; it refuses a meal not on its today, a session that already finished and a question
+ * past the Account's daily limit (`cooking_chat_limit_reached`). When the model fails, the
+ * answer is a canned one that the server does not store.
  * `clientMessageId` is a UUID that names the question: sending the same one again returns the
- * stored pair instead of storing the question twice.
+ * stored pair instead of storing the question twice, and sending it with other text is
+ * `cooking_message_id_conflict`.
  */
 export async function askCookingSession(
   sessionId: string,
@@ -140,7 +143,10 @@ function isChatMessage(value: unknown): value is CookingChatMessage {
     value.id !== '' &&
     (value.role === 'user' || value.role === 'assistant') &&
     typeof value.content === 'string' &&
-    typeof value.insertedAt === 'string'
+    typeof value.insertedAt === 'string' &&
+    (value.clientMessageId === undefined ||
+      value.clientMessageId === null ||
+      typeof value.clientMessageId === 'string')
   );
 }
 

@@ -59,6 +59,11 @@ function closedReasonOf(error: unknown): ClosedReason | null {
   return null;
 }
 
+/** Refused before anything is stored, without closing the chat: the next day it asks again. */
+function isLimitReached(error: unknown): boolean {
+  return isApiError(error) && error.code === 'cooking_chat_limit_reached';
+}
+
 /** A refusal that closes the chat is told by the composer; any other failure says why. */
 function withFailure(chat: ChatState, error: unknown): ChatState {
   const closedReason = closedReasonOf(error);
@@ -141,11 +146,14 @@ export function useRecipeChat({ scheduledMealId, isEnabled, isCooked }: UseRecip
 
   // After a failed question: the stored history when the server kept the question after all
   // (only its answer was lost on the way back), `null` when it did not or cannot be asked.
+  // The question is found by the id it was sent with.
   const readStoredQuestion = useCallback(
-    async (sessionId: string, text: string): Promise<CookingChatMessage[] | null> => {
+    async (sessionId: string, clientMessageId: string): Promise<CookingChatMessage[] | null> => {
       try {
         const { chatMessages } = await getCookingSession(sessionId);
-        if (!hasUnseenQuestion(chatMessages, seenTurnIdsRef.current, text)) return null;
+        if (!hasUnseenQuestion(chatMessages, seenTurnIdsRef.current, clientMessageId)) {
+          return null;
+        }
 
         rememberTurns(chatMessages);
         return chatMessages;
@@ -188,9 +196,12 @@ export function useRecipeChat({ scheduledMealId, isEnabled, isCooked }: UseRecip
         }));
       } catch (error) {
         const isRefusal = closedReasonOf(error) !== null;
-        // A refusal stored nothing, and neither did a session that never opened.
+        // A refusal stored nothing, and neither did the daily limit or a session that never
+        // opened.
         const stored =
-          isRefusal || sessionId === null ? null : await readStoredQuestion(sessionId, text);
+          isRefusal || isLimitReached(error) || sessionId === null
+            ? null
+            : await readStoredQuestion(sessionId, clientMessageId);
 
         if (stored) {
           updateChat(mealId, (latest) => ({

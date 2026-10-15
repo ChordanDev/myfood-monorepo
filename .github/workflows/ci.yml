@@ -154,6 +154,12 @@ jobs:
       - name: Run tests
         run: mix test
 
+      # The concurrency tests `mix test` skips (issue #38), such as two
+      # concurrent Cooking starts sharing one session. The runner creates a
+      # fresh database for them and exits non-zero when one fails.
+      - name: Run concurrency tests
+        run: mix run --no-start test/support/issue38_concurrency_runner.exs
+
   mobile:
     name: Mobile (Expo)
     needs: changes

@@ -9,6 +9,7 @@ defmodule MealPlannerApi.Services.CookingChatTest do
   import Ecto.Query
   import MealPlannerApi.IdentityFixtures
 
+  alias MealPlannerApi.AccountClock
   alias MealPlannerApi.Persistence.Accounts.Account
   alias MealPlannerApi.Persistence.Calendar
   alias MealPlannerApi.Persistence.Catalog
@@ -124,6 +125,28 @@ defmodule MealPlannerApi.Services.CookingChatTest do
     Repo.all(from(m in CookingChatMessage, order_by: [asc: m.inserted_at]))
   end
 
+  # Questions of the Account stored at `at` in another session: the daily
+  # limit counts every session of the Account.
+  defp stored_questions!(f, count, at, slot \\ :lunch) do
+    session = start!(f, meal!(f, AccountClock.today(f.account.id, at), slot), at)
+    at = %{at | microsecond: {0, 6}}
+
+    rows =
+      for n <- 1..count//1 do
+        %{
+          id: Ecto.UUID.generate(),
+          cooking_session_id: session.session_id,
+          user_id: f.user.id,
+          role: :user,
+          content: "Earlier question #{n}",
+          inserted_at: at,
+          updated_at: at
+        }
+      end
+
+    Repo.insert_all(CookingChatMessage, rows)
+  end
+
   defp sessions_of(meal),
     do: Repo.all(from(s in CookingSession, where: s.scheduled_meal_id == ^meal.id))
 
@@ -170,6 +193,28 @@ defmodule MealPlannerApi.Services.CookingChatTest do
       assert Enum.map(reply.turns, & &1.id) == [user_turn.id, assistant_turn.id]
     end
 
+    test "stored user turns carry their client message id in the history", f do
+      session = start!(f, meal!(f, @utc_day))
+      id = Ecto.UUID.generate()
+
+      assert {:ok, reply} = ask(f, session, "With id?", @instant, id)
+      assert {:ok, _} = ask(f, session, "Without id?")
+
+      assert [%{client_message_id: ^id}, assistant] = reply.turns
+      refute Map.has_key?(assistant, :client_message_id)
+
+      assert {:ok, state} = CookingService.session_state(f.actor, session.session_id)
+
+      assert [
+               %{role: "user", client_message_id: ^id},
+               %{role: "assistant"} = first_answer,
+               %{role: "user", client_message_id: nil},
+               %{role: "assistant"}
+             ] = state.chat_messages
+
+      refute Map.has_key?(first_answer, :client_message_id)
+    end
+
     test "the session read returns the full history, oldest first", f do
       session = start!(f, meal!(f, @utc_day))
 
@@ -189,7 +234,8 @@ defmodule MealPlannerApi.Services.CookingChatTest do
                ["First?", "Second?", "Third?"]
 
       for item <- history do
-        assert Map.keys(item) |> Enum.sort() == [:content, :id, :inserted_at, :role]
+        user_keys = if item.role == "user", do: [:client_message_id], else: []
+        assert Map.keys(item) |> Enum.sort() == user_keys ++ [:content, :id, :inserted_at, :role]
         assert %DateTime{} = item.inserted_at
       end
 
@@ -345,6 +391,85 @@ defmodule MealPlannerApi.Services.CookingChatTest do
       assert [%{client_message_id: ^id}, %{client_message_id: nil}] = stored_turns()
     end
 
+    test "the same id with different text is cooking_message_id_conflict", f do
+      session = start!(f, meal!(f, @utc_day))
+      id = Ecto.UUID.generate()
+
+      task = ask_behind_barrier(f, session, "First text?", id)
+      assert_receive {:cooking_ai, worker, "First text?", _opts}
+      send(worker, :answer)
+      assert {:ok, first} = Task.await(task)
+
+      assert {:error, :cooking_message_id_conflict} = ask(f, session, "Other text?", @instant, id)
+      refute_received {:cooking_ai, _, _, _}
+      assert Enum.map(stored_turns(), & &1.id) == Enum.map(first.turns, & &1.id)
+
+      # Surrounding whitespace is not part of the question.
+      assert {:ok, ^first} = ask(f, session, "  First text?  ", @instant, id)
+    end
+
+    test "a resend of a stored id returns the pair after the session finished", f do
+      session = start!(f, meal!(f, @utc_day))
+      id = Ecto.UUID.generate()
+
+      task = ask_behind_barrier(f, session, "Before finishing?", id)
+      assert_receive {:cooking_ai, worker, "Before finishing?", _opts}
+      send(worker, :answer)
+      assert {:ok, first} = Task.await(task)
+
+      assert {:ok, _} = CookingService.finish_session(f.actor, session.session_id, @instant)
+
+      assert {:ok, ^first} = ask(f, session, "Before finishing?", @instant, id)
+
+      assert {:ok, ^first} =
+               ask(f, session, "Before finishing?", DateTime.add(@instant, 86_400), id)
+
+      assert {:error, :cooking_message_id_conflict} =
+               ask(f, session, "After finishing?", @instant, id)
+
+      refute_received {:cooking_ai, _, _, _}
+
+      # A new question still meets the gate.
+      assert {:error, :cooking_already_finished} = ask(f, session, "New one?")
+    end
+
+    test "a resend of a stored id returns the pair after the meal left today", f do
+      session = start!(f, meal!(f, @utc_day))
+      id = Ecto.UUID.generate()
+
+      task = ask_behind_barrier(f, session, "Still today?", id)
+      assert_receive {:cooking_ai, worker, "Still today?", _opts}
+      send(worker, :answer)
+      assert {:ok, first} = Task.await(task)
+
+      tomorrow = DateTime.add(@instant, 86_400)
+      assert {:ok, ^first} = ask(f, session, "Still today?", tomorrow, id)
+      refute_received {:cooking_ai, _, _, _}
+
+      assert {:error, :cooking_chat_unavailable} =
+               ask(f, session, "Tomorrow?", tomorrow, Ecto.UUID.generate())
+
+      assert length(stored_turns()) == 2
+    end
+
+    test "two requests racing on one id with different text store one pair", f do
+      session = start!(f, meal!(f, @utc_day))
+      id = Ecto.UUID.generate()
+
+      first = ask_behind_barrier(f, session, "Racing A?", id)
+      assert_receive {:cooking_ai, worker_a, "Racing A?", _opts}
+      second = ask_behind_barrier(f, session, "Racing B?", id)
+      assert_receive {:cooking_ai, worker_b, "Racing B?", _opts}
+
+      send(worker_a, :answer)
+      assert {:ok, winner} = Task.await(first)
+      send(worker_b, :answer)
+      assert {:error, :cooking_message_id_conflict} = Task.await(second)
+
+      assert Enum.map(stored_turns(), & &1.id) == Enum.map(winner.turns, & &1.id)
+      assert [%{content: "Racing A?"}, _answer] = stored_turns()
+    end
+
     test "a malformed client message id is a validation error and stores nothing", f do
       session = start!(f, meal!(f, @utc_day))
 
@@ -443,6 +568,90 @@ defmodule MealPlannerApi.Services.CookingChatTest do
 
       assert {:error, :session_not_found} = ask(stranger, session, "Yours?")
       assert length(stored_turns()) == 2
+    end
+  end
+
+  describe "daily limit" do
+    setup do
+      use_barrier_client!()
+    end
+
+    test "the 101st question of the Account's day is cooking_chat_limit_reached", f do
+      stored_questions!(f, 99, ~U[2026-10-08 08:00:00Z])
+      session = start!(f, meal!(f, @utc_day))
+
+      # The hundredth question of the day is still asked.
+      ask_observing_prompt(f, session, "The hundredth?")
+
+      # Stored turns are stamped with the wall clock, not with @instant, so the
+      # hundredth is stored outside the day under test: one more takes its place.
+      stored_questions!(f, 1, ~U[2026-10-08 09:00:00Z], :breakfast)
+
+      assert {:error, :cooking_chat_limit_reached} = ask(f, session, "One more?")
+      refute_received {:cooking_ai, _, _, _}
+
+      assert [%{content: "The hundredth?"}, %{role: :assistant}] =
+               Enum.filter(stored_turns(), &(&1.cooking_session_id == session.session_id))
+    end
+
+    test "questions of other days and of other Accounts do not count", f do
+      stored_questions!(f, 100, ~U[2026-10-07 12:00:00Z])
+
+      %{user: other_user, account: other} = insert_identity!(plan: :family_4)
+      other = MealPlannerApiWeb.ChannelHelpers.persist_trial_window!(other, :eligible)
+
+      {:ok, other_recipe} =
+        Catalog.create_recipe(%{
+          account_id: other.id,
+          created_by_user_id: other_user.id,
+          name: "Other stew",
+          source: :user_created,
+          servings: 2,
+          suitable_for_slots: [:lunch]
+        })
+
+      stranger = %{
+        f
+        | user: other_user,
+          account: other,
+          recipe: other_recipe,
+          actor: %{id: other_user.id, account_id: other.id, plan: :family_4}
+      }
+
+      stored_questions!(stranger, 100, ~U[2026-10-08 08:00:00Z])
+
+      session = start!(f, meal!(f, @utc_day))
+      ask_observing_prompt(f, session, "Fresh day?")
+    end
+
+    test "the day is the Account's day, not the UTC day", f do
+      set_timezone!(f.account, "Pacific/Auckland")
+      # 10:00 UTC on the 8th is still the 8th in Auckland: another day.
+      stored_questions!(f, 100, ~U[2026-10-08 10:00:00Z])
+      session = start!(f, meal!(f, @auckland_day))
+
+      ask_observing_prompt(f, session, "Is it a new day?")
+
+      # 12:00 UTC on the 8th is the 9th in Auckland: the same day as @instant.
+      stored_questions!(f, 100, ~U[2026-10-08 12:00:00Z])
+      assert {:error, :cooking_chat_limit_reached} = ask(f, session, "Over?")
+      refute_received {:cooking_ai, _, _, _}
+    end
+
+    test "a resend of a stored id still returns its pair over the limit", f do
+      session = start!(f, meal!(f, @utc_day))
+      id = Ecto.UUID.generate()
+
+      task = ask_behind_barrier(f, session, "Kept?", id)
+      assert_receive {:cooking_ai, worker, "Kept?", _opts}
+      send(worker, :answer)
+      assert {:ok, first} = Task.await(task)
+
+      stored_questions!(f, 100, ~U[2026-10-08 08:00:00Z])
+
+      assert {:ok, ^first} = ask(f, session, "Kept?", @instant, id)
+      assert {:error, :cooking_chat_limit_reached} = ask(f, session, "New?")
+      refute_received {:cooking_ai, _, _, _}
     end
   end
 
@@ -572,15 +781,34 @@ defmodule MealPlannerApi.Services.CookingChatTest do
     end
   end
 
-  test "the canned fallback is stored as the assistant turn when the AI fails", f do
+  test "the canned fallback is answered but not stored when the AI fails", f do
     previous = Application.get_env(:meal_planner_api, :ai_client)
     Application.put_env(:meal_planner_api, :ai_client, nil)
     on_exit(fn -> Application.put_env(:meal_planner_api, :ai_client, previous) end)
 
     session = start!(f, meal!(f, @utc_day))
-    assert {:ok, reply} = ask(f, session, "Le falta sal?")
+    id = Ecto.UUID.generate()
+
+    assert {:ok, reply} = ask(f, session, "Le falta sal?", @instant, id)
     assert reply.message =~ "Agrega sal gradualmente"
-    assert [%{role: :user}, %{role: :assistant, content: content}] = stored_turns()
+
+    assert [
+             %{role: "user", content: "Le falta sal?", client_message_id: ^id},
+             %{role: "assistant", content: content}
+           ] = reply.turns
+
     assert content == reply.message
+    assert stored_turns() == []
+
+    # A resend of the same id asks the model again, and its answer is stored.
+    Application.put_env(:meal_planner_api, :ai_client, previous)
+    assert {:ok, retried} = ask(f, session, "Le falta sal?", @instant, id)
+    refute retried.message == reply.message
+
+    assert [%{role: :user, client_message_id: ^id}, %{role: :assistant, content: answer}] =
+             stored_turns()
+
+    assert answer == retried.message
+    assert Enum.map(retried.turns, & &1.id) == Enum.map(stored_turns(), & &1.id)
   end
 end

@@ -122,6 +122,8 @@ defmodule MealPlannerApiWeb.CookingController do
     :cooking_session_not_active,
     :cooking_already_finished,
     :cooking_chat_unavailable,
+    :cooking_chat_limit_reached,
+    :cooking_message_id_conflict,
     :inventory_mutation_failed,
     :validation_error
   ]
