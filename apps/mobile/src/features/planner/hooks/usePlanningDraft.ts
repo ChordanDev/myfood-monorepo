@@ -5,6 +5,7 @@ import type { CalendarRange } from '@/features/home';
 import { loadLivePlan } from '@/features/home/hooks/useLoadLivePlan';
 import { confirmProposal, rejectProposal } from '../api/planningApi';
 import {
+  GENERATION_TIME_LIMIT_MS,
   generationDeadline,
   IDLE_PLANNING_DRAFT,
   planningDraftReducer,
@@ -101,6 +102,16 @@ function markAbandonedInFlight(
   }
 }
 
+// Whether a generation left at one of the clock times of `abandonedAt` may still be running at
+// `now`. The server bounds the optimizer call of a run below the time limit, so a generation left
+// longer ago than that has answered by now, whether or not its answer reached the app.
+function isAbandonedInFlight(abandonedAt: ReadonlyMap<string, number>, now: number): boolean {
+  for (const leftAt of abandonedAt.values()) {
+    if (now < leftAt + GENERATION_TIME_LIMIT_MS) return true;
+  }
+  return false;
+}
+
 // The run id of a payload that did not parse, if it still carries one.
 function readRunId(payload: unknown): string | null {
   const runId = (payload as { runId?: unknown } | null)?.runId;
@@ -169,8 +180,10 @@ export function usePlanningDraft(
   const [draft, dispatch] = useReducer(planningDraftReducer, IDLE_PLANNING_DRAFT);
   const subscription = topic.status === 'joined' ? topic.subscription : null;
   // The requests of the generations left behind before their session was known, by a cancel or by
-  // a retry after a failed generation: each session is cancelled once `generation_started` names it.
-  const abandonedRequestsRef = useRef(new Set<string>());
+  // a retry after a failed generation, with the clock time each was left: each session is cancelled
+  // once `generation_started` names it. That event can be missed or never sent, so a generation only
+  // counts as possibly running for one time limit after it was left.
+  const abandonedRequestsRef = useRef(new Map<string, number>());
 
   useEffect(() => {
     if (subscription === null) return;
@@ -184,7 +197,9 @@ export function usePlanningDraft(
           console.warn(`[Planner] Ignored a malformed ${event}:`, error);
           return;
         }
-        dispatch(markAbandonedInFlight(action, abandonedRequestsRef.current.size > 0));
+        dispatch(
+          markAbandonedInFlight(action, isAbandonedInFlight(abandonedRequestsRef.current, now()))
+        );
 
         if (
           action.type === 'generation_started' &&
@@ -202,7 +217,7 @@ export function usePlanningDraft(
     );
 
     return () => unsubscribers.forEach((unsubscribe) => unsubscribe());
-  }, [subscription]);
+  }, [subscription, now]);
 
   // The reducer decides when a generation has run out of time; this only wakes it at the deadline.
   const deadline = generationDeadline(draft);
@@ -300,11 +315,11 @@ export function usePlanningDraft(
     // A generation that failed before its session was known, by the time limit or an unreadable
     // proposal, may still be running: its session is cancelled once known.
     if (failedGeneration !== null && failedGeneration.sessionId === null) {
-      abandonedRequestsRef.current.add(failedGeneration.requestId);
+      abandonedRequestsRef.current.set(failedGeneration.requestId, now());
     }
     const sessionToCancel = failedGeneration?.sessionId ?? null;
     start(last.range, last.request, last.favoriteRecipeIds, undefined, sessionToCancel);
-  }, [draft, start]);
+  }, [draft, start, now]);
 
   const [pendingAction, setPendingAction] = useState<PlanningAction | null>(null);
   const [actionError, setActionError] = useState<ApiError | null>(null);
@@ -395,7 +410,8 @@ export function usePlanningDraft(
     // A generation is left at once: whatever it still answers no longer moves the draft.
     if (generating !== null) {
       dispatch({ type: 'reset' });
-      if (generating.sessionId === null) abandonedRequestsRef.current.add(generating.requestId);
+      if (generating.sessionId === null)
+        abandonedRequestsRef.current.set(generating.requestId, now());
       else void cancelSession(generating.sessionId);
       return;
     }
@@ -406,7 +422,7 @@ export function usePlanningDraft(
       if (sessionId !== null) await cancelSession(sessionId);
       dispatch({ type: 'reset' });
     });
-  }, [generating, ready, isConfirmUnresolved, runAction, cancelSession]);
+  }, [generating, ready, isConfirmUnresolved, runAction, cancelSession, now]);
 
   // The committed proposal is the live plan now: the cached calendar is read again. A read that
   // fails leaves the cache as it was, and the next one of the app heals it.
