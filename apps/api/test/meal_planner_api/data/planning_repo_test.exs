@@ -763,7 +763,7 @@ defmodule MealPlannerApi.Data.PlanningRepoTest do
       missing_id = Ecto.UUID.generate()
       membership_id = owner_membership_id(account.id, owner.id)
 
-      # `fetch_active_session/2` runs before the actor authorization; a
+      # `lock_active_session/2` runs before the actor authorization; a
       # missing session id is treated as "no active session" — same
       # outcome as a terminal one, but without the auth check.
       assert {:error, :not_active} =
