@@ -53,7 +53,7 @@ La propuesta muestra, como mínimo:
 - advertencias por datos incompletos;
 - explicación accionable cuando no existe una solución.
 
-“Semanal” significa una ventana calendario de hasta siete días. Puede contener un subconjunto de días seleccionados, pero cada día incluido conserva las tres franjas requeridas. Un límite comercial por tier puede reducir la cantidad de días permitidos; no cambia silenciosamente la definición de semana.
+“Semanal” significa una ventana calendario de hasta siete días. Puede contener un subconjunto de días seleccionados, pero cada día incluido conserva las tres franjas requeridas. No hay límite por plan: toda Account planifica de 1 a 7 días (decidido en #230).
 
 ### 2.2 Fuera de alcance
 
@@ -331,10 +331,10 @@ No se fija aquí una forma exacta de API. Los nombres de intents, eventos o camp
 **Y** los datos autoritativos se resuelven por separado desde fuentes canónicas sólo a partir de un intent válido  
 **Y** ninguna comida se persiste por esa interpretación.
 
-### AC14 — Alcance semanal y tier
+### AC14 — Alcance semanal
 
-**Dado** que la persona selecciona días dentro de una ventana de hasta siete días  
-**Cuando** su tier permite menos días que los solicitados  
+**Dado** que la persona elige los días a planificar  
+**Cuando** pide más de siete días  
 **Entonces** el sistema informa el límite antes de optimizar  
 **Y** no recorta días silenciosamente  
 **Y** mantiene desayuno, almuerzo y cena en cada día finalmente aceptado.
@@ -360,7 +360,7 @@ No se fija aquí una forma exacta de API. Los nombres de intents, eventos o camp
 | `lib/meal_planner_api/generation/planning_session_server.ex` | La sesión valida y guarda un intent pendiente, con comentario explícito de cableado futuro. |
 | `lib/meal_planner_api/persistence/accounts/user_dietary_profile.ex` | La taxonomía persistida es limitada y no incluye ovo-lacto ni carnívora. |
 | `lib/meal_planner_api/persistence/catalog/recipe.ex` | La receta tiene macros y slots, pero no campos dietarios ni de alérgenos. |
-| `lib/meal_planner_api/planning.ex` | El flujo de compatibilidad limita a siete días para premium y cinco para otros; falta decidir cómo se aplica al pipeline canónico. |
+| `lib/meal_planner_api/services/planning_service.ex` | `max_planning_days/0` limita a siete días a toda Account, sin límite por plan; el chat de planificación y `start_planning` leen ese mismo valor. |
 
 Estas observaciones son estado actual, no evidencia de que el producto descrito ya esté disponible.
 
