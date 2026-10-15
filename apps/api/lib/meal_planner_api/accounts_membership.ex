@@ -279,9 +279,10 @@ defmodule MealPlannerApi.AccountsMembership do
   Accepts an invite token. Two entry points:
 
     * `accept_invite(plaintext, %User{} = user)` — existing User. Flips
-      the membership `:invited → :active`, sets `joined_at`, points
-      `user_id` at the User. Returns the auth payload ready for the
-      API layer to mint an `access_v2` JWT.
+      the membership `:invited → :active` and sets `joined_at`. The
+      invite has to be bound to that User; an invite bound to anyone
+      else returns `:invite_for_another_user`. Returns the auth payload
+      ready for the API layer to mint an `access_v2` JWT.
 
     * `accept_invite(plaintext, %{name: ...})` — new User. The
       `InviteService.create_invite_row/2` created a stub `User` row at
@@ -294,7 +295,8 @@ defmodule MealPlannerApi.AccountsMembership do
       their own token.
 
   Errors: `:invite_token_used`, `:invite_token_expired`,
-  `:invite_token_unknown`, `:invitee_authentication_required`. Nothing
+  `:invite_token_unknown`, `:invitee_authentication_required`,
+  `:invite_for_another_user`. Nothing
   is written when the accept fails.
 
   The returned `claims` map matches design §3.2 — `AccountsMembership.
@@ -311,8 +313,9 @@ defmodule MealPlannerApi.AccountsMembership do
            }}
           | {:error, atom() | Ecto.Changeset.t()}
   def accept_invite(plaintext, %PersistenceUser{} = invitee) when is_binary(plaintext) do
-    accept_invite_with_lookup(plaintext, fn _existing ->
-      {:ok, invitee}
+    accept_invite_with_lookup(plaintext, fn
+      %PersistenceUser{id: id} when id == invitee.id -> {:ok, invitee}
+      %PersistenceUser{} -> {:error, :invite_for_another_user}
     end)
   end
 

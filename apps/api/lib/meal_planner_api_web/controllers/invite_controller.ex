@@ -53,7 +53,9 @@ defmodule MealPlannerApiWeb.InviteController do
   the invite created for an email nobody has signed in with; an invite
   bound to any other User needs that User's Bearer token. Errors:
   `401 unauthorized` (no `name` and no valid Bearer token, or a `name`
-  for an invite bound to a registered User), `410 invite_token_used`,
+  for an invite bound to a registered User), `403 invite_for_another_user`
+  (a Bearer token of a User the invite is not bound to),
+  `410 invite_token_used`,
   `410 invite_token_expired`.
   """
   def accept(conn, %{"token" => token} = params) do
@@ -146,5 +148,6 @@ defmodule MealPlannerApiWeb.InviteController do
   defp error_status(:invite_token_expired), do: :gone
   defp error_status(:invite_token_unknown), do: :not_found
   defp error_status(:invalid_invitee), do: :bad_request
+  defp error_status(:invite_for_another_user), do: :forbidden
   defp error_status(_), do: :unprocessable_entity
 end

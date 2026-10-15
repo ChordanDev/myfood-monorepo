@@ -452,4 +452,73 @@ defmodule MealPlannerApiWeb.InviteAcceptControllerTest do
       assert Repo.get!(User, member_id).name == "Removed Member"
     end
   end
+
+  # The Bearer path accepts only for the User the invite is bound to.
+  describe "Bearer accept by a User the invite is not bound to" do
+    test "returns 403 for an invite bound to another registered User", %{conn: conn} do
+      owner =
+        user_with_memberships(%{email: "owner_bearer_other@example.com"}, [
+          {%{plan: :family_4, name: "Family Bearer Other"}, :owner}
+        ])
+
+      [owner_membership] = owner.memberships
+
+      _invitee =
+        user_with_memberships(%{email: "invitee_bearer_other@example.com"}, [
+          {%{plan: :individual, name: "Invitee Bearer Other Account"}, :owner}
+        ])
+
+      {:ok, %{token: plaintext, membership_id: membership_id}} =
+        AccountsMembership.invite(
+          owner_membership.account,
+          owner_membership,
+          "invitee_bearer_other@example.com"
+        )
+
+      conn =
+        conn
+        |> put_req_header(
+          "authorization",
+          "Bearer " <> issue_access_v2_token(owner, owner_membership)
+        )
+        |> post("/api/invites/#{plaintext}/accept", %{})
+
+      assert json_response(conn, 403)["error"] == "invite_for_another_user"
+      assert Repo.get!(AccountMembership, membership_id).status == :invited
+    end
+
+    test "returns 403 for an invite bound to a stub", %{conn: conn} do
+      owner =
+        user_with_memberships(%{email: "owner_bearer_stub@example.com"}, [
+          {%{plan: :family_4, name: "Family Bearer Stub"}, :owner}
+        ])
+
+      [owner_membership] = owner.memberships
+
+      other =
+        user_with_memberships(%{email: "other_bearer_stub@example.com"}, [
+          {%{plan: :individual, name: "Other Bearer Stub Account"}, :owner}
+        ])
+
+      [other_membership] = other.memberships
+
+      {:ok, %{token: plaintext, membership_id: membership_id}} =
+        AccountsMembership.invite(
+          owner_membership.account,
+          owner_membership,
+          "stub_bearer@example.com"
+        )
+
+      conn =
+        conn
+        |> put_req_header(
+          "authorization",
+          "Bearer " <> issue_access_v2_token(other, other_membership)
+        )
+        |> post("/api/invites/#{plaintext}/accept", %{})
+
+      assert json_response(conn, 403)["error"] == "invite_for_another_user"
+      assert Repo.get!(AccountMembership, membership_id).status == :invited
+    end
+  end
 end

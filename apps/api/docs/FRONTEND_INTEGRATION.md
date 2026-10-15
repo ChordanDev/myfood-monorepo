@@ -463,14 +463,22 @@ link, copiar/compartir, etc.) inmediatamente después de recibirlo.
 ### 2. Aceptar una invitación
 
 **Deliberadamente NO requiere `Authorization`** — el caso "usuario
-nuevo" no tiene cuenta/token todavía. Dos variantes según si el
-invitado ya tiene cuenta en MyFood o no:
+nuevo" no tiene cuenta/token todavía. Dos variantes según si el email
+invitado ya tiene cuenta en MyFood o no. Quién puede aceptar:
 
-**Usuario existente** (opcionalmente manda su `Authorization` header
-actual para que el backend identifique quién acepta):
+- **Email con cuenta en MyFood:** solo ese usuario, con su propio
+  `Authorization`. Con `{ "name" }` y sin token la respuesta es
+  `401 unauthorized`; con el token de otro usuario, `403
+  invite_for_another_user`.
+- **Email sin cuenta:** quien tenga el token, con `{ "name" }`. Eso crea
+  la cuenta una sola vez: después de aceptar, cualquier otra invitación
+  a ese email se acepta con el token de ese usuario.
+
+**Usuario existente** (manda su `Authorization` header actual; tiene que
+ser el usuario invitado):
 ```bash
 POST /api/invites/:token/accept
-Authorization: Bearer <existing_user_token>   # opcional pero recomendado
+Authorization: Bearer <existing_user_token>   # obligatorio
 Content-Type: application/json
 
 {}
@@ -520,7 +528,8 @@ usuario vuelve a iniciar sesión con un código.
 
 | Status | `error` | Causa | Acción recomendada |
 |--------|---------|-------|---------------------|
-| `401` | `unauthorized` | Body sin `name` (o con `name` vacío) y sin `Authorization` válido | Pedir login o completar `name` |
+| `401` | `unauthorized` | Body sin `name` (o con `name` vacío) y sin `Authorization` válido, o `name` para un email que ya tiene cuenta | Pedir login y reintentar con el token |
+| `403` | `invite_for_another_user` | El `Authorization` es de un usuario distinto del invitado | Mostrar "esta invitación es para otro email" |
 | `410` | `invite_token_used` | El token ya fue usado antes | Mostrar "invitación ya usada", pedir una nueva |
 | `410` | `invite_token_expired` | Pasaron más de 7 días desde la invitación | Pedir al `owner` que reenvíe |
 | `404` | `invite_token_unknown` | Token inválido/no existe | Mostrar "invitación inválida" |
