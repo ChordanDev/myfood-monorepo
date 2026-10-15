@@ -5,7 +5,15 @@ import * as Haptics from 'expo-haptics';
 import { useRecipeTheme } from '@/context/RecipeThemeContext';
 import { useAnimatedThemeStyle } from '@/hooks/useAnimatedThemeStyle';
 import { withOpacity } from '@/utils/colors';
-import { DAY_ROW_GAP } from '../constants/calendar';
+import {
+  CALENDAR_DOT_SLOTS,
+  DAY_ROW_GAP,
+  SLOT_DOT_GAP,
+  SLOT_DOT_ROW_HEIGHT,
+  SLOT_DOT_SIZE,
+} from '../constants/calendar';
+import { describeDayForAccessibility } from '../domain/calendarPlan';
+import type { HomeMealSlot } from '../domain/localMealPlan';
 
 // Fill of a day between the two ends of a range: the selection token, lighter than an end.
 const IN_RANGE_FILL_OPACITY = 0.3;
@@ -19,11 +27,24 @@ export interface DayCellProps {
   isInRange?: boolean;
   isToday: boolean;
   isPlanned: boolean;
+  // The slots of the day that hold a Scheduled meal. Without it the day draws no slot dots.
+  plannedSlots?: HomeMealSlot[];
   isPendingConfirmation: boolean;
   daySize: number;
   dayFontSize: number;
   textColor: string;
   onSelect: (dateString: string) => void;
+}
+
+// A slot's dot: filled with the accent when the slot is planned, its outline when it is free.
+function SlotDot({ slot, isPlanned }: { slot: HomeMealSlot; isPlanned: boolean }) {
+  const { theme } = useRecipeTheme();
+  const dotStyle = useAnimatedThemeStyle({
+    backgroundColor: isPlanned ? theme.primaryAccent : 'transparent',
+    borderColor: theme.primaryAccent,
+  });
+
+  return <Animated.View testID={`slot-dot-${slot}`} style={[styles.slotDot, dotStyle]} />;
 }
 
 export const DayCell = memo(
@@ -35,6 +56,7 @@ export const DayCell = memo(
     isInRange = false,
     isToday,
     isPlanned,
+    plannedSlots,
     isPendingConfirmation,
     daySize,
     dayFontSize,
@@ -127,7 +149,9 @@ export const DayCell = memo(
           style={({ pressed }) => ({ transform: [{ scale: pressed ? 0.95 : 1 }] })}
           accessibilityRole="button"
           accessibilityLabel={
-            isPendingConfirmation ? `${dayNumber}, comida sin confirmar` : undefined
+            isPendingConfirmation
+              ? `${dayNumber}, comida sin confirmar`
+              : plannedSlots && describeDayForAccessibility(dayDate, plannedSlots)
           }
           accessibilityState={{ disabled: !isSelectable }}>
           <Animated.View
@@ -146,6 +170,13 @@ export const DayCell = memo(
               {isPendingConfirmation ? '!' : dayNumber}
             </Animated.Text>
           </Animated.View>
+          {plannedSlots && (
+            <View style={styles.slotDots}>
+              {CALENDAR_DOT_SLOTS.map((slot) => (
+                <SlotDot key={slot} slot={slot} isPlanned={plannedSlots.includes(slot)} />
+              ))}
+            </View>
+          )}
         </Pressable>
       </View>
     );
@@ -155,5 +186,18 @@ export const DayCell = memo(
 const styles = StyleSheet.create({
   dayText: {
     fontFamily: 'Inter_600SemiBold',
+  },
+  slotDot: {
+    borderRadius: SLOT_DOT_SIZE / 2,
+    borderWidth: 1,
+    height: SLOT_DOT_SIZE,
+    width: SLOT_DOT_SIZE,
+  },
+  slotDots: {
+    alignItems: 'flex-end',
+    flexDirection: 'row',
+    gap: SLOT_DOT_GAP,
+    height: SLOT_DOT_ROW_HEIGHT,
+    justifyContent: 'center',
   },
 });
