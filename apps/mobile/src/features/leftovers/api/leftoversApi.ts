@@ -21,6 +21,10 @@ export async function listPreparedLeftovers(options?: RequestOptions): Promise<P
   return data;
 }
 
+/**
+ * Stores a leftover. With an `actionId`, the server stores once per one within 24 hours, so a
+ * retry after a timeout sends the same one and stores nothing more.
+ */
 export async function createPreparedLeftover(
   input: CreatePreparedLeftoverInput,
   options?: RequestOptions

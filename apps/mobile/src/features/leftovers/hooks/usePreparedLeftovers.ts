@@ -25,6 +25,9 @@ export function usePreparedLeftovers() {
   // actionId and the server eats once. Once the list shows fewer portions, a tap is a new one.
   // Kept per leftover so a tap on another one in between does not forget it.
   const pendingConsumesRef = useRef(new Map<string, { key: string; actionId: string }>());
+  // The last add that may not have landed. Saving the same input again is the same leftover,
+  // so it keeps the same actionId and the server stores it once; a changed input is a new one.
+  const pendingAddRef = useRef<{ key: string; actionId: string } | null>(null);
 
   const load = useCallback(async () => {
     const requestId = ++requestCounter.current;
@@ -91,7 +94,12 @@ export function usePreparedLeftovers() {
   // list again once the leftover is stored.
   const add = useCallback(
     async (input: CreatePreparedLeftoverInput) => {
-      await createPreparedLeftover(input);
+      const key = JSON.stringify(input);
+      if (pendingAddRef.current?.key !== key) {
+        pendingAddRef.current = { key, actionId: newRequestId() };
+      }
+      await createPreparedLeftover({ ...input, actionId: pendingAddRef.current.actionId });
+      pendingAddRef.current = null;
       await load();
     },
     [load]

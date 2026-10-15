@@ -306,9 +306,40 @@ describe('LeftoversScreen', () => {
     await press(root, 'Guardar');
 
     expect(requests()).toEqual([`GET ${LIST_URL}`, `POST ${LIST_URL}`, `GET ${LIST_URL}`]);
-    expect(sentBody(1)).toEqual({ title: 'Soup', portions: 2 });
+    expect(sentBody(1)).toEqual({ title: 'Soup', portions: 2, actionId: expect.any(String) });
     expect(texts(root)).toContain('Soup');
     expect(root.findAllByType(TextInput)).toHaveLength(0);
+  });
+
+  it('stores again under the same actionId after a failure while the input did not change', async () => {
+    const added = { ...LEFTOVER_RICE, id: 'leftover-3', title: 'Soups', portions: 2 };
+    fetchMock
+      .mockReturnValueOnce(jsonResponse(toLeftoversResponse(OPEN_LEFTOVERS)))
+      .mockRejectedValueOnce(new TypeError('Network request failed'))
+      .mockRejectedValueOnce(new TypeError('Network request failed'))
+      .mockReturnValueOnce(jsonResponse(toLeftoverResponse(added), true, 201))
+      .mockReturnValueOnce(jsonResponse(toLeftoversResponse([...OPEN_LEFTOVERS, added])));
+
+    const root = await renderScreen();
+    await press(root, 'Agregar sobra');
+    type(root, 'Nombre de la sobra', 'Soup');
+    type(root, 'Porciones', '2');
+    await press(root, 'Guardar');
+    await press(root, 'Guardar');
+    type(root, 'Nombre de la sobra', 'Soups');
+    await press(root, 'Guardar');
+
+    expect(requests()).toEqual([
+      `GET ${LIST_URL}`,
+      `POST ${LIST_URL}`,
+      `POST ${LIST_URL}`,
+      `POST ${LIST_URL}`,
+      `GET ${LIST_URL}`,
+    ]);
+    // The retry is the same leftover; once the input changes, it is a new one.
+    expect(sentBody(2).actionId).toBe(sentBody(1).actionId);
+    expect(sentBody(3).actionId).not.toBe(sentBody(1).actionId);
+    expect(sentBody(3).title).toBe('Soups');
   });
 
   it('shows an error and retries when the list cannot be read', async () => {
