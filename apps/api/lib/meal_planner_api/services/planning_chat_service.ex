@@ -130,9 +130,11 @@ defmodule MealPlannerApi.Services.PlanningChatService do
   The proposal is read once the generation server has finished what it was
   doing: a confirm still running there (its own HTTP call may have timed out)
   is not overwritten by a reject that read the proposal before it committed.
-  A server that cannot be reached answers `:reject_unavailable` and rejects
-  nothing; so does a reject the server did not apply, read back once it is
-  done.
+  A confirm that reaches the server after that read is caught by the
+  server's own pending guard, and the reject answers
+  `:planning_proposal_not_pending`. A server that cannot be reached answers
+  `:reject_unavailable` and rejects nothing; so does a reject the server did
+  not apply.
   """
   @spec reject_pending_proposal(Ecto.UUID.t(), term()) :: {:ok, map()} | {:error, atom()}
   def reject_pending_proposal(account_id, proposal_id) do
@@ -157,6 +159,8 @@ defmodule MealPlannerApi.Services.PlanningChatService do
     else
       # Another confirm of the same proposal committed first.
       {:error, :already_confirmed} -> confirmed_result(account_id, proposal, session_id)
+      # A reject of the same proposal was handled first (issue #287).
+      {:error, :not_pending} -> {:error, :planning_proposal_not_pending}
       {:error, _reason} = error -> error
     end
   end
@@ -221,8 +225,8 @@ defmodule MealPlannerApi.Services.PlanningChatService do
   # The server handles its messages one at a time, so a call returns once
   # whatever it was running (a confirm included) is done. Only then is the
   # proposal read and, still pending, rejected. A confirm that reaches the
-  # server between that read and the cast is not caught here: closing that
-  # needs a pending guard in the engine's own reject.
+  # server between that read and the reject is caught by the engine's own
+  # pending guard, which answers `:not_pending` and writes nothing (#287).
   defp reject_through_session_flow(account_id, proposal_id) do
     case generation_server(account_id) do
       {:ok, pid} ->
@@ -239,20 +243,21 @@ defmodule MealPlannerApi.Services.PlanningChatService do
   defp reject_on_server(pid, account_id, proposal_id) do
     with :ok <- await_server(pid),
          {:ok, proposal} <- fetch_pending(account_id, proposal_id) do
-      Server.reject(pid, proposal.id)
-      # A call sent after the cast is handled after it, so this returns once
-      # the server handled the reject. The answer is what the row says then.
-      with :ok <- await_server(pid), do: confirm_rejected(account_id, proposal)
+      call_reject(pid, proposal)
     end
   end
 
-  # The cast says nothing of how the reject went: a server that crashed on it,
-  # or dropped it, leaves the proposal as it was.
-  defp confirm_rejected(account_id, proposal) do
-    case PlanningRepo.get_account_proposal(account_id, proposal.id) do
-      {:ok, %{status: :rejected} = rejected} -> {:ok, rejected}
-      _not_rejected -> {:error, :reject_unavailable}
+  # The reply says what the server did. Anything but `:ok` rejected nothing,
+  # and an exit says nothing of whether it did, so neither is reported as a
+  # rejection.
+  defp call_reject(pid, proposal) do
+    case Server.reject(pid, proposal.id) do
+      :ok -> {:ok, proposal}
+      {:error, :not_pending} -> {:error, :planning_proposal_not_pending}
+      _not_applied -> {:error, :reject_unavailable}
     end
+  catch
+    :exit, _reason -> {:error, :reject_unavailable}
   end
 
   defp fetch_pending(account_id, proposal_id) do

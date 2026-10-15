@@ -660,6 +660,78 @@ defmodule MealPlannerApi.Generation.ServerTest do
   end
 
   # ---------------------------------------------------------------------------
+  # Issue #287 — confirm and reject only a pending proposal
+  #
+  # A proposal must never end both rejected and confirmed. Reject writes
+  # nothing for a proposal that is no longer pending, and confirm refuses a
+  # rejected one; an accepted one keeps answering `:already_confirmed`.
+  # ---------------------------------------------------------------------------
+
+  describe "reject/2 — pending guard (#287)" do
+    test "rejects a pending proposal, completes its run and tells the topic" do
+      account = insert_account("287 reject pending")
+      user = insert_user_with_membership(account, "287-reject-pending@example.com")
+      {run, proposal} = insert_proposal_with_slots(account, user, [])
+      start_server!(account, user)
+      Phoenix.PubSub.subscribe(MealPlannerApi.PubSub, "planning:#{account.id}")
+      proposal_id = proposal.id
+
+      assert :ok = Server.reject(pid_for_account(account), proposal_id)
+
+      assert MealPlannerApi.Repo.get!(PlanningProposal, proposal_id).status == :rejected
+      assert generation_run(run.id).status == :completed
+
+      assert_receive %Phoenix.Socket.Broadcast{
+        event: "proposal_rejected",
+        payload: %{proposal_id: ^proposal_id}
+      }
+    end
+
+    for status <- [:accepted, :rejected] do
+      test "answers :not_pending for a proposal #{status} and writes nothing" do
+        account = insert_account("287 reject #{unquote(status)}")
+        user = insert_user_with_membership(account, "287-reject-#{unquote(status)}@example.com")
+        {run, proposal} = insert_proposal_with_slots(account, user, [])
+        {:ok, _} = PlanningRepo.update_proposal(proposal, %{status: unquote(status)})
+        start_server!(account, user)
+        Phoenix.PubSub.subscribe(MealPlannerApi.PubSub, "planning:#{account.id}")
+
+        assert {:error, :not_pending} = Server.reject(pid_for_account(account), proposal.id)
+
+        assert MealPlannerApi.Repo.get!(PlanningProposal, proposal.id).status == unquote(status)
+        assert generation_run(run.id).status == :processing
+        refute_receive %Phoenix.Socket.Broadcast{event: "proposal_rejected"}
+      end
+    end
+  end
+
+  describe "confirm/3 — pending guard (#287)" do
+    test "a rejected proposal answers :not_pending and writes nothing" do
+      account = insert_account("287 confirm rejected")
+      user = insert_user_with_membership(account, "287-confirm-rejected@example.com")
+      recipe = insert_recipe("287 rejected recipe")
+
+      {run, proposal} =
+        insert_proposal_with_slots(account, user, [slot(~D[2026-08-06], :lunch, recipe.id)])
+
+      {:ok, _} = PlanningRepo.update_proposal(proposal, %{status: :rejected})
+      session = insert_active_session(account, user)
+      start_server!(account, user)
+      Phoenix.PubSub.subscribe(MealPlannerApi.PubSub, "planning:#{account.id}")
+
+      assert {:error, :not_pending} =
+               Server.confirm(pid_for_account(account), proposal.id, session.id)
+
+      assert MealPlannerApi.Repo.get!(PlanningProposal, proposal.id).status == :rejected
+      assert generation_run(run.id).status == :processing
+      assert fetch_session(session.id).status == :active
+      assert list_all_meals(account.id) == []
+      assert count_checkout_sessions(account) == 0
+      refute_receive %Phoenix.Socket.Broadcast{event: "proposal_confirmed"}
+    end
+  end
+
+  # ---------------------------------------------------------------------------
   # @task 3.3 — cart persistence (per-meal grain) + account scoping +
   #              mixed-unit non-conversion
   #
