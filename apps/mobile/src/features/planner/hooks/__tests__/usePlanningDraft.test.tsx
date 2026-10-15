@@ -578,6 +578,62 @@ describe('usePlanningDraft', () => {
       });
     });
 
+    describe('when an event that does not say its run arrives before the next generation is named', () => {
+      // The cancelled generation is the first request; the second is the one the User started again.
+      function cancelAndStartAgain(): void {
+        act(() => controller.start(RANGE, '', []));
+        act(() => controller.cancel());
+        act(() => controller.start(RANGE, '', []));
+      }
+
+      function expectSecondGenerationTakesItsProposal(): void {
+        expect(controller.draft).toMatchObject({ status: 'generating', requestId: 'req_2' });
+
+        emit('generation_started', secondStarted);
+        emit('proposal_ready', { ...proposalReady, runId: 'run-2' });
+
+        expect(controller.draft).toMatchObject({ status: 'ready', requestId: 'req_2' });
+      }
+
+      it('does not fail the next generation on an unreadable proposal', () => {
+        cancelAndStartAgain();
+
+        const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+        emit('proposal_ready', {});
+        warn.mockRestore();
+
+        expectSecondGenerationTakesItsProposal();
+      });
+
+      it('does not fail the next generation on a generation_error', () => {
+        cancelAndStartAgain();
+
+        emit('generation_error', {
+          reason: 'pipeline_error',
+          details: {},
+          runId: null,
+          requestId: null,
+        });
+
+        expectSecondGenerationTakesItsProposal();
+      });
+
+      it('fails the next generation once the cancelled one was named and cancelled', () => {
+        cancelAndStartAgain();
+        emit('generation_started', generationStarted);
+
+        const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+        emit('proposal_ready', {});
+        warn.mockRestore();
+
+        expect(controller.draft).toMatchObject({
+          status: 'failed',
+          requestId: 'req_2',
+          failure: { kind: 'generation', reason: 'proposal_unreadable' },
+        });
+      });
+    });
+
     it('forgets a cancelled generation whose start the server refused', async () => {
       act(() => controller.start(RANGE, '', []));
       act(() => controller.cancel());

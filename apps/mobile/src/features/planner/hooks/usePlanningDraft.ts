@@ -85,6 +85,22 @@ const DRAFT_EVENTS: {
   },
 ];
 
+// A run event says whether a generation left behind may still be running: one that does not say its
+// run may then be that generation's.
+function markAbandonedInFlight(
+  action: PlanningDraftAction,
+  abandonedInFlight: boolean
+): PlanningDraftAction {
+  if (!abandonedInFlight) return action;
+  switch (action.type) {
+    case 'proposal_unreadable':
+    case 'generation_error':
+      return { ...action, abandonedInFlight };
+    default:
+      return action;
+  }
+}
+
 // The run id of a payload that did not parse, if it still carries one.
 function readRunId(payload: unknown): string | null {
   const runId = (payload as { runId?: unknown } | null)?.runId;
@@ -168,7 +184,7 @@ export function usePlanningDraft(
           console.warn(`[Planner] Ignored a malformed ${event}:`, error);
           return;
         }
-        dispatch(action);
+        dispatch(markAbandonedInFlight(action, abandonedRequestsRef.current.size > 0));
 
         if (
           action.type === 'generation_started' &&
