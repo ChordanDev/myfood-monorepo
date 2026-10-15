@@ -18,6 +18,7 @@ defmodule MealPlannerApiWeb.PlannerFixturesTest do
   alias MealPlannerApi.Data.{AccountRepo, PlanningRepo, RecipeRepo}
   alias MealPlannerApi.Persistence.Accounts.Account
   alias MealPlannerApi.Persistence.Accounts.{AccountMembership, User}
+  alias MealPlannerApi.Persistence.{Calendar, Leftovers}
   alias MealPlannerApi.Persistence.Planning.PlanningGenerationRun
   alias MealPlannerApi.Repo
   alias MealPlannerApi.Services.{GenerationService, UserPreferencesService}
@@ -97,7 +98,7 @@ defmodule MealPlannerApiWeb.PlannerFixturesTest do
     context =
       Repo.get!(PlanningGenerationRun, run_id).input_context["constraints"]["planning_context"]
 
-    PlannerFixtures.check!("planningContext", context)
+    PlannerFixtures.check!("planningContext", context, %{in_days(1) => "2030-01-02"})
 
     stop_generation_server(account.id)
   end
@@ -162,9 +163,32 @@ defmodule MealPlannerApiWeb.PlannerFixturesTest do
     PlannerFixtures.check!("planningRangeLockedError", payload)
   end
 
-  # Every onboarding signal, a 0-minute lunch included, and two favorites.
-  # Returns the ids of the favorites in the order the fixture keeps them.
+  # Every onboarding signal, a 0-minute lunch included, two favorites and two
+  # Prepared leftovers, one of them past its consume-by date so the context
+  # leaves it out. Returns the ids of the favorites in the order the fixture
+  # keeps them.
   defp set_up_every_signal!(user, account) do
+    {:ok, source_meal} =
+      Calendar.upsert_scheduled_meal(account.id, %{
+        date: Date.add(Date.utc_today(), -1),
+        slot: :dinner
+      })
+
+    {:ok, _open} =
+      Leftovers.create(account.id, %{
+        title: "Lentil stew",
+        portions: 3,
+        consume_by_date: Date.add(Date.utc_today(), 1),
+        scheduled_meal_id: source_meal.id
+      })
+
+    {:ok, _expired} =
+      Leftovers.create(account.id, %{
+        title: "Old soup",
+        portions: 1,
+        consume_by_date: Date.add(Date.utc_today(), -1)
+      })
+
     {:ok, _preferences} =
       UserPreferencesService.replace(user.id, %{
         diet: "vegetarian",

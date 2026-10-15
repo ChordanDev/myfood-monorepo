@@ -7,6 +7,14 @@
   ],
   "hardRestrictionCodes": ["peanut", "gluten"],
   "householdSize": 3,
+  "leftovers": [
+    {
+      "consumeByDate": "2030-01-02",
+      "portions": 3,
+      "scheduledMealId": "00000000-0000-4000-8000-000000000003",
+      "title": "Lentil stew"
+    }
+  ],
   "slotCookingTimes": {
     "breakfast": {
       "cooking": "limited",

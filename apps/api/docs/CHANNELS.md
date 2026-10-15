@@ -253,7 +253,7 @@ Per ADR 0004 the app confirms and rejects a proposal over HTTP, and the topic ca
 
 #### Planning context
 
-`start_planning` hands the engine a Planning context with what the member set up during onboarding and the favorites they preselected (issue #29). It is a contract for the engine, not a payload the client receives: no event or reply carries it, and the mobile app has no type for it.
+`start_planning` hands the engine a Planning context with what the member set up during onboarding, the favorites they preselected (issue #29) and the Prepared leftovers available to eat (issue #123). It is a contract for the engine, not a payload the client receives: no event or reply carries it, and the mobile app has no type for it.
 
 It is read before the session starts, so a refused start leaves nothing behind, and it travels as one nested map under `"planning_context"` in the constraints of the generation, next to `"date_from"`, `"date_to"` and `"request"` (snake_case, as the rest of the constraints). The Generation run persists it at `input_context.constraints.planning_context`. Its own keys are camelCase strings and every key is always present:
 
@@ -266,6 +266,16 @@ It is read before the session starts, so a refused start leaves nothing behind, 
 | `householdSize` | integer \| `null` | 1 to 20; `null` until set. Read like `cookingSkill` |
 | `slotCookingTimes` | object | Always the four Meal slots `breakfast`, `lunch`, `snack` and `dinner`, each `{ "cooking", "maxMinutes", "hungerLevel" }` |
 | `favoriteRecipeIds` | list of UUID strings | The `favoriteRecipeIds` of the command that are favorites of the caller, deduplicated, in the client's order |
+| `leftovers` | list of objects | The open Prepared leftovers of the Account (any member's), soonest consume-by date first, each `{ "title", "portions", "consumeByDate", "scheduledMealId" }`. They are meals already available for the first days of the plan, so they can occupy slots instead of a new recipe. One whose consume-by date is before the Account's today (`AccountClock`) is left out; one due today is kept. Consumed and discarded leftovers are never listed |
+
+Each `leftovers` entry:
+
+| Key | Type | Meaning |
+|-----|------|---------|
+| `title` | string | The name the member gave the leftover, usually the dish it came from |
+| `portions` | integer | Portions left, at least 1 |
+| `consumeByDate` | string (ISO 8601 date) | The last day the leftover may be eaten |
+| `scheduledMealId` | UUID string \| `null` | The Scheduled meal the leftover came from (its source meal); `null` when it was stored without one |
 
 `slotCookingTimes.<slot>.cooking` is one of three modes:
 
@@ -288,11 +298,19 @@ It is read before the session starts, so a refused start leaves nothing behind, 
     "snack": { "cooking": "no_constraint", "maxMinutes": null, "hungerLevel": null },
     "dinner": { "cooking": "limited", "maxMinutes": 45, "hungerLevel": "strong" }
   },
-  "favoriteRecipeIds": ["550e8400-e29b-41d4-a716-446655440010"]
+  "favoriteRecipeIds": ["550e8400-e29b-41d4-a716-446655440010"],
+  "leftovers": [
+    {
+      "title": "Lentil stew",
+      "portions": 3,
+      "consumeByDate": "2030-01-02",
+      "scheduledMealId": "550e8400-e29b-41d4-a716-446655440020"
+    }
+  ]
 }
 ```
 
-A User with no preferences, no profile or no Slot cooking times still gets a context: the missing signals are `null`, empty lists or `no_constraint`. Prepared leftovers are not part of the context. The assembly lives in `MealPlannerApi.Services.PlanningContext` (`lib/meal_planner_api/services/planning_context.ex`).
+A User with no preferences, no profile or no Slot cooking times still gets a context: the missing signals are `null`, empty lists or `no_constraint`; an Account with no open Prepared leftovers gets `"leftovers": []`. The assembly lives in `MealPlannerApi.Services.PlanningContext` (`lib/meal_planner_api/services/planning_context.ex`).
 
 #### Incoming Events
 
@@ -381,7 +399,7 @@ The frozen payloads above are also committed as JSON in `apps/mobile/src/feature
 - `test/meal_planner_api_web/channels/planner_fixtures_test.exs` runs `start_planning` and records each payload through `MealPlannerApiWeb.PlannerFixtures.check!/3`. Without `UPDATE_FIXTURES`, the test fails when a committed file differs from the fresh payload, so API drift fails an API test.
 - The mobile test `src/features/planner/fixtures/__tests__/plannerFixtures.test.ts` parses each payload the client receives with the types in `src/features/planner/types/planningEvents.ts` (missing, extra or mistyped keys throw), so app drift fails an app test.
 - Volatile values are normalized: UUIDs become `00000000-0000-4000-8000-00000000000N` and the dates of the run become `2030-01-01`, `2030-01-02`.
-- `planningContext` is the exception to the rule above: it is the [Planning context](#planning-context) read back from the persisted Generation run of a User with every signal set, one slot at 0 minutes included. The client never receives it, so no mobile type parses it; the API test is the only guard against drift.
+- `planningContext` is the exception to the rule above: it is the [Planning context](#planning-context) read back from the persisted Generation run of a User with every signal set, one slot at 0 minutes included, and one open Prepared leftover next to an expired one the context leaves out. The client never receives it, so no mobile type parses it; the API test is the only guard against drift.
 
 To regenerate after an intended payload change, from `apps/api` (with the test database env set):
 

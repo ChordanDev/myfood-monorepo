@@ -26,6 +26,7 @@ defmodule MealPlannerApiWeb.PlanningStartTest do
   alias MealPlannerApi.Generation.Server
   alias MealPlannerApi.Persistence.Accounts.Account
   alias MealPlannerApi.Persistence.Accounts.{AccountMembership, User}
+  alias MealPlannerApi.Persistence.Leftovers
   alias MealPlannerApi.Persistence.Planning.{PlanningGenerationRun, PlanningSession}
   alias MealPlannerApi.Repo
   alias MealPlannerApi.Services.{GenerationService, UserPreferencesService}
@@ -669,6 +670,45 @@ defmodule MealPlannerApiWeb.PlanningStartTest do
     end
   end
 
+  describe "Prepared leftovers (#123)" do
+    test "a plan started without leftovers carries an empty list", %{
+      account: account,
+      token: token
+    } do
+      assert start_and_read_context!(token, account)["leftovers"] == []
+
+      stop_generation_server(account.id)
+    end
+
+    test "a plan started with leftovers carries the open ones not past their date", %{
+      account: account,
+      token: token
+    } do
+      {:ok, _expired} = store_leftover(account, "Expired soup", in_days(-1), 2)
+      {:ok, _today} = store_leftover(account, "Lentil stew", in_days(0), 3)
+      {:ok, _later} = store_leftover(account, "Rice", in_days(2), 1)
+
+      leftovers = start_and_read_context!(token, account)["leftovers"]
+
+      assert leftovers == [
+               %{
+                 "title" => "Lentil stew",
+                 "portions" => 3,
+                 "consumeByDate" => in_days(0),
+                 "scheduledMealId" => nil
+               },
+               %{
+                 "title" => "Rice",
+                 "portions" => 1,
+                 "consumeByDate" => in_days(2),
+                 "scheduledMealId" => nil
+               }
+             ]
+
+      stop_generation_server(account.id)
+    end
+  end
+
   describe "events (T3)" do
     setup %{account: account, token: token} do
       %{socket: join_planning!(token, account)}
@@ -1076,6 +1116,14 @@ defmodule MealPlannerApiWeb.PlanningStartTest do
     assert_push("generation_started", %{"runId" => run_id})
 
     persisted_constraints(run_id)["planning_context"]
+  end
+
+  defp store_leftover(account, title, consume_by, portions) do
+    Leftovers.create(account.id, %{
+      title: title,
+      portions: portions,
+      consume_by_date: Date.from_iso8601!(consume_by)
+    })
   end
 
   defp persisted_constraints(run_id) do
