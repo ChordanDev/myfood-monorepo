@@ -35,7 +35,8 @@ defmodule MealPlannerApi.Data.IngredientAllergensTest do
   end
 
   describe "the tag migration" do
-    # Name of an Ingredient => the codes the migration gives it.
+    # Name of an Ingredient => the codes the migration gives it. nil: no rule
+    # matches, so the Ingredient stays unreviewed.
     @expected_tags %{
       "Maní tostado" => ["peanut"],
       "Pasta de maní" => ["peanut"],
@@ -59,14 +60,14 @@ defmodule MealPlannerApi.Data.IngredientAllergensTest do
       "Tofu firme" => ["soy"],
       "Leche de soja" => ["soy"],
       "Salsa de soja" => ["gluten", "soy"],
-      "Harina de maíz" => [],
-      "Fideos de arroz sin TACC" => [],
-      "Manteca de cacao" => [],
-      "Leche de coco" => [],
-      "Tapa de asado" => [],
-      "Panceta ahumada" => [],
-      "Tomate" => [],
-      "Arroz largo fino" => [],
+      "Harina de maíz" => nil,
+      "Fideos de arroz sin TACC" => nil,
+      "Manteca de cacao" => nil,
+      "Leche de coco" => nil,
+      "Tapa de asado" => nil,
+      "Panceta ahumada" => nil,
+      "Tomate" => nil,
+      "Arroz largo fino" => nil,
       "Frutos del mar" => ["shellfish"],
       "Gambas" => ["shellfish"],
       "Cereal de maíz" => ["gluten"],
@@ -82,13 +83,41 @@ defmodule MealPlannerApi.Data.IngredientAllergensTest do
       "Pesto" => ["tree_nut", "dairy"],
       "Garrapiñada" => ["peanut"],
       "Alioli" => ["egg"],
-      "Nuez moscada" => [],
-      "Esencia de vainilla" => [],
-      "Fideos de arroz" => [],
-      "Pasta de ajo" => []
+      "Nuez moscada" => nil,
+      "Esencia de vainilla" => nil,
+      "Fideos de arroz" => nil,
+      "Pasta de ajo" => nil,
+      "Masitas" => ["gluten"],
+      "Bizcochitos de grasa" => ["gluten"],
+      "Tostaditas" => ["gluten"],
+      "Criollitas" => ["gluten"],
+      "Pepas" => ["gluten"],
+      "Palmeritas" => ["gluten"],
+      "Rosquitas" => ["gluten"],
+      "Scones" => ["gluten", "dairy", "egg"],
+      "Chocolinas" => ["gluten"],
+      "Sacramentos" => ["gluten"],
+      "Panko" => ["gluten"],
+      "Burgol" => ["gluten"],
+      "Requesón" => ["dairy"],
+      "Quesitos" => ["dairy"],
+      "Cremoso" => ["dairy"],
+      "Port Salut" => ["dairy"],
+      "Gruyère" => ["dairy"],
+      "Crème fraîche" => ["dairy"],
+      "Panqueques" => ["gluten", "dairy", "egg"],
+      "Crepes" => ["gluten", "dairy", "egg"],
+      "Masa para panqueques" => ["gluten", "dairy", "egg"],
+      "Alfajores" => ["gluten", "dairy", "egg"],
+      "Tarta de jamón y queso" => ["gluten", "dairy"],
+      "Cremor tártaro" => nil,
+      "Maní tostado" => ["peanut"],
+      "Lechuga" => nil,
+      "Pulpa de tomate" => nil
     }
 
-    test "tags each untagged Ingredient with the codes its name names", %{migration: migration} do
+    test "tags each untagged Ingredient with the codes its name names, and leaves the rest NULL",
+         %{migration: migration} do
       for name <- Map.keys(@expected_tags), do: insert_ingredient(name, nil)
 
       Repo.query!(migration.tag_sql())
