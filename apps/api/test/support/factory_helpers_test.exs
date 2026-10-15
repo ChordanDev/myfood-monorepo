@@ -53,6 +53,24 @@ defmodule MealPlannerApi.FactoryHelpersTest do
       assert plan_names == [:family_4, :individual]
     end
 
+    test "returns the memberships in memberships_spec order" do
+      user =
+        user_with_memberships(
+          %{email: "ordered@example.com"},
+          [
+            {%{plan: :family_4, name: "Family"}, :owner},
+            {%{plan: :individual, name: "Personal"}, :member},
+            {%{plan: :family_6, name: "Big Family"}, :member}
+          ]
+        )
+
+      assert Enum.map(user.memberships, &{&1.account.name, &1.account.plan, &1.role}) == [
+               {"Family", :family_4, :owner},
+               {"Personal", :individual, :member},
+               {"Big Family", :family_6, :member}
+             ]
+    end
+
     test "the memberships are :active and have joined_at set" do
       user =
         user_with_memberships(

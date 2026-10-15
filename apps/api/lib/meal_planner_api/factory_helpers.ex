@@ -13,7 +13,8 @@ defmodule MealPlannerApi.FactoryHelpers do
 
     * `user_with_memberships(user_attrs, memberships_spec)` —
       inserts a User with N `:active` memberships across N Accounts;
-      the User is returned with `memberships: :account` preloaded.
+      the User is returned with `memberships: :account` preloaded, in
+      `memberships_spec` order.
       `memberships_spec` is a list of `{account_attrs, role}` tuples.
     * `issue_access_v2_token(user, membership)` — mints a JWT with
       `typ: "access_v2"` carrying the membership_id, account_id, plan,
@@ -34,7 +35,8 @@ defmodule MealPlannerApi.FactoryHelpers do
   @doc """
   Inserts a User, N Accounts, and N `:active` memberships. The User is
   returned with `memberships: :account` preloaded so callers can read
-  `membership.account.plan` directly.
+  `membership.account.plan` directly. The memberships come back in
+  `memberships_spec` order, so callers may destructure them positionally.
 
   ## Example
 
@@ -56,12 +58,15 @@ defmodule MealPlannerApi.FactoryHelpers do
       |> PersistenceUser.changeset(default_user_attrs(user_attrs))
       |> Repo.insert!()
 
-    Enum.each(memberships_spec, fn {account_attrs, role} ->
-      account = insert_account(account_attrs)
-      insert_membership(account, user, role)
-    end)
+    membership_ids =
+      Enum.map(memberships_spec, fn {account_attrs, role} ->
+        account = insert_account(account_attrs)
+        insert_membership(account, user, role).id
+      end)
 
-    user |> Repo.preload(memberships: :account)
+    user
+    |> Repo.preload(memberships: :account)
+    |> in_spec_order(membership_ids)
   end
 
   @doc """
@@ -80,6 +85,13 @@ defmodule MealPlannerApi.FactoryHelpers do
   end
 
   # ---- internals -------------------------------------------------------------
+
+  # The preload has no ORDER BY, so Postgres row order would decide the list.
+  # Callers destructure it positionally, so rebuild it in spec order.
+  defp in_spec_order(user, membership_ids) do
+    by_id = Map.new(user.memberships, &{&1.id, &1})
+    %{user | memberships: Enum.map(membership_ids, &Map.fetch!(by_id, &1))}
+  end
 
   defp default_user_attrs(overrides) do
     Map.merge(
