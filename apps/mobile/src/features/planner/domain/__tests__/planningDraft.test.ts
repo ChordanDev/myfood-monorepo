@@ -259,6 +259,60 @@ describe('planningDraftReducer', () => {
     });
   });
 
+  describe('an event with no run while a generation left behind may still be running', () => {
+    // A generation cancelled before its session was known keeps running for a while, so an event
+    // that does not say its run may be that generation's and not the one this draft waits for.
+    const strayUnreadable: PlanningDraftAction = {
+      type: 'proposal_unreadable',
+      payload: { runId: null },
+      abandonedInFlight: true,
+    };
+    const strayError: PlanningDraftAction = {
+      type: 'generation_error',
+      payload: { ...error, runId: null, requestId: null },
+      abandonedInFlight: true,
+    };
+
+    it.each([
+      ['an unreadable proposal', strayUnreadable],
+      ['a generation_error', strayError],
+    ])('ignores %s before generation_started, and still takes its own proposal', (_, stray) => {
+      const generating = run([requested, stray]);
+      expect(generating).toMatchObject({ status: 'generating', runId: null, early: [] });
+
+      const draft = run(
+        [
+          { type: 'generation_started', payload: started },
+          { type: 'proposal_ready', payload: proposal },
+        ],
+        generating
+      );
+      expect(draft).toMatchObject({ status: 'ready', proposal });
+    });
+
+    it.each([
+      ['an unreadable proposal', strayUnreadable],
+      ['a generation_error', strayError],
+    ])('still fails on %s once its run is known', (_, stray) => {
+      const draft = run([requested, { type: 'generation_started', payload: started }, stray]);
+
+      expect(draft.status).toBe('failed');
+    });
+
+    it('still fails on a generation_error that carries its requestId', () => {
+      const draft = run([
+        requested,
+        {
+          type: 'generation_error',
+          payload: { ...error, runId: null, requestId: REQUEST_ID },
+          abandonedInFlight: true,
+        },
+      ]);
+
+      expect(draft).toMatchObject({ status: 'failed', failure: { reason: error.reason } });
+    });
+  });
+
   describe('the time limit of a generation', () => {
     const tick = (now: number): PlanningDraftAction => ({ type: 'clock_ticked', now });
     const timedOut = () =>

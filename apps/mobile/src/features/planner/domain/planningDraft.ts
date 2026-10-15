@@ -20,12 +20,19 @@ export type PlanningFailure =
   | { kind: 'request'; error: ApiError }
   | { kind: 'generation'; reason: string };
 
-type RunEvent =
+type RunEvent = (
   | { type: 'proposal_ready'; payload: ProposalReadyPayload }
   /** A `proposal_ready` that does not parse, with its run id when that much can be read. */
   | { type: 'proposal_unreadable'; payload: { runId: string | null } }
   | { type: 'planning_message'; payload: PlanningMessagePayload }
-  | { type: 'generation_error'; payload: GenerationErrorPayload };
+  | { type: 'generation_error'; payload: GenerationErrorPayload }
+) & {
+  /**
+   * A generation left behind before its session was known may still be running when the event
+   * arrives, so an event that does not say its run may be that generation's.
+   */
+  abandonedInFlight?: boolean;
+};
 
 /** The events that say the session of the draft is over, which ends its generation too. */
 export type SessionEndEvent =
@@ -131,18 +138,37 @@ function applyRunEvent(draft: Generating, action: RunEvent): PlanningDraft {
   }
 }
 
-// Whether `action` is about the run of `draft`: by the run id, or for an error by the request id.
 // An error with neither id comes from a reason-only path of the engine, and a proposal that does
-// not parse may not say its run. The Account has at most one generation in flight, so either is
-// about the one this draft waits for.
+// not parse may not say its run.
+function isUnattributed(action: RunEvent): boolean {
+  switch (action.type) {
+    case 'generation_error':
+      return action.payload.requestId === null && action.payload.runId === null;
+    case 'proposal_unreadable':
+      return action.payload.runId === null;
+    default:
+      return false;
+  }
+}
+
+// Whether `action` is about the run of `draft`: by the run id, or for an error by the request id.
+// The Account has at most one generation in flight, so an event that says neither is about the one
+// this draft waits for.
 function belongsToRun(draft: Generating, action: RunEvent): boolean {
   const { payload } = action;
-  if (action.type === 'generation_error') {
-    const { requestId, runId } = action.payload;
-    if (requestId === draft.requestId || (requestId === null && runId === null)) return true;
+  if (action.type === 'generation_error' && action.payload.requestId === draft.requestId) {
+    return true;
   }
-  if (action.type === 'proposal_unreadable' && action.payload.runId === null) return true;
+  if (isUnattributed(action)) return true;
   return draft.runId !== null && payload.runId === draft.runId;
+}
+
+// While a generation left behind may still be running, an event that does not say its run may be
+// that generation's, and nothing it carries can tell: until this draft knows its run, the event is
+// dropped instead of failing a generation it may have nothing to do with. The time limit still
+// ends a generation whose own failure was dropped this way.
+function isStray(draft: Generating, action: RunEvent): boolean {
+  return action.abandonedInFlight === true && draft.runId === null && isUnattributed(action);
 }
 
 function reduceRunEvent(draft: PlanningDraft, action: RunEvent): PlanningDraft {
@@ -152,7 +178,7 @@ function reduceRunEvent(draft: PlanningDraft, action: RunEvent): PlanningDraft {
       ? { ...draft, message: action.payload }
       : draft;
   }
-  if (draft.status !== 'generating') return draft;
+  if (draft.status !== 'generating' || isStray(draft, action)) return draft;
 
   if (belongsToRun(draft, action)) return applyRunEvent(draft, action);
   if (draft.runId !== null || draft.early.length >= MAX_EARLY_EVENTS) return draft;
