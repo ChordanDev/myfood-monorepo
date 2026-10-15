@@ -163,41 +163,4 @@ defmodule MealPlannerApi.Services.PlanningChatServiceTest do
       refute_planning_rows(account.id)
     end
   end
-
-  describe "regenerate_menu/3 date range limit" do
-    test "accepts a base payload range within the limit", %{user: user, account: account} do
-      assert {:ok, result} =
-               PlanningChatService.regenerate_menu(
-                 current_user(user, account, :free),
-                 range("2026-06-15", "2026-06-19"),
-                 %{"budget_cents" => 5000}
-               )
-
-      assert result.date_from == ~D[2026-06-15]
-      assert result.date_to == ~D[2026-06-19]
-      assert generation_run_count(account.id) == 1
-      assert proposal_count(account.id) == 1
-    end
-
-    test "refuses a base payload range longer than the limit and writes nothing", %{
-      user: user,
-      account: account
-    } do
-      assert {:error, :invalid_date_range} =
-               PlanningChatService.regenerate_menu(
-                 current_user(user, account, :free),
-                 range("2026-06-15", "2026-06-20"),
-                 %{"budget_cents" => 5000}
-               )
-
-      assert {:error, :invalid_date_range} =
-               PlanningChatService.regenerate_menu(
-                 current_user(user, account, :premium),
-                 range("2026-01-01", "2027-12-31"),
-                 %{}
-               )
-
-      refute_planning_rows(account.id)
-    end
-  end
 end

@@ -1364,54 +1364,19 @@ Event and reply payloads have camelCase keys at any depth; event names and value
 
 Emitted when generation begins.
 
-Payload examples:
-
-```json
-{
-  "requestId": "req_123"
-}
-```
-
-or for constraints swap:
-
-```json
-{
-  "requestId": "req_123",
-  "reason": "constraint_update"
-}
-```
-
-### `proposal_ready`
-
-Emitted when proposal is generated/regenerated.
-
 Payload:
 
 ```json
 {
   "requestId": "req_123",
   "runId": "...",
-  "proposalId": "...",
-  "dateFrom": "2026-03-30",
-  "dateTo": "2026-04-05",
-  "proposal": {
-    "summary": "...",
-    "scheduledMeals": [],
-    "weeklyPlan": {},
-    "shoppingHints": []
-  },
-  "appliedConstraints": {
-    "kcalTarget": 2200,
-    "weeklyBudgetCents": 50000,
-    "currency": "ARS",
-    "days": ["monday", "tuesday"]
-  }
+  "sessionId": "..."
 }
 ```
 
-Note:
+### `proposal_ready`
 
-- `appliedConstraints` is present on `swap_constraints` flow.
+Emitted when the generation finished a proposal: day-by-day cards with the estimated cost, followed by a `planning_message`. The frozen shape is in `docs/CHANNELS.md` (Planner events).
 
 ### `generation_error`
 
@@ -1455,102 +1420,28 @@ Payload:
 
 ### `proposal_rejected`
 
-Broadcast when proposal is rejected.
+Broadcast when proposal is rejected by `POST /api/planning/proposals/:proposal_id/reject`.
 
 Payload:
 
 ```json
 {
-  "proposalId": "...",
-  "generationRunId": "...",
-  "status": "rejected"
+  "proposalId": "..."
 }
 ```
 
 ## 8.4 Incoming events from client
 
-### `generate_menu`
+The topic accepts the session commands only (issue #15): `start_planning`, `send_message` and `cancel_planning`. Their payloads and replies are in `docs/CHANNELS.md` (Incoming Events). Confirm and reject are HTTP requests: `POST /api/planning/confirm` and `POST /api/planning/proposals/:proposal_id/reject`.
 
-Payload accepted by channel:
-
-```json
-{
-  "request_id": "req-client-1",
-  "message": "Quiero menus baratos",
-  "content_type": "text",
-  "date_from": "2026-03-30",
-  "date_to": "2026-04-05",
-  "kcal_target": 2100,
-  "weekly_budget_cents": 45000,
-  "currency": "ARS",
-  "days": ["monday", "tuesday", "wednesday"]
-}
-```
-
-Channel reply:
-
-- `{:ok, event}` with same payload shape as `proposal_ready`, or
-- `{:error, %{request_id, reason}}`
-
-If `request_id` is omitted, backend auto-generates one (`req_<number>`).
-
-### `swap_constraints`
-
-Payload:
+The older commands `generate_menu`, `swap_constraints`, `chat`, `confirm_proposal` and `reject_proposal` were retired. Like any unsupported event name, they reply the error envelope with code `invalid_payload`:
 
 ```json
 {
-  "request_id": "req-client-2",
-  "base_payload": {
-    "message": "Mantener idea base",
-    "content_type": "text",
-    "date_from": "2026-03-30",
-    "date_to": "2026-04-05",
-    "kcal_target": 2100,
-    "weekly_budget_cents": 45000,
-    "currency": "ARS",
-    "days": ["monday", "tuesday"]
-  },
-  "constraints": {
-    "kcal_target": 2300,
-    "weekly_budget_cents": 50000,
-    "days": ["monday", "tuesday", "wednesday"]
+  "error": {
+    "code": "invalid_payload",
+    "message": "The request payload is not valid."
   }
-}
-```
-
-Behavior:
-
-- Backend merges `constraints` into the base payload.
-- Returns and broadcasts `proposal_ready` including `applied_constraints`.
-
-### `confirm_proposal`
-
-Payload:
-
-```json
-{
-  "proposal_id": "<proposal_uuid>"
-}
-```
-
-### `reject_proposal`
-
-Payload:
-
-```json
-{
-  "proposal_id": "<proposal_uuid>"
-}
-```
-
-### Unknown events
-
-For unsupported event name, channel reply error is:
-
-```json
-{
-  "reason": "invalid_payload"
 }
 ```
 
@@ -1560,8 +1451,8 @@ For unsupported event name, channel reply error is:
 2. Configure HTTP client with `Authorization: Bearer <token>`.
 3. Load `/api/account/context` for budget, inventory names, and plan limits.
 4. Open socket with token and join `planning:<account_id>`.
-5. Use `generate_menu` and optionally `swap_constraints` over channel for iterative UX.
-6. Confirm proposal via channel (`confirm_proposal`) or REST (`/api/planning/proposals/:proposal_id/confirm`).
+5. Send `start_planning` over the channel, then `send_message` intents for iterative UX.
+6. Confirm the proposal with `POST /api/planning/confirm` or reject it with `POST /api/planning/proposals/:proposal_id/reject`.
 7. Show shopping view from `/api/shopping-list` and manage cart/checkout flows.
 8. Update inventory using add/update/dispose/voice endpoints.
 

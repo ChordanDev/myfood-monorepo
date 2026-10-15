@@ -18,8 +18,7 @@ export interface SessionStartedPayload {
 // `session_cancelled`, `session_expired` and `session_lost_lock` all say which session ended.
 export type SessionEndedPayload = SessionStartedPayload;
 
-// `generate_menu` and `swap_constraints` emit other shapes of this event; this one is the
-// `start_planning` shape.
+// `start_planning` is the only command that emits this event.
 export interface GenerationStartedPayload {
   requestId: string;
   runId: string;

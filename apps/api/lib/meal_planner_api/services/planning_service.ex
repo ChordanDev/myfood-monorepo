@@ -12,8 +12,6 @@ defmodule MealPlannerApi.Services.PlanningService do
   Delegates to data repos for persistence.
   """
 
-  require Logger
-
   alias MealPlannerApi.Data.PlanningRepo
   alias MealPlannerApi.Optimization.OptimizerPort
   alias MealPlannerApi.Persistence.Identity
@@ -135,71 +133,6 @@ defmodule MealPlannerApi.Services.PlanningService do
       },
       "candidates_by_slot" => candidates_by_slot
     }
-  end
-
-  # -------------------------------------------------------------------------
-  # Plan persistence
-  # -------------------------------------------------------------------------
-
-  @spec save_plan(Ecto.UUID.t(), Ecto.UUID.t(), [map()], map()) ::
-          {:ok, %{proposal_id: Ecto.UUID.t(), meal_ids: [Ecto.UUID.t()]}}
-          | {:error, term()}
-  def save_plan(account_id, user_id, meals, _metadata \\ %{}) do
-    run_result =
-      PlanningRepo.create_generation_run(%{
-        account_id: account_id,
-        user_id: user_id,
-        status: :completed,
-        input_context: %{"source" => "planning_service"},
-        started_at: DateTime.utc_now(),
-        completed_at: DateTime.utc_now()
-      })
-
-    proposal_result =
-      case run_result do
-        {:ok, run} ->
-          PlanningRepo.create_proposal(%{
-            generation_run_id: run.id,
-            proposal_json: %{meals: meals},
-            selected_at: DateTime.utc_now()
-          })
-
-        err ->
-          err
-      end
-
-    with {:ok, run} <- run_result,
-         {:ok, proposal} <- proposal_result do
-      meal_ids = Enum.flat_map(meals, &schedule_plan_meal(&1, account_id, run, proposal))
-
-      {:ok, %{proposal_id: proposal.id, meal_ids: meal_ids}}
-    else
-      {:error, reason} ->
-        Logger.error("save_plan failed account_id=#{account_id} failure=#{failure_name(reason)}")
-        {:error, reason}
-    end
-  end
-
-  # Both steps fail with a rejected changeset, which carries the plan it was
-  # built from, so the log names the schema and the invalid fields only.
-  defp failure_name(%Ecto.Changeset{data: %schema{}, errors: errors}) do
-    "invalid #{inspect(schema)} fields=#{inspect(Keyword.keys(errors))}"
-  end
-
-  defp schedule_plan_meal(meal, account_id, run, proposal) do
-    case PlanningRepo.schedule_meal(%{
-           account_id: account_id,
-           generation_run_id: run.id,
-           planning_proposal_id: proposal.id,
-           date: parse_date(meal["day"]),
-           slot: String.to_existing_atom(meal["slot"]),
-           recipe_id: meal["recipe_id"],
-           selected_quantity: Map.get(meal, "selected_quantity", 1),
-           is_cooked: false
-         }) do
-      {:ok, scheduled_meal} -> [scheduled_meal.id]
-      {:error, _} -> []
-    end
   end
 
   @spec get_scheduled_meals(Ecto.UUID.t(), Date.t(), Date.t()) :: [map()]
@@ -376,35 +309,6 @@ defmodule MealPlannerApi.Services.PlanningService do
       day_meals = Enum.filter(meals, &(&1["day"] == day))
       %{day: day, meals: day_meals}
     end)
-  end
-
-  defp parse_date("monday"), do: next_weekday(:monday)
-  defp parse_date("tuesday"), do: next_weekday(:tuesday)
-  defp parse_date("wednesday"), do: next_weekday(:wednesday)
-  defp parse_date("thursday"), do: next_weekday(:thursday)
-  defp parse_date("friday"), do: next_weekday(:friday)
-  defp parse_date("saturday"), do: next_weekday(:saturday)
-  defp parse_date("sunday"), do: next_weekday(:sunday)
-  defp parse_date(_), do: Date.utc_today() |> Date.add(1)
-
-  defp next_weekday(target) do
-    today = Date.utc_today()
-    today_weekday = Date.day_of_week(today)
-
-    target_weekday =
-      case target do
-        :monday -> 1
-        :tuesday -> 2
-        :wednesday -> 3
-        :thursday -> 4
-        :friday -> 5
-        :saturday -> 6
-        :sunday -> 7
-      end
-
-    days_ahead = target_weekday - today_weekday
-    days_ahead = if days_ahead <= 0, do: days_ahead + 7, else: days_ahead
-    Date.add(today, days_ahead)
   end
 
   defp serialize_scheduled_meal(meal) do

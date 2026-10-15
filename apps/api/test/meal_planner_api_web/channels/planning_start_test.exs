@@ -192,8 +192,8 @@ defmodule MealPlannerApiWeb.PlanningStartTest do
       assert session.range_from == Date.from_iso8601!(from)
       assert session.range_to == Date.from_iso8601!(to)
 
-      # The generation started through the same call `generate_menu` makes,
-      # with the dates of the session and the free text as the request.
+      # The generation started with the dates of the session and the free
+      # text as the request.
       assert_push("generation_started", %{"runId" => run_id})
       assert %{current_run_id: ^run_id, constraints: constraints} = Server.get_status(account.id)
       assert constraints["date_from"] == from

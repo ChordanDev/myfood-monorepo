@@ -90,36 +90,6 @@ defmodule MealPlannerApi.Services.PlanningChatService do
     end
   end
 
-  @spec regenerate_menu(map(), map(), map()) :: {:ok, map()} | {:error, term()}
-  def regenerate_menu(current_user, base_payload, constraint_updates)
-      when is_map(base_payload) and is_map(constraint_updates) do
-    merged = Map.merge(base_payload, %{"constraints" => constraint_updates})
-    generate_menu(current_user, merged)
-  end
-
-  # -------------------------------------------------------------------------
-  # Proposal rejection
-  # -------------------------------------------------------------------------
-
-  @spec reject_proposal(map(), binary()) :: {:ok, map()} | {:error, term()}
-  def reject_proposal(current_user, proposal_id) when is_binary(proposal_id) do
-    with {:ok, ids} <- Identity.ensure_persistent_identity(current_user),
-         {:ok, proposal} <-
-           PlanningRepo.get_proposal_with_run!(proposal_id) |> then(fn {p, _} -> {:ok, p} end),
-         :ok <- verify_ownership(proposal, ids.account_id),
-         {:ok, _updated} <-
-           PlanningRepo.update_proposal(proposal, %{status: :rejected}) do
-      {:ok,
-       %{
-         proposal_id: proposal_id,
-         generation_run_id: proposal.generation_run_id,
-         status: "rejected"
-       }}
-    else
-      {:error, _} = error -> error
-    end
-  end
-
   # -------------------------------------------------------------------------
   # Confirm / reject over HTTP (issue #28)
   # -------------------------------------------------------------------------
@@ -152,8 +122,8 @@ defmodule MealPlannerApi.Services.PlanningChatService do
 
   @doc """
   Rejects a pending proposal of the Account. The generation server of the
-  Account rejects it when one is running, as the `reject_proposal` channel
-  command does; otherwise the proposal is rejected here. Either way the topic
+  Account rejects it when one is running; otherwise the proposal is rejected
+  here. Either way the topic
   hears `proposal_rejected`. Any status but pending answers
   `:planning_proposal_not_pending`.
 
@@ -459,16 +429,5 @@ defmodule MealPlannerApi.Services.PlanningChatService do
       scheduled_meals: scheduled_meals,
       weekly_plan: weekly_plan
     }
-  end
-
-  # `reject_proposal/2` still uses this ownership guard; `confirm_proposal/2`
-  # was retired in PR3 (see planning-sessions/spec.md REMOVED Requirements)
-  # because the HTTP path silently bypassed AC #4 atomicity.
-  defp verify_ownership(proposal, account_id) do
-    if proposal.generation_run && proposal.generation_run.account_id == account_id do
-      :ok
-    else
-      {:error, :forbidden}
-    end
   end
 end

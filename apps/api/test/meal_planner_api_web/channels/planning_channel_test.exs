@@ -5,25 +5,15 @@ defmodule MealPlannerApiWeb.PlanningChannelTest do
   import ExUnit.CaptureLog
   import MealPlannerApi.FactoryHelpers
 
-  alias MealPlannerApi.Data.{PlanningRepo, RecipeRepo, ShoppingRepo}
+  alias MealPlannerApi.Data.PlanningRepo
   alias MealPlannerApi.Generation.PlanningSession.Sweeper
-  alias MealPlannerApi.Generation.Server
-  alias MealPlannerApi.IdentityFixtures
   alias MealPlannerApi.Persistence.Accounts.Account, as: PersistenceAccount
   alias MealPlannerApi.Persistence.Accounts.AccountMembership
   alias MealPlannerApi.Persistence.Accounts.User
-  alias MealPlannerApi.Persistence.Catalog
-
-  alias MealPlannerApi.Persistence.Planning.{
-    PlanningGenerationRun,
-    PlanningMessage,
-    PlanningProposal
-  }
-
+  alias MealPlannerApi.Persistence.Planning.{PlanningGenerationRun, PlanningMessage}
   alias MealPlannerApi.Repo
   alias MealPlannerApiWeb.{AIChannel, Endpoint, PlanningChannel, UserSocket}
 
-  import MealPlannerApi.Generation.ServerTestFixtures, only: [stop_generation_server: 1]
   import MealPlannerApiWeb.CasingAssertions, only: [assert_camel_case_keys: 1]
   import MealPlannerApiWeb.ChannelHelpers, only: [issue_identity_and_token: 2]
 
@@ -37,9 +27,8 @@ defmodule MealPlannerApiWeb.PlanningChannelTest do
     {:ok, user, account, token} = issue_identity_and_token("u_plan_test", "acct_plan_test")
 
     # Every test of this file gets the same account id, and a generation
-    # server registers under it. A test that makes `generate_menu` start one
-    # stops it itself (`stop_generation_server/1`); this covers a test that
-    # fails before it gets there, so the server it left does not answer the
+    # server registers under it when a test makes `start_planning` start
+    # one. This stops it, so the server a test left does not answer the
     # commands of the next test.
     on_exit(fn ->
       for {pid, _value} <-
@@ -389,1013 +378,6 @@ defmodule MealPlannerApiWeb.PlanningChannelTest do
           previous
         )
       end
-    end
-  end
-
-  # ==========================================================================
-  # generate_menu tests
-  # ==========================================================================
-
-  describe "handle_in generate_menu" do
-    test "generates response with request_id", %{
-      account: account,
-      token: token
-    } do
-      {:ok, socket} = connect(UserSocket, %{"token" => token})
-
-      {:ok, _reply, socket} =
-        subscribe_and_join(socket, PlanningChannel, "planning:#{account.id}")
-
-      ref =
-        push(socket, "generate_menu", %{
-          "request_id" => "test_req_1",
-          "constraints" => %{}
-        })
-
-      # No generation server is running, so the command starts one and
-      # replies ok with the request id.
-      assert_reply(ref, :ok, %{"requestId" => "test_req_1"})
-
-      stop_generation_server(account.id)
-    end
-
-    test "cold start: starts a generation server for the account and replies ok", %{
-      account: account,
-      user: user,
-      token: token
-    } do
-      {:ok, socket} = connect(UserSocket, %{"token" => token})
-
-      {:ok, _reply, socket} =
-        subscribe_and_join(socket, PlanningChannel, "planning:#{account.id}")
-
-      # No generation server is running for the account.
-      assert Registry.lookup(MealPlannerApi.Generation.Generations, {:generation, account.id}) ==
-               []
-
-      {run_id, log} =
-        with_log(fn ->
-          ref =
-            push(socket, "generate_menu", %{
-              "request_id" => "gen_cold_start",
-              "constraints" => %{"participant_ids" => [user.id]}
-            })
-
-          assert_reply(ref, :ok, reply)
-          assert %{"requestId" => "gen_cold_start", "runId" => run_id} = reply
-          assert Map.keys(reply) == ["requestId", "runId"]
-          assert is_binary(run_id)
-
-          run_id
-        end)
-
-      refute log =~ "unknown_error"
-
-      assert_push("generation_started", %{"requestId" => "gen_cold_start", "runId" => ^run_id})
-
-      # The server registered for the account is the one that took the run.
-      assert [{server_pid, _value}] =
-               Registry.lookup(MealPlannerApi.Generation.Generations, {:generation, account.id})
-
-      assert %{current_run_id: ^run_id} = Server.get_status(account.id)
-
-      stop_generation_server(account.id)
-      refute Process.alive?(server_pid)
-    end
-
-    test "error when Server.start_generation fails with a fault", %{
-      account: account,
-      token: token
-    } do
-      {:ok, socket} = connect(UserSocket, %{"token" => token})
-
-      {:ok, _reply, socket} =
-        subscribe_and_join(socket, PlanningChannel, "planning:#{account.id}")
-
-      # A generation server that answers a fault: a reason no service chose
-      # and the allowlist does not hold.
-      start_generation_server_stub(account.id, {:error, {:storage_fault, "disk on fire"}})
-
-      ref =
-        push(socket, "generate_menu", %{
-          "request_id" => "test_req_fault",
-          "constraints" => %{}
-        })
-
-      # Should receive error reply, with the fallback code and the request id.
-      payload = assert_error_reply(ref, :unknown_error)
-      assert payload["requestId"] == "test_req_fault"
-      refute inspect(payload) =~ "storage_fault"
-
-      # The `generation_error` event falls back on its own for a reason that
-      # is neither an atom nor a string.
-      assert_push("generation_error", %{
-        "requestId" => "test_req_fault",
-        "reason" => "invalid_payload"
-      })
-    end
-
-    # The window of a generation (its dates) and the constraints themselves
-    # are refused before a generation starts: the reply is the envelope with
-    # the request id, the event keeps its reason, and no generation server is
-    # started for the account.
-    for {label, constraints, code, reason} <- [
-          {"a malformed date", %{"date_from" => "not-a-date"}, :invalid_date, "invalid_date"},
-          {"a range that ends before it starts",
-           %{"date_from" => "2026-02-07", "date_to" => "2026-02-01"}, :invalid_date_range,
-           "invalid_date_range"},
-          {"a range of eight days", %{"date_from" => "2026-02-01", "date_to" => "2026-02-08"},
-           :invalid_date_range, "invalid_date_range"},
-          {"constraints that are null", nil, :invalid_payload, "invalid_payload"},
-          {"constraints that are a string", "2026-02-01", :invalid_payload, "invalid_payload"}
-        ] do
-      test "#{label} replies #{code} and starts no generation", %{
-        account: account,
-        token: token
-      } do
-        {:ok, socket} = connect(UserSocket, %{"token" => token})
-
-        {:ok, _reply, socket} =
-          subscribe_and_join(socket, PlanningChannel, "planning:#{account.id}")
-
-        ref =
-          push(socket, "generate_menu", %{
-            "request_id" => "gen_refused",
-            "constraints" => unquote(Macro.escape(constraints))
-          })
-
-        payload = assert_error_reply(ref, unquote(code))
-        assert payload["requestId"] == "gen_refused"
-
-        assert_push("generation_error", %{
-          "requestId" => "gen_refused",
-          "reason" => unquote(reason)
-        })
-
-        assert Registry.lookup(MealPlannerApi.Generation.Generations, {:generation, account.id}) ==
-                 []
-
-        # The channel is alive, and a chat finds no generation to talk to.
-        ref_next = push(socket, "chat", %{"proposal_id" => "999", "message" => "Hello"})
-
-        assert_error_reply(ref_next, :no_active_generation)
-      end
-    end
-  end
-
-  # ==========================================================================
-  # swap_constraints tests
-  # ==========================================================================
-
-  describe "handle_in swap_constraints" do
-    test "returns response with request_id", %{
-      account: account,
-      token: token
-    } do
-      {:ok, socket} = connect(UserSocket, %{"token" => token})
-
-      {:ok, _reply, socket} =
-        subscribe_and_join(socket, PlanningChannel, "planning:#{account.id}")
-
-      ref =
-        push(socket, "swap_constraints", %{
-          "request_id" => "swap_req_1",
-          "base_payload" => %{"date_from" => "2026-06-15", "date_to" => "2026-06-19"},
-          "constraints" => %{"budget_cents" => 5000}
-        })
-
-      # Should push generation_started and return ok with proposal
-      assert_push("generation_started", %{
-        "requestId" => "swap_req_1",
-        "reason" => "constraint_update"
-      })
-
-      # Response should include the request id
-      assert_receive %{ref: ^ref, payload: %{"requestId" => "swap_req_1"}}
-    end
-
-    test "broadcasts error when service fails", %{
-      account: account,
-      token: token
-    } do
-      {:ok, socket} = connect(UserSocket, %{"token" => token})
-
-      {:ok, _reply, socket} =
-        subscribe_and_join(socket, PlanningChannel, "planning:#{account.id}")
-
-      # Pass invalid date range (date_to before date_from)
-      ref =
-        push(socket, "swap_constraints", %{
-          "request_id" => "swap_req_error",
-          "base_payload" => %{"date_from" => "2026-06-21", "date_to" => "2026-06-15"},
-          "constraints" => %{}
-        })
-
-      payload = assert_error_reply(ref, :invalid_date_range)
-      assert payload["requestId"] == "swap_req_error"
-
-      # The `generation_error` event is not a command reply and keeps its
-      # `reason` field, value included.
-      assert_push("generation_error", %{
-        "requestId" => "swap_req_error",
-        "reason" => "invalid_date_range"
-      })
-    end
-
-    # Issue #87: the range of `base_payload` comes from the client. The User
-    # of this file is on the free tier, which plans five days at most.
-    test "refuses a base_payload range longer than the plan maximum and creates no rows", %{
-      account: account,
-      token: token
-    } do
-      {:ok, socket} = connect(UserSocket, %{"token" => token})
-
-      {:ok, _reply, socket} =
-        subscribe_and_join(socket, PlanningChannel, "planning:#{account.id}")
-
-      for {request_id, date_from, date_to} <- [
-            {"swap_req_six_days", "2026-06-15", "2026-06-20"},
-            {"swap_req_two_years", "2026-01-01", "2027-12-31"}
-          ] do
-        ref =
-          push(socket, "swap_constraints", %{
-            "request_id" => request_id,
-            "base_payload" => %{"date_from" => date_from, "date_to" => date_to},
-            "constraints" => %{"budget_cents" => 5000}
-          })
-
-        payload = assert_error_reply(ref, :invalid_date_range)
-        assert payload["requestId"] == request_id
-
-        assert_push("generation_error", %{
-          "requestId" => ^request_id,
-          "reason" => "invalid_date_range"
-        })
-      end
-
-      refute_push("proposal_ready", _proposal)
-
-      generation_runs = from(r in PlanningGenerationRun, where: r.account_id == ^account.id)
-
-      proposals =
-        from(p in PlanningProposal,
-          join: r in assoc(p, :generation_run),
-          where: r.account_id == ^account.id
-        )
-
-      assert Repo.aggregate(generation_runs, :count) == 0
-      assert Repo.aggregate(proposals, :count) == 0
-    end
-
-    # The limit is read from the User of the socket, whose tier comes from the
-    # token: a premium User still gets the seven days of their plan.
-    test "accepts a base_payload range of the plan maximum for a premium User" do
-      %{account: account, token: token} =
-        IdentityFixtures.insert_identity_with_token!(subscription_tier: :premium)
-
-      {:ok, socket} = connect(UserSocket, %{"token" => token})
-
-      {:ok, _reply, socket} =
-        subscribe_and_join(socket, PlanningChannel, "planning:#{account.id}")
-
-      ref =
-        push(socket, "swap_constraints", %{
-          "request_id" => "swap_req_premium_week",
-          "base_payload" => %{"date_from" => "2026-06-15", "date_to" => "2026-06-21"},
-          "constraints" => %{"budget_cents" => 5000}
-        })
-
-      assert_reply(ref, :ok, reply)
-
-      assert %{
-               "requestId" => "swap_req_premium_week",
-               "dateFrom" => "2026-06-15",
-               "dateTo" => "2026-06-21"
-             } = reply
-
-      assert_push("proposal_ready", %{"requestId" => "swap_req_premium_week"})
-    end
-
-    test "a malformed date replies invalid_date and is not logged as a fault", %{
-      account: account,
-      token: token
-    } do
-      {:ok, socket} = connect(UserSocket, %{"token" => token})
-
-      {:ok, _reply, socket} =
-        subscribe_and_join(socket, PlanningChannel, "planning:#{account.id}")
-
-      # `Date.from_iso8601/1` answers `:invalid_format` for a string that is
-      # not a date: a mistake of the client, not a fault of the server.
-      log =
-        capture_log(fn ->
-          ref =
-            push(socket, "swap_constraints", %{
-              "request_id" => "swap_req_malformed_date",
-              "base_payload" => %{"date_from" => "not-a-date"},
-              "constraints" => %{}
-            })
-
-          payload = assert_error_reply(ref, :invalid_date)
-          assert payload["requestId"] == "swap_req_malformed_date"
-        end)
-
-      refute log =~ "unknown_error"
-      refute log =~ "invalid_format"
-    end
-  end
-
-  # ==========================================================================
-  # chat tests
-  # ==========================================================================
-
-  describe "handle_in chat" do
-    test "error when no active generation", %{
-      account: account,
-      token: token
-    } do
-      {:ok, socket} = connect(UserSocket, %{"token" => token})
-
-      {:ok, _reply, socket} =
-        subscribe_and_join(socket, PlanningChannel, "planning:#{account.id}")
-
-      # No generation started, so chat should fail
-      ref =
-        push(socket, "chat", %{
-          "proposal_id" => "123",
-          "message" => "Change the menu"
-        })
-
-      assert_error_reply(ref, :no_active_generation)
-    end
-
-    test "missing proposal_id returns error", %{
-      account: account,
-      token: token
-    } do
-      {:ok, socket} = connect(UserSocket, %{"token" => token})
-
-      {:ok, _reply, socket} =
-        subscribe_and_join(socket, PlanningChannel, "planning:#{account.id}")
-
-      # Missing proposal_id falls through to unknown event
-      ref =
-        push(socket, "chat", %{
-          "message" => "Hello"
-        })
-
-      assert_error_reply(ref, :invalid_payload)
-    end
-
-    test "success when GenerationServer is running", %{
-      account: account,
-      user: user,
-      token: token
-    } do
-      # Create recipe so generation can potentially work
-      {:ok, _recipe} =
-        Catalog.create_recipe(%{
-          account_id: account.id,
-          created_by_user_id: user.id,
-          name: "Test Recipe Chat",
-          source: :user_created,
-          servings: 2,
-          suitable_for_slots: [:lunch]
-        })
-
-      {:ok, socket} = connect(UserSocket, %{"token" => token})
-
-      {:ok, _reply, socket} =
-        subscribe_and_join(socket, PlanningChannel, "planning:#{account.id}")
-
-      # Start generation first to have GenerationServer running
-      ref_gen =
-        push(socket, "generate_menu", %{
-          "request_id" => "chat_req_init",
-          "constraints" => %{}
-        })
-
-      # The ok reply means the server is started and registered
-      assert_reply(ref_gen, :ok, %{"requestId" => "chat_req_init", "runId" => run_id})
-
-      # The server answers a call once the generation it is running has
-      # finished, so the chat below does not wait behind the pipeline. The
-      # call has to come before the chat is pushed: the channel process
-      # casts the chat, and a call of the test process sent after the push
-      # could reach the server ahead of that cast.
-      assert %{current_run_id: ^run_id} = Server.get_status(account.id)
-
-      # Now send chat message - should find GenerationServer
-      _ref_chat =
-        push(socket, "chat", %{
-          "proposal_id" => "999",
-          "message" => "Remove tomatoes from the menu"
-        })
-
-      # chat returns noreply (cast to GenServer): the GenerationServer
-      # responds via broadcast. The message is not a modification the server
-      # understands, and that is what it announces.
-      assert_push("generation_error", %{"reason" => "invalid_modification"})
-
-      stop_generation_server(account.id)
-    end
-  end
-
-  # ==========================================================================
-  # confirm_proposal tests
-  # ==========================================================================
-
-  describe "handle_in confirm_proposal" do
-    test "missing session_id is rejected with :missing_session_id before any DB lookup", %{
-      account: account,
-      user: user,
-      token: token
-    } do
-      {:ok, _recipe} =
-        Catalog.create_recipe(%{
-          account_id: account.id,
-          created_by_user_id: user.id,
-          name: "Test Recipe Confirm",
-          source: :user_created,
-          servings: 2,
-          suitable_for_slots: [:lunch]
-        })
-
-      {:ok, socket} = connect(UserSocket, %{"token" => token})
-
-      {:ok, _reply, socket} =
-        subscribe_and_join(socket, PlanningChannel, "planning:#{account.id}")
-
-      # PR2 — session_id is required; the payload guard fires before
-      # proposal_id is even checked, so the well-formed fake proposal_id
-      # never reaches `Server.do_confirm/3`.
-      fake_uuid = Ecto.UUID.generate()
-
-      ref =
-        push(socket, "confirm_proposal", %{
-          "proposal_id" => fake_uuid
-        })
-
-      assert_error_reply(ref, :missing_session_id)
-    end
-
-    test "invalid session_id format returns :missing_session_id", %{
-      account: account,
-      token: token
-    } do
-      {:ok, socket} = connect(UserSocket, %{"token" => token})
-
-      {:ok, _reply, socket} =
-        subscribe_and_join(socket, PlanningChannel, "planning:#{account.id}")
-
-      ref =
-        push(socket, "confirm_proposal", %{
-          "proposal_id" => Ecto.UUID.generate(),
-          "session_id" => "not-uuid"
-        })
-
-      assert_error_reply(ref, :missing_session_id)
-    end
-
-    test "invalid proposal_id format returns :invalid_proposal_id", %{
-      account: account,
-      token: token
-    } do
-      {:ok, socket} = connect(UserSocket, %{"token" => token})
-
-      {:ok, _reply, socket} =
-        subscribe_and_join(socket, PlanningChannel, "planning:#{account.id}")
-
-      # Use a TRULY malformed UUID — too short, contains non-hex chars.
-      # (Strings like "not-a-valid-uuid" happen to be 36 ASCII bytes
-      # that parse as a valid hex UUID, which would slip past the
-      # cast check.)
-      ref =
-        push(socket, "confirm_proposal", %{
-          "proposal_id" => "not-uuid",
-          "session_id" => Ecto.UUID.generate()
-        })
-
-      assert_error_reply(ref, :invalid_proposal_id)
-    end
-
-    # @task 4.3 — channel-layer end-to-end test: confirms that the cart
-    # fields (`shoppingItemsCount`, `checkoutSessionId`, `cart`) flow
-    # through both the direct reply and the `proposal_confirmed`
-    # event. This is the first test that exercises the registered
-    # `Generation.Server` path (not the `PlanningChatService` fallback).
-    #
-    # Issue #11 — the command is accepted in both casings, and the reply and
-    # the event `Generation.Server` broadcasts reach the client in camelCase,
-    # the nested `cart` list included.
-    for {casing, proposal_key, session_key} <- [
-          {"snake_case", "proposal_id", "session_id"},
-          {"camelCase", "proposalId", "sessionId"}
-        ] do
-      test "confirm reply AND proposal_confirmed push carry cart fields end-to-end " <>
-             "(#{casing} command)",
-           %{account: account, user: user, token: token} do
-        confirm_payload = fn proposal_id, session_id ->
-          %{unquote(proposal_key) => proposal_id, unquote(session_key) => session_id}
-        end
-
-        assert_confirm_carries_cart_fields(account, user, token, confirm_payload)
-      end
-    end
-
-    defp assert_confirm_carries_cart_fields(account, user, token, confirm_payload) do
-      # Seed: a recipe with one ingredient, a proposal with one slot.
-      {:ok, recipe} =
-        Catalog.create_recipe(%{
-          account_id: account.id,
-          created_by_user_id: user.id,
-          name: "4-3 recipe",
-          source: :user_created,
-          servings: 2,
-          suitable_for_slots: [:lunch]
-        })
-
-      {:ok, flour} =
-        Catalog.create_ingredient(%{name: "4-3 flour", category: :granos})
-
-      {:ok, _ri} =
-        RecipeRepo.add_recipe_ingredient(%{
-          recipe_id: recipe.id,
-          ingredient_id: flour.id,
-          quantity_milli: 750_000,
-          unit: :g
-        })
-
-      {:ok, run} =
-        PlanningRepo.create_generation_run(%{
-          account_id: account.id,
-          user_id: user.id,
-          status: :processing,
-          started_at: DateTime.utc_now(),
-          input_context: %{}
-        })
-
-      {:ok, proposal} =
-        PlanningRepo.create_proposal(%{
-          generation_run_id: run.id,
-          status: :pending,
-          proposal_json: %{
-            slots: [
-              %{
-                slot_key: "2026-08-08_lunch",
-                date: "2026-08-08",
-                slot: "lunch",
-                recipe_id: recipe.id,
-                recipe_name: "4-3 recipe",
-                price_cents: 1000
-              }
-            ]
-          }
-        })
-
-      flour_id = flour.id
-
-      {:ok, socket} = connect(UserSocket, %{"token" => token})
-
-      {:ok, _reply, socket} =
-        subscribe_and_join(socket, PlanningChannel, "planning:#{account.id}")
-
-      # Register a Generation.Server under the account's registry with the
-      # joined channel's pid so `proposal_confirmed` is broadcast back
-      # onto `planning:<account_id>`, which the test process is subscribed
-      # to (via `subscribe_and_join`/`assert_broadcast`).
-      start_supervised!(
-        {Server, account_id: account.id, user_id: user.id, channel_pid: socket.channel_pid},
-        id: {:channel_server, account.id, :cart_payload_test}
-      )
-
-      # PR2 — pre-create the session lock so `do_confirm/3`'s pre-check
-      # passes and the full atomic pipeline runs.
-      session = insert_active_session(account, user)
-
-      ref = push(socket, "confirm_proposal", confirm_payload.(proposal.id, session.id))
-
-      assert_reply(
-        ref,
-        :ok,
-        %{
-          "shoppingItemsCount" => 1,
-          "checkoutSessionId" => checkout_session_id,
-          "cart" => [
-            %{"ingredientId" => ingredient_id, "unit" => :g, "quantityMilli" => 750_000}
-          ]
-        } = reply
-      )
-
-      assert is_binary(checkout_session_id)
-      assert ingredient_id == flour_id
-      assert_camel_case_keys(reply)
-
-      # The raw PubSub payload `Generation.Server` broadcasts is still
-      # snake_case; the client receives what `handle_out/3` pushes.
-      assert_push(
-        "proposal_confirmed",
-        %{
-          "shoppingItemsCount" => 1,
-          "checkoutSessionId" => pushed_session_id,
-          "cart" => [
-            %{"ingredientId" => pushed_ingredient_id, "unit" => :g, "quantityMilli" => 750_000}
-          ]
-        } = pushed
-      )
-
-      assert pushed_session_id == checkout_session_id
-      assert pushed_ingredient_id == flour_id
-      assert_camel_case_keys(pushed)
-
-      # PR2 — the session row must be :committed by the same transaction
-      # that wrote the cart and meals. The cart-payload test now also
-      # proves AC #4 atomicity at the channel boundary.
-      reloaded =
-        MealPlannerApi.Repo.get!(
-          MealPlannerApi.Persistence.Planning.PlanningSession,
-          session.id
-        )
-
-      assert reloaded.status == :committed
-      assert reloaded.terminal_at != nil
-    end
-
-    test "re-confirming an already-accepted proposal returns :already_confirmed and emits no proposal_confirmed",
-         %{
-           account: account,
-           user: user,
-           token: token
-         } do
-      {:ok, _recipe} =
-        Catalog.create_recipe(%{
-          account_id: account.id,
-          created_by_user_id: user.id,
-          name: "4-3 idemp",
-          source: :user_created,
-          servings: 2,
-          suitable_for_slots: [:lunch]
-        })
-
-      {:ok, run} =
-        PlanningRepo.create_generation_run(%{
-          account_id: account.id,
-          user_id: user.id,
-          status: :processing,
-          started_at: DateTime.utc_now(),
-          input_context: %{}
-        })
-
-      {:ok, proposal} =
-        PlanningRepo.create_proposal(%{
-          generation_run_id: run.id,
-          status: :accepted,
-          proposal_json: %{slots: []}
-        })
-
-      {:ok, socket} = connect(UserSocket, %{"token" => token})
-
-      {:ok, _reply, socket} =
-        subscribe_and_join(socket, PlanningChannel, "planning:#{account.id}")
-
-      start_supervised!(
-        {Server, account_id: account.id, user_id: user.id, channel_pid: socket.channel_pid},
-        id: {:channel_server, account.id, :already_confirmed_test}
-      )
-
-      # PR2 — provide a session_id; the `:already_confirmed` short-circuit
-      # runs BEFORE the session check, so this is just a sanity UUID.
-      session = insert_active_session(account, user)
-
-      ref =
-        push(socket, "confirm_proposal", %{
-          "proposal_id" => proposal.id,
-          "session_id" => session.id
-        })
-
-      assert_error_reply(ref, :already_confirmed)
-
-      # No `proposal_confirmed` broadcast should follow the rejection.
-      refute_receive %Phoenix.Socket.Broadcast{
-                       topic: "planning:" <> _,
-                       event: "proposal_confirmed"
-                     },
-                     100
-    end
-
-    # Regression for review blocker R4-001: a failed `schedule_meal/1`
-    # MUST roll back the proposal status flip and the cart writes.
-    test "failed scheduled_meal insert rolls back proposal status, meals, and cart",
-         %{account: account, user: user, token: token} do
-      missing_recipe_id = Ecto.UUID.generate()
-
-      {:ok, run} =
-        PlanningRepo.create_generation_run(%{
-          account_id: account.id,
-          user_id: user.id,
-          status: :processing,
-          started_at: DateTime.utc_now(),
-          input_context: %{}
-        })
-
-      {:ok, proposal} =
-        PlanningRepo.create_proposal(%{
-          generation_run_id: run.id,
-          status: :pending,
-          proposal_json: %{
-            slots: [%{slot_key: "2026-08-09_lunch", recipe_id: missing_recipe_id}]
-          }
-        })
-
-      {:ok, socket} = connect(UserSocket, %{"token" => token})
-
-      {:ok, _reply, socket} =
-        subscribe_and_join(socket, PlanningChannel, "planning:#{account.id}")
-
-      start_supervised!(
-        {Server, account_id: account.id, user_id: user.id, channel_pid: socket.channel_pid},
-        id: {:channel_server, account.id, :rollback_test}
-      )
-
-      session = insert_active_session(account, user)
-
-      ref =
-        push(socket, "confirm_proposal", %{
-          "proposal_id" => proposal.id,
-          "session_id" => session.id
-        })
-
-      assert_error_reply(ref, :transaction_failed)
-
-      reloaded = Repo.get!(MealPlannerApi.Persistence.Planning.PlanningProposal, proposal.id)
-      assert reloaded.status == :pending
-
-      assert PlanningRepo.list_scheduled_meals(account.id, ~D[2026-01-01], ~D[2026-12-31]) == []
-
-      assert ShoppingRepo.list_checkout_sessions(account.id) == []
-
-      # PR2 — the session MUST stay :active after the rollback; the
-      # :committed transition runs inside the same Multi as the meals
-      # and cart writes and rolls back atomically.
-      reloaded_session =
-        MealPlannerApi.Repo.get!(
-          MealPlannerApi.Persistence.Planning.PlanningSession,
-          session.id
-        )
-
-      assert reloaded_session.status == :active
-      assert reloaded_session.terminal_at == nil
-    end
-
-    # PR2 of issue #35 — Foreign-lock rejection at the channel boundary.
-    # A session that belongs to ANOTHER Account must be refused before
-    # any write — `:foreign_lock` reply, no proposal flip, no
-    # proposal_confirmed broadcast.
-    test "foreign-lock session is rejected with :foreign_lock, no writes fire", %{
-      account: account,
-      user: user,
-      token: token
-    } do
-      _ = persist_trial_window!(account, :eligible)
-
-      # Peer account with its own session owned by a peer user.
-      peer_account =
-        %PersistenceAccount{}
-        |> PersistenceAccount.changeset(%{
-          name: "PR2 Foreign Peer",
-          plan: :family_4,
-          default_budget_cents: 0,
-          subscription_plan_id:
-            MealPlannerApi.Repo.get_by!(MealPlannerApi.Subscriptions.Plan, name: "family_4").id
-        })
-        |> MealPlannerApi.Repo.insert!()
-
-      peer_user =
-        %User{}
-        |> User.changeset(%{
-          email: "pr2-foreign-peer@example.com",
-          name: "PR2 Foreign Peer",
-          role: :owner
-        })
-        |> MealPlannerApi.Repo.insert!()
-
-      # peer_user needs an :active membership on peer_account so the
-      # session row can be created with a valid lock_owner_membership_id.
-      %AccountMembership{}
-      |> AccountMembership.changeset(%{
-        account_id: peer_account.id,
-        user_id: peer_user.id,
-        role: :owner,
-        status: :active,
-        joined_at: DateTime.utc_now()
-      })
-      |> MealPlannerApi.Repo.insert!()
-
-      foreign_session = insert_active_session(peer_account, peer_user)
-
-      # The current membership's account (driven by `token`) has a
-      # proposal it tries to confirm with the FOREIGN session id.
-      {:ok, _recipe} =
-        Catalog.create_recipe(%{
-          account_id: account.id,
-          created_by_user_id: user.id,
-          name: "PR2 foreign recipe",
-          source: :user_created,
-          servings: 2,
-          suitable_for_slots: [:lunch]
-        })
-
-      {:ok, run} =
-        PlanningRepo.create_generation_run(%{
-          account_id: account.id,
-          user_id: user.id,
-          status: :processing,
-          started_at: DateTime.utc_now(),
-          input_context: %{}
-        })
-
-      {:ok, proposal} =
-        PlanningRepo.create_proposal(%{
-          generation_run_id: run.id,
-          status: :pending,
-          proposal_json: %{slots: []}
-        })
-
-      {:ok, socket} = connect(UserSocket, %{"token" => token})
-
-      {:ok, _reply, socket} =
-        subscribe_and_join(socket, PlanningChannel, "planning:#{account.id}")
-
-      start_supervised!(
-        {Server, account_id: account.id, user_id: user.id, channel_pid: socket.channel_pid},
-        id: {:channel_server, account.id, :foreign_lock_test}
-      )
-
-      ref =
-        push(socket, "confirm_proposal", %{
-          "proposal_id" => proposal.id,
-          "session_id" => foreign_session.id
-        })
-
-      assert_error_reply(ref, :foreign_lock)
-
-      # The proposal stays :pending — pre-check fired before any write.
-      reloaded_proposal =
-        Repo.get!(MealPlannerApi.Persistence.Planning.PlanningProposal, proposal.id)
-
-      assert reloaded_proposal.status == :pending
-
-      refute_receive %Phoenix.Socket.Broadcast{
-                       topic: "planning:" <> _,
-                       event: "proposal_confirmed"
-                     },
-                     100
-    end
-
-    # PR2 of issue #35 — AC #1 proof at the channel boundary. When
-    # `:revenuecat_access_enforcement` is enabled and the Account is
-    # expired, `confirm_proposal` returns `:account_expired` BEFORE
-    # `Server.do_confirm/3` is invoked. The pre-existing session stays
-    # `:active` and no proposal flip occurs.
-    #
-    # The Account must be eligible AT JOIN TIME so the join-time
-    # `ChannelCapability.authorize/1` guard admits the socket. The
-    # trial window is then flipped to expired mid-session to simulate
-    # a real entitlement lapse, which the per-handler
-    # `check_handler_entitlement/1` re-check catches.
-    test "expired Account is denied confirm when :revenuecat_access_enforcement is enabled (AC #1)",
-         %{account: account, user: user, token: token} do
-      # Eligible AT JOIN TIME.
-      _ = persist_trial_window!(account, :eligible)
-
-      {:ok, _recipe} =
-        Catalog.create_recipe(%{
-          account_id: account.id,
-          created_by_user_id: user.id,
-          name: "PR2 expired recipe",
-          source: :user_created,
-          servings: 2,
-          suitable_for_slots: [:lunch]
-        })
-
-      {:ok, run} =
-        PlanningRepo.create_generation_run(%{
-          account_id: account.id,
-          user_id: user.id,
-          status: :processing,
-          started_at: DateTime.utc_now(),
-          input_context: %{}
-        })
-
-      {:ok, proposal} =
-        PlanningRepo.create_proposal(%{
-          generation_run_id: run.id,
-          status: :pending,
-          proposal_json: %{slots: []}
-        })
-
-      session = insert_active_session(account, user)
-
-      previous = Application.get_env(:meal_planner_api, :revenuecat_access_enforcement)
-      Application.put_env(:meal_planner_api, :revenuecat_access_enforcement, true)
-
-      try do
-        {:ok, socket} = connect(UserSocket, %{"token" => token})
-
-        {:ok, _reply, socket} =
-          subscribe_and_join(socket, PlanningChannel, "planning:#{account.id}")
-
-        start_supervised!(
-          {Server, account_id: account.id, user_id: user.id, channel_pid: socket.channel_pid},
-          id: {:channel_server, account.id, :expired_confirm_test}
-        )
-
-        # Flip the trial window to expired mid-session — the per-handler
-        # check fires on this `confirm_proposal` message and refuses.
-        _ = persist_trial_window!(account, :expired)
-
-        ref =
-          push(socket, "confirm_proposal", %{
-            "proposal_id" => proposal.id,
-            "session_id" => session.id
-          })
-
-        assert_error_reply(ref, :account_expired)
-
-        # Session stays :active — handler short-circuits BEFORE
-        # `Server.do_confirm/3` and never opens the transaction.
-        reloaded_session =
-          MealPlannerApi.Repo.get!(
-            MealPlannerApi.Persistence.Planning.PlanningSession,
-            session.id
-          )
-
-        assert reloaded_session.status == :active
-
-        reloaded_proposal =
-          Repo.get!(MealPlannerApi.Persistence.Planning.PlanningProposal, proposal.id)
-
-        assert reloaded_proposal.status == :pending
-      after
-        Application.put_env(
-          :meal_planner_api,
-          :revenuecat_access_enforcement,
-          previous
-        )
-      end
-    end
-  end
-
-  # ==========================================================================
-  # reject_proposal tests
-  # ==========================================================================
-
-  describe "handle_in reject_proposal" do
-    test "error when proposal not found - graceful error handling", %{
-      account: account,
-      user: user,
-      token: token
-    } do
-      {:ok, _recipe} =
-        Catalog.create_recipe(%{
-          account_id: account.id,
-          created_by_user_id: user.id,
-          name: "Test Recipe Reject",
-          source: :user_created,
-          servings: 2,
-          suitable_for_slots: [:dinner]
-        })
-
-      {:ok, socket} = connect(UserSocket, %{"token" => token})
-
-      {:ok, _reply, socket} =
-        subscribe_and_join(socket, PlanningChannel, "planning:#{account.id}")
-
-      # Use valid UUID format but non-existent
-      fake_uuid = Ecto.UUID.generate()
-
-      ref =
-        push(socket, "reject_proposal", %{
-          "proposal_id" => fake_uuid
-        })
-
-      # Should get error (proposal not found) - gracefully handled
-      assert_error_reply(ref, :not_found)
-    end
-
-    test "rejects with missing proposal_id gracefully", %{
-      account: account,
-      token: token
-    } do
-      {:ok, socket} = connect(UserSocket, %{"token" => token})
-
-      {:ok, _reply, socket} =
-        subscribe_and_join(socket, PlanningChannel, "planning:#{account.id}")
-
-      # No proposal_id in payload - falls through to unknown event
-      ref = push(socket, "reject_proposal", %{})
-
-      assert_error_reply(ref, :invalid_payload)
     end
   end
 
@@ -2065,136 +1047,6 @@ defmodule MealPlannerApiWeb.PlanningChannelTest do
   # ==========================================================================
 
   describe "camelCase commands (issue #11)" do
-    test "generate_menu reads requestId and the nested constraints", %{
-      account: account,
-      token: token
-    } do
-      {:ok, socket} = connect(UserSocket, %{"token" => token})
-
-      {:ok, _reply, socket} =
-        subscribe_and_join(socket, PlanningChannel, "planning:#{account.id}")
-
-      # `participant_ids` is validated before a generation starts, so the
-      # code of the reply proves the nested key was read.
-      ref =
-        push(socket, "generate_menu", %{
-          "requestId" => "gen_camel_refused",
-          "constraints" => %{"participantIds" => ["not-a-uuid"]}
-        })
-
-      payload = assert_error_reply(ref, :forbidden)
-      assert payload["requestId"] == "gen_camel_refused"
-
-      assert_push("generation_error", %{
-        "requestId" => "gen_camel_refused",
-        "reason" => "forbidden"
-      })
-    end
-
-    test "generate_menu replies and announces the generation in camelCase", %{
-      account: account,
-      user: user,
-      token: token
-    } do
-      {:ok, socket} = connect(UserSocket, %{"token" => token})
-
-      {:ok, _reply, socket} =
-        subscribe_and_join(socket, PlanningChannel, "planning:#{account.id}")
-
-      start_supervised!(
-        {Server, account_id: account.id, user_id: user.id, channel_pid: socket.channel_pid},
-        id: {:channel_server, account.id, :camel_case_generate_test}
-      )
-
-      ref =
-        push(socket, "generate_menu", %{
-          "requestId" => "gen_camel",
-          "constraints" => %{"participantIds" => [user.id]}
-        })
-
-      assert_reply(ref, :ok, reply)
-      assert %{"requestId" => "gen_camel", "runId" => run_id} = reply
-      assert Map.keys(reply) == ["requestId", "runId"]
-      assert is_binary(run_id)
-
-      assert_push("generation_started", started)
-      assert started == %{"requestId" => "gen_camel", "runId" => run_id}
-
-      # The server answers a call once the generation it is running has
-      # finished, so the pipeline does not outlive the sandbox connection of
-      # the test.
-      assert %{current_run_id: ^run_id} = Server.get_status(account.id)
-    end
-
-    test "swap_constraints reads basePayload and constraints, and replies in camelCase", %{
-      account: account,
-      token: token
-    } do
-      {:ok, socket} = connect(UserSocket, %{"token" => token})
-
-      {:ok, _reply, socket} =
-        subscribe_and_join(socket, PlanningChannel, "planning:#{account.id}")
-
-      ref =
-        push(socket, "swap_constraints", %{
-          "requestId" => "swap_camel",
-          "basePayload" => %{"dateFrom" => "2026-06-15", "dateTo" => "2026-06-19"},
-          "constraints" => %{"budgetCents" => 5000}
-        })
-
-      assert_push("generation_started", %{
-        "requestId" => "swap_camel",
-        "reason" => "constraint_update"
-      })
-
-      assert_reply(ref, :ok, reply)
-
-      # The dates of the reply are the ones of `basePayload`: without the
-      # normalization they would default to today.
-      assert %{
-               "requestId" => "swap_camel",
-               "runId" => run_id,
-               "proposalId" => proposal_id,
-               "dateFrom" => "2026-06-15",
-               "dateTo" => "2026-06-19",
-               "appliedConstraints" => %{"budgetCents" => 5000},
-               "proposal" => %{
-                 "dateFrom" => "2026-06-15",
-                 "dateTo" => "2026-06-19",
-                 "scheduledMeals" => scheduled_meals,
-                 "weeklyPlan" => %{"days" => days}
-               }
-             } = reply
-
-      assert is_binary(run_id) and is_binary(proposal_id)
-      assert is_list(scheduled_meals) and is_list(days)
-      assert_camel_case_keys(reply)
-
-      # The same payload is announced to every client of the topic.
-      assert_push("proposal_ready", pushed)
-      assert pushed == reply
-    end
-
-    test "swap_constraints refuses a camelCase range that ends before it starts", %{
-      account: account,
-      token: token
-    } do
-      {:ok, socket} = connect(UserSocket, %{"token" => token})
-
-      {:ok, _reply, socket} =
-        subscribe_and_join(socket, PlanningChannel, "planning:#{account.id}")
-
-      ref =
-        push(socket, "swap_constraints", %{
-          "requestId" => "swap_camel_error",
-          "basePayload" => %{"dateFrom" => "2026-06-21", "dateTo" => "2026-06-15"},
-          "constraints" => %{}
-        })
-
-      payload = assert_error_reply(ref, :invalid_date_range)
-      assert payload["requestId"] == "swap_camel_error"
-    end
-
     test "start_planning, send_message and cancel_planning accept camelCase payloads", %{
       account: account,
       token: token
@@ -2251,23 +1103,6 @@ defmodule MealPlannerApiWeb.PlanningChannelTest do
       assert cancelled == %{"sessionId" => session_id}
     end
 
-    test "confirm_proposal reads proposalId and sessionId", %{account: account, token: token} do
-      {:ok, socket} = connect(UserSocket, %{"token" => token})
-
-      {:ok, _reply, socket} =
-        subscribe_and_join(socket, PlanningChannel, "planning:#{account.id}")
-
-      # Both ids pass their guards, so the command reaches the lookup of the
-      # generation server instead of stopping at `invalid_proposal_id`.
-      ref =
-        push(socket, "confirm_proposal", %{
-          "proposalId" => Ecto.UUID.generate(),
-          "sessionId" => Ecto.UUID.generate()
-        })
-
-      assert_error_reply(ref, :no_active_generation)
-    end
-
     test "a key sent in both casings resolves to the snake_case one", %{
       account: account,
       token: token
@@ -2277,16 +1112,16 @@ defmodule MealPlannerApiWeb.PlanningChannelTest do
       {:ok, _reply, socket} =
         subscribe_and_join(socket, PlanningChannel, "planning:#{account.id}")
 
+      # The camelCase id is a UUID of no session (`not_found`); the
+      # snake_case one is not a UUID at all, so `invalid_payload` proves it
+      # is the one the command read.
       ref =
-        push(socket, "swap_constraints", %{
-          "request_id" => "snake_wins",
-          "requestId" => "camel_loses",
-          "base_payload" => %{"date_from" => "2026-06-21", "date_to" => "2026-06-15"},
-          "constraints" => %{}
+        push(socket, "cancel_planning", %{
+          "session_id" => "not-a-uuid",
+          "sessionId" => Ecto.UUID.generate()
         })
 
-      payload = assert_error_reply(ref, :invalid_date_range)
-      assert payload["requestId"] == "snake_wins"
+      assert_error_reply(ref, :invalid_payload)
     end
 
     test "a payload that is not a map replies invalid_payload on an unknown event", %{
@@ -2489,6 +1324,40 @@ defmodule MealPlannerApiWeb.PlanningChannelTest do
 
       assert_error_reply(ref, :invalid_payload)
     end
+
+    # Issue #15 — the older command set is retired. Each of its commands,
+    # sent with the keys it used to read, is an unknown event: it replies the
+    # envelope and starts no generation and writes no run.
+    for event <- ~w(generate_menu swap_constraints chat confirm_proposal reject_proposal) do
+      test "the retired #{event} command replies invalid_payload and does nothing", %{
+        account: account,
+        token: token
+      } do
+        {:ok, socket} = connect(UserSocket, %{"token" => token})
+
+        {:ok, _reply, socket} =
+          subscribe_and_join(socket, PlanningChannel, "planning:#{account.id}")
+
+        ref =
+          push(socket, unquote(event), %{
+            "request_id" => "req_retired",
+            "proposal_id" => Ecto.UUID.generate(),
+            "session_id" => Ecto.UUID.generate(),
+            "message" => "Change the menu",
+            "base_payload" => %{},
+            "constraints" => %{}
+          })
+
+        assert_error_reply(ref, :invalid_payload)
+        refute_broadcast("generation_started", _)
+        refute_broadcast("proposal_rejected", _)
+
+        assert Registry.lookup(MealPlannerApi.Generation.Generations, {:generation, account.id}) ==
+                 []
+
+        assert Repo.aggregate(PlanningGenerationRun, :count) == 0
+      end
+    end
   end
 
   # ==========================================================================
@@ -2501,11 +1370,6 @@ defmodule MealPlannerApiWeb.PlanningChannelTest do
 
   describe "handle_in with a payload that is not a map" do
     for event <- ~w(
-          generate_menu
-          swap_constraints
-          chat
-          confirm_proposal
-          reject_proposal
           start_planning
           send_message
           cancel_planning
@@ -2588,9 +1452,8 @@ defmodule MealPlannerApiWeb.PlanningChannelTest do
     ).id
   end
 
-  # PR2 of issue #35 — Phase 2.3 channel tests create an `:active`
-  # session and forward its id into `confirm_proposal` so the channel
-  # reaches the lock-aware confirm path.
+  # An `:active` session of the owner of the account, for the
+  # `session_resumed` tests.
   defp insert_active_session(account, user) do
     membership_id = owner_membership_id(account.id, user.id)
 
@@ -2854,48 +1717,42 @@ defmodule MealPlannerApiWeb.PlanningChannelTest do
       account: account,
       token: token
     } do
+      _ = persist_trial_window!(account, :eligible)
+
       {:ok, socket} = connect(UserSocket, %{"token" => token})
 
       {:ok, _reply, socket} =
         subscribe_and_join(socket, PlanningChannel, "planning:#{account.id}")
 
+      start_generation_server_stub(account.id, {:error, :invalid_date_range})
+
       # Push without explicit request_id - server should auto-generate
-      ref =
-        push(socket, "generate_menu", %{
-          "constraints" => %{}
-        })
+      ref = push(socket, "start_planning", %{"range_from" => in_days(1), "day_count" => 2})
 
-      # The reply carries the generated id
-      assert_reply(ref, :ok, %{"requestId" => "req_" <> _})
-
-      stop_generation_server(account.id)
+      # The error reply carries the generated id
+      payload = assert_error_reply(ref, :invalid_date_range)
+      assert "req_" <> _ = payload["requestId"]
     end
 
     test "an atom reason from a guard is replied as its allowlisted code", %{
       account: account,
-      user: user,
       token: token
     } do
-      {:ok, _recipe} =
-        Catalog.create_recipe(%{
-          account_id: account.id,
-          created_by_user_id: user.id,
-          name: "Test Recipe Serialize",
-          source: :user_created,
-          servings: 2,
-          suitable_for_slots: [:lunch]
-        })
-
       {:ok, socket} = connect(UserSocket, %{"token" => token})
 
       {:ok, _reply, socket} =
         subscribe_and_join(socket, PlanningChannel, "planning:#{account.id}")
 
-      # Try to confirm a proposal - the payload guard answers an atom reason
-      ref = push(socket, "confirm_proposal", %{"proposal_id" => Ecto.UUID.generate()})
+      # The favorites guard answers an atom reason, replied as the code of the
+      # envelope
+      ref =
+        push(socket, "start_planning", %{
+          "range_from" => in_days(1),
+          "day_count" => 2,
+          "favorite_recipe_ids" => "not-a-list"
+        })
 
-      # The reason is replied as the code of the envelope
-      assert_error_reply(ref, :missing_session_id)
+      assert_error_reply(ref, :invalid_payload)
     end
   end
 
@@ -2919,17 +1776,9 @@ defmodule MealPlannerApiWeb.PlanningChannelTest do
 
       failing_commands = [
         {"totally_unknown_event", %{}},
-        {"chat", %{"proposal_id" => "123", "message" => "Change the menu"}},
-        {"confirm_proposal", %{"proposal_id" => Ecto.UUID.generate()}},
         {"start_planning", %{"range_from" => "not-a-date", "range_to" => "2026-04-07"}},
         {"send_message", %{"session_id" => Ecto.UUID.generate(), "intent" => %{}}},
-        {"cancel_planning", %{"session_id" => "not-a-uuid"}},
-        {"swap_constraints",
-         %{
-           "request_id" => "swap_req_no_reason",
-           "base_payload" => %{"date_from" => "2026-06-21", "date_to" => "2026-06-15"},
-           "constraints" => %{}
-         }}
+        {"cancel_planning", %{"session_id" => "not-a-uuid"}}
       ]
 
       for {event, command_payload} <- failing_commands do
@@ -2946,28 +1795,34 @@ defmodule MealPlannerApiWeb.PlanningChannelTest do
       account: account,
       token: token
     } do
+      _ = persist_trial_window!(account, :eligible)
+
       {:ok, socket} = connect(UserSocket, %{"token" => token})
 
       {:ok, _reply, socket} =
         subscribe_and_join(socket, PlanningChannel, "planning:#{account.id}")
 
+      start_generation_server_stub(account.id, {:error, :invalid_date_range})
+
       ref =
-        push(socket, "swap_constraints", %{
-          "request_id" => "swap_req_correlated",
-          "base_payload" => %{"date_from" => "2026-06-21", "date_to" => "2026-06-15"},
-          "constraints" => %{}
+        push(socket, "start_planning", %{
+          "request_id" => "start_req_correlated",
+          "range_from" => in_days(1),
+          "day_count" => 2
         })
 
       payload = assert_error_reply(ref, :invalid_date_range)
 
       assert Map.keys(payload) == ["error", "requestId"]
-      assert payload["requestId"] == "swap_req_correlated"
+      assert payload["requestId"] == "start_req_correlated"
     end
 
     test "a reason outside the allowlist replies unknown_error and is logged", %{
       account: account,
       token: token
     } do
+      _ = persist_trial_window!(account, :eligible)
+
       {:ok, socket} = connect(UserSocket, %{"token" => token})
 
       {:ok, _reply, socket} =
@@ -2979,11 +1834,7 @@ defmodule MealPlannerApiWeb.PlanningChannelTest do
 
       log =
         capture_log(fn ->
-          ref =
-            push(socket, "confirm_proposal", %{
-              "proposal_id" => Ecto.UUID.generate(),
-              "session_id" => Ecto.UUID.generate()
-            })
+          ref = push(socket, "start_planning", %{"range_from" => in_days(1), "day_count" => 2})
 
           payload = assert_error_reply(ref, :unknown_error)
           refute inspect(payload) =~ "storage_fault"
@@ -3012,8 +1863,7 @@ defmodule MealPlannerApiWeb.PlanningChannelTest do
         {:error, %Ecto.Changeset{valid?: false, errors: [name: {"is invalid", []}]}}
       )
 
-      ref =
-        push(socket, "generate_menu", %{"request_id" => "req_changeset", "constraints" => %{}})
+      ref = push(socket, "start_planning", %{"range_from" => in_days(1), "day_count" => 2})
 
       payload = assert_error_reply(ref, :invalid_payload)
       refute inspect(payload) =~ "is invalid"

@@ -341,6 +341,44 @@ defmodule MealPlannerApiWeb.PlanningControllerTest do
       assert account_meals(ctx) == []
     end
 
+    # The channel's `confirm_proposal` had this test until issue #15 retired
+    # it: a session of another Account is no lock for this one.
+    test "answers 403 foreign_lock for a session of another Account and writes nothing",
+         %{conn: conn} do
+      ctx = seed_pending_proposal()
+      %{user: other_user, account: other_account} = insert_identity!(plan: :family_4)
+
+      other_membership =
+        Repo.one!(
+          from(m in AccountMembership,
+            where: m.account_id == ^other_account.id and m.user_id == ^other_user.id
+          )
+        )
+
+      {:ok, foreign_session} =
+        PlanningRepo.create_session(other_account.id, %{
+          range_from: ctx.session.range_from,
+          range_to: ctx.session.range_to,
+          lock_owner_user_id: other_user.id,
+          lock_owner_membership_id: other_membership.id,
+          lease_expires_at: DateTime.add(DateTime.utc_now(), 120, :second)
+        })
+
+      conn =
+        conn
+        |> authorized(ctx.token)
+        |> post("/api/planning/confirm", %{
+          "proposalId" => ctx.proposal.id,
+          "sessionId" => foreign_session.id
+        })
+
+      assert %{"error" => %{"code" => "foreign_lock"}} = json_response(conn, 403)
+      assert account_meals(ctx) == []
+      assert Repo.get!(PlanningProposal, ctx.proposal.id).status == :pending
+      assert Repo.get!(PlanningSession, ctx.session.id).status == :active
+      assert Repo.get!(PlanningSession, foreign_session.id).status == :active
+    end
+
     test "answers 422 for a missing session id or a malformed proposal id", %{conn: conn} do
       ctx = seed_pending_proposal(start_server: false)
 
