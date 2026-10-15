@@ -4,6 +4,7 @@ import { summarizeCookingFinish } from '@/features/cooking/domain';
 import { COOKING_FINISH_COVERED } from '@/features/cooking/fixtures';
 import { useFavoritesStore } from '@/features/favorites/store';
 import { createPreparedLeftover } from '@/features/leftovers';
+import { formatDateKey } from '../../utils/calendarDate';
 import { HomeScreen } from '../HomeScreen';
 
 jest.mock('@react-native-async-storage/async-storage', () =>
@@ -30,12 +31,18 @@ jest.mock('@/hooks/useGradientCrossfade', () => ({
   }),
 }));
 jest.mock('../../hooks/useHomeResponsiveScale', () => ({ useHomeResponsiveScale: () => ({}) }));
+// The image of the selected meal's Recipe, as `useHomeRecipeTheme` resolves it; none by default.
+let mockMealImageUrl: string | null = null;
 jest.mock('../../hooks/useHomeRecipeTheme', () => ({
-  useHomeRecipeTheme: () => ({ colorDark: '#111', appBg: '#fff' }),
+  useHomeRecipeTheme: () => ({
+    theme: { colorDark: '#111', appBg: '#fff' },
+    imageUrl: mockMealImageUrl,
+  }),
 }));
+let mockSelectedDate = '2099-01-01';
 jest.mock('../../hooks/useHomeState', () => ({
   useHomeState: () => ({
-    selectedDate: '2099-01-01',
+    selectedDate: mockSelectedDate,
     selectedMealType: 'lunch',
     availableMealTypes: ['lunch'],
     selectedMeal: { id: 'entry-1', recipeId: 'r1', type: 'lunch', description: '' },
@@ -108,6 +115,32 @@ describe('HomeScreen favorite star', () => {
     act(() => card.props.onToggleFavorite());
 
     expect(toggle).toHaveBeenCalledWith(expect.objectContaining({ recipeId: 'r1' }));
+  });
+});
+
+describe('HomeScreen food image', () => {
+  beforeEach(() => {
+    mockSelectedDate = formatDateKey(new Date());
+  });
+
+  afterEach(() => {
+    mockSelectedDate = '2099-01-01';
+    mockMealImageUrl = null;
+  });
+
+  it("shows the image of today's selected meal's Recipe", () => {
+    mockMealImageUrl = 'https://img.example/lunch.png';
+
+    const image = mount().root.findByType('FloatingFoodImage' as never);
+
+    expect(image.props.source).toEqual({ uri: 'https://img.example/lunch.png' });
+  });
+
+  it('shows the default image while the Recipe has no image', () => {
+    const image = mount().root.findByType('FloatingFoodImage' as never);
+
+    expect(image.props.source).not.toEqual(expect.objectContaining({ uri: expect.anything() }));
+    expect(image.props.source).toBeTruthy();
   });
 });
 

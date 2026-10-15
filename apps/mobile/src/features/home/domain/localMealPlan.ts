@@ -1,4 +1,4 @@
-import type { MealPlanEntry, MealSlot, RecipeSummary, RecipeThemeConfig } from '@/types/domain';
+import type { MealPlanEntry, MealSlot, RecipeSummary } from '@/types/domain';
 
 type RecipeSummaries = Record<string, RecipeSummary>;
 
@@ -6,10 +6,9 @@ export type HomeMealSlot = Exclude<MealSlot, 'snack'>;
 
 export type LocalMealPlanByDate = Record<string, MealPlanEntry[]>;
 
+// The palette and image of the meal come from its Recipe, through `useHomeRecipeTheme`.
 export type LocalMealSelection = MealPlanEntry & {
   description: string;
-  imageUrl?: string;
-  theme?: RecipeThemeConfig;
 };
 
 export type HomeMealSummary = {
@@ -83,7 +82,7 @@ export function getSelectedLocalMeal(
     return null;
   }
 
-  // The calendar read carries no description, image or palette for a meal.
+  // The calendar read carries no description for a meal.
   return { ...selectedEntry, description: 'Sin descripción' };
 }
 

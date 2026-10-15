@@ -60,12 +60,12 @@ export function HomeScreen() {
     handleSelectDate,
     handleMealTypeChange,
   } = useHomeState();
-  const theme = useHomeRecipeTheme(selectedMeal, selectedDate);
+  const { theme, imageUrl: selectedMealImageUrl } = useHomeRecipeTheme(selectedMeal, selectedDate);
   const todayKey = formatDateKey(new Date());
   const isTodaySelected = selectedDate === todayKey;
 
   const selectedMealDescription = selectedMeal?.description ?? '';
-  const foodImageSource = getRecipeImageSource(selectedMeal?.imageUrl) ?? DEFAULT_FOOD_IMAGE;
+  const foodImageSource = getRecipeImageSource(selectedMealImageUrl) ?? DEFAULT_FOOD_IMAGE;
   const backgroundColors: [string, string] = [theme.colorDark, theme.appBg];
   const {
     currentColors: currentBackgroundColors,
