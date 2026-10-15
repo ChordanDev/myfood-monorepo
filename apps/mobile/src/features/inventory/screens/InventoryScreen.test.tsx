@@ -31,11 +31,14 @@ import { InventoryScreen } from './InventoryScreen';
 // What the screen runs when its tab gets the focus. The mount counts as the first focus.
 let mockFocusEffect: (() => void) | null = null;
 
+const mockRouterPush = jest.fn();
+
 jest.mock('expo-router', () => ({
   useFocusEffect: (effect: () => void) => {
     mockFocusEffect = effect;
     require('react').useEffect(effect, [effect]);
   },
+  useRouter: () => ({ push: mockRouterPush }),
 }));
 
 jest.mock('@react-native-async-storage/async-storage', () =>
@@ -180,6 +183,7 @@ async function renderScreen() {
 beforeAll(loadReactNative, 30_000);
 
 beforeEach(() => {
+  mockRouterPush.mockReset();
   fetchMock.mockReset();
   global.fetch = fetchMock;
   process.env.EXPO_PUBLIC_API_URL = API_URL;
@@ -260,6 +264,15 @@ function getTitleFontSize(root: ReactTestInstance) {
 }
 
 describe('InventoryScreen', () => {
+  it('opens the leftovers list from its entry', async () => {
+    queueRead();
+    const root = await renderScreen();
+
+    press(root, 'Ver sobras', 'link');
+
+    expect(mockRouterPush).toHaveBeenCalledWith('/leftovers');
+  });
+
   it('writes its title at the size of the shopping title', async () => {
     queueRead();
     const root = await renderScreen();

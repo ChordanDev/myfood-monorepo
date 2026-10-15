@@ -1,8 +1,8 @@
 import { useCallback, useMemo, useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
-import { useFocusEffect } from 'expo-router';
-import { Plus } from 'lucide-react-native';
+import { useFocusEffect, useRouter } from 'expo-router';
+import { ChevronRight, Plus } from 'lucide-react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { getAuthErrorMessage } from '@/api/errors';
 import { NoisyBackground, SafeAreaContent, TitlePrimary } from '@/components';
@@ -36,6 +36,7 @@ const ADD_ICON_SIZE = 18;
 
 export function InventoryScreen() {
   const { theme } = useRecipeTheme();
+  const router = useRouter();
   const metrics = useTitleMetrics();
   const insets = useSafeAreaInsets();
   const items = useInventoryStore((state) => state.items);
@@ -133,6 +134,19 @@ export function InventoryScreen() {
             <Text style={[styles.addLabel, { color: theme.textDark }]}>Agregar producto</Text>
           </Pressable>
 
+          {/* Prepared leftovers are not Inventory, so they live on their own screen. */}
+          <Pressable
+            accessibilityRole="link"
+            accessibilityLabel="Ver sobras"
+            onPress={() => router.push('/leftovers')}
+            style={({ pressed }) => [
+              styles.leftoversLink,
+              { backgroundColor: theme.colorLight, opacity: pressed ? 0.7 : 1 },
+            ]}>
+            <Text style={[styles.addLabel, { color: theme.textDark }]}>Sobras</Text>
+            <ChevronRight size={ADD_ICON_SIZE} color={theme.textDark} strokeWidth={2.5} />
+          </Pressable>
+
           {/* A failed read leaves the last one on screen, under its error. */}
           {loadStatus === 'error' ? (
             <View style={[styles.loadError, { backgroundColor: theme.colorLight }]}>
@@ -221,6 +235,14 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   gradient: { flex: 1 },
+  leftoversLink: {
+    alignItems: 'center',
+    borderRadius: 16,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    minHeight: 44,
+    paddingHorizontal: 16,
+  },
   list: {
     gap: 10,
     paddingHorizontal: INVENTORY_HORIZONTAL_PADDING,
