@@ -1711,6 +1711,40 @@ defmodule MealPlannerApiWeb.PlanningChannelTest do
       assert payload["messages"] == []
     end
 
+    # Jorge F1 on #146 — a generation stores an empty placeholder proposal when
+    # it starts. Pushed before the generation ends, the app would take it as a
+    # ready plan with no days and drop the real one.
+    test "pushes no proposal while the generation that holds it is still running", %{
+      account: account,
+      user: user,
+      token: token
+    } do
+      session = insert_active_session(account, user)
+
+      {:ok, run} =
+        PlanningRepo.create_generation_run(%{
+          account_id: account.id,
+          user_id: user.id,
+          status: :processing,
+          input_context: %{},
+          started_at: DateTime.utc_now()
+        })
+
+      {:ok, _placeholder} =
+        PlanningRepo.create_proposal(%{
+          generation_run_id: run.id,
+          proposal_json: %{slots: []},
+          status: :pending
+        })
+
+      {:ok, _reply, _socket} = join_planning(account, token)
+
+      assert_push "session_resumed", payload
+      assert payload["sessionId"] == session.id
+      assert payload["proposalId"] == nil
+      assert payload["proposal"] == nil
+    end
+
     # Issue #146 — the app rebuilds its draft from the proposal of
     # `session_resumed`, so a generation proposal comes in the shape of
     # `proposal_ready`.
