@@ -11,11 +11,11 @@ defmodule MealPlannerApi.Services.EmailCodeAuth do
       canonical email, the six-digit code and the SHA-256 digest that
       is the only form of a code ever stored.
     * `reserve_request_slots/2` and `reserve_ip_request_slot/1` — the
-      rolling 1-hour request counters (5 per email, 20 per IP), kept in
+      rolling 1-hour request counters (5 per email, 20 per IP bucket), kept in
       `email_auth_events` and serialized by Postgres advisory locks so
       concurrent requesters cannot collectively exceed them.
     * `check_verify_failures/1` and `reserve_verify_failure/1` — the
-      rolling 1-hour counter of failed code verifications (20 per IP),
+      rolling 1-hour counter of failed code verifications (20 per IP bucket),
       kept in the same table under its own kind.
     * `max_code_attempts/0` — the failed attempts after which a code is
       locked for good.
@@ -68,9 +68,11 @@ defmodule MealPlannerApi.Services.EmailCodeAuth do
   exhausted, and then reserves neither: a refused request spends no
   slot.
 
-  `client_ip` is an IPv4 or IPv6 address as text. One that is not (`nil`
-  included) is not let through uncounted: all such requests draw from a
-  single shared bucket.
+  `client_ip` is an IPv4 or IPv6 address as text. An IPv4 address has a
+  counter of its own; an IPv6 address shares one with its whole /64
+  prefix, and an IPv4-mapped one (`::ffff:a.b.c.d`) counts as its IPv4
+  address. One that is not an address (`nil` included) is not let
+  through uncounted: all such requests draw from a single shared bucket.
 
   Must run inside a `Repo.transaction/2`: the advisory locks that
   serialize concurrent requesters are transaction-scoped. Called by
@@ -112,8 +114,9 @@ defmodule MealPlannerApi.Services.EmailCodeAuth do
   the rolling 1-hour window, `:ok` otherwise. Nothing is recorded; the
   caller reserves each failure with `reserve_verify_failure/1`.
 
-  A `client_ip` that is not an IP address (`nil` included) draws from one
-  shared bucket, as in `reserve_request_slots/2`.
+  `client_ip` is bucketed as in `reserve_request_slots/2`: an IPv4
+  address on its own, an IPv6 address with its whole /64 prefix, and
+  anything that is not an address (`nil` included) in one shared bucket.
 
   No lock is taken, so verifications from one IP never wait on each
   other: this is the fast refusal of an IP already over the limit. The
@@ -169,8 +172,9 @@ defmodule MealPlannerApi.Services.EmailCodeAuth do
   def max_code_attempts, do: @max_code_attempts
 
   @doc """
-  Failed code verifications per client IP in the rolling 1-hour window
-  after which `check_verify_failures/1` refuses that IP.
+  Failed code verifications per IP bucket (see `check_verify_failures/1`)
+  in the rolling 1-hour window after which `check_verify_failures/1`
+  refuses that bucket.
   """
   @spec max_verify_failures_per_ip() :: pos_integer()
   def max_verify_failures_per_ip, do: @max_verify_failures_per_ip_per_window
@@ -300,12 +304,13 @@ defmodule MealPlannerApi.Services.EmailCodeAuth do
   end
 
   # Coerce the IP into a stable rate-limit key that fits the schema's
-  # `:string` column: the canonical text of an IPv4 or IPv6 address, so
-  # two spellings of one address share a bucket. Anything else (`nil`,
-  # garbage, oversized input) collapses to one fixed key, so a request
-  # whose address cannot be resolved is still counted.
+  # `:string` column: the canonical text of an IPv4 address, or of the
+  # /64 prefix of an IPv6 address, so two spellings of one address share
+  # a bucket. Anything else (`nil`, garbage, oversized input) collapses
+  # to one fixed key, so a request whose address cannot be resolved is
+  # still counted.
   defp normalize_client_ip(ip) when is_binary(ip) do
-    ip |> String.trim() |> canonical_ip() || @unresolved_ip_key
+    ip |> String.trim() |> bucket_key() || @unresolved_ip_key
   end
 
   defp normalize_client_ip(_), do: @unresolved_ip_key
@@ -315,16 +320,28 @@ defmodule MealPlannerApi.Services.EmailCodeAuth do
   # refuses short forms such as "1.2.3". The length guard keeps
   # oversized input away from the parser; 45 bytes is the longest
   # textual IPv6 address.
-  defp canonical_ip(ip) when byte_size(ip) <= 45 do
-    with {:ok, address} <- ip |> String.to_charlist() |> :inet.parse_strict_address(),
-         rendered when is_list(rendered) <- :inet.ntoa(address) do
-      List.to_string(rendered)
-    else
-      _ -> nil
+  defp bucket_key(ip) when byte_size(ip) <= 45 do
+    case ip |> String.to_charlist() |> :inet.parse_strict_address() do
+      {:ok, address} -> address |> bucket_address() |> render_bucket()
+      {:error, _reason} -> nil
     end
   end
 
-  defp canonical_ip(_ip), do: nil
+  defp bucket_key(_ip), do: nil
+
+  # An IPv4-mapped IPv6 address (`::ffff:a.b.c.d`) is the IPv4 client
+  # `a.b.c.d` as a dual-stack listener reports it, so it counts as that
+  # address. Left to the /64 rule, every one of them would share `::/64`.
+  defp bucket_address({0, 0, 0, 0, 0, 0xFFFF, _, _} = mapped),
+    do: :inet.ipv4_mapped_ipv6_address(mapped)
+
+  # A single IPv6 subscriber is handed a whole /64 and can rotate its
+  # source address inside it for free, so the prefix is the bucket.
+  defp bucket_address({a, b, c, d, _, _, _, _}), do: {:prefix64, {a, b, c, d, 0, 0, 0, 0}}
+  defp bucket_address(ipv4), do: ipv4
+
+  defp render_bucket({:prefix64, prefix}), do: List.to_string(:inet.ntoa(prefix)) <> "/64"
+  defp render_bucket(ipv4), do: List.to_string(:inet.ntoa(ipv4))
 
   @doc """
   Mints a fresh six-digit plaintext code. The caller stores only its

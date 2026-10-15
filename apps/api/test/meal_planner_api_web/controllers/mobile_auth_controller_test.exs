@@ -206,12 +206,12 @@ defmodule MealPlannerApiWeb.MobileAuthControllerTest do
       end
 
       counted = EmailAuthEvent |> Repo.all() |> Enum.map(& &1.client_ip) |> Enum.sort()
-      assert counted == ["198.51.100.7", "2001:db8::7"]
+      assert counted == ["198.51.100.7", "2001:db8::/64"]
     end
 
-    test "an IPv6 client is rate limited once its hourly limit is spent", %{conn: conn} do
+    test "an IPv6 client is rate limited once its /64 has spent its hourly limit", %{conn: conn} do
       for n <- 1..20 do
-        insert_request_event!("other-#{n}@example.com", "2001:db8::7", seconds_ago(600))
+        insert_request_event!("other-#{n}@example.com", "2001:db8::/64", seconds_ago(600))
       end
 
       conn = %{conn | remote_ip: {0x2001, 0xDB8, 0, 0, 0, 0, 0, 0x7}}
