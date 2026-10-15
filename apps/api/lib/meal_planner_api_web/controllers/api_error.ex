@@ -141,6 +141,7 @@ defmodule MealPlannerApiWeb.ApiError do
           | :prepared_leftover_not_found
           | :scheduled_meal_cooked
           | :calendar_conflict
+          | :calendar_move_not_possible
           | :planning_proposal_not_pending
           | :planning_slot_occupied
 
@@ -235,6 +236,8 @@ defmodule MealPlannerApiWeb.ApiError do
     # the planning channel rows too.
     scheduled_meal_cooked: {409, "A cooked meal cannot be moved."},
     calendar_conflict: {409, "The calendar changed while the meal was moved. Nothing was saved."},
+    # Stored rows that cannot follow the meal: a retry fails the same way.
+    calendar_move_not_possible: {409, "This meal cannot be moved there. Nothing was saved."},
     # Confirm and reject of a Planner proposal over HTTP (issue #28): only a
     # pending proposal is confirmed or rejected. Keep it above the planning
     # channel rows too.

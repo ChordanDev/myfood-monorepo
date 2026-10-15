@@ -31,8 +31,21 @@ defmodule MealPlannerApi.Persistence.Calendar.MealMove do
   # What a concurrent write can make a statement of the move fail with.
   @conflict_codes [:unique_violation, :serialization_failure, :deadlock_detected]
 
+  # Constraints that only stored rows violate. Every insert of a planned
+  # Shopping item takes a key share lock on its meal, which the move holds
+  # `FOR UPDATE`, so no item joins the meal while it moves. A violation is two
+  # open items of the meal that only differ in their planned date and take one
+  # key on the new date: a retry fails the same way.
+  @stored_state_constraints ["shopping_items_open_planned_key_index"]
+
   @type result :: %{moved: ScheduledMeal.t(), displaced: ScheduledMeal.t() | nil}
-  @type reason :: :meal_not_found | :meal_cooked | :target_meal_cooked | :same_slot | :conflict
+  @type reason ::
+          :meal_not_found
+          | :meal_cooked
+          | :target_meal_cooked
+          | :same_slot
+          | :conflict
+          | :move_not_possible
 
   @doc """
   Moves the meal `meal_id` of the Account to `(date, slot)`, in one transaction.
@@ -43,7 +56,9 @@ defmodule MealPlannerApi.Persistence.Calendar.MealMove do
   dropped so that the next Shopping list read derives them again.
 
   A cooked meal is refused on either side. `:conflict` is a concurrent write
-  that took the destination; nothing is written then.
+  that took the destination, and a retry can succeed. `:move_not_possible`
+  is stored rows that cannot follow the meal, and a retry fails the same way.
+  Nothing is written in either case.
   """
   @spec move(Ecto.UUID.t(), term(), Date.t(), atom(), Date.t()) ::
           {:ok, result()} | {:error, reason()}
@@ -60,19 +75,29 @@ defmodule MealPlannerApi.Persistence.Calendar.MealMove do
     error in Postgrex.Error ->
       case error.postgres do
         %{code: code} = postgres when code in @conflict_codes ->
-          # The answer is the same for a concurrent write and for stored rows
-          # that can never be moved; the constraint is what tells them apart.
+          # The violated constraint tells stored rows that can never be moved
+          # from a concurrent write.
+          reason = failure_reason(postgres[:constraint])
+
           Logger.warning(
-            "calendar meal move conflict account_id=#{account_id} meal_id=#{meal_id} " <>
-              "code=#{code} constraint=#{postgres[:constraint] || "none"}"
+            "calendar meal move #{failure_label(reason)} account_id=#{account_id} " <>
+              "meal_id=#{meal_id} code=#{code} constraint=#{postgres[:constraint] || "none"}"
           )
 
-          {:error, :conflict}
+          {:error, reason}
 
         _ ->
           reraise error, __STACKTRACE__
       end
   end
+
+  defp failure_reason(constraint) when constraint in @stored_state_constraints,
+    do: :move_not_possible
+
+  defp failure_reason(_constraint), do: :conflict
+
+  defp failure_label(:move_not_possible), do: "not possible"
+  defp failure_label(:conflict), do: "conflict"
 
   defp move_locked(account_id, meal_id, to, today) do
     {source, displaced} = lock_meals(account_id, meal_id, to)

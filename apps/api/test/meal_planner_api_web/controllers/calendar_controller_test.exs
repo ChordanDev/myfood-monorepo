@@ -11,6 +11,7 @@ defmodule MealPlannerApiWeb.CalendarControllerTest do
   alias MealPlannerApi.Persistence.Calendar
   alias MealPlannerApi.Persistence.Catalog
   alias MealPlannerApi.Persistence.Planning
+  alias MealPlannerApi.Persistence.Shopping.ShoppingItem
   alias MealPlannerApi.Repo
 
   # ─── Phase A — Tenancy Refactor (PR 3c task 3.14) ───────────────────────────
@@ -912,6 +913,88 @@ defmodule MealPlannerApiWeb.CalendarControllerTest do
       after
         Application.put_env(:meal_planner_api, :revenuecat_access_enforcement, previous)
       end
+    end
+
+    test "answers 404 for an id that is not a UUID", f do
+      conn = move(f.token, "not-a-uuid", %{"date" => Date.to_iso8601(f.today), "slot" => "lunch"})
+
+      assert %{"error" => %{"code" => "scheduled_meal_not_found"}} = json_response(conn, 404)
+    end
+
+    # Two open items of one meal that only differ in their planned date would
+    # share a key on the new date. A retry fails the same way, so the answer
+    # is not the retryable `calendar_conflict`.
+    @tag :capture_log
+    test "answers 409 calendar_move_not_possible when the stored Shopping items cannot follow the meal",
+         f do
+      source = scheduled!(f.account_id, f.tomorrow, :dinner)
+      target = scheduled!(f.account_id, f.today, :lunch)
+      item = open_planned_item!(source, source.date)
+      open_planned_item!(source, Date.add(f.today, 5), item.ingredient_id)
+
+      conn = move(f.token, source.id, %{"date" => Date.to_iso8601(f.today), "slot" => "lunch"})
+
+      assert %{"error" => %{"code" => "calendar_move_not_possible", "message" => message}} =
+               json_response(conn, 409)
+
+      refute message =~ ~r/retry|again/i
+      assert stored_position(source) == {f.tomorrow, :dinner}
+      assert stored_position(target) == {f.today, :lunch}
+      assert Repo.get!(ShoppingItem, item.id).planned_date == f.tomorrow
+    end
+
+    # The move parks a meal on a date of year 10000 while it swaps two keys,
+    # which is safe only while no request can store a meal or a Slot favorite
+    # there. The date parser takes four-digit years alone.
+    test "answers 422 naming date for a date with a five-digit year", f do
+      source = scheduled!(f.account_id, f.tomorrow, :dinner)
+
+      for date <- ["10000-01-01", "+10000-01-01"] do
+        assert %{"error" => %{"code" => "validation_error", "message" => message}} =
+                 f.token
+                 |> move(source.id, %{"date" => date, "slot" => "dinner"})
+                 |> json_response(422)
+
+        assert message =~ "date"
+      end
+
+      assert stored_position(source) == {f.tomorrow, :dinner}
+    end
+
+    test "PUT /api/calendar/meals/range answers 422 for a date with a five-digit year", f do
+      conn =
+        build_conn()
+        |> put_req_header("authorization", "Bearer " <> f.token)
+        |> put("/api/calendar/meals/range", %{
+          "from" => "10000-01-01",
+          "to" => "10000-01-01",
+          "meals" => [%{"date" => "10000-01-01", "slot" => "dinner"}]
+        })
+
+      assert %{"error" => "invalid_date_format"} = json_response(conn, 422)
+    end
+
+    # An open planned Shopping item of the meal for `planned_date`, for an
+    # Ingredient of its own unless `ingredient_id` names one.
+    defp open_planned_item!(meal, planned_date, ingredient_id \\ nil) do
+      ingredient_id =
+        ingredient_id ||
+          elem(
+            Catalog.create_ingredient(%{name: "Move #{Ecto.UUID.generate()}", category: :otros}),
+            1
+          ).id
+
+      %ShoppingItem{}
+      |> ShoppingItem.changeset(%{
+        account_id: meal.account_id,
+        scheduled_meal_id: meal.id,
+        ingredient_id: ingredient_id,
+        planned_date: planned_date,
+        quantity_milli: 200,
+        unit: :g,
+        status: :pending
+      })
+      |> Repo.insert!()
     end
   end
 

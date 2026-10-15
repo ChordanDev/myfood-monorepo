@@ -195,7 +195,9 @@ describe('useEatToday', () => {
     ]);
   });
 
-  it('keeps the cached plan when neither the move nor the calendar read gets an answer', async () => {
+  it('gives up without reading the calendar when the device is offline', async () => {
+    // The move could not be sent, so the server's plan is the cached one and a calendar read
+    // would only make the User wait for the same failure.
     fetchMock.mockRejectedValue(new TypeError('Network request failed'));
 
     let moved: boolean | undefined;
@@ -204,7 +206,26 @@ describe('useEatToday', () => {
     });
 
     expect(moved).toBe(false);
+    expect(sentRequests().map((request) => request.method)).toEqual(['POST']);
     expect(useMealPlanStore.getState().entries).toEqual(entries);
+  });
+
+  it('reads the plan again when the answer to the move is lost', async () => {
+    // A timeout leaves open whether the server moved the meal: its plan settles it.
+    serverAnswers({
+      move: () => Promise.reject(Object.assign(new Error('Aborted'), { name: 'AbortError' })),
+    });
+
+    let moved: boolean | undefined;
+    await act(async () => {
+      moved = await eatToday(params);
+    });
+
+    expect(moved).toBe(false);
+    expect(sentRequests().map((request) => request.method)).toEqual(['POST', 'GET']);
+    expect(useMealPlanStore.getState().entries).toEqual([
+      expect.objectContaining({ id: 'm2', date: '2026-10-09', type: 'lunch' }),
+    ]);
   });
 
   it('sends nothing when the move is not allowed', async () => {

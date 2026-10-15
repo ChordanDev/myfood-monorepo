@@ -35,7 +35,6 @@ describe('plan entries from the calendar', () => {
         type: 'lunch',
         recipeId: 'recipe-1',
         isCooked: false,
-        selectedQuantity: 2,
       },
     ]);
   });
