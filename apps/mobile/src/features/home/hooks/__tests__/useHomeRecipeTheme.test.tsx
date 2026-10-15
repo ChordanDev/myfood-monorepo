@@ -194,6 +194,17 @@ describe('useHomeRecipeTheme', () => {
     expect(homeImageUrl).toBeNull();
   });
 
+  it('keeps the default palette and image when today has no selected meal, without fetching', () => {
+    const fallback = defaultTheme();
+    cacheRecipes(LUNCH_RECIPE);
+
+    mount(null, TODAY);
+
+    expect(activeTheme).toEqual(fallback);
+    expect(homeImageUrl).toBeNull();
+    expect(getRecipeMock).not.toHaveBeenCalled();
+  });
+
   it('keeps the default palette and image for a past day, even when cached', () => {
     const fallback = defaultTheme();
     cacheRecipes(LUNCH_RECIPE);
