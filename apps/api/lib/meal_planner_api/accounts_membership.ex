@@ -285,12 +285,17 @@ defmodule MealPlannerApi.AccountsMembership do
 
     * `accept_invite(plaintext, %{name: ...})` — new User. The
       `InviteService.create_invite_row/2` created a stub `User` row at
-      invite time; this function fills it in with the real `name`,
-      then flips the membership. The User holds no credential: they
-      sign in with an email code.
+      invite time; this function claims it with the real `name`, then
+      flips the membership. The User holds no credential: they sign in
+      with an email code. The caller is not authenticated, so only a
+      User still marked `invite_stub` can be claimed, and only once. An
+      invite bound to any other User returns
+      `:invitee_authentication_required`: that User has to accept with
+      their own token.
 
   Errors: `:invite_token_used`, `:invite_token_expired`,
-  `:invite_token_unknown`.
+  `:invite_token_unknown`, `:invitee_authentication_required`. Nothing
+  is written when the accept fails.
 
   The returned `claims` map matches design §3.2 — `AccountsMembership.
   claims_for/2` (task 2.1) is the single source of truth for the
@@ -313,17 +318,40 @@ defmodule MealPlannerApi.AccountsMembership do
 
   def accept_invite(plaintext, %{name: name})
       when is_binary(plaintext) and is_binary(name) do
-    accept_invite_with_lookup(plaintext, fn %PersistenceUser{id: user_id} = stub ->
-      case stub
-           |> PersistenceUser.changeset(%{name: name})
-           |> Repo.update() do
-        {:ok, %PersistenceUser{id: ^user_id} = updated} -> {:ok, updated}
-        {:error, _} = err -> err
-      end
-    end)
+    accept_invite_with_lookup(plaintext, &claim_invite_stub(&1, name))
   end
 
   def accept_invite(_plaintext, _args), do: {:error, :invalid_invitee}
+
+  # The update only matches while the row is still a stub, so two accepts
+  # racing on two invites for the same email claim it once.
+  defp claim_invite_stub(%PersistenceUser{invite_stub: true} = stub, name) do
+    changeset = PersistenceUser.changeset(stub, %{name: name})
+
+    if changeset.valid? do
+      query =
+        from(u in PersistenceUser,
+          where: u.id == ^stub.id and u.invite_stub == true,
+          select: u
+        )
+
+      case Repo.update_all(query,
+             set: [
+               name: Ecto.Changeset.get_field(changeset, :name),
+               invite_stub: false,
+               updated_at: DateTime.utc_now()
+             ]
+           ) do
+        {1, [claimed]} -> {:ok, claimed}
+        {0, _} -> {:error, :invitee_authentication_required}
+      end
+    else
+      {:error, changeset}
+    end
+  end
+
+  defp claim_invite_stub(%PersistenceUser{}, _name),
+    do: {:error, :invitee_authentication_required}
 
   @doc """
   Multi-familia switch: re-issue the access_v2 claim set scoped to a
@@ -451,7 +479,18 @@ defmodule MealPlannerApi.AccountsMembership do
     end
   end
 
+  # One transaction, so a failed membership update also undoes the stub
+  # claim and the invitee can try again.
   defp consume_invite(membership, resolve_user) do
+    Repo.transaction(fn ->
+      case activate_membership(membership, resolve_user) do
+        {:ok, result} -> result
+        {:error, reason} -> Repo.rollback(reason)
+      end
+    end)
+  end
+
+  defp activate_membership(membership, resolve_user) do
     with {:ok, stub_user} <- fetch_membership_user(membership),
          {:ok, invitee} <- resolve_user.(stub_user),
          {:ok, consumed} <-

@@ -6,6 +6,7 @@ defmodule MealPlannerApiWeb.InviteAcceptControllerTest do
   alias MealPlannerApi.AccountsMembership
   alias MealPlannerApi.Auth.Guardian
   alias MealPlannerApi.Persistence.Accounts.AccountMembership
+  alias MealPlannerApi.Persistence.Accounts.User
   alias MealPlannerApi.Repo
   alias MealPlannerApi.Services.InviteService
   alias MealPlannerApiWeb.Controllers.AccountScopeHelpers
@@ -316,10 +317,139 @@ defmodule MealPlannerApiWeb.InviteAcceptControllerTest do
 
       assert json_response(first_conn, 200)
 
+      # The first accept claimed the stub, so the second accept has to come
+      # from that now-registered User.
+      %{"access_token" => access_token} = json_response(first_conn, 200)
+
       second_conn =
-        post(conn, "/api/invites/#{second_plaintext}/accept", %{"name" => "Dupe Invitee"})
+        build_conn()
+        |> put_req_header("authorization", "Bearer " <> access_token)
+        |> post("/api/invites/#{second_plaintext}/accept", %{})
 
       assert json_response(second_conn, 409)["error"] == "already_a_member"
+    end
+  end
+
+  # The name path is unauthenticated, so it may only claim the stub User an
+  # invite created for an email nobody has signed in with. An invite bound
+  # to any other User needs that User's own Bearer token.
+  describe "name-only accept of an invite bound to a registered User" do
+    test "returns 401 and leaves the User and the invite untouched", %{conn: conn} do
+      owner =
+        user_with_memberships(%{email: "owner_takeover@example.com"}, [
+          {%{plan: :family_4, name: "Family Takeover"}, :owner}
+        ])
+
+      [owner_membership] = owner.memberships
+
+      victim =
+        user_with_memberships(%{email: "victim_takeover@example.com", name: "Victim"}, [
+          {%{plan: :individual, name: "Victim Own Account"}, :owner}
+        ])
+
+      [victim_own_membership] = victim.memberships
+
+      {:ok, %{token: plaintext, membership_id: membership_id}} =
+        AccountsMembership.invite(
+          owner_membership.account,
+          owner_membership,
+          "victim_takeover@example.com"
+        )
+
+      conn = post(conn, "/api/invites/#{plaintext}/accept", %{"name" => "Attacker"})
+
+      body = json_response(conn, 401)
+      assert body["error"] == "unauthorized"
+      refute Map.has_key?(body, "access_token")
+      refute Map.has_key?(body, "refresh_token")
+
+      assert Repo.get!(User, victim.id).name == "Victim"
+      assert Repo.get!(AccountMembership, membership_id).status == :invited
+
+      # The invite still works for the User it is bound to.
+      accepted =
+        build_conn()
+        |> put_req_header(
+          "authorization",
+          "Bearer " <> issue_access_v2_token(victim, victim_own_membership)
+        )
+        |> post("/api/invites/#{plaintext}/accept", %{})
+        |> json_response(200)
+
+      assert accepted["user"]["id"] == victim.id
+      assert accepted["membership"]["status"] == "active"
+    end
+
+    test "a stub claimed through one invite cannot be claimed again through another",
+         %{conn: conn} do
+      family_a =
+        user_with_memberships(%{email: "owner_claim_a@example.com"}, [
+          {%{plan: :family_4, name: "Family Claim A"}, :owner}
+        ])
+
+      family_b =
+        user_with_memberships(%{email: "owner_claim_b@example.com"}, [
+          {%{plan: :family_4, name: "Family Claim B"}, :owner}
+        ])
+
+      [membership_a] = family_a.memberships
+      [membership_b] = family_b.memberships
+
+      {:ok, %{token: token_a}} =
+        AccountsMembership.invite(membership_a.account, membership_a, "claimed_once@example.com")
+
+      {:ok, %{token: token_b}} =
+        AccountsMembership.invite(membership_b.account, membership_b, "claimed_once@example.com")
+
+      first = post(conn, "/api/invites/#{token_a}/accept", %{"name" => "Real Invitee"})
+      assert json_response(first, 200)["user"]["name"] == "Real Invitee"
+
+      second = post(build_conn(), "/api/invites/#{token_b}/accept", %{"name" => "Attacker"})
+      assert json_response(second, 401)["error"] == "unauthorized"
+
+      assert Repo.get_by!(User, email: "claimed_once@example.com").name == "Real Invitee"
+    end
+
+    test "a removed member cannot be claimed by name through a new invite", %{conn: conn} do
+      first_owner =
+        user_with_memberships(%{email: "owner_removed_a@example.com"}, [
+          {%{plan: :family_4, name: "Family Removed A"}, :owner}
+        ])
+
+      second_owner =
+        user_with_memberships(%{email: "owner_removed_b@example.com"}, [
+          {%{plan: :family_4, name: "Family Removed B"}, :owner}
+        ])
+
+      [first_membership] = first_owner.memberships
+      [second_membership] = second_owner.memberships
+
+      {:ok, %{token: first_token}} =
+        AccountsMembership.invite(
+          first_membership.account,
+          first_membership,
+          "removed_member@example.com"
+        )
+
+      %{"user" => %{"id" => member_id}} =
+        conn
+        |> post("/api/invites/#{first_token}/accept", %{"name" => "Removed Member"})
+        |> json_response(200)
+
+      :ok =
+        AccountsMembership.remove_member(first_membership.account, member_id, first_membership)
+
+      {:ok, %{token: second_token}} =
+        AccountsMembership.invite(
+          second_membership.account,
+          second_membership,
+          "removed_member@example.com"
+        )
+
+      conn = post(build_conn(), "/api/invites/#{second_token}/accept", %{"name" => "Attacker"})
+
+      assert json_response(conn, 401)["error"] == "unauthorized"
+      assert Repo.get!(User, member_id).name == "Removed Member"
     end
   end
 end

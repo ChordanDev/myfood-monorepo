@@ -34,6 +34,11 @@ defmodule MealPlannerApi.Persistence.Accounts.User do
     # Onboarding profile; nil until the user saves one.
     field(:household_size, :integer)
     field(:cooking_skill, :string)
+    # True while the User is the stub an invite created for an email nobody
+    # has signed in with. Only such a User can be claimed by an invite accept
+    # without a Bearer token, and claiming it clears the flag. No changeset
+    # casts it.
+    field(:invite_stub, :boolean, default: false)
 
     belongs_to(:account, MealPlannerApi.Persistence.Accounts.Account)
     has_many(:memberships, MealPlannerApi.Persistence.Accounts.AccountMembership)
