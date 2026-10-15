@@ -17,14 +17,16 @@ interface MealPlanState {
 }
 
 // Runs when the stored version is another one. A plan stored before version 3 was seeded from
-// the fixtures, so it is dropped: the calendar read fills the cache again. The rest of what the
-// User stored is kept.
+// the fixtures, so it is dropped with the fixture `recipes` that came with it, a key the store no
+// longer has: the calendar read fills the cache again. The rest of what the User stored is kept.
 function migrateMealPlanState(persistedState: unknown, version: number): MealPlanState {
   const stored = (
     typeof persistedState === 'object' && persistedState !== null ? persistedState : {}
-  ) as MealPlanState;
+  ) as MealPlanState & { recipes?: unknown };
 
-  return version < 3 ? { ...stored, entries: [], recipeSummaries: {} } : stored;
+  if (version >= 3) return stored;
+  const { recipes: _fixtureRecipes, ...rest } = stored;
+  return { ...rest, entries: [], recipeSummaries: {} };
 }
 
 export const useMealPlanStore = create<MealPlanState>()(

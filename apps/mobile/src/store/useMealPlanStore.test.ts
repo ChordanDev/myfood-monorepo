@@ -237,4 +237,19 @@ describe('the plan cache', () => {
     expect(useMealPlanStore.getState()).toMatchObject({ customKey: 'kept' });
     expect(consoleError).not.toHaveBeenCalled();
   });
+
+  // Issue #146: the fixtures of the old plan also seeded `recipes`, a key the store no longer has.
+  it('drops the fixture recipes stored before version 3', async () => {
+    await AsyncStorage.setItem(
+      STORAGE_KEY,
+      JSON.stringify({
+        version: 2,
+        state: { entries: [storedEntry], recipes: [{ id: 'fixture-recipe' }] },
+      })
+    );
+
+    await useMealPlanStore.persist.rehydrate();
+
+    expect(useMealPlanStore.getState()).not.toHaveProperty('recipes');
+  });
 });
