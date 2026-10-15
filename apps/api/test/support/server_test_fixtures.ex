@@ -86,10 +86,20 @@ defmodule MealPlannerApi.Generation.ServerTestFixtures do
     user
   end
 
-  @doc "Insert an Ingredient with the given name."
-  @spec insert_ingredient(String.t()) :: Ingredient.t()
-  def insert_ingredient(name) do
-    {:ok, ingredient} = Catalog.create_ingredient(%{name: name, category: :otros})
+  @doc """
+  Insert an Ingredient with the given name. It carries no Hard restriction
+  code unless `allergens` names some; pass `allergens: nil` for an Ingredient
+  nobody has reviewed.
+  """
+  @spec insert_ingredient(String.t(), keyword()) :: Ingredient.t()
+  def insert_ingredient(name, opts \\ []) do
+    {:ok, ingredient} =
+      Catalog.create_ingredient(%{
+        name: name,
+        category: :otros,
+        allergens: Keyword.get(opts, :allergens, [])
+      })
+
     ingredient
   end
 

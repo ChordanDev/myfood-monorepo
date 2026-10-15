@@ -41,7 +41,8 @@ defmodule MealPlannerApi.Services.PlanningCandidateBuilderTest do
       end)
 
     assert Enum.map(measurements, &elem(&1, 0)) == [1, 5, 20]
-    assert Enum.all?(measurements, fn {_, cold, warm} -> cold == 7 and warm == 7 end)
+    # One of the queries reads the participants' Hard restriction codes (#114).
+    assert Enum.all?(measurements, fn {_, cold, warm} -> cold == 8 and warm == 8 end)
   end
 
   test "batch publication handles empty, duplicate, invalid and missing IDs", f do

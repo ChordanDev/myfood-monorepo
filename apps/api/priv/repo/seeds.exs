@@ -121,6 +121,7 @@ family_4_plan = Repo.get_by!(Plan, name: "family_4")
 {:ok, tomato} =
   Catalog.upsert_ingredient_by_name(%{
     name: "Tomate",
+    allergens: [],
     category: :verduras,
     calories_per_100: 18,
     protein_g_per_100: Decimal.new("0.9"),
@@ -131,6 +132,7 @@ family_4_plan = Repo.get_by!(Plan, name: "family_4")
 {:ok, rice} =
   Catalog.upsert_ingredient_by_name(%{
     name: "Arroz",
+    allergens: [],
     category: :granos,
     calories_per_100: 130,
     protein_g_per_100: Decimal.new("2.7"),
