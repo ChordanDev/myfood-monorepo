@@ -167,6 +167,64 @@ describe('Calendar', () => {
   });
 });
 
+describe('Calendar slot dots', () => {
+  beforeEach(() => {
+    jest.useFakeTimers();
+    jest.setSystemTime(new Date(2026, 7, 25, 12, 0));
+  });
+
+  afterEach(() => {
+    jest.useRealTimers();
+  });
+
+  const planByDate = {
+    '2026-08-26': [entry({ date: '2026-08-26', type: 'lunch' })],
+    '2026-08-27': [
+      entry({ date: '2026-08-27', type: 'dinner' }),
+      entry({ date: '2026-08-27', type: 'breakfast' }),
+      entry({ date: '2026-08-27', type: 'lunch' }),
+    ],
+    '2026-08-28': [
+      entry({ date: '2026-08-28', type: 'snack' }),
+      entry({ date: '2026-08-28', type: 'dinner' }),
+    ],
+    '2026-08-29': [entry({ date: '2026-08-29', type: 'snack' })],
+  };
+
+  it('hands each day the slots that have a Scheduled meal, in order', () => {
+    const getDayCell = renderDayCells(planByDate);
+
+    expect(getDayCell('2026-08-26').plannedSlots).toEqual(['lunch']);
+    expect(getDayCell('2026-08-27').plannedSlots).toEqual(['breakfast', 'lunch', 'dinner']);
+  });
+
+  it('hands a day without meals no planned slot', () => {
+    const getDayCell = renderDayCells(planByDate);
+
+    expect(getDayCell('2026-08-30').plannedSlots).toEqual([]);
+  });
+
+  it('ignores a meal in the snack slot', () => {
+    const getDayCell = renderDayCells(planByDate);
+
+    expect(getDayCell('2026-08-28').plannedSlots).toEqual(['dinner']);
+    expect(getDayCell('2026-08-29').plannedSlots).toEqual([]);
+  });
+
+  it('hands no slots when it only receives the marked days', () => {
+    const { getDayCell } = renderCalendar({ markedDates: ['2026-08-26'] });
+
+    expect(getDayCell('2026-08-26').plannedSlots).toBeUndefined();
+    expect(getDayCell('2026-08-26').isPlanned).toBe(true);
+  });
+
+  it('hands no slots when the marked days come with a meal plan', () => {
+    const { getDayCell } = renderCalendar({ planByDate, markedDates: ['2026-08-26'] });
+
+    expect(getDayCell('2026-08-27').plannedSlots).toBeUndefined();
+  });
+});
+
 describe('Calendar with rules from outside', () => {
   beforeEach(() => {
     jest.useFakeTimers();
@@ -459,6 +517,19 @@ describe('Calendar with rules from outside', () => {
 
     it('keeps room for six weeks when sized to its content, so months do not resize it', () => {
       const { root } = renderCalendar({ planByDate, sizing: 'content', daySize: 36 });
+      const grid = getViewStyles(root).find((style) => style.flexWrap === 'wrap');
+
+      // Six rows of a 36pt day, its 9pt row of slot dots and its 8pt gap, under the 7pt top
+      // padding of the grid.
+      expect(grid?.minHeight).toBe(7 + 6 * (36 + 9 + 8));
+    });
+
+    it('keeps no room for slot dots when it only receives the marked days', () => {
+      const { root } = renderCalendar({
+        markedDates: ['2026-08-26'],
+        sizing: 'content',
+        daySize: 36,
+      });
       const grid = getViewStyles(root).find((style) => style.flexWrap === 'wrap');
 
       // Six rows of a 36pt day and its 8pt gap, under the 7pt top padding of the grid.

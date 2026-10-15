@@ -1,3 +1,4 @@
+import { useMemo } from 'react';
 import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import Animated from 'react-native-reanimated';
 import { ShadowSurface } from '@/components';
@@ -8,8 +9,11 @@ import {
   DAY_ROW_GAP,
   MAX_WEEK_ROWS,
   MONTHS,
+  SLOT_DOT_ROW_HEIGHT,
   WEEKDAYS,
 } from '../constants/calendar';
+import { getPlannedSlots } from '../domain/calendarPlan';
+import type { HomeMealSlot } from '../domain/localMealPlan';
 import { formatDateKey, isPendingDate } from '../utils/calendarDate';
 import { isBetweenRangeEdges, isRangeEdge } from '../utils/calendarRange';
 import type { CalendarProps } from '../types/calendar';
@@ -57,6 +61,18 @@ export function Calendar({
     monthBounds,
   });
 
+  // Marks handed in from outside carry days only, so the slot dots are drawn from a meal plan.
+  const showsSlotDots = !markedDates;
+  // One array per day, kept across renders so the memoized day cells do not redraw.
+  const plannedSlotsByDate = useMemo(() => {
+    const slotsByDate: Record<string, HomeMealSlot[]> = {};
+    for (const [dateString, entries] of Object.entries(planByDate)) {
+      slotsByDate[dateString] = getPlannedSlots(entries);
+    }
+    return slotsByDate;
+  }, [planByDate]);
+  const dayRowHeight = daySize + DAY_ROW_GAP + (showsSlotDots ? SLOT_DOT_ROW_HEIGHT : 0);
+
   const monthLabel = `${MONTHS[month]} ${year}`;
   const range = { start: rangeStart ?? null, end: rangeEnd ?? null };
   const fitsContent = sizing === 'content';
@@ -69,7 +85,7 @@ export function Calendar({
       style={[
         styles.monthGrid,
         // Room for the longest month, so a surface sized to its content keeps one height.
-        fitsContent && { minHeight: GRID_PADDING_TOP + MAX_WEEK_ROWS * (daySize + DAY_ROW_GAP) },
+        fitsContent && { minHeight: GRID_PADDING_TOP + MAX_WEEK_ROWS * dayRowHeight },
       ]}>
       {monthGrid.map((cell) => {
         const dayDate = cell.date;
@@ -104,6 +120,9 @@ export function Calendar({
             isInRange={isInRange}
             isToday={isToday}
             isPlanned={isPlanned}
+            plannedSlots={
+              showsSlotDots ? (plannedSlotsByDate[dateString] ?? NO_PLANNED_SLOTS) : undefined
+            }
             isPendingConfirmation={isPendingConfirmation}
             daySize={daySize}
             dayFontSize={dayFontSize}
@@ -178,6 +197,7 @@ export function Calendar({
 }
 
 const GRID_PADDING_TOP = 7;
+const NO_PLANNED_SLOTS: HomeMealSlot[] = [];
 
 const styles = StyleSheet.create({
   divider: {

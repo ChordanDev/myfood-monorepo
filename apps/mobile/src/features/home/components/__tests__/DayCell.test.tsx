@@ -203,3 +203,64 @@ describe('DayCell inside a range', () => {
     expect(onSelect).toHaveBeenCalledWith('2026-08-06');
   });
 });
+
+function getSlotDot(root: ReactTestInstance, slot: string) {
+  return StyleSheet.flatten(root.findByProps({ testID: `slot-dot-${slot}` }).props.style);
+}
+
+const FILLED_DOT = { backgroundColor: '#ff6600', borderColor: '#ff6600', borderWidth: 1 };
+const OUTLINED_DOT = { backgroundColor: 'transparent', borderColor: '#ff6600', borderWidth: 1 };
+
+describe('DayCell slot dots', () => {
+  it('outlines the three dots of a day without meals', () => {
+    const { root } = renderDayCell({ isPlanned: false, plannedSlots: [] });
+
+    for (const slot of ['breakfast', 'lunch', 'dinner']) {
+      expect(getSlotDot(root, slot)).toEqual(expect.objectContaining(OUTLINED_DOT));
+    }
+    expect(getButton(root).props.accessibilityLabel).toBe('jueves 6, sin comidas planificadas');
+  });
+
+  it('fills only the lunch dot of a day with lunch planned', () => {
+    const { root } = renderDayCell({ plannedSlots: ['lunch'] });
+
+    expect(getSlotDot(root, 'breakfast')).toEqual(expect.objectContaining(OUTLINED_DOT));
+    expect(getSlotDot(root, 'lunch')).toEqual(expect.objectContaining(FILLED_DOT));
+    expect(getSlotDot(root, 'dinner')).toEqual(expect.objectContaining(OUTLINED_DOT));
+    expect(getButton(root).props.accessibilityLabel).toBe('jueves 6, almuerzo planificado');
+  });
+
+  it('fills the three dots of a fully planned day', () => {
+    const { root } = renderDayCell({ plannedSlots: ['breakfast', 'lunch', 'dinner'] });
+
+    for (const slot of ['breakfast', 'lunch', 'dinner']) {
+      expect(getSlotDot(root, slot)).toEqual(expect.objectContaining(FILLED_DOT));
+    }
+    expect(getButton(root).props.accessibilityLabel).toBe(
+      'jueves 6, desayuno, almuerzo y cena planificados'
+    );
+  });
+
+  it('draws the dots as breakfast, lunch and dinner, in that order, with no snack dot', () => {
+    const { root } = renderDayCell({ plannedSlots: ['dinner', 'breakfast'] });
+
+    const dotIds = root
+      .findAll((node) => typeof node.props.testID === 'string' && node.type === View)
+      .map((node) => node.props.testID as string)
+      .filter((testID) => testID.startsWith('slot-dot-'));
+
+    expect(dotIds).toEqual(['slot-dot-breakfast', 'slot-dot-lunch', 'slot-dot-dinner']);
+  });
+
+  it('keeps the label of a pending day', () => {
+    const { root } = renderDayCell({ isPendingConfirmation: true, plannedSlots: ['lunch'] });
+
+    expect(getButton(root).props.accessibilityLabel).toBe('6, comida sin confirmar');
+  });
+
+  it('draws no dots when it does not know the slots of the day', () => {
+    const { root } = renderDayCell();
+
+    expect(root.findAll((node) => String(node.props.testID).startsWith('slot-dot-'))).toEqual([]);
+  });
+});
