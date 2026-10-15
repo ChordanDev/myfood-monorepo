@@ -50,7 +50,9 @@ defmodule MealPlannerApi.Persistence.Calendar.MealMoveConcurrencyTest do
 
     log =
       capture_log(fn ->
-        {request, backend} = on_own_connection(fn -> move_over_http(f, source, destination) end)
+        {request, backend} =
+          on_own_connection(fn -> move_over_http(f, source, destination, "lunch") end)
+
         wait_until_blocked_by(backend, gate.backend)
         release(gate, :commit)
 
@@ -241,12 +243,12 @@ defmodule MealPlannerApi.Persistence.Calendar.MealMoveConcurrencyTest do
     end
   end
 
-  defp move_over_http(f, meal, date) do
+  defp move_over_http(f, meal, date, slot) do
     build_conn()
     |> put_req_header("authorization", "Bearer " <> f.token)
     |> post("/api/calendar/meals/#{meal.id}/move", %{
       "date" => Date.to_iso8601(date),
-      "slot" => "lunch"
+      "slot" => slot
     })
   end
 
