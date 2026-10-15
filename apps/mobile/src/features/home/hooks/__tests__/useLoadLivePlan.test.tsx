@@ -245,4 +245,18 @@ describe('loadLivePlan', () => {
 
     expect(plannedRecipeIds()).toEqual(['r-newer']);
   });
+
+  it('keeps the answer of an older read when the newer one fails', async () => {
+    const older = deferredCalendar();
+    mockGetCalendar
+      .mockReturnValueOnce(older.promise)
+      .mockReturnValueOnce(Promise.reject(new Error('offline')));
+
+    const olderRead = loadLivePlan();
+    await expect(loadLivePlan()).rejects.toThrow('offline');
+    older.resolve({ meals: [calendarMeal('m1', TOMORROW, 'lunch', 'r-older')] });
+    await olderRead;
+
+    expect(plannedRecipeIds()).toEqual(['r-older']);
+  });
 });

@@ -6,22 +6,25 @@ import { getCalendar } from '../api/calendarApi';
 import { getCalendarWindow, toPlanEntries, toRecipeSummaries } from '../domain/calendarPlan';
 import { formatDateKey } from '../utils/calendarDate';
 
-// Counts the reads started, so an answer that arrives after the one of a later read is dropped:
-// the later read may follow a change the earlier one did not see.
+// Counts the reads started and remembers the last one applied, so an answer that arrives after a
+// later read's answer is dropped: the later read may follow a change the earlier one did not see.
+// A later read that fails drops nothing.
 let latestReadId = 0;
+let latestAppliedReadId = 0;
 // The read the mounted callers share while it is on its way.
 let sharedRead: Promise<void> | null = null;
 
 /**
  * Reads the live plan from `GET /api/calendar` and replaces the cached one with it. The store is
  * only a cache of that answer: a failed read leaves what was cached untouched, and so does an
- * answer that arrives after the one of a later read.
+ * answer that arrives after a later read's answer.
  */
 export async function loadLivePlan(now: Date = new Date()): Promise<void> {
   latestReadId += 1;
   const readId = latestReadId;
   const calendar = await getCalendar(getCalendarWindow(now));
-  if (readId !== latestReadId) return;
+  if (readId < latestAppliedReadId) return;
+  latestAppliedReadId = readId;
   const { setPlan, setRecipeSummaries } = useMealPlanStore.getState();
 
   setRecipeSummaries(toRecipeSummaries(calendar.meals));
