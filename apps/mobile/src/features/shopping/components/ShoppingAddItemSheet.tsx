@@ -6,6 +6,7 @@ import { useRecipeTheme } from '@/context/RecipeThemeContext';
 import { useKeyboardAnimation } from '@/hooks/useKeyboardAnimation';
 import type { UnitType } from '@/types/domain';
 import { withOpacity } from '@/utils/colors';
+import { MANUAL_ITEM_NAME_MAX_LENGTH } from '../constants';
 import { parseQuantityMilli } from '../domain';
 import type { NewManualShoppingItem } from '../types';
 
@@ -113,6 +114,7 @@ export function ShoppingAddItemSheet({ visible, onAdd, onClose }: ShoppingAddIte
             value={name}
             onChangeText={setName}
             onSubmitEditing={handleAdd}
+            maxLength={MANUAL_ITEM_NAME_MAX_LENGTH}
             autoFocus
             returnKeyType="done"
             // An empty return keeps the keyboard up instead of leaving the sheet half used.

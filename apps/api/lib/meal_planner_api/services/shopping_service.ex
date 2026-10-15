@@ -370,9 +370,10 @@ defmodule MealPlannerApi.Services.ShoppingService do
   ## Parameters
 
     * `params` — snake_case request params: `"name"` (required, a string
-      that is not blank once trimmed, at most 200 characters),
-      `"ingredient_id"` (optional, an Ingredient of the catalogue),
-      `"quantity_milli"` (optional integer above zero, `1000` when omitted)
+      that is not blank once trimmed, at most 200 codepoints, with no NUL
+      character), `"ingredient_id"` (optional, an Ingredient of the
+      catalogue), `"quantity_milli"` (optional integer above zero and at
+      most 2147483647, `1000` when omitted)
       and `"unit"` (optional, `"g"`, `"ml"` or `"unit"`, `"unit"` when
       omitted). So the default is 1 unit.
 
@@ -439,24 +440,29 @@ defmodule MealPlannerApi.Services.ShoppingService do
   item (which is removed with `set_item_status/3`, never deleted) and
   `{:error, :shopping_item_not_found}` for an id that is unknown, of another
   Account, malformed, or of an item already bought or archived.
+
+  The check and the delete are one statement, so a purchase that closes the
+  item at the same time either wins (and the item is not found) or finds it
+  gone; a second delete of the same item is not found either.
   """
   @spec delete_manual_item(map(), term()) :: {:ok, map()} | {:error, term()}
   def delete_manual_item(user, item_id) do
-    with {:ok, identity} <- Identity.ensure_persistent_identity(user),
-         %Shopping.ShoppingItem{} = item <-
-           Shopping.get_item_for_account(identity.account_id, item_id) || :not_found,
-         :ok <- deletable(item),
-         {:ok, _deleted} <- Repo.delete(item) do
-      {:ok, %{id: item.id}}
-    else
-      :not_found -> {:error, :shopping_item_not_found}
-      {:error, reason} -> {:error, reason}
+    with {:ok, identity} <- Identity.ensure_persistent_identity(user) do
+      case Shopping.delete_open_manual_item(identity.account_id, item_id) do
+        {:ok, id} -> {:ok, %{id: id}}
+        :error -> not_deleted(identity.account_id, item_id)
+      end
     end
   end
 
-  defp deletable(%{source: :planned_meal}), do: {:error, :shopping_item_not_manual}
-  defp deletable(%{status: status}) when status in [:pending, :in_cart], do: :ok
-  defp deletable(_closed), do: {:error, :shopping_item_not_found}
+  # Why nothing was deleted: a planned item is removed, never deleted; any
+  # other id is not on the list.
+  defp not_deleted(account_id, item_id) do
+    case Shopping.get_item_for_account(account_id, item_id) do
+      %{source: :planned_meal} -> {:error, :shopping_item_not_manual}
+      _missing_or_closed -> {:error, :shopping_item_not_found}
+    end
+  end
 
   # -------------------------------------------------------------------------
   # Removed and restored planned items (issue #40)
@@ -470,7 +476,11 @@ defmodule MealPlannerApi.Services.ShoppingService do
   A removed item is one the User will not buy: its line stops counting
   toward the quantity to buy, the estimate and the Cart, and the list
   still returns it with status `removed` so it can be restored. A rebuild
-  of the plan keeps it removed while the meal still needs the Ingredient.
+  of the plan keeps it removed while the meal still needs the Ingredient;
+  a recipe swap of its meal, or cooking it, drops it.
+
+  It takes the Cart's lock of the Account (`MealPlannerApi.Cart.lock_account!/1`)
+  before it locks any item, the order every Cart write locks in.
 
   ## Parameters
 
@@ -519,9 +529,13 @@ defmodule MealPlannerApi.Services.ShoppingService do
   defp item_ids(_params), do: {:error, :validation_error}
 
   # Locks the items the way the Cart does, so a reservation cannot slip in
-  # between the check and the write. The transaction rolls back on the first
-  # failure, so a request changes every item or none.
+  # between the check and the write: the Cart's advisory lock of the Account
+  # first, then the rows. Taking them in the Cart's order keeps a Cart write
+  # on several items from deadlocking with this one. The transaction rolls
+  # back on the first failure, so a request changes every item or none.
   defp change_item_status(account_id, item_ids, status) do
+    MealPlannerApi.Cart.lock_account!(account_id)
+
     with {:ok, uuids} <- cast_item_ids(item_ids),
          items = Shopping.lock_items_for_account(account_id, uuids),
          true <- length(items) == length(uuids) || {:error, :shopping_item_not_found},
@@ -613,8 +627,13 @@ defmodule MealPlannerApi.Services.ShoppingService do
 
   defp valid_range?(_from_date, _to_date), do: false
 
+  # Runs after the replacement committed, outside its transaction, so a
+  # failure here must not fail the request: the meals are replaced either
+  # way. It is logged, and the removals it could not carry are dropped.
   defp carry_removed_items(account_id, removed, {from_date, to_date}, now) do
-    if MapSet.size(removed) > 0 do
+    carried = MapSet.size(removed)
+
+    if carried > 0 do
       today = AccountClock.today(account_id, now)
 
       _ =
@@ -623,10 +642,25 @@ defmodule MealPlannerApi.Services.ShoppingService do
           upcoming_uncooked_meals(account_id, today)
         )
 
-      Shopping.restore_removed_items(account_id, removed, from_date, to_date)
+      restored = Shopping.restore_removed_items(account_id, removed, from_date, to_date)
+
+      if restored < carried do
+        Logger.warning(
+          "removed shopping items dropped by a range replace account_id=#{account_id} " <>
+            "carried=#{carried} restored=#{restored}"
+        )
+      end
     end
 
     :ok
+  rescue
+    exception ->
+      Logger.error(
+        "carrying removed shopping items failed account_id=#{account_id} " <>
+          "exception=#{inspect(exception.__struct__)} message=#{Exception.message(exception)}"
+      )
+
+      :ok
   end
 
   @spec mark_in_cart(map(), [Ecto.UUID.t()]) :: {:ok, map()} | {:error, term()}

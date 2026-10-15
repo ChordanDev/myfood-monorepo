@@ -7,14 +7,16 @@ defmodule MealPlannerApiWeb.ShoppingManualItemsTest do
   use MealPlannerApiWeb.ConnCase, async: false
 
   import Ecto.Query
+  import ExUnit.CaptureLog
 
   alias MealPlannerApi.Generation.ServerTestFixtures, as: Fixtures
   alias MealPlannerApi.Persistence.Accounts.AccountMembership
+  alias MealPlannerApi.Persistence.Calendar
   alias MealPlannerApi.Persistence.Planning
   alias MealPlannerApi.Persistence.Shopping
   alias MealPlannerApi.Persistence.Shopping.ShoppingItem
   alias MealPlannerApi.Repo
-  alias MealPlannerApi.Services.ShoppingService
+  alias MealPlannerApi.Services.{CookingService, ShoppingService}
 
   import MealPlannerApi.FactoryHelpers
 
@@ -49,6 +51,7 @@ defmodule MealPlannerApiWeb.ShoppingManualItemsTest do
 
     %{
       account: account,
+      actor: %{id: owner.id, account_id: account.id},
       other_account: other_account,
       ingredient: ingredient,
       meal: meal,
@@ -129,7 +132,11 @@ defmodule MealPlannerApiWeb.ShoppingManualItemsTest do
             %{"name" => "   "},
             %{"name" => 12},
             %{"name" => String.duplicate("a", 201)},
+            # 101 graphemes, 202 codepoints: the limit counts codepoints.
+            %{"name" => String.duplicate("👍🏽", 101)},
+            %{"name" => "So" <> <<0>> <> "ap"},
             %{"name" => "Soap", "quantityMilli" => 0},
+            %{"name" => "Soap", "quantityMilli" => 2_147_483_648},
             %{"name" => "Soap", "quantityMilli" => "3"},
             %{"name" => "Soap", "quantityMilli" => 1.5},
             %{"name" => "Soap", "unit" => "kg"},
@@ -141,6 +148,16 @@ defmodule MealPlannerApiWeb.ShoppingManualItemsTest do
       end
 
       assert shopping_list(c.token)["manual"] == []
+    end
+
+    test "accepts a name of 200 codepoints and the largest stored quantity", c do
+      name = String.duplicate("é", 200)
+
+      data =
+        create_manual(c.token, %{"name" => name, "quantityMilli" => 2_147_483_647}, 201)
+
+      assert data["name"] == name
+      assert data["quantityMilli"] == 2_147_483_647
     end
 
     test "requires a signed-in User" do
@@ -175,6 +192,21 @@ defmodule MealPlannerApiWeb.ShoppingManualItemsTest do
       end
 
       assert Repo.get(ShoppingItem, foreign_id)
+    end
+
+    test "deletes a manual item that is in a Cart", c do
+      %{"id" => id} = create_manual(c.token, %{"name" => "Dish soap"}, 201)
+      mark_cart!(c.token, [id])
+
+      assert %{"data" => %{"id" => ^id}} = delete_item(c.token, id) |> json_response(200)
+      assert Repo.get(ShoppingItem, id) == nil
+    end
+
+    test "answers shopping_item_not_found to a second delete of the same item", c do
+      %{"id" => id} = create_manual(c.token, %{"name" => "Dish soap"}, 201)
+
+      assert %{"data" => %{"id" => ^id}} = delete_item(c.token, id) |> json_response(200)
+      assert rejected(delete_item(c.token, id), 404) == "shopping_item_not_found"
     end
 
     test "does not delete a manual item that was already bought", c do
@@ -237,11 +269,50 @@ defmodule MealPlannerApiWeb.ShoppingManualItemsTest do
           "lines" => [%{"item_id" => id, "quantity_milli" => 1000, "total_cents" => 100}]
         })
 
-      assert %{"data" => %{"status" => "completed", "movedToInventoryCount" => 0}} =
-               json_response(conn, 200)
+      assert %{
+               "data" => %{
+                 "status" => "completed",
+                 "movedToInventoryCount" => 0,
+                 "checkedOutItemsCount" => 1
+               }
+             } = json_response(conn, 200)
 
       assert %{status: :checked_out} = Repo.get!(ShoppingItem, id)
       assert shopping_list(c.token)["manual"] == []
+    end
+  end
+
+  describe "a manual item stored before the codepoint bound" do
+    test "a partial purchase stores its remainder", c do
+      # 101 graphemes, 202 codepoints: stored when the bound counted graphemes.
+      name = String.duplicate("👍🏽", 101)
+
+      item =
+        Repo.insert!(%ShoppingItem{
+          account_id: c.account.id,
+          name: name,
+          quantity_milli: 2000,
+          unit: :unit,
+          status: :pending,
+          source: :manual
+        })
+
+      mark = mark_cart!(c.token, [item.id])
+
+      conn =
+        build_conn()
+        |> put_req_header("authorization", "Bearer " <> c.token)
+        |> post("/api/checkout/confirm", %{
+          "checkout_type" => "physical",
+          "session_id" => mark["data"]["sessionId"],
+          "lines" => [%{"item_id" => item.id, "quantity_milli" => 500}]
+        })
+
+      assert %{"data" => %{"status" => "completed", "checkedOutItemsCount" => 1}} =
+               json_response(conn, 200)
+
+      assert [%{"name" => ^name, "quantityMilli" => 1500, "status" => "needed"}] =
+               shopping_list(c.token)["manual"]
     end
   end
 
@@ -382,6 +453,20 @@ defmodule MealPlannerApiWeb.ShoppingManualItemsTest do
       assert %{status: :in_cart} = Repo.get!(ShoppingItem, c.first.id)
     end
 
+    test "refuses to remove a whole line when one of its items is in a Cart", c do
+      mark_cart!(c.token, [c.first.id])
+
+      [%{"allocations" => allocations}] = shopping_list(c.token)["planned"]
+      ids = Enum.map(allocations, & &1["itemId"])
+      assert Enum.sort(ids) == Enum.sort([c.first.id, c.second.id])
+
+      params = %{"itemIds" => ids, "status" => "removed"}
+      assert rejected(post_set_status(c.token, params), 409) == "shopping_item_in_cart"
+
+      assert %{status: :in_cart} = Repo.get!(ShoppingItem, c.first.id)
+      assert %{status: :pending} = Repo.get!(ShoppingItem, c.second.id)
+    end
+
     test "does not touch an item that was already bought", c do
       Repo.get!(ShoppingItem, c.first.id)
       |> Ecto.Changeset.change(status: :checked_out)
@@ -489,6 +574,39 @@ defmodule MealPlannerApiWeb.ShoppingManualItemsTest do
       assert ingredient_id == c.ingredient.id
     end
 
+    test "answers the replacement and logs when carrying the removals fails", c do
+      [%{"allocations" => [%{"itemId" => item_id}]}] = shopping_list(c.token)["planned"]
+      set_status(c.token, %{"itemIds" => [item_id], "status" => "removed"}, 200)
+
+      # An instant that is not a DateTime makes the post-commit derivation raise.
+      log =
+        capture_log(fn ->
+          assert {:ok, %{replaced: _}} =
+                   ShoppingService.replace_scheduled_meals_for_range(
+                     c.account.id,
+                     {c.today, Date.add(c.today, 2)},
+                     [%{date: c.today, slot: :lunch, recipe_id: c.recipe_id}],
+                     :not_an_instant
+                   )
+        end)
+
+      assert log =~ "carrying removed shopping items failed account_id=#{c.account.id}"
+      assert [%{"status" => "needed"}] = shopping_list(c.token)["planned"]
+    end
+
+    test "logs the removals a replace drops", c do
+      [%{"allocations" => [%{"itemId" => item_id}]}] = shopping_list(c.token)["planned"]
+      set_status(c.token, %{"itemIds" => [item_id], "status" => "removed"}, 200)
+
+      log =
+        capture_log(fn ->
+          replace_range!(c, [%{date: c.today, slot: :lunch, recipe_id: c.other_recipe.id}])
+        end)
+
+      assert log =~ "removed shopping items dropped by a range replace"
+      assert log =~ "carried=1 restored=0"
+    end
+
     test "removes only the slot the User removed, not the same Ingredient at another slot", c do
       [%{"allocations" => [%{"itemId" => item_id}]}] = shopping_list(c.token)["planned"]
       set_status(c.token, %{"itemIds" => [item_id], "status" => "removed"}, 200)
@@ -505,7 +623,64 @@ defmodule MealPlannerApiWeb.ShoppingManualItemsTest do
     end
   end
 
+  describe "a removed item whose meal changes" do
+    setup c do
+      [%{"allocations" => [%{"itemId" => item_id}]}] = shopping_list(c.token)["planned"]
+      set_status(c.token, %{"itemIds" => [item_id], "status" => "removed"}, 200)
+      %{removed_id: item_id}
+    end
+
+    test "is dropped by a recipe swap of its meal", c do
+      owner_id = c.actor.id
+      ingredient = Fixtures.insert_ingredient("Swap ingredient #{Ecto.UUID.generate()}")
+
+      recipe =
+        Fixtures.insert_recipe("Swap recipe #{Ecto.UUID.generate()}",
+          account_id: c.account.id,
+          created_by_user_id: owner_id
+        )
+
+      Fixtures.attach_recipe_ingredient(recipe, ingredient, 100, :g)
+
+      assert {:ok, _meal} =
+               Calendar.upsert_scheduled_meal(c.account.id, %{
+                 date: c.meal.date,
+                 slot: :lunch,
+                 recipe_id: recipe.id
+               })
+
+      assert Repo.get(ShoppingItem, c.removed_id) == nil
+
+      assert [%{"ingredientId" => ingredient_id, "status" => "needed"}] =
+               shopping_list(c.token)["planned"]
+
+      assert ingredient_id == ingredient.id
+
+      params = %{"itemIds" => [c.removed_id], "status" => "needed"}
+      assert rejected(post_set_status(c.token, params), 404) == "shopping_item_not_found"
+    end
+
+    test "is dropped when its meal is cooked", c do
+      MealPlannerApiWeb.ChannelHelpers.persist_trial_window!(c.account, :eligible)
+      {:ok, session} = CookingService.start_session(c.actor, c.meal.id)
+      assert {:ok, _result} = CookingService.finish_session(c.actor, session.session_id)
+
+      assert Repo.get(ShoppingItem, c.removed_id) == nil
+      assert shopping_list(c.token)["planned"] == []
+
+      params = %{"itemIds" => [c.removed_id], "status" => "needed"}
+      assert rejected(post_set_status(c.token, params), 404) == "shopping_item_not_found"
+    end
+  end
+
   # ---- helpers ---------------------------------------------------------------
+
+  defp mark_cart!(token, item_ids) do
+    build_conn()
+    |> put_req_header("authorization", "Bearer " <> token)
+    |> post("/api/shopping-items/mark-cart", %{"item_ids" => item_ids})
+    |> json_response(200)
+  end
 
   defp planned_item!(c, overrides \\ %{}) do
     {:ok, item} =

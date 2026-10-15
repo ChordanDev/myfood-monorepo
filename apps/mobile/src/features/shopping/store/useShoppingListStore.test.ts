@@ -1122,13 +1122,36 @@ describe('changing the list', () => {
       expect(shopping().changeError).toMatchObject({ code });
     });
 
-    it('keeps the cached list when the network fails, without asking twice', async () => {
+    it.each([
+      ['network_error', new TypeError('Network request failed')],
+      ['timeout', Object.assign(new Error('Aborted'), { name: 'AbortError' })],
+    ])(
+      'reads the list again after a %s, without sending the change twice',
+      async (code, failure) => {
+        fetchMock.mockRejectedValueOnce(failure);
+        // The add landed: only its answer was lost.
+        answerWith(SHOPPING_LIST_WITH_MANUAL_AND_REMOVED);
+
+        const added = await shopping().addManualItem({ name: 'Detergente' });
+
+        expect(added).toBe(false);
+        expect(requests()).toEqual([
+          'POST /api/shopping-items/manual',
+          'GET /api/shopping-list?groupBy=ingredient',
+        ]);
+        expect(shopping().changeError).toMatchObject({ code });
+        expect(shopping().list).toEqual(SHOPPING_LIST_WITH_MANUAL_AND_REMOVED);
+      }
+    );
+
+    it('keeps the cached list when the read after a lost answer fails too', async () => {
       fetchMock.mockRejectedValueOnce(new TypeError('Network request failed'));
+      failTheNetwork();
 
       const added = await shopping().addManualItem({ name: 'Detergente' });
 
       expect(added).toBe(false);
-      expect(fetchMock).toHaveBeenCalledTimes(1);
+      expect(requests().filter((request) => request.startsWith('POST'))).toHaveLength(1);
       expect(shopping().changeError).toMatchObject({ code: 'network_error' });
       expect(shopping().list).toEqual(SHOPPING_LIST_BY_INGREDIENT);
     });
@@ -1178,6 +1201,51 @@ describe('changing the list', () => {
       expect(requests()).toEqual(['POST /api/shopping-items/manual']);
       expect(shopping()).toMatchObject({ ownerId: USER_B, list: EMPTY_SHOPPING_LIST });
       expect(shopping().changeError).toBeNull();
+    });
+
+    it('drops the refused change of a user who signed out, even when they sign in again', async () => {
+      refuseChange('shopping_item_in_cart', 409);
+      await shopping().setItemsStatus(TOMATO_ITEM_IDS, 'removed');
+      expect(shopping().changeError).not.toBeNull();
+
+      await shopping().refresh(null);
+      expect(shopping()).toMatchObject({ changeError: null, pendingChanges: 0 });
+
+      answerWith(SHOPPING_LIST_BY_INGREDIENT);
+      await shopping().refresh(USER_A);
+      expect(shopping().changeError).toBeNull();
+    });
+
+    it('shows the next user no change of the one before, pending or failed', async () => {
+      const held = holdTheNextRequest();
+      const adding = shopping().addManualItem({ name: 'Detergente' });
+      await nextTick();
+      expect(shopping().pendingChanges).toBe(1);
+
+      answerWith(EMPTY_SHOPPING_LIST);
+      await shopping().refresh(USER_B);
+      expect(shopping().pendingChanges).toBe(0);
+
+      held.fail();
+      await adding;
+
+      expect(shopping()).toMatchObject({ ownerId: USER_B, pendingChanges: 0, changeError: null });
+    });
+
+    it('lets a change of a user who signed in again settle nothing of their new session', async () => {
+      const held = holdTheNextRequest();
+      const adding = shopping().addManualItem({ name: 'Detergente' });
+      await nextTick();
+
+      await shopping().refresh(null);
+      answerWith(SHOPPING_LIST_BY_INGREDIENT);
+      await shopping().refresh(USER_A);
+
+      held.fail();
+      await adding;
+
+      expect(shopping()).toMatchObject({ ownerId: USER_A, pendingChanges: 0, changeError: null });
+      expect(shopping().list).toEqual(SHOPPING_LIST_BY_INGREDIENT);
     });
 
     it('asks for nothing without a user of the cache', async () => {

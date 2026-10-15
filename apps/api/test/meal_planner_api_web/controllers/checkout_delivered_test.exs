@@ -146,13 +146,14 @@ defmodule MealPlannerApiWeb.CheckoutDeliveredTest do
 
       before_delivery = DateTime.utc_now()
 
+      # Three lots; four items bought, the soap without an Ingredient included.
       assert %{
                "data" => %{
                  "checkoutSessionId" => session_id,
                  "status" => "completed",
                  "checkoutType" => "online",
                  "movedToInventoryCount" => 3,
-                 "checkedOutItemsCount" => 3,
+                 "checkedOutItemsCount" => 4,
                  "actualTotalCents" => 690
                }
              } = f |> delivered(cart.session_id) |> json_response(200)
@@ -234,10 +235,35 @@ defmodule MealPlannerApiWeb.CheckoutDeliveredTest do
       Repo.delete!(f.next_meal)
       assert Repo.get(f.next_item.__struct__, f.next_item.id) == nil
 
-      assert %{"data" => %{"movedToInventoryCount" => 2}} =
+      # The item of the deleted meal was bought: it is counted as checked out.
+      assert %{"data" => %{"movedToInventoryCount" => 2, "checkedOutItemsCount" => 2}} =
                f |> delivered(cart.session_id) |> json_response(200)
 
       assert [500, 1000] = stock(f) |> Enum.map(& &1.quantity_milli) |> Enum.sort()
+    end
+
+    test "counts the items still waiting for a session confirmed before the count was stored",
+         f do
+      cart = reserve!(f)
+      f |> confirm(cart) |> json_response(200)
+
+      # A session confirmed by an earlier version stores no count of the items bought.
+      session = Repo.get!(CheckoutSession, cart.session_id)
+      assert Map.has_key?(session.purchase_result, "pending_bought")
+
+      session
+      |> CheckoutSession.changeset(%{
+        purchase_result: Map.delete(session.purchase_result, "pending_bought")
+      })
+      |> Repo.update!()
+
+      Repo.delete!(f.next_meal)
+
+      # Only the item still waiting is counted; the lots of both arrive.
+      assert %{"data" => %{"movedToInventoryCount" => 2, "checkedOutItemsCount" => 1}} =
+               f |> delivered(cart.session_id) |> json_response(200)
+
+      assert %{status: :checked_out} = reload(f.today_item)
     end
 
     test "replays the result of a completed physical session", f do

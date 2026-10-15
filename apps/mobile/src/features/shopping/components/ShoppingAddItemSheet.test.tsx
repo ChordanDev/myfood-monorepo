@@ -180,6 +180,12 @@ describe('ShoppingAddItemSheet', () => {
     expect(props.multiline).toBeFalsy();
   });
 
+  it('takes a name of at most 200 characters, the most the server stores', () => {
+    const { root } = renderSheet();
+
+    expect(getInput(root).props.maxLength).toBe(200);
+  });
+
   it.each(['', '   '])('keeps "Agregar" disabled while the name is "%s"', (name) => {
     const { root, onAdd, onClose } = renderSheet();
     typeName(root, name);
@@ -234,7 +240,7 @@ describe('ShoppingAddItemSheet', () => {
     expect(onAdd).toHaveBeenCalledWith(itemOf('Arroz', 1_500, 'g'));
   });
 
-  it.each(['', '0', 'abc', '-2'])(
+  it.each(['', '0', 'abc', '-2', '2147484'])(
     'keeps "Agregar" disabled while the quantity is "%s"',
     (quantity) => {
       const { root, onAdd } = renderSheet();

@@ -4,6 +4,7 @@ defmodule MealPlannerApi.CartConcurrencyTest do
   alias Ecto.Adapters.SQL
   alias MealPlannerApi.{Cart, Repo}
   alias MealPlannerApi.Persistence.Shopping.CheckoutSession
+  alias MealPlannerApi.Services.ShoppingService
 
   @moduletag :runtime_db_concurrency
   unless MealPlannerApi.Issue38Database.enabled?() do
@@ -235,6 +236,47 @@ defmodule MealPlannerApi.CartConcurrencyTest do
       Repo.query!("DROP TRIGGER IF EXISTS #{trigger} ON shopping_items")
       Repo.query!("DROP FUNCTION IF EXISTS #{trigger}()")
     end
+  end
+
+  test "set-status waits for the Cart lock of the Account before it locks any item", f do
+    parent = self()
+    supervisor = start_supervised!(Task.Supervisor)
+
+    holder =
+      Task.Supervisor.async_nolink(supervisor, fn ->
+        Repo.put_dynamic_repo(f.repo)
+
+        Repo.transaction(fn ->
+          Cart.lock_account!(f.account.id)
+          send(parent, :cart_locked)
+
+          receive do
+            :release -> :ok
+          after
+            5000 -> raise "cart lock holder timed out"
+          end
+        end)
+      end)
+
+    assert_receive :cart_locked, 5000
+
+    writer =
+      Task.Supervisor.async_nolink(supervisor, fn ->
+        Repo.put_dynamic_repo(f.repo)
+
+        ShoppingService.set_item_status(f.actor, %{
+          "item_ids" => [hd(f.items).id],
+          "status" => "removed"
+        })
+      end)
+
+    # Without the Cart lock first, set-status would lock the row and commit
+    # while the Cart holds the Account.
+    assert Task.yield(writer, 300) == nil
+
+    send(holder.pid, :release)
+    assert {:ok, {:ok, :ok}} = Task.yield(holder, 5000)
+    assert {:ok, %{updated_rows: 1}} = Task.await(writer, 5000)
   end
 
   for table <- ["inventory_mutation_events", "shopping_items", "checkout_sessions"] do

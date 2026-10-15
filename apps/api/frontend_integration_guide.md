@@ -1136,8 +1136,9 @@ Success response (`200`):
 ```
 
 - `status`: `completed` for a physical purchase, `pending_delivery` for an online one.
-- `movedToInventoryCount` and `checkedOutItemsCount`: the number of lots created. Both are `0` for an online
-  purchase until it is delivered, and a manual item without an ingredient adds to neither.
+- `movedToInventoryCount`: the number of lots created. A manual item without an ingredient creates none.
+- `checkedOutItemsCount`: the number of Shopping items bought (a quantity above `0`), manual items without an
+  ingredient included. Both are `0` for an online purchase until it is delivered.
 - `actualTotalCents`: the sum of the `totalCents` sent.
 
 The confirm is idempotent: confirming a session that is already `completed` or `pending_delivery` changes
@@ -1183,7 +1184,8 @@ Success response (`200`):
 }
 ```
 
-The fields are the ones of the confirm response (7.4), now with the lots that were created.
+The fields are the ones of the confirm response (7.4), now with the lots that were created and the items that
+were bought.
 
 The call is idempotent: on a session that is already `completed` it creates nothing and answers `200` with
 the same body. That includes a physical purchase, which answers the result of its confirm.
@@ -1213,9 +1215,10 @@ Request body:
 }
 ```
 
-- `name`: required, a string of 1 to 200 characters once trimmed.
+- `name`: required, a string of 1 to 200 Unicode codepoints once trimmed, with no NUL character.
 - `ingredientId`: optional, an ingredient of the catalogue.
-- `quantityMilli`: optional, an integer above zero, in thousandths of the unit. `1000` when omitted.
+- `quantityMilli`: optional, an integer above zero and at most `2147483647`, in thousandths of the unit.
+  `1000` when omitted.
 - `unit`: optional, one of `g`, `ml`, `unit`. `unit` when omitted, so the default is 1 unit.
 
 Success response (`201`): the line of the new item, as it appears in `manual` (7.1).
@@ -1248,8 +1251,9 @@ for a field that is missing or malformed, or an `ingredientId` that is not in th
 
 Success response (`200`): `{ "data": { "id": "<shopping_item_uuid>" } }`.
 
-Only an item added by hand (7.6) that is still on the list (`needed` or `in_cart`) can be deleted. Errors use
-the error envelope of section 10:
+Only an item added by hand (7.6) that is still on the list (`needed` or `in_cart`) can be deleted. The check
+and the delete are one write: a delete that races a purchase of the same item, or a second delete of it,
+answers `404`. Errors use the error envelope of section 10:
 
 | Status | Code                       | When                                                                                         |
 | ------ | -------------------------- | -------------------------------------------------------------------------------------------- |
@@ -1293,8 +1297,9 @@ A removed item stays in `planned` (7.1) so it can be restored: it stops adding t
 line, to `estimatedCents` and to the Cart, and a line whose allocations are all removed reads `removed`. A
 re-plan (a confirmed plan or `PUT /api/calendar/meals/range`) keeps it removed while a planned meal on the
 same date and slot still needs that ingredient and unit, with the shortage of the new plan, and drops it when
-none does. Changing the recipe of a single slot starts that meal over, so its removals are dropped too.
-Manual items are never touched by a re-plan.
+none does. Changing the recipe of a single slot starts that meal over, so its removals are dropped too, and
+finishing the cooking of a meal takes its open items off the list, removed ones included: their ids answer
+`404` afterwards. Manual items are never touched by a re-plan.
 
 Errors use the error envelope of section 10:
 

@@ -167,10 +167,13 @@ defmodule MealPlannerApi.Cart do
       require!(storable?(total), :validation_error)
       online? = type == "online"
       status = if online?, do: :pending_delivery, else: :completed
-      lots = Enum.flat_map(lines, &settle_line!(&1, purchased_status(status)))
-      # An online purchase stocks nothing until it is delivered.
+      purchased = Enum.flat_map(lines, &settle_line!(&1, purchased_status(status)))
+      lots = Enum.concat(purchased)
+      # An online purchase stocks nothing and checks nothing out until it is
+      # delivered.
       moved = if online?, do: 0, else: add_lots!(ids, cart, lots, now)
-      result = purchase_result(cart, status, type, moved, total)
+      checked_out = if online?, do: 0, else: length(purchased)
+      result = purchase_result(cart, status, type, moved, checked_out, total)
 
       update!(cart, %{
         status: status,
@@ -178,10 +181,14 @@ defmodule MealPlannerApi.Cart do
         total_cents: total,
         confirmed_by_user_id: ids.user_id,
         confirmed_at: now,
-        # The lots wait in the session, not in its Shopping items: those are
-        # deleted with their Scheduled meal, and what was bought must still
-        # arrive.
-        purchase_result: if(online?, do: Map.put(result, :pending_lots, lots), else: result)
+        # The lots and the count of items bought wait in the session, not in
+        # its Shopping items: those are deleted with their Scheduled meal, and
+        # what was bought must still arrive and be counted.
+        purchase_result:
+          if(online?,
+            do: Map.merge(result, %{pending_lots: lots, pending_bought: length(purchased)}),
+            else: result
+          )
       })
 
       {:confirmed, result}
@@ -192,13 +199,15 @@ defmodule MealPlannerApi.Cart do
   defp purchased_status(:completed), do: :checked_out
   defp purchased_status(:pending_delivery), do: :pending_delivery
 
-  defp purchase_result(session, status, type, moved, total_cents) do
+  # `moved` counts the lots added to Inventory, `checked_out` the Shopping
+  # items bought (a quantity above zero), with or without an Ingredient.
+  defp purchase_result(session, status, type, moved, checked_out, total_cents) do
     %{
       checkout_session_id: session.id,
       status: Atom.to_string(status),
       checkout_type: type,
       moved_to_inventory_count: moved,
-      checked_out_items_count: moved,
+      checked_out_items_count: checked_out,
       actual_total_cents: total_cents
     }
   end
@@ -332,7 +341,7 @@ defmodule MealPlannerApi.Cart do
   defp storable?(value), do: is_integer(value) and value in 0..@max_stored_integer
 
   # Settles the items of one line, the purchased ones as `status`, and
-  # returns the lots the line puts in Inventory.
+  # returns one entry per purchased item: the lots it puts in Inventory.
   defp settle_line!(line, status) do
     line.items
     |> cover(line.quantity_milli)
@@ -383,7 +392,7 @@ defmodule MealPlannerApi.Cart do
     []
   end
 
-  defp settle_item!({item, bought, price_cents}, status) do
+  defp settle_item!({item, bought, price_cents}, status) when bought > 0 do
     price = if price_cents, do: %{estimated_price_cents: price_cents}, else: %{}
 
     # Close the purchased item before storing its remainder: both share the
@@ -410,7 +419,7 @@ defmodule MealPlannerApi.Cart do
       |> insert!()
     end
 
-    lot(item, bought, price_cents)
+    [lot(item, bought, price_cents)]
   end
 
   # A manual item with no Ingredient has no stock to add to: it is closed
@@ -502,21 +511,40 @@ defmodule MealPlannerApi.Cart do
   defp deliver!(ids, session, now) do
     moved = add_lots!(ids, session, pending_lots(session), now)
 
-    Repo.all(
-      from(i in ShoppingItem,
-        where:
-          i.account_id == ^session.account_id and i.checkout_session_id == ^session.id and
-            i.status == :pending_delivery,
-        order_by: i.id,
-        lock: "FOR UPDATE"
+    # Only bought items wait for the delivery, each with a quantity above zero.
+    # Some may be gone with their Scheduled meal: the count is the one stored
+    # at the confirm.
+    delivered =
+      Repo.all(
+        from(i in ShoppingItem,
+          where:
+            i.account_id == ^session.account_id and i.checkout_session_id == ^session.id and
+              i.status == :pending_delivery,
+          order_by: i.id,
+          lock: "FOR UPDATE"
+        )
       )
-    )
-    |> Enum.each(&update!(&1, %{status: :checked_out}))
 
-    result = purchase_result(session, :completed, "online", moved, session.total_cents)
+    Enum.each(delivered, &update!(&1, %{status: :checked_out}))
+
+    result =
+      purchase_result(
+        session,
+        :completed,
+        "online",
+        moved,
+        pending_bought(session, delivered),
+        session.total_cents
+      )
+
     update!(session, %{status: :completed, purchase_result: result})
     result
   end
+
+  # A session confirmed before the count was stored counts the items still
+  # waiting for it.
+  defp pending_bought(%CheckoutSession{purchase_result: stored}, delivered),
+    do: Map.get(stored, "pending_bought") || length(delivered)
 
   # The lots an online confirm left in the session, back from JSON.
   defp pending_lots(%CheckoutSession{purchase_result: stored}) do
@@ -680,7 +708,16 @@ defmodule MealPlannerApi.Cart do
     end
   end
 
-  defp lock_account!(account_id) do
+  @doc """
+  Takes the Cart's advisory lock of the Account until the current
+  transaction ends. Every Cart write takes it first, before any row lock.
+  Outside this module only `set-status`
+  (`ShoppingService.set_item_status/2`) takes it, before it locks Shopping
+  items, so it cannot lock them in the opposite order to a Cart write. The
+  other writers of Shopping items (cooking, meal moves, plan confirms) do not
+  take it.
+  """
+  def lock_account!(account_id) do
     Repo.query!("SELECT pg_advisory_xact_lock(hashtext($1))", ["cart:#{account_id}"])
   end
 

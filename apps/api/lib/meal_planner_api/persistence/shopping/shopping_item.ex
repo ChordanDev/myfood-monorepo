@@ -7,6 +7,9 @@ defmodule MealPlannerApi.Persistence.Shopping.ShoppingItem do
 
   @type t :: %__MODULE__{}
 
+  # The largest value the `int4` `quantity_milli` column holds.
+  @max_quantity_milli 2_147_483_647
+
   schema "shopping_items" do
     field(:planned_date, :date)
     field(:quantity_milli, :integer)
@@ -61,7 +64,10 @@ defmodule MealPlannerApi.Persistence.Shopping.ShoppingItem do
     ])
     |> validate_required([:account_id, :quantity_milli, :unit, :status, :source])
     |> validate_source_fields()
-    |> validate_number(:quantity_milli, greater_than: 0)
+    |> validate_number(:quantity_milli,
+      greater_than: 0,
+      less_than_or_equal_to: @max_quantity_milli
+    )
     |> validate_number(:estimated_price_cents, greater_than_or_equal_to: 0)
     |> foreign_key_constraint(:account_id)
     |> foreign_key_constraint(:scheduled_meal_id)
@@ -90,6 +96,13 @@ defmodule MealPlannerApi.Persistence.Shopping.ShoppingItem do
     |> put_change(:status, :pending)
     |> put_change(:scheduled_meal_id, nil)
     |> put_change(:planned_date, nil)
+    |> update_change(:name, &String.trim/1)
+    # Only what a User types now is bounded this way. Counted in codepoints:
+    # a grapheme count lets a run of combining marks or emoji pass as a few.
+    # Rows stored before keep the grapheme bound of `changeset/2`, so the
+    # remainder a purchase stores from one of them is never refused.
+    |> validate_length(:name, max: @max_name_length, count: :codepoints)
+    |> validate_change(:name, &reject_nul/2)
     |> changeset(%{})
   end
 
@@ -106,5 +119,10 @@ defmodule MealPlannerApi.Persistence.Shopping.ShoppingItem do
       _planned ->
         validate_required(changeset, [:scheduled_meal_id, :planned_date, :ingredient_id])
     end
+  end
+
+  # Postgres cannot store a NUL character in text.
+  defp reject_nul(field, value) do
+    if String.contains?(value, <<0>>), do: [{field, "must not contain a NUL character"}], else: []
   end
 end

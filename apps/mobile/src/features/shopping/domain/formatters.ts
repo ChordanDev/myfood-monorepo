@@ -103,6 +103,9 @@ export function formatRemovedLabel(removed: number) {
   return `${pluralize(removed, 'quitado')}${SEPARATOR}Restaurar`;
 }
 
+// The most the server takes as a quantity: it stores it in an `int4`.
+const MAX_QUANTITY_MILLI = 2_147_483_647;
+
 // Reads what the User typed as a count of thousandths of the unit, zero included. Comma and
 // dot both mark the decimals, as people write them here.
 function parseMilli(text: string): number | undefined {
@@ -115,22 +118,20 @@ function parseMilli(text: string): number | undefined {
 
 /**
  * Reads what the User typed as a quantity, in thousandths of the unit. Comma and dot both
- * mark the decimals, as people write them here. Anything that is not a number above zero
- * is `undefined`: the server only takes a whole count of thousandths above zero.
+ * mark the decimals, as people write them here. Anything that is not a number above zero,
+ * or is more than the server takes, is `undefined`: the server only takes a whole count of
+ * thousandths above zero that fits its `int4`.
  */
 export function parseQuantityMilli(text: string): number | undefined {
   const milli = parseMilli(text);
 
-  return milli !== undefined && milli > 0 ? milli : undefined;
+  return milli !== undefined && milli > 0 && milli <= MAX_QUANTITY_MILLI ? milli : undefined;
 }
-
-// The most a confirm takes as the quantity of a line: the server stores it in an `int4`.
-const MAX_BOUGHT_QUANTITY_MILLI = 2_147_483_647;
 
 // Reads what the User typed as the quantity bought of a line of the Cart. Zero is a quantity
 // here: the line was not bought. More than the server takes is not one.
 export function parseBoughtQuantityMilli(text: string): number | undefined {
   const milli = parseMilli(text);
 
-  return milli !== undefined && milli <= MAX_BOUGHT_QUANTITY_MILLI ? milli : undefined;
+  return milli !== undefined && milli <= MAX_QUANTITY_MILLI ? milli : undefined;
 }

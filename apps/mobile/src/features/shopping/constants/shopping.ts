@@ -25,6 +25,10 @@ export const SHOPPING_CATEGORIES: string[] = [
   FALLBACK_CATEGORY,
 ];
 
+// The longest name the server takes for an item added by hand. It counts codepoints and a
+// text input counts UTF-16 units, so a name that fits the input always fits the server.
+export const MANUAL_ITEM_NAME_MAX_LENGTH = 200;
+
 export const SHOPPING_SLOT_LABELS: Record<ShoppingMealSlot, string> = {
   breakfast: 'Desayuno',
   lunch: 'Almuerzo',
