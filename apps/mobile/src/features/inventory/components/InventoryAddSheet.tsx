@@ -122,7 +122,9 @@ function InventoryAddForm({ pending, errorMessage, onAdd, onClose }: InventoryAd
         placeholder="Buscá un ingrediente, ej.: Leche"
       />
 
-      {chosen === null ? <IngredientResults search={search} onChoose={choose} /> : null}
+      {chosen === null ? (
+        <IngredientResults search={search} onChoose={choose} onRetry={search.retry} />
+      ) : null}
 
       <InventorySheetField
         label="Cantidad"
@@ -203,17 +205,35 @@ function InventoryAddForm({ pending, errorMessage, onAdd, onClose }: InventoryAd
 interface IngredientResultsProps {
   search: IngredientSearch;
   onChoose: (ingredient: IngredientOption) => void;
+  onRetry: () => void;
 }
 
 // What the catalogue answered for the name typed so far, to choose the Ingredient from.
-function IngredientResults({ search, onChoose }: IngredientResultsProps) {
+function IngredientResults({ search, onChoose, onRetry }: IngredientResultsProps) {
   const { theme } = useRecipeTheme();
   const statusText = {
     idle: null,
     searching: 'Buscando…',
-    error: 'No pudimos buscar ingredientes. Probá de nuevo.',
+    error: null,
     done: search.results.length === 0 ? 'No encontramos ese ingrediente.' : null,
   }[search.status];
+
+  if (search.status === 'error') {
+    return (
+      <View style={styles.searchError}>
+        <Text style={[styles.searchStatus, { color: theme.textMedium }]}>
+          No pudimos buscar ingredientes.
+        </Text>
+        <Pressable
+          accessibilityRole="button"
+          onPress={onRetry}
+          hitSlop={8}
+          style={({ pressed }) => ({ opacity: pressed ? 0.7 : 1 })}>
+          <Text style={[styles.retryLabel, { color: theme.primaryAccent }]}>Reintentar</Text>
+        </Pressable>
+      </View>
+    );
+  }
 
   if (statusText) {
     return <Text style={[styles.searchStatus, { color: theme.textMedium }]}>{statusText}</Text>;
@@ -281,6 +301,16 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: 8,
+  },
+  retryLabel: {
+    fontFamily: 'Inter_600SemiBold',
+    fontSize: 14,
+    lineHeight: 18,
+  },
+  searchError: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 12,
   },
   searchStatus: {
     fontFamily: 'Inter_500Medium',

@@ -288,11 +288,35 @@ describe('InventoryAddSheet', () => {
 
     await typeAndSearch(root, 'Leche');
 
-    expect(getTexts(root)).toContain('No pudimos buscar ingredientes. Probá de nuevo.');
+    expect(getTexts(root)).toContain('No pudimos buscar ingredientes.');
 
     await typeAndSearch(root, 'Lech');
 
     expect(getOptionNames(root)).toEqual(['Leche', 'Dulce de leche']);
+  });
+
+  it('searches the same name again at once from Reintentar after a failed search', async () => {
+    const { root } = renderSheet();
+    mockSearchIngredients.mockRejectedValueOnce(new ApiError('network_error', 'Offline'));
+
+    await typeAndSearch(root, 'Leche');
+    press(root, 'Reintentar');
+    await act(async () => {
+      jest.advanceTimersByTime(0);
+    });
+
+    expect(mockSearchIngredients).toHaveBeenCalledTimes(2);
+    expect(mockSearchIngredients).toHaveBeenLastCalledWith('Leche');
+    expect(getOptionNames(root)).toEqual(['Leche', 'Dulce de leche']);
+    expect(getTexts(root)).not.toContain('No pudimos buscar ingredientes.');
+  });
+
+  it('offers Reintentar only after a failed search', async () => {
+    const { root } = renderSheet();
+
+    await typeAndSearch(root, 'Kiwi');
+
+    expect(() => getControl(root, 'button', 'Reintentar')).toThrow();
   });
 
   it('shows only the answer of the last search', async () => {
