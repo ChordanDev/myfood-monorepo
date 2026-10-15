@@ -120,8 +120,7 @@ defmodule MealPlannerApi.Persistence.IdentityTest do
 
     # A user stored with capitals (an invite from before emails were
     # normalized) whose membership is gone must not get a lower-cased
-    # shadow user: login prefers the exact-case match, so the person would
-    # land in the shadow's empty account.
+    # shadow user with an empty account next to the real one.
     test "refuses to mint a shadow user for a stored email that only differs in case" do
       user =
         user_with_memberships(%{email: "Shadow-Case@Example.com"}, [
