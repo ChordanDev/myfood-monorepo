@@ -1,6 +1,10 @@
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useRecipeTheme } from '@/context/RecipeThemeContext';
-import { describePlanningFailure, type PlanningDraft } from '../domain/planningDraft';
+import {
+  describePlanningFailure,
+  describePlanningMessage,
+  type PlanningDraft,
+} from '../domain/planningDraft';
 import type { PlanningAction } from '../hooks/usePlanningDraft';
 import { formatCostCents } from '../domain/proposalFormat';
 import { ProposalDayCard } from './ProposalDayCard';
@@ -81,7 +85,9 @@ export function PlanningDraftPanel({
     return (
       <View testID="planner-proposal" style={styles.proposal}>
         {message === null ? null : (
-          <Text style={[styles.message, { color: theme.textBlack }]}>{message.text}</Text>
+          <Text style={[styles.message, { color: theme.textBlack }]}>
+            {describePlanningMessage(message.summary)}
+          </Text>
         )}
         <Text testID="planner-proposal-cost" style={[styles.total, { color: theme.textDark }]}>
           {`Costo estimado: ${formatCostCents(proposal.estimatedCostCents)}`}

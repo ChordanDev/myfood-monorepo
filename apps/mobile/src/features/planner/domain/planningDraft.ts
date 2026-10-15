@@ -207,6 +207,20 @@ export function planningDraftReducer(
   }
 }
 
+/**
+ * The assistant message of the first proposal, in the app's words. The `text` of the event is
+ * English, so the sentence is built from its summary; the cost is left out because the panel
+ * shows it on its own line.
+ */
+export function describePlanningMessage({
+  dayCount,
+  mealCount,
+}: PlanningMessagePayload['summary']): string {
+  const days = dayCount === 1 ? 'día' : 'días';
+  const meals = mealCount === 1 ? 'comida' : 'comidas';
+  return `Acá tenés tu menú para ${dayCount} ${days}: ${mealCount} ${meals}.`;
+}
+
 const GENERIC_GENERATION_FAILURE = 'No pudimos armar tu menú. Probá de nuevo.';
 
 /** What the User reads for a failure, in the app's words. */
