@@ -19,10 +19,6 @@ jest.mock('expo-secure-store', () => ({
   deleteItemAsync: jest.fn(() => Promise.resolve()),
 }));
 
-jest.mock('@react-native-async-storage/async-storage', () =>
-  jest.requireActual('@react-native-async-storage/async-storage/jest/async-storage-mock')
-);
-
 jest.mock('@/services/authService', () => ({
   ...jest.requireActual('@/services/authService'),
   logout: jest.fn().mockResolvedValue(undefined),
@@ -137,6 +133,34 @@ describe('AuthProvider — signing out drops the Inventory and Shopping caches',
 
     expectNoCacheOfThePreviousAccount();
     expect(await storedInventoryItems()).toEqual([]);
+    act(() => tree.unmount());
+  });
+
+  it('resolves the sign-out only once the stored data of the Account is removed', async () => {
+    const tree = await mountSignedIn('account-1');
+    let finishRemoval!: () => void;
+    const removal = new Promise<void>((resolve) => {
+      finishRemoval = resolve;
+    });
+    jest.spyOn(AsyncStorage, 'removeItem').mockImplementationOnce(() => removal);
+    let isSignedOut = false;
+    let signingOut!: Promise<void>;
+
+    await act(async () => {
+      signingOut = auth.current!.signOut().then(() => {
+        isSignedOut = true;
+      });
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(isSignedOut).toBe(false);
+
+    await act(async () => {
+      finishRemoval();
+      await signingOut;
+    });
+
+    expect(isSignedOut).toBe(true);
     act(() => tree.unmount());
   });
 

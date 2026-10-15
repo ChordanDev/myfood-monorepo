@@ -144,6 +144,9 @@ export function AuthProvider({ children }: AuthProviderProps) {
   // (server content-different refreshes would otherwise re-arm the
   // refresh in a tight loop).
   const lastTrialRefreshTrialEndsAt = useRef<string | null | undefined>(undefined);
+  // The last reset of the account's data. The cached stores are emptied at once; the stored
+  // entries are gone once it settles, and the session changes below resolve only then.
+  const accountDataResetRef = useRef<Promise<void>>(Promise.resolve());
 
   const applySession = useCallback((session: AuthSession | null) => {
     const nextMe = session?.me ?? null;
@@ -152,7 +155,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
     // account never sees or writes the previous one.
     const previousAccountId = meRef.current?.account.id ?? null;
     if (!nextMe || (previousAccountId !== null && previousAccountId !== nextMe.account.id)) {
-      resetAccountData();
+      accountDataResetRef.current = resetAccountData();
     }
     // Skip setMe entirely when the snapshot is content-equal to the
     // current value. We use a ref (not a functional setState updater)
@@ -224,6 +227,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
     async (email: string, code: string) => {
       const session = await authService.verifyAndSignIn(email, code);
       applySession(session);
+      await accountDataResetRef.current;
     },
     [applySession]
   );
@@ -232,6 +236,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
     async (email: string, code: string) => {
       const session = await authService.verifyAndSignUp(email, code);
       applySession(session);
+      await accountDataResetRef.current;
     },
     [applySession]
   );
@@ -248,12 +253,15 @@ export function AuthProvider({ children }: AuthProviderProps) {
       await authService.clearSession();
       applySession(null);
       lastTrialRefreshTrialEndsAt.current = undefined;
+      // Signed out only once nothing of the account is left on the device.
+      await accountDataResetRef.current;
     }
   }, [accessToken, refreshToken, applySession]);
 
   const refreshMe = useCallback(async () => {
     const session = await authService.refreshCurrentSession();
     applySession(session);
+    await accountDataResetRef.current;
   }, [applySession]);
 
   const completeOnboarding = useCallback(
