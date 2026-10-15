@@ -620,20 +620,37 @@ defmodule MealPlannerApi.Services.InventoryService do
 
   defp parse_expires_at(_), do: {:error, :invalid_expires_at}
 
-  # A moment, so an ISO datetime with its offset; a bare date is not one.
+  # A moment, so an ISO datetime; one without an offset is read as UTC, as
+  # the column cast did. A bare date is not a moment.
   defp parse_acquired_at(nil), do: {:ok, nil}
 
   defp parse_acquired_at(value) when is_binary(value) do
     case DateTime.from_iso8601(value) do
-      {:ok, datetime, _offset} -> {:ok, datetime}
-      {:error, _} -> {:error, :invalid_acquired_at}
+      {:ok, datetime, _offset} ->
+        {:ok, datetime}
+
+      {:error, :missing_offset} ->
+        {:ok, naive} = NaiveDateTime.from_iso8601(value)
+        {:ok, DateTime.from_naive!(naive, "Etc/UTC")}
+
+      {:error, _} ->
+        {:error, :invalid_acquired_at}
     end
   end
 
   defp parse_acquired_at(_), do: {:error, :invalid_acquired_at}
 
+  # Whole cents at or above zero, as a number or as the digits of one.
   defp parse_price_cents(nil), do: {:ok, nil}
   defp parse_price_cents(cents) when is_integer(cents) and cents >= 0, do: {:ok, cents}
+
+  defp parse_price_cents(cents) when is_binary(cents) do
+    case Integer.parse(cents) do
+      {value, ""} when value >= 0 -> {:ok, value}
+      _ -> {:error, :invalid_acquired_price_cents}
+    end
+  end
+
   defp parse_price_cents(_), do: {:error, :invalid_acquired_price_cents}
 
   defp parse_notes(nil), do: {:ok, nil}

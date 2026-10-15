@@ -115,10 +115,22 @@ defmodule MealPlannerApiWeb.InventoryController do
 
   defp render_error(conn, :no_rescue_recipe_found), do: conn |> ApiError.error(:not_found)
   defp render_error(conn, :invalid_identity), do: conn |> ApiError.error(:invalid_identity)
-  # The answer stays `unknown_error`; the reason goes to the log, so the
-  # failure can still be found.
+  # The answer stays `unknown_error`; a summary of the reason goes to the log,
+  # so the failure can still be found.
   defp render_error(conn, reason) do
-    Logger.error("Inventory request failed: #{inspect(reason)}")
+    Logger.error("Inventory request failed: #{failure_summary(reason)}")
     conn |> ApiError.server_fault()
   end
+
+  @doc false
+  # Names a failure reason without the terms it carries: a reason may hold
+  # the payload, such as free-text notes, which does not belong in the log.
+  @spec failure_summary(term()) :: String.t()
+  def failure_summary(reason) when is_atom(reason), do: Atom.to_string(reason)
+  def failure_summary({tag, _detail}) when is_atom(tag), do: Atom.to_string(tag)
+  def failure_summary(%module{}), do: module |> Module.split() |> List.last()
+  def failure_summary(reason) when is_tuple(reason), do: "tuple"
+  def failure_summary(reason) when is_binary(reason), do: "binary"
+  def failure_summary(reason) when is_list(reason), do: "list"
+  def failure_summary(_reason), do: "term"
 end

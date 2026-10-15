@@ -360,7 +360,10 @@ defmodule MealPlannerApiWeb.InventoryControllerTest do
         Map.put(valid, "acquiredAt", 42),
         Map.put(valid, "acquiredPriceCents", -1),
         Map.put(valid, "acquiredPriceCents", 1.5),
-        Map.put(valid, "acquiredPriceCents", "120")
+        Map.put(valid, "acquiredPriceCents", "-120"),
+        Map.put(valid, "acquiredPriceCents", "12.5"),
+        Map.put(valid, "acquiredPriceCents", "doce"),
+        Map.put(valid, "acquiredPriceCents", "")
       ]
 
       for payload <- invalid_payloads do
@@ -389,6 +392,28 @@ defmodule MealPlannerApiWeb.InventoryControllerTest do
                json_response(conn, 200)["data"]["item"]
 
       assert [%{acquired_price_cents: 0, acquired_at: acquired_at}] =
+               Inventory.list_inventory(actor.account_id)
+
+      assert DateTime.compare(acquired_at, ~U[2026-10-10 12:30:00Z]) == :eq
+    end
+
+    test "a price sent as a numeric string and an acquiredAt without offset are stored, the time as UTC" do
+      actor = actor()
+      rice = ingredient("Arroz Test Compra Texto")
+
+      conn =
+        post_json(actor, "/api/inventory/items/add-extra", %{
+          "ingredientId" => rice.id,
+          "quantityMilli" => 100,
+          "unit" => "g",
+          "acquiredAt" => "2026-10-10T12:30:00",
+          "acquiredPriceCents" => "120"
+        })
+
+      assert %{"acquiredAt" => "2026-10-10T12:30:00.000000Z"} =
+               json_response(conn, 200)["data"]["item"]
+
+      assert [%{acquired_price_cents: 120, acquired_at: acquired_at}] =
                Inventory.list_inventory(actor.account_id)
 
       assert DateTime.compare(acquired_at, ~U[2026-10-10 12:30:00Z]) == :eq
@@ -789,6 +814,26 @@ defmodule MealPlannerApiWeb.InventoryControllerTest do
   end
 
   # A User with an Account of their own, their token and their ids.
+  describe "the failure summary the catch-all logs" do
+    test "names the reason without the terms it carries" do
+      alias MealPlannerApiWeb.InventoryController
+
+      notes = String.duplicate("private note ", 80)
+
+      assert InventoryController.failure_summary(:db_down) == "db_down"
+
+      assert InventoryController.failure_summary({:mutation_failed, %{notes: notes}}) ==
+               "mutation_failed"
+
+      assert InventoryController.failure_summary(%RuntimeError{message: notes}) ==
+               "RuntimeError"
+
+      assert InventoryController.failure_summary({%{notes: notes}, 1}) == "tuple"
+      assert InventoryController.failure_summary(notes) == "binary"
+      assert InventoryController.failure_summary([notes]) == "list"
+    end
+  end
+
   defp actor do
     %{token: token, user: user, account: account} = insert_identity_with_token!(plan: :family_4)
 
