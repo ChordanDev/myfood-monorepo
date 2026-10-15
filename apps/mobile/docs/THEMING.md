@@ -137,8 +137,11 @@ when it has none). A derived Recipe with no theme of its own is served with its
 Base recipe's theme, resolved by the backend. The app's global rules stay
 client-side: today's selected meal recolors the app, every other day uses the
 default palette. The app has no mock recipes: the Recipe screen applies the
-palette in its payload, and the calendar read sends none, so Home stays on the
-default palette until it does.
+palette in its payload, and Home applies the palette and image of today's
+selected meal from that meal's Recipe in the recipe cache
+(`useRecipeCacheStore`), fetching the Recipe when it is not cached. The
+calendar read carries no palette; Home prefetches the Recipes of today's meals
+after it, so the default palette does not flash first.
 
 Adding a palette is a backend change. If a palette looks wrong on screen, the
 fix is in the palette data, checked against
@@ -150,11 +153,14 @@ cross-project change: update the shared docs first (see
 
 ## Open decisions
 
-- **Payload shape:** whether each meal of the calendar read arrives with its
-  full palette values, as the Recipe payload does (`Recipe.theme`), or with a
-  palette id plus a separate catalog request.
 - **Auth:** whether pre-login screens use the default palette or keep their own
   static colors.
+
+Decided (2026-10-14, #235): **Home's palette** comes from the Recipe payload
+(`Recipe.theme`), read through the recipe cache. The calendar read does not
+carry palettes: it covers about 122 days while Home needs today's three meals,
+and it would be a second copy of each palette. Revisit if a screen ever needs
+palettes for many days.
 
 Decided: **onboarding** uses the default palette through tokens, like any other
 screen. No component or screen under `src/features/onboarding/` carries a color

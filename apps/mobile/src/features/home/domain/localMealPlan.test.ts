@@ -255,12 +255,10 @@ describe('getSelectedLocalMeal', () => {
   };
   const dinner: MealPlanEntry = { ...lunch, id: 'entry-dinner', type: 'dinner' };
 
-  it('returns the meal of the selected type with a placeholder description, no image and no palette', () => {
+  it('returns the meal of the selected type with a placeholder description', () => {
     const selectedMeal = getSelectedLocalMeal([lunch, dinner], 'dinner');
 
     expect(selectedMeal).toEqual({ ...dinner, description: 'Sin descripción' });
-    expect(selectedMeal?.imageUrl).toBeUndefined();
-    expect(selectedMeal?.theme).toBeUndefined();
   });
 
   it('returns nothing when no meal type is selected', () => {
