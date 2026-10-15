@@ -8,6 +8,8 @@ export interface CookingChatMessage {
   role: 'user' | 'assistant';
   content: string;
   insertedAt: string;
+  /** On a question: the id the app sent it with, `null` when it was sent without one. */
+  clientMessageId?: string | null;
 }
 
 /**

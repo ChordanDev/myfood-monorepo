@@ -91,17 +91,22 @@ describe('hasUnseenQuestion', () => {
   const seen = new Set(COOKING_CHAT_HISTORY.map((turn) => turn.id));
   const [newQuestion, newAnswer] = COOKING_ANSWER.turns;
 
-  it('finds the question the server stored and the conversation has not seen', () => {
-    expect(hasUnseenQuestion(history, seen, newQuestion.content)).toBe(true);
+  it('finds the question the server stored under its client message id', () => {
+    expect(hasUnseenQuestion(history, seen, newQuestion.clientMessageId!)).toBe(true);
+  });
+
+  it('does not take a question with the same text but another id for it', () => {
+    expect(hasUnseenQuestion(history, seen, 'e9000000-0000-4000-8000-000000000009')).toBe(false);
   });
 
   it('does not take a question that was already seen for a new one', () => {
-    expect(hasUnseenQuestion(history, seen, STORED_QUESTION.content)).toBe(false);
-    expect(hasUnseenQuestion(COOKING_CHAT_HISTORY, seen, newQuestion.content)).toBe(false);
+    expect(hasUnseenQuestion(history, seen, STORED_QUESTION.clientMessageId!)).toBe(false);
+    expect(hasUnseenQuestion(COOKING_CHAT_HISTORY, seen, newQuestion.clientMessageId!)).toBe(false);
   });
 
   it('only matches user turns', () => {
-    expect(hasUnseenQuestion(history, seen, newAnswer.content)).toBe(false);
+    const answerWithId = { ...newAnswer, clientMessageId: newQuestion.clientMessageId };
+    expect(hasUnseenQuestion([answerWithId], seen, newQuestion.clientMessageId!)).toBe(false);
   });
 });
 

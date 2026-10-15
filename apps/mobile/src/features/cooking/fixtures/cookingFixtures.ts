@@ -25,6 +25,7 @@ export const COOKING_CHAT_HISTORY: CookingChatMessage[] = [
     role: 'user',
     content: '¿Puedo usar menos aceite?',
     insertedAt: '2026-10-08T12:00:00.000000Z',
+    clientMessageId: 'e1000000-0000-4000-8000-000000000001',
   },
   {
     id: 'c1000000-0000-4000-8000-000000000002',
@@ -56,6 +57,7 @@ export const COOKING_ANSWER: CookingAnswer = {
       role: 'user',
       content: COOKING_QUESTION,
       insertedAt: '2026-10-08T12:05:00.000000Z',
+      clientMessageId: 'e1000000-0000-4000-8000-000000000002',
     },
     {
       id: 'c1000000-0000-4000-8000-000000000004',

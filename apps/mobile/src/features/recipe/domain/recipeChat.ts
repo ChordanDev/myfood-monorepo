@@ -54,16 +54,18 @@ export function mergeChatHistory(
 }
 
 /**
- * Whether the stored history holds a question the conversation has not seen: after a failed
- * question it tells a lost answer (the server stored both turns) from a question never stored.
+ * Whether the stored history holds the question sent with `clientMessageId` and the
+ * conversation has not seen it: after a failed question it tells a lost answer (the server
+ * stored both turns) from a question never stored.
  */
 export function hasUnseenQuestion(
   history: CookingChatMessage[],
   seenTurnIds: ReadonlySet<string>,
-  question: string
+  clientMessageId: string
 ): boolean {
   return history.some(
-    (turn) => turn.role === 'user' && turn.content === question && !seenTurnIds.has(turn.id)
+    (turn) =>
+      turn.role === 'user' && turn.clientMessageId === clientMessageId && !seenTurnIds.has(turn.id)
   );
 }
 

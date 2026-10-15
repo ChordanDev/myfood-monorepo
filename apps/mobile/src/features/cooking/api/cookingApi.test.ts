@@ -176,6 +176,35 @@ describe('the cooking API', () => {
       expect(init.headers.Authorization).toBe('Bearer access-1');
       expect(session.sessionId).toBe(COOKING_SESSION_ID);
       expect(session.chatMessages).toEqual(COOKING_CHAT_HISTORY);
+      expect(session.chatMessages[0].clientMessageId).toBe(COOKING_CHAT_HISTORY[0].clientMessageId);
+    });
+
+    it('accepts a question stored without a client message id', async () => {
+      const [question, answer] = COOKING_CHAT_HISTORY;
+      const history = [{ ...question, clientMessageId: null }, answer];
+      fetchMock.mockReturnValue(
+        mockJsonResponse(
+          toCookingSessionResponse({ ...COOKING_SESSION_WITH_HISTORY, chatMessages: history })
+        )
+      );
+
+      const session = await getCookingSession(COOKING_SESSION_ID);
+
+      expect(session.chatMessages).toEqual(history);
+    });
+
+    it('turns a chat turn with a client message id that is not a string into an unknown error', async () => {
+      const [question, answer] = COOKING_CHAT_HISTORY;
+      const { data } = toCookingSessionResponse(COOKING_SESSION_WITH_HISTORY);
+      fetchMock.mockReturnValue(
+        mockJsonResponse({
+          data: { ...data, chatMessages: [{ ...question, clientMessageId: 42 }, answer] },
+        })
+      );
+
+      await expect(getCookingSession(COOKING_SESSION_ID)).rejects.toMatchObject({
+        code: 'unknown_error',
+      });
     });
 
     it('returns the finished session of a cooked meal with its status', async () => {
@@ -249,15 +278,17 @@ describe('the cooking API', () => {
       });
     });
 
-    it.each(['cooking_chat_unavailable', 'cooking_already_finished'])(
-      'keeps the code of a refused question: %s',
-      async (code) => {
-        fetchMock.mockReturnValue(mockJsonResponse({ error: { code, message: 'x' } }, false, 409));
+    it.each([
+      ['cooking_chat_unavailable', 409],
+      ['cooking_already_finished', 409],
+      ['cooking_message_id_conflict', 409],
+      ['cooking_chat_limit_reached', 429],
+    ])('keeps the code of a refused question: %s', async (code, status) => {
+      fetchMock.mockReturnValue(mockJsonResponse({ error: { code, message: 'x' } }, false, status));
 
-        await expect(
-          askCookingSession(COOKING_SESSION_ID, COOKING_QUESTION, MESSAGE_ID)
-        ).rejects.toMatchObject({ code });
-      }
-    );
+      await expect(
+        askCookingSession(COOKING_SESSION_ID, COOKING_QUESTION, MESSAGE_ID)
+      ).rejects.toMatchObject({ code, status });
+    });
   });
 });

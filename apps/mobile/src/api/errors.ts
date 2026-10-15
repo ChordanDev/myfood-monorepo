@@ -86,6 +86,8 @@ export const KNOWN_AUTH_ERROR_CODES = new Set<AuthErrorCode>([
   'cooking_session_not_active',
   'cooking_already_finished',
   'cooking_chat_unavailable',
+  'cooking_chat_limit_reached',
+  'cooking_message_id_conflict',
   'inventory_mutation_failed',
   'prepared_leftover_not_found',
   'scheduled_meal_cooked',
@@ -189,6 +191,9 @@ export const AUTH_ERROR_MESSAGES: Partial<Record<AuthErrorCode, string>> = {
   cooking_session_not_active: 'Esta sesión de cocina ya no está activa. Volvé a empezar.',
   cooking_already_finished: 'Esta comida ya figura como cocinada.',
   cooking_chat_unavailable: 'Solo podés marcar como cocinada una comida de hoy.',
+  cooking_chat_limit_reached:
+    'Llegaste al límite de preguntas de hoy. Mañana podés seguir preguntando.',
+  cooking_message_id_conflict: 'No pudimos enviar esa pregunta. Probá de nuevo.',
   inventory_mutation_failed:
     'No pudimos descontar los ingredientes y no se guardó ningún cambio. Probá de nuevo.',
   prepared_leftover_not_found: 'No encontramos esa sobra.',
