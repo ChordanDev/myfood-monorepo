@@ -21,6 +21,10 @@ defmodule MealPlannerApi.Services.PlanningService do
   @slots [:breakfast, :lunch, :dinner]
   @default_days ~w(monday tuesday wednesday thursday friday saturday sunday)
 
+  # The most days a User plans at once, whatever the plan of their Account.
+  # Decided in #230: the plan rows' `max_planning_days` is not a planning rule.
+  @max_planning_days 7
+
   # -------------------------------------------------------------------------
   # Weekly plan generation
   # -------------------------------------------------------------------------
@@ -54,7 +58,7 @@ defmodule MealPlannerApi.Services.PlanningService do
           | {:error, term()}
   def generate_weekly_plan(user, params \\ %{}, optimizer \\ client_module()) do
     with {:ok, identity} <- resolve_identity(user),
-         {:ok, max_days} <- resolve_max_days(user),
+         {:ok, max_days} <- resolve_max_days(),
          {:ok, selected_days} <- resolve_selected_days(params, max_days),
          true <- requested_days_valid?(params, max_days),
          {:ok, candidates_by_slot} <- build_candidates(user, identity),
@@ -81,20 +85,14 @@ defmodule MealPlannerApi.Services.PlanningService do
   end
 
   @doc """
-  The most days a User can plan at once: the maximum of their plan.
+  The most days a User can plan at once: seven, on every plan.
 
-  Seven days on the premium tier and five on any other; a User without a tier
-  is on the free one. `generate_weekly_plan/3` plans no more days than this,
-  and `PlanningChatService.generate_menu/2` refuses a longer date range.
+  The plan of the Account does not change it. `generate_weekly_plan/3` plans
+  no more days than this, `PlanningChatService.generate_menu/2` refuses a
+  longer date range, and so does `start_planning` on the planning channel.
   """
-  @spec max_planning_days(planning_user()) :: pos_integer()
-  def max_planning_days(user) do
-    case Map.get(user, :subscription_tier, :free) do
-      :premium -> 7
-      "premium" -> 7
-      _ -> 5
-    end
-  end
+  @spec max_planning_days() :: pos_integer()
+  def max_planning_days, do: @max_planning_days
 
   @spec run_optimizer(module(), [String.t()], map(), planning_user()) ::
           {:ok, %{required(String.t()) => [map()]}}
@@ -223,7 +221,7 @@ defmodule MealPlannerApi.Services.PlanningService do
     Identity.ensure_persistent_identity(user)
   end
 
-  defp resolve_max_days(user), do: {:ok, max_planning_days(user)}
+  defp resolve_max_days, do: {:ok, max_planning_days()}
 
   defp macro_bounds_for_user(_user) do
     %{

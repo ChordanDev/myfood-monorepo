@@ -502,6 +502,8 @@ Request body:
 }
 ```
 
+`date_from` to `date_to` covers 1 to 7 days, both ends counted, on every plan. A longer range, or one that ends before it starts, answers `422` with `{"error": "invalid_date_range"}` and plans nothing.
+
 Success response:
 
 ```json

@@ -80,33 +80,35 @@ defmodule MealPlannerApi.Services.PlanningChatServiceTest do
       assert proposal_count(account.id) == 1
     end
 
-    test "accepts a range of five days for a free User", %{user: user, account: account} do
+    test "accepts a range of seven days for a free User", %{user: user, account: account} do
       assert {:ok, result} =
                PlanningChatService.generate_menu(
                  current_user(user, account, :free),
-                 range("2026-06-15", "2026-06-19")
+                 range("2026-06-15", "2026-06-21")
                )
 
       assert result.date_from == ~D[2026-06-15]
-      assert result.date_to == ~D[2026-06-19]
+      assert result.date_to == ~D[2026-06-21]
 
       dates = result.proposal_json.scheduled_meals |> Enum.map(& &1.date) |> Enum.uniq()
 
-      assert dates == ~w(2026-06-15 2026-06-16 2026-06-17 2026-06-18 2026-06-19)
-      assert length(result.proposal_json.scheduled_meals) == 15
+      assert dates ==
+               ~w(2026-06-15 2026-06-16 2026-06-17 2026-06-18 2026-06-19 2026-06-20 2026-06-21)
+
+      assert length(result.proposal_json.scheduled_meals) == 21
 
       assert generation_run_count(account.id) == 1
       assert proposal_count(account.id) == 1
     end
 
-    test "refuses a range of six days for a free User and writes nothing", %{
+    test "refuses a range of eight days for a free User and writes nothing", %{
       user: user,
       account: account
     } do
       assert {:error, :invalid_date_range} =
                PlanningChatService.generate_menu(
                  current_user(user, account, :free),
-                 range("2026-06-15", "2026-06-20")
+                 range("2026-06-15", "2026-06-22")
                )
 
       refute_planning_rows(account.id)
