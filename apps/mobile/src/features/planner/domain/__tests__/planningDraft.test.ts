@@ -407,4 +407,10 @@ describe('describePlanningMessage', () => {
       'Acá tenés tu menú para 1 día: 1 comida.'
     );
   });
+
+  it('picks the day and meal forms independently', () => {
+    expect(describePlanningMessage({ dayCount: 1, mealCount: 3, estimatedCostCents: 500 })).toBe(
+      'Acá tenés tu menú para 1 día: 3 comidas.'
+    );
+  });
 });
