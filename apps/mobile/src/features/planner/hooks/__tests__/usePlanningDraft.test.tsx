@@ -663,6 +663,43 @@ describe('usePlanningDraft', () => {
       warn.mockRestore();
     });
 
+    describe('whose generation_started never arrives', () => {
+      const idlessError = { reason: 'pipeline_error', details: {}, runId: null, requestId: null };
+
+      // The cancelled generation is never named; the User starts again a minute later.
+      function cancelAndStartLater(): void {
+        act(() => controller.start(RANGE, '', []));
+        act(() => controller.cancel());
+        clockMs = 60_000;
+        act(() => controller.start(RANGE, '', []));
+      }
+
+      it('stops dropping events that do not say their run once the time limit has passed since the cancel', () => {
+        cancelAndStartLater();
+
+        clockMs = GENERATION_TIME_LIMIT_MS - 1;
+        emit('generation_error', idlessError);
+        expect(controller.draft).toMatchObject({ status: 'generating', requestId: 'req_2' });
+
+        clockMs = GENERATION_TIME_LIMIT_MS;
+        emit('generation_error', idlessError);
+        expect(controller.draft).toMatchObject({
+          status: 'failed',
+          requestId: 'req_2',
+          failure: { kind: 'generation', reason: 'pipeline_error' },
+        });
+      });
+
+      it('still cancels its session when it is named after the time limit', () => {
+        cancelAndStartLater();
+        clockMs = GENERATION_TIME_LIMIT_MS;
+
+        emit('generation_started', generationStarted);
+
+        expect(cancelledSessions()).toEqual([{ sessionId: SESSION_ID }]);
+      });
+    });
+
     describe('by a retry after the time limit', () => {
       beforeEach(() => {
         jest.useFakeTimers();
@@ -691,6 +728,20 @@ describe('usePlanningDraft', () => {
         emit('generation_started', generationStarted);
 
         expect(cancelledSessions()).toEqual([{ sessionId: SESSION_ID }]);
+        expect(controller.draft).toMatchObject({ status: 'generating', requestId: 'req_2' });
+      });
+
+      it('drops an event that does not say its run right after the retry', () => {
+        timeOut();
+        act(() => controller.retry());
+
+        emit('generation_error', {
+          reason: 'pipeline_error',
+          details: {},
+          runId: null,
+          requestId: null,
+        });
+
         expect(controller.draft).toMatchObject({ status: 'generating', requestId: 'req_2' });
       });
 
