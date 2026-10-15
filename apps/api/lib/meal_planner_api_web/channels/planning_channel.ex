@@ -355,6 +355,10 @@ defmodule MealPlannerApiWeb.PlanningChannel do
       {:error, :planning_invalid_range} ->
         {:reply, {:error, error_payload(:planning_invalid_range)}, socket}
 
+      {:error, :planning_date_range_too_long} ->
+        details = %{max_days: PlanningService.max_planning_days()}
+        {:reply, {:error, error_payload(:planning_date_range_too_long, %{}, details)}, socket}
+
       {:error, {:range_locked, range}} ->
         details = range_lock_details(account_id, range, membership.id)
         {:reply, {:error, error_payload(:planning_range_locked, %{}, details)}, socket}
@@ -551,8 +555,8 @@ defmodule MealPlannerApiWeb.PlanningChannel do
   # The range of a `start_planning` payload: `range_from` is an ISO 8601 date
   # that is today or later, and the range ends with `range_to` or lasts
   # `day_count` days (when both are sent they must agree). It covers 1 to
-  # `PlanningService.max_planning_days/0` days. Anything else is
-  # `:planning_invalid_range`.
+  # `PlanningService.max_planning_days/0` days; a longer range is
+  # `:planning_date_range_too_long`. Anything else is `:planning_invalid_range`.
   defp parse_range(payload) do
     with {:ok, date_from} <- parse_iso_date(Map.get(payload, "range_from")),
          {:ok, date_to} <- range_end(date_from, payload),
@@ -595,7 +599,12 @@ defmodule MealPlannerApiWeb.PlanningChannel do
 
   defp check_range_length(date_from, date_to) do
     days = Date.diff(date_to, date_from) + 1
-    if days in 1..PlanningService.max_planning_days(), do: :ok, else: invalid_range()
+
+    cond do
+      days < 1 -> invalid_range()
+      days > PlanningService.max_planning_days() -> {:error, :planning_date_range_too_long}
+      true -> :ok
+    end
   end
 
   defp check_not_in_the_past(date_from) do

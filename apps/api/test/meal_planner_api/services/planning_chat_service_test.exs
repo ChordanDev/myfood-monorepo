@@ -105,7 +105,7 @@ defmodule MealPlannerApi.Services.PlanningChatServiceTest do
       user: user,
       account: account
     } do
-      assert {:error, :invalid_date_range} =
+      assert {:error, :date_range_too_long} =
                PlanningChatService.generate_menu(
                  current_user(user, account, :free),
                  range("2026-06-15", "2026-06-22")
@@ -134,7 +134,7 @@ defmodule MealPlannerApi.Services.PlanningChatServiceTest do
       user: user,
       account: account
     } do
-      assert {:error, :invalid_date_range} =
+      assert {:error, :date_range_too_long} =
                PlanningChatService.generate_menu(
                  current_user(user, account, :premium),
                  range("2026-06-15", "2026-06-22")
@@ -145,7 +145,7 @@ defmodule MealPlannerApi.Services.PlanningChatServiceTest do
 
     test "refuses a range of two years and writes nothing", %{user: user, account: account} do
       for subscription_tier <- [:free, :premium] do
-        assert {:error, :invalid_date_range} =
+        assert {:error, :date_range_too_long} =
                  PlanningChatService.generate_menu(
                    current_user(user, account, subscription_tier),
                    range("2026-01-01", "2027-12-31")

@@ -370,9 +370,31 @@ defmodule MealPlannerApiWeb.PlanningChatControllerTest do
             "date_to" => date_to
           })
 
-        assert json_response(conn, 422) == %{"error" => "invalid_date_range"}
+        assert json_response(conn, 422) == %{
+                 "error" => %{
+                   "code" => "date_range_too_long",
+                   "message" => "The date range must not be longer than 7 days.",
+                   "details" => %{"maxDays" => 7}
+                 }
+               }
       end
 
+      assert planning_row_counts(account_id) == %{generation_runs: 0, proposals: 0}
+    end
+
+    test "a range that ends before it starts still answers invalid_date_range", %{conn: conn} do
+      %{token: token, account: %{id: account_id}} = insert_identity_with_token!()
+
+      conn =
+        conn
+        |> put_req_header("authorization", "Bearer " <> token)
+        |> post("/api/planning/chat", %{
+          "message" => "Necesito menu",
+          "date_from" => "2026-03-29",
+          "date_to" => "2026-03-23"
+        })
+
+      assert json_response(conn, 422) == %{"error" => "invalid_date_range"}
       assert planning_row_counts(account_id) == %{generation_runs: 0, proposals: 0}
     end
 

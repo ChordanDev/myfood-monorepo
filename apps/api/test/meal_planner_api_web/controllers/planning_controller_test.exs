@@ -82,19 +82,20 @@ defmodule MealPlannerApiWeb.PlanningControllerTest do
     assert %{"error" => %{"code" => "unauthenticated"}} = json_response(conn, 401)
   end
 
-  test "account plan returns 7 planning days", %{conn: conn} do
-    %{token: token} = insert_identity_with_token!(subscription_tier: :premium)
+  # Issue #230: every Account plans 1 to 7 days, whatever its plan.
+  test "free User plans 7 days", %{conn: conn} do
+    %{token: token} = insert_identity_with_token!(subscription_tier: :free)
 
     conn =
       conn
       |> put_req_header("authorization", "Bearer " <> token)
-      |> get("/api/planning/weekly")
+      |> get("/api/planning/weekly", %{"days" => 7})
 
     body = json_response(conn, 200)
 
     assert length(body["data"]["days"]) == 7
     assert body["data"]["maxPlanningDays"] == 7
-    assert body["data"]["subscriptionTier"] == "premium"
+    assert body["data"]["subscriptionTier"] == "free"
   end
 
   test "premium tier receives 7 planning days", %{conn: conn} do
@@ -112,8 +113,8 @@ defmodule MealPlannerApiWeb.PlanningControllerTest do
     assert body["data"]["subscriptionTier"] == "premium"
   end
 
-  test "weekly endpoint rejects days exceeding account max", %{conn: conn} do
-    %{token: token} = insert_identity_with_token!()
+  test "free User is refused 8 days with exceeds_max_planning_days", %{conn: conn} do
+    %{token: token} = insert_identity_with_token!(subscription_tier: :free)
 
     conn =
       conn

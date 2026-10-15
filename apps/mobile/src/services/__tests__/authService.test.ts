@@ -511,11 +511,13 @@ describe('authService', () => {
     it('reads the channel codes from the api allowlist', () => {
       // Guards the table below against an extractor that silently finds
       // nothing, or only part of the rows.
-      expect(channelCodes).toHaveLength(32);
-      expect(new Set(channelCodes).size).toBe(32);
+      expect(channelCodes).toHaveLength(34);
+      expect(new Set(channelCodes).size).toBe(34);
       expect(channelCodes[0]).toBe('generation_in_progress');
       expect(channelCodes).toContain('planning_slot_occupied');
-      expect(channelCodes[31]).toBe('optimizer_timeout');
+      expect(channelCodes).toContain('planning_date_range_too_long');
+      expect(channelCodes).toContain('date_range_too_long');
+      expect(channelCodes[33]).toBe('optimizer_timeout');
     });
 
     it.each(channelCodes)(

@@ -58,7 +58,7 @@ defmodule MealPlannerApi.Services.PlanningService do
           | {:error, term()}
   def generate_weekly_plan(user, params \\ %{}, optimizer \\ client_module()) do
     with {:ok, identity} <- resolve_identity(user),
-         {:ok, max_days} <- resolve_max_days(),
+         max_days = max_planning_days(),
          {:ok, selected_days} <- resolve_selected_days(params, max_days),
          true <- requested_days_valid?(params, max_days),
          {:ok, candidates_by_slot} <- build_candidates(user, identity),
@@ -220,8 +220,6 @@ defmodule MealPlannerApi.Services.PlanningService do
   defp resolve_identity(user) do
     Identity.ensure_persistent_identity(user)
   end
-
-  defp resolve_max_days, do: {:ok, max_planning_days()}
 
   defp macro_bounds_for_user(_user) do
     %{

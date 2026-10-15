@@ -128,6 +128,20 @@ describe('auth error code contract (api -> mobile allowlist)', () => {
     return extractAuthErrorCodeUnionMembersFrom(authTypesSource);
   }
 
+  function readMaxPlanningDays(): number {
+    const apiLib = resolveApiLibPath();
+    if (!apiLib) {
+      throw new Error(
+        '[authErrorCodeContract] apps/api/lib not found next to apps/mobile. ' +
+          'This test depends on the monorepo layout.'
+      );
+    }
+    const servicePath = path.join(apiLib, 'meal_planner_api', 'services', 'planning_service.ex');
+    const match = fs.readFileSync(servicePath, 'utf8').match(/^\s*@max_planning_days (\d+)$/m);
+    expect(match).not.toBeNull();
+    return Number(match![1]);
+  }
+
   function scanApiErrorCodes(): string[] {
     const apiLib = resolveApiLibPath();
     if (!apiLib) {
@@ -201,6 +215,36 @@ describe('auth error code contract (api -> mobile allowlist)', () => {
     expect(runtimeAllowlist.has('brand_new_code')).toBe(false);
     expect(errorFromEnvelope({ error: { code: 'brand_new_code', message: 'x' } }, 400).code).toBe(
       'unknown_error'
+    );
+  });
+
+  it('errorFromEnvelope() keeps the codes of a range that is too long and their maxDays', () => {
+    // Issue #213: the api renders these two with `ApiError.envelope/2`, not
+    // `error(:atom)`, so the scan above does not see them.
+    for (const code of ['date_range_too_long', 'planning_date_range_too_long'] as const) {
+      const error = errorFromEnvelope(
+        { error: { code, message: 'x', details: { maxDays: 7 } } },
+        422
+      );
+
+      expect(error.code).toBe(code);
+      expect(error.details).toEqual({ maxDays: 7 });
+    }
+  });
+
+  it('the copies of the range codes name the most days a User plans, as the api has it', () => {
+    // The api keeps that maximum in `PlanningService` (`@max_planning_days`)
+    // and sends it as `details.maxDays`; the copies spell the number out.
+    const maxDays = readMaxPlanningDays();
+
+    expect(AUTH_ERROR_MESSAGES.date_range_too_long).toBe(
+      `Elegí un rango de hasta ${maxDays} días.`
+    );
+    expect(AUTH_ERROR_MESSAGES.planning_date_range_too_long).toBe(
+      `Elegí un rango de hasta ${maxDays} días.`
+    );
+    expect(AUTH_ERROR_MESSAGES.planning_invalid_range).toBe(
+      `Elegí entre 1 y ${maxDays} días, empezando hoy o más adelante.`
     );
   });
 

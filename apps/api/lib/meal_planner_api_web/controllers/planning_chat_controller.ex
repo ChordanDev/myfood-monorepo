@@ -2,6 +2,7 @@ defmodule MealPlannerApiWeb.PlanningChatController do
   use MealPlannerApiWeb, :controller
 
   alias MealPlannerApi.Services.PlanningChatService
+  alias MealPlannerApi.Services.PlanningService
   alias MealPlannerApiWeb.ApiError
   alias MealPlannerApiWeb.Controllers.AccountScopeHelpers
 
@@ -16,6 +17,15 @@ defmodule MealPlannerApiWeb.PlanningChatController do
     case PlanningChatService.generate_menu(user, payload) do
       {:ok, result} ->
         json(conn, %{data: serialize_generation(result)})
+
+      # Issue #213: the one reason of this route that leaves in the `ApiError`
+      # envelope, so it carries its message and the allowed maximum.
+      {:error, :date_range_too_long} ->
+        details = %{max_days: PlanningService.max_planning_days()}
+
+        conn
+        |> put_status(:unprocessable_entity)
+        |> json(ApiError.envelope(:date_range_too_long, details))
 
       {:error, reason} ->
         conn

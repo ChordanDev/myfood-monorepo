@@ -336,12 +336,17 @@ defmodule MealPlannerApi.Services.PlanningChatService do
   # scheduled meals, so the range is checked before anything is planned or
   # written. It holds `max_days` days at most, both ends counted:
   # `PlanningService.max_planning_days/0`, seven days on every plan, the same
-  # limit `generate_weekly_plan/3` applies. A longer range gets the `:invalid_date_range` of a range that
-  # ends before it starts.
+  # limit `generate_weekly_plan/3` applies. A longer range is
+  # `:date_range_too_long`; one that ends before it starts is
+  # `:invalid_date_range`.
   defp validate_date_range(date_from, date_to, max_days) do
     days = Date.diff(date_to, date_from) + 1
 
-    if days in 1..max_days, do: :ok, else: {:error, :invalid_date_range}
+    cond do
+      days < 1 -> {:error, :invalid_date_range}
+      days > max_days -> {:error, :date_range_too_long}
+      true -> :ok
+    end
   end
 
   defp normalize_message(nil), do: ""

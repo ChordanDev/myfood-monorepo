@@ -6,6 +6,7 @@ defmodule MealPlannerApiWeb.ApiErrorTest do
   """
   use MealPlannerApiWeb.ConnCase, async: true
 
+  alias MealPlannerApi.Services.PlanningService
   alias MealPlannerApiWeb.ApiError
 
   describe "error/2" do
@@ -266,6 +267,7 @@ defmodule MealPlannerApiWeb.ApiErrorTest do
       invalid_range: 422,
       overlapping_range: 409,
       planning_invalid_range: 422,
+      planning_date_range_too_long: 422,
       planning_range_locked: 409,
       planning_slot_occupied: 409,
       forbidden_intent: 422,
@@ -295,6 +297,33 @@ defmodule MealPlannerApiWeb.ApiErrorTest do
         assert %{error: %{code: ^code, message: message}} = ApiError.envelope(code)
         assert is_binary(message) and message != ""
       end
+    end
+
+    test "tell a range that is too long from a reversed one", %{conn: conn} do
+      for code <- [:date_range_too_long, :planning_date_range_too_long] do
+        assert ApiError.error(conn, code).status == 422
+
+        assert %{error: %{code: ^code, message: "The date range must not be longer than 7 days."}} =
+                 ApiError.envelope(code)
+      end
+
+      assert %{error: %{message: "The start date must not be after the end date."}} =
+               ApiError.envelope(:invalid_date_range)
+    end
+
+    test "name the most days a User plans, the number `details.maxDays` carries" do
+      # The messages spell the number out; this ties it to the rule.
+      max_days = PlanningService.max_planning_days()
+
+      for code <- [:date_range_too_long, :planning_date_range_too_long] do
+        assert %{error: %{message: message}} = ApiError.envelope(code)
+        assert message == "The date range must not be longer than #{max_days} days."
+      end
+
+      assert %{error: %{message: message}} = ApiError.envelope(:planning_invalid_range)
+
+      assert message ==
+               "The planning range must be 1 to #{max_days} days and start today or later."
     end
 
     test "map to their HTTP status", %{conn: conn} do
@@ -337,12 +366,17 @@ defmodule MealPlannerApiWeb.ApiErrorTest do
       # The code of the Planner confirm and reject routes (issue #28).
       proposal_codes = [:planning_proposal_not_pending]
 
+      # The code of `POST /api/planning/chat` for a range that is too long
+      # (issue #213).
+      planning_chat_codes = [:date_range_too_long]
+
       assert Enum.sort(ApiError.codes()) ==
                Enum.sort(
                  auth_codes ++
                    [:recipe_not_found, :prepared_leftover_not_found] ++
                    meal_move_codes ++
                    proposal_codes ++
+                   planning_chat_codes ++
                    profile_codes ++
                    slot_cooking_times_codes ++
                    preferences_codes ++

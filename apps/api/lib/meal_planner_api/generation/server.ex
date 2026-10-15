@@ -52,9 +52,10 @@ defmodule MealPlannerApi.Generation.Server do
   @type reason :: :already_running | :not_found | :forbidden | :optimization_failed | term()
 
   # The longest window a generation covers, in days. Seven is the default
-  # window of this pipeline (today plus six days) and the highest `max_days`
-  # of `MealPlannerApi.Planning.weekly_plan_for/2` (7 for premium, 5
-  # otherwise). The limit of each tier is not applied here.
+  # window of this pipeline (today plus six days) and the most days a User
+  # plans, a rule that lives in `PlanningService.max_planning_days/0` (seven
+  # on every plan). The planning channel refuses a longer range before a run
+  # starts, so no client reaches this check.
   @max_window_days 7
 
   # The slots a meal can be planned for, by name: the vocabulary of
