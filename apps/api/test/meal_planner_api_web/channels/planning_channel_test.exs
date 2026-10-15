@@ -1810,12 +1810,9 @@ defmodule MealPlannerApiWeb.PlanningChannelTest do
 
       insert_planning_message(account, session, :user, "after the join", nil, 1)
 
-      Phoenix.Channel.Server.broadcast!(
-        MealPlannerApi.PubSub,
-        "planning:#{account.id}",
-        "session_resumed",
-        %{"session_id" => session.id}
-      )
+      Endpoint.broadcast!("planning:#{account.id}", "session_resumed", %{
+        "session_id" => session.id
+      })
 
       assert_push "session_resumed", payload
       assert payload["sessionId"] == session.id
