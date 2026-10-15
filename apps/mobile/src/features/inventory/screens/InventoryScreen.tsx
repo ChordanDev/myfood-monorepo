@@ -118,7 +118,7 @@ export function InventoryScreen() {
           }}
         />
         <Text style={[styles.subtitle, { color: mutedTextColor }]}>
-          Cantidades aproximadas. Decile al micrófono qué usaste.
+          Ordenado por vencimiento: usá primero lo de arriba.
         </Text>
         <ScrollView
           showsVerticalScrollIndicator={false}

@@ -318,7 +318,7 @@ describe('InventoryScreen', () => {
       expect(sentRequest(0)).toEqual({ url: `${API_URL}/api/inventory`, method: 'GET' });
       expect(texts.slice(0, 2)).toEqual([
         'INVENTARIO',
-        'Cantidades aproximadas. Decile al micrófono qué usaste.',
+        'Ordenado por vencimiento: usá primero lo de arriba.',
       ]);
       // Each section with its count, then its rows: quantity, name, notes, leftover mark.
       expect(texts.slice(texts.indexOf('Vencidos'))).toEqual([

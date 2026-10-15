@@ -1,5 +1,15 @@
 # inventory-screen
 
+> Superseded on 2026-10-15 (ChordanDev/myfood-monorepo#116). This describes the first
+> Inventory screen, not the current one. The screen now lists the lots read from
+> `GET /api/inventory`, grouped by freshness (Vencidos, Por vencer, En buen estado), what to
+> use first on top. Quantities are exact, so there is no "aprox." pill, and there are no
+> category groups. The edit button of a row opens the sheet that sets the quantity and disposes of the
+> lot; there is no trash button on the row. "Agregar producto" picks the Ingredient from
+> the API catalogue (`GET /api/ingredients`), and the voice sheet takes a typed transcript.
+> The subtitle reads "Ordenado por vencimiento: usá primero lo de arriba.". The code and
+> its tests in `src/features/inventory` are the reference.
+
 Issue: ChordanDev/progra-3-front#45 — "Inventario: pantalla Lista con
 categorías, cantidades aproximadas y voz".
 
