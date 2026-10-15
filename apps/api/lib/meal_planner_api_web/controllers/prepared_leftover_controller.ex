@@ -3,9 +3,10 @@ defmodule MealPlannerApiWeb.PreparedLeftoverController do
   Prepared leftovers (issue #45): cooked portions kept apart from Inventory.
   Tenancy comes from `conn.assigns.current_membership.account_id`.
 
-  Eating a portion takes an optional client `actionId` (issue #162): a retry
-  with the same one on the same leftover within 24 hours answers what the first
-  one did and eats nothing more.
+  Storing a leftover and eating a portion each take an optional client
+  `actionId` (issue #162): a retry with the same one within 24 hours answers
+  what the first one did and stores or eats nothing more. An Eat key belongs to
+  its leftover.
   """
 
   use MealPlannerApiWeb, :controller
@@ -14,6 +15,7 @@ defmodule MealPlannerApiWeb.PreparedLeftoverController do
   alias MealPlannerApi.Persistence.Leftovers
   alias MealPlannerApiWeb.ApiError
 
+  @create_endpoint "leftovers.create"
   @consume_endpoint "leftovers.consume"
   @max_action_id_length 128
 
@@ -23,21 +25,27 @@ defmodule MealPlannerApiWeb.PreparedLeftoverController do
   end
 
   def create(conn, params) do
-    case parse_create(params) do
-      {:ok, attrs} ->
-        case Leftovers.create(account_id(conn), attrs) do
-          {:ok, leftover} ->
-            conn |> put_status(201) |> json(%{data: render_leftover(leftover)})
+    with {:ok, attrs} <- parse_create(params),
+         {:ok, action_id} <- parse_action_id(params["action_id"]) do
+      account_id = account_id(conn)
 
-          {:error, :scheduled_meal_not_found} ->
-            conn |> ApiError.error(:scheduled_meal_not_found)
+      result =
+        Idempotency.run(account_id, @create_endpoint, action_id, fn ->
+          account_id |> Leftovers.create(attrs) |> rendered()
+        end)
 
-          {:error, %Ecto.Changeset{} = changeset} ->
-            ApiError.validation_error(conn, wire_field(changeset))
-        end
+      case result do
+        {:ok, data} ->
+          conn |> put_status(201) |> json(%{data: data})
 
-      {:error, field} ->
-        ApiError.validation_error(conn, field)
+        {:error, :scheduled_meal_not_found} ->
+          conn |> ApiError.error(:scheduled_meal_not_found)
+
+        {:error, %Ecto.Changeset{} = changeset} ->
+          ApiError.validation_error(conn, wire_field(changeset))
+      end
+    else
+      {:error, field} -> ApiError.validation_error(conn, field)
     end
   end
 

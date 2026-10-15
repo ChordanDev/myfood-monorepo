@@ -80,6 +80,51 @@ defmodule MealPlannerApiWeb.PreparedLeftoverControllerTest do
       end
     end
 
+    test "create with a repeated actionId stores one leftover and answers the same",
+         %{conn: conn, account_id: account_id} do
+      params = %{"title" => "Rice", "portions" => 2, "actionId" => Ecto.UUID.generate()}
+
+      first = conn |> post(@path, params) |> json_response(201)
+      retry = conn |> post(@path, params) |> json_response(201)
+
+      assert retry == first
+      assert [%{title: "Rice"}] = Leftovers.list_open(account_id)
+
+      other = conn |> post(@path, %{params | "actionId" => Ecto.UUID.generate()})
+      assert json_response(other, 201)["data"]["id"] != first["data"]["id"]
+      assert length(Leftovers.list_open(account_id)) == 2
+    end
+
+    test "create that fails stores nothing under its actionId",
+         %{conn: conn, account_id: account_id} do
+      action_id = Ecto.UUID.generate()
+
+      missing_meal = %{
+        "title" => "Rice",
+        "portions" => 2,
+        "scheduledMealId" => Ecto.UUID.generate(),
+        "actionId" => action_id
+      }
+
+      assert conn |> post(@path, missing_meal) |> json_response(404)
+
+      params = %{"title" => "Rice", "portions" => 2, "actionId" => action_id}
+      assert conn |> post(@path, params) |> json_response(201)
+      assert [%{title: "Rice"}] = Leftovers.list_open(account_id)
+    end
+
+    test "create rejects an actionId that is not a non-empty string up to 128 bytes",
+         %{conn: conn, account_id: account_id} do
+      for value <- ["", String.duplicate("a", 129), 7, %{"id" => "x"}] do
+        params = %{"title" => "Rice", "portions" => 2, "actionId" => value}
+        body = conn |> post(@path, params) |> json_response(422)
+        assert body["error"]["code"] == "validation_error"
+        assert body["error"]["message"] =~ "actionId"
+      end
+
+      assert Leftovers.list_open(account_id) == []
+    end
+
     test "accepts a title and notes at their length limits and portions at the cap",
          %{conn: conn} do
       params = %{
@@ -275,7 +320,9 @@ defmodule MealPlannerApiWeb.PreparedLeftoverControllerTest do
          %{conn: conn} do
       long_id = String.duplicate("x", 300)
 
-      body = conn |> post("#{@path}/#{long_id}/consume", %{"actionId" => "a"}) |> json_response(404)
+      body =
+        conn |> post("#{@path}/#{long_id}/consume", %{"actionId" => "a"}) |> json_response(404)
+
       assert body["error"]["code"] == "prepared_leftover_not_found"
     end
 
