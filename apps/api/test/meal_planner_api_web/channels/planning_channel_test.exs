@@ -787,6 +787,40 @@ defmodule MealPlannerApiWeb.PlanningChannelTest do
       })
     end
 
+    test "an intent after the session ended answers no_active_session and keeps the channel (#306)",
+         %{account: account, token: token} do
+      _ = persist_trial_window!(account, :eligible)
+
+      {:ok, socket} = connect(UserSocket, %{"token" => token})
+
+      {:ok, _reply, socket} =
+        subscribe_and_join(socket, PlanningChannel, "planning:#{account.id}")
+
+      ref_start =
+        push(socket, "start_planning", %{
+          "range_from" => in_days(31),
+          "range_to" => in_days(37)
+        })
+
+      assert_reply(ref_start, :ok, %{"sessionId" => session_id, "status" => :active})
+      assert_broadcast("session_started", %{"session_id" => ^session_id})
+
+      ref_cancel = push(socket, "cancel_planning", %{"session_id" => session_id})
+      assert_reply(ref_cancel, :ok, %{"sessionId" => ^session_id})
+
+      ref =
+        push(socket, "send_message", %{
+          "session_id" => session_id,
+          "intent" => %{
+            "kind" => "change_constraints",
+            "payload" => %{"budget_cents" => 5000}
+          }
+        })
+
+      assert_error_reply(ref, :no_active_session)
+      assert Process.alive?(socket.channel_pid)
+    end
+
     test "forbidden key inside payload (recipe_id) is rejected by validate_ai_intent",
          %{account: account, token: token} do
       _ = persist_trial_window!(account, :eligible)
