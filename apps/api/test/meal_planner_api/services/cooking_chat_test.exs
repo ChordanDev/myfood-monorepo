@@ -125,8 +125,8 @@ defmodule MealPlannerApi.Services.CookingChatTest do
     Repo.all(from(m in CookingChatMessage, order_by: [asc: m.inserted_at]))
   end
 
-  # Questions of the Account stored at `at` in another session: the daily
-  # limit counts every session of the Account.
+  # Answered questions of the Account stored at `at` in another session: the
+  # daily limit counts every session of the Account.
   defp stored_questions!(f, count, at, slot \\ :lunch) do
     session = start!(f, meal!(f, AccountClock.today(f.account.id, at), slot), at)
     at = %{at | microsecond: {0, 6}}
@@ -139,12 +139,30 @@ defmodule MealPlannerApi.Services.CookingChatTest do
           user_id: f.user.id,
           role: :user,
           content: "Earlier question #{n}",
+          answered_at: at,
           inserted_at: at,
           updated_at: at
         }
       end
 
     Repo.insert_all(CookingChatMessage, rows)
+  end
+
+  # A question of `session` stored at `at` that never got its answer, as a
+  # request that died during the model call leaves it.
+  defp unanswered_question!(f, session, at, client_message_id \\ nil) do
+    Repo.insert_all(CookingChatMessage, [
+      %{
+        id: Ecto.UUID.generate(),
+        cooking_session_id: session.session_id,
+        user_id: f.user.id,
+        role: :user,
+        content: "Unanswered question",
+        client_message_id: client_message_id,
+        inserted_at: at,
+        updated_at: at
+      }
+    ])
   end
 
   defp sessions_of(meal),
@@ -452,20 +470,19 @@ defmodule MealPlannerApi.Services.CookingChatTest do
       assert length(stored_turns()) == 2
     end
 
-    test "two requests racing on one id with different text store one pair", f do
+    test "another question under an id still being answered is cooking_message_id_conflict",
+         f do
       session = start!(f, meal!(f, @utc_day))
       id = Ecto.UUID.generate()
 
       first = ask_behind_barrier(f, session, "Racing A?", id)
-      assert_receive {:cooking_ai, worker_a, "Racing A?", _opts}
-      second = ask_behind_barrier(f, session, "Racing B?", id)
-      assert_receive {:cooking_ai, worker_b, "Racing B?", _opts}
+      assert_receive {:cooking_ai, worker, "Racing A?", _opts}
 
-      send(worker_a, :answer)
+      assert {:error, :cooking_message_id_conflict} = ask(f, session, "Racing B?", @instant, id)
+      refute_received {:cooking_ai, _, _, _}
+
+      send(worker, :answer)
       assert {:ok, winner} = Task.await(first)
-      send(worker_b, :answer)
-      assert {:error, :cooking_message_id_conflict} = Task.await(second)
-
       assert Enum.map(stored_turns(), & &1.id) == Enum.map(winner.turns, & &1.id)
       assert [%{content: "Racing A?"}, _answer] = stored_turns()
     end
@@ -495,24 +512,61 @@ defmodule MealPlannerApi.Services.CookingChatTest do
       assert length(stored_turns()) == 4
     end
 
-    test "two requests racing on one id store a single pair and both get it", f do
+    # The question holds its place in the day while the model answers, so a
+    # resend cannot ask the model a second time; once answered it is replayed.
+    test "a resend while its question is still being answered is cooking_message_id_conflict",
+         f do
       session = start!(f, meal!(f, @utc_day))
       id = Ecto.UUID.generate()
 
-      tasks = for _ <- 1..2, do: ask_behind_barrier(f, session, "Race?", id)
+      first = ask_behind_barrier(f, session, "Race?", id)
+      assert_receive {:cooking_ai, worker, "Race?", _opts}
 
-      # Both passed the lookup before either stored anything.
-      workers =
-        for _ <- tasks do
-          assert_receive {:cooking_ai, worker, "Race?", _opts}
-          worker
-        end
+      assert {:error, :cooking_message_id_conflict} = ask(f, session, "Race?", @instant, id)
+      refute_received {:cooking_ai, _, _, _}
 
-      Enum.each(workers, &send(&1, :answer))
-
-      assert [{:ok, winner}, {:ok, loser}] = Task.await_many(tasks)
-      assert winner.turns == loser.turns
+      send(worker, :answer)
+      assert {:ok, winner} = Task.await(first)
+      assert {:ok, ^winner} = ask(f, session, "Race?", @instant, id)
       assert Enum.map(stored_turns(), & &1.id) == Enum.map(winner.turns, & &1.id)
+    end
+
+    test "the session read leaves out a question still being answered", f do
+      session = start!(f, meal!(f, @utc_day))
+
+      task = ask_behind_barrier(f, session, "In flight?", Ecto.UUID.generate())
+      assert_receive {:cooking_ai, worker, "In flight?", _opts}
+
+      assert [%{role: :user, answered_at: nil}] = stored_turns()
+
+      assert {:ok, %{chat_messages: []}} =
+               CookingService.session_state(f.actor, session.session_id)
+
+      send(worker, :answer)
+      assert {:ok, reply} = Task.await(task)
+
+      assert {:ok, %{chat_messages: messages}} =
+               CookingService.session_state(f.actor, session.session_id)
+
+      assert messages == reply.turns
+      assert [%{role: :user, answered_at: %DateTime{}}, %{role: :assistant}] = stored_turns()
+    end
+
+    test "a resend of an id whose question was never answered asks the model again", f do
+      session = start!(f, meal!(f, @utc_day))
+      id = Ecto.UUID.generate()
+      unanswered_question!(f, session, DateTime.add(DateTime.utc_now(), -121, :second), id)
+
+      assert {:ok, %{chat_messages: []}} =
+               CookingService.session_state(f.actor, session.session_id)
+
+      task = ask_behind_barrier(f, session, "Lost?", id)
+      assert_receive {:cooking_ai, worker, "Lost?", _opts}
+      send(worker, :answer)
+      assert {:ok, reply} = Task.await(task)
+
+      assert Enum.map(stored_turns(), & &1.id) == Enum.map(reply.turns, & &1.id)
+      assert [%{content: "Lost?", client_message_id: ^id}, %{role: :assistant}] = stored_turns()
     end
   end
 
@@ -654,33 +708,66 @@ defmodule MealPlannerApi.Services.CookingChatTest do
       refute_received {:cooking_ai, _, _, _}
     end
 
-    # The check before the provider call lets questions asked together through,
-    # so the count is taken again where the question is stored. Stored turns
-    # carry the wall clock, so this test asks at the wall clock too.
-    test "questions that passed the check together store at most the limit", f do
+    # The question is stored before the provider call, so a question asked
+    # while it is answered finds the day full and never reaches the model.
+    # Stored turns carry the wall clock, so these tests ask at the wall clock.
+    test "a question asked while the last place is being answered is refused before the model",
+         f do
       now = DateTime.utc_now()
       stored_questions!(f, 99, now)
       session = start!(f, meal!(f, AccountClock.today(f.account.id, now)), now)
       supervisor = start_supervised!(Task.Supervisor, id: make_ref())
 
-      [first, second] =
-        for message <- ["Asked first?", "Asked second?"] do
-          task = Task.Supervisor.async_nolink(supervisor, fn -> ask(f, session, message, now) end)
-          assert_receive {:cooking_ai, worker, ^message, _opts}
-          {task, worker}
-        end
+      first =
+        Task.Supervisor.async_nolink(supervisor, fn -> ask(f, session, "Asked first?", now) end)
 
-      # Both are past the check and waiting on the provider.
-      {first_task, first_worker} = first
-      send(first_worker, :answer)
-      assert {:ok, _} = Task.await(first_task)
+      assert_receive {:cooking_ai, worker, "Asked first?", _opts}
 
-      {second_task, second_worker} = second
-      send(second_worker, :answer)
-      assert {:error, :cooking_chat_limit_reached} = Task.await(second_task)
+      assert {:error, :cooking_chat_limit_reached} = ask(f, session, "Asked second?", now)
+      refute_received {:cooking_ai, _, _, _}
+
+      send(worker, :answer)
+      assert {:ok, _} = Task.await(first)
 
       assert [%{content: "Asked first?"}, %{role: :assistant}] =
                Enum.filter(stored_turns(), &(&1.cooking_session_id == session.session_id))
+    end
+
+    test "a failed model call frees its place in the day", f do
+      now = DateTime.utc_now()
+      stored_questions!(f, 99, now)
+      session = start!(f, meal!(f, AccountClock.today(f.account.id, now)), now)
+
+      Application.put_env(:meal_planner_api, :ai_client, nil)
+      assert {:ok, %{message: fallback}} = ask(f, session, "Le falta sal?", now)
+      assert fallback =~ "Agrega sal gradualmente"
+      Application.put_env(:meal_planner_api, :ai_client, MealPlannerApi.CookingBarrierClient)
+
+      ask_observing_prompt(f, session, "The hundredth?", now)
+      assert {:error, :cooking_chat_limit_reached} = ask(f, session, "Over?", now)
+      refute_received {:cooking_ai, _, _, _}
+
+      assert [%{content: "The hundredth?"}, %{role: :assistant}] =
+               Enum.filter(stored_turns(), &(&1.cooking_session_id == session.session_id))
+    end
+
+    test "a question left unanswered for two minutes no longer counts", f do
+      now = DateTime.utc_now()
+      stored_questions!(f, 99, now)
+      session = start!(f, meal!(f, AccountClock.today(f.account.id, now)), now)
+      unanswered_question!(f, session, DateTime.add(now, -121, :second))
+
+      ask_observing_prompt(f, session, "The hundredth?", now)
+    end
+
+    test "a question unanswered for less than two minutes still holds its place", f do
+      now = DateTime.utc_now()
+      stored_questions!(f, 99, now)
+      session = start!(f, meal!(f, AccountClock.today(f.account.id, now)), now)
+      unanswered_question!(f, session, DateTime.add(now, -60, :second))
+
+      assert {:error, :cooking_chat_limit_reached} = ask(f, session, "Over?", now)
+      refute_received {:cooking_ai, _, _, _}
     end
   end
 

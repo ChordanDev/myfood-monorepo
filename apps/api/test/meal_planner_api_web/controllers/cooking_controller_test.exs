@@ -659,6 +659,7 @@ defmodule MealPlannerApiWeb.CookingControllerTest do
             cooking_session_id: session_id,
             role: :user,
             content: "Earlier #{n}",
+            answered_at: now,
             inserted_at: now,
             updated_at: now
           }

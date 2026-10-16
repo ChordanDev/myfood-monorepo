@@ -33,6 +33,10 @@ defmodule MealPlannerApi.Services.CookingService do
   @max_question_length 2000
   # Questions an Account may ask the model per day (`AccountClock`).
   @daily_question_limit 100
+  # How long a question stored before the model call keeps its place in the
+  # day while it waits for its answer. Longer than any model call, so only a
+  # question whose request died before its answer gives its place up.
+  @reservation_seconds 120
 
   # First key of the two-key advisory lock form for the Account chat lock;
   # `DeviceSessions` and `EmailCodeLogin` take that form under their own keys.
@@ -177,16 +181,23 @@ defmodule MealPlannerApi.Services.CookingService do
   `:session_not_found`, a finished one `:cooking_already_finished`, a meal
   that is not on the Account's today at `now` `:cooking_chat_unavailable`, and
   an Account that already stored #{@daily_question_limit} questions that day
-  `:cooking_chat_limit_reached`. The answer is built from the frozen Context
-  snapshot and the prior turns; the provider is called outside any
-  transaction, and nothing is stored when the session finished meanwhile.
-  The limit is counted again where the question is stored, under a lock of
-  the Account, so questions that passed the first count together are refused
-  `:cooking_chat_limit_reached` once the day is full.
+  `:cooking_chat_limit_reached`. The limit is counted again under a lock of
+  the Account, where the question is stored as unanswered before the
+  provider is called, so questions asked together are refused
+  `:cooking_chat_limit_reached` before any provider call once the day is
+  full. A resend of an id whose question is still being answered is
+  `:cooking_message_id_conflict`. No lock is held during the provider call.
 
-  When the provider fails, the canned fallback is answered and nothing is
-  stored, so a resend of the same id asks the provider again. Its turns carry
-  fresh ids that no session read returns.
+  The answer is built from the frozen Context snapshot and the prior answered
+  turns. It is stored and the question marked answered; when the session
+  finished meanwhile, the question is deleted and nothing is stored.
+
+  When the provider fails, the question is deleted, so it does not count
+  towards the limit, and the canned fallback is answered without being
+  stored: a resend of the same id asks the provider again. Its turns carry
+  fresh ids that no session read returns. A question whose request died
+  before its answer stops counting #{@reservation_seconds} seconds after it
+  was asked.
 
   The Context snapshot is frozen by the first question of the Account's day
   and reused by the later ones.
@@ -215,27 +226,40 @@ defmodule MealPlannerApi.Services.CookingService do
 
   defp ask_new(current_user, ids, session, question, content_type, now) do
     with :ok <- chat_available(session, now),
-         :ok <- within_daily_limit(ids.account_id, now) do
-      ask_and_store(current_user, ids, session, question, content_type, now)
-    end
-  end
+         :ok <- within_daily_limit(ids.account_id, now),
+         {:ok, frozen} <- freeze_context(ids, session, now),
+         {:ok, reservation} <- reserve_question(ids, session.id, question, now) do
+      case reservation do
+        {:reserved, reserved} ->
+          ask_reserved(current_user, ids, session, reserved, frozen, content_type, now)
 
-  defp ask_and_store(current_user, ids, session, {question, message_id}, content_type, now) do
-    with {:ok, frozen} <- freeze_context(ids, session, now) do
-      case build_contextual_answer(session.id, frozen, question, content_type) do
-        {:ok, answer} ->
-          store_answer(current_user, ids, session, {question, message_id}, answer, now)
-
-        {:fallback, answer} ->
-          {:ok, fallback_payload(session.id, {question, message_id}, answer)}
+        {:replay, turns} ->
+          {:ok, answer_payload(session.id, turns)}
       end
     end
   end
 
-  defp store_answer(current_user, ids, session, question, answer, now) do
+  # Runs with no lock held: the stored question already holds its place in
+  # the day. A question that gets no stored answer is deleted.
+  defp ask_reserved(current_user, ids, session, reserved, frozen, content_type, now) do
+    case build_contextual_answer(session.id, frozen, reserved.content, content_type) do
+      {:ok, answer} ->
+        with {:error, _reason} = error <-
+               store_answer(current_user, ids, session, reserved, answer, now) do
+          PlanningRepo.delete_pending_chat_question(reserved.id)
+          error
+        end
+
+      {:fallback, answer} ->
+        PlanningRepo.delete_pending_chat_question(reserved.id)
+        {:ok, fallback_payload(session.id, reserved, answer)}
+    end
+  end
+
+  defp store_answer(current_user, ids, session, reserved, answer, now) do
     with {:ok, _ids} <- RecipeAccess.authorize(current_user),
          {:ok, _session} <- chat_session(ids, session.id, now),
-         {:ok, turns} <- persist_turns(ids, session.id, question, answer, now) do
+         {:ok, turns} <- persist_answer(ids, session.id, reserved, answer) do
       {:ok, answer_payload(session.id, turns)}
     end
   end
@@ -249,23 +273,40 @@ defmodule MealPlannerApi.Services.CookingService do
   defp same_question?([stored_question, _answer], question),
     do: stored_question.content == question
 
-  # Counts the questions the Account stored on its day at `now`. The count
-  # before the provider call spares a call over the limit; the one inside
-  # `persist_turns/5` holds the Account chat lock and is the one that binds.
+  # Counts the questions the Account asked on its day at `now`: the answered
+  # ones and the ones still being answered. The count before the Context is
+  # frozen spares that work on a full day; the one inside
+  # `reserve_question/4` holds the Account chat lock and is the one that binds.
   defp within_daily_limit(account_id, now) do
     {from, to} = AccountClock.day_bounds(account_id, now)
+    # Stored questions carry the wall clock, not `now`.
+    pending_since = DateTime.add(DateTime.utc_now(), -@reservation_seconds, :second)
 
-    if PlanningRepo.count_chat_questions(account_id, from, to) < @daily_question_limit,
-      do: :ok,
-      else: {:error, :cooking_chat_limit_reached}
+    if PlanningRepo.count_chat_questions(account_id, from, to, pending_since) <
+         @daily_question_limit,
+       do: :ok,
+       else: {:error, :cooking_chat_limit_reached}
   end
 
   # The fallback is not stored: these turns only carry it back to the client.
-  defp fallback_payload(session_id, {question, message_id}, answer) do
-    turns =
-      {question, message_id}
-      |> chat_turns(answer, nil)
-      |> Enum.map(&struct!(CookingChatMessage, Map.put(&1, :id, Ecto.UUID.generate())))
+  defp fallback_payload(session_id, reserved, answer) do
+    asked_at = DateTime.utc_now()
+
+    turns = [
+      %CookingChatMessage{
+        id: Ecto.UUID.generate(),
+        role: :user,
+        content: reserved.content,
+        client_message_id: reserved.client_message_id,
+        inserted_at: asked_at
+      },
+      %CookingChatMessage{
+        id: Ecto.UUID.generate(),
+        role: :assistant,
+        content: answer,
+        inserted_at: DateTime.add(asked_at, 1, :microsecond)
+      }
+    ]
 
     answer_payload(session_id, turns)
   end
@@ -330,28 +371,70 @@ defmodule MealPlannerApi.Services.CookingService do
          do: meal_is_today(session.scheduled_meal, session.account_id, now)
   end
 
-  # The session lock orders this write against a concurrent finish, so a
-  # finished session never gains turns. It also orders two requests carrying
-  # the same client message id: the second one finds the pair of the first and
-  # stores nothing, and it is refused when its question differs. A new question
-  # is counted again under the Account chat lock, so two questions stored at
-  # once in different sessions cannot both take the last place of the day.
-  defp persist_turns(ids, session_id, {question, message_id}, answer, now) do
+  # Stores the question unanswered before the provider is called. The session
+  # lock orders this write against a concurrent finish, and orders two
+  # requests carrying the same client message id: the second one finds the
+  # answered pair of the first and stores nothing, it is refused when its
+  # question differs, and it is refused while the first is still being
+  # answered. A new question is counted under the Account chat lock, so two
+  # questions asked at once in different sessions cannot both take the last
+  # place of the day. Both locks end with the transaction, before the call.
+  defp reserve_question(ids, session_id, {question, message_id}, now) do
     Repo.transaction(fn ->
       session = lock_active_session!(ids, session_id)
 
       case stored_pair(session.id, message_id) do
         nil ->
+          free_client_message_id!(session.id, message_id)
           lock_account_chat!(ids.account_id)
           within_daily_limit!(ids.account_id, now)
 
-          {question, message_id}
-          |> chat_turns(answer, ids.user_id)
-          |> Enum.map(&insert_turn!(&1, session.id))
+          {:reserved, insert_turn!(question_turn(question, message_id, ids.user_id), session.id)}
 
         turns ->
-          stored_pair_of!(turns, question)
+          {:replay, stored_pair_of!(turns, question)}
       end
+    end)
+  end
+
+  # Call only inside a transaction: a question still being answered under
+  # the id rolls back. One whose request died before its answer gives the id
+  # up.
+  defp free_client_message_id!(_session_id, nil), do: :ok
+
+  defp free_client_message_id!(session_id, message_id) do
+    pending_since = DateTime.add(DateTime.utc_now(), -@reservation_seconds, :second)
+
+    case PlanningRepo.pending_chat_question_for_client_message(session_id, message_id) do
+      nil ->
+        :ok
+
+      pending ->
+        if DateTime.after?(pending.inserted_at, pending_since),
+          do: Repo.rollback(:cooking_message_id_conflict),
+          else: PlanningRepo.delete_pending_chat_question(pending.id)
+    end
+  end
+
+  # Stores the answer and marks its question answered, under the session lock
+  # so a finished session never gains turns. The answer is stamped right after
+  # the question's answer time, so the pair stays together in the history.
+  defp persist_answer(ids, session_id, reserved, answer) do
+    Repo.transaction(fn ->
+      session = lock_active_session!(ids, session_id)
+      answered_at = DateTime.utc_now()
+
+      # 0: the question gave its id up to a resend after its place expired.
+      if PlanningRepo.answer_chat_question(reserved.id, answered_at) == 0,
+        do: Repo.rollback(:cooking_message_id_conflict)
+
+      answer_turn = %{
+        role: :assistant,
+        content: answer,
+        inserted_at: DateTime.add(answered_at, 1, :microsecond)
+      }
+
+      [%{reserved | answered_at: answered_at}, insert_turn!(answer_turn, session.id)]
     end)
   end
 
@@ -378,20 +461,15 @@ defmodule MealPlannerApi.Services.CookingService do
       else: Repo.rollback(:cooking_message_id_conflict)
   end
 
-  # The two turns of an answered question. The user turn is stamped first.
-  defp chat_turns({question, message_id}, answer, user_id) do
-    asked_at = DateTime.utc_now()
-
-    [
-      %{
-        role: :user,
-        content: question,
-        user_id: user_id,
-        client_message_id: message_id,
-        inserted_at: asked_at
-      },
-      %{role: :assistant, content: answer, inserted_at: DateTime.add(asked_at, 1, :microsecond)}
-    ]
+  # A question as it is stored before its answer: no `answered_at` yet.
+  defp question_turn(question, message_id, user_id) do
+    %{
+      role: :user,
+      content: question,
+      user_id: user_id,
+      client_message_id: message_id,
+      inserted_at: DateTime.utc_now()
+    }
   end
 
   # Call only inside a transaction: a missing or a finished session rolls back.
