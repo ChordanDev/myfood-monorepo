@@ -17,7 +17,8 @@ defmodule MealPlannerApi.Application do
       MealPlannerApi.Generation.Supervisor,
       # DynamicSupervisor for ephemeral `PlanningSession` lifecycle GenServers
       # (PR3 of `ephemeral-planning-sessions`). One server per active session;
-      # `:temporary` children terminate alongside the session's terminal status.
+      # `:transient` children: a crash restarts the server, and a server whose
+      # session reaches a terminal status stops `:normal` and is not restarted.
       MealPlannerApi.Generation.PlanningSessionSupervisor,
       # Periodic sweeper for stale `PlanningSession` leases. Default tick is
       # 30_000 ms; override via `:planning_session_sweeper_interval` config.

@@ -398,8 +398,68 @@ defmodule MealPlannerApi.Generation.PlanningSessionSupervisorTest do
   end
 
   # ---------------------------------------------------------------------------
+  # A start that exits instead of replying leaves no process behind
+  # ---------------------------------------------------------------------------
+
+  describe "a start_session/5 call that exits" do
+    @tag capture_log: true
+    test "leaves no process behind once the owner that started it is gone" do
+      account = insert_account("sup start exits")
+      user = insert_user_with_membership(account, "sup-start-exits@example.com", :owner)
+      membership_id = owner_membership_id(account.id, user.id)
+      sup_pid = Process.whereis(PlanningSessionSupervisor)
+
+      # Plays the channel: it starts the server the way `start_session/5`
+      # does, and the server crashes inside the call, so the exit reaches
+      # the channel. The `:transient` supervisor restarts the server, which
+      # has no session and no owner left.
+      {owner_pid, owner_monitor} =
+        spawn_monitor(fn ->
+          child_spec =
+            PlanningSessionServer.child_spec(
+              account_id: account.id,
+              session_id: Ecto.UUID.generate(),
+              owner_user_id: user.id,
+              owner_membership_id: membership_id,
+              owner_channel_pid: self(),
+              check_account_eligible_fn: fn _ -> raise "eligibility check crashed" end
+            )
+
+          {:ok, pid} = DynamicSupervisor.start_child(sup_pid, child_spec)
+
+          PlanningSessionServer.start_session(
+            pid,
+            account.id,
+            user.id,
+            membership_id,
+            {~D[2026-09-01], ~D[2026-09-07]}
+          )
+        end)
+
+      assert_receive {:DOWN, ^owner_monitor, :process, ^owner_pid, {{%RuntimeError{}, _}, _}},
+                     1_000
+
+      assert eventually(fn -> Supervisor.which_children(sup_pid) == [] end)
+    end
+  end
+
+  # ---------------------------------------------------------------------------
   # helpers
   # ---------------------------------------------------------------------------
+
+  defp eventually(check, attempts \\ 50) do
+    cond do
+      check.() ->
+        true
+
+      attempts == 0 ->
+        false
+
+      true ->
+        Process.sleep(20)
+        eventually(check, attempts - 1)
+    end
+  end
 
   defp insert_account(name) do
     plan = Repo.get_by!(MealPlannerApi.Subscriptions.Plan, name: "family_4")
