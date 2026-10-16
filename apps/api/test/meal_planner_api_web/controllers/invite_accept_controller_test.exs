@@ -663,6 +663,35 @@ defmodule MealPlannerApiWeb.InviteAcceptControllerTest do
              ) == 1
     end
 
+    test "the right code accepts from an IP over the failed-verification limit", %{conn: conn} do
+      %{token: token, membership_id: membership_id} =
+        removed_member_invited_again!(conn, "rejoin_ip_limited@example.com")
+
+      build_conn() |> post("/api/invites/#{token}/code", %{}) |> json_response(200)
+      code = mailed_code()
+
+      # Anyone sharing the IP spends its 20 failures on made-up emails.
+      for n <- 1..20 do
+        conn =
+          post(build_conn(), "/api/auth/login/verify-code", %{
+            "email" => "rejoin-lockout-#{n}@example.com",
+            "code" => "000000",
+            "deviceId" => @device_id
+          })
+
+        assert json_response(conn, 422)["error"]["code"] == "code_invalid"
+      end
+
+      conn =
+        post(build_conn(), "/api/invites/#{token}/accept", %{
+          "deviceId" => @device_id,
+          "code" => code
+        })
+
+      assert %{"accessToken" => _} = json_response(conn, 200)
+      assert Repo.get!(AccountMembership, membership_id).status == :active
+    end
+
     test "the code locks after the attempt cap, and the right code is refused too",
          %{conn: conn} do
       %{token: token, membership_id: membership_id} =

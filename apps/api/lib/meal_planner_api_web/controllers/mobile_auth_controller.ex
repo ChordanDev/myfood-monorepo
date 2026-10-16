@@ -90,9 +90,10 @@ defmodule MealPlannerApiWeb.MobileAuthController do
   `200 { "accessToken", "refreshToken", "tokenType": "Bearer", "me" }`, where
   `me` is the same payload `GET /api/me` returns, or `code_invalid`,
   `code_expired`, `too_many_attempts`, `account_not_found`, or
-  `rate_limited` (with a `retry-after` header in whole seconds) once the
-  client IP (for IPv6, its whole /64 prefix) has
+  `rate_limited` (with a `retry-after` header in whole seconds) for a
+  wrong code once the client IP (for IPv6, its whole /64 prefix) has
   #{@max_verify_failures_per_ip} failed verifications in the last hour.
+  A right code is never refused by that limit.
 
   The session is opened in the transaction that consumes the code: when
   it cannot be opened, the code stays pending and the user can retry.
