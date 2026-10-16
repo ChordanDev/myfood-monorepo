@@ -329,10 +329,12 @@ defmodule MealPlannerApi.AccountsMembership do
   @spec accept_invite(String.t(), PersistenceUser.t() | map()) ::
           {:ok,
            %{
-             user: PersistenceUser.t(),
-             account: Account.t(),
-             membership: AccountMembership.t(),
-             claims: map()
+             required(:user) => PersistenceUser.t(),
+             required(:account) => Account.t(),
+             required(:membership) => AccountMembership.t(),
+             required(:claims) => map(),
+             # Only on a code accept: what its `open_session` answered.
+             optional(:session) => term()
            }}
           | {:error, atom() | Ecto.Changeset.t()}
           | {:error, :rate_limited, pos_integer()}
