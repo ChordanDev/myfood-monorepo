@@ -45,6 +45,28 @@ defmodule MealPlannerApi.Persistence.Accounts.AccountMembershipQueries do
   end
 
   @doc """
+  The ids of the Users with an `:active` Membership on `account_id`, oldest
+  Membership first. Invited and suspended members are not in it.
+
+  Returns `[]` when `account_id` is not a valid UUID.
+  """
+  @spec list_active_member_ids(Ecto.UUID.t() | binary()) :: [Ecto.UUID.t()]
+  def list_active_member_ids(account_id) do
+    case Ecto.UUID.cast(account_id) do
+      {:ok, account_uuid} ->
+        from(m in AccountMembership,
+          where: m.account_id == ^account_uuid and m.status == :active,
+          order_by: [asc: m.inserted_at, asc: m.user_id],
+          select: m.user_id
+        )
+        |> Repo.all()
+
+      :error ->
+        []
+    end
+  end
+
+  @doc """
   Loads the `AccountMembership` row identified by its primary key — the
   `access_v2` token path.
 

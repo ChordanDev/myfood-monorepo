@@ -166,12 +166,11 @@ defmodule MealPlannerApi.Services.PlanningService do
   @spec build_candidates(planning_user(), map()) ::
           {:ok, %{String.t() => [map()]}} | {:error, :not_a_member | :forbidden}
   def build_candidates(user, identity) do
-    participants = Map.get(user, :participant_ids, Map.get(user, :user_ids, [identity.user_id]))
     descriptors = Enum.map(@slots, &%{date: Date.utc_today(), slot: &1})
 
     with {:ok, %{"participant_ids" => participant_ids}, _context} <-
            PlanningRequestValidator.validate_request(
-             %{"participant_ids" => participants},
+             participant_constraints(user),
              identity.account_id,
              identity.user_id
            ),
@@ -182,6 +181,16 @@ defmodule MealPlannerApi.Services.PlanningService do
              participant_ids
            ) do
       {:ok, Map.new(slots, &{&1.slot, &1.candidates})}
+    end
+  end
+
+  # Issue #311: a User map that names no participants leaves the default to
+  # `PlanningRequestValidator`, which plans for every active member of the
+  # Account. The persisted User carries none, so that is the usual case.
+  defp participant_constraints(user) do
+    case Map.get(user, :participant_ids, Map.get(user, :user_ids)) do
+      nil -> %{}
+      participant_ids -> %{"participant_ids" => participant_ids}
     end
   end
 

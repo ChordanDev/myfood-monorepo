@@ -278,9 +278,11 @@ defmodule MealPlannerApi.Data.PlanningRepo do
     end
   end
 
-  # A caller may name only active members of this account as participants. This
-  # is intentionally not a convenience filter over every household member:
-  # dietary exclusions apply to the people participating in this plan.
+  # A caller may name only active members of this account as participants.
+  # Dietary exclusions apply to the people participating in this plan. Which
+  # people that is gets decided before this point: `PlanningRequestValidator`
+  # makes it every active member of the Account when the request names none
+  # (issue #311), and an explicit `participant_ids` narrows it.
   defp active_participant_ids(participant_ids, account_id) do
     from(m in MealPlannerApi.Persistence.Accounts.AccountMembership,
       where:
