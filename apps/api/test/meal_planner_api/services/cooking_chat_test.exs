@@ -625,6 +625,12 @@ defmodule MealPlannerApi.Services.CookingChatTest do
     end
   end
 
+  # A provider client that raises instead of returning an error tuple.
+  defmodule RaisingClient do
+    @moduledoc false
+    def generate_text(_prompt, _opts), do: raise("provider crashed")
+  end
+
   describe "daily limit" do
     setup do
       use_barrier_client!()
@@ -768,6 +774,42 @@ defmodule MealPlannerApi.Services.CookingChatTest do
 
       assert {:error, :cooking_chat_limit_reached} = ask(f, session, "Over?", now)
       refute_received {:cooking_ai, _, _, _}
+    end
+
+    # The id is checked before the day is counted, so a resend is told its
+    # question is being answered even when that question took the last place.
+    test "a resend of an id whose question took the last place is cooking_message_id_conflict",
+         f do
+      now = DateTime.utc_now()
+      stored_questions!(f, 99, now)
+      session = start!(f, meal!(f, AccountClock.today(f.account.id, now)), now)
+      id = Ecto.UUID.generate()
+      supervisor = start_supervised!(Task.Supervisor, id: make_ref())
+
+      first =
+        Task.Supervisor.async_nolink(supervisor, fn -> ask(f, session, "Last place?", now, id) end)
+
+      assert_receive {:cooking_ai, worker, "Last place?", _opts}
+
+      assert {:error, :cooking_message_id_conflict} = ask(f, session, "Last place?", now, id)
+      refute_received {:cooking_ai, _, _, _}
+
+      send(worker, :answer)
+      assert {:ok, winner} = Task.await(first)
+      assert {:ok, ^winner} = ask(f, session, "Last place?", now, id)
+    end
+
+    test "a model call that raises frees its place in the day", f do
+      now = DateTime.utc_now()
+      stored_questions!(f, 99, now)
+      session = start!(f, meal!(f, AccountClock.today(f.account.id, now)), now)
+
+      Application.put_env(:meal_planner_api, :ai_client, RaisingClient)
+      assert_raise RuntimeError, "provider crashed", fn -> ask(f, session, "Crash?", now) end
+      Application.put_env(:meal_planner_api, :ai_client, MealPlannerApi.CookingBarrierClient)
+
+      assert [] = Enum.filter(stored_turns(), &(&1.cooking_session_id == session.session_id))
+      ask_observing_prompt(f, session, "The hundredth?", now)
     end
   end
 
