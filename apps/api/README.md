@@ -6,6 +6,7 @@ To start your Phoenix server:
 * Allow direnv to load variables: `direnv allow`
 * Run `mix setup` to install dependencies (it only runs `deps.get`)
 * Create and migrate the database: `mix ecto.create && mix ecto.migrate`. The migrations insert the reference Plans, so sign-up works without the seeds
+* On a development database migrated before the 15-digit migration versions were renumbered (issue #315), run `mix db.renumber_migrations` once before `mix ecto.migrate`. It rewrites the old versions in `schema_migrations` to the new ones in one transaction, so the renamed migrations are not run again. It is safe to run twice and does nothing on a fresh database
 * Optionally load demo data (a demo Account, two Users, a recipe and a scheduled meal) with `mix run priv/repo/seeds.exs`: once, on a fresh development database, never in production
 * Start Phoenix endpoint with `mix phx.server` or inside IEx with `iex -S mix phx.server`
 

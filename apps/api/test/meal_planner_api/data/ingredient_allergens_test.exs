@@ -16,7 +16,7 @@ defmodule MealPlannerApi.Data.IngredientAllergensTest do
 
   @migration MealPlannerApi.Repo.Migrations.TagIngredientAllergens
   @migration_path Path.expand(
-                    "../../../priv/repo/migrations/202610150000100_tag_ingredient_allergens.exs",
+                    "../../../priv/repo/migrations/20261015130010_tag_ingredient_allergens.exs",
                     __DIR__
                   )
   @seeds_path Path.expand("../../../priv/repo/seeds.exs", __DIR__)
