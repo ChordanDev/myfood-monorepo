@@ -521,6 +521,48 @@ defmodule MealPlannerApi.Generation.PlanningSessionServerTest do
   end
 
   # ---------------------------------------------------------------------------
+  # Owner gone before the session started
+  # ---------------------------------------------------------------------------
+
+  describe "handle_info({:DOWN, ...}) — owner gone while :initializing" do
+    test "an abnormal owner exit stops the server" do
+      account = insert_account("initializing owner crash")
+      owner_pid = spawn(fn -> Process.sleep(:infinity) end)
+
+      # A server whose `start_session/5` call timed out stays
+      # `:initializing`: the owner gave up and has nothing to serve.
+      pid =
+        start_session_server!(
+          account_id: account.id,
+          session_id: Ecto.UUID.generate(),
+          owner_channel_pid: owner_pid
+        )
+
+      server_monitor = Process.monitor(pid)
+      Process.exit(owner_pid, :kill)
+
+      assert_receive {:DOWN, ^server_monitor, :process, ^pid, :normal}, 1_000
+    end
+
+    test "a clean owner exit stops the server too" do
+      account = insert_account("initializing owner normal")
+      owner_pid = spawn(fn -> Process.sleep(:infinity) end)
+
+      pid =
+        start_session_server!(
+          account_id: account.id,
+          session_id: Ecto.UUID.generate(),
+          owner_channel_pid: owner_pid
+        )
+
+      server_monitor = Process.monitor(pid)
+      Process.exit(owner_pid, :shutdown)
+
+      assert_receive {:DOWN, ^server_monitor, :process, ^pid, :normal}, 1_000
+    end
+  end
+
+  # ---------------------------------------------------------------------------
   # #261 — owner crash after a confirm committed the session
   # ---------------------------------------------------------------------------
 
@@ -725,6 +767,7 @@ defmodule MealPlannerApi.Generation.PlanningSessionServerTest do
       session_id: Keyword.get(opts, :session_id),
       owner_user_id: Keyword.get(opts, :owner_user_id),
       owner_membership_id: Keyword.get(opts, :owner_membership_id),
+      owner_channel_pid: Keyword.get(opts, :owner_channel_pid),
       check_account_eligible_fn: Keyword.get(opts, :check_account_eligible_fn, fn _ -> true end)
     ]
 

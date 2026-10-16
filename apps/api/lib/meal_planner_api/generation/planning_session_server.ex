@@ -13,6 +13,7 @@ defmodule MealPlannerApi.Generation.PlanningSessionServer do
   ## Lifecycle
 
       :initializing  ──start_session──►  :active
+      :initializing  ──owner :DOWN─────►  stops        (no row was written)
       :active        ──cancel_session──►  :cancelled
       :active        ──confirm─────────►  :committed   (DB-side, not this GS)
       :active        ──:DOWN abnormal──►  :lost_lock
@@ -45,8 +46,14 @@ defmodule MealPlannerApi.Generation.PlanningSessionServer do
 
   ## :DOWN semantics
 
-  Only abnormal exit reasons (anything other than `:normal`,
-  `:shutdown`, `{:shutdown, _}`) trigger the `:lost_lock` transition.
+  A server still `:initializing` has no session yet. When its owner
+  exits (after a `start_session/5` call that timed out, or after the
+  server crashed inside one and was restarted), nobody is left to start
+  one, so the server stops on any exit reason.
+
+  Once `:active`, only abnormal exit reasons (anything other than
+  `:normal`, `:shutdown`, `{:shutdown, _}`) trigger the `:lost_lock`
+  transition.
   This matches the design's "owner crash → :lost_lock" semantics while
   keeping clean supervisor restarts / clean channel disconnects
   noise-free.
@@ -355,6 +362,13 @@ defmodule MealPlannerApi.Generation.PlanningSessionServer do
   end
 
   @impl true
+  def handle_info(
+        {:DOWN, ref, :process, _pid, _reason},
+        %{status: :initializing, monitor_ref: ref} = state
+      ) do
+    {:stop, :normal, state}
+  end
+
   def handle_info({:DOWN, _ref, :process, _pid, reason}, state) do
     case reason do
       reason when reason in [:normal, :shutdown] ->
