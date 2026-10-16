@@ -12,6 +12,9 @@ defmodule MealPlannerApi.Persistence.Planning.CookingChatMessage do
     field(:content, :string)
     # The id the app gave the question; set on user turns only.
     field(:client_message_id, Ecto.UUID)
+    # Set on a user turn when its answer is stored. A question stored without
+    # it is a reservation of the daily limit while the model answers.
+    field(:answered_at, :utc_datetime_usec)
 
     belongs_to(:cooking_session, MealPlannerApi.Persistence.Planning.CookingSession)
     belongs_to(:user, MealPlannerApi.Persistence.Accounts.User)
@@ -28,6 +31,7 @@ defmodule MealPlannerApi.Persistence.Planning.CookingChatMessage do
       :role,
       :content,
       :client_message_id,
+      :answered_at,
       :inserted_at
     ])
     |> validate_required([:cooking_session_id, :role, :content])

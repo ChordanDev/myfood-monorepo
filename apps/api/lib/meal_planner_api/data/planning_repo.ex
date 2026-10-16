@@ -718,35 +718,44 @@ defmodule MealPlannerApi.Data.PlanningRepo do
   def add_chat_message(attrs),
     do: %CookingChatMessage{} |> CookingChatMessage.changeset(attrs) |> Repo.insert()
 
-  @doc "A Cooking session's user and assistant turns, oldest first."
+  @doc """
+  A Cooking session's answered questions and their answers, oldest first. A
+  question is placed where it was answered, right before its answer; one still
+  waiting for its answer is left out.
+  """
   @spec list_chat_messages(Ecto.UUID.t()) :: [CookingChatMessage.t()]
   def list_chat_messages(session_id) do
     from(m in CookingChatMessage,
-      where: m.cooking_session_id == ^session_id and m.role in [:user, :assistant],
-      order_by: [asc: m.inserted_at, asc: m.id]
+      where:
+        m.cooking_session_id == ^session_id and
+          (m.role == :assistant or (m.role == :user and not is_nil(m.answered_at))),
+      order_by: [asc: coalesce(m.answered_at, m.inserted_at), asc: m.id]
     )
     |> Repo.all()
   end
 
   @doc """
-  The Cooking chat questions stored for the Account in `[from, to)`, over all
-  its sessions.
+  The Cooking chat questions the Account asked in `[from, to)`, over all its
+  sessions: the answered ones, and the ones still waiting for their answer
+  that were asked after `pending_since`.
   """
-  @spec count_chat_questions(Ecto.UUID.t(), DateTime.t(), DateTime.t()) :: non_neg_integer()
-  def count_chat_questions(account_id, from, to) do
+  @spec count_chat_questions(Ecto.UUID.t(), DateTime.t(), DateTime.t(), DateTime.t()) ::
+          non_neg_integer()
+  def count_chat_questions(account_id, from, to, pending_since) do
     from(m in CookingChatMessage,
       join: s in CookingSession,
       on: s.id == m.cooking_session_id,
       where:
         s.account_id == ^account_id and m.role == :user and m.inserted_at >= ^from and
-          m.inserted_at < ^to
+          m.inserted_at < ^to and
+          (not is_nil(m.answered_at) or m.inserted_at > ^pending_since)
     )
     |> Repo.aggregate(:count)
   end
 
   @doc """
-  The stored question that carries a client message id and the answer stored
-  with it, or `nil` when the session has no such complete pair.
+  The answered question that carries a client message id and the answer stored
+  with it, or `nil` when the session has no such answered pair.
   """
   @spec chat_pair_for_client_message(Ecto.UUID.t(), Ecto.UUID.t()) ::
           [CookingChatMessage.t()] | nil
@@ -756,7 +765,7 @@ defmodule MealPlannerApi.Data.PlanningRepo do
         from(m in CookingChatMessage,
           where:
             m.cooking_session_id == ^session_id and m.role == :user and
-              m.client_message_id == ^client_message_id
+              m.client_message_id == ^client_message_id and not is_nil(m.answered_at)
         )
       )
 
@@ -766,13 +775,52 @@ defmodule MealPlannerApi.Data.PlanningRepo do
           from(m in CookingChatMessage,
             where:
               m.cooking_session_id == ^session_id and m.role == :assistant and
-                m.inserted_at > ^question.inserted_at,
+                m.inserted_at > ^question.answered_at,
             order_by: [asc: m.inserted_at, asc: m.id],
             limit: 1
           )
         )
 
     answer && [question, answer]
+  end
+
+  @doc "The question of the session under a client message id still waiting for its answer."
+  @spec pending_chat_question_for_client_message(Ecto.UUID.t(), Ecto.UUID.t()) ::
+          CookingChatMessage.t() | nil
+  def pending_chat_question_for_client_message(session_id, client_message_id) do
+    from(m in CookingChatMessage,
+      where:
+        m.cooking_session_id == ^session_id and m.role == :user and
+          m.client_message_id == ^client_message_id and is_nil(m.answered_at)
+    )
+    |> Repo.one()
+  end
+
+  @doc """
+  Marks a question that is still waiting for its answer as answered at
+  `answered_at`. Returns how many questions it marked: 0 when the question is
+  gone or already answered.
+  """
+  @spec answer_chat_question(Ecto.UUID.t(), DateTime.t()) :: non_neg_integer()
+  def answer_chat_question(question_id, answered_at) do
+    {count, _} =
+      from(m in CookingChatMessage,
+        where: m.id == ^question_id and m.role == :user and is_nil(m.answered_at)
+      )
+      |> Repo.update_all(set: [answered_at: answered_at, updated_at: answered_at])
+
+    count
+  end
+
+  @doc "Deletes a question that is still waiting for its answer; an answered one stays."
+  @spec delete_pending_chat_question(Ecto.UUID.t()) :: :ok
+  def delete_pending_chat_question(question_id) do
+    from(m in CookingChatMessage,
+      where: m.id == ^question_id and m.role == :user and is_nil(m.answered_at)
+    )
+    |> Repo.delete_all()
+
+    :ok
   end
 
   @spec add_step_event(map()) :: {:ok, CookingStepEvent.t()} | {:error, Ecto.Changeset.t()}

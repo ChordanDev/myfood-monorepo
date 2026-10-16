@@ -332,6 +332,79 @@ defmodule MealPlannerApi.Services.CookingAtomicityTest do
            ) == 100
   end
 
+  test "questions asked at once with one place left call the model once", f do
+    previous = Application.get_env(:meal_planner_api, :ai_client)
+    Application.put_env(:meal_planner_api, :ai_client, MealPlannerApi.CookingBarrierClient)
+    Application.put_env(:meal_planner_api, :cooking_test_owner, self())
+
+    on_exit(fn ->
+      Application.put_env(:meal_planner_api, :ai_client, previous)
+      Application.delete_env(:meal_planner_api, :cooking_test_owner)
+    end)
+
+    sessions =
+      for slot <- [:breakfast, :lunch] do
+        {:ok, meal} =
+          Planning.schedule_meal(%{
+            account_id: f.account.id,
+            recipe_id: f.recipe.id,
+            date: f.meal.date,
+            slot: slot
+          })
+
+        session!(f.account.id, meal.id)
+      end
+
+    stored_questions!(f, 99)
+    supervisor = start_supervised!(Task.Supervisor)
+
+    {winner, losers} =
+      with_gate("INSERT", "cooking_chat_messages", "NEW.role = 'user'", fn _holder, open_gate ->
+        workers =
+          for {session, n} <- Enum.with_index([f.session | sessions], 1) do
+            worker(supervisor, f, fn -> ask(f, session.id, "At once #{n}?") end)
+          end
+
+        # Every question passed the count before the Context is frozen, which
+        # sees 99. The first to store its question waits at the gate with the
+        # Account chat lock held; the others wait for that lock.
+        Enum.each(workers, &wait_until_blocked(&1.backend))
+        open_gate.()
+
+        # Only the question that took the last place reaches the model. The
+        # others are refused while it is still waiting for its answer.
+        assert_receive {:cooking_ai, model_caller, _prompt, _opts}, 5_000
+        {[winner], losers} = Enum.split_with(workers, &(&1.task.pid == model_caller))
+        losers = Enum.map(losers, &Task.await(&1.task, 12_000))
+        refute_received {:cooking_ai, _, _, _}
+
+        send(model_caller, :answer)
+        {Task.await(winner.task, 12_000), losers}
+      end)
+
+    assert {:ok, %{message: _}} = winner
+
+    assert losers == [
+             {:error, :cooking_chat_limit_reached},
+             {:error, :cooking_chat_limit_reached}
+           ]
+
+    refute_received {:cooking_ai, _, _, _}
+
+    questions =
+      Repo.all(
+        from(m in CookingChatMessage,
+          join: s in CookingSession,
+          on: s.id == m.cooking_session_id,
+          where: s.account_id == ^f.account.id and m.role == :user,
+          select: m.answered_at
+        )
+      )
+
+    assert length(questions) == 100
+    refute nil in questions
+  end
+
   # A planned Shopping item of the fixture's meal, reserved in the actor's Cart.
   defp in_cart_item!(f, ingredient, quantity_milli) do
     {:ok, item} =
@@ -460,6 +533,24 @@ defmodule MealPlannerApi.Services.CookingAtomicityTest do
     else
       Process.sleep(10)
       wait_until_blocked_by(blocked, blocker, attempts - 1)
+    end
+  end
+
+  # Returns once `blocked` waits for any lock, as the lock table shows it;
+  # gives up after about two seconds.
+  defp wait_until_blocked(blocked, attempts \\ 200)
+
+  defp wait_until_blocked(blocked, 0),
+    do: flunk("backend #{blocked} never waited for a lock")
+
+  defp wait_until_blocked(blocked, attempts) do
+    case Repo.query!("SELECT pg_blocking_pids($1)", [blocked]) do
+      %{rows: [[[_ | _]]]} ->
+        :ok
+
+      _not_blocked ->
+        Process.sleep(10)
+        wait_until_blocked(blocked, attempts - 1)
     end
   end
 
@@ -625,7 +716,7 @@ defmodule MealPlannerApi.Services.CookingAtomicityTest do
   defp ask(f, session_id, message),
     do: CookingService.answer_question(f.actor, session_id, message)
 
-  # Questions of the Account stored now in the fixture's session.
+  # Answered questions of the Account stored now in the fixture's session.
   defp stored_questions!(f, count) do
     now = DateTime.utc_now()
 
@@ -637,6 +728,7 @@ defmodule MealPlannerApi.Services.CookingAtomicityTest do
           user_id: f.user.id,
           role: :user,
           content: "Earlier question #{n}",
+          answered_at: now,
           inserted_at: now,
           updated_at: now
         }
