@@ -755,11 +755,13 @@ defmodule MealPlannerApiWeb.PlanningChannel do
   end
 
   # The cached session process stops once its session ends (#306), so a
-  # call to it may exit: the session is no longer active.
+  # call to it may find no process: the session is no longer active. Any
+  # other exit (a timeout of a live server) is not about the session.
   defp apply_intent(session_pid, session_id, intent) do
     PlanningSessionServer.apply_intent(session_pid, session_id, intent)
   catch
-    :exit, _reason -> {:error, :no_active_session}
+    :exit, {reason, _call} when reason in [:noproc, :normal, :shutdown] ->
+      {:error, :no_active_session}
   end
 
   # A session whose generation did not start is cancelled, as its owner

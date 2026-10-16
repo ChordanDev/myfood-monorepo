@@ -651,6 +651,19 @@ defmodule MealPlannerApi.Generation.PlanningSessionServerTest do
       assert_receive {:DOWN, ^monitor, :process, ^rehydrated, :normal}, 1_000
     end
 
+    test "a server hears notify_ended/1 for its session id before reading the row" do
+      session_id = Ecto.UUID.generate()
+
+      # No row exists yet: the server joined the ended topic in init/1,
+      # before the read, so an end notified right after it is not lost.
+      pid = start_session_server!(account_id: Ecto.UUID.generate(), session_id: session_id)
+      monitor = Process.monitor(pid)
+
+      assert :ok = PlanningSessionServer.notify_ended(session_id)
+
+      assert_receive {:DOWN, ^monitor, :process, ^pid, :normal}, 1_000
+    end
+
     test "a server started for a row already in a terminal status does not start" do
       %{account: account, membership_id: membership_id, pid: pid, session_id: session_id} =
         active_session!("306 terminal row", "306-terminal-row@example.com")

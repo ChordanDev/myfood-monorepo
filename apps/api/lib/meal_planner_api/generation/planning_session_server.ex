@@ -259,12 +259,15 @@ defmodule MealPlannerApi.Generation.PlanningSessionServer do
   defp maybe_rehydrate(%{session_id: nil} = state), do: state
 
   defp maybe_rehydrate(state) do
+    # Joined before the row is read: a `notify_ended/1` sent after the
+    # read would otherwise be lost and leave the server running.
+    subscribe_ended(state.session_id)
+
     case Repo.get(PlanningSession, state.session_id) do
       nil ->
         state
 
       %PlanningSession{status: :active} = row ->
-        subscribe_ended(state.session_id)
         broadcast(state.account_id, "session_resumed", %{"session_id" => state.session_id})
 
         %{
@@ -306,7 +309,7 @@ defmodule MealPlannerApi.Generation.PlanningSessionServer do
 
         case PlanningRepo.create_session(account_id, attrs) do
           {:ok, %PlanningSession{id: session_id} = _session} ->
-            subscribe_ended(session_id)
+            subscribe_ended_if_new(state.session_id, session_id)
             new_state = %{state | session_id: session_id, status: :active}
 
             broadcast(account_id, "session_started", %{"session_id" => session_id})
@@ -405,12 +408,15 @@ defmodule MealPlannerApi.Generation.PlanningSessionServer do
   # Private helpers
   # ===========================================================================
 
-  # The server hears `notify_ended/1` for its session only. Joined once
-  # the session id names a row: after `start_session/5` inserts it, or
-  # when `init/1` rehydrates it.
+  # The server hears `notify_ended/1` for its session only. Joined in
+  # `init/1` for the session id it starts with, and again after
+  # `start_session/5` when the row got another id.
   defp subscribe_ended(session_id) do
     :ok = Phoenix.PubSub.subscribe(MealPlannerApi.PubSub, ended_topic(session_id))
   end
+
+  defp subscribe_ended_if_new(session_id, session_id), do: :ok
+  defp subscribe_ended_if_new(_initial_id, session_id), do: subscribe_ended(session_id)
 
   defp ended_topic(session_id), do: "planning_session_ended:#{session_id}"
 
