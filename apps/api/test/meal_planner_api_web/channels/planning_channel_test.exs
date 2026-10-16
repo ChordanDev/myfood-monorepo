@@ -7,6 +7,7 @@ defmodule MealPlannerApiWeb.PlanningChannelTest do
 
   alias MealPlannerApi.Data.PlanningRepo
   alias MealPlannerApi.Generation.PlanningSession.Sweeper
+  alias MealPlannerApi.Generation.PlanningSessionServer
   alias MealPlannerApi.Persistence.Accounts.Account, as: PersistenceAccount
   alias MealPlannerApi.Persistence.Accounts.AccountMembership
   alias MealPlannerApi.Persistence.Accounts.User
@@ -410,6 +411,15 @@ defmodule MealPlannerApiWeb.PlanningChannelTest do
 
       session_id = session.id
 
+      # #306 — the process serving the session, as one restarted for the row.
+      session_pid =
+        start_supervised!(
+          {PlanningSessionServer, account_id: account.id, session_id: session_id},
+          id: make_ref()
+        )
+
+      session_monitor = Process.monitor(session_pid)
+
       {:ok, socket} = connect(UserSocket, %{"token" => owner_token})
 
       {:ok, _reply, socket} =
@@ -424,6 +434,7 @@ defmodule MealPlannerApiWeb.PlanningChannelTest do
       assert payload["status"] == :cancelled
 
       assert_push("session_cancelled", %{"sessionId" => ^session_id})
+      assert_receive {:DOWN, ^session_monitor, :process, ^session_pid, :normal}, 1_000
 
       # Row flipped to :cancelled in the DB.
       reloaded =

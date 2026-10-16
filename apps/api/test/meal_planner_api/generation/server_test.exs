@@ -10,6 +10,7 @@ defmodule MealPlannerApi.Generation.ServerTest do
   alias MealPlannerApi.Data.PlanningRepo
   alias MealPlannerApi.Data.RecipeRepo
   alias MealPlannerApi.Data.ShoppingRepo
+  alias MealPlannerApi.Generation.PlanningSessionServer
   alias MealPlannerApi.Generation.Server
   alias MealPlannerApi.Persistence.Planning.PlanningProposal
   alias MealPlannerApi.Persistence.Shopping
@@ -1567,6 +1568,82 @@ defmodule MealPlannerApi.Generation.ServerTest do
   end
 
   # -- private helpers --------------------------------------------------------
+
+  describe "confirm/3 — the session process ends with the session (#306)" do
+    test "a successful confirm stops the server of the committed session" do
+      account = insert_account("306 confirm stop")
+      user = insert_user_with_membership(account, "306-confirm-stop@example.com")
+
+      session = insert_active_session(account, user)
+      {_run, proposal} = insert_proposal_with_slots(account, user, [])
+      session_pid = start_session_process!(account, session)
+
+      start_server!(account, user)
+
+      assert {:ok, _reply} = Server.confirm(pid_for_account(account), proposal.id, session.id)
+
+      assert_receive {:DOWN, _ref, :process, ^session_pid, :normal}, 1_000
+      assert fetch_session(session.id).status == :committed
+    end
+
+    test "a confirm that finds the lease expired stops the server of the session" do
+      account = insert_account("306 confirm lease")
+      user = insert_user_with_membership(account, "306-confirm-lease@example.com")
+      membership_id = owner_membership_id(account.id, user.id)
+
+      {:ok, session} =
+        PlanningRepo.create_session(account.id, %{
+          range_from: ~D[2026-09-01],
+          range_to: ~D[2026-09-08],
+          lock_owner_user_id: user.id,
+          lock_owner_membership_id: membership_id,
+          lease_expires_at: DateTime.add(DateTime.utc_now(), -10, :second)
+        })
+
+      {_run, proposal} = insert_proposal_with_slots(account, user, [])
+      session_pid = start_session_process!(account, session)
+
+      start_server!(account, user)
+
+      assert {:error, :lost_lock} =
+               Server.confirm(pid_for_account(account), proposal.id, session.id)
+
+      assert_receive {:DOWN, _ref, :process, ^session_pid, :normal}, 1_000
+      assert fetch_session(session.id).status == :lost_lock
+    end
+
+    test "a refused confirm keeps the server of the session running" do
+      account = insert_account("306 confirm refused")
+      user = insert_user_with_membership(account, "306-confirm-refused@example.com")
+
+      session = insert_active_session(account, user)
+      {_run, proposal} = insert_proposal_with_slots(account, user, [])
+      {:ok, _rejected} = PlanningRepo.update_proposal(proposal, %{status: :rejected})
+      session_pid = start_session_process!(account, session)
+
+      start_server!(account, user)
+
+      assert {:error, _reason} =
+               Server.confirm(pid_for_account(account), proposal.id, session.id)
+
+      refute_receive {:DOWN, _ref, :process, ^session_pid, _reason}, 200
+      assert fetch_session(session.id).status == :active
+    end
+  end
+
+  # A `PlanningSessionServer` serving `session`, as one restarted for a row
+  # that is already `:active`. The caller monitors it.
+  defp start_session_process!(account, session) do
+    pid =
+      start_supervised!(
+        {PlanningSessionServer, account_id: account.id, session_id: session.id},
+        id: make_ref()
+      )
+
+    assert %{status: :active} = :sys.get_state(pid)
+    Process.monitor(pid)
+    pid
+  end
 
   # PR2 of issue #35 — Phase 2.2 lock tests. Creates an :active session
   # on (account, user) with a 120-second lease, returns the persisted

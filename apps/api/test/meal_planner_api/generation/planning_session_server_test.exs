@@ -415,6 +415,8 @@ defmodule MealPlannerApi.Generation.PlanningSessionServerTest do
                      },
                      1_000
 
+      monitor = Process.monitor(pid)
+
       # Simulate the channel process dying abnormally.
       send(pid, {:DOWN, make_ref(), :process, self(), :killed})
 
@@ -428,6 +430,9 @@ defmodule MealPlannerApi.Generation.PlanningSessionServerTest do
       row = Repo.get!(PlanningSession, session_id)
       assert row.status == :lost_lock
       assert row.terminal_at != nil
+
+      # #306 — a :lost_lock session leaves no live process.
+      assert_receive {:DOWN, ^monitor, :process, ^pid, :normal}, 1_000
     end
 
     test ":normal DOWN reason does NOT transition (clean exit leaves :active untouched)" do
@@ -555,21 +560,148 @@ defmodule MealPlannerApi.Generation.PlanningSessionServerTest do
       committed = Repo.get!(PlanningSession, session_id)
       assert :sys.get_state(pid).status == :active
 
+      monitor = Process.monitor(pid)
       send(pid, {:DOWN, make_ref(), :process, self(), :killed})
-      _ = :sys.get_state(pid)
+
+      # #306 — the owner is gone and the row has ended, so the server stops.
+      assert_receive {:DOWN, ^monitor, :process, ^pid, :normal}, 1_000
 
       refute_receive %Phoenix.Socket.Broadcast{topic: ^topic}, 200
 
       row = Repo.get!(PlanningSession, session_id)
       assert row.status == :committed
       assert row.terminal_at == committed.terminal_at
+    end
+  end
+
+  # ---------------------------------------------------------------------------
+  # #306 — a session in a terminal status leaves no live process
+  # ---------------------------------------------------------------------------
+
+  describe "terminal statuses stop the server (#306)" do
+    test "cancel_session/5 replies :ok and stops the server" do
+      %{account: account, membership_id: membership_id, pid: pid, session_id: session_id} =
+        active_session!("306 cancel", "306-cancel@example.com")
+
+      monitor = Process.monitor(pid)
+
+      assert :ok =
+               PlanningSessionServer.cancel_session(
+                 pid,
+                 account.id,
+                 session_id,
+                 membership_id,
+                 false
+               )
+
+      assert_receive {:DOWN, ^monitor, :process, ^pid, :normal}, 1_000
+      assert Repo.get!(PlanningSession, session_id).status == :cancelled
+    end
+
+    test "a refused cancel_session/5 keeps the server running" do
+      %{account: account, pid: pid, session_id: session_id} =
+        active_session!("306 cancel refused", "306-cancel-refused@example.com")
+
+      assert {:error, :forbidden} =
+               PlanningSessionServer.cancel_session(
+                 pid,
+                 account.id,
+                 session_id,
+                 Ecto.UUID.generate(),
+                 false
+               )
+
       assert Process.alive?(pid)
+      assert Repo.get!(PlanningSession, session_id).status == :active
+    end
+
+    test "notify_ended/1 stops the server of that session" do
+      %{pid: pid, session_id: session_id} =
+        active_session!("306 notify", "306-notify@example.com")
+
+      monitor = Process.monitor(pid)
+
+      assert :ok = PlanningSessionServer.notify_ended(session_id)
+
+      assert_receive {:DOWN, ^monitor, :process, ^pid, :normal}, 1_000
+    end
+
+    test "notify_ended/1 for another session keeps the server running" do
+      %{pid: pid} = active_session!("306 notify other", "306-notify-other@example.com")
+
+      assert :ok = PlanningSessionServer.notify_ended(Ecto.UUID.generate())
+
+      _ = :sys.get_state(pid)
+      assert Process.alive?(pid)
+    end
+
+    test "a server rehydrating an :active row stops on notify_ended/1" do
+      %{account: account, pid: pid, session_id: session_id} =
+        active_session!("306 rehydrate", "306-rehydrate@example.com")
+
+      # Free the first server's slot so a second one can rehydrate the row.
+      :ok = stop_supervised_pid(pid)
+
+      rehydrated = start_session_server!(account_id: account.id, session_id: session_id)
+      assert %{status: :active} = :sys.get_state(rehydrated)
+
+      monitor = Process.monitor(rehydrated)
+      assert :ok = PlanningSessionServer.notify_ended(session_id)
+
+      assert_receive {:DOWN, ^monitor, :process, ^rehydrated, :normal}, 1_000
+    end
+
+    test "a server started for a row already in a terminal status does not start" do
+      %{account: account, membership_id: membership_id, pid: pid, session_id: session_id} =
+        active_session!("306 terminal row", "306-terminal-row@example.com")
+
+      :ok = stop_supervised_pid(pid)
+
+      assert {:ok, _} =
+               PlanningRepo.cancel_session(account.id, session_id, membership_id, false)
+
+      assert :ignore =
+               PlanningSessionServer.start_link(account_id: account.id, session_id: session_id)
     end
   end
 
   # ---------------------------------------------------------------------------
   # helpers
   # ---------------------------------------------------------------------------
+
+  # Starts a server for a fresh Account and moves it to an `:active` row.
+  defp active_session!(account_name, email) do
+    account = insert_account(account_name)
+    user = insert_user_with_membership(account, email, :owner)
+    membership_id = owner_membership_id(account.id, user.id)
+
+    pid =
+      start_session_server!(
+        account_id: account.id,
+        owner_user_id: user.id,
+        owner_membership_id: membership_id
+      )
+
+    {:ok, %{session_id: session_id}} =
+      PlanningSessionServer.start_session(
+        pid,
+        account.id,
+        user.id,
+        membership_id,
+        {~D[2026-03-01], ~D[2026-03-08]}
+      )
+
+    %{account: account, membership_id: membership_id, pid: pid, session_id: session_id}
+  end
+
+  # Stops a server started by `start_session_server!/1` without a crash, so
+  # the supervisor does not restart it.
+  defp stop_supervised_pid(pid) do
+    monitor = Process.monitor(pid)
+    :ok = GenServer.stop(pid, :normal)
+    assert_receive {:DOWN, ^monitor, :process, ^pid, :normal}, 1_000
+    :ok
+  end
 
   # Starts a `PlanningSessionServer` under the test supervisor. Each call
   # uses a fresh `id:` so multiple servers can coexist in the same test

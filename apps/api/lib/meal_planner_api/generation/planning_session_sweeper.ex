@@ -14,8 +14,9 @@ defmodule MealPlannerApi.Generation.PlanningSession.Sweeper do
        row, and at most one of them can transition a given session to a
        terminal status.
     3. Moves the locked row to `:expired`, hard-deletes its messages and
-       exceptions in the same transaction, and broadcasts
-       `session_expired` on `planning:<account_id>`.
+       exceptions in the same transaction, broadcasts `session_expired`
+       on `planning:<account_id>` and stops the session's process
+       (`PlanningSessionServer.notify_ended/1`).
 
   Skips rows whose status has already moved to a terminal value
   (`:cancelled`, `:committed`, `:lost_lock`, `:expired`) since the
@@ -27,6 +28,7 @@ defmodule MealPlannerApi.Generation.PlanningSession.Sweeper do
 
   import Ecto.Query, warn: false
 
+  alias MealPlannerApi.Generation.PlanningSessionServer
   alias MealPlannerApi.Persistence.Planning.PlanningException
   alias MealPlannerApi.Persistence.Planning.PlanningMessage
   alias MealPlannerApi.Persistence.Planning.PlanningSession
@@ -141,6 +143,7 @@ defmodule MealPlannerApi.Generation.PlanningSession.Sweeper do
     case result do
       {:ok, :ok} ->
         broadcast_expired(account_id, session_id)
+        PlanningSessionServer.notify_ended(session_id)
 
       _ ->
         :ok

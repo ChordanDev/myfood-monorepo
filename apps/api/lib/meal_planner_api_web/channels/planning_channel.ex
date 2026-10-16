@@ -476,6 +476,8 @@ defmodule MealPlannerApiWeb.PlanningChannel do
              account_owner?
            ) do
       broadcast_session_cancelled(account_id, session_id)
+      # The session's process may run for another socket: stop it by id.
+      PlanningSessionServer.notify_ended(session_id)
 
       {:reply, {:ok, %{session_id: session_id, status: :cancelled}}, socket}
     else

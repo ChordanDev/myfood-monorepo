@@ -23,6 +23,7 @@ defmodule MealPlannerApi.Generation.Server do
     ShoppingRepo
   }
 
+  alias MealPlannerApi.Generation.PlanningSessionServer
   alias MealPlannerApi.Optimization.OptimizerServer
   alias MealPlannerApi.Optimization.PayloadAdapter
   alias MealPlannerApi.Persistence.Planning.PlanningSession
@@ -400,8 +401,12 @@ defmodule MealPlannerApi.Generation.Server do
       :ok
     else
       # Lease expired — flip to :lost_lock OUTSIDE the main Multi so the
-      # audit row is correct even if the transaction later aborts.
-      PlanningRepo.mark_lost_lock(session.account_id, session.id)
+      # audit row is correct even if the transaction later aborts. The
+      # session has ended, so its process stops (#306).
+      with {:ok, _lost} <- PlanningRepo.mark_lost_lock(session.account_id, session.id) do
+        PlanningSessionServer.notify_ended(session.id)
+      end
+
       {:error, :lost_lock}
     end
   end
@@ -443,7 +448,10 @@ defmodule MealPlannerApi.Generation.Server do
       end)
 
     case Repo.transaction(multi) do
-      {:ok, %{scheduled_meals: scheduled, shopping_cart: cart_summary}} ->
+      {:ok, %{mark_committed: session, scheduled_meals: scheduled, shopping_cart: cart_summary}} ->
+        # The session is committed, so its process stops (#306).
+        PlanningSessionServer.notify_ended(session.id)
+
         {:ok,
          %{
            proposal_id: proposal.id,

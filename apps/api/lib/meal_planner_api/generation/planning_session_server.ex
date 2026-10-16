@@ -18,6 +18,14 @@ defmodule MealPlannerApi.Generation.PlanningSessionServer do
       :active        ──:DOWN abnormal──►  :lost_lock
       :active        ──sweeper─────────►  :expired     (DB-side, not this GS)
 
+  The server stops with reason `:normal` once its session reaches a
+  terminal status, so no process outlives its session and the
+  `:transient` restart strategy does not bring it back. It stops itself
+  on `cancel_session/5` and on the `:lost_lock` transition. Transitions
+  made elsewhere (the confirm, the sweeper, the channel's
+  `cancel_planning`) call `notify_ended/1`, which reaches the server of
+  that session wherever it runs.
+
   ## Authorization
 
   Entitlement is re-checked at `start_session/5` via the injectable
@@ -29,10 +37,11 @@ defmodule MealPlannerApi.Generation.PlanningSessionServer do
 
   `POST /api/planning/confirm` commits the row inside the confirm
   transaction (`PlanningRepo.mark_committed/3`) and
-  `PlanningChatService` broadcasts `session_committed`. This server
-  is not told, so its in-memory status stays `:active`; an abnormal
-  owner exit afterwards is harmless because `PlanningRepo.mark_lost_lock/2`
-  only matches `:active` rows.
+  `PlanningChatService` broadcasts `session_committed`. The confirm
+  then calls `notify_ended/1` and this server stops. An abnormal owner
+  exit that lands before it stops is harmless:
+  `PlanningRepo.mark_lost_lock/2` only matches `:active` rows, and the
+  server stops without broadcasting.
 
   ## :DOWN semantics
 
@@ -180,6 +189,24 @@ defmodule MealPlannerApi.Generation.PlanningSessionServer do
   end
 
   @doc """
+  Tells the server of `session_id` that its session reached a terminal
+  status outside it (committed, expired, cancelled through
+  `PlanningRepo`); the server stops with reason `:normal`.
+
+  Callers make the transition first and notify after it, so the server
+  never stops for a session that is still `:active`. A session with no
+  live server is a no-op.
+  """
+  @spec notify_ended(Ecto.UUID.t()) :: :ok
+  def notify_ended(session_id) do
+    Phoenix.PubSub.broadcast(
+      MealPlannerApi.PubSub,
+      ended_topic(session_id),
+      {:planning_session_ended, session_id}
+    )
+  end
+
+  @doc """
   Validates an AI-emitted intent against the typed-intent boundary
   (`GenerationService.validate_ai_intent/1`) and, on `:ok`, stores the
   validated intent in state for PR4's channel handler to consume.
@@ -198,9 +225,10 @@ defmodule MealPlannerApi.Generation.PlanningSessionServer do
 
   @impl true
   def init(state) do
-    state = setup_owner_monitor(state)
-    state = maybe_rehydrate(state)
-    {:ok, state}
+    case maybe_rehydrate(state) do
+      :ended -> :ignore
+      state -> {:ok, setup_owner_monitor(state)}
+    end
   end
 
   # Phase 5 — wire the `:lost_lock` transition path. The server
@@ -223,8 +251,9 @@ defmodule MealPlannerApi.Generation.PlanningSessionServer do
   # for this `session_id`, the server is being restarted after a
   # crash. We rebuild state from the row, broadcast `session_resumed`
   # on the planning topic, and continue serving the same session.
-  # Rows in a terminal status are left alone — the supervisor's
-  # `:transient` strategy won't restart a server that exited cleanly.
+  # A row already in a terminal status has nothing left to serve: the
+  # session ended while the server was down, so `init/1` returns
+  # `:ignore` and no process is left behind.
   # `session_id` may be nil in tests that drive start_link without a
   # row to find; in that case there's nothing to rehydrate.
   defp maybe_rehydrate(%{session_id: nil} = state), do: state
@@ -235,6 +264,7 @@ defmodule MealPlannerApi.Generation.PlanningSessionServer do
         state
 
       %PlanningSession{status: :active} = row ->
+        subscribe_ended(state.session_id)
         broadcast(state.account_id, "session_resumed", %{"session_id" => state.session_id})
 
         %{
@@ -245,10 +275,7 @@ defmodule MealPlannerApi.Generation.PlanningSessionServer do
         }
 
       %PlanningSession{status: _terminal} ->
-        # Should not happen with `:transient` (terminal exits are
-        # not restarted) but defensively leave state untouched so
-        # the supervisor can finish the cycle without crashing.
-        state
+        :ended
     end
   end
 
@@ -279,6 +306,7 @@ defmodule MealPlannerApi.Generation.PlanningSessionServer do
 
         case PlanningRepo.create_session(account_id, attrs) do
           {:ok, %PlanningSession{id: session_id} = _session} ->
+            subscribe_ended(session_id)
             new_state = %{state | session_id: session_id, status: :active}
 
             broadcast(account_id, "session_started", %{"session_id" => session_id})
@@ -304,7 +332,7 @@ defmodule MealPlannerApi.Generation.PlanningSessionServer do
       {:ok, _cancelled} ->
         broadcast(account_id, "session_cancelled", %{"session_id" => session_id})
         new_state = %{state | status: :cancelled}
-        {:reply, :ok, new_state}
+        {:stop, :normal, :ok, new_state}
 
       {:error, _} = err ->
         {:reply, err, state}
@@ -341,6 +369,10 @@ defmodule MealPlannerApi.Generation.PlanningSessionServer do
     end
   end
 
+  def handle_info({:planning_session_ended, session_id}, %{session_id: session_id} = state) do
+    {:stop, :normal, state}
+  end
+
   @impl true
   def handle_info(_msg, state), do: {:noreply, state}
 
@@ -354,10 +386,12 @@ defmodule MealPlannerApi.Generation.PlanningSessionServer do
             %{"session_id" => state.session_id}
           )
 
-          {:noreply, %{state | status: :lost_lock}}
+          {:stop, :normal, %{state | status: :lost_lock}}
 
-        {:error, _} ->
-          {:noreply, state}
+        # The row already ended (a confirm committed it, the sweeper
+        # expired it) and the owner is gone: nothing is left to serve.
+        {:error, :not_active} ->
+          {:stop, :normal, state}
       end
     else
       {:noreply, state}
@@ -370,6 +404,15 @@ defmodule MealPlannerApi.Generation.PlanningSessionServer do
   # ===========================================================================
   # Private helpers
   # ===========================================================================
+
+  # The server hears `notify_ended/1` for its session only. Joined once
+  # the session id names a row: after `start_session/5` inserts it, or
+  # when `init/1` rehydrates it.
+  defp subscribe_ended(session_id) do
+    :ok = Phoenix.PubSub.subscribe(MealPlannerApi.PubSub, ended_topic(session_id))
+  end
+
+  defp ended_topic(session_id), do: "planning_session_ended:#{session_id}"
 
   defp broadcast(account_id, event, payload) do
     Server.broadcast!(
