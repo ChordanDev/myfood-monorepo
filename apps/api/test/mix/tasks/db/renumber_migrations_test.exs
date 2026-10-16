@@ -2,6 +2,9 @@ defmodule Mix.Tasks.Db.RenumberMigrationsTest do
   @moduledoc """
   `mix db.renumber_migrations` (issue #315) on a database that recorded the
   old 15-digit migration versions.
+
+  Each test records the versions it needs inside the sandbox, so it does not
+  depend on whether the test database was migrated before or after the rename.
   """
   use ExUnit.Case, async: false
 
@@ -22,7 +25,7 @@ defmodule Mix.Tasks.Db.RenumberMigrationsTest do
   end
 
   test "a database with the old versions recorded has none of the eleven pending after the task" do
-    record_old_versions!()
+    record_versions!(@old_versions)
     assert pending(@new_versions) == @new_versions
 
     RenumberMigrations.run([])
@@ -34,7 +37,7 @@ defmodule Mix.Tasks.Db.RenumberMigrationsTest do
   end
 
   test "a second run changes nothing" do
-    record_old_versions!()
+    record_versions!(@old_versions)
     assert RenumberMigrations.renumber!(Repo) == 11
     after_first_run = all_recorded()
 
@@ -45,6 +48,7 @@ defmodule Mix.Tasks.Db.RenumberMigrationsTest do
   end
 
   test "a database without the old versions is left unchanged" do
+    record_versions!(@new_versions)
     before = all_recorded()
 
     assert RenumberMigrations.renumber!(Repo) == 0
@@ -53,20 +57,25 @@ defmodule Mix.Tasks.Db.RenumberMigrationsTest do
 
   test "an old version recorded next to its new one is dropped" do
     [{old, new} | _] = @renumbering
-    Repo.insert_all("schema_migrations", [%{version: old, inserted_at: NaiveDateTime.utc_now()}])
+    record_versions!([old | @new_versions])
 
     assert RenumberMigrations.renumber!(Repo) == 1
     assert recorded([old, new]) == [new]
   end
 
-  defp record_old_versions! do
-    for {old, new} <- @renumbering do
-      {1, _} =
-        Repo.update_all(
-          from(m in "schema_migrations", where: m.version == ^new),
-          set: [version: old]
-        )
-    end
+  # Leaves exactly `versions` recorded among the old and new versions of the
+  # renumbering; every other row of schema_migrations stays as it is.
+  defp record_versions!(versions) do
+    Repo.delete_all(
+      from(m in "schema_migrations", where: m.version in ^(@old_versions ++ @new_versions))
+    )
+
+    now = NaiveDateTime.utc_now()
+
+    Repo.insert_all(
+      "schema_migrations",
+      Enum.map(versions, &%{version: &1, inserted_at: now})
+    )
   end
 
   # The versions among `versions` that `mix ecto.migrations` lists as down.
