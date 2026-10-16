@@ -625,6 +625,12 @@ defmodule MealPlannerApi.Services.CookingChatTest do
     end
   end
 
+  # A provider client that raises instead of returning an error tuple.
+  defmodule RaisingClient do
+    @moduledoc false
+    def generate_text(_prompt, _opts), do: raise("provider crashed")
+  end
+
   describe "daily limit" do
     setup do
       use_barrier_client!()
@@ -768,6 +774,64 @@ defmodule MealPlannerApi.Services.CookingChatTest do
 
       assert {:error, :cooking_chat_limit_reached} = ask(f, session, "Over?", now)
       refute_received {:cooking_ai, _, _, _}
+    end
+
+    # The id is checked before the day is counted, so a resend is told its
+    # question is being answered even when that question took the last place.
+    test "a resend of an id whose question took the last place is cooking_message_id_conflict",
+         f do
+      now = DateTime.utc_now()
+      stored_questions!(f, 99, now)
+      session = start!(f, meal!(f, AccountClock.today(f.account.id, now)), now)
+      id = Ecto.UUID.generate()
+      supervisor = start_supervised!(Task.Supervisor, id: make_ref())
+
+      first =
+        Task.Supervisor.async_nolink(supervisor, fn -> ask(f, session, "Last place?", now, id) end)
+
+      assert_receive {:cooking_ai, worker, "Last place?", _opts}
+
+      assert {:error, :cooking_message_id_conflict} = ask(f, session, "Last place?", now, id)
+      refute_received {:cooking_ai, _, _, _}
+
+      send(worker, :answer)
+      assert {:ok, winner} = Task.await(first)
+      assert {:ok, ^winner} = ask(f, session, "Last place?", now, id)
+    end
+
+    test "a model call that raises frees its place in the day", f do
+      now = DateTime.utc_now()
+      stored_questions!(f, 99, now)
+      session = start!(f, meal!(f, AccountClock.today(f.account.id, now)), now)
+
+      Application.put_env(:meal_planner_api, :ai_client, RaisingClient)
+      assert_raise RuntimeError, "provider crashed", fn -> ask(f, session, "Crash?", now) end
+      Application.put_env(:meal_planner_api, :ai_client, MealPlannerApi.CookingBarrierClient)
+
+      assert [] = Enum.filter(stored_turns(), &(&1.cooking_session_id == session.session_id))
+      ask_observing_prompt(f, session, "The hundredth?", now)
+    end
+
+    # The question then stops counting after two minutes; the caller still
+    # sees why the provider call failed.
+    test "the provider failure still goes on when its question cannot be deleted", f do
+      now = DateTime.utc_now()
+      session = start!(f, meal!(f, AccountClock.today(f.account.id, now)), now)
+
+      # Created inside the test transaction, so it is rolled back with it.
+      Repo.query!("""
+      CREATE FUNCTION refuse_chat_delete() RETURNS trigger AS $$
+      BEGIN RAISE EXCEPTION 'delete refused'; END;
+      $$ LANGUAGE plpgsql
+      """)
+
+      Repo.query!("""
+      CREATE TRIGGER refuse_chat_delete BEFORE DELETE ON cooking_chat_messages
+      FOR EACH ROW EXECUTE FUNCTION refuse_chat_delete()
+      """)
+
+      Application.put_env(:meal_planner_api, :ai_client, RaisingClient)
+      assert_raise RuntimeError, "provider crashed", fn -> ask(f, session, "Crash?", now) end
     end
   end
 

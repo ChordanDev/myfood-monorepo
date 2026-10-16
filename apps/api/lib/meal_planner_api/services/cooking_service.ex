@@ -186,7 +186,8 @@ defmodule MealPlannerApi.Services.CookingService do
   provider is called, so questions asked together are refused
   `:cooking_chat_limit_reached` before any provider call once the day is
   full. A resend of an id whose question is still being answered is
-  `:cooking_message_id_conflict`. No lock is held during the provider call.
+  `:cooking_message_id_conflict`, even when that question took the last
+  place of the day. No lock is held during the provider call.
 
   The answer is built from the frozen Context snapshot and the prior answered
   turns. It is stored and the question marked answered; when the session
@@ -194,7 +195,9 @@ defmodule MealPlannerApi.Services.CookingService do
 
   When the provider fails, the question is deleted, so it does not count
   towards the limit, and the canned fallback is answered without being
-  stored: a resend of the same id asks the provider again. Its turns carry
+  stored: a resend of the same id asks the provider again. A provider call
+  that raises, throws or exits also deletes the question before the failure
+  goes on. Its turns carry
   fresh ids that no session read returns. A question whose request died
   before its answer stops counting #{@reservation_seconds} seconds after it
   was asked.
@@ -224,8 +227,9 @@ defmodule MealPlannerApi.Services.CookingService do
     end
   end
 
-  defp ask_new(current_user, ids, session, question, content_type, now) do
+  defp ask_new(current_user, ids, session, {_question, message_id} = question, content_type, now) do
     with :ok <- chat_available(session, now),
+         :ok <- client_message_id_free(session.id, message_id),
          :ok <- within_daily_limit(ids.account_id, now),
          {:ok, frozen} <- freeze_context(ids, session, now),
          {:ok, reservation} <- reserve_question(ids, session.id, question, now) do
@@ -242,7 +246,7 @@ defmodule MealPlannerApi.Services.CookingService do
   # Runs with no lock held: the stored question already holds its place in
   # the day. A question that gets no stored answer is deleted.
   defp ask_reserved(current_user, ids, session, reserved, frozen, content_type, now) do
-    case build_contextual_answer(session.id, frozen, reserved.content, content_type) do
+    case reserved_answer(session.id, frozen, reserved, content_type) do
       {:ok, answer} ->
         with {:error, _reason} = error <-
                store_answer(current_user, ids, session, reserved, answer, now) do
@@ -254,6 +258,25 @@ defmodule MealPlannerApi.Services.CookingService do
         PlanningRepo.delete_pending_chat_question(reserved.id)
         {:ok, fallback_payload(session.id, reserved, answer)}
     end
+  end
+
+  # A provider call that raises, throws or exits deletes the question too,
+  # so its place in the day is freed at once, then the failure goes on.
+  defp reserved_answer(session_id, frozen, reserved, content_type) do
+    build_contextual_answer(session_id, frozen, reserved.content, content_type)
+  catch
+    kind, reason ->
+      stacktrace = __STACKTRACE__
+      free_reserved_question(reserved)
+      :erlang.raise(kind, reason, stacktrace)
+  end
+
+  # The provider failure is the one that goes on: a question whose delete
+  # fails stops counting once `@reservation_seconds` have passed.
+  defp free_reserved_question(reserved) do
+    PlanningRepo.delete_pending_chat_question(reserved.id)
+  catch
+    _kind, _reason -> :ok
   end
 
   defp store_answer(current_user, ids, session, reserved, answer, now) do
@@ -397,22 +420,42 @@ defmodule MealPlannerApi.Services.CookingService do
     end)
   end
 
+  # The id is checked before the unlocked count of the day, so a resend whose
+  # question took the last place is told it is still being answered, as on a
+  # day with room. `free_client_message_id!/2` checks it again under the lock.
+  defp client_message_id_free(session_id, message_id) do
+    case pending_question(session_id, message_id) do
+      {:answering, _pending} -> {:error, :cooking_message_id_conflict}
+      _free -> :ok
+    end
+  end
+
   # Call only inside a transaction: a question still being answered under
   # the id rolls back. One whose request died before its answer gives the id
   # up.
-  defp free_client_message_id!(_session_id, nil), do: :ok
-
   defp free_client_message_id!(session_id, message_id) do
+    case pending_question(session_id, message_id) do
+      nil -> :ok
+      {:answering, _pending} -> Repo.rollback(:cooking_message_id_conflict)
+      {:expired, pending} -> PlanningRepo.delete_pending_chat_question(pending.id)
+    end
+  end
+
+  # The unanswered question stored under the id, if any: `:answering` while
+  # it holds its place, `:expired` once its request is taken as dead.
+  defp pending_question(_session_id, nil), do: nil
+
+  defp pending_question(session_id, message_id) do
     pending_since = DateTime.add(DateTime.utc_now(), -@reservation_seconds, :second)
 
     case PlanningRepo.pending_chat_question_for_client_message(session_id, message_id) do
       nil ->
-        :ok
+        nil
 
       pending ->
         if DateTime.after?(pending.inserted_at, pending_since),
-          do: Repo.rollback(:cooking_message_id_conflict),
-          else: PlanningRepo.delete_pending_chat_question(pending.id)
+          do: {:answering, pending},
+          else: {:expired, pending}
     end
   end
 
