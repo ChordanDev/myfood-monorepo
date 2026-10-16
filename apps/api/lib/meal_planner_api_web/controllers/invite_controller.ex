@@ -81,8 +81,10 @@ defmodule MealPlannerApiWeb.InviteController do
   the invite created for an email nobody has signed in with; an invite
   bound to any other User needs that User's Bearer token, or
   `{"code": ...}`: the code `request_code/2` mailed to the invited email,
-  which any invitee can accept with. `code` wins over `name` and over the
-  `Authorization` header. Errors:
+  which any invitee can accept with. A body with a `code` key always takes
+  this path, whatever the value: `code` wins over `name` and over the
+  `Authorization` header, and a `code` that is not a non-empty string
+  answers `422 code_invalid`. Errors:
   `401 unauthorized` (no `name` and no valid Bearer token, or a `name`
   for an invite bound to a registered User), `403 invite_for_another_user`
   (a Bearer token of a User the invite is not bound to),
@@ -147,8 +149,10 @@ defmodule MealPlannerApiWeb.InviteController do
   end
 
   # Email-code path: {"code": ...} needs no prior auth either; the code
-  # proves the caller owns the invited email.
-  defp resolve_invitee(conn, %{"code" => code}) when is_binary(code) and code != "" do
+  # proves the caller owns the invited email. Any `code` key selects it,
+  # so a malformed code is refused as a code and never falls through to
+  # the name or Bearer path.
+  defp resolve_invitee(conn, %{"code" => code}) do
     {:ok, %{code: code, client_ip: ClientIp.resolve(conn)}}
   end
 

@@ -743,6 +743,82 @@ defmodule MealPlannerApiWeb.InviteAcceptControllerTest do
       assert Repo.get!(AccountMembership, membership_b).status == :invited
       refute Repo.get_by!(User, email: "stub_code@example.com").invite_stub
     end
+
+    test "any body with a code takes the code path, so a malformed code is never a name accept",
+         %{conn: conn} do
+      owner = owner!("owner_malformed_code@example.com", "Family Malformed Code")
+
+      {:ok, %{token: token, membership_id: membership_id}} =
+        AccountsMembership.invite(owner.account, owner, "malformed_code@example.com")
+
+      conn |> post("/api/invites/#{token}/code", %{}) |> json_response(200)
+
+      for code <- [123_456, nil, ""] do
+        conn = post_json("/api/invites/#{token}/accept", %{"code" => code, "name" => "By Name"})
+        assert json_response(conn, 422)["error"] == "code_invalid"
+      end
+
+      assert Repo.get!(AccountMembership, membership_id).status == :invited
+      assert Repo.get_by!(User, email: "malformed_code@example.com").invite_stub
+    end
+
+    # A code that is not a string is refused as the email-code login
+    # refuses it: without a check, so no failed verification is counted.
+    test "a code that is not a string is refused without counting a failed verification",
+         %{conn: conn} do
+      %{token: token, membership_id: membership_id} =
+        removed_member_invited_again!(conn, "rejoin_number_code@example.com")
+
+      build_conn() |> post("/api/invites/#{token}/code", %{}) |> json_response(200)
+
+      for code <- [String.to_integer(mailed_code()), nil] do
+        conn = post_json("/api/invites/#{token}/accept", %{"code" => code})
+        assert json_response(conn, 422)["error"] == "code_invalid"
+      end
+
+      assert Repo.get!(AccountMembership, membership_id).status == :invited
+
+      assert [%EmailVerificationCode{attempts: 0, consumed_at: nil}] =
+               Repo.all(EmailVerificationCode)
+
+      assert Repo.aggregate(
+               from(e in EmailAuthEvent, where: e.kind == "verification_failure"),
+               :count
+             ) == 0
+    end
+
+    test "a code accept whose activation fails leaves the code pending and the stub unclaimed",
+         %{conn: conn} do
+      owner =
+        user_with_memberships(%{email: "owner_code_conflict@example.com"}, [
+          {%{plan: :family_4, name: "Family Code Conflict"}, :owner}
+        ])
+
+      [owner_membership] = owner.memberships
+
+      # Two invite rows for the same stub User; the first is activated as a
+      # concurrent accept would, so activating the second one conflicts.
+      {:ok, %{membership: first}} =
+        InviteService.create_invite_row(owner_membership, "code_conflict@example.com")
+
+      {:ok, %{token: token, membership: second}} =
+        InviteService.create_invite_row(owner_membership, "code_conflict@example.com")
+
+      first
+      |> Ecto.Changeset.change(status: :active, joined_at: DateTime.utc_now())
+      |> Repo.update!()
+
+      conn |> post("/api/invites/#{token}/code", %{}) |> json_response(200)
+
+      conflict = post(build_conn(), "/api/invites/#{token}/accept", %{"code" => mailed_code()})
+
+      assert json_response(conflict, 409)["error"] == "already_a_member"
+      assert Repo.get!(AccountMembership, second.id).status == :invited
+      assert Repo.get_by!(User, email: "code_conflict@example.com").invite_stub
+
+      assert [%EmailVerificationCode{attempts: 0, consumed_at: nil}] =
+               Repo.all(EmailVerificationCode)
+    end
   end
 
   defp owner!(email, account_name) do
@@ -771,6 +847,13 @@ defmodule MealPlannerApiWeb.InviteAcceptControllerTest do
       AccountsMembership.invite(second.account, second, email)
 
     %{member_id: member_id, token: token, membership_id: membership_id}
+  end
+
+  # A real JSON body, so the code keeps its JSON type (a number or null).
+  defp post_json(path, body) do
+    build_conn()
+    |> put_req_header("content-type", "application/json")
+    |> post(path, Jason.encode!(body))
   end
 
   defp mailed_code do

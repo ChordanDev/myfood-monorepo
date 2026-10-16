@@ -308,7 +308,9 @@ defmodule MealPlannerApi.AccountsMembership do
       code never matches. A stub accepted this way is claimed, so no
       `name` accept can claim it afterwards. Extra errors:
       `:code_invalid`, `:code_expired`, `:too_many_attempts` and
-      `{:error, :rate_limited, retry_after}`. When the accept itself
+      `{:error, :rate_limited, retry_after}`. A `code` that is not a
+      string is `:code_invalid` without a check, as the login refuses it,
+      so it counts as no failed verification. When the accept itself
       fails the code stays pending.
 
   Errors: `:invite_token_used`, `:invite_token_expired`,
@@ -337,8 +339,7 @@ defmodule MealPlannerApi.AccountsMembership do
     end)
   end
 
-  def accept_invite(plaintext, %{code: code} = proof)
-      when is_binary(plaintext) and is_binary(code) do
+  def accept_invite(plaintext, %{code: code} = proof) when is_binary(plaintext) do
     hash = InviteService.hash_token(plaintext)
 
     with {:ok, invitee} <- pending_invitee(hash) do

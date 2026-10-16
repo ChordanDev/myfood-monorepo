@@ -570,8 +570,8 @@ Content-Type: application/json
 { "code": "123456" }
 ```
 
-Si el body trae `code`, se usa el código: se ignoran `name` y el
-`Authorization`. Solo sirve el último código pedido por este endpoint
+Si el body trae la clave `code`, con cualquier valor, se usa el código:
+se ignoran `name` y el `Authorization`. Solo sirve el último código pedido por este endpoint
 para ese email; un código del login o del sign-up no acepta una
 invitación, y un código de invitación no inicia sesión. Si es correcto,
 la membership queda `active` y la respuesta es el `200` de abajo. Un
@@ -581,7 +581,7 @@ Errores propios del código (además de los de la tabla de abajo):
 
 | Status | `error` | Causa | Acción recomendada |
 |--------|---------|-------|---------------------|
-| `422` | `code_invalid` | Código incorrecto, o no hay código pendiente para esta invitación | Pedir que lo revise o pedir otro |
+| `422` | `code_invalid` | Código incorrecto, no hay código pendiente para esta invitación, o `code` no es un string con texto (un número, `null` o `""`) | Pedir que lo revise o pedir otro |
 | `401` | `code_expired` | Pasaron más de 10 minutos | Pedir otro código |
 | `429` | `too_many_attempts` | 5 intentos fallidos con este código; ya no sirve, ni el correcto | Pedir otro código |
 | `429` | `rate_limited` | Demasiados códigos fallidos desde esta IP en la última hora. Header `retry-after` | Esperar `retry-after` |
