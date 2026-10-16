@@ -447,6 +447,7 @@ Todos los endpoints de esta sección requieren `Authorization: Bearer
 | Método | Endpoint | Descripción | Rol requerido |
 |--------|----------|-------------|----------------|
 | `POST` | `/api/accounts/:account_id/invites` | Invitar por email | `owner` |
+| `POST` | `/api/invites/:token/code` | Mandar un código al email invitado | — (sin auth) |
 | `POST` | `/api/invites/:token/accept` | Aceptar invitación | — (sin auth) |
 | `GET` | `/api/accounts/:account_id/memberships` | Listar miembros | cualquier miembro activo |
 | `DELETE` | `/api/accounts/:account_id/memberships/:user_id` | Remover miembro | `owner` |
@@ -494,12 +495,17 @@ nuevo" no tiene cuenta/token todavía. Dos variantes según si el email
 invitado ya tiene cuenta en MyFood o no. Quién puede aceptar:
 
 - **Email con cuenta en MyFood:** solo ese usuario, con su propio
-  `Authorization`. Con `{ "name" }` y sin token la respuesta es
-  `401 unauthorized`; con el token de otro usuario, `403
-  invite_for_another_user`.
+  `Authorization` o con un código enviado al email invitado (ver
+  [Aceptar con código](#aceptar-con-código)). Con `{ "name" }` y sin
+  token la respuesta es `401 unauthorized`; con el token de otro
+  usuario, `403 invite_for_another_user`.
 - **Email sin cuenta:** quien tenga el token, con `{ "name" }`. Eso crea
   la cuenta una sola vez: después de aceptar, cualquier otra invitación
-  a ese email se acepta con el token de ese usuario.
+  a ese email se acepta con el token de ese usuario o con un código.
+
+Un usuario sin sesión (por ejemplo, alguien que fue removido de su
+única cuenta y no puede iniciar sesión porque ya no tiene membership
+activa) acepta con código.
 
 **Usuario existente** (manda su `Authorization` header actual; tiene que
 ser el usuario invitado):
@@ -523,7 +529,81 @@ El body solo lleva `name`, un string no vacío. La invitación no pide
 password: el usuario nuevo inicia sesión después con un código enviado
 por email, igual que el resto. Cualquier otra clave del body se ignora.
 
-**Response `200`** — con la membership recién aceptada:
+#### Aceptar con código
+
+Para un invitado que ya tiene cuenta en MyFood pero no tiene sesión.
+Sirve para cualquier invitación, también la de un email sin cuenta.
+Primero se pide el código:
+
+```bash
+POST /api/invites/:token/code
+Content-Type: application/json
+
+{}
+```
+
+El código va **siempre** al email al que se mandó la invitación; el
+body se ignora, así que no hay forma de mandarlo a otra dirección.
+
+**Response `200`:**
+```json
+{ "status": "code_sent", "expires_in_seconds": 600, "resend_available_in_seconds": 60 }
+```
+
+Comparte los límites del login con código: un reenvío cada 60 segundos
+por email y los límites por hora por email y por IP.
+
+| Status | `error` | Causa | Acción recomendada |
+|--------|---------|-------|---------------------|
+| `404` | `invite_token_unknown` | Token inválido/no existe | Mostrar "invitación inválida" |
+| `410` | `invite_token_used` | El token ya fue usado antes | Mostrar "invitación ya usada", pedir una nueva |
+| `410` | `invite_token_expired` | Pasaron más de 7 días desde la invitación | Pedir al `owner` que reenvíe |
+| `429` | `rate_limited` | Reenvío antes de 60 s, o límite por hora agotado. Header `retry-after` en segundos | Esperar `retry-after` |
+| `502` | `code_send_failed` | No se pudo mandar el email | Reintentar enseguida |
+
+Después se acepta con el código:
+
+```bash
+POST /api/invites/:token/accept
+Content-Type: application/json
+
+{ "code": "123456", "deviceId": "6f1c2d3e-4a5b-4c6d-8e7f-901234567890" }
+```
+
+`deviceId` es el mismo que manda el login con código (el UUID que la app
+genera para el teléfono).
+
+Si el body trae la clave `code`, con cualquier valor, se usa el código:
+se ignoran `name` y el `Authorization`. Solo sirve el último código pedido por este endpoint
+para ese email; un código del login o del sign-up no acepta una
+invitación, y un código de invitación no inicia sesión. Si es correcto,
+la membership queda `active` y el invitado queda con la sesión iniciada
+igual que con el login con código: la respuesta es la del
+[login](#login-ejemplo), no el `200` de abajo, y abre una sesión de
+dispositivo que se renueva con `POST /api/auth/refresh`.
+
+```json
+{
+  "accessToken": "eyJ...",
+  "refreshToken": "eyJ...",
+  "tokenType": "Bearer",
+  "me": { "user": { "id": "..." }, "account": { "id": "..." }, "membership": { "role": "member" } }
+}
+```
+
+`me` es el mismo payload que devuelve `GET /api/me`. Un email sin cuenta
+que acepta así queda con su email como `name`.
+
+Errores propios del código (además de los de la tabla de abajo):
+
+| Status | `error` | Causa | Acción recomendada |
+|--------|---------|-------|---------------------|
+| `422` | `code_invalid` | Código incorrecto, no hay código pendiente para esta invitación, `code` no es un string con texto (un número, `null` o `""`), o falta `deviceId` o está vacío (en ese caso el código no se gasta) | Pedir que lo revise o pedir otro |
+| `401` | `code_expired` | Pasaron más de 10 minutos | Pedir otro código |
+| `429` | `too_many_attempts` | 5 intentos fallidos con este código; ya no sirve, ni el correcto | Pedir otro código |
+| `429` | `rate_limited` | Demasiados códigos fallidos desde esta IP en la última hora. Header `retry-after` | Esperar `retry-after` |
+
+**Response `200`** (con `name` o `Authorization`) — con la membership recién aceptada:
 ```json
 {
   "access_token": "eyJ...",

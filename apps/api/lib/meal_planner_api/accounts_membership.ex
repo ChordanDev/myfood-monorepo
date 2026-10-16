@@ -20,7 +20,9 @@ defmodule MealPlannerApi.AccountsMembership do
   alias MealPlannerApi.Persistence.Accounts.AccountMembershipQueries
   alias MealPlannerApi.Persistence.Accounts.User, as: PersistenceUser
   alias MealPlannerApi.Persistence.Accounts.UserEmail
+  alias MealPlannerApi.Persistence.Auth.EmailVerificationCode
   alias MealPlannerApi.Repo
+  alias MealPlannerApi.Services.EmailCodeLogin
   alias MealPlannerApi.Services.InviteService
 
   import Ecto.Query
@@ -277,7 +279,7 @@ defmodule MealPlannerApi.AccountsMembership do
   end
 
   @doc """
-  Accepts an invite token. Two entry points:
+  Accepts an invite token. Three entry points:
 
     * `accept_invite(plaintext, %User{} = user)` — existing User. Flips
       the membership `:invited → :active` and sets `joined_at`. The
@@ -293,7 +295,27 @@ defmodule MealPlannerApi.AccountsMembership do
       User still marked `invite_stub` can be claimed, and only once. An
       invite bound to any other User returns
       `:invitee_authentication_required`: that User has to accept with
-      their own token.
+      their own token or with an email code.
+
+    * `accept_invite(plaintext, %{code: ..., client_ip: ..., open_session: ...})` — any
+      invitee, proving they own the invited email with the code
+      `request_invite_code/2` mailed to it (issue #297). The code is
+      checked and consumed as `MealPlannerApi.Services.EmailCodeLogin`
+      checks a login code: only the latest pending invite code for that
+      email matches, a wrong code counts against the code's attempt cap
+      and against `client_ip`'s hourly failure limit, and an IP over that
+      limit is refused before the code is looked at. A login or sign-up
+      code never matches. A stub accepted this way is claimed, so no
+      `name` accept can claim it afterwards. Extra errors:
+      `:code_invalid`, `:code_expired`, `:too_many_attempts` and
+      `{:error, :rate_limited, retry_after}`. A `code` that is not a
+      string is `:code_invalid` without a check, as the login refuses it,
+      so it counts as no failed verification. Like a login, the accept
+      ends in the session `open_session` opens: it receives the User and
+      the new `:active` Membership, runs in the transaction that consumes
+      the code, and answers `{:ok, session}` (returned under `:session`)
+      or `{:error, reason}`. When the accept or the session fails, nothing
+      is written and the code stays pending.
 
   Errors: `:invite_token_used`, `:invite_token_expired`,
   `:invite_token_unknown`, `:invitee_authentication_required`,
@@ -307,17 +329,35 @@ defmodule MealPlannerApi.AccountsMembership do
   @spec accept_invite(String.t(), PersistenceUser.t() | map()) ::
           {:ok,
            %{
-             user: PersistenceUser.t(),
-             account: Account.t(),
-             membership: AccountMembership.t(),
-             claims: map()
+             required(:user) => PersistenceUser.t(),
+             required(:account) => Account.t(),
+             required(:membership) => AccountMembership.t(),
+             required(:claims) => map(),
+             # Only on a code accept: what its `open_session` answered.
+             optional(:session) => term()
            }}
           | {:error, atom() | Ecto.Changeset.t()}
+          | {:error, :rate_limited, pos_integer()}
   def accept_invite(plaintext, %PersistenceUser{} = invitee) when is_binary(plaintext) do
     accept_invite_with_lookup(plaintext, fn
       %PersistenceUser{id: id} when id == invitee.id -> {:ok, invitee}
       %PersistenceUser{} -> {:error, :invite_for_another_user}
     end)
+  end
+
+  def accept_invite(plaintext, %{code: code, open_session: open_session} = proof)
+      when is_binary(plaintext) and is_function(open_session, 2) do
+    hash = InviteService.hash_token(plaintext)
+
+    with {:ok, invitee} <- pending_invitee(hash) do
+      EmailCodeLogin.redeem_code(
+        UserEmail.normalize(invitee.email),
+        code,
+        :invite,
+        fn row, _now -> accept_with_code(hash, row, open_session) end,
+        limit_failures_by: Map.get(proof, :client_ip)
+      )
+    end
   end
 
   def accept_invite(plaintext, %{name: name})
@@ -356,6 +396,74 @@ defmodule MealPlannerApi.AccountsMembership do
 
   defp claim_invite_stub(%PersistenceUser{}, _name),
     do: {:error, :invitee_authentication_required}
+
+  # Runs in the transaction that consumes the code, which rolls back on
+  # any error, so a session that cannot be opened undoes the accept.
+  defp accept_with_code(hash, row, open_session) do
+    with {:ok, accepted} <- accept_pending_invite(hash, &claim_with_code(&1, row)),
+         {:ok, session} <- open_session.(accepted.user, accepted.membership) do
+      {:ok, Map.put(accepted, :session, session)}
+    end
+  end
+
+  # The code was issued for the User the invite is bound to, so it proves
+  # they own the email. A stub stops being one here: from now on that User
+  # accepts with their own token or a code, never by `name`.
+  defp claim_with_code(%PersistenceUser{id: id} = invitee, %EmailVerificationCode{user_id: id}) do
+    if invitee.invite_stub do
+      Repo.update_all(from(u in PersistenceUser, where: u.id == ^id),
+        set: [invite_stub: false, updated_at: DateTime.utc_now()]
+      )
+    end
+
+    {:ok, %{invitee | invite_stub: false}}
+  end
+
+  defp claim_with_code(%PersistenceUser{}, %EmailVerificationCode{}),
+    do: {:error, :code_invalid}
+
+  @doc """
+  Mails a code to the email of the User the invite `plaintext` is bound
+  to, never to an address the caller names (issue #297). The invitee
+  accepts with it through `accept_invite/2`, which is how a User who
+  already exists but has no session proves they own the invited email.
+
+  The code is issued as `MealPlannerApi.Services.EmailCodeLogin` issues a
+  login code, with its own `:invite` purpose: the same resend cooldown
+  per email, the same hourly request limits per email and per IP bucket
+  (`client_ip`), and only the latest code stays pending.
+
+  Errors: `:invite_token_used`, `:invite_token_expired`,
+  `:invite_token_unknown` (nothing is mailed and no limit is spent),
+  `{:error, :rate_limited, retry_after}`, and `:code_send_failed` when the
+  mailer refused the message (the caller may retry at once).
+  """
+  @spec request_invite_code(String.t(), String.t() | nil) ::
+          {:ok, EmailCodeLogin.code_sent()}
+          | {:error,
+             :invite_token_used
+             | :invite_token_expired
+             | :invite_token_unknown
+             | :code_send_failed}
+          | {:error, :rate_limited, pos_integer()}
+  def request_invite_code(plaintext, client_ip) when is_binary(plaintext) do
+    with {:ok, invitee} <- pending_invitee(InviteService.hash_token(plaintext)) do
+      EmailCodeLogin.issue_code(
+        UserEmail.normalize(invitee.email),
+        client_ip,
+        :invite,
+        fn _email, _client_ip -> {:ok, invitee} end
+      )
+    end
+  end
+
+  # The User a still-pending invite is bound to. Nothing is locked: the
+  # accept locks the invite again before it changes anything.
+  defp pending_invitee(hash) do
+    with {:ok, membership} <- find_invited_membership(hash) do
+      fetch_membership_user(membership)
+    end
+  end
 
   @doc """
   Multi-familia switch: re-issue the access_v2 claim set scoped to a
@@ -453,24 +561,37 @@ defmodule MealPlannerApi.AccountsMembership do
     hash = InviteService.hash_token(plaintext)
 
     Repo.transaction(fn ->
-      with {:ok, membership} <- lock_invited_membership(hash),
-           {:ok, result} <- activate_membership(membership, resolve_user) do
-        result
-      else
+      case accept_pending_invite(hash, resolve_user) do
+        {:ok, result} -> result
         {:error, reason} -> Repo.rollback(reason)
       end
     end)
   end
 
-  defp lock_invited_membership(hash) do
-    query =
-      from(m in AccountMembership,
-        where: m.invite_token_hash == ^hash,
-        where: m.status == :invited,
-        limit: 1,
-        lock: "FOR UPDATE"
-      )
+  # Must run inside a transaction, which the caller rolls back on an error.
+  defp accept_pending_invite(hash, resolve_user) do
+    with {:ok, membership} <- lock_invited_membership(hash) do
+      activate_membership(membership, resolve_user)
+    end
+  end
 
+  defp lock_invited_membership(hash) do
+    hash |> invited_membership_query() |> lock("FOR UPDATE") |> check_invited_membership(hash)
+  end
+
+  defp find_invited_membership(hash) do
+    hash |> invited_membership_query() |> check_invited_membership(hash)
+  end
+
+  defp invited_membership_query(hash) do
+    from(m in AccountMembership,
+      where: m.invite_token_hash == ^hash,
+      where: m.status == :invited,
+      limit: 1
+    )
+  end
+
+  defp check_invited_membership(query, hash) do
     case Repo.one(query) do
       nil ->
         # Could be :invite_token_used (replay) or :invite_token_unknown

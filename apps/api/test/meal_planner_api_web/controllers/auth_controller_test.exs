@@ -384,6 +384,7 @@ defmodule MealPlannerApiWeb.AuthControllerTest do
     Repo.insert!(%EmailVerificationCode{
       user_id: user.id,
       email: user.email,
+      purpose: :login,
       code_hash: EmailCodeAuth.hash_code("123456"),
       expires_at: DateTime.add(DateTime.utc_now(), 600, :second)
     })

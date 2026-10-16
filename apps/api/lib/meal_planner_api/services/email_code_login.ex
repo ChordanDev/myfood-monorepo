@@ -28,11 +28,12 @@ defmodule MealPlannerApi.Services.EmailCodeLogin do
   The plaintext code is never returned or logged; the email is the only
   delivery channel.
 
-  Sign-up (`MealPlannerApi.Services.EmailCodeSignup`) issues and redeems
-  its codes through `cast_email/1`, `issue_code/4` and `redeem_code/4`
-  below, so both flows share one cooldown, one attempt limit and one
-  per-email lock. Each call names its flow and only ever touches that
-  flow's codes.
+  Sign-up (`MealPlannerApi.Services.EmailCodeSignup`) and invite accept
+  (`MealPlannerApi.AccountsMembership.request_invite_code/2`) issue and
+  redeem their codes through `cast_email/1`, `issue_code/4` and
+  `redeem_code/5` below, so every flow shares one cooldown, one attempt
+  limit and one per-email lock. Each call names its flow and only ever
+  touches the codes that flow issued, told apart by the code's `purpose`.
   """
 
   import Ecto.Query
@@ -65,7 +66,7 @@ defmodule MealPlannerApi.Services.EmailCodeLogin do
           resend_available_in_seconds: pos_integer()
         }
 
-  @type flow :: :login | :signup
+  @type flow :: :login | :signup | :invite
 
   @doc """
   Issues a login code for `email` and mails it.
@@ -137,7 +138,7 @@ defmodule MealPlannerApi.Services.EmailCodeLogin do
           | {:error, :rate_limited, pos_integer()}
   def issue_code(email, client_ip, flow, admit) do
     Repo.transaction(
-      fn -> store_code_under_lock(email, client_ip, admit) end,
+      fn -> store_code_under_lock(email, client_ip, flow, admit) end,
       timeout: :timer.seconds(5)
     )
     |> unwrap_transaction()
@@ -149,7 +150,7 @@ defmodule MealPlannerApi.Services.EmailCodeLogin do
 
   # Runs inside the caller's transaction and takes the email lock. Every
   # domain error commits, so the slots it reserved stay spent.
-  defp store_code_under_lock(email, client_ip, admit) do
+  defp store_code_under_lock(email, client_ip, flow, admit) do
     lock_email(email)
     now = DateTime.utc_now()
 
@@ -157,9 +158,9 @@ defmodule MealPlannerApi.Services.EmailCodeLogin do
          :ok <- check_resend_cooldown(email, now),
          :ok <- EmailCodeAuth.reserve_request_slots(email, client_ip) do
       code = EmailCodeAuth.mint_code()
-      row = insert_code!(user, email, code, now)
+      row = insert_code!(user, email, code, flow, now)
 
-      {:ok, %{row: row, mail: code_email(user, email, code)}}
+      {:ok, %{row: row, mail: code_email(user, email, code, flow)}}
     end
   end
 
@@ -226,23 +227,21 @@ defmodule MealPlannerApi.Services.EmailCodeLogin do
     |> Repo.update_all(set: [consumed_at: DateTime.utc_now()])
   end
 
-  # The unconsumed codes `flow` issued for `email`. A login code names its
-  # User and a sign-up code names none, which is what keeps one flow from
-  # verifying or consuming the other's codes.
+  # The unconsumed codes `flow` issued for `email`. Their `purpose` is what
+  # keeps one flow from verifying or consuming another's codes.
   defp pending_codes(email, flow) do
-    query =
-      from(c in EmailVerificationCode, where: c.email == ^email, where: is_nil(c.consumed_at))
-
-    case flow do
-      :login -> where(query, [c], not is_nil(c.user_id))
-      :signup -> where(query, [c], is_nil(c.user_id))
-    end
+    from(c in EmailVerificationCode,
+      where: c.email == ^email,
+      where: c.purpose == ^flow,
+      where: is_nil(c.consumed_at)
+    )
   end
 
-  defp insert_code!(user, email, code, now) do
+  defp insert_code!(user, email, code, flow, now) do
     Repo.insert!(%EmailVerificationCode{
       user_id: user && user.id,
       email: email,
+      purpose: flow,
       code_hash: EmailCodeAuth.hash_code(code),
       expires_at: DateTime.add(now, @ttl_seconds, :second)
     })
@@ -331,7 +330,7 @@ defmodule MealPlannerApi.Services.EmailCodeLogin do
   def redeem_code(email, code, flow, on_match, opts \\ [])
 
   def redeem_code(email, code, flow, on_match, opts)
-      when is_binary(email) and is_binary(code) and flow in [:login, :signup] do
+      when is_binary(email) and is_binary(code) and flow in [:login, :signup, :invite] do
     normalized_email = UserEmail.normalize(email)
     failure_limit = Keyword.fetch(opts, :limit_failures_by)
 
@@ -484,8 +483,14 @@ defmodule MealPlannerApi.Services.EmailCodeLogin do
   end
 
   # A code that belongs to nobody yet is addressed by the email alone.
-  defp code_email(%User{} = user, email, code), do: EmailCodeAuth.code_email(user, email, code)
-  defp code_email(nil, email, code), do: EmailCodeEmail.build(email, code)
+  # An invite code cannot sign in, so its mail does not say it can.
+  defp code_email(%User{} = user, email, code, flow),
+    do: EmailCodeAuth.code_email(user, email, code, mail_kind(flow))
+
+  defp code_email(nil, email, code, flow), do: EmailCodeEmail.build(email, code, mail_kind(flow))
+
+  defp mail_kind(:invite), do: :invite
+  defp mail_kind(_login_or_signup), do: :sign_in
 
   # Serializes every login and sign-up operation on one email for the rest
   # of the transaction, so two concurrent requests cannot both pass the

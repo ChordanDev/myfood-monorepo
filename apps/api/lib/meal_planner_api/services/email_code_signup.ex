@@ -9,7 +9,8 @@ defmodule MealPlannerApi.Services.EmailCodeSignup do
   cooldown, the hourly request limits, the attempt limit and the per-email
   lock are the ones login uses.
 
-  A sign-up code is an `email_verification_codes` row with no `user_id`.
+  A sign-up code is an `email_verification_codes` row with the `:signup`
+  purpose and no `user_id`.
   Nothing else is written until the code is verified, so a sign-up that is
   never finished leaves no User, Account or Membership behind.
   """
