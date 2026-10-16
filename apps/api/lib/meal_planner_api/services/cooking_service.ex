@@ -196,7 +196,8 @@ defmodule MealPlannerApi.Services.CookingService do
   When the provider fails, the question is deleted, so it does not count
   towards the limit, and the canned fallback is answered without being
   stored: a resend of the same id asks the provider again. A provider call
-  that raises also deletes the question before the error goes on. Its turns carry
+  that raises, throws or exits also deletes the question before the failure
+  goes on. Its turns carry
   fresh ids that no session read returns. A question whose request died
   before its answer stops counting #{@reservation_seconds} seconds after it
   was asked.
@@ -265,8 +266,17 @@ defmodule MealPlannerApi.Services.CookingService do
     build_contextual_answer(session_id, frozen, reserved.content, content_type)
   catch
     kind, reason ->
-      PlanningRepo.delete_pending_chat_question(reserved.id)
-      :erlang.raise(kind, reason, __STACKTRACE__)
+      stacktrace = __STACKTRACE__
+      free_reserved_question(reserved)
+      :erlang.raise(kind, reason, stacktrace)
+  end
+
+  # The provider failure is the one that goes on: a question whose delete
+  # fails stops counting once `@reservation_seconds` have passed.
+  defp free_reserved_question(reserved) do
+    PlanningRepo.delete_pending_chat_question(reserved.id)
+  catch
+    _kind, _reason -> :ok
   end
 
   defp store_answer(current_user, ids, session, reserved, answer, now) do
