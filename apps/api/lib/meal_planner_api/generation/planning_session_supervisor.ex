@@ -3,9 +3,12 @@ defmodule MealPlannerApi.Generation.PlanningSessionSupervisor do
   DynamicSupervisor for `PlanningSessionServer` instances.
 
   One session process per active `PlanningSession`. Children are
-  `:temporary` — when a session transitions to a terminal status, the
-  process is expected to terminate; the audit row remains in
-  `planning_sessions` regardless.
+  `:transient`: a server that crashes is restarted and rehydrates its
+  session from the row, and a server whose session reaches a terminal
+  status stops with reason `:normal` and is not restarted (see
+  `PlanningSessionServer`). The audit row remains in
+  `planning_sessions` regardless. A start that is refused leaves no
+  process behind either.
 
   ## Public API
 
@@ -101,8 +104,13 @@ defmodule MealPlannerApi.Generation.PlanningSessionSupervisor do
                membership_id,
                range
              ) do
-          {:ok, %{session_id: db_session_id}} -> {:ok, %{session_id: db_session_id, pid: pid}}
-          {:error, _} = err -> err
+          {:ok, %{session_id: db_session_id}} ->
+            {:ok, %{session_id: db_session_id, pid: pid}}
+
+          # No row was written, so the process has no session to serve.
+          {:error, _} = err ->
+            _ = DynamicSupervisor.terminate_child(__MODULE__, pid)
+            err
         end
 
       {:error, _} = err ->

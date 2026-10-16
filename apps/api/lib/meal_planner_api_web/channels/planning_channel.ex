@@ -429,10 +429,12 @@ defmodule MealPlannerApiWeb.PlanningChannel do
         with {:ok, session_id} <- require_uuid(Map.get(payload, "session_id")),
              {:ok, intent_atom} <- IntentAtomizer.atomize(Map.get(payload, "intent")),
              :ok <- ensure_session_match(session_id, socket.assigns[:session_id]),
-             {:ok, validated} <-
-               PlanningSessionServer.apply_intent(session_pid, session_id, intent_atom) do
+             {:ok, validated} <- apply_intent(session_pid, session_id, intent_atom) do
           {:reply, {:ok, validated}, socket}
         else
+          {:error, :no_active_session} ->
+            {:reply, {:error, error_payload(:no_active_session)}, socket}
+
           {:error, :forbidden_intent} ->
             {:reply, {:error, error_payload(:forbidden_intent)}, socket}
 
@@ -476,6 +478,8 @@ defmodule MealPlannerApiWeb.PlanningChannel do
              account_owner?
            ) do
       broadcast_session_cancelled(account_id, session_id)
+      # The session's process may run for another socket: stop it by id.
+      PlanningSessionServer.notify_ended(session_id)
 
       {:reply, {:ok, %{session_id: session_id, status: :cancelled}}, socket}
     else
@@ -748,6 +752,16 @@ defmodule MealPlannerApiWeb.PlanningChannel do
     Server.start_generation(account_id, user_id, constraints, channel_pid)
   catch
     :exit, _reason -> {:error, :generation_in_progress}
+  end
+
+  # The cached session process stops once its session ends (#306), so a
+  # call to it may find no process: the session is no longer active. Any
+  # other exit (a timeout of a live server) is not about the session.
+  defp apply_intent(session_pid, session_id, intent) do
+    PlanningSessionServer.apply_intent(session_pid, session_id, intent)
+  catch
+    :exit, {reason, _call} when reason in [:noproc, :normal, :shutdown] ->
+      {:error, :no_active_session}
   end
 
   # A session whose generation did not start is cancelled, as its owner

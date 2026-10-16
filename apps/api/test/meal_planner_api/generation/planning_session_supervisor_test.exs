@@ -26,6 +26,7 @@ defmodule MealPlannerApi.Generation.PlanningSessionSupervisorTest do
   import Ecto.Query, warn: false
 
   alias Ecto.Adapters.SQL.Sandbox
+  alias MealPlannerApi.Generation.PlanningSessionServer
   alias MealPlannerApi.Generation.PlanningSessionSupervisor
   alias MealPlannerApi.Persistence.Accounts.Account, as: PersistenceAccount
   alias MealPlannerApi.Persistence.Accounts.AccountMembership
@@ -199,6 +200,8 @@ defmodule MealPlannerApi.Generation.PlanningSessionSupervisorTest do
       # Drain the startup broadcast.
       assert_receive %Phoenix.Socket.Broadcast{event: "session_started"}, 1_000
 
+      server_monitor = Process.monitor(server_pid)
+
       # Kill the channel abnormally.
       Process.exit(channel_pid, :killed)
 
@@ -212,8 +215,10 @@ defmodule MealPlannerApi.Generation.PlanningSessionSupervisorTest do
       assert row.status == :lost_lock
       assert row.terminal_at != nil
 
-      # The server stays alive (TM-3) — no restart needed.
-      assert Process.alive?(server_pid)
+      # #306 — the session ended, so the server stops cleanly and the
+      # `:transient` supervisor does not restart it.
+      assert_receive {:DOWN, ^server_monitor, :process, ^server_pid, :normal}, 1_000
+      assert Supervisor.which_children(PlanningSessionSupervisor) == []
     end
 
     test "TM-3: :normal exit of the monitored channel does NOT trigger :lost_lock" do
@@ -318,6 +323,77 @@ defmodule MealPlannerApi.Generation.PlanningSessionSupervisorTest do
       # Supervisor still has exactly one child (the restarted server).
       counts = Supervisor.count_children(sup_pid)
       assert counts.active == 1
+    end
+  end
+
+  # ---------------------------------------------------------------------------
+  # #306 — no process outlives its session
+  # ---------------------------------------------------------------------------
+
+  describe "session processes end with their session (#306)" do
+    test "a server stopped by a terminal status is not restarted" do
+      account = insert_account("306 sup terminal")
+      _ = mark_eligible!(account)
+      user = insert_user_with_membership(account, "306-sup-terminal@example.com", :owner)
+      membership_id = owner_membership_id(account.id, user.id)
+      sup_pid = Process.whereis(PlanningSessionSupervisor)
+
+      {:ok, %{session_id: session_id, pid: pid}} =
+        PlanningSessionSupervisor.start_session(
+          account.id,
+          user.id,
+          membership_id,
+          {~D[2026-08-01], ~D[2026-08-07]},
+          channel_pid: nil
+        )
+
+      monitor = Process.monitor(pid)
+
+      assert :ok =
+               PlanningSessionServer.cancel_session(
+                 pid,
+                 account.id,
+                 session_id,
+                 membership_id,
+                 false
+               )
+
+      assert_receive {:DOWN, ^monitor, :process, ^pid, :normal}, 1_000
+      assert Supervisor.which_children(sup_pid) == []
+    end
+
+    test "a start refused for an overlapping range leaves no process behind" do
+      account = insert_account("306 sup overlap")
+      _ = mark_eligible!(account)
+      user = insert_user_with_membership(account, "306-sup-overlap@example.com", :owner)
+      membership_id = owner_membership_id(account.id, user.id)
+      sup_pid = Process.whereis(PlanningSessionSupervisor)
+      range = {~D[2026-08-10], ~D[2026-08-16]}
+
+      {:ok, %{pid: first_pid}} =
+        PlanningSessionSupervisor.start_session(account.id, user.id, membership_id, range)
+
+      assert {:error, :overlapping_range} =
+               PlanningSessionSupervisor.start_session(account.id, user.id, membership_id, range)
+
+      assert [{_id, ^first_pid, :worker, _modules}] = Supervisor.which_children(sup_pid)
+    end
+
+    test "a start refused for an ineligible Account leaves no process behind" do
+      account = insert_account("306 sup ineligible")
+      user = insert_user_with_membership(account, "306-sup-ineligible@example.com", :owner)
+      membership_id = owner_membership_id(account.id, user.id)
+      sup_pid = Process.whereis(PlanningSessionSupervisor)
+
+      assert {:error, :subscription_required} =
+               PlanningSessionSupervisor.start_session(
+                 account.id,
+                 user.id,
+                 membership_id,
+                 {~D[2026-08-20], ~D[2026-08-26]}
+               )
+
+      assert Supervisor.which_children(sup_pid) == []
     end
   end
 

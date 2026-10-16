@@ -23,6 +23,7 @@ defmodule MealPlannerApi.Generation.PlanningSession.SweeperTest do
   alias Ecto.Adapters.SQL.Sandbox
   alias MealPlannerApi.Data.PlanningRepo
   alias MealPlannerApi.Generation.PlanningSession.Sweeper
+  alias MealPlannerApi.Generation.PlanningSessionServer
   alias MealPlannerApi.Persistence.Accounts.Account, as: PersistenceAccount
   alias MealPlannerApi.Persistence.Accounts.AccountMembership
   alias MealPlannerApi.Persistence.Accounts.User, as: PersistenceUser
@@ -253,6 +254,44 @@ defmodule MealPlannerApi.Generation.PlanningSession.SweeperTest do
              "expected exactly one of {:cancelled, :expired}, got #{inspect(row.status)}"
 
       assert row.terminal_at != nil
+    end
+  end
+
+  # ---------------------------------------------------------------------------
+  # #306 — an expired session leaves no live process
+  # ---------------------------------------------------------------------------
+
+  describe "tick — the session process of an expired session stops (#306)" do
+    test "the server of a session the sweeper expires exits :normal" do
+      account = insert_account("306 sweeper stop")
+      user = insert_user_with_membership(account, "306-sweeper-stop@example.com", :owner)
+      membership_id = owner_membership_id(account.id, user.id)
+
+      {:ok, session} =
+        PlanningRepo.create_session(account.id, %{
+          range_from: ~D[2026-03-01],
+          range_to: ~D[2026-03-08],
+          lock_owner_user_id: user.id,
+          lock_owner_membership_id: membership_id,
+          lease_expires_at: DateTime.add(DateTime.utc_now(), -1, :second)
+        })
+
+      # The server rehydrates the :active row, as after a restart.
+      server_pid =
+        start_supervised!(
+          {PlanningSessionServer, account_id: account.id, session_id: session.id},
+          id: make_ref()
+        )
+
+      assert %{status: :active} = :sys.get_state(server_pid)
+      monitor = Process.monitor(server_pid)
+
+      start_supervised!({Sweeper, interval: 100, name: :test_306_sweeper},
+        id: :test_306_sweeper
+      )
+
+      assert_receive {:DOWN, ^monitor, :process, ^server_pid, :normal}, 2_000
+      assert Repo.get!(PlanningSession, session.id).status == :expired
     end
   end
 
