@@ -2,7 +2,9 @@ defmodule MealPlannerApi.Mailer.EmailCodeEmail do
   @moduledoc """
   Verification-code email of the login and sign-up flows
   (`MealPlannerApi.Services.EmailCodeLogin`,
-  `MealPlannerApi.Services.EmailCodeSignup`).
+  `MealPlannerApi.Services.EmailCodeSignup`), and of the invite accept
+  (`MealPlannerApi.AccountsMembership.request_invite_code/2`), whose code
+  cannot sign in and so is not called a sign-in code.
 
   One email per issued code, carrying only the six-digit plaintext code
   (never the hash, never the user record). The plaintext is rendered
@@ -11,7 +13,8 @@ defmodule MealPlannerApi.Mailer.EmailCodeEmail do
 
   Body design:
 
-    * Subject: "Your Myfood sign-in code"
+    * Subject: "Your Myfood sign-in code", or "Your Myfood invite code"
+      for an invite code.
     * Text body: a one-line "Your code is XXXXXX" with a short
       expiry note. Plaintext-only retrieval is rare but supported.
     * HTML body: the same value wrapped in a `<strong>` tag so the
@@ -25,31 +28,37 @@ defmodule MealPlannerApi.Mailer.EmailCodeEmail do
   import Bamboo.Email
 
   @from {"Myfood", "no-reply@myfood.app"}
-  @subject "Your Myfood sign-in code"
+  @type kind :: :sign_in | :invite
 
-  @spec build(String.t(), String.t()) :: Bamboo.Email.t()
-  def build(email_address, code)
-      when is_binary(email_address) and is_binary(code) and byte_size(code) == 6 do
+  @spec build(String.t(), String.t(), kind()) :: Bamboo.Email.t()
+  def build(email_address, code, kind \\ :sign_in)
+      when is_binary(email_address) and is_binary(code) and byte_size(code) == 6 and
+             kind in [:sign_in, :invite] do
     new_email(
       from: @from,
       to: {display_name_for(email_address), email_address},
-      subject: @subject,
-      text_body: text_body(code),
-      html_body: html_body(code)
+      subject: subject(kind),
+      text_body: render_text(code, kind),
+      html_body: render_html(code, kind)
     )
   end
 
-  defp text_body(code) do
-    "Your Myfood sign-in code is #{code}. " <>
-      "It expires in 10 minutes and can only be used once."
+  defp subject(:sign_in), do: "Your Myfood sign-in code"
+  defp subject(:invite), do: "Your Myfood invite code"
+
+  defp render_text(code, kind) do
+    "#{lead(kind)} #{code}. It expires in 10 minutes and can only be used once."
   end
 
-  defp html_body(code) do
+  defp render_html(code, kind) do
     """
-    <p>Your Myfood sign-in code is <strong>#{code}</strong>.</p>
+    <p>#{lead(kind)} <strong>#{code}</strong>.</p>
     <p>It expires in 10 minutes and can only be used once.</p>
     """
   end
+
+  defp lead(:sign_in), do: "Your Myfood sign-in code is"
+  defp lead(:invite), do: "The code to accept your invite to Myfood is"
 
   # The Plaintext User is unknown to the service at the moment we
   # render this email; the only header we have is the address itself.

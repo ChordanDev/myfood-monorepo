@@ -576,6 +576,10 @@ defmodule MealPlannerApiWeb.InviteAcceptControllerTest do
 
       assert [email] = Bamboo.SentEmail.all()
       assert [{_name, "rejoin_code@example.com"}] = email.to
+      # The code cannot sign in, so the mail must not call it a sign-in code.
+      assert email.subject == "Your Myfood invite code"
+      assert email.text_body =~ "accept your invite"
+      refute email.text_body =~ "sign-in"
 
       body =
         build_conn()

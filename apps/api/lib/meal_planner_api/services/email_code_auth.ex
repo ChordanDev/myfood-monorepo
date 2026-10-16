@@ -20,7 +20,7 @@ defmodule MealPlannerApi.Services.EmailCodeAuth do
       kept in the same table under its own kind.
     * `max_code_attempts/0` — the failed attempts after which a code is
       locked for good.
-    * `code_email/3` — the verification-code email.
+    * `code_email/4` — the verification-code email.
     * `load_active_memberships/1` — the `:active` Memberships of a User.
   """
 
@@ -406,25 +406,28 @@ defmodule MealPlannerApi.Services.EmailCodeAuth do
 
   @doc """
   Builds the verification-code email for `user` at `email`, addressed
-  by the User's name when it has one. Delivery is left to the caller.
+  by the User's name when it has one. `kind` is the wording
+  (`MealPlannerApi.Mailer.EmailCodeEmail.build/3`). Delivery is left to
+  the caller.
   """
-  @spec code_email(PersistenceUser.t(), String.t(), String.t()) :: Bamboo.Email.t()
-  def code_email(%PersistenceUser{} = user, email, code) do
+  @spec code_email(PersistenceUser.t(), String.t(), String.t(), EmailCodeEmail.kind()) ::
+          Bamboo.Email.t()
+  def code_email(%PersistenceUser{} = user, email, code, kind \\ :sign_in) do
     name =
       case is_binary(user.name) and user.name != "" do
         true -> user.name
         false -> nil
       end
 
-    build_email(email, code, name)
+    build_email(email, code, name, kind)
   end
 
-  defp build_email(email, code, nil), do: EmailCodeEmail.build(email, code)
+  defp build_email(email, code, nil, kind), do: EmailCodeEmail.build(email, code, kind)
 
-  defp build_email(email, code, name) do
+  defp build_email(email, code, name, kind) do
     # Use the named variant by re-importing Bamboo.Email and overriding
     # the `:to` field; the address and code remain unchanged.
-    email_record = EmailCodeEmail.build(email, code)
+    email_record = EmailCodeEmail.build(email, code, kind)
 
     %{email_record | to: {name, email}}
   end

@@ -160,7 +160,7 @@ defmodule MealPlannerApi.Services.EmailCodeLogin do
       code = EmailCodeAuth.mint_code()
       row = insert_code!(user, email, code, flow, now)
 
-      {:ok, %{row: row, mail: code_email(user, email, code)}}
+      {:ok, %{row: row, mail: code_email(user, email, code, flow)}}
     end
   end
 
@@ -483,8 +483,14 @@ defmodule MealPlannerApi.Services.EmailCodeLogin do
   end
 
   # A code that belongs to nobody yet is addressed by the email alone.
-  defp code_email(%User{} = user, email, code), do: EmailCodeAuth.code_email(user, email, code)
-  defp code_email(nil, email, code), do: EmailCodeEmail.build(email, code)
+  # An invite code cannot sign in, so its mail does not say it can.
+  defp code_email(%User{} = user, email, code, flow),
+    do: EmailCodeAuth.code_email(user, email, code, mail_kind(flow))
+
+  defp code_email(nil, email, code, flow), do: EmailCodeEmail.build(email, code, mail_kind(flow))
+
+  defp mail_kind(:invite), do: :invite
+  defp mail_kind(_login_or_signup), do: :sign_in
 
   # Serializes every login and sign-up operation on one email for the rest
   # of the transaction, so two concurrent requests cannot both pass the
