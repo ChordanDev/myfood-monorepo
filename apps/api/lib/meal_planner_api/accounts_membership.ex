@@ -297,7 +297,7 @@ defmodule MealPlannerApi.AccountsMembership do
       `:invitee_authentication_required`: that User has to accept with
       their own token or with an email code.
 
-    * `accept_invite(plaintext, %{code: ..., client_ip: ...})` — any
+    * `accept_invite(plaintext, %{code: ..., client_ip: ..., open_session: ...})` — any
       invitee, proving they own the invited email with the code
       `request_invite_code/2` mailed to it (issue #297). The code is
       checked and consumed as `MealPlannerApi.Services.EmailCodeLogin`
@@ -310,8 +310,12 @@ defmodule MealPlannerApi.AccountsMembership do
       `:code_invalid`, `:code_expired`, `:too_many_attempts` and
       `{:error, :rate_limited, retry_after}`. A `code` that is not a
       string is `:code_invalid` without a check, as the login refuses it,
-      so it counts as no failed verification. When the accept itself
-      fails the code stays pending.
+      so it counts as no failed verification. Like a login, the accept
+      ends in the session `open_session` opens: it receives the User and
+      the new `:active` Membership, runs in the transaction that consumes
+      the code, and answers `{:ok, session}` (returned under `:session`)
+      or `{:error, reason}`. When the accept or the session fails, nothing
+      is written and the code stays pending.
 
   Errors: `:invite_token_used`, `:invite_token_expired`,
   `:invite_token_unknown`, `:invitee_authentication_required`,
@@ -339,7 +343,8 @@ defmodule MealPlannerApi.AccountsMembership do
     end)
   end
 
-  def accept_invite(plaintext, %{code: code} = proof) when is_binary(plaintext) do
+  def accept_invite(plaintext, %{code: code, open_session: open_session} = proof)
+      when is_binary(plaintext) and is_function(open_session, 2) do
     hash = InviteService.hash_token(plaintext)
 
     with {:ok, invitee} <- pending_invitee(hash) do
@@ -347,7 +352,7 @@ defmodule MealPlannerApi.AccountsMembership do
         UserEmail.normalize(invitee.email),
         code,
         :invite,
-        fn row, _now -> accept_pending_invite(hash, &claim_with_code(&1, row)) end,
+        fn row, _now -> accept_with_code(hash, row, open_session) end,
         limit_failures_by: Map.get(proof, :client_ip)
       )
     end
@@ -389,6 +394,15 @@ defmodule MealPlannerApi.AccountsMembership do
 
   defp claim_invite_stub(%PersistenceUser{}, _name),
     do: {:error, :invitee_authentication_required}
+
+  # Runs in the transaction that consumes the code, which rolls back on
+  # any error, so a session that cannot be opened undoes the accept.
+  defp accept_with_code(hash, row, open_session) do
+    with {:ok, accepted} <- accept_pending_invite(hash, &claim_with_code(&1, row)),
+         {:ok, session} <- open_session.(accepted.user, accepted.membership) do
+      {:ok, Map.put(accepted, :session, session)}
+    end
+  end
 
   # The code was issued for the User the invite is bound to, so it proves
   # they own the email. A stub stops being one here: from now on that User

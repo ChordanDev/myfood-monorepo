@@ -567,26 +567,43 @@ Después se acepta con el código:
 POST /api/invites/:token/accept
 Content-Type: application/json
 
-{ "code": "123456" }
+{ "code": "123456", "deviceId": "6f1c2d3e-4a5b-4c6d-8e7f-901234567890" }
 ```
+
+`deviceId` es el mismo que manda el login con código (el UUID que la app
+genera para el teléfono).
 
 Si el body trae la clave `code`, con cualquier valor, se usa el código:
 se ignoran `name` y el `Authorization`. Solo sirve el último código pedido por este endpoint
 para ese email; un código del login o del sign-up no acepta una
 invitación, y un código de invitación no inicia sesión. Si es correcto,
-la membership queda `active` y la respuesta es el `200` de abajo. Un
-email sin cuenta que acepta así queda con su email como `name`.
+la membership queda `active` y el invitado queda con la sesión iniciada
+igual que con el login con código: la respuesta es la del
+[login](#login-ejemplo), no el `200` de abajo, y abre una sesión de
+dispositivo que se renueva con `POST /api/auth/refresh`.
+
+```json
+{
+  "accessToken": "eyJ...",
+  "refreshToken": "eyJ...",
+  "tokenType": "Bearer",
+  "me": { "user": { "id": "..." }, "account": { "id": "..." }, "membership": { "role": "member" } }
+}
+```
+
+`me` es el mismo payload que devuelve `GET /api/me`. Un email sin cuenta
+que acepta así queda con su email como `name`.
 
 Errores propios del código (además de los de la tabla de abajo):
 
 | Status | `error` | Causa | Acción recomendada |
 |--------|---------|-------|---------------------|
-| `422` | `code_invalid` | Código incorrecto, no hay código pendiente para esta invitación, o `code` no es un string con texto (un número, `null` o `""`) | Pedir que lo revise o pedir otro |
+| `422` | `code_invalid` | Código incorrecto, no hay código pendiente para esta invitación, `code` no es un string con texto (un número, `null` o `""`), o falta `deviceId` o está vacío (en ese caso el código no se gasta) | Pedir que lo revise o pedir otro |
 | `401` | `code_expired` | Pasaron más de 10 minutos | Pedir otro código |
 | `429` | `too_many_attempts` | 5 intentos fallidos con este código; ya no sirve, ni el correcto | Pedir otro código |
 | `429` | `rate_limited` | Demasiados códigos fallidos desde esta IP en la última hora. Header `retry-after` | Esperar `retry-after` |
 
-**Response `200`** — con la membership recién aceptada:
+**Response `200`** (con `name` o `Authorization`) — con la membership recién aceptada:
 ```json
 {
   "access_token": "eyJ...",

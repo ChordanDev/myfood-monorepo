@@ -10,8 +10,10 @@ defmodule MealPlannerApiWeb.InviteController do
 
   alias MealPlannerApi.AccountsMembership
   alias MealPlannerApi.Auth.Guardian
+  alias MealPlannerApi.Services.DeviceSessions
   alias MealPlannerApiWeb.ClientIp
   alias MealPlannerApiWeb.Controllers.AccountScopeHelpers
+  alias MealPlannerApiWeb.CurrentMe
   alias MealPlannerApiWeb.Plugs.VerifyTokenType
 
   @doc """
@@ -80,11 +82,16 @@ defmodule MealPlannerApiWeb.InviteController do
   other key in the body is ignored. A `name` only claims the stub User
   the invite created for an email nobody has signed in with; an invite
   bound to any other User needs that User's Bearer token, or
-  `{"code": ...}`: the code `request_code/2` mailed to the invited email,
-  which any invitee can accept with. A body with a `code` key always takes
-  this path, whatever the value: `code` wins over `name` and over the
-  `Authorization` header, and a `code` that is not a non-empty string
-  answers `422 code_invalid`. Errors:
+  `{"code": ..., "deviceId": ...}`: the code `request_code/2` mailed to the
+  invited email, which any invitee can accept with. A body with a `code`
+  key always takes this path, whatever the value: `code` wins over `name`
+  and over the `Authorization` header, and a `code` that is not a
+  non-empty string answers `422 code_invalid`. A code accept signs the
+  invitee in as the email-code login does: it answers the `200` of
+  `POST /api/auth/login/verify-code` (`accessToken`, `refreshToken`,
+  `tokenType`, `me`) and opens a Device session on `deviceId`, validated
+  as the login validates it (an invalid one is `422 code_invalid` before
+  the code is looked at). Errors:
   `401 unauthorized` (no `name` and no valid Bearer token, or a `name`
   for an invite bound to a registered User), `403 invite_for_another_user`
   (a Bearer token of a User the invite is not bound to),
@@ -93,6 +100,42 @@ defmodule MealPlannerApiWeb.InviteController do
   `401 code_expired`, `429 too_many_attempts` and `429 rate_limited` (the
   client IP has too many failed code checks; with a `retry-after` header).
   """
+  def accept(conn, %{"token" => token, "code" => code} = params) do
+    device_id = params["deviceId"]
+
+    with :ok <- validate_device_id(device_id),
+         {:ok, %{session: %{me: me, tokens: tokens}}} <-
+           AccountsMembership.accept_invite(token, %{
+             code: code,
+             client_ip: ClientIp.resolve(conn),
+             open_session: &build_session(&1, &2, device_id)
+           }) do
+      json(conn, %{
+        accessToken: tokens.access_token,
+        refreshToken: tokens.refresh_token,
+        tokenType: "Bearer",
+        me: me
+      })
+    else
+      {:error, :device_id_invalid} ->
+        conn |> put_status(:unprocessable_entity) |> json(%{error: "code_invalid"})
+
+      {:error, :rate_limited, retry_after} ->
+        rate_limited(conn, retry_after)
+
+      {:error, %Ecto.Changeset{} = changeset} ->
+        Logger.warning(
+          "invite accept rejected reason=membership_conflict errors=#{inspect(changeset.errors)}"
+        )
+
+        conn |> put_status(:conflict) |> json(%{error: "already_a_member"})
+
+      {:error, reason} ->
+        Logger.warning("invite code accept rejected reason=#{reason}")
+        conn |> put_status(error_status(reason)) |> json(%{error: Atom.to_string(reason)})
+    end
+  end
+
   def accept(conn, %{"token" => token} = params) do
     case resolve_invitee(conn, params) do
       {:ok, invitee_arg} ->
@@ -111,9 +154,6 @@ defmodule MealPlannerApiWeb.InviteController do
           {:error, :invitee_authentication_required} ->
             Logger.warning("invite accept rejected reason=invitee_authentication_required")
             conn |> put_status(:unauthorized) |> json(%{error: "unauthorized"})
-
-          {:error, :rate_limited, retry_after} ->
-            rate_limited(conn, retry_after)
 
           {:error, reason}
           when reason in [:invite_token_used, :invite_token_expired, :invite_token_unknown] ->
@@ -148,12 +188,19 @@ defmodule MealPlannerApiWeb.InviteController do
     end
   end
 
-  # Email-code path: {"code": ...} needs no prior auth either; the code
-  # proves the caller owns the invited email. Any `code` key selects it,
-  # so a malformed code is refused as a code and never falls through to
-  # the name or Bearer path.
-  defp resolve_invitee(conn, %{"code" => code}) do
-    {:ok, %{code: code, client_ip: ClientIp.resolve(conn)}}
+  # The `me` payload and the Device session of a code accept, as
+  # `MealPlannerApiWeb.MobileAuthController` builds them for a login.
+  defp build_session(user, membership, device_id) do
+    with {:ok, me} <- CurrentMe.load(user, membership),
+         {:ok, tokens} <- DeviceSessions.open(user, membership, device_id) do
+      {:ok, %{me: me, tokens: tokens}}
+    end
+  end
+
+  # Asked first, as the login asks it, so that a `deviceId` no session
+  # could be stored with never costs a code.
+  defp validate_device_id(device_id) do
+    if DeviceSessions.valid_device_id?(device_id), do: :ok, else: {:error, :device_id_invalid}
   end
 
   # New User path: {"name": ...} needs no prior auth — the invitee has
@@ -208,5 +255,6 @@ defmodule MealPlannerApiWeb.InviteController do
   defp error_status(:code_expired), do: :unauthorized
   defp error_status(:too_many_attempts), do: :too_many_requests
   defp error_status(:code_send_failed), do: :bad_gateway
+  defp error_status(:session_issue_failed), do: :internal_server_error
   defp error_status(_), do: :unprocessable_entity
 end

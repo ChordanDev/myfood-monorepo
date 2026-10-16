@@ -14,6 +14,8 @@ defmodule MealPlannerApiWeb.InviteAcceptControllerTest do
   alias MealPlannerApi.Services.InviteService
   alias MealPlannerApiWeb.Controllers.AccountScopeHelpers
 
+  @device_id "6f1c2d3e-4a5b-4c6d-8e7f-901234567890"
+
   describe "POST /api/invites/:token/accept (task 3.4)" do
     test "existing User accepts and receives a fresh auth payload", %{conn: conn} do
       owner =
@@ -577,20 +579,59 @@ defmodule MealPlannerApiWeb.InviteAcceptControllerTest do
 
       body =
         build_conn()
-        |> post("/api/invites/#{token}/accept", %{"code" => mailed_code()})
+        |> post("/api/invites/#{token}/accept", %{
+          "deviceId" => @device_id,
+          "code" => mailed_code()
+        })
         |> json_response(200)
 
-      assert body["user"]["id"] == member_id
-      assert body["membership"]["id"] == membership_id
-      assert body["membership"]["status"] == "active"
-      assert is_binary(body["access_token"])
-      assert is_binary(body["refresh_token"])
+      # The session a login opens: a Device session whose refresh token
+      # keeps the invitee signed in.
+      assert body["tokenType"] == "Bearer"
+      assert body["me"]["user"]["id"] == member_id
+      assert body["me"]["membership"] == %{"role" => "member"}
+
+      assert {:ok, claims} = Guardian.decode_and_verify(body["accessToken"])
+      assert claims["membership_id"] == membership_id
+
+      refreshed =
+        build_conn()
+        |> post("/api/auth/refresh", %{"refreshToken" => body["refreshToken"]})
+        |> json_response(200)
+
+      assert is_binary(refreshed["accessToken"])
 
       assert %AccountMembership{status: :active, user_id: ^member_id} =
                Repo.get!(AccountMembership, membership_id)
 
       assert [%EmailVerificationCode{consumed_at: %DateTime{}}] =
                Repo.all(EmailVerificationCode)
+    end
+
+    # As in the email-code login, a `deviceId` no Device session could be
+    # stored with is refused before the code is looked at.
+    test "a code accept without a valid deviceId is refused and leaves the code untouched",
+         %{conn: conn} do
+      %{token: token, membership_id: membership_id} =
+        removed_member_invited_again!(conn, "rejoin_no_device@example.com")
+
+      build_conn() |> post("/api/invites/#{token}/code", %{}) |> json_response(200)
+      code = mailed_code()
+
+      for body <- [%{"code" => code}, %{"code" => code, "deviceId" => "  "}] do
+        conn = post_json("/api/invites/#{token}/accept", body)
+        assert json_response(conn, 422)["error"] == "code_invalid"
+      end
+
+      assert Repo.get!(AccountMembership, membership_id).status == :invited
+
+      assert [%EmailVerificationCode{attempts: 0, consumed_at: nil}] =
+               Repo.all(EmailVerificationCode)
+
+      assert Repo.aggregate(
+               from(e in EmailAuthEvent, where: e.kind == "verification_failure"),
+               :count
+             ) == 0
     end
 
     test "a wrong code is refused and counts as a failed verification", %{conn: conn} do
@@ -600,7 +641,11 @@ defmodule MealPlannerApiWeb.InviteAcceptControllerTest do
       build_conn() |> post("/api/invites/#{token}/code", %{}) |> json_response(200)
       wrong = if mailed_code() == "000000", do: "111111", else: "000000"
 
-      conn = post(build_conn(), "/api/invites/#{token}/accept", %{"code" => wrong})
+      conn =
+        post(build_conn(), "/api/invites/#{token}/accept", %{
+          "deviceId" => @device_id,
+          "code" => wrong
+        })
 
       assert json_response(conn, 422)["error"] == "code_invalid"
       assert Repo.get!(AccountMembership, membership_id).status == :invited
@@ -624,14 +669,29 @@ defmodule MealPlannerApiWeb.InviteAcceptControllerTest do
       wrong = if code == "000000", do: "111111", else: "000000"
 
       for _ <- 1..4 do
-        conn = post(build_conn(), "/api/invites/#{token}/accept", %{"code" => wrong})
+        conn =
+          post(build_conn(), "/api/invites/#{token}/accept", %{
+            "deviceId" => @device_id,
+            "code" => wrong
+          })
+
         assert json_response(conn, 422)["error"] == "code_invalid"
       end
 
-      fifth = post(build_conn(), "/api/invites/#{token}/accept", %{"code" => wrong})
+      fifth =
+        post(build_conn(), "/api/invites/#{token}/accept", %{
+          "deviceId" => @device_id,
+          "code" => wrong
+        })
+
       assert json_response(fifth, 429)["error"] == "too_many_attempts"
 
-      right = post(build_conn(), "/api/invites/#{token}/accept", %{"code" => code})
+      right =
+        post(build_conn(), "/api/invites/#{token}/accept", %{
+          "deviceId" => @device_id,
+          "code" => code
+        })
+
       assert json_response(right, 429)["error"] == "too_many_attempts"
       assert Repo.get!(AccountMembership, membership_id).status == :invited
     end
@@ -651,7 +711,11 @@ defmodule MealPlannerApiWeb.InviteAcceptControllerTest do
       |> post("/api/auth/login/request-code", %{"email" => invitee.email})
       |> json_response(200)
 
-      conn = post(build_conn(), "/api/invites/#{token}/accept", %{"code" => mailed_code()})
+      conn =
+        post(build_conn(), "/api/invites/#{token}/accept", %{
+          "deviceId" => @device_id,
+          "code" => mailed_code()
+        })
 
       assert json_response(conn, 422)["error"] == "code_invalid"
       assert Repo.get!(AccountMembership, membership_id).status == :invited
@@ -734,7 +798,10 @@ defmodule MealPlannerApiWeb.InviteAcceptControllerTest do
       conn |> post("/api/invites/#{token_a}/code", %{}) |> json_response(200)
 
       build_conn()
-      |> post("/api/invites/#{token_a}/accept", %{"code" => mailed_code()})
+      |> post("/api/invites/#{token_a}/accept", %{
+        "deviceId" => @device_id,
+        "code" => mailed_code()
+      })
       |> json_response(200)
 
       refused = post(build_conn(), "/api/invites/#{token_b}/accept", %{"name" => "Attacker"})
@@ -754,7 +821,13 @@ defmodule MealPlannerApiWeb.InviteAcceptControllerTest do
       conn |> post("/api/invites/#{token}/code", %{}) |> json_response(200)
 
       for code <- [123_456, nil, ""] do
-        conn = post_json("/api/invites/#{token}/accept", %{"code" => code, "name" => "By Name"})
+        conn =
+          post_json("/api/invites/#{token}/accept", %{
+            "deviceId" => @device_id,
+            "code" => code,
+            "name" => "By Name"
+          })
+
         assert json_response(conn, 422)["error"] == "code_invalid"
       end
 
@@ -772,7 +845,9 @@ defmodule MealPlannerApiWeb.InviteAcceptControllerTest do
       build_conn() |> post("/api/invites/#{token}/code", %{}) |> json_response(200)
 
       for code <- [String.to_integer(mailed_code()), nil] do
-        conn = post_json("/api/invites/#{token}/accept", %{"code" => code})
+        conn =
+          post_json("/api/invites/#{token}/accept", %{"deviceId" => @device_id, "code" => code})
+
         assert json_response(conn, 422)["error"] == "code_invalid"
       end
 
@@ -810,7 +885,11 @@ defmodule MealPlannerApiWeb.InviteAcceptControllerTest do
 
       conn |> post("/api/invites/#{token}/code", %{}) |> json_response(200)
 
-      conflict = post(build_conn(), "/api/invites/#{token}/accept", %{"code" => mailed_code()})
+      conflict =
+        post(build_conn(), "/api/invites/#{token}/accept", %{
+          "deviceId" => @device_id,
+          "code" => mailed_code()
+        })
 
       assert json_response(conflict, 409)["error"] == "already_a_member"
       assert Repo.get!(AccountMembership, second.id).status == :invited
