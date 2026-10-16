@@ -1484,6 +1484,7 @@ defmodule MealPlannerApiWeb.MobileAuthControllerTest do
         %{
           user_id: user.id,
           email: user.email,
+          purpose: :login,
           code_hash: EmailCodeAuth.hash_code(code),
           expires_at: DateTime.add(DateTime.utc_now(), 600, :second)
         },
@@ -1499,6 +1500,7 @@ defmodule MealPlannerApiWeb.MobileAuthControllerTest do
       Map.merge(
         %{
           email: email,
+          purpose: :signup,
           code_hash: EmailCodeAuth.hash_code(code),
           expires_at: DateTime.add(DateTime.utc_now(), 600, :second)
         },

@@ -120,6 +120,7 @@ defmodule MealPlannerApi.Services.EmailCodeSignupTest do
     Repo.insert!(%EmailVerificationCode{
       user_id: user_id,
       email: @email,
+      purpose: if(user_id, do: :login, else: :signup),
       code_hash: EmailCodeAuth.hash_code(code),
       expires_at: DateTime.add(DateTime.utc_now(), 600, :second)
     })

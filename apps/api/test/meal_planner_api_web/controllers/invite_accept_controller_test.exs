@@ -1,12 +1,15 @@
 defmodule MealPlannerApiWeb.InviteAcceptControllerTest do
   use MealPlannerApiWeb.ConnCase, async: false
 
+  import Ecto.Query
   import MealPlannerApi.FactoryHelpers
 
   alias MealPlannerApi.AccountsMembership
   alias MealPlannerApi.Auth.Guardian
   alias MealPlannerApi.Persistence.Accounts.AccountMembership
   alias MealPlannerApi.Persistence.Accounts.User
+  alias MealPlannerApi.Persistence.Auth.EmailAuthEvent
+  alias MealPlannerApi.Persistence.Auth.EmailVerificationCode
   alias MealPlannerApi.Repo
   alias MealPlannerApi.Services.InviteService
   alias MealPlannerApiWeb.Controllers.AccountScopeHelpers
@@ -547,5 +550,232 @@ defmodule MealPlannerApiWeb.InviteAcceptControllerTest do
       assert json_response(conn, 403)["error"] == "invite_for_another_user"
       assert Repo.get!(AccountMembership, membership_id).status == :invited
     end
+  end
+
+  describe "email-code accept of an invite (#297)" do
+    setup do
+      Bamboo.SentEmail.reset()
+      :ok
+    end
+
+    test "a removed member invited again accepts with the code mailed to the invite's email",
+         %{conn: conn} do
+      %{member_id: member_id, token: token, membership_id: membership_id} =
+        removed_member_invited_again!(conn, "rejoin_code@example.com")
+
+      sent =
+        build_conn()
+        |> post("/api/invites/#{token}/code", %{"email" => "attacker@example.com"})
+        |> json_response(200)
+
+      assert sent["status"] == "code_sent"
+      assert sent["expires_in_seconds"] == 600
+      assert sent["resend_available_in_seconds"] == 60
+
+      assert [email] = Bamboo.SentEmail.all()
+      assert [{_name, "rejoin_code@example.com"}] = email.to
+
+      body =
+        build_conn()
+        |> post("/api/invites/#{token}/accept", %{"code" => mailed_code()})
+        |> json_response(200)
+
+      assert body["user"]["id"] == member_id
+      assert body["membership"]["id"] == membership_id
+      assert body["membership"]["status"] == "active"
+      assert is_binary(body["access_token"])
+      assert is_binary(body["refresh_token"])
+
+      assert %AccountMembership{status: :active, user_id: ^member_id} =
+               Repo.get!(AccountMembership, membership_id)
+
+      assert [%EmailVerificationCode{consumed_at: %DateTime{}}] =
+               Repo.all(EmailVerificationCode)
+    end
+
+    test "a wrong code is refused and counts as a failed verification", %{conn: conn} do
+      %{token: token, membership_id: membership_id} =
+        removed_member_invited_again!(conn, "rejoin_wrong@example.com")
+
+      build_conn() |> post("/api/invites/#{token}/code", %{}) |> json_response(200)
+      wrong = if mailed_code() == "000000", do: "111111", else: "000000"
+
+      conn = post(build_conn(), "/api/invites/#{token}/accept", %{"code" => wrong})
+
+      assert json_response(conn, 422)["error"] == "code_invalid"
+      assert Repo.get!(AccountMembership, membership_id).status == :invited
+
+      assert [%EmailVerificationCode{attempts: 1, consumed_at: nil}] =
+               Repo.all(EmailVerificationCode)
+
+      assert Repo.aggregate(
+               from(e in EmailAuthEvent, where: e.kind == "verification_failure"),
+               :count
+             ) == 1
+    end
+
+    test "the code locks after the attempt cap, and the right code is refused too",
+         %{conn: conn} do
+      %{token: token, membership_id: membership_id} =
+        removed_member_invited_again!(conn, "rejoin_locked@example.com")
+
+      build_conn() |> post("/api/invites/#{token}/code", %{}) |> json_response(200)
+      code = mailed_code()
+      wrong = if code == "000000", do: "111111", else: "000000"
+
+      for _ <- 1..4 do
+        conn = post(build_conn(), "/api/invites/#{token}/accept", %{"code" => wrong})
+        assert json_response(conn, 422)["error"] == "code_invalid"
+      end
+
+      fifth = post(build_conn(), "/api/invites/#{token}/accept", %{"code" => wrong})
+      assert json_response(fifth, 429)["error"] == "too_many_attempts"
+
+      right = post(build_conn(), "/api/invites/#{token}/accept", %{"code" => code})
+      assert json_response(right, 429)["error"] == "too_many_attempts"
+      assert Repo.get!(AccountMembership, membership_id).status == :invited
+    end
+
+    test "a login code does not accept the invite", %{conn: conn} do
+      owner = owner!("owner_login_code@example.com", "Family Login Code")
+
+      invitee =
+        user_with_memberships(%{email: "login_code_invitee@example.com"}, [
+          {%{plan: :individual, name: "Login Code Invitee"}, :owner}
+        ])
+
+      {:ok, %{token: token, membership_id: membership_id}} =
+        AccountsMembership.invite(owner.account, owner, invitee.email)
+
+      conn
+      |> post("/api/auth/login/request-code", %{"email" => invitee.email})
+      |> json_response(200)
+
+      conn = post(build_conn(), "/api/invites/#{token}/accept", %{"code" => mailed_code()})
+
+      assert json_response(conn, 422)["error"] == "code_invalid"
+      assert Repo.get!(AccountMembership, membership_id).status == :invited
+    end
+
+    test "an invite code does not log in", %{conn: conn} do
+      owner = owner!("owner_invite_login@example.com", "Family Invite Login")
+
+      invitee =
+        user_with_memberships(%{email: "invite_code_login@example.com"}, [
+          {%{plan: :individual, name: "Invite Code Login"}, :owner}
+        ])
+
+      {:ok, %{token: token}} = AccountsMembership.invite(owner.account, owner, invitee.email)
+
+      conn |> post("/api/invites/#{token}/code", %{}) |> json_response(200)
+
+      conn =
+        post(build_conn(), "/api/auth/login/verify-code", %{
+          "email" => invitee.email,
+          "code" => mailed_code(),
+          "deviceId" => Ecto.UUID.generate()
+        })
+
+      assert json_response(conn, 422)["error"]["code"] == "code_invalid"
+    end
+
+    test "a second code request inside the cooldown is rate limited", %{conn: conn} do
+      %{token: token} = removed_member_invited_again!(conn, "rejoin_cooldown@example.com")
+
+      build_conn() |> post("/api/invites/#{token}/code", %{}) |> json_response(200)
+      again = post(build_conn(), "/api/invites/#{token}/code", %{})
+
+      assert json_response(again, 429)["error"] == "rate_limited"
+      assert [retry_after] = get_resp_header(again, "retry-after")
+      assert String.to_integer(retry_after) in 1..60
+      assert [_only_the_first] = Bamboo.SentEmail.all()
+    end
+
+    test "a code for an unknown, used or expired invite is refused and nothing is mailed",
+         %{conn: conn} do
+      owner = owner!("owner_code_refused@example.com", "Family Code Refused")
+
+      unknown = post(conn, "/api/invites/not-a-real-token/code", %{})
+      assert json_response(unknown, 404)["error"] == "invite_token_unknown"
+
+      {:ok, %{token: used}} =
+        AccountsMembership.invite(owner.account, owner, "code_used@example.com")
+
+      build_conn()
+      |> post("/api/invites/#{used}/accept", %{"name" => "Used"})
+      |> json_response(200)
+
+      used_conn = post(build_conn(), "/api/invites/#{used}/code", %{})
+      assert json_response(used_conn, 410)["error"] == "invite_token_used"
+
+      {:ok, %{token: expired, membership_id: expired_id}} =
+        AccountsMembership.invite(owner.account, owner, "code_expired@example.com")
+
+      Repo.get!(AccountMembership, expired_id)
+      |> Ecto.Changeset.change(invite_expires_at: DateTime.add(DateTime.utc_now(), -60, :second))
+      |> Repo.update!()
+
+      expired_conn = post(build_conn(), "/api/invites/#{expired}/code", %{})
+      assert json_response(expired_conn, 410)["error"] == "invite_token_expired"
+
+      assert Bamboo.SentEmail.all() == []
+    end
+
+    test "a stub accepted with a code can no longer be claimed by name", %{conn: conn} do
+      first = owner!("owner_stub_code_a@example.com", "Family Stub Code A")
+      second = owner!("owner_stub_code_b@example.com", "Family Stub Code B")
+
+      {:ok, %{token: token_a}} =
+        AccountsMembership.invite(first.account, first, "stub_code@example.com")
+
+      {:ok, %{token: token_b, membership_id: membership_b}} =
+        AccountsMembership.invite(second.account, second, "stub_code@example.com")
+
+      conn |> post("/api/invites/#{token_a}/code", %{}) |> json_response(200)
+
+      build_conn()
+      |> post("/api/invites/#{token_a}/accept", %{"code" => mailed_code()})
+      |> json_response(200)
+
+      refused = post(build_conn(), "/api/invites/#{token_b}/accept", %{"name" => "Attacker"})
+
+      assert json_response(refused, 401)["error"] == "unauthorized"
+      assert Repo.get!(AccountMembership, membership_b).status == :invited
+      refute Repo.get_by!(User, email: "stub_code@example.com").invite_stub
+    end
+  end
+
+  defp owner!(email, account_name) do
+    [membership] =
+      user_with_memberships(%{email: email}, [{%{plan: :family_4, name: account_name}, :owner}]).memberships
+
+    membership
+  end
+
+  # A User who joined one Account by name, was removed, and is invited to
+  # another Account: no Membership left and no longer an invite stub.
+  defp removed_member_invited_again!(conn, email) do
+    first = owner!("first_" <> email, "First " <> email)
+    second = owner!("second_" <> email, "Second " <> email)
+
+    {:ok, %{token: first_token}} = AccountsMembership.invite(first.account, first, email)
+
+    %{"user" => %{"id" => member_id}} =
+      conn
+      |> post("/api/invites/#{first_token}/accept", %{"name" => "Former Member"})
+      |> json_response(200)
+
+    :ok = AccountsMembership.remove_member(first.account, member_id, first)
+
+    {:ok, %{token: token, membership_id: membership_id}} =
+      AccountsMembership.invite(second.account, second, email)
+
+    %{member_id: member_id, token: token, membership_id: membership_id}
+  end
+
+  defp mailed_code do
+    email = List.last(Bamboo.SentEmail.all())
+    [code] = Regex.run(~r/\b\d{6}\b/, email.text_body)
+    code
   end
 end

@@ -61,6 +61,10 @@ defmodule MealPlannerApiWeb.Router do
     # manually decodes an optional Authorization header for the
     # "existing User accepts" case instead of relying on the pipeline.
     post("/invites/:token/accept", InviteController, :accept)
+    # Mails a code to the invited email for an accept with `{"code"}`
+    # (issue #297): how an invitee who already has a User but no session
+    # proves they own the email.
+    post("/invites/:token/code", InviteController, :request_code)
   end
 
   # Phase 3 — `revenuecat-access-enforcement` (PR 3) billing recovery
