@@ -13,6 +13,10 @@ defmodule Mix.Tasks.Catalog.ReviewAllergens do
   Codes inside a cell are separated by spaces. It prints how many Ingredients
   are unreviewed.
 
+  Fields are separated by commas only. A spreadsheet in a Spanish locale must
+  save the file as "CSV UTF-8 (comma delimited)"; a `;`-separated file fails
+  the header check and writes nothing.
+
   The reviewer corrects `allergens` and writes `yes` in `reviewed` on every
   row they checked. `--apply` then writes `allergens` on those rows only:
 

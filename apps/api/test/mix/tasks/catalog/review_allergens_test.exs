@@ -185,6 +185,23 @@ defmodule Mix.Tasks.Catalog.ReviewAllergensTest do
     end
 
     @tag :tmp_dir
+    test "a ;-separated file, as a Spanish-locale spreadsheet saves it",
+         %{valid: valid, tmp_dir: tmp_dir} do
+      path =
+        write_raw(
+          tmp_dir,
+          "id;name;category;allergens_proposed;allergens;reviewed\n" <>
+            "#{valid.id};Valid;otros;;gluten;yes\n"
+        )
+
+      assert_raise Mix.Error, ~r/the header must be #{@header}/, fn ->
+        ReviewAllergens.run(["--apply", path])
+      end
+
+      assert allergens(valid) == nil
+    end
+
+    @tag :tmp_dir
     test "a row with the wrong number of columns",
          %{valid: valid, valid_row: valid_row, tmp_dir: tmp_dir} do
       short = insert("Short", nil, [])
