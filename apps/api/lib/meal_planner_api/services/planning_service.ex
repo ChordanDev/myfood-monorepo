@@ -186,11 +186,14 @@ defmodule MealPlannerApi.Services.PlanningService do
 
   # Issue #311: a User map that names no participants leaves the default to
   # `PlanningRequestValidator`, which plans for every active member of the
-  # Account. The persisted User carries none, so that is the usual case.
+  # Account. The persisted User carries none, so that is the usual case. A
+  # key that is present is the caller's choice, so a null one is refused by
+  # the validator rather than widened here.
   defp participant_constraints(user) do
-    case Map.get(user, :participant_ids, Map.get(user, :user_ids)) do
-      nil -> %{}
-      participant_ids -> %{"participant_ids" => participant_ids}
+    cond do
+      Map.has_key?(user, :participant_ids) -> %{"participant_ids" => user.participant_ids}
+      Map.has_key?(user, :user_ids) -> %{"participant_ids" => user.user_ids}
+      true -> %{}
     end
   end
 
