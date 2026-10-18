@@ -95,6 +95,35 @@ defmodule Mix.Tasks.Catalog.ReviewAllergensTest do
     end
 
     @tag :tmp_dir
+    test "a code repeated in a cell is written once, not reported as unknown",
+         %{tmp_dir: tmp_dir} do
+      ingredient = insert("Repeated", nil, [])
+      path = write_csv(tmp_dir, ["#{ingredient.id},Repeated,otros,,gluten gluten,yes"])
+
+      ReviewAllergens.run(["--apply", path])
+
+      assert allergens(ingredient) == ["gluten"]
+    end
+
+    @tag :tmp_dir
+    test "an id that is not a canonical UUID writes nothing and exits non-zero",
+         %{tmp_dir: tmp_dir} do
+      good = insert("Good", nil, [])
+
+      path =
+        write_csv(tmp_dir, [
+          "#{good.id},Good,otros,,gluten,yes",
+          "0123456789abcdef,Raw bytes,otros,,soy,yes"
+        ])
+
+      assert_raise Mix.Error, ~r/"0123456789abcdef" is not an Ingredient id/, fn ->
+        ReviewAllergens.run(["--apply", path])
+      end
+
+      assert allergens(good) == nil
+    end
+
+    @tag :tmp_dir
     test "accepts a file that starts with a byte order mark", %{tmp_dir: tmp_dir} do
       ingredient = insert("Spreadsheet", nil, [])
       path = write_csv(tmp_dir, ["#{ingredient.id},Spreadsheet,otros,,soy,yes"])

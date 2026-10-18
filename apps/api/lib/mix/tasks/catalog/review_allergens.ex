@@ -105,7 +105,9 @@ defmodule Mix.Tasks.Catalog.ReviewAllergens do
   defp parse_row({[id, _name, _category, _proposed, allergens, reviewed], number}) do
     codes = split_codes(allergens)
 
-    case {Ecto.UUID.cast(String.trim(id)), codes -- UserHardRestriction.codes()} do
+    unknown = codes |> Enum.reject(&(&1 in UserHardRestriction.codes())) |> Enum.uniq()
+
+    case {cast_id(String.trim(id)), unknown} do
       {{:ok, uuid}, []} ->
         {:ok,
          %{
@@ -124,6 +126,11 @@ defmodule Mix.Tasks.Catalog.ReviewAllergens do
 
   defp parse_row({row, number}),
     do: {:error, "row #{number}: expected #{length(@header)} columns, got #{length(row)}"}
+
+  # `Ecto.UUID.cast/1` also accepts any 16-byte string as a raw UUID; an id
+  # in the file must be the 36-character text form the export writes.
+  defp cast_id(id) when byte_size(id) == 36, do: Ecto.UUID.cast(id)
+  defp cast_id(_id), do: :error
 
   defp join_codes(nil), do: ""
   defp join_codes(codes), do: Enum.join(codes, " ")
