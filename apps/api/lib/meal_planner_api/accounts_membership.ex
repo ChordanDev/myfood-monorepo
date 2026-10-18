@@ -306,8 +306,8 @@ defmodule MealPlannerApi.AccountsMembership do
       and against `client_ip`'s hourly failure limit, and a failed check
       (a wrong, expired or locked code) from an IP over that limit is
       refused; a code that verifies is never refused by that limit. A
-      login or sign-up
-      code never matches. A stub accepted this way is claimed, so no
+      login or sign-up code never matches. A stub accepted this way is
+      claimed, so no
       `name` accept can claim it afterwards. Extra errors:
       `:code_invalid`, `:code_expired`, `:too_many_attempts` and
       `{:error, :rate_limited, retry_after}`. A `code` that is not a
