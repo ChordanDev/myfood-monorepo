@@ -15,23 +15,77 @@ defmodule MealPlannerApi.Persistence.Catalog do
 
   def create_ingredient(attrs), do: %Ingredient{} |> Ingredient.changeset(attrs) |> Repo.insert()
 
+  @doc """
+  Inserts the Ingredient, or updates the one with the same name. `allergens`
+  is never updated: only `apply_allergen_reviews/1` writes it on an existing
+  Ingredient. `allergens_proposed` is refreshed only while the Ingredient is
+  still unreviewed, and a missing proposal keeps the stored one.
+  """
   def upsert_ingredient_by_name(attrs) do
     %Ingredient{}
     |> Ingredient.changeset(attrs)
     |> Repo.insert(
       on_conflict:
-        {:replace,
-         [
-           :category,
-           :sku_reference,
-           :calories_per_100,
-           :protein_g_per_100,
-           :carbs_g_per_100,
-           :fat_g_per_100,
-           :updated_at
-         ]},
+        from(i in Ingredient,
+          update: [
+            set: [
+              category: fragment("EXCLUDED.category"),
+              sku_reference: fragment("EXCLUDED.sku_reference"),
+              calories_per_100: fragment("EXCLUDED.calories_per_100"),
+              protein_g_per_100: fragment("EXCLUDED.protein_g_per_100"),
+              carbs_g_per_100: fragment("EXCLUDED.carbs_g_per_100"),
+              fat_g_per_100: fragment("EXCLUDED.fat_g_per_100"),
+              updated_at: fragment("EXCLUDED.updated_at"),
+              allergens_proposed:
+                fragment(
+                  "CASE WHEN ? IS NULL THEN COALESCE(EXCLUDED.allergens_proposed, ?) ELSE ? END",
+                  i.allergens,
+                  i.allergens_proposed,
+                  i.allergens_proposed
+                )
+            ]
+          ]
+        ),
       conflict_target: [:name]
     )
+  end
+
+  @doc "The Ingredients nobody has reviewed (`allergens` NULL), by name."
+  @spec list_unreviewed_ingredients() :: [Ingredient.t()]
+  def list_unreviewed_ingredients do
+    from(i in Ingredient, where: is_nil(i.allergens), order_by: [asc: i.name, asc: i.id])
+    |> Repo.all()
+  end
+
+  @doc "How many Ingredients nobody has reviewed (`allergens` NULL)."
+  @spec count_unreviewed_ingredients() :: non_neg_integer()
+  def count_unreviewed_ingredients,
+    do: Repo.aggregate(from(i in Ingredient, where: is_nil(i.allergens)), :count)
+
+  @doc """
+  Writes the reviewed `allergens` of each `{ingredient_id, codes}`, in one
+  transaction. An Ingredient whose `allergens` is no longer NULL is left as it
+  is, so a review never overwrites an earlier one. Returns how many were
+  written and how many were skipped (already reviewed or not found).
+  """
+  @spec apply_allergen_reviews([{Ecto.UUID.t(), [String.t()]}]) ::
+          {:ok, %{written: non_neg_integer(), skipped: non_neg_integer()}}
+  def apply_allergen_reviews(reviews) do
+    now = DateTime.utc_now()
+
+    Repo.transaction(fn ->
+      Enum.reduce(reviews, %{written: 0, skipped: 0}, &apply_allergen_review(&1, &2, now))
+    end)
+  end
+
+  defp apply_allergen_review({id, codes}, acc, now) do
+    {count, _} =
+      from(i in Ingredient, where: i.id == ^id and is_nil(i.allergens))
+      |> Repo.update_all(set: [allergens: codes, updated_at: now])
+
+    if count == 1,
+      do: %{acc | written: acc.written + 1},
+      else: %{acc | skipped: acc.skipped + 1}
   end
 
   def list_ingredients, do: Repo.all(Ingredient)
