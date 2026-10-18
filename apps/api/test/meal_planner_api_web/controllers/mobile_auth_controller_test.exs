@@ -591,11 +591,39 @@ defmodule MealPlannerApiWeb.MobileAuthControllerTest do
       assert_error(limited, 429, "rate_limited")
       assert retry_after(limited) in 3_590..3_600
 
-      # The refused failure is neither recorded nor counted as an attempt.
+      # The refused failure is not recorded against the IP, but it still
+      # counts as an attempt on the code.
       assert Repo.aggregate(EmailAuthEvent, :count) == 20
 
-      assert [%EmailVerificationCode{consumed_at: nil, attempts: 0}] =
+      assert [%EmailVerificationCode{consumed_at: nil, attempts: 1}] =
                Repo.all(EmailVerificationCode)
+    end
+
+    test "wrong codes from an IP over the limit still lock the code after the attempt cap", %{
+      conn: conn
+    } do
+      user = insert_owner!("login-ip-capped@example.com")
+      insert_code!(user, "123456")
+
+      for _ <- 1..20 do
+        insert_verify_failure_event!("203.0.113.36", seconds_ago(600))
+      end
+
+      for _ <- 1..EmailCodeAuth.max_code_attempts() do
+        conn
+        |> from_client("203.0.113.36")
+        |> post(@verify_path, verify_body(user.email, "000000"))
+        |> assert_error(429, "rate_limited")
+      end
+
+      assert [%EmailVerificationCode{consumed_at: nil, attempts: 5}] =
+               Repo.all(EmailVerificationCode)
+
+      # The cap holds whatever IP the right code then comes from.
+      conn
+      |> from_client("203.0.113.37")
+      |> post(@verify_path, verify_body(user.email, "123456"))
+      |> assert_error(429, "too_many_attempts")
     end
 
     test "a right code logs in from an IP over the limit, whoever spent its failures", %{

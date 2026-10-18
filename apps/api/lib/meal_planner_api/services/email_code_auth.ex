@@ -131,10 +131,10 @@ defmodule MealPlannerApi.Services.EmailCodeAuth do
   client cannot lock out others sharing its IP (or the unresolved
   bucket) by spending its failures.
 
-  Must run inside a `Repo.transaction/2`, before the failure has any
-  other effect: the transaction holds the lock of this IP's failure
-  counter until it ends, so concurrent failures from one IP cannot run
-  past the limit together. Successful verifications never take it.
+  Must run inside a `Repo.transaction/2`: the transaction holds the lock
+  of this IP's failure counter until it ends, so concurrent failures
+  from one IP cannot run past the limit together. Successful
+  verifications never take it.
   """
   @spec reserve_verify_failure(String.t() | nil) :: :ok | rate_limited()
   def reserve_verify_failure(client_ip) do

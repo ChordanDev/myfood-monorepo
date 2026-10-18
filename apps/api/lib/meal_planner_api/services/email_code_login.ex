@@ -271,8 +271,9 @@ defmodule MealPlannerApi.Services.EmailCodeLogin do
 
     * `{:error, :rate_limited, retry_after}` — the code is wrong, expired
       or locked, and `client_ip` already has #{@max_verify_failures_per_ip}
-      failed verifications in the last hour. This failure is neither
-      counted against the IP nor as an attempt on the code. `retry_after`
+      failed verifications in the last hour. This failure is not counted
+      against the IP, but a wrong code still counts as an attempt on the
+      code, so the attempt cap bounds guessing from any IP. `retry_after`
       is in whole seconds, at least 1.
     * `{:error, :code_invalid}` — no pending code for this email (unknown
       email, never requested, already used, or replaced by a newer code),
@@ -369,17 +370,20 @@ defmodule MealPlannerApi.Services.EmailCodeLogin do
   end
 
   # A match takes no per-IP lock and reads no per-IP count. A failed
-  # check first reserves its place in the per-IP failure counter; only
-  # then does it count as an attempt on the code, so a failure refused by
-  # the IP limit leaves the code untouched.
+  # check first counts as an attempt on the code, then reserves its place
+  # in the per-IP failure counter. A failure refused by the IP limit keeps
+  # its attempt (the transaction commits error answers), so the attempt
+  # cap bounds the guesses at a code whatever the IP limit says.
   defp match_code(email, code, flow, now, failure_limit) do
     case classify_code(latest_pending_code(email, flow), code, now) do
       {:ok, row} ->
         {:ok, row}
 
       {:error, reason, row} ->
+        charged = charge_failure(reason, row)
+
         with :ok <- reserve_failure(failure_limit) do
-          charge_failure(reason, row)
+          charged
         end
     end
   end
