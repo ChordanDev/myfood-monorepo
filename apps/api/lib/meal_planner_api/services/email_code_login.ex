@@ -19,9 +19,11 @@ defmodule MealPlannerApi.Services.EmailCodeLogin do
       for good once it reaches the limit;
     * failed login verifications are also counted per client IP bucket
       (an IPv4 address, or the /64 prefix of an IPv6 address), and once a
-      bucket reaches the hourly limit its wrong codes are refused. The
-      code is always checked first, so a right code logs in whatever the
-      bucket holds, and nobody sharing an IP can lock another User out;
+      bucket reaches the hourly limit its failed checks (a wrong,
+      expired or locked code) are refused. The code is always checked
+      first, so the right digits of a code that is still pending, unexpired
+      and not locked log in whatever the bucket holds, and nobody sharing
+      an IP can lock another User out;
     * verification resolves a single Membership for the User, so the
       answer has one shape however many Accounts the User belongs to, and
       opens the caller's session before the code is consumed.
@@ -264,8 +266,8 @@ defmodule MealPlannerApi.Services.EmailCodeLogin do
   `MealPlannerApiWeb.ClientIp.resolve/1` gives it. Every verification
   answered `code_invalid`, `code_expired` or `too_many_attempts` counts
   against it; an IPv6 address shares its count with its whole /64 prefix.
-  The code is checked before the count is looked at, so a right code is
-  never refused by it.
+  The code is checked before the count is looked at, so a code that
+  verifies is never refused by it.
 
   Errors:
 

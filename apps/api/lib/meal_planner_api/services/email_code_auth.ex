@@ -17,8 +17,8 @@ defmodule MealPlannerApi.Services.EmailCodeAuth do
       collectively exceed them.
     * `reserve_verify_failure/1` — the rolling 1-hour counter of failed
       code verifications (20 per IP bucket), kept in the same table under
-      its own kind. Only failures read or write it, so a right code is
-      never refused by it.
+      its own kind. Only failed checks read or write it, so a code that
+      verifies is never refused by it.
     * `max_code_attempts/0` — the failed attempts after which a code is
       locked for good.
     * `code_email/4` — the verification-code email.
@@ -127,9 +127,9 @@ defmodule MealPlannerApi.Services.EmailCodeAuth do
   The /56 counter of code requests does not apply to failures.
 
   Call it only once a code check has failed, never before the code is
-  matched: a right code must log in whatever the bucket holds, so one
-  client cannot lock out others sharing its IP (or the unresolved
-  bucket) by spending its failures.
+  matched: a code that verifies must log in whatever the bucket holds,
+  so one client cannot lock out others sharing its IP (or the
+  unresolved bucket) by spending its failures.
 
   Must run inside a `Repo.transaction/2`: the transaction holds the lock
   of this IP's failure counter until it ends, so concurrent failures

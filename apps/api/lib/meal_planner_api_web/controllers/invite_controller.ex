@@ -98,9 +98,9 @@ defmodule MealPlannerApiWeb.InviteController do
   `410 invite_token_used`,
   `410 invite_token_expired`, and for a `code`: `422 code_invalid`,
   `401 code_expired`, `429 too_many_attempts` and `429 rate_limited` (a
-  wrong code from a client IP that has too many failed code checks in the
-  last hour; with a `retry-after` header). A right code is never refused
-  by that limit.
+  wrong, expired or locked code from a client IP that has too many failed
+  code checks in the last hour; with a `retry-after` header). The right
+  digits of a code that is still valid are never refused by that limit.
   """
   def accept(conn, %{"token" => token, "code" => code} = params) do
     device_id = params["deviceId"]
