@@ -97,8 +97,10 @@ defmodule MealPlannerApiWeb.InviteController do
   (a Bearer token of a User the invite is not bound to),
   `410 invite_token_used`,
   `410 invite_token_expired`, and for a `code`: `422 code_invalid`,
-  `401 code_expired`, `429 too_many_attempts` and `429 rate_limited` (the
-  client IP has too many failed code checks; with a `retry-after` header).
+  `401 code_expired`, `429 too_many_attempts` and `429 rate_limited` (a
+  wrong code from a client IP that has too many failed code checks in the
+  last hour; with a `retry-after` header). A right code is never refused
+  by that limit.
   """
   def accept(conn, %{"token" => token, "code" => code} = params) do
     device_id = params["deviceId"]

@@ -601,7 +601,7 @@ Errores propios del código (además de los de la tabla de abajo):
 | `422` | `code_invalid` | Código incorrecto, no hay código pendiente para esta invitación, `code` no es un string con texto (un número, `null` o `""`), o falta `deviceId` o está vacío (en ese caso el código no se gasta) | Pedir que lo revise o pedir otro |
 | `401` | `code_expired` | Pasaron más de 10 minutos | Pedir otro código |
 | `429` | `too_many_attempts` | 5 intentos fallidos con este código; ya no sirve, ni el correcto | Pedir otro código |
-| `429` | `rate_limited` | Código incorrecto y demasiados códigos fallidos desde esta IP en la última hora; un código correcto entra igual. Header `retry-after` | Esperar `retry-after` |
+| `429` | `rate_limited` | Código incorrecto y demasiados códigos fallidos desde esta IP en la última hora; un código correcto entra igual. Header `retry-after` | Pedir que revise el código: el correcto entra igual. Si no lo tiene, esperar `retry-after` o pedir otro código |
 
 **Response `200`** (con `name` o `Authorization`) — con la membership recién aceptada:
 ```json
