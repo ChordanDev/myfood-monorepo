@@ -374,18 +374,20 @@ defmodule MealPlannerApi.Services.EmailCodeLogin do
   # A match takes no per-IP lock and reads no per-IP count. A failed
   # check first counts as an attempt on the code, then reserves its place
   # in the per-IP failure counter. A failure refused by the IP limit keeps
-  # its attempt (the transaction commits error answers), so the attempt
-  # cap bounds the guesses at a code whatever the IP limit says.
+  # its attempt, because `redeem_code`'s transaction only rolls back
+  # through `Repo.rollback/1` and commits every error answer; so the
+  # attempt cap bounds the guesses at a code whatever the IP limit says.
   defp match_code(email, code, flow, now, failure_limit) do
     case classify_code(latest_pending_code(email, flow), code, now) do
       {:ok, row} ->
         {:ok, row}
 
       {:error, reason, row} ->
-        charged = charge_failure(reason, row)
+        # The answer the failure gets unless the IP limit refuses it.
+        failure_answer = charge_failure(reason, row)
 
         with :ok <- reserve_failure(failure_limit) do
-          charged
+          failure_answer
         end
     end
   end

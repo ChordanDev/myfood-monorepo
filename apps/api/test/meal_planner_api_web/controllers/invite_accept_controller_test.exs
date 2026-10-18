@@ -692,6 +692,47 @@ defmodule MealPlannerApiWeb.InviteAcceptControllerTest do
       assert Repo.get!(AccountMembership, membership_id).status == :active
     end
 
+    test "a wrong code from an IP over the limit is rate limited and still counts as an attempt",
+         %{conn: conn} do
+      %{token: token, membership_id: membership_id} =
+        removed_member_invited_again!(conn, "rejoin_ip_wrong@example.com")
+
+      build_conn() |> post("/api/invites/#{token}/code", %{}) |> json_response(200)
+      wrong = if mailed_code() == "000000", do: "111111", else: "000000"
+
+      for n <- 1..20 do
+        conn =
+          post(build_conn(), "/api/auth/login/verify-code", %{
+            "email" => "rejoin-wrong-#{n}@example.com",
+            "code" => "000000",
+            "deviceId" => @device_id
+          })
+
+        assert json_response(conn, 422)["error"]["code"] == "code_invalid"
+      end
+
+      conn =
+        post(build_conn(), "/api/invites/#{token}/accept", %{
+          "deviceId" => @device_id,
+          "code" => wrong
+        })
+
+      assert json_response(conn, 429)["error"] == "rate_limited"
+      assert [retry_after] = get_resp_header(conn, "retry-after")
+      assert String.to_integer(retry_after) in 3_590..3_600
+      assert Repo.get!(AccountMembership, membership_id).status == :invited
+
+      # The refused failure is not recorded against the IP, but it still
+      # counts as an attempt on the invite code.
+      assert [%EmailVerificationCode{attempts: 1, consumed_at: nil}] =
+               Repo.all(from(c in EmailVerificationCode, where: c.purpose == :invite))
+
+      assert Repo.aggregate(
+               from(e in EmailAuthEvent, where: e.kind == "verification_failure"),
+               :count
+             ) == 20
+    end
+
     test "the code locks after the attempt cap, and the right code is refused too",
          %{conn: conn} do
       %{token: token, membership_id: membership_id} =
