@@ -194,6 +194,25 @@ defmodule MealPlannerApi.Data.IngredientAllergensTest do
                changeset.errors[:allergens_proposed]
     end
 
+    test "an upsert that leaves allergens_proposed out keeps an unreviewed Ingredient's proposal" do
+      {:ok, _} =
+        Catalog.create_ingredient(%{
+          name: "Ravioles",
+          category: :otros,
+          allergens: nil,
+          allergens_proposed: ["gluten", "egg"]
+        })
+
+      {:ok, _} = Catalog.upsert_ingredient_by_name(%{name: "Ravioles", category: :granos})
+
+      assert Repo.one!(
+               from(i in Ingredient,
+                 where: i.name == "Ravioles",
+                 select: {i.category, i.allergens, i.allergens_proposed}
+               )
+             ) == {:granos, nil, ["gluten", "egg"]}
+    end
+
     test "the database rejects a code outside the Hard restriction catalog" do
       ingredient = insert_ingredient("Raw write", nil)
 
