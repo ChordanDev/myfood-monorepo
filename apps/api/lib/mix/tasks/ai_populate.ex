@@ -5,13 +5,21 @@ defmodule Mix.Tasks.AiPopulate do
 
   Options: `--dry-run`, `--sleep-ms`, `--per-topic`, `--max-topics` and
   `--only-category`.
+
+  Each Ingredient is saved with `allergens` NULL (not reviewed) and with
+  `allergens_proposed` set to the codes the AI names together with the codes
+  `Catalog.AllergenRules` finds in its name. Neither source can claim the list
+  is complete, so only `mix catalog.review_allergens` writes `allergens`. The
+  run ends by logging how many Ingredients are still unreviewed.
   """
 
   use Mix.Task
   require Logger
 
   alias MealPlannerApi.AI
+  alias MealPlannerApi.Persistence.Accounts.UserHardRestriction
   alias MealPlannerApi.Persistence.Catalog
+  alias MealPlannerApi.Persistence.Catalog.AllergenRules
 
   @shortdoc "Puebla ingredientes por lotes via IA usando taxonomia de supermercado"
 
@@ -143,6 +151,7 @@ defmodule Mix.Tasks.AiPopulate do
     Logger.info("  Upserts error: #{stats.upserts_error}")
     Logger.info("  Errores IA/JSON: #{stats.ai_errors}")
     Logger.info("  Modo dry-run: #{dry_run}")
+    Logger.info("  Ingredientes sin revisar: #{Catalog.count_unreviewed_ingredients()}")
   end
 
   defp populate_category({db_cat, topics}, acc, settings) do
@@ -199,7 +208,9 @@ defmodule Mix.Tasks.AiPopulate do
 
   defp save_to_db(items, db_category, true) do
     Enum.each(items, fn item ->
-      Logger.info("[DRY RUN] #{db_category} -> #{item["name"]}")
+      Logger.info(
+        "[DRY RUN] #{db_category} -> #{item["name"]} alergenos propuestos=#{inspect(proposed_allergens(item))}"
+      )
     end)
 
     {length(items), 0}
@@ -213,7 +224,8 @@ defmodule Mix.Tasks.AiPopulate do
         calories_per_100: to_int(item["calories_per_100"]),
         protein_g_per_100: to_decimalish(item["protein_g_per_100"]),
         carbs_g_per_100: to_decimalish(item["carbs_g_per_100"]),
-        fat_g_per_100: to_decimalish(item["fat_g_per_100"])
+        fat_g_per_100: to_decimalish(item["fat_g_per_100"]),
+        allergens_proposed: proposed_allergens(item)
       }
 
       case Catalog.upsert_ingredient_by_name(attrs) do
@@ -230,6 +242,12 @@ defmodule Mix.Tasks.AiPopulate do
     end)
   end
 
+  # The union leans towards tagging: a code either source names is proposed.
+  defp proposed_allergens(item) do
+    proposed = item["allergens"] ++ AllergenRules.codes_for_name(item["name"])
+    Enum.filter(UserHardRestriction.codes(), &(&1 in proposed))
+  end
+
   defp ask_ai_for_ingredients(category_atom, sub_topic, per_topic) do
     prompt = """
     Actua como data-entry de supermercado argentino y experto en nutricion.
@@ -239,10 +257,13 @@ defmodule Mix.Tasks.AiPopulate do
     Reglas estrictas:
     1) Devuelve solo JSON valido, sin markdown ni texto extra.
     2) Formato de salida: array de objetos con claves exactas:
-       name, calories_per_100, protein_g_per_100, carbs_g_per_100, fat_g_per_100.
+       name, calories_per_100, protein_g_per_100, carbs_g_per_100, fat_g_per_100, allergens.
     3) Sin repetidos dentro del array.
     4) Usa nombres especificos y realistas para mercado argentino.
     5) Macros y calorias deben ser numeros >= 0.
+    6) allergens es un array con los alergenos que el producto puede contener,
+       incluidas trazas, usando solo estos codigos: #{Enum.join(UserHardRestriction.codes(), ", ")}.
+       Ante la duda, incluye el codigo. Usa [] solo si no contiene ninguno.
     """
 
     AI.generate_text(prompt,
@@ -289,11 +310,42 @@ defmodule Mix.Tasks.AiPopulate do
       "calories_per_100" => to_int(Map.get(item, "calories_per_100")),
       "protein_g_per_100" => to_decimalish(Map.get(item, "protein_g_per_100")),
       "carbs_g_per_100" => to_decimalish(Map.get(item, "carbs_g_per_100")),
-      "fat_g_per_100" => to_decimalish(Map.get(item, "fat_g_per_100"))
+      "fat_g_per_100" => to_decimalish(Map.get(item, "fat_g_per_100")),
+      "allergens" => normalize_allergens(Map.get(item, "allergens"), Map.get(item, "name"))
     }
   end
 
   defp normalize_item(_), do: %{}
+
+  # A missing or invalid `allergens` is not an error: the proposal then comes
+  # from the name rules alone. Unknown codes are dropped.
+  defp normalize_allergens(nil, _name), do: []
+
+  defp normalize_allergens(codes, name) when is_list(codes) do
+    {known, unknown} =
+      codes
+      |> Enum.map(&normalize_code/1)
+      |> Enum.split_with(&(&1 in UserHardRestriction.codes()))
+
+    if unknown != [] do
+      Logger.warning(
+        "[AI Populate] Alergenos desconocidos descartados en #{inspect(name)}: #{inspect(unknown)}"
+      )
+    end
+
+    known
+  end
+
+  defp normalize_allergens(value, name) do
+    Logger.warning(
+      "[AI Populate] allergens invalido en #{inspect(name)}: #{inspect(value)}; se usan solo las reglas de nombre"
+    )
+
+    []
+  end
+
+  defp normalize_code(code) when is_binary(code), do: code |> String.trim() |> String.downcase()
+  defp normalize_code(code), do: code
 
   defp valid_item?(%{
          "name" => name,
