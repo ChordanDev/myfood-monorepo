@@ -537,6 +537,46 @@ defmodule MealPlannerApi.CartConcurrencyTest do
     end
   end
 
+  # Issue #277. A Shopping list read computes its Shortage lines before its
+  # lock transaction. A purchase that commits in between buys an item those
+  # lines still count as missing, and a bought item no longer answers for its
+  # planned key, so the read must not store the bought quantity again as a
+  # `pending` item.
+  test "a purchase that commits during a Shopping list read leaves no duplicate pending item",
+       f do
+    [item, next_item] = f.items
+    {:ok, cart} = Cart.reserve(f.other, [item.id])
+
+    # A pending item whose quantity is not its Shortage sends the read
+    # through its lock transaction.
+    next_item |> Ecto.Changeset.change(quantity_milli: 400) |> Repo.update!()
+    supervisor = start_supervised!(Task.Supervisor)
+
+    # The read waits for tomorrow's meal inside its lock transaction, after it
+    # computed its lines; the purchase only locks today's.
+    holder = meal_lock_holder(supervisor, f, f.next_meal)
+    read = worker(supervisor, f, fn -> ShoppingService.get_shopping_list(f.actor) end)
+    wait_until_blocked_by(read.backend, holder.backend)
+
+    checkout =
+      worker(supervisor, f, fn ->
+        Cart.purchase(f.other, cart.session_id, payload(cart, 1000))
+      end)
+
+    waited = done_or_blocked_by(checkout, read.backend)
+    send(holder.task.pid, :release)
+    checkout_result = with :blocked <- waited, do: {:ok, Task.await(checkout.task, 12_000)}
+
+    assert {:ok, :ok} = Task.await(holder.task, 12_000)
+    assert {:ok, _list} = Task.await(read.task, 12_000)
+    assert {:ok, {:ok, %{status: "completed", moved_to_inventory_count: 1}}} = checkout_result
+
+    # Today's meal keeps only what was bought for it; tomorrow's item takes
+    # its Shortage.
+    assert [%{status: :checked_out, quantity_milli: 1000}] = meal_lines(f, f.meal)
+    assert [%{status: :pending, quantity_milli: 500}] = meal_lines(f, f.next_meal)
+  end
+
   defp concurrent(f, commands) do
     parent = self()
     supervisor = start_supervised!(Task.Supervisor)
@@ -698,6 +738,54 @@ defmodule MealPlannerApi.CartConcurrencyTest do
     else
       Process.sleep(10)
       wait_until_blocked_by(blocked, blocker, attempts - 1)
+    end
+  end
+
+  # Holds a `FOR UPDATE` lock on `meal` from a connection of its own until
+  # its task receives `:release`.
+  defp meal_lock_holder(supervisor, f, meal) do
+    parent = self()
+
+    holder =
+      worker(supervisor, f, fn ->
+        Repo.transaction(fn ->
+          Repo.query!("SELECT id FROM scheduled_meals WHERE id = $1 FOR UPDATE", [
+            Ecto.UUID.dump!(meal.id)
+          ])
+
+          send(parent, :meal_locked)
+
+          receive do
+            :release -> :ok
+          after
+            10_000 -> raise "meal lock holder timed out"
+          end
+        end)
+      end)
+
+    assert_receive :meal_locked, 5_000
+    holder
+  end
+
+  # The reply of `worker` once it ends (as `Task.yield/2` gives it), or
+  # `:blocked` once it waits for a lock that `blocker` holds; gives up after
+  # about two seconds.
+  defp done_or_blocked_by(worker, blocker, attempts \\ 200)
+
+  defp done_or_blocked_by(worker, blocker, 0),
+    do: flunk("backend #{worker.backend} neither ended nor waited for backend #{blocker}")
+
+  defp done_or_blocked_by(%{task: task, backend: backend} = worker, blocker, attempts) do
+    case Task.yield(task, 10) do
+      nil ->
+        %{rows: [[blocking]]} = Repo.query!("SELECT pg_blocking_pids($1)", [backend])
+
+        if blocker in blocking,
+          do: :blocked,
+          else: done_or_blocked_by(worker, blocker, attempts - 1)
+
+      reply ->
+        reply
     end
   end
 
