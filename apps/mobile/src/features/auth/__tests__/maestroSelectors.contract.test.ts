@@ -335,6 +335,19 @@ describe('Maestro Planning and Shopping selector contract', () => {
     }
   });
 
+  it('keeps the Planner probes of .maestro on the renamed Home button', () => {
+    for (const probe of [
+      'planner-input-motion-probe',
+      'planner-sent-message-anchor',
+      'planner-sent-message-displacement',
+    ]) {
+      const flow = readMobileFile(`.maestro/${probe}.yaml`);
+
+      expect(flow).toContain('id: e2e-home-open-planner');
+      expect(flow).not.toMatch(/id: home-open-planner/);
+    }
+  });
+
   it('runs every flow in order with all', () => {
     const harness = createRestoreRunnerHarness('all');
 
