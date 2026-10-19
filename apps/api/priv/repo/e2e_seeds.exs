@@ -36,7 +36,7 @@ alias MealPlannerApi.Repo
 alias MealPlannerApi.Services.OnboardingService
 
 if Mix.env() not in [:e2e, :test] do
-  Mix.raise("priv/repo/e2e_seeds.exs runs in MIX_ENV=e2e only, not #{Mix.env()}")
+  Mix.raise("priv/repo/e2e_seeds.exs runs in MIX_ENV=e2e (or test, for its tests), not #{Mix.env()}")
 end
 
 email =

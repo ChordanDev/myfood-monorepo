@@ -16,6 +16,7 @@ defmodule MealPlannerApi.Services.EmailCodeLoginE2eTest do
   alias MealPlannerApi.Repo
   alias MealPlannerApi.Services.EmailCodeAuth
   alias MealPlannerApi.Services.EmailCodeLogin
+  alias MealPlannerApi.Services.EmailCodeSignup
 
   @e2e_email "e2e-user@example.test"
   @other_email "someone-else@example.test"
@@ -102,6 +103,18 @@ defmodule MealPlannerApi.Services.EmailCodeLoginE2eTest do
                EmailCodeLogin.request_code(@other_email, @ip)
 
       assert request_events() == 2
+    end
+
+    test "a sign-up code for E2E_LOGIN_EMAIL is random, under the usual limits" do
+      put_e2e_login(email: "new-e2e-user@example.test", code: @fixed_code)
+
+      assert {:ok, _sent} = EmailCodeSignup.request_code("new-e2e-user@example.test", @ip)
+
+      assert [%EmailVerificationCode{purpose: :signup} = row] = Repo.all(EmailVerificationCode)
+      refute row.code_hash == EmailCodeAuth.hash_code(@fixed_code)
+
+      assert {:error, :rate_limited, _retry_after} =
+               EmailCodeSignup.request_code("new-e2e-user@example.test", @ip)
     end
 
     test "E2E_LOGIN_EMAIL without a User is still not found" do

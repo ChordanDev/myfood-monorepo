@@ -22,7 +22,8 @@ Delivery: one PR, stacked under #377. Test runner: `mix test` in `apps/api`.
 
 ## Tasks
 
-- [x] **T1** S1-S8. Route: inline (no writer trigger). Commit: see `## Log`.
+- [x] **T1** S1-S8. Route: inline (no writer trigger). Commit: `31619a9b`.
+- [x] **T2** Verifier blocker B1 (S2): `MealPlannerApi.AI` refused `MockClient` outside `:test` at call time. Route: inline. Commit: see `## Log` L6.
 
 ## Log
 
@@ -30,3 +31,5 @@ Delivery: one PR, stacked under #377. Test runner: `mix test` in `apps/api`.
 - **L2** RED: `test/config/runtime_config_test.exs` 10/23 failed before `runtime.exs` changed; `email_code_login_e2e_test.exs` 5/8 failed before the service changed. GREEN after.
 - **L3** Live run on `MIX_ENV=e2e` (port 4100, Python 3.12 venv with `ortools==9.12.4544`): six logins in a row with the fixed code, `/api/me` onboarding complete, `start_planning` → `proposal_ready` from the optimizer, confirm 200, Shopping list with six items. With `E2E_ACCESS_TOKEN_TTL_SECONDS=2` the access token lives 2 s and `/api/me` answers 401 after 3 s. Seed run three times on a fresh database: same rows (timestamps aside).
 - **L4** Found while running: OR-Tools 9.12 has no wheels for Python 3.14, and the first start after creating the venv can time out the optimizer handshake. Both documented in the E2E README.
+- **L5** RDD: assessed `medium` (`under_budget`); review granted by the user, lenses risk and reliability, approved and acknowledged for `31619a9b`.
+- **L6** Independent verifier: S1, S3, S4, S6, S7, S8 met; S5 met but reworded from the issue ("a proposal from `MockClient`") by D2, pending the user's sign-off; blocker B1: `AI_CLIENT=mock` was accepted in `:e2e` but `MealPlannerApi.AI.client/0` answered `:ai_mock_client_forbidden` outside `:test`. Fixed with `AI.mock_client_allowed?/1` (`:test` and `:e2e`), RED then GREEN in `ai_mock_client_env_test.exs`; a live `MIX_ENV=e2e AI_CLIENT=mock` call now answers through the mock. Advisories taken: a test that sign-up codes stay random for the e2e email, and a clearer seed guard message. Full suite: 2265 passed, 40 skipped.
