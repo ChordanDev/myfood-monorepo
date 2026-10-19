@@ -12,9 +12,10 @@ defmodule MealPlannerApiWeb.ShoppingManualItemsTest do
   alias MealPlannerApi.Generation.ServerTestFixtures, as: Fixtures
   alias MealPlannerApi.Persistence.Accounts.AccountMembership
   alias MealPlannerApi.Persistence.Calendar
+  alias MealPlannerApi.Persistence.Inventory.InventoryItem
   alias MealPlannerApi.Persistence.Planning
   alias MealPlannerApi.Persistence.Shopping
-  alias MealPlannerApi.Persistence.Shopping.ShoppingItem
+  alias MealPlannerApi.Persistence.Shopping.{ShoppingItem, ShoppingRemoval}
   alias MealPlannerApi.Repo
   alias MealPlannerApi.Services.{CookingService, ShoppingService}
 
@@ -607,6 +608,36 @@ defmodule MealPlannerApiWeb.ShoppingManualItemsTest do
       assert log =~ "carried=1 restored=0"
     end
 
+    test "keeps a removal while stock covers the Ingredient, until the stock is used up", c do
+      [%{"allocations" => [%{"itemId" => item_id}]}] = shopping_list(c.token)["planned"]
+      set_status(c.token, %{"itemIds" => [item_id], "status" => "removed"}, 200)
+
+      stock = insert_stock!(c, 400)
+      replace_range!(c, [%{date: c.today, slot: :lunch, recipe_id: c.recipe_id}])
+      assert shopping_list(c.token)["planned"] == []
+
+      Repo.delete!(stock)
+
+      assert [%{"status" => "removed", "allocations" => [%{"itemId" => removed_id}]}] =
+               shopping_list(c.token)["planned"]
+
+      set_status(c.token, %{"itemIds" => [removed_id], "status" => "needed"}, 200)
+      assert [%{"status" => "needed", "quantityMilli" => 400}] = shopping_list(c.token)["planned"]
+    end
+
+    test "brings a restored item back as needed after stock covered it and ran out", c do
+      [%{"allocations" => [%{"itemId" => item_id}]}] = shopping_list(c.token)["planned"]
+      set_status(c.token, %{"itemIds" => [item_id], "status" => "removed"}, 200)
+      set_status(c.token, %{"itemIds" => [item_id], "status" => "needed"}, 200)
+
+      stock = insert_stock!(c, 400)
+      replace_range!(c, [%{date: c.today, slot: :lunch, recipe_id: c.recipe_id}])
+      assert shopping_list(c.token)["planned"] == []
+
+      Repo.delete!(stock)
+      assert [%{"status" => "needed", "quantityMilli" => 400}] = shopping_list(c.token)["planned"]
+    end
+
     test "removes only the slot the User removed, not the same Ingredient at another slot", c do
       [%{"allocations" => [%{"itemId" => item_id}]}] = shopping_list(c.token)["planned"]
       set_status(c.token, %{"itemIds" => [item_id], "status" => "removed"}, 200)
@@ -650,6 +681,7 @@ defmodule MealPlannerApiWeb.ShoppingManualItemsTest do
                })
 
       assert Repo.get(ShoppingItem, c.removed_id) == nil
+      assert removal_count(c.meal) == 0
 
       assert [%{"ingredientId" => ingredient_id, "status" => "needed"}] =
                shopping_list(c.token)["planned"]
@@ -660,12 +692,37 @@ defmodule MealPlannerApiWeb.ShoppingManualItemsTest do
       assert rejected(post_set_status(c.token, params), 404) == "shopping_item_not_found"
     end
 
+    test "is dropped by a swap to a recipe that uses the same Ingredient", c do
+      recipe =
+        Fixtures.insert_recipe("Same swap recipe #{Ecto.UUID.generate()}",
+          account_id: c.account.id,
+          created_by_user_id: c.actor.id
+        )
+
+      Fixtures.attach_recipe_ingredient(recipe, c.ingredient, 250, :g)
+
+      assert {:ok, _meal} =
+               Calendar.upsert_scheduled_meal(c.account.id, %{
+                 date: c.meal.date,
+                 slot: :lunch,
+                 recipe_id: recipe.id
+               })
+
+      assert removal_count(c.meal) == 0
+
+      assert [%{"ingredientId" => ingredient_id, "status" => "needed", "quantityMilli" => 250}] =
+               shopping_list(c.token)["planned"]
+
+      assert ingredient_id == c.ingredient.id
+    end
+
     test "is dropped when its meal is cooked", c do
       MealPlannerApiWeb.ChannelHelpers.persist_trial_window!(c.account, :eligible)
       {:ok, session} = CookingService.start_session(c.actor, c.meal.id)
       assert {:ok, _result} = CookingService.finish_session(c.actor, session.session_id)
 
       assert Repo.get(ShoppingItem, c.removed_id) == nil
+      assert removal_count(c.meal) == 0
       assert shopping_list(c.token)["planned"] == []
 
       params = %{"itemIds" => [c.removed_id], "status" => "needed"}
@@ -674,6 +731,21 @@ defmodule MealPlannerApiWeb.ShoppingManualItemsTest do
   end
 
   # ---- helpers ---------------------------------------------------------------
+
+  defp insert_stock!(c, quantity_milli) do
+    Repo.insert!(%InventoryItem{
+      account_id: c.account.id,
+      ingredient_id: c.ingredient.id,
+      quantity_milli: quantity_milli,
+      unit: :g,
+      source_kind: :extra,
+      last_mutation_at: DateTime.utc_now()
+    })
+  end
+
+  defp removal_count(meal) do
+    Repo.aggregate(from(r in ShoppingRemoval, where: r.scheduled_meal_id == ^meal.id), :count)
+  end
 
   defp mark_cart!(token, item_ids) do
     build_conn()

@@ -16,6 +16,7 @@ defmodule MealPlannerApi.Services.ShoppingService do
   alias MealPlannerApi.Persistence.Shopping
   alias MealPlannerApi.Repo
   alias MealPlannerApi.Services.InventoryService
+  alias MealPlannerApi.Services.RecipeVersions
   alias MealPlannerApi.Services.ShoppingRebuilder
 
   # -------------------------------------------------------------------------
@@ -324,7 +325,8 @@ defmodule MealPlannerApi.Services.ShoppingService do
   # One transaction: the locks are taken just before the planned keys are read
   # again and are held until the insert commits. A move that commits before
   # them is seen in the dates they return, one that starts after them waits
-  # and carries the new items along.
+  # and carries the new items along. An item stored for a meal and Ingredient
+  # the User removed is listed as removed (`Persistence.Shopping.ShoppingRemoval`).
   defp store_lines_of_unmoved_meals(account_id, meal_ids, lines) do
     {:ok, :ok} =
       Repo.transaction(fn ->
@@ -333,7 +335,11 @@ defmodule MealPlannerApi.Services.ShoppingService do
         current =
           Enum.filter(lines, &(Map.get(dates, &1.scheduled_meal_id) == &1.planned_date))
 
-        Shopping.insert_planned_items(account_id, missing_lines(account_id, meal_ids, current))
+        :ok =
+          Shopping.insert_planned_items(account_id, missing_lines(account_id, meal_ids, current))
+
+        _marked = Shopping.mark_removed_items(account_id, Map.keys(dates))
+        :ok
       end)
 
     :ok
@@ -475,9 +481,14 @@ defmodule MealPlannerApi.Services.ShoppingService do
 
   A removed item is one the User will not buy: its line stops counting
   toward the quantity to buy, the estimate and the Cart, and the list
-  still returns it with status `removed` so it can be restored. A rebuild
-  of the plan keeps it removed while the meal still needs the Ingredient;
-  a recipe swap of its meal, or cooking it, drops it.
+  still returns it with status `removed` so it can be restored.
+
+  The removal is kept per Scheduled meal and Ingredient, apart from the
+  item (`Persistence.Shopping.ShoppingRemoval`): the Ingredient stays
+  removed for that meal while the meal uses it, even when stock covers it
+  for a while and no item is derived. Restoring an item drops the removal,
+  and the item comes back as `needed`; a recipe swap of its meal, or
+  cooking it, drops it too.
 
   It takes the Cart's lock of the Account (`MealPlannerApi.Cart.lock_account!/1`)
   before it locks any item, the order every Cart write locks in.
@@ -530,18 +541,21 @@ defmodule MealPlannerApi.Services.ShoppingService do
 
   # Locks the items the way the Cart does, so a reservation cannot slip in
   # between the check and the write: the Cart's advisory lock of the Account
-  # first, then the rows. Taking them in the Cart's order keeps a Cart write
-  # on several items from deadlocking with this one. The transaction rolls
+  # first, then the meals of the items, then the rows. Taking them in the
+  # Cart's order keeps a Cart write on several items, or a move or a finish
+  # of their meal, from deadlocking with this one. The transaction rolls
   # back on the first failure, so a request changes every item or none.
   defp change_item_status(account_id, item_ids, status) do
     MealPlannerApi.Cart.lock_account!(account_id)
 
     with {:ok, uuids} <- cast_item_ids(item_ids),
+         :ok = Shopping.lock_meals_of_items(account_id, uuids),
          items = Shopping.lock_items_for_account(account_id, uuids),
          true <- length(items) == length(uuids) || {:error, :shopping_item_not_found},
          :ok <- check_status_change(items, status) do
       to_change = Enum.reject(items, &(&1.status == status))
       Shopping.set_items_status(Enum.map(to_change, & &1.id), status)
+      :ok = put_removal(account_id, items, status)
 
       %{
         status: Atom.to_string(list_status(status)),
@@ -550,6 +564,17 @@ defmodule MealPlannerApi.Services.ShoppingService do
       }
     else
       {:error, reason} -> Repo.rollback(reason)
+    end
+  end
+
+  # Every item of the request, not only the ones that changed: asking again
+  # writes the removal an item lacks.
+  defp put_removal(account_id, items, status) do
+    pairs = Enum.map(items, &{&1.scheduled_meal_id, &1.ingredient_id})
+
+    case status do
+      :removed -> Shopping.put_removals(account_id, pairs)
+      :pending -> Shopping.delete_removals(account_id, pairs)
     end
   end
 
@@ -585,16 +610,17 @@ defmodule MealPlannerApi.Services.ShoppingService do
   items. What the User decided about them survives:
 
     * manual items are for no meal, so the replacement never touches them;
-    * a planned item the User removed is removed again once the new meals
-      have their items, as long as a meal on the same date and slot still
-      needs the same Ingredient and unit. The quantity is the Shortage of
-      the new plan. A removal no meal needs any more is dropped.
+    * a Shopping removal is stored again for the new meal on the same date
+      and slot when its recipe still uses the Ingredient, whatever the
+      stock covers. Its items are removed again once they are derived, with
+      the Shortage of the new plan as their quantity. A removal no meal
+      uses any more is dropped.
 
-  The removed items are read before the replacement and restored after the
-  items of the new meals are derived, the way a Shopping list read derives
-  them (so the Shortage subtracts the Inventory from every upcoming meal,
-  not only these). With nothing removed this is the plain replacement and
-  the items are derived by the next read.
+  The removals are read before the replacement and stored again after it,
+  then the items of the new meals are derived the way a Shopping list read
+  derives them (so the Shortage subtracts the Inventory from every upcoming
+  meal, not only these). With nothing removed this is the plain replacement
+  and the items are derived by the next read.
 
   Returns what the replacement returns.
   """
@@ -612,7 +638,7 @@ defmodule MealPlannerApi.Services.ShoppingService do
       ) do
     removed =
       if valid_range?(from_date, to_date),
-        do: Shopping.removed_item_keys(account_id, from_date, to_date),
+        do: Shopping.removal_keys(account_id, from_date, to_date),
         else: MapSet.new()
 
     with {:ok, _result} = replaced <-
@@ -636,13 +662,16 @@ defmodule MealPlannerApi.Services.ShoppingService do
     if carried > 0 do
       today = AccountClock.today(account_id, now)
 
-      _ =
-        ensure_shopping_items_from_schedule(
-          account_id,
-          upcoming_uncooked_meals(account_id, today)
-        )
+      pairs = removal_pairs(account_id, removed, from_date, to_date)
+      :ok = Shopping.put_removals(account_id, pairs)
 
-      restored = Shopping.restore_removed_items(account_id, removed, from_date, to_date)
+      # A read can have stored the new meals' items before their removals,
+      # and then the derivation below stores nothing: mark them here.
+      upcoming = upcoming_uncooked_meals(account_id, today)
+      _ = ensure_shopping_items_from_schedule(account_id, upcoming)
+      _marked = Shopping.mark_removed_items(account_id, Enum.map(upcoming, & &1.id))
+
+      restored = length(pairs)
 
       if restored < carried do
         Logger.warning(
@@ -661,6 +690,34 @@ defmodule MealPlannerApi.Services.ShoppingService do
       )
 
       :ok
+  end
+
+  # The new meal and Ingredient of every removal key whose meal on that date
+  # and slot still uses the Ingredient. A date and slot hold one meal, so a
+  # key gives one pair at most.
+  defp removal_pairs(account_id, removed, from_date, to_date) do
+    from(m in MealPlannerApi.Persistence.Planning.ScheduledMeal,
+      where: m.account_id == ^account_id,
+      where: m.date >= ^from_date and m.date <= ^to_date,
+      preload: [recipe: :recipe_ingredients]
+    )
+    |> Repo.all()
+    |> Enum.flat_map(fn meal ->
+      meal
+      |> meal_ingredient_ids()
+      |> Enum.filter(&MapSet.member?(removed, {meal.date, meal.slot, &1}))
+      |> Enum.map(&{meal.id, &1})
+    end)
+  end
+
+  defp meal_ingredient_ids(meal) do
+    case RecipeVersions.recipe_for_meal(meal) do
+      %{recipe_ingredients: ingredients} when is_list(ingredients) ->
+        ingredients |> Enum.map(& &1.ingredient_id) |> Enum.uniq()
+
+      _no_recipe ->
+        []
+    end
   end
 
   @spec mark_in_cart(map(), [Ecto.UUID.t()]) :: {:ok, map()} | {:error, term()}

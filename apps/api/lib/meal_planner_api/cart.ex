@@ -20,6 +20,10 @@ defmodule MealPlannerApi.Cart do
       Inventory key.
     * A meal move (`MealMove.move/5`) locks its meals `FOR UPDATE`, then moves
       their planned Shopping items. It takes no Inventory key.
+    * Removing or restoring planned items (`ShoppingService.set_item_status/2`)
+      takes the Cart's lock of the Account, locks the items' meals `FOR KEY
+      SHARE`, then the items, then stores or deletes their Shopping removals.
+      It takes no Inventory key.
     * A replacement of a date range
       (`Persistence.Calendar.replace_scheduled_meals_for_range/3`) locks the
       range's meals `FOR UPDATE`, then deletes them with their Shopping items.

@@ -129,9 +129,9 @@ defmodule MealPlannerApi.Data.ShoppingRepo do
 
   Terminal statuses (`:checked_out`, `:archived`, `:pending_delivery`)
   are preserved, and so are manual items (issue #40): they are for no date
-  or meal, and a rebuild of the plan has no say over them. Take the keys of
-  the removed items first (`Persistence.Shopping.removed_item_keys/3`) and
-  restore them once the items are derived again.
+  or meal, and a rebuild of the plan has no say over them. The User's
+  Shopping removals are kept apart from the items and stay: mark the items
+  derived again with `Persistence.Shopping.mark_removed_items/2`.
 
   Returns `{deleted_count, nil}`.
   """
