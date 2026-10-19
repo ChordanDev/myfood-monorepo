@@ -292,6 +292,18 @@ defmodule MealPlannerApi.Generation.ServerTestFixtures do
     :ok
   end
 
+  @doc """
+  The payload of the solve request a generation left on the optimizer server
+  started by `start_optimizer_server!/0`, without answering it: what the
+  engine is offered, `candidates_by_slot` included.
+  """
+  @spec optimizer_request_payload({pid(), port()}) :: map()
+  def optimizer_request_payload({pid, _port}) do
+    deadline = System.monotonic_time(:millisecond) + @solve_request_timeout_ms
+    {_request_id, payload} = await_solve_request(pid, deadline)
+    payload
+  end
+
   defp await_solve_request(pid, deadline) do
     case Map.to_list(:sys.get_state(pid).pending_requests) do
       [{request_id, %{payload: payload}}] ->

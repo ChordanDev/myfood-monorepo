@@ -42,7 +42,7 @@ This file and `docs/adr/` are the only durable docs in the repository. Specs, ma
 
 **Diet** — The User's dietary pattern: `omnivore`, `vegetarian`, `vegan`, `pescatarian` (API also knows `celiac`); `null` means none chosen. `(code: Persistence.Accounts.UserDietaryProfile, mobile DietCode)`
 
-**Hard restriction** — A non-negotiable food rule such as an allergy or medical restriction; it excludes recipe candidates outright. Stored as a code from a fixed list, distinct from an Excluded ingredient. An Ingredient lists the codes it carries in `allergens`; NULL means nobody reviewed it and the planner treats it as carrying every code. `(code: Persistence.Accounts.UserHardRestriction, mobile HardRestrictionCode)` `(alias: restriction, allergy list)`
+**Hard restriction** — A non-negotiable food rule such as an allergy or medical restriction; it excludes recipe candidates outright for every Participant of a plan, not only the User who asked for it. Stored as a code from a fixed list, distinct from an Excluded ingredient. An Ingredient lists the codes it carries in `allergens`; NULL means nobody reviewed it and the planner treats it as carrying every code. `(code: Persistence.Accounts.UserHardRestriction, mobile HardRestrictionCode)` `(alias: restriction, allergy list)`
 
 **Soft preference** — A negotiable like, dislike or goal that influences ranking but never blocks a plan. `(code: Persistence.Accounts.UserPreference.soft_preferences, mobile softPreferences)` `(alias: preference, dislike)`
 
@@ -87,6 +87,8 @@ This file and `docs/adr/` are the only durable docs in the repository. Specs, ma
 ## Planning
 
 **Planning context** — Everything the planner reasons over for one run: preferences, restrictions, favorites, inventory, budget, slots and date range. `(code: PlanningGenerationRun.input_context)` `(alias: prompt, chat context)`
+
+**Participant** — A member of the Account a plan is for: the Hard restrictions and Excluded ingredients of every Participant filter the plan's recipe candidates. A plan that names no Participants is for every active member of the Account; a plan may name fewer, but only active members. Invited and suspended members are never Participants. `(code: Services.PlanningRequestValidator)` `(alias: household members, user_ids)`
 
 **Planning session** — The per-Account, per-date-range conversation in which a plan is generated and refined. Holds a range lock and moves one-way out of `active` to `committed`, `cancelled`, `expired` or `lost_lock`. `(code: Persistence.Planning.PlanningSession, Generation.PlanningSessionServer)` `(alias: planner chat)`
 
