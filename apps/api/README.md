@@ -9,6 +9,7 @@ To start your Phoenix server:
 * On a development database migrated before the 15-digit migration versions were renumbered (issue #315), run `mix db.renumber_migrations` once before `mix ecto.migrate`. It rewrites the old versions in `schema_migrations` to the new ones in one transaction, so the renamed migrations are not run again. It is safe to run twice and does nothing on a fresh database. Run it on the test database too (`MIX_ENV=test mix db.renumber_migrations`) if it was migrated before the renumbering
 * Optionally load demo data (a demo Account, two Users, a recipe and a scheduled meal) with `mix run priv/repo/seeds.exs`: once, on a fresh development database, never in production
 * Start Phoenix endpoint with `mix phx.server` or inside IEx with `iex -S mix phx.server`
+* For the Maestro flows of the mobile app, run the `e2e` environment instead (`MIX_ENV=e2e`, seeded by `priv/repo/e2e_seeds.exs`). [`apps/mobile/e2e/README.md`](../mobile/e2e/README.md) explains it
 
 Now you can visit [`localhost:4000`](http://localhost:4000) from your browser.
 

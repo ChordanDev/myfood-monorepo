@@ -12,27 +12,50 @@ refresh-token rotation and request retry path. No authentication bypass is invol
 - Node dependencies installed with `npm ci`.
 - Maestro CLI installed with `curl -Ls https://get.maestro.mobile.dev | bash`.
 - Java 17+ from macOS `java_home` or the Homebrew `openjdk@17` formula.
-- The sibling backend at `../my_food_back` with PostgreSQL available.
+- The monorepo API at `apps/api` with PostgreSQL available.
+- A Python with the optimizer requirements (`apps/api/optimizer/requirements.txt`). OR-Tools 9.12
+  has no wheels for Python 3.14, so use Python 3.13 or older, for example a `uv venv --python 3.12`.
 
 ## Run
 
 Use the same deterministic credentials for backend setup and the Maestro flow. Do not commit
 their values.
 
+The backend is `apps/api` in its `e2e` environment (`config/e2e.exs`, database
+`meal_planner_api_e2e`). It accepts two test doubles that every other environment refuses:
+`AI_CLIENT=mock`, so no Gemini key is needed, and a fixed login code, so a code requested for
+`E2E_LOGIN_EMAIL` is always `E2E_LOGIN_CODE`. Any other email gets a random code, as in `dev`.
+
 ```bash
-# Terminal 1: backend setup and local E2E API
-cd ../my_food_back
+# Terminal 1: backend setup and local E2E API, from the repository root
+cd apps/api
 export MIX_ENV=e2e
+export AI_CLIENT=mock
 export E2E_LOGIN_EMAIL='e2e-user@example.test'
 export E2E_LOGIN_CODE='123456'
-# Required by the restoration tracer; the e2e default otherwise remains 900 seconds.
+# Required by the restoration tracer; without it the access token lives 1 hour.
 export E2E_ACCESS_TOKEN_TTL_SECONDS=2
-mix ecto.setup
+# Planning proposals come from the OR-Tools optimizer: point at a Python that has it.
+export OPTIMIZER_PYTHON=/path/to/venv/bin/python
+mix deps.get
+mix ecto.create && mix ecto.migrate
+mix run priv/repo/e2e_seeds.exs
 PORT=4000 mix phx.server
 ```
 
-Run `mix ecto.setup` once, before login. Do not run it between login and the restoration relaunch:
-setup clears the refresh session that the second half must rotate.
+`priv/repo/e2e_seeds.exs` creates the Account, the User of `E2E_LOGIN_EMAIL` with onboarding
+completed, and one catalog Recipe per Meal slot. Running it again leaves the same data: it also
+deletes what the flows left behind (Planning sessions, Scheduled meals, the Shopping list, the
+Cart and the Inventory of the Account, and the login codes of the email). It keeps the device
+sessions, so the app stays signed in. Stop the API before running it again, or restart the API
+after: a running Planning session keeps its state in memory.
+
+`E2E_LOGIN_EMAIL` is exempt from the 60-second resend cooldown and the hourly code request
+limits in `e2e`, so the flows can sign in one after another. Every other email keeps them.
+
+The first start after creating the Python environment can time out the optimizer handshake while
+Python compiles OR-Tools. Run `"$OPTIMIZER_PYTHON" -c 'import ortools.linear_solver.pywraplp'`
+once beforehand, or restart the API if Planning answers `optimizer_unavailable`.
 
 ```bash
 # Terminal 2: install and launch the local simulator build
@@ -86,6 +109,6 @@ Maestro writes reports, screenshots, video, and command traces to `e2e/artifacts
 That directory is ignored. Backend cleanup remains manual:
 
 ```bash
-cd ../my_food_back
-MIX_ENV=e2e POSTGRES_E2E_DB=my_food_back_e2e mix ecto.drop --force
+cd apps/api
+MIX_ENV=e2e mix ecto.drop --force
 ```

@@ -36,6 +36,11 @@ defmodule MealPlannerApi.Services.EmailCodeLogin do
   The plaintext code is never returned or logged; the email is the only
   delivery channel.
 
+  The `e2e` environment is the one exception (`config/runtime.exs` sets
+  `:e2e_login` there only): a login code for `E2E_LOGIN_EMAIL` is
+  `E2E_LOGIN_CODE`, and requesting it skips the cooldown and the hourly
+  request counters, so Maestro flows can sign in one after another.
+
   Sign-up (`MealPlannerApi.Services.EmailCodeSignup`) and invite accept
   (`MealPlannerApi.AccountsMembership.request_invite_code/2`) issue and
   redeem their codes through `cast_email/1`, `issue_code/4` and
@@ -174,14 +179,45 @@ defmodule MealPlannerApi.Services.EmailCodeLogin do
     now = DateTime.utc_now()
 
     with {:ok, user} <- admit.(email, client_ip),
-         :ok <- check_resend_cooldown(email, now),
-         {:ok, slot_events} <- EmailCodeAuth.reserve_request_slots(email, client_ip) do
-      code = EmailCodeAuth.mint_code()
+         {:ok, code, slot_events} <- draw_code(email, client_ip, flow, now) do
       row = insert_code!(user, email, code, flow, now)
 
       {:ok, %{row: row, mail: code_email(user, email, code, flow), slot_events: slot_events}}
     end
   end
+
+  # A random code, once the cooldown and the hourly counters allow one,
+  # with the events of the slots it reserved. The `e2e` login email is the
+  # exception: see `e2e_login_code/2`.
+  defp draw_code(email, client_ip, flow, now) do
+    case e2e_login_code(email, flow) do
+      {:ok, code} ->
+        {:ok, code, []}
+
+      :none ->
+        with :ok <- check_resend_cooldown(email, now),
+             {:ok, slot_events} <- EmailCodeAuth.reserve_request_slots(email, client_ip) do
+          {:ok, EmailCodeAuth.mint_code(), slot_events}
+        end
+    end
+  end
+
+  # `config/runtime.exs` sets `:e2e_login` in the `e2e` environment only,
+  # from `E2E_LOGIN_EMAIL` and `E2E_LOGIN_CODE`. A login code for that
+  # email is then that code, and it is exempt from the resend cooldown and
+  # the hourly request counters, so Maestro flows can sign in one after
+  # another. Every other email, flow and environment draws a random code.
+  defp e2e_login_code(email, :login) do
+    case Application.get_env(:meal_planner_api, :e2e_login) do
+      [email: e2e_email, code: code] when is_binary(e2e_email) and is_binary(code) ->
+        if UserEmail.normalize(e2e_email) == email, do: {:ok, code}, else: :none
+
+      _not_configured ->
+        :none
+    end
+  end
+
+  defp e2e_login_code(_email, _flow), do: :none
 
   # Runs after the code is committed: no connection or lock is held while
   # the mail provider answers.

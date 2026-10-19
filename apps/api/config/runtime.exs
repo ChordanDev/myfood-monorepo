@@ -23,20 +23,69 @@ end
 config :meal_planner_api, MealPlannerApiWeb.Endpoint,
   http: [port: String.to_integer(System.get_env("PORT", "4000"))]
 
+# `AI_CLIENT=mock` is the deterministic double of the `e2e` environment
+# (`config/e2e.exs`); every other environment refuses it. The release is
+# built with `MIX_ENV=prod`, so it can never select the mock.
 if config_env() != :test do
   ai_client_module =
-    case System.get_env("AI_CLIENT", "gemini") do
-      "gemini" ->
+    case {System.get_env("AI_CLIENT", "gemini"), config_env()} do
+      {"gemini", _env} ->
         MealPlannerApi.AI.GeminiClient
 
-      "mock" ->
-        raise "AI_CLIENT=mock is forbidden outside test environment"
+      {"mock", :e2e} ->
+        MealPlannerApi.AI.MockClient
 
-      other ->
+      {"mock", _env} ->
+        raise "AI_CLIENT=mock is forbidden outside the test and e2e environments"
+
+      {other, _env} ->
         raise "Unsupported AI_CLIENT=#{other}. Supported value: gemini"
     end
 
   config :meal_planner_api, :ai_client, ai_client_module
+end
+
+# The `e2e` environment only: Maestro flows sign in with a known code.
+# A login code requested for `E2E_LOGIN_EMAIL` is `E2E_LOGIN_CODE`
+# instead of a random one (`MealPlannerApi.Services.EmailCodeLogin`).
+# Every other environment ignores both variables.
+if config_env() == :e2e do
+  case {System.get_env("E2E_LOGIN_EMAIL"), System.get_env("E2E_LOGIN_CODE")} do
+    {nil, nil} ->
+      :ok
+
+    {email, code} when is_binary(email) and is_binary(code) ->
+      if not Regex.match?(~r/\A\d{6}\z/, code) do
+        raise "E2E_LOGIN_CODE must be six digits"
+      end
+
+      config :meal_planner_api, :e2e_login, email: email, code: code
+
+    _one_of_them ->
+      raise "Set both E2E_LOGIN_EMAIL and E2E_LOGIN_CODE, or neither"
+  end
+
+  # The restoration flow waits for its access token to expire, so `e2e`
+  # can shorten both access lifetimes. The refresh lifetime is the one of
+  # `config/config.exs`: the map replaces that one whole.
+  case System.get_env("E2E_ACCESS_TOKEN_TTL_SECONDS") do
+    nil ->
+      :ok
+
+    value ->
+      seconds =
+        case Integer.parse(value) do
+          {seconds, ""} when seconds > 0 -> seconds
+          _invalid -> raise "E2E_ACCESS_TOKEN_TTL_SECONDS must be a positive integer"
+        end
+
+      config :meal_planner_api, MealPlannerApi.Auth.Guardian,
+        token_ttl: %{
+          "access" => {seconds, :seconds},
+          "access_v2" => {seconds, :seconds},
+          "refresh" => {30, :days}
+        }
+  end
 end
 
 # Tenancy v2 cutover flag. Off by default; flip MEAL_PLANNER_TENANCY_V2=true as a
