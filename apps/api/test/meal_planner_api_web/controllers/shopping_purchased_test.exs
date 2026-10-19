@@ -15,8 +15,9 @@ defmodule MealPlannerApiWeb.ShoppingPurchasedTest do
   import MealPlannerApi.FactoryHelpers
 
   alias MealPlannerApi.Cart
+  alias MealPlannerApi.Generation.ServerTestFixtures
   alias MealPlannerApi.Persistence.Accounts.AccountMembership
-  alias MealPlannerApi.Persistence.Catalog
+  alias MealPlannerApi.Persistence.Inventory.InventoryItem
   alias MealPlannerApi.Persistence.Planning.ScheduledMeal
   alias MealPlannerApi.Repo
 
@@ -96,7 +97,7 @@ defmodule MealPlannerApiWeb.ShoppingPurchasedTest do
       # The stock the purchase brought is used up, so both meals are short
       # again. Each already has its Shopping item: nothing is added.
       Repo.delete_all(
-        from(i in MealPlannerApi.Persistence.Inventory.InventoryItem,
+        from(i in InventoryItem,
           where: i.account_id == ^f.account.id
         )
       )
@@ -210,7 +211,7 @@ defmodule MealPlannerApiWeb.ShoppingPurchasedTest do
 
   test "purchased manual items are not listed, with or without an Ingredient", f do
     # Another Ingredient than the planned line's: its stock covers no meal.
-    rice = MealPlannerApi.Generation.ServerTestFixtures.insert_ingredient("Rice #{f.account.id}")
+    rice = ServerTestFixtures.insert_ingredient("Rice #{f.account.id}")
 
     extra =
       manual_item!(f, %{
