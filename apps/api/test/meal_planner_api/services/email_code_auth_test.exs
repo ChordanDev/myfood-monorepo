@@ -88,7 +88,7 @@ defmodule MealPlannerApi.Services.EmailCodeAuthTest do
   describe "per-email request slots" do
     test "reserve_request_slots/2 allows five requests for one email in an hour and rate limits the sixth" do
       for n <- 1..5 do
-        assert :ok =
+        assert {:ok, _events} =
                  in_transaction(fn ->
                    EmailCodeAuth.reserve_request_slots("limit@example.com", "203.0.113.#{n}")
                  end)
@@ -105,7 +105,7 @@ defmodule MealPlannerApi.Services.EmailCodeAuthTest do
       refute "203.0.113.6" in request_ips()
 
       # Another email still has its own counter.
-      assert :ok =
+      assert {:ok, _events} =
                in_transaction(fn ->
                  EmailCodeAuth.reserve_request_slots("other@example.com", "203.0.113.6")
                end)
@@ -140,7 +140,7 @@ defmodule MealPlannerApi.Services.EmailCodeAuthTest do
     end
 
     test "reserve_request_slots/2 counts an unresolvable IP in the shared bucket" do
-      assert :ok =
+      assert {:ok, _events} =
                in_transaction(fn ->
                  EmailCodeAuth.reserve_request_slots("slots@example.com", nil)
                end)
@@ -153,7 +153,7 @@ defmodule MealPlannerApi.Services.EmailCodeAuthTest do
 
     test "reserve_request_slots/2 rate limits the shared bucket once its hourly limit is spent" do
       for n <- 1..20 do
-        assert :ok =
+        assert {:ok, _events} =
                  in_transaction(fn ->
                    EmailCodeAuth.reserve_request_slots("slots-#{n}@example.com", "not-an-ip")
                  end)
@@ -182,7 +182,7 @@ defmodule MealPlannerApi.Services.EmailCodeAuthTest do
         assert :ok = in_transaction(fn -> EmailCodeAuth.reserve_ip_request_slot(client_ip) end)
       end
 
-      assert :ok =
+      assert {:ok, _events} =
                in_transaction(fn ->
                  EmailCodeAuth.reserve_request_slots("slots@example.com", "2001:db8:1:2:abcd::1")
                end)
@@ -217,7 +217,7 @@ defmodule MealPlannerApi.Services.EmailCodeAuthTest do
         assert :ok = in_transaction(fn -> EmailCodeAuth.reserve_ip_request_slot(client_ip) end)
       end
 
-      assert :ok =
+      assert {:ok, _events} =
                in_transaction(fn ->
                  EmailCodeAuth.reserve_request_slots("slots@example.com", "203.0.113.70")
                end)
@@ -277,7 +277,7 @@ defmodule MealPlannerApi.Services.EmailCodeAuthTest do
                  EmailCodeAuth.reserve_ip_request_slot("2001:db8:7:100::1")
                end)
 
-      assert :ok =
+      assert {:ok, _events} =
                in_transaction(fn ->
                  EmailCodeAuth.reserve_request_slots("next@example.com", "2001:db8:8::1")
                end)
@@ -334,7 +334,7 @@ defmodule MealPlannerApi.Services.EmailCodeAuthTest do
 
     test "reserve_request_slots/2 refused by the per-email limit spends no slot of the IP" do
       for n <- 1..5 do
-        assert :ok =
+        assert {:ok, _events} =
                  in_transaction(fn ->
                    EmailCodeAuth.reserve_request_slots("busy@example.com", "203.0.113.#{n}")
                  end)

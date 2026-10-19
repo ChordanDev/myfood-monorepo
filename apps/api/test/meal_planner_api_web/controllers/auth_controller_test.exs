@@ -386,7 +386,8 @@ defmodule MealPlannerApiWeb.AuthControllerTest do
       email: user.email,
       purpose: :login,
       code_hash: EmailCodeAuth.hash_code("123456"),
-      expires_at: DateTime.add(DateTime.utc_now(), 600, :second)
+      expires_at: DateTime.add(DateTime.utc_now(), 600, :second),
+      delivered_at: DateTime.utc_now()
     })
 
     conn

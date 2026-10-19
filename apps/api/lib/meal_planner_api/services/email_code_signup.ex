@@ -38,8 +38,8 @@ defmodule MealPlannerApi.Services.EmailCodeSignup do
       IP gets this answer for registered emails too.
     * `{:error, :code_send_failed}` — the mailer refused the message or
       never answered, as in
-      `MealPlannerApi.Services.EmailCodeLogin.request_code/2`: the caller
-      may retry at once.
+      `MealPlannerApi.Services.EmailCodeLogin.request_code/2`: the request
+      spends no hourly slot and the caller may retry at once.
   """
   @spec request_code(term(), String.t() | nil) ::
           {:ok, EmailCodeLogin.code_sent()}

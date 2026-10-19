@@ -53,7 +53,7 @@ Error responses:
 - `404 email_not_found`: login only, no User has this email
 - `409 email_already_exists`: sign-up only, a User already has this email
 - `429 rate_limited`: resend cooldown or hourly request limit; the `retry-after` header carries the wait in seconds
-- `502 code_send_failed`: the email could not be sent; any earlier code stays valid, and the request can be retried at once (it still counts against the hourly limit)
+- `502 code_send_failed`: the email could not be sent; any earlier code stays valid, and the request can be retried at once (an email that was not sent spends no hourly slot and starts no cooldown)
 
 ### 2.2 Verify the code
 

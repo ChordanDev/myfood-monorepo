@@ -74,6 +74,7 @@ Field notes:
 
 * `code`: the six-digit code from the email. It expires after 10 minutes, and a new one can be requested after 60 seconds
 * Limits: 5 code requests per email and 20 per client IP in a rolling hour (an IPv6 client counts as its whole /64, and its code requests also count against its /56, 100 per rolling hour), and 20 failed login verifications per client IP in a rolling hour (`EmailCodeAuth`'s `@max_verify_failures_per_ip_per_window`); over a limit the answer is `429 rate_limited` with a `retry-after` header in seconds. The failed-verification limit only refuses failed checks (a wrong, expired or locked code): the right digits of a code that is still valid always log in, so nobody sharing the IP can lock another User out
+* `502 code_send_failed`: the email could not be sent. No code is kept, any earlier code stays valid, and the request spends no hourly slot and starts no cooldown, so it can be retried at once
 * `deviceId`: a non-blank string that names the phone, in practice a UUID the app generates. The session it opens replaces the one the same User had on that device
 
 Example calls:

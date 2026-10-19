@@ -14,7 +14,8 @@ defmodule MealPlannerApi.Services.EmailCodeAuth do
       rolling 1-hour request counters (5 per email, 20 per IP bucket and,
       for an IPv6 client, 100 per /56), kept in `email_auth_events` and
       serialized by Postgres advisory locks so concurrent requesters cannot
-      collectively exceed them.
+      collectively exceed them. `release_request_slots/1` gives back the
+      slots of a request whose code was never delivered.
     * `reserve_verify_failure/1` — the rolling 1-hour counter of failed
       code verifications (20 per IP bucket), kept in the same table under
       its own kind. Only failed checks read or write it, so a code that
@@ -66,7 +67,9 @@ defmodule MealPlannerApi.Services.EmailCodeAuth do
 
   @doc """
   Reserves one slot in the rolling 1-hour request window for `email`
-  (already normalized) and one for each bucket of `client_ip`. Returns
+  (already normalized) and one for each bucket of `client_ip`, and
+  answers `{:ok, event_ids}` with the ids of the events it recorded, which
+  `release_request_slots/1` takes to give the slots back. Returns
   `{:error, :rate_limited, retry_after}` when any of those counters is
   exhausted, with the `retry_after` of the full one, and then reserves
   none: a refused request spends no slot.
@@ -85,9 +88,24 @@ defmodule MealPlannerApi.Services.EmailCodeAuth do
   `MealPlannerApi.Services.EmailCodeLogin.issue_code/4` for login and
   sign-up requests alike, so both draw from the same counters.
   """
-  @spec reserve_request_slots(String.t(), String.t() | nil) :: :ok | rate_limited()
+  @spec reserve_request_slots(String.t(), String.t() | nil) ::
+          {:ok, [Ecto.UUID.t()]} | rate_limited()
   def reserve_request_slots(email, client_ip) when is_binary(email) do
     reserve_slots(email, request_buckets(client_ip))
+  end
+
+  @doc """
+  Gives back the slots `reserve_request_slots/2` reserved, given the
+  `event_ids` it answered, so the email and every IP bucket count as they
+  did before that request. Called by
+  `MealPlannerApi.Services.EmailCodeLogin.issue_code/4` when the code the
+  slots paid for could not be mailed. Deleting events only ever lowers a
+  counter, so no lock is taken.
+  """
+  @spec release_request_slots([Ecto.UUID.t()]) :: :ok
+  def release_request_slots(event_ids) when is_list(event_ids) do
+    Repo.delete_all(from(e in EmailAuthEvent, where: e.id in ^event_ids))
+    :ok
   end
 
   @doc """
@@ -112,6 +130,7 @@ defmodule MealPlannerApi.Services.EmailCodeAuth do
 
     with :ok <- check_ip_slots(buckets, now) do
       insert_ip_events(buckets, now)
+      :ok
     end
   end
 
@@ -152,6 +171,7 @@ defmodule MealPlannerApi.Services.EmailCodeAuth do
              now
            ) do
       insert_event("verification_failure", nil, ip, now)
+      :ok
     end
   end
 
@@ -187,9 +207,9 @@ defmodule MealPlannerApi.Services.EmailCodeAuth do
     lock_in_order!([email_lock_key(email) | ip_lock_keys(buckets)])
 
     with :ok <- check_slot("request", email, nil, @max_per_email_per_window, now),
-         :ok <- check_ip_slots(buckets, now),
-         :ok <- insert_event("request", email, nil, now) do
-      insert_ip_events(buckets, now)
+         :ok <- check_ip_slots(buckets, now) do
+      email_event = insert_event("request", email, nil, now)
+      {:ok, [email_event | insert_ip_events(buckets, now)]}
     end
   end
 
@@ -204,8 +224,9 @@ defmodule MealPlannerApi.Services.EmailCodeAuth do
     end)
   end
 
+  # The ids of the events recorded, one per bucket.
   defp insert_ip_events(buckets, now) do
-    Enum.each(buckets, fn {ip, _max} -> insert_event("request", nil, ip, now) end)
+    Enum.map(buckets, fn {ip, _max} -> insert_event("request", nil, ip, now) end)
   end
 
   # `:ok` while the counter of `kind` scoped to `email` or `ip` holds
@@ -257,15 +278,17 @@ defmodule MealPlannerApi.Services.EmailCodeAuth do
     from(e in query, where: field(e, ^field) == ^value)
   end
 
+  # Answers the id of the event recorded.
   defp insert_event(kind, email, ip, now) do
-    Repo.insert!(%EmailAuthEvent{
-      kind: kind,
-      email: email || "unknown",
-      client_ip: ip,
-      occurred_at: now
-    })
+    %EmailAuthEvent{id: id} =
+      Repo.insert!(%EmailAuthEvent{
+        kind: kind,
+        email: email || "unknown",
+        client_ip: ip,
+        occurred_at: now
+      })
 
-    :ok
+    id
   end
 
   defp count_events(kind, email, ip, window_start) do
