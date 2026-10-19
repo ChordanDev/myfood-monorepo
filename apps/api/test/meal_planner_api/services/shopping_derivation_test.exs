@@ -238,7 +238,7 @@ defmodule MealPlannerApi.Services.ShoppingDerivationTest do
       assert %{status: :pending, quantity_milli: 250} = item(f, f.first_meal, f.ingredient)
     end
 
-    test "a quantity a Shopping item cannot hold is skipped and logged, and the rest is corrected",
+    test "a Shortage a Shopping item cannot hold is skipped and logged, and the rest is corrected",
          f do
       stale = item(f, f.first_meal, f.ingredient)
       Repo.update!(Ecto.Changeset.change(stale, quantity_milli: 40))
@@ -276,11 +276,21 @@ defmodule MealPlannerApi.Services.ShoppingDerivationTest do
           assert {:ok, _list} = ShoppingService.get_shopping_list(f.actor)
         end)
 
-      assert log =~ "shopping pending quantity skipped"
-      assert log =~ "item_id=#{huge_item.id}"
+      assert log =~ "shopping shortage line skipped"
+      assert log =~ "scheduled_meal_id=#{huge_meal.id}"
+      assert log =~ "quantity_milli=4000000000"
       refute log =~ "shopping item derivation failed"
       assert %{quantity_milli: 1_000} = Repo.get!(ShoppingItem, huge_item.id)
       assert %{quantity_milli: 250} = Repo.get!(ShoppingItem, stale.id)
+
+      # The skipped line is no reason to correct anything: a later read stops
+      # before the lock transaction, where it would try that item again.
+      log =
+        capture_log(fn ->
+          assert {:ok, _list} = ShoppingService.get_shopping_list(f.actor)
+        end)
+
+      refute log =~ "shopping pending quantity skipped"
     end
 
     test "a pending item of an Ingredient the User removed in another unit is left alone", f do

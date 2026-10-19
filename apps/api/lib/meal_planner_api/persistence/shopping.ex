@@ -717,6 +717,15 @@ defmodule MealPlannerApi.Persistence.Shopping do
   def delete_removals(_account_id, []), do: :ok
 
   def delete_removals(account_id, pairs) when is_list(pairs) do
+    # A pair without a Scheduled meal has no removal: Ecto refuses to
+    # compare a column with `nil`.
+    case Enum.reject(pairs, &is_nil(elem(&1, 0))) do
+      [] -> :ok
+      pairs -> delete_removal_rows(account_id, pairs)
+    end
+  end
+
+  defp delete_removal_rows(account_id, pairs) do
     of_pairs =
       pairs
       |> Enum.group_by(&elem(&1, 0), &elem(&1, 1))

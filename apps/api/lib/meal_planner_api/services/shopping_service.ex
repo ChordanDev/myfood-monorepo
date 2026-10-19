@@ -23,6 +23,9 @@ defmodule MealPlannerApi.Services.ShoppingService do
   # Shopping list
   # -------------------------------------------------------------------------
 
+  # The largest value the `int4` `quantity_milli` column of a Shopping item holds.
+  @max_quantity_milli 2_147_483_647
+
   @list_groupings %{"ingredient" => :ingredient, "meal" => :meal}
 
   @doc """
@@ -306,7 +309,11 @@ defmodule MealPlannerApi.Services.ShoppingService do
     # What was bought for a meal covers that meal first: stock bought for
     # tomorrow is not today's.
     bought = Shopping.bought_quantities(account_id, meal_ids)
-    lines = ShoppingRebuilder.compute_net_shortages(scheduled_meals, pool, bought)
+
+    lines =
+      scheduled_meals
+      |> ShoppingRebuilder.compute_net_shortages(pool, bought)
+      |> log_unstorable_lines(account_id)
 
     # Most reads find every line stored with its quantity and stop here,
     # without a lock.
@@ -333,12 +340,33 @@ defmodule MealPlannerApi.Services.ShoppingService do
     existing = Shopping.planned_item_keys(account_id, meal_ids)
 
     Enum.reject(lines, fn line ->
-      MapSet.member?(
-        existing,
-        {line.scheduled_meal_id, line.planned_date, line.ingredient_id, line.unit}
-      )
+      not storable?(line) or
+        MapSet.member?(
+          existing,
+          {line.scheduled_meal_id, line.planned_date, line.ingredient_id, line.unit}
+        )
     end)
   end
+
+  # A line a Shopping item cannot hold is logged on every read that computes
+  # it. It is never stored and never corrects its item (`storable?/1`):
+  # either would fail the read's writes or send every read through the lock
+  # transaction.
+  defp log_unstorable_lines(lines, account_id) do
+    lines
+    |> Enum.reject(&storable?/1)
+    |> Enum.each(fn line ->
+      Logger.error(
+        "shopping shortage line skipped account_id=#{account_id} " <>
+          "scheduled_meal_id=#{line.scheduled_meal_id} ingredient_id=#{line.ingredient_id} " <>
+          "unit=#{line.unit} quantity_milli=#{line.quantity_milli}"
+      )
+    end)
+
+    lines
+  end
+
+  defp storable?(line), do: line.quantity_milli <= @max_quantity_milli
 
   # The `pending` items whose line has another quantity, as
   # `{item_id, quantity_milli}`, and the ones with no line.
@@ -352,6 +380,7 @@ defmodule MealPlannerApi.Services.ShoppingService do
     Enum.reduce(items, {[], []}, fn item, {updates, deletes} ->
       case Map.fetch(quantities, item.key) do
         {:ok, quantity} when quantity == item.quantity_milli -> {updates, deletes}
+        {:ok, quantity} when quantity > @max_quantity_milli -> {updates, deletes}
         {:ok, quantity} -> {[{item.id, quantity} | updates], deletes}
         :error -> {updates, [item.id | deletes]}
       end
@@ -618,7 +647,10 @@ defmodule MealPlannerApi.Services.ShoppingService do
   # Every item of the request, not only the ones that changed: asking again
   # writes the removal an item lacks.
   defp put_removal(account_id, items, status) do
-    pairs = Enum.map(items, &{&1.scheduled_meal_id, &1.ingredient_id})
+    pairs =
+      for item <- items,
+          item.scheduled_meal_id != nil,
+          do: {item.scheduled_meal_id, item.ingredient_id}
 
     case status do
       :removed -> Shopping.put_removals(account_id, pairs)
