@@ -14,6 +14,7 @@ defmodule MealPlannerApi.Generation.ServerTest do
   alias MealPlannerApi.Generation.Server
   alias MealPlannerApi.Persistence.Planning.PlanningProposal
   alias MealPlannerApi.Persistence.Shopping
+  alias MealPlannerApi.Services.PlanningChatService
   alias MealPlannerApi.Services.RecipeVersions
   alias MealPlannerApi.Services.ShoppingService
 
@@ -560,6 +561,64 @@ defmodule MealPlannerApi.Generation.ServerTest do
       assert generation_run(run_id).status == :error
 
       stop_generation_server(account.id)
+    end
+
+    # The Budget belongs to the Account (#328): the planning chat and a
+    # Generation run resolve it the same way, whatever tier the User's token
+    # carries.
+    for {label, budget_cents} <- [{"at 0", 0}, {"with a Budget set", 12_345}] do
+      test "the planning chat and the Optimizer payload get the same Budget for an Account #{label}" do
+        account =
+          insert_account("parity budget account")
+          |> Ecto.Changeset.change(%{default_budget_cents: unquote(budget_cents)})
+          |> MealPlannerApi.Repo.update!()
+
+        actor = insert_user_with_membership(account, "parity-budget@example.com")
+
+        insert_recipe("Parity recipe",
+          suitable_for_slots: ["breakfast", "lunch", "dinner"],
+          account_id: account.id,
+          created_by_user_id: actor.id
+        )
+
+        optimizer = start_optimizer_server!()
+
+        assert {:ok, _run_id} =
+                 Server.start_generation(
+                   account.id,
+                   actor.id,
+                   %{
+                     "date_from" => "2026-02-01",
+                     "date_to" => "2026-02-01",
+                     "slot_types" => ["lunch"]
+                   },
+                   self()
+                 )
+
+        optimizer_budget =
+          optimizer_request_payload(optimizer)["constraints"]["weekly_budget_cents"]
+
+        answer_optimizer_request(optimizer)
+        stop_generation_server(account.id)
+
+        premium_user =
+          actor
+          |> Map.put(:account_id, account.id)
+          |> Map.put(:subscription_tier, :premium)
+
+        assert {:ok, %{run: chat_run}} =
+                 PlanningChatService.generate_menu(premium_user, %{
+                   "date_from" => "2026-02-01",
+                   "date_to" => "2026-02-01"
+                 })
+
+        chat_budget = generation_run(chat_run.id).input_context["weekly_budget_cents"]
+
+        assert chat_budget == optimizer_budget
+
+        assert optimizer_budget ==
+                 if(unquote(budget_cents) > 0, do: unquote(budget_cents), else: 45_000)
+      end
     end
   end
 
