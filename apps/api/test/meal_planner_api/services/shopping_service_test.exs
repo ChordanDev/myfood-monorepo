@@ -581,6 +581,47 @@ defmodule MealPlannerApi.ShoppingServiceTest do
              ]
     end
 
+    test "leaves the Inventory to the other meals once a meal is cooked from the calendar" do
+      {account_id, user} = identity!("stale_marked_cooked")
+      today = Date.utc_today()
+      ingredient = create_test_ingredient(account_id)
+      cooked = schedule_meal!(account_id, user.id, today, :lunch, ingredient, 200)
+      later = schedule_meal!(account_id, user.id, Date.add(today, 1), :lunch, ingredient, 300)
+      other_ingredient = create_test_ingredient(account_id)
+
+      other =
+        schedule_meal!(account_id, user.id, Date.add(today, 1), :dinner, other_ingredient, 400)
+
+      Repo.insert!(%InventoryItem{
+        account_id: account_id,
+        ingredient_id: ingredient.id,
+        quantity_milli: 200,
+        unit: :g,
+        source_kind: :planned,
+        last_mutation_at: DateTime.utc_now()
+      })
+
+      # The stock goes to the earlier meal, so the later one needs all of it.
+      assert {:ok, _list} = ShoppingService.get_shopping_list(user)
+      assert [%{quantity_milli: 300}] = open_items(account_id, later)
+
+      loaded = loaded_meals(account_id)
+
+      # Marked cooked from the calendar: no Cooking session takes the stock.
+      cooked |> ScheduledMeal.changeset(%{is_cooked: true}) |> Repo.update!()
+
+      # An item whose quantity is not its Shortage sends the derivation
+      # through its lock transaction.
+      [other_item] = open_items(account_id, other)
+      other_item |> Ecto.Changeset.change(quantity_milli: 1) |> Repo.update!()
+
+      assert :ok = ShoppingService.ensure_shopping_items_from_schedule(account_id, loaded)
+
+      assert open_items(account_id, cooked) == []
+      assert [%{quantity_milli: 100}] = open_items(account_id, later)
+      assert [%{quantity_milli: 400}] = open_items(account_id, other)
+    end
+
     test "skips a meal deleted since it was loaded, without failing the batch" do
       {account_id, user} = identity!("stale_deleted")
       tomorrow = Date.add(Date.utc_today(), 1)
@@ -648,6 +689,14 @@ defmodule MealPlannerApi.ShoppingServiceTest do
       from(m in ScheduledMeal,
         where: m.account_id == ^account_id,
         order_by: [asc: m.date, asc: m.id]
+      )
+    )
+  end
+
+  defp open_items(account_id, meal) do
+    Repo.all(
+      from(i in Shopping.ShoppingItem,
+        where: i.account_id == ^account_id and i.scheduled_meal_id == ^meal.id
       )
     )
   end
