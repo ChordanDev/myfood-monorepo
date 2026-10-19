@@ -15,6 +15,7 @@ defmodule MealPlannerApi.Generation.ServerTest do
   alias MealPlannerApi.Persistence.Planning.PlanningProposal
   alias MealPlannerApi.Persistence.Shopping
   alias MealPlannerApi.Services.RecipeVersions
+  alias MealPlannerApi.Services.ShoppingService
 
   describe "via/1" do
     test "returns a Registry via tuple" do
@@ -1008,7 +1009,7 @@ defmodule MealPlannerApi.Generation.ServerTest do
       MealPlannerApi.Repo.delete!(stock)
 
       :ok =
-        MealPlannerApi.Services.ShoppingService.ensure_shopping_items_from_schedule(
+        ShoppingService.ensure_shopping_items_from_schedule(
           c.account.id,
           [c.prior_meal]
         )
