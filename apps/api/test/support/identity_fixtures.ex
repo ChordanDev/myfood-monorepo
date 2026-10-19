@@ -63,15 +63,12 @@ defmodule MealPlannerApi.IdentityFixtures do
   @doc """
   Mints a legacy `typ: "access"` token for `user` on `account`, with the
   claims of `MealPlannerApi.Accounts.claims_for/2`. `subscription_tier`
-  is the tier the token claims.
+  is the tier the token claims; it is the Account's tier (#328).
   """
   @spec legacy_access_token(PersistenceUser.t(), PersistenceAccount.t(), :free | :premium) ::
           String.t()
   def legacy_access_token(user, account, subscription_tier \\ :free) do
-    claims =
-      user
-      |> Map.put(:subscription_tier, subscription_tier)
-      |> Accounts.claims_for(account)
+    claims = Accounts.claims_for(user, Map.put(account, :subscription_tier, subscription_tier))
 
     {:ok, token, _claims} = Guardian.encode_and_sign(user, claims, token_type: "access")
 
