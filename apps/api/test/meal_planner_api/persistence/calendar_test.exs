@@ -6,6 +6,7 @@ defmodule MealPlannerApi.Persistence.CalendarTest do
   alias MealPlannerApi.Persistence.Accounts.Account
   alias MealPlannerApi.Persistence.Calendar
   alias MealPlannerApi.Repo
+  alias MealPlannerApi.Services.CookingService
 
   setup do
     :ok = Sandbox.checkout(Repo)
@@ -157,10 +158,15 @@ defmodule MealPlannerApi.Persistence.CalendarTest do
     @instant ~U[2026-10-08 23:30:00Z]
 
     test "a past uncooked meal is skipped; cooked, today and future meals are not" do
-      account_id = account_id("calendar-skipped@example.com")
+      [%{account_id: account_id, user_id: user_id}] =
+        memberships("calendar-skipped@example.com", 1)
+
       past = schedule(account_id, ~D[2026-10-06], :lunch)
       cooked = schedule(account_id, ~D[2026-10-06], :dinner)
-      {:ok, _} = Calendar.set_is_cooked(account_id, cooked.id, true)
+
+      {:ok, _} =
+        CookingService.set_meal_cooked(%{id: user_id, account_id: account_id}, cooked.id, true)
+
       today = schedule(account_id, ~D[2026-10-08], :lunch)
       future = schedule(account_id, ~D[2026-10-09], :lunch)
 

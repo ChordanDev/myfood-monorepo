@@ -9,6 +9,7 @@ defmodule MealPlannerApiWeb.CalendarChannel do
   use MealPlannerApiWeb, :channel
 
   alias MealPlannerApi.Persistence.Calendar
+  alias MealPlannerApi.Services.CookingService
   alias MealPlannerApiWeb.ChannelCapability
   alias MealPlannerApiWeb.Plugs.LoadCurrentMembershipSocket
 
@@ -111,7 +112,9 @@ defmodule MealPlannerApiWeb.CalendarChannel do
         {:reply, {:error, %{reason: "invalid_is_cooked"}}, socket}
 
       true ->
-        case Calendar.set_is_cooked(membership.account_id, meal_id, is_cooked) do
+        actor = %{id: membership.user_id, account_id: membership.account_id}
+
+        case CookingService.set_meal_cooked(actor, meal_id, is_cooked) do
           {:ok, meal} ->
             event = %{meal_id: meal.id, is_cooked: meal.is_cooked}
             broadcast!(socket, "meal_cooked_state_changed", event)

@@ -13,6 +13,7 @@ defmodule MealPlannerApiWeb.CalendarControllerTest do
   alias MealPlannerApi.Persistence.Planning
   alias MealPlannerApi.Persistence.Shopping.ShoppingItem
   alias MealPlannerApi.Repo
+  alias MealPlannerApi.Services.CookingService
 
   # ─── Phase A — Tenancy Refactor (PR 3c task 3.14) ───────────────────────────
   # Controller sweep: `CalendarController` must resolve tenancy scope from
@@ -735,7 +736,8 @@ defmodule MealPlannerApiWeb.CalendarControllerTest do
           recipe_id: recipe.id
         })
 
-      {:ok, _} = Calendar.set_is_cooked(account_id, cooked.id, true)
+      {:ok, _} =
+        CookingService.set_meal_cooked(%{id: user_id, account_id: account_id}, cooked.id, true)
 
       {:ok, current} =
         Calendar.upsert_scheduled_meal(account_id, %{
