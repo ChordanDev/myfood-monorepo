@@ -46,7 +46,6 @@ defmodule MealPlannerApi.Services.EmailCodeLogin do
 
   require Logger
 
-  alias Ecto.Adapters.SQL
   alias MealPlannerApi.Mailer
   alias MealPlannerApi.Mailer.EmailCodeEmail
   alias MealPlannerApi.Persistence.Accounts.AccountMembership
@@ -191,16 +190,18 @@ defmodule MealPlannerApi.Services.EmailCodeLogin do
   end
 
   # One transaction, so the earlier codes are never consumed without the
-  # new one taking their place.
-  defp mark_delivered(%EmailVerificationCode{id: id} = row, flow) do
-    delivered_at = DateTime.utc_now()
-
+  # new one taking their place. It holds the email lock, so two sends
+  # whose mails were out at once are marked one after the other: every
+  # other delivered code was marked before this one and is consumed.
+  defp mark_delivered(%EmailVerificationCode{id: id, email: email}, flow) do
     Repo.transaction(fn ->
+      lock_email(email)
+
       Repo.update_all(from(c in EmailVerificationCode, where: c.id == ^id),
-        set: [delivered_at: delivered_at]
+        set: [delivered_at: DateTime.utc_now()]
       )
 
-      consume_codes_delivered_before(row.email, flow, delivered_at)
+      consume_codes_delivered_before(email, flow, id)
     end)
   end
 
@@ -257,12 +258,14 @@ defmodule MealPlannerApi.Services.EmailCodeLogin do
     end
   end
 
-  # Codes whose mail is not out yet are left alone: they belong to a
-  # request still being delivered, and consume this one if they make it.
-  defp consume_codes_delivered_before(email, flow, delivered_at) do
+  # Every pending code but `id`, the one just marked. Codes whose mail is
+  # not out yet are left alone: they belong to a request still being
+  # delivered, and consume this one if they make it. Runs under the email
+  # lock, so no other code is being marked meanwhile.
+  defp consume_codes_delivered_before(email, flow, id) do
     email
     |> pending_codes(flow)
-    |> where([c], c.delivered_at < ^delivered_at)
+    |> where([c], c.id != ^id)
     |> Repo.update_all(set: [consumed_at: DateTime.utc_now()])
   end
 
@@ -547,9 +550,10 @@ defmodule MealPlannerApi.Services.EmailCodeLogin do
   # Serializes every login and sign-up operation on one email for the rest
   # of the transaction, so two concurrent requests cannot both pass the
   # cooldown and two concurrent verifications cannot both spend the same
-  # attempt.
+  # attempt. `Repo.query!/2` runs on the caller's dynamic repo, so the
+  # lock is always taken on the transaction's own connection.
   defp lock_email(email) do
-    SQL.query!(Repo, "SELECT pg_advisory_xact_lock($1, $2)", [
+    Repo.query!("SELECT pg_advisory_xact_lock($1, $2)", [
       @lock_namespace,
       :erlang.phash2(email)
     ])
