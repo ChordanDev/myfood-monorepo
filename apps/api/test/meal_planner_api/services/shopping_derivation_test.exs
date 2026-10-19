@@ -188,6 +188,37 @@ defmodule MealPlannerApi.Services.ShoppingDerivationTest do
       assert line_quantity(list, f.ingredient) == 250
     end
 
+    test "a read limited to today does not let tomorrow's purchase cover today", f do
+      today_item = item(f, f.first_meal, f.ingredient)
+      buy!(f, item(f, f.second_meal, f.ingredient))
+      today = Date.to_iso8601(Date.utc_today())
+
+      for params <- [%{"until_date" => today}, %{}, %{"until_date" => today}] do
+        assert {:ok, list} = ShoppingService.get_shopping_list(f.actor, params)
+        assert line_quantity(list, f.ingredient) == 250
+        assert %{id: id, quantity_milli: 250} = item(f, f.first_meal, f.ingredient)
+        assert id == today_item.id
+      end
+    end
+
+    test "what a partial purchase still lacks comes back once stock that covered it is gone",
+         f do
+      # 100 of tomorrow's 250 g bought: 150 g are still to buy.
+      buy!(f, item(f, f.second_meal, f.ingredient), 100)
+      assert %{quantity_milli: 150} = pending_of(f, f.second_meal)
+
+      # Stock covers both meals for a while, so the remainder goes.
+      stock = insert_stock!(f, f.ingredient, 400)
+      assert {:ok, _list} = ShoppingService.get_shopping_list(f.actor)
+      assert pending_of(f, f.second_meal) == nil
+
+      # It is used up: tomorrow still lacks 150 g, and the read says so.
+      Repo.delete!(stock)
+      assert {:ok, list} = ShoppingService.get_shopping_list(f.actor)
+      assert %{status: :pending, quantity_milli: 150} = pending_of(f, f.second_meal)
+      assert line_quantity(list, f.ingredient) == 400
+    end
+
     test "an online purchase still on its way counts for its meal", f do
       tomorrow_item = item(f, f.second_meal, f.ingredient)
 
@@ -499,6 +530,19 @@ defmodule MealPlannerApi.Services.ShoppingDerivationTest do
     {:ok, cart} = MealPlannerApi.Cart.reserve(f.actor, [item.id])
     payload = MealPlannerApi.CartFixtures.payload(cart, quantity_milli, type)
     {:ok, _} = MealPlannerApi.Cart.purchase(f.actor, cart.session_id, payload)
+  end
+
+  # The `pending` item of the meal for the fixture's first Ingredient.
+  defp pending_of(f, meal) do
+    [ingredient | _] = f.ingredients
+
+    Repo.one(
+      from(i in ShoppingItem,
+        where:
+          i.account_id == ^f.account.id and i.scheduled_meal_id == ^meal.id and
+            i.ingredient_id == ^ingredient.id and i.status == :pending
+      )
+    )
   end
 
   defp insert_stock!(f, ingredient, quantity_milli) do

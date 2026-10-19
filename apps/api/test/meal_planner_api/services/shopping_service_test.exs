@@ -10,6 +10,7 @@ defmodule MealPlannerApi.ShoppingServiceTest do
   alias MealPlannerApi.Persistence.Calendar.MealMove
   alias MealPlannerApi.Persistence.Catalog
   alias MealPlannerApi.Persistence.Identity
+  alias MealPlannerApi.Persistence.Inventory.InventoryItem
   alias MealPlannerApi.Persistence.Planning
   alias MealPlannerApi.Persistence.Planning.ScheduledMeal
   alias MealPlannerApi.Persistence.Shopping
@@ -310,6 +311,19 @@ defmodule MealPlannerApi.ShoppingServiceTest do
           ingredient = create_test_ingredient(account_id)
           meal = schedule_meal!(account_id, user.id, date, slot, ingredient, 100)
           pending_item!(account_id, meal, ingredient, 100, %{status: status})
+
+          # A physical purchase stocks what it bought.
+          if status == :checked_out do
+            Repo.insert!(%InventoryItem{
+              account_id: account_id,
+              ingredient_id: ingredient.id,
+              quantity_milli: 100,
+              unit: :g,
+              source_kind: :planned,
+              last_mutation_at: DateTime.utc_now()
+            })
+          end
+
           ingredient.id
         end
 

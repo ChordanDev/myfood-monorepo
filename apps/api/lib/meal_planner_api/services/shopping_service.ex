@@ -102,12 +102,10 @@ defmodule MealPlannerApi.Services.ShoppingService do
 
     upcoming_meals = upcoming_uncooked_meals(account_id, today)
 
-    # Build items from scheduled meals (if not already created)
-    _ =
-      ensure_shopping_items_from_schedule(
-        account_id,
-        ShoppingRebuilder.limit_to_date(upcoming_meals, until_date)
-      )
+    # Build items from every upcoming meal, whatever `until_date` is: a
+    # Shortage depends on the meals after it too, since stock bought for a
+    # later meal is that meal's. `until_date` only limits what is listed.
+    _ = ensure_shopping_items_from_schedule(account_id, upcoming_meals)
 
     # What is still on the list, and what was bought for a meal that is yet
     # to be cooked.
@@ -328,8 +326,9 @@ defmodule MealPlannerApi.Services.ShoppingService do
       :ok
   end
 
-  # A Shopping item in any status answers for its planned key: what was
-  # bought or archived is not derived again.
+  # An open, removed or archived Shopping item answers for its planned key.
+  # A bought one does not: the Shortage line already takes what was bought
+  # into account, so a line left for its key is what the meal still lacks.
   defp missing_lines(account_id, meal_ids, lines) do
     existing = Shopping.planned_item_keys(account_id, meal_ids)
 

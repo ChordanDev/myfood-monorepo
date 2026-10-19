@@ -433,14 +433,15 @@ defmodule MealPlannerApiWeb.ShoppingControllerTest do
              ] =
                limited["planned"]
 
-      # The meal after the limit has no Shopping item derived yet.
-      assert length(Shopping.list_items_for_account(c.account.id)) == 1
+      # The read derives every upcoming meal's item: the limit only keeps the
+      # later one off the list.
+      assert length(Shopping.list_items_for_account(c.account.id)) == 2
 
       boundary = shopping_list(c.owner_token, %{"untilDate" => c.later})
 
       assert [%{"quantityMilli" => 800, "allocations" => [_, _]}] = boundary["planned"]
 
-      # Once that item exists, the limit still keeps it off the list.
+      # The limit still keeps it off the list.
       assert shopping_list(c.owner_token, %{"untilDate" => day_before}) == limited
     end
 

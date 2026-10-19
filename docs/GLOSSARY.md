@@ -140,7 +140,7 @@ This file and `docs/adr/` are the only durable docs in the repository. Specs, ma
 
 **Shopping removal** — The User's decision not to buy one Ingredient for one Scheduled meal, kept per Scheduled meal and Ingredient apart from the Shopping item: the Ingredient stays `removed` for that meal while the meal uses it, even while stock covers it and no item is derived. Restoring the item drops it, and so do a recipe swap of the meal and a finished Cooking session. `(code: Persistence.Shopping.ShoppingRemoval)`
 
-**Shortage** — The net quantity of an ingredient still missing after subtracting available Inventory from what Scheduled meals need. On the Shopping list, what was bought for a Scheduled meal covers that meal first, and only the rest of the Inventory is shared by the meals in date order. `(code: Services.ShoppingRebuilder)` `(alias: faltante)`
+**Shortage** — The net quantity of an ingredient still missing after subtracting available Inventory from what Scheduled meals need. On the Shopping list, what was bought for a Scheduled meal covers that meal first, and only the rest of the Inventory is shared by the meals in date order; what a purchase no longer covers, for example after its stock was used elsewhere, is to buy again. `(code: Services.ShoppingRebuilder)` `(alias: faltante)`
 
 **Allocation** — The share of a Shopping list line that one Scheduled meal needs: the quantity to buy for that meal, with its date and Meal slot. A line grouped by ingredient has one Allocation per meal that needs it. `(code: Services.ShoppingRebuilder)`
 

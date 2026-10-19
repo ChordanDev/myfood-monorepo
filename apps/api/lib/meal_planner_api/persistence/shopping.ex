@@ -206,8 +206,11 @@ defmodule MealPlannerApi.Persistence.Shopping do
   Returns the planned keys the Account already has a Shopping item for, among
   the given Scheduled meals.
 
-  Every status counts: a Shopping item that was bought or archived still
-  answers for its Scheduled meal, so it is not derived again.
+  Every status counts but the bought ones (`:checked_out`, `:pending_delivery`):
+  an open, removed or archived item answers for its Scheduled meal, so it is not
+  derived again. A bought item does not, so what its meal still lacks after the
+  purchase can be derived (issue #277); the read's Shortage already counts what
+  was bought (`ShoppingRebuilder.compute_net_shortages/3`).
   """
   @spec planned_item_keys(Ecto.UUID.t(), [Ecto.UUID.t()]) :: MapSet.t(planned_key())
   def planned_item_keys(_account_id, []), do: MapSet.new()
@@ -215,6 +218,7 @@ defmodule MealPlannerApi.Persistence.Shopping do
   def planned_item_keys(account_id, scheduled_meal_ids) when is_list(scheduled_meal_ids) do
     from(i in ShoppingItem,
       where: i.account_id == ^account_id and i.scheduled_meal_id in ^scheduled_meal_ids,
+      where: i.status not in [:checked_out, :pending_delivery],
       distinct: true,
       select: {i.scheduled_meal_id, i.planned_date, i.ingredient_id, i.unit}
     )
