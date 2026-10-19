@@ -825,7 +825,11 @@ calendarChannel.on("meal_updated", payload => {
   // Actualizar UI
 });
 
-// 4. Marcar comida como cocinada
+// 4. Marcar comida como cocinada. Como al terminar una sesión de cocina, el
+//    servidor descuenta los ingredientes del Inventario (eventos `cooking`)
+//    y quita los ítems abiertos de la lista de compras. Marcar de nuevo una
+//    comida ya cocinada no descuenta otra vez; desmarcarla (`is_cooked: false`)
+//    no devuelve el stock.
 calendarChannel.push("set_is_cooked", {
   meal_id: 123,
   is_cooked: true

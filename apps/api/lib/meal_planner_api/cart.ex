@@ -15,9 +15,10 @@ defmodule MealPlannerApi.Cart do
       key check of that insert locks the item's meal: taken after the items,
       it would wait for a finish or a move that holds the meal and waits for
       the items.
-    * Finishing a Cooking session (`CookingService.finish_session/3`) locks
-      the meal `FOR UPDATE`, deletes its open Shopping items, then takes the
-      Inventory key.
+    * Finishing a Cooking session (`CookingService.finish_session/3`), and
+      marking a meal cooked from the calendar
+      (`CookingService.set_meal_cooked/4`), lock the meal `FOR UPDATE`,
+      delete its open Shopping items, then take the Inventory key.
     * A meal move (`MealMove.move/5`) locks its meals `FOR UPDATE`, then moves
       their planned Shopping items. It takes no Inventory key.
     * Removing or restoring planned items (`ShoppingService.set_item_status/2`)

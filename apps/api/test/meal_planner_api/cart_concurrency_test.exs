@@ -614,6 +614,92 @@ defmodule MealPlannerApi.CartConcurrencyTest do
     assert [%{status: :pending, quantity_milli: 500}] = meal_lines(f, f.next_meal)
   end
 
+  # Issue #366 (Jorge CD-C on PR #364). A Shopping list read holds its meals
+  # `FOR KEY SHARE` until it has stored their items. A calendar mark as cooked
+  # has to wait for it, then delete what it stored. A new item has no row the
+  # mark could wait for, so a mark that did not lock the meal `FOR UPDATE`
+  # went past the read, and the read then stored a `pending` item for the
+  # cooked meal.
+  test "a calendar mark as cooked waits for a Shopping list read and leaves no item for the meal",
+       f do
+    [item, _next_item] = f.items
+
+    # Today's meal has no item, so the read stores a new one in its lock
+    # transaction.
+    Repo.delete!(item)
+    supervisor = start_supervised!(Task.Supervisor)
+
+    {read_result, mark_result, waited} =
+      with_gate(
+        "INSERT",
+        "shopping_items",
+        "NEW.scheduled_meal_id = '#{f.meal.id}'::uuid",
+        fn holder, open_gate ->
+          # The read holds today's meal while it waits to store its item.
+          read = worker(supervisor, f, fn -> ShoppingService.get_shopping_list(f.actor) end)
+          wait_until_blocked_by(read.backend, holder)
+
+          mark =
+            worker(supervisor, f, fn ->
+              CookingService.set_meal_cooked(f.actor, f.meal.id, true)
+            end)
+
+          waited = done_or_blocked_by(mark, read.backend)
+          open_gate.()
+          mark_result = with :blocked <- waited, do: {:ok, Task.await(mark.task, 12_000)}
+          {Task.await(read.task, 12_000), mark_result, waited}
+        end
+      )
+
+    assert waited == :blocked
+    assert {:ok, _list} = read_result
+    assert {:ok, {:ok, %ScheduledMeal{is_cooked: true}}} = mark_result
+    assert Repo.get!(ScheduledMeal, f.meal.id).is_cooked
+
+    # The cooked meal keeps no item; tomorrow's keeps its Shortage.
+    assert meal_lines(f, f.meal) == []
+    assert [%{status: :pending, quantity_milli: 500}] = meal_lines(f, f.next_meal)
+  end
+
+  # Issue #366. A calendar mark as cooked locks its meal, deletes the meal's
+  # open Shopping items and takes its Ingredients out of the Inventory, as a
+  # Cooking session finish does. A read that waits for it stores no item for
+  # the cooked meal.
+  test "a Shopping list read that waits for a calendar mark as cooked stores no item for the meal",
+       f do
+    [item, _next_item] = f.items
+
+    # The stock covers today's dinner, so the read finds today's item stale and
+    # goes through its lock transaction.
+    stock!(f, 1000)
+    supervisor = start_supervised!(Task.Supervisor)
+
+    {mark_result, read_result} =
+      with_gate("DELETE", "shopping_items", "OLD.id = '#{item.id}'::uuid", fn holder, open_gate ->
+        # The mark holds today's meal while it waits to delete the item.
+        mark =
+          worker(supervisor, f, fn ->
+            CookingService.set_meal_cooked(f.actor, f.meal.id, true)
+          end)
+
+        wait_until_blocked_by(mark.backend, holder)
+        read = worker(supervisor, f, fn -> ShoppingService.get_shopping_list(f.actor) end)
+        wait_until_blocked_by(read.backend, mark.backend)
+        open_gate.()
+        {Task.await(mark.task, 12_000), Task.await(read.task, 12_000)}
+      end)
+
+    assert {:ok, %ScheduledMeal{is_cooked: true}} = mark_result
+    assert {:ok, _list} = read_result
+
+    # The cooked quantity came out once.
+    assert stock(f) |> Enum.map(& &1.quantity_milli) |> Enum.sum() == 0
+    assert [%{trigger_type: :cooking, quantity_delta_milli: -1000}] = events(f)
+
+    assert meal_lines(f, f.meal) == []
+    assert [%{status: :pending, quantity_milli: 500}] = meal_lines(f, f.next_meal)
+  end
+
   defp concurrent(f, commands) do
     parent = self()
     supervisor = start_supervised!(Task.Supervisor)

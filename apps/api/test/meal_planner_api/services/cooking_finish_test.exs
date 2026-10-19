@@ -367,4 +367,131 @@ defmodule MealPlannerApi.Services.CookingFinishTest do
                )
     end
   end
+
+  # Issue #366. A meal marked cooked from the calendar is a Cooked meal like
+  # one a Cooking session finished: its Ingredients come out of the Inventory.
+  describe "set_meal_cooked/4" do
+    test "marking a meal cooked consumes its Ingredients and removes its open Shopping items",
+         f do
+      [first, second] = f.ingredients
+      meal = meal!(f, @utc_day)
+
+      early = lot!(f, first, %{quantity_milli: 150, expired_at: ~U[2026-10-10 12:00:00Z]})
+      late = lot!(f, first, %{quantity_milli: 1000, expired_at: ~U[2026-10-25 12:00:00Z]})
+      other = lot!(f, second, %{quantity_milli: 500})
+      open = shopping_item!(f, meal, first, :pending)
+      closed = shopping_item!(f, meal, first, :checked_out)
+
+      assert {:ok, %ScheduledMeal{id: id, is_cooked: true}} = set_cooked(f, meal, true)
+      assert id == meal.id
+      assert Repo.get!(ScheduledMeal, meal.id).is_cooked
+
+      assert Repo.get!(InventoryItem, early.id).quantity_milli == 0
+      assert Repo.get!(InventoryItem, late.id).quantity_milli == 950
+      assert Repo.get!(InventoryItem, other.id).quantity_milli == 300
+
+      refute Repo.get(ShoppingItem, open.id)
+      assert Repo.get!(ShoppingItem, closed.id).status == :checked_out
+
+      events = events(f)
+      assert length(events) == 3
+      assert Enum.sum(Enum.map(events, & &1.quantity_delta_milli)) == -400
+
+      for event <- events do
+        assert event.trigger_type == :cooking
+        assert event.operation == :subtract
+        assert event.source_user_id == f.user.id
+        assert event.source_cooking_session_id == nil
+        assert event.metadata["scheduled_meal_id"] == meal.id
+
+        assert event.quantity_before_milli + event.quantity_delta_milli ==
+                 event.quantity_after_milli
+      end
+    end
+
+    test "marking a meal that is already cooked does not consume it twice", f do
+      meal = meal!(f, @utc_day)
+      lots = Enum.map(f.ingredients, &lot!(f, &1, %{}))
+
+      assert {:ok, _} = set_cooked(f, meal, true)
+      consumed = {events(f), Enum.map(lots, &Repo.get!(InventoryItem, &1.id))}
+
+      assert {:ok, %ScheduledMeal{is_cooked: true}} = set_cooked(f, meal, true)
+      assert {events(f), Enum.map(lots, &Repo.get!(InventoryItem, &1.id))} == consumed
+      assert Enum.all?(lots, &(Repo.get!(InventoryItem, &1.id).quantity_milli == 800))
+    end
+
+    test "a meal a Cooking session cooked is not consumed again when marked cooked", f do
+      meal = meal!(f, @utc_day)
+      lots = Enum.map(f.ingredients, &lot!(f, &1, %{}))
+      session = start!(f, meal)
+      assert {:ok, _} = CookingService.finish_session(f.actor, session.session_id, @instant)
+      consumed = events(f)
+
+      assert {:ok, %ScheduledMeal{is_cooked: true}} = set_cooked(f, meal, true)
+      assert events(f) == consumed
+      assert Enum.all?(lots, &(Repo.get!(InventoryItem, &1.id).quantity_milli == 800))
+    end
+
+    test "short stock is consumed only as far as it goes, never below zero", f do
+      [first, _second] = f.ingredients
+      meal = meal!(f, @utc_day)
+      lot = lot!(f, first, %{quantity_milli: 50})
+
+      assert {:ok, %ScheduledMeal{is_cooked: true}} = set_cooked(f, meal, true)
+      assert Repo.get!(InventoryItem, lot.id).quantity_milli == 0
+
+      assert [%{quantity_before_milli: 50, quantity_delta_milli: -50, quantity_after_milli: 0}] =
+               events(f)
+    end
+
+    test "setting a cooked meal back to not cooked gives no stock back", f do
+      meal = meal!(f, @utc_day)
+      lots = Enum.map(f.ingredients, &lot!(f, &1, %{}))
+      assert {:ok, _} = set_cooked(f, meal, true)
+      consumed = events(f)
+
+      assert {:ok, %ScheduledMeal{is_cooked: false}} = set_cooked(f, meal, false)
+      refute Repo.get!(ScheduledMeal, meal.id).is_cooked
+      assert events(f) == consumed
+      assert Enum.all?(lots, &(Repo.get!(InventoryItem, &1.id).quantity_milli == 800))
+    end
+
+    test "a meal of another Account, or no meal, is not found and nothing changes", f do
+      meal = meal!(f, @utc_day)
+      lot = lot!(f, hd(f.ingredients), %{})
+      %{user: stranger, account: elsewhere} = insert_identity!(plan: :family_4)
+      foreign = %{id: stranger.id, account_id: elsewhere.id}
+
+      assert {:error, :not_found} =
+               CookingService.set_meal_cooked(foreign, meal.id, true, @instant)
+
+      assert {:error, :not_found} = CookingService.set_meal_cooked(f.actor, "meal_789", true)
+
+      assert {:error, :not_found} =
+               CookingService.set_meal_cooked(f.actor, Ecto.UUID.generate(), true)
+
+      refute Repo.get!(ScheduledMeal, meal.id).is_cooked
+      assert Repo.get!(InventoryItem, lot.id).quantity_milli == 1000
+      assert events(f) == []
+    end
+  end
+
+  defp set_cooked(f, meal, is_cooked),
+    do: CookingService.set_meal_cooked(f.actor, meal.id, is_cooked, @instant)
+
+  defp shopping_item!(f, meal, ingredient, status) do
+    {:ok, item} =
+      Shopping.create_shopping_item(%{
+        account_id: f.account.id,
+        scheduled_meal_id: meal.id,
+        planned_date: meal.date,
+        ingredient_id: ingredient.id,
+        quantity_milli: 200,
+        unit: :g,
+        status: status
+      })
+
+    item
+  end
 end

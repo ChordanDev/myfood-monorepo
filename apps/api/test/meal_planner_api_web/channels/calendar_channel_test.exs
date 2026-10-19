@@ -1,10 +1,13 @@
 defmodule MealPlannerApiWeb.CalendarChannelTest do
   use MealPlannerApiWeb.ChannelCase, async: false
 
+  import Ecto.Query
   import MealPlannerApi.FactoryHelpers
 
   alias MealPlannerApi.Persistence.Accounts.AccountMembership
   alias MealPlannerApi.{Persistence.Catalog, Persistence.Planning}
+  alias MealPlannerApi.Persistence.Inventory.{InventoryItem, InventoryMutationEvent}
+  alias MealPlannerApi.Repo
   alias MealPlannerApiWeb.{CalendarChannel, UserSocket}
 
   setup do
@@ -429,6 +432,69 @@ defmodule MealPlannerApiWeb.CalendarChannelTest do
       ref = push(socket, "set_is_cooked", %{"meal_id" => meal_id, "is_cooked" => true})
       assert_reply(ref, :ok, %{meal_id: ^meal_id, is_cooked: true})
       assert_broadcast("meal_cooked_state_changed", %{meal_id: ^meal_id, is_cooked: true})
+    end
+
+    # Issue #366: the mark consumes the meal's Ingredients, audited to the
+    # member who sent it.
+    test "set is_cooked true consumes the meal's Ingredients from the Inventory",
+         %{account: account, user: user, token: token} do
+      {:ok, recipe} =
+        Catalog.create_recipe(%{
+          account_id: account.id,
+          created_by_user_id: user.id,
+          name: "Channel cooked recipe",
+          source: :user_created,
+          servings: 2,
+          suitable_for_slots: [:lunch]
+        })
+
+      {:ok, ingredient} =
+        Catalog.upsert_ingredient_by_name(%{
+          name: "Channel cooked #{Ecto.UUID.generate()}",
+          category: :otros
+        })
+
+      {:ok, _} =
+        Catalog.add_recipe_ingredient(%{
+          recipe_id: recipe.id,
+          ingredient_id: ingredient.id,
+          quantity_milli: 300,
+          unit: :g
+        })
+
+      lot =
+        Repo.insert!(%InventoryItem{
+          account_id: account.id,
+          ingredient_id: ingredient.id,
+          quantity_milli: 1000,
+          unit: :g,
+          source_kind: :planned,
+          last_mutation_at: DateTime.utc_now()
+        })
+
+      {:ok, meal} =
+        Planning.schedule_meal(%{
+          account_id: account.id,
+          date: Date.utc_today(),
+          slot: :lunch,
+          recipe_id: recipe.id
+        })
+
+      meal_id = meal.id
+      {:ok, socket} = connect(UserSocket, %{"token" => token})
+
+      {:ok, _reply, socket} =
+        subscribe_and_join(socket, CalendarChannel, "calendar:#{account.id}")
+
+      ref = push(socket, "set_is_cooked", %{"meal_id" => meal_id, "is_cooked" => true})
+      assert_reply(ref, :ok, %{meal_id: ^meal_id, is_cooked: true})
+
+      assert Repo.get!(InventoryItem, lot.id).quantity_milli == 700
+
+      assert [%{trigger_type: :cooking, quantity_delta_milli: -300, source_user_id: user_id}] =
+               Repo.all(from(e in InventoryMutationEvent, where: e.inventory_item_id == ^lot.id))
+
+      assert user_id == user.id
     end
 
     test "set is_cooked with non-boolean value", %{account: account, token: token} do

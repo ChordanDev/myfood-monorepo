@@ -7,7 +7,8 @@ defmodule MealPlannerApi.Services.CookingService do
   - Step tracking with snapshot persistence
   - Cooking chat: AI answers built from the frozen Context snapshot and the
     session's prior turns, with both turns of every answered question stored
-  - Inventory deduction on session completion
+  - Inventory deduction on session completion, and on a meal marked cooked
+    from the calendar (`set_meal_cooked/4`)
 
   Stateless service — all DB via PlanningRepo and InventoryRepo.
   """
@@ -17,7 +18,7 @@ defmodule MealPlannerApi.Services.CookingService do
   alias MealPlannerApi.Data.{InventoryRepo, PlanningRepo}
   alias MealPlannerApi.Inventory.LotFreshness
   alias MealPlannerApi.Persistence.Planning
-  alias MealPlannerApi.Persistence.Planning.CookingChatMessage
+  alias MealPlannerApi.Persistence.Planning.{CookingChatMessage, ScheduledMeal}
   alias MealPlannerApi.Persistence.Shopping
   alias MealPlannerApi.Repo
   alias MealPlannerApi.Services.{RecipeAccess, RecipeVersions}
@@ -116,6 +117,40 @@ defmodule MealPlannerApi.Services.CookingService do
     with {:ok, ids} <- RecipeAccess.authorize(current_user),
          {:ok, session_id} <- cast_id(session_id, :session_not_found) do
       persist_finish(ids, session_id, AccountClock.today(ids.account_id, now))
+    end
+  end
+
+  @doc """
+  Marks a Scheduled meal of the Account cooked or not cooked from the
+  calendar, without a Cooking session.
+
+  Marked cooked, the meal is a Cooked meal as a finished session leaves it, in
+  one transaction: the meal's open Shopping items are removed and the recipe's
+  Ingredients are consumed from Inventory oldest lot first, clamped at zero,
+  with `cooking` Inventory mutation events audited to the actor and carrying
+  no Cooking session. Lot usability uses the Account's today at `now`. A meal
+  that is already cooked, by a session or from the calendar, consumes nothing
+  again.
+
+  Marked not cooked, only the flag changes: the stock it consumed is not given
+  back.
+
+  `actor` is `%{id: user_id, account_id: account_id}` of a member the caller
+  has already let act on the Account (the calendar channel does at join).
+  Returns the meal, or `{:error, :not_found}` for no meal of the Account.
+  """
+  @spec set_meal_cooked(map(), binary(), boolean(), DateTime.t()) ::
+          {:ok, ScheduledMeal.t()} | {:error, term()}
+  def set_meal_cooked(
+        %{id: user_id, account_id: account_id},
+        meal_id,
+        is_cooked,
+        now \\ DateTime.utc_now()
+      )
+      when is_binary(meal_id) and is_boolean(is_cooked) do
+    with {:ok, meal_id} <- cast_id(meal_id, :not_found) do
+      ids = %{user_id: user_id, account_id: account_id}
+      persist_cooked_mark(ids, meal_id, is_cooked, AccountClock.today(account_id, now))
     end
   end
 
@@ -751,8 +786,7 @@ defmodule MealPlannerApi.Services.CookingService do
       # Lock order: Cooking session, then Scheduled meal, Shopping rows and
       # the Inventory key, the order of the lock order in the moduledoc of
       # `MealPlannerApi.Cart`.
-      Shopping.delete_open_items_for_meal(ids.account_id, meal.id)
-      {mutations, shortages} = deduct_ingredients(ids, session, meal, today)
+      {mutations, shortages} = consume_meal(ids, session.id, meal, today)
 
       with {:ok, cooked} <- PlanningRepo.update_scheduled_meal(meal, %{is_cooked: true}),
            {:ok, _completed} <-
@@ -769,6 +803,34 @@ defmodule MealPlannerApi.Services.CookingService do
         {:error, reason} -> Repo.rollback(reason)
       end
     end)
+  end
+
+  # The meal row lock is the one a finish takes, so a mark and a finish of one
+  # meal never both consume it: the second sees the meal cooked. A Shopping
+  # list read holds the meal `FOR KEY SHARE` until it has stored its items, so
+  # the mark waits for it and then deletes what it stored.
+  defp persist_cooked_mark(ids, meal_id, is_cooked, today) do
+    Repo.transaction(fn ->
+      meal =
+        PlanningRepo.lock_cooking_meal_for_account(ids.account_id, meal_id) ||
+          Repo.rollback(:not_found)
+
+      # Lock order: Scheduled meal, then Shopping rows and the Inventory key,
+      # the lock order in the moduledoc of `MealPlannerApi.Cart`.
+      if is_cooked and not meal.is_cooked, do: consume_meal(ids, nil, meal, today)
+
+      case PlanningRepo.update_scheduled_meal(meal, %{is_cooked: is_cooked}) do
+        {:ok, updated} -> updated
+        {:error, reason} -> Repo.rollback(reason)
+      end
+    end)
+  end
+
+  # What cooking a meal takes, under the caller's lock on the meal: its open
+  # Shopping items, then its Ingredients from the Inventory.
+  defp consume_meal(ids, session_id, meal, today) do
+    Shopping.delete_open_items_for_meal(ids.account_id, meal.id)
+    deduct_ingredients(ids, session_id, meal, today)
   end
 
   # A cooked meal is never skipped, so the flag is fixed to false.
@@ -788,7 +850,7 @@ defmodule MealPlannerApi.Services.CookingService do
     }
   end
 
-  defp deduct_ingredients(ids, session, meal, today) do
+  defp deduct_ingredients(ids, session_id, meal, today) do
     recipe = RecipeVersions.recipe_for_meal(meal)
     ingredients = (recipe && recipe.recipe_ingredients) || []
 
@@ -808,10 +870,10 @@ defmodule MealPlannerApi.Services.CookingService do
                delta: -requested,
                today: today,
                source_user_id: ids.user_id,
-               source_cooking_session_id: session.id,
+               source_cooking_session_id: session_id,
                trigger_type: :cooking,
                operation: :subtract,
-               metadata: %{scheduled_meal_id: session.scheduled_meal_id}
+               metadata: %{scheduled_meal_id: meal.id}
              }) do
           {:ok, result} ->
             applied = -result.delta

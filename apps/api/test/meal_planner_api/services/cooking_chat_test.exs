@@ -11,7 +11,6 @@ defmodule MealPlannerApi.Services.CookingChatTest do
 
   alias MealPlannerApi.AccountClock
   alias MealPlannerApi.Persistence.Accounts.Account
-  alias MealPlannerApi.Persistence.Calendar
   alias MealPlannerApi.Persistence.Catalog
   alias MealPlannerApi.Persistence.Inventory.InventoryItem
   alias MealPlannerApi.Persistence.Planning
@@ -340,7 +339,7 @@ defmodule MealPlannerApi.Services.CookingChatTest do
       assert {:ok, _} = ask(f, session, "First round?")
       assert {:ok, _} = CookingService.finish_session(f.actor, session.session_id, @instant)
 
-      assert {:ok, _} = Calendar.set_is_cooked(f.account.id, meal.id, false)
+      assert {:ok, _} = CookingService.set_meal_cooked(f.actor, meal.id, false)
 
       again = start!(f, meal)
       assert again.session_id != session.session_id
@@ -356,7 +355,7 @@ defmodule MealPlannerApi.Services.CookingChatTest do
     # cooked it, and a new one could never finish.
     test "start is refused for a meal marked cooked outside a session", f do
       meal = meal!(f, @utc_day)
-      assert {:ok, _} = Calendar.set_is_cooked(f.account.id, meal.id, true)
+      assert {:ok, _} = CookingService.set_meal_cooked(f.actor, meal.id, true)
 
       assert {:error, :cooking_already_finished} =
                CookingService.start_session(f.actor, meal.id, @instant)
@@ -367,7 +366,7 @@ defmodule MealPlannerApi.Services.CookingChatTest do
     test "start does not hand out the active session of a meal marked cooked meanwhile", f do
       meal = meal!(f, @utc_day)
       session = start!(f, meal)
-      assert {:ok, _} = Calendar.set_is_cooked(f.account.id, meal.id, true)
+      assert {:ok, _} = CookingService.set_meal_cooked(f.actor, meal.id, true)
 
       assert {:error, :cooking_already_finished} =
                CookingService.start_session(f.actor, meal.id, @instant)

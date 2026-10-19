@@ -251,18 +251,6 @@ defmodule MealPlannerApi.Persistence.Calendar do
   defp map_replacement_result({:error, _step, _reason, _changes}),
     do: {:error, :persistence_error}
 
-  def set_is_cooked(account_id, meal_id, is_cooked) when is_boolean(is_cooked) do
-    case Repo.get_by(ScheduledMeal, id: meal_id, account_id: account_id) do
-      nil ->
-        {:error, :not_found}
-
-      meal ->
-        meal
-        |> ScheduledMeal.changeset(%{is_cooked: is_cooked})
-        |> Repo.update()
-    end
-  end
-
   @doc """
     Returns the meal for a specific (account_id, date, slot) tuple.
 

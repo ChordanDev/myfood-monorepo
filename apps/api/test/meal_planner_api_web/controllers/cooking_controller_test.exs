@@ -6,10 +6,10 @@ defmodule MealPlannerApiWeb.CookingControllerTest do
   import MealPlannerApi.IdentityFixtures
 
   alias MealPlannerApi.Auth.Guardian
-  alias MealPlannerApi.Persistence.Calendar
   alias MealPlannerApi.Persistence.Catalog
   alias MealPlannerApi.Persistence.Inventory.InventoryItem
   alias MealPlannerApi.Persistence.Planning
+  alias MealPlannerApi.Services.CookingService
 
   # ─── Phase A — Tenancy Refactor (PR 3c task 3.16) ───────────────────────────
   # See calendar_controller_test.exs (task 3.14) for why a tampered
@@ -306,6 +306,7 @@ defmodule MealPlannerApiWeb.CookingControllerTest do
       {:ok,
        conn: put_req_header(conn, "authorization", "Bearer " <> token),
        account_id: account_id,
+       user_id: user_id,
        recipe: recipe,
        today: pin_account_to_midday!(account_id)}
     end
@@ -363,7 +364,7 @@ defmodule MealPlannerApiWeb.CookingControllerTest do
     end
 
     test "start for a meal marked cooked from the calendar is 409 cooking_already_finished",
-         %{conn: conn, account_id: account_id, recipe: recipe, today: today} do
+         %{conn: conn, account_id: account_id, user_id: user_id, recipe: recipe, today: today} do
       {:ok, meal} =
         Planning.schedule_meal(%{
           account_id: account_id,
@@ -372,7 +373,12 @@ defmodule MealPlannerApiWeb.CookingControllerTest do
           recipe_id: recipe.id
         })
 
-      assert {:ok, _} = Calendar.set_is_cooked(account_id, meal.id, true)
+      assert {:ok, _} =
+               CookingService.set_meal_cooked(
+                 %{id: user_id, account_id: account_id},
+                 meal.id,
+                 true
+               )
 
       conn = post(conn, "/api/cooking/start", %{"scheduledMealId" => meal.id})
       assert %{"error" => %{"code" => "cooking_already_finished"}} = json_response(conn, 409)
