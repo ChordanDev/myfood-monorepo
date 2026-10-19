@@ -460,7 +460,7 @@ Request body:
 Rules:
 
 - Required keys per meal: `date`, `slot`, `recipe_id`
-- Accepted slots: `breakfast`, `lunch`, `snack`, `dinner`
+- Accepted slots: `breakfast`, `lunch`, `dinner`
 - No duplicate `{date, slot}` pairs
 
 Success response:
@@ -1609,7 +1609,7 @@ Request body:
 
 - `mealId`: the `mealId` of a meal of `GET /api/calendar`.
 - `date`: required, the destination day as `YYYY-MM-DD`.
-- `slot`: required, `breakfast`, `lunch`, `snack` or `dinner`.
+- `slot`: required, `breakfast`, `lunch` or `dinner`.
 
 Success response (`200`):
 

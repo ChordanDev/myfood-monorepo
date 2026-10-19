@@ -228,7 +228,7 @@ Refusals reply the error envelope with these codes:
 }
 ```
 
-`planning_slot_occupied` carries `details` naming every date and slot pair that already holds a Scheduled meal, ordered by date (issue #28). The Planner never plans over a Scheduled meal; a snack, or a day outside the range, does not block the start.
+`planning_slot_occupied` carries `details` naming every date and slot pair that already holds a Scheduled meal, ordered by date (issue #28). The Planner never plans over a Scheduled meal; a day outside the range does not block the start.
 
 ```json
 {
@@ -265,7 +265,7 @@ It is read before the session starts, so a refused start leaves nothing behind, 
 | `softPreferences` | list of strings | The Soft preferences of the User, in the stored order |
 | `cookingSkill` | string \| `null` | `beginner`, `intermediate` or `advanced`; `null` until set. Read from the User row at start time, not from the socket |
 | `householdSize` | integer \| `null` | 1 to 20; `null` until set. Read like `cookingSkill` |
-| `slotCookingTimes` | object | Always the four Meal slots `breakfast`, `lunch`, `snack` and `dinner`, each `{ "cooking", "maxMinutes", "hungerLevel" }` |
+| `slotCookingTimes` | object | Always the three Meal slots `breakfast`, `lunch` and `dinner`, each `{ "cooking", "maxMinutes", "hungerLevel" }` |
 | `favoriteRecipeIds` | list of UUID strings | The `favoriteRecipeIds` of the command that are favorites of the caller, deduplicated, in the client's order |
 | `leftovers` | list of objects | The open Prepared leftovers of the Account (any member's), soonest consume-by date first, each `{ "title", "portions", "consumeByDate", "scheduledMealId" }`. They are meals already available for the first days of the plan, so they can occupy slots instead of a new recipe. One whose consume-by date is before the Account's today (`AccountClock`) is left out; one due today is kept. Consumed and discarded leftovers are never listed |
 
@@ -282,7 +282,7 @@ Each `leftovers` entry:
 
 | `cooking` | Meaning | `maxMinutes` | `hungerLevel` |
 |-----------|---------|--------------|---------------|
-| `no_constraint` | No time stored for the slot. The snack is never stored, so it is always this; a User who saved no times has it on all four slots | `null` | `null` |
+| `no_constraint` | No time stored for the slot; a User who saved no times has it on all three slots | `null` | `null` |
 | `do_not_cook` | The member stored 0 minutes: the slot must not need cooking | `0` | `light`, `normal` or `strong` |
 | `limited` | The member stored 1 to 240 minutes | the stored minutes | `light`, `normal` or `strong` |
 
@@ -296,7 +296,6 @@ Each `leftovers` entry:
   "slotCookingTimes": {
     "breakfast": { "cooking": "limited", "maxMinutes": 15, "hungerLevel": "light" },
     "lunch": { "cooking": "do_not_cook", "maxMinutes": 0, "hungerLevel": "normal" },
-    "snack": { "cooking": "no_constraint", "maxMinutes": null, "hungerLevel": null },
     "dinner": { "cooking": "limited", "maxMinutes": 45, "hungerLevel": "strong" }
   },
   "favoriteRecipeIds": ["550e8400-e29b-41d4-a716-446655440010"],
@@ -370,7 +369,7 @@ The Planner screen reads five events of `planning:<account_id>` (issue #25). The
 }
 ```
 
-Days are in calendar order and the meals of a day in `breakfast`, `lunch`, `dinner`, `snack` order. `priceCents` is `null` when the price of a recipe is unknown and then adds nothing to `costCents` and `estimatedCostCents`. A `proposal_ready` of any other shape is pushed as it was broadcast, with camelCase keys.
+Days are in calendar order and the meals of a day in `breakfast`, `lunch`, `dinner` order. `priceCents` is `null` when the price of a recipe is unknown and then adds nothing to `costCents` and `estimatedCostCents`. A `proposal_ready` of any other shape is pushed as it was broadcast, with camelCase keys.
 
 `planning_message` is the assistant's message about the proposal:
 
