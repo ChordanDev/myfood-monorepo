@@ -59,22 +59,68 @@ defmodule MealPlannerApi.Services.ShoppingRebuilder do
   place of the first. No rounding, no Float, no package math.
   """
   @spec compute_net_shortages([map()], %{{term(), atom()} => non_neg_integer()}) :: [map()]
-  def compute_net_shortages(meals, pool) when is_list(meals) and is_map(pool) do
-    {rows, _remaining_pool} =
-      Enum.reduce(meals, {[], pool}, fn meal, {acc, current_pool} ->
-        case meal.recipe_id do
-          nil ->
-            {acc, current_pool}
+  def compute_net_shortages(meals, pool) when is_list(meals) and is_map(pool),
+    do: compute_net_shortages(meals, pool, %{})
 
-          _recipe_id ->
-            ingredients = get_recipe_ingredients(meal)
-            process_meal_ingredients(meal, ingredients, acc, current_pool)
-        end
+  @doc """
+  `compute_net_shortages/2`, where what was bought for a Scheduled meal
+  covers that meal before any other one (issue #277).
+
+  `bought` is `%{{scheduled_meal_id, ingredient_id, unit} => %{stocked:
+  quantity_milli, in_transit: quantity_milli}}`: what the meal's bought
+  Shopping items hold, `stocked` once it reached Inventory and `in_transit`
+  while an online purchase is on its way. Before the pool is shared, each
+  meal takes from it what was stocked for it, as far as the pool still holds
+  it (stock is used by cooking too), and what is in transit for it covers
+  it without taking anything. What the meals still need then depletes what
+  is left of the pool greedily, as `compute_net_shortages/2` does.
+  """
+  @spec compute_net_shortages([map()], %{{term(), atom()} => non_neg_integer()}, map()) ::
+          [map()]
+  def compute_net_shortages(meals, pool, bought)
+      when is_list(meals) and is_map(pool) and is_map(bought) do
+    needs =
+      for meal <- meals,
+          meal.recipe_id != nil,
+          ri <- get_recipe_ingredients(meal),
+          do: {meal, ri}
+
+    {needs, pool, _bought} = Enum.reduce(needs, {[], pool, bought}, &cover_with_bought/2)
+
+    {rows, _remaining_pool} =
+      needs
+      |> Enum.reverse()
+      |> Enum.reduce({[], pool}, fn {meal, ri}, {acc, current_pool} ->
+        process_meal_ingredients(meal, [ri], acc, current_pool)
       end)
 
     rows
     |> Enum.reverse()
     |> sum_by_planned_key()
+  end
+
+  # Lowers one ingredient line of a meal by what was bought for it: first
+  # what is in transit, then what was stocked and the pool still holds.
+  defp cover_with_bought({meal, ri}, {needs, pool, bought}) do
+    bought_key = {meal.id, ri.ingredient_id, ri.unit}
+    pool_key = {ri.ingredient_id, ri.unit}
+
+    case Map.fetch(bought, bought_key) do
+      {:ok, %{stocked: stocked, in_transit: in_transit}} ->
+        transit = min(in_transit, ri.quantity_milli)
+        available = Map.get(pool, pool_key, 0)
+        from_stock = Enum.min([stocked, ri.quantity_milli - transit, available])
+
+        {[{meal, %{ri | quantity_milli: ri.quantity_milli - transit - from_stock}} | needs],
+         Map.put(pool, pool_key, available - from_stock),
+         Map.put(bought, bought_key, %{
+           stocked: stocked - from_stock,
+           in_transit: in_transit - transit
+         })}
+
+      :error ->
+        {[{meal, ri} | needs], pool, bought}
+    end
   end
 
   @doc """

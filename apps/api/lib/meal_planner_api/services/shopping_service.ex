@@ -31,8 +31,9 @@ defmodule MealPlannerApi.Services.ShoppingService do
   The read derives the Shopping items the upcoming Scheduled meals need and
   have none for, and brings every `needed` planned item in line with the
   Shortage it computes: a new quantity, or no item when the Shortage is zero
-  (issue #277). Items in a Cart, removed, bought or added by hand keep what
-  they have.
+  (issue #277). What was bought for a meal, stocked or on its way, covers
+  that meal before the Inventory is shared. Items in a Cart, removed, bought
+  or added by hand keep what they have.
 
   ## Parameters
 
@@ -302,8 +303,12 @@ defmodule MealPlannerApi.Services.ShoppingService do
         )
       end)
 
-    lines = ShoppingRebuilder.compute_net_shortages(scheduled_meals, pool)
     meal_ids = Enum.map(scheduled_meals, & &1.id)
+
+    # What was bought for a meal covers that meal first: stock bought for
+    # tomorrow is not today's.
+    bought = Shopping.bought_quantities(account_id, meal_ids)
+    lines = ShoppingRebuilder.compute_net_shortages(scheduled_meals, pool, bought)
 
     # Most reads find every line stored with its quantity and stop here,
     # without a lock.
@@ -383,7 +388,8 @@ defmodule MealPlannerApi.Services.ShoppingService do
         :ok =
           Shopping.insert_planned_items(account_id, missing_lines(account_id, meal_ids, current))
 
-        _marked = Shopping.mark_removed_items(account_id, Map.keys(dates))
+        # Only the meals whose pending items it locked, in id order above.
+        _marked = Shopping.mark_removed_items(account_id, unmoved)
         :ok
       end)
 

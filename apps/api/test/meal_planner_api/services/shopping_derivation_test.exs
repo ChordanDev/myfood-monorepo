@@ -171,6 +171,118 @@ defmodule MealPlannerApi.Services.ShoppingDerivationTest do
       assert item(f, f.first_meal, third_ingredient) == nil
     end
 
+    test "stock bought for one meal never covers another", f do
+      [today_item, tomorrow_item] =
+        [item(f, f.first_meal, f.ingredient), item(f, f.second_meal, f.ingredient)]
+
+      # Tomorrow's item is bought and stocked; today's is still to buy.
+      buy!(f, tomorrow_item)
+      assert %{status: :checked_out} = Repo.get!(ShoppingItem, tomorrow_item.id)
+
+      assert {:ok, list} = ShoppingService.get_shopping_list(f.actor)
+
+      assert %{id: id, status: :pending, quantity_milli: 250} =
+               item(f, f.first_meal, f.ingredient)
+
+      assert id == today_item.id
+      assert line_quantity(list, f.ingredient) == 250
+    end
+
+    test "an online purchase still on its way counts for its meal", f do
+      tomorrow_item = item(f, f.second_meal, f.ingredient)
+
+      # 100 of tomorrow's 250 g bought online: the rest stays to buy.
+      buy!(f, tomorrow_item, 100, "online")
+
+      assert {:ok, _list} = ShoppingService.get_shopping_list(f.actor)
+
+      quantities =
+        stored_items(f)
+        |> Enum.filter(
+          &(&1.scheduled_meal_id == f.second_meal.id and &1.ingredient_id == f.ingredient.id)
+        )
+        |> Map.new(&{&1.status, &1.quantity_milli})
+
+      assert quantities == %{pending_delivery: 100, pending: 150}
+      assert %{status: :pending, quantity_milli: 250} = item(f, f.first_meal, f.ingredient)
+    end
+
+    test "a quantity a Shopping item cannot hold is skipped and logged, and the rest is corrected",
+         f do
+      stale = item(f, f.first_meal, f.ingredient)
+      Repo.update!(Ecto.Changeset.change(stale, quantity_milli: 40))
+
+      # A meal that needs more than an int4 holds, with a stored item.
+      huge = Fixtures.insert_ingredient("Huge #{Ecto.UUID.generate()}")
+
+      recipe =
+        Fixtures.insert_recipe("Huge recipe #{Ecto.UUID.generate()}", account_id: f.account.id)
+
+      Fixtures.attach_recipe_ingredient(recipe, huge, 2_000_000_000, :g)
+
+      {:ok, huge_meal} =
+        Planning.schedule_meal(%{
+          account_id: f.account.id,
+          recipe_id: recipe.id,
+          date: Date.add(Date.utc_today(), 3),
+          slot: :lunch,
+          selected_quantity: 2
+        })
+
+      {:ok, huge_item} =
+        Shopping.create_shopping_item(%{
+          account_id: f.account.id,
+          scheduled_meal_id: huge_meal.id,
+          planned_date: huge_meal.date,
+          ingredient_id: huge.id,
+          quantity_milli: 1_000,
+          unit: :g,
+          status: :pending
+        })
+
+      log =
+        capture_log(fn ->
+          assert {:ok, _list} = ShoppingService.get_shopping_list(f.actor)
+        end)
+
+      assert log =~ "shopping pending quantity skipped"
+      assert log =~ "item_id=#{huge_item.id}"
+      refute log =~ "shopping item derivation failed"
+      assert %{quantity_milli: 1_000} = Repo.get!(ShoppingItem, huge_item.id)
+      assert %{quantity_milli: 250} = Repo.get!(ShoppingItem, stale.id)
+    end
+
+    test "a pending item of an Ingredient the User removed in another unit is left alone", f do
+      removed = item(f, f.first_meal, f.ingredient)
+
+      assert {:ok, _} =
+               ShoppingService.set_item_status(f.actor, %{
+                 "item_id" => removed.id,
+                 "status" => "removed"
+               })
+
+      # The same meal and Ingredient in another unit, with a quantity no line has.
+      {:ok, other_unit} =
+        Shopping.create_shopping_item(%{
+          account_id: f.account.id,
+          scheduled_meal_id: f.first_meal.id,
+          planned_date: f.first_meal.date,
+          ingredient_id: f.ingredient.id,
+          quantity_milli: 70,
+          unit: :ml,
+          status: :pending
+        })
+
+      # A stale item elsewhere sends the read through its correction.
+      stale = item(f, f.second_meal, f.ingredient)
+      Repo.update!(Ecto.Changeset.change(stale, quantity_milli: 40))
+
+      assert {:ok, _list} = ShoppingService.get_shopping_list(f.actor)
+
+      assert %{status: :removed, quantity_milli: 70} = Repo.get!(ShoppingItem, other_unit.id)
+      assert %{quantity_milli: 250} = Repo.get!(ShoppingItem, stale.id)
+    end
+
     test "a restored item the stock covers is not listed", f do
       removed = item(f, f.first_meal, f.ingredient)
 
@@ -313,11 +425,18 @@ defmodule MealPlannerApi.Services.ShoppingDerivationTest do
       # The read waits for the stale item behind the rebuild.
       assert_receive {:reading, reader_backend}, 5_000
       wait_until_waiting(reader_backend)
-      send(holder.pid, :release)
+      # The read answers even when its derivation fails, so the log says
+      # whether it ran.
+      log =
+        capture_log(fn ->
+          send(holder.pid, :release)
 
-      assert {:ok, _} = Task.await(holder, 10_000)
-      assert {:ok, _reply} = Task.await(confirm, 15_000)
-      assert {:ok, _list} = Task.await(reader, 15_000)
+          assert {:ok, _} = Task.await(holder, 10_000)
+          assert {:ok, _reply} = Task.await(confirm, 15_000)
+          assert {:ok, _list} = Task.await(reader, 15_000)
+        end)
+
+      refute log =~ "shopping item derivation failed"
 
       # The confirm added a third meal.
       meals = Repo.all(from(m in ScheduledMeal, where: m.account_id == ^f.account.id))
@@ -372,6 +491,14 @@ defmodule MealPlannerApi.Services.ShoppingDerivationTest do
     |> Enum.filter(&(&1.ingredient_id == ingredient.id and &1.status == "needed"))
     |> Enum.map(& &1.quantity_milli)
     |> Enum.sum()
+  end
+
+  # Buys `item` through the Cart: `quantity_milli` of it, or all of it, in
+  # a physical or an online purchase.
+  defp buy!(f, item, quantity_milli \\ nil, type \\ "physical") do
+    {:ok, cart} = MealPlannerApi.Cart.reserve(f.actor, [item.id])
+    payload = MealPlannerApi.CartFixtures.payload(cart, quantity_milli, type)
+    {:ok, _} = MealPlannerApi.Cart.purchase(f.actor, cart.session_id, payload)
   end
 
   defp insert_stock!(f, ingredient, quantity_milli) do

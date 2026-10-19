@@ -180,6 +180,60 @@ defmodule MealPlannerApi.Services.ShoppingRebuilderTest do
   # yields one line with the summed quantity
   # -------------------------------------------------------------------------
 
+  describe "compute_net_shortages/3 — stock bought for a meal (#277)" do
+    test "what was bought and stocked for a meal covers that meal before the others" do
+      today = meal("m1", ~D[2026-01-01], [ri("x", :g, 250)])
+      tomorrow = meal("m2", ~D[2026-01-02], [ri("x", :g, 250)])
+
+      # Tomorrow's 250 g were bought and are in stock: they are tomorrow's.
+      bought = %{{"m2", "x", :g} => %{stocked: 250, in_transit: 0}}
+
+      assert [%{scheduled_meal_id: "m1", quantity_milli: 250}] =
+               ShoppingRebuilder.compute_net_shortages(
+                 [today, tomorrow],
+                 %{{"x", :g} => 250},
+                 bought
+               )
+    end
+
+    test "only the stock still there counts as bought" do
+      tomorrow = meal("m2", ~D[2026-01-02], [ri("x", :g, 500)])
+      bought = %{{"m2", "x", :g} => %{stocked: 500, in_transit: 0}}
+
+      # 200 of the 500 bought were used elsewhere.
+      assert [%{scheduled_meal_id: "m2", quantity_milli: 200}] =
+               ShoppingRebuilder.compute_net_shortages([tomorrow], %{{"x", :g} => 300}, bought)
+    end
+
+    test "a delivery still on its way covers its meal without taking stock" do
+      today = meal("m1", ~D[2026-01-01], [ri("x", :g, 250)])
+      tomorrow = meal("m2", ~D[2026-01-02], [ri("x", :g, 250)])
+      bought = %{{"m2", "x", :g} => %{stocked: 0, in_transit: 100}}
+
+      assert [
+               %{scheduled_meal_id: "m1", quantity_milli: 150},
+               %{scheduled_meal_id: "m2", quantity_milli: 150}
+             ] =
+               ShoppingRebuilder.compute_net_shortages(
+                 [today, tomorrow],
+                 %{{"x", :g} => 100},
+                 bought
+               )
+    end
+
+    test "with nothing bought it is compute_net_shortages/2" do
+      meals = [
+        meal("m1", ~D[2026-01-01], [ri("x", :g, 250)]),
+        meal("m2", ~D[2026-01-02], [ri("x", :g, 250), ri("y", :ml, 40)])
+      ]
+
+      pool = %{{"x", :g} => 300}
+
+      assert ShoppingRebuilder.compute_net_shortages(meals, pool, %{}) ==
+               ShoppingRebuilder.compute_net_shortages(meals, pool)
+    end
+  end
+
   describe "compute_net_shortages/2 — repeated planned key" do
     test "a snapshot listing the same Ingredient and unit twice yields one summed line" do
       meals = [

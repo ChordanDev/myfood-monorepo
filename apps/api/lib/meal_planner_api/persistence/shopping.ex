@@ -23,6 +23,9 @@ defmodule MealPlannerApi.Persistence.Shopping do
   @planned_line_fields @planned_key_fields ++ [:quantity_milli]
   @planned_item_fields [:account_id, :status | @planned_line_fields]
 
+  # The largest value the `int4` `quantity_milli` column holds.
+  @max_quantity_milli 2_147_483_647
+
   def create_supermarket(attrs),
     do: %Supermarket{} |> Supermarket.changeset(attrs) |> Repo.insert()
 
@@ -344,20 +347,28 @@ defmodule MealPlannerApi.Persistence.Shopping do
   end
 
   @doc """
-  `pending_planned_items/2` under a `FOR UPDATE` lock on each item, taken in id order. A
-  Cart reservation that commits first takes the item out of the result, and the plan
-  confirm wipe locks the items it deletes in the same order
-  (`Data.ShoppingRepo.delete_pending_for_window/3`), so the two cannot deadlock. Take the
-  meals' locks first, as the lock order in the moduledoc of `MealPlannerApi.Cart` says.
+  `pending_planned_items/2` after a `FOR UPDATE` lock on every `:pending` planned item of
+  the meals, taken in id order: the ones of a removed meal and Ingredient too, which
+  `mark_removed_items/2` updates next. A Cart reservation that commits first takes the
+  item out of the result, and the plan confirm wipe locks the items it deletes in the same
+  order (`Data.ShoppingRepo.delete_pending_for_window/3`), so the two cannot deadlock. Take
+  the meals' locks first, as the lock order in the moduledoc of `MealPlannerApi.Cart` says.
   """
   @spec lock_pending_planned_items(Ecto.UUID.t(), [Ecto.UUID.t()]) :: [pending_planned_item()]
   def lock_pending_planned_items(_account_id, []), do: []
 
   def lock_pending_planned_items(account_id, scheduled_meal_ids) do
-    account_id
-    |> pending_planned_query(scheduled_meal_ids)
-    |> lock("FOR UPDATE")
+    from(i in ShoppingItem,
+      where:
+        i.account_id == ^account_id and i.scheduled_meal_id in ^scheduled_meal_ids and
+          i.source == :planned_meal and i.status == :pending,
+      order_by: i.id,
+      lock: "FOR UPDATE",
+      select: i.id
+    )
     |> Repo.all()
+
+    pending_planned_items(account_id, scheduled_meal_ids)
   end
 
   defp pending_planned_query(account_id, scheduled_meal_ids) do
@@ -385,6 +396,41 @@ defmodule MealPlannerApi.Persistence.Shopping do
   end
 
   @doc """
+  What the bought planned Shopping items of the given Scheduled meals hold, per meal,
+  Ingredient and unit: `stocked` for the ones that reached Inventory (`:checked_out`) and
+  `in_transit` for an online purchase on its way (`:pending_delivery`). A Shopping list read
+  lets them cover their own meal first (`ShoppingRebuilder.compute_net_shortages/3`).
+  """
+  @spec bought_quantities(Ecto.UUID.t(), [Ecto.UUID.t()]) :: %{
+          {Ecto.UUID.t(), Ecto.UUID.t(), atom()} => %{
+            stocked: non_neg_integer(),
+            in_transit: non_neg_integer()
+          }
+        }
+  def bought_quantities(_account_id, []), do: %{}
+
+  def bought_quantities(account_id, scheduled_meal_ids) do
+    from(i in ShoppingItem,
+      where:
+        i.account_id == ^account_id and i.scheduled_meal_id in ^scheduled_meal_ids and
+          i.source == :planned_meal and i.status in [:checked_out, :pending_delivery],
+      group_by: [i.scheduled_meal_id, i.ingredient_id, i.unit, i.status],
+      select: {i.scheduled_meal_id, i.ingredient_id, i.unit, i.status, sum(i.quantity_milli)}
+    )
+    |> Repo.all()
+    |> Enum.reduce(%{}, fn {meal_id, ingredient_id, unit, status, quantity}, bought ->
+      field = if status == :checked_out, do: :stocked, else: :in_transit
+
+      Map.update(
+        bought,
+        {meal_id, ingredient_id, unit},
+        Map.put(%{stocked: 0, in_transit: 0}, field, quantity),
+        &Map.put(&1, field, quantity)
+      )
+    end)
+  end
+
+  @doc """
   Sets the `quantity_milli` of each `:pending` planned Shopping item of `quantities`, a list
   of `{item_id, quantity_milli}`, and returns how many it changed. An item that is no longer
   `:pending` is left alone.
@@ -393,6 +439,19 @@ defmodule MealPlannerApi.Persistence.Shopping do
           non_neg_integer()
   def update_pending_quantities(account_id, quantities) when is_list(quantities) do
     now = DateTime.utc_now()
+
+    # A quantity the `int4` column cannot hold would abort the read's whole
+    # transaction, on every read: it is skipped and logged, as
+    # `insert_planned_items/2` skips a line the changeset rejects.
+    {quantities, too_large} =
+      Enum.split_with(quantities, fn {_item_id, quantity} -> quantity <= @max_quantity_milli end)
+
+    Enum.each(too_large, fn {item_id, quantity_milli} ->
+      Logger.error(
+        "shopping pending quantity skipped account_id=#{account_id} item_id=#{item_id} " <>
+          "quantity_milli=#{quantity_milli}"
+      )
+    end)
 
     Enum.reduce(quantities, 0, fn {item_id, quantity_milli}, updated ->
       {count, _} =

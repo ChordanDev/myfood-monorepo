@@ -94,13 +94,11 @@ defmodule MealPlannerApiWeb.ShoppingPurchasedTest do
     test "is not derived again as a Shortage by a later read", f do
       buy!(f)
 
-      # The stock the purchase brought is used up, so both meals are short
-      # again. Each already has its Shopping item: nothing is added.
-      Repo.delete_all(
-        from(i in InventoryItem,
-          where: i.account_id == ^f.account.id
-        )
-      )
+      # 300 g of the 1500 g bought are used elsewhere. Each meal's purchase
+      # covers its own meal first, so tomorrow's is 300 g short. It already
+      # has its Shopping item: nothing is added.
+      lot = Repo.one!(from(i in InventoryItem, where: i.account_id == ^f.account.id, limit: 1))
+      Repo.update!(Ecto.Changeset.change(lot, quantity_milli: lot.quantity_milli - 300))
 
       before = lines(f)
 
