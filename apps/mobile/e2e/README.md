@@ -27,8 +27,9 @@ The backend is `apps/api` in its `e2e` environment (`config/e2e.exs`, database
 `E2E_LOGIN_EMAIL` is always `E2E_LOGIN_CODE`. Any other email gets a random code, as in `dev`.
 
 The `e2e` database is `meal_planner_api_e2e`, or the name in `MYFOOD_E2E_DATABASE`. It never
-reads the `DB_NAME` of `dev`, and the seed refuses a database whose name does not end in `_e2e`,
-so neither the seed nor the cleanup below can reach the development database.
+reads the `DB_NAME` of `dev`, and `config/e2e.exs` refuses a name that does not end in `_e2e`, so
+every `MIX_ENV=e2e` command fails before it connects. The seed and the cleanup below can only reach
+a database named for `e2e`.
 
 ```bash
 # Terminal 1: backend setup and local E2E API, from the repository root
@@ -110,7 +111,8 @@ E2E_ACCESS_TOKEN_EXPIRY_WAIT_SECONDS=7 npm run e2e:maestro:restore
 ```
 
 Maestro writes reports, screenshots, video, and command traces to `e2e/artifacts/maestro/`.
-That directory is ignored. Backend cleanup remains manual; it drops the `e2e` database only:
+That directory is ignored. Backend cleanup remains manual; it drops the database named for `e2e` (the config refuses any
+other name):
 
 ```bash
 cd apps/api
