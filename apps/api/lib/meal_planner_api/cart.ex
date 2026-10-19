@@ -31,8 +31,8 @@ defmodule MealPlannerApi.Cart do
       `pending` items. It takes no Inventory key.
     * A replacement of a date range
       (`Persistence.Calendar.replace_scheduled_meals_for_range/3`) locks the
-      range's meals `FOR UPDATE`, then deletes them with their Shopping items.
-      It takes no Inventory key.
+      range's meals `FOR UPDATE`, then deletes the ones that are not cooked
+      with their Shopping items. It takes no Inventory key.
 
   A delivery (`delivery/2`) is the exception: it takes the Inventory key
   before it locks its `pending_delivery` Shopping items. A purchase does not

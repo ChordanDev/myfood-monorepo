@@ -137,8 +137,7 @@ defmodule MealPlannerApiWeb.CalendarChannel do
     %{
       date: date,
       slot: slot,
-      recipe_id: Map.get(payload, "recipe_id"),
-      is_cooked: Map.get(payload, "is_cooked", false)
+      recipe_id: Map.get(payload, "recipe_id")
     }
   end
 

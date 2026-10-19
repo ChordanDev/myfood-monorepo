@@ -122,12 +122,6 @@ defmodule MealPlannerApi.Services.PlanningServiceTest do
     end
   end
 
-  describe "mark_meal_cooked/1" do
-    test "accepts meal_id" do
-      assert is_function(&PlanningService.mark_meal_cooked/1)
-    end
-  end
-
   describe "delete_scheduled_meal/1" do
     test "accepts meal_id" do
       assert is_function(&PlanningService.delete_scheduled_meal/1)

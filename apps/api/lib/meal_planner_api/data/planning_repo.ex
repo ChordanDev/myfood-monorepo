@@ -140,11 +140,18 @@ defmodule MealPlannerApi.Data.PlanningRepo do
     # The meals are locked in id order before the delete, which takes them in
     # the order it finds them: a confirm locks the meals of its Cart in id
     # order, as the lock order in the moduledoc of `MealPlannerApi.Cart` says.
+    # Every meal of the range is locked and returned with its date, slot and
+    # `is_cooked`; only the meals that are not cooked are deleted (issue #368).
     multi
     |> Ecto.Multi.run(:scheduled_meals_range_lock, fn repo, _changes ->
-      {:ok, query |> order_by([m], m.id) |> lock("FOR UPDATE") |> select([m], m.id) |> repo.all()}
+      {:ok,
+       query
+       |> order_by([m], m.id)
+       |> lock("FOR UPDATE")
+       |> select([m], %{id: m.id, date: m.date, slot: m.slot, is_cooked: m.is_cooked})
+       |> repo.all()}
     end)
-    |> Ecto.Multi.delete_all(:scheduled_meals_range, query)
+    |> Ecto.Multi.delete_all(:scheduled_meals_range, where(query, [m], not m.is_cooked))
   end
 
   @spec insert_scheduled_meals(Ecto.Multi.t(), Ecto.UUID.t(), [map()]) :: Ecto.Multi.t()

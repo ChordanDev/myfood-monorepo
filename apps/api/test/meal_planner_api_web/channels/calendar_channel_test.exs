@@ -5,7 +5,7 @@ defmodule MealPlannerApiWeb.CalendarChannelTest do
   import MealPlannerApi.FactoryHelpers
 
   alias MealPlannerApi.Persistence.Accounts.AccountMembership
-  alias MealPlannerApi.{Persistence.Catalog, Persistence.Planning}
+  alias MealPlannerApi.{Persistence.Calendar, Persistence.Catalog, Persistence.Planning}
   alias MealPlannerApi.Persistence.Inventory.{InventoryItem, InventoryMutationEvent}
   alias MealPlannerApi.Repo
   alias MealPlannerApiWeb.{CalendarChannel, UserSocket}
@@ -355,7 +355,70 @@ defmodule MealPlannerApiWeb.CalendarChannelTest do
 
       assert_reply(ref, :error, %{reason: "invalid_slot"})
     end
+
+    # Issue #368: only `set_is_cooked` and a Cooking session mark a meal cooked,
+    # because marking it consumes Inventory; an upsert never changes the mark.
+    test "stores a new meal not cooked when the payload says it is cooked",
+         %{account: account, token: token} do
+      socket = join_calendar!(account, token)
+
+      ref =
+        push(socket, "upsert_meal", %{
+          "date" => "2026-03-24",
+          "slot" => "lunch",
+          "is_cooked" => true
+        })
+
+      assert_reply(ref, :ok, %{is_cooked: false})
+      refute stored_meal!(account, ~D[2026-03-24], :lunch).is_cooked
+    end
+
+    test "does not mark an existing meal cooked", %{account: account, token: token} do
+      {:ok, _meal} =
+        Calendar.upsert_scheduled_meal(account.id, %{
+          date: ~D[2026-03-24],
+          slot: :lunch
+        })
+
+      socket = join_calendar!(account, token)
+
+      ref =
+        push(socket, "upsert_meal", %{
+          "date" => "2026-03-24",
+          "slot" => "lunch",
+          "is_cooked" => true
+        })
+
+      assert_reply(ref, :ok, %{is_cooked: false})
+      refute stored_meal!(account, ~D[2026-03-24], :lunch).is_cooked
+    end
+
+    test "leaves a cooked meal cooked when the payload omits is_cooked",
+         %{account: account, token: token} do
+      {:ok, meal} =
+        Calendar.upsert_scheduled_meal(account.id, %{
+          date: ~D[2026-03-24],
+          slot: :lunch
+        })
+
+      meal |> Planning.ScheduledMeal.changeset(%{is_cooked: true}) |> Repo.update!()
+
+      socket = join_calendar!(account, token)
+      ref = push(socket, "upsert_meal", %{"date" => "2026-03-24", "slot" => "lunch"})
+
+      assert_reply(ref, :ok, %{is_cooked: true})
+      assert stored_meal!(account, ~D[2026-03-24], :lunch).is_cooked
+    end
   end
+
+  defp join_calendar!(account, token) do
+    {:ok, socket} = connect(UserSocket, %{"token" => token})
+    {:ok, _reply, socket} = subscribe_and_join(socket, CalendarChannel, "calendar:#{account.id}")
+    socket
+  end
+
+  defp stored_meal!(account, date, slot),
+    do: Repo.get_by!(Planning.ScheduledMeal, account_id: account.id, date: date, slot: slot)
 
   describe "handle_in delete_meal" do
     test "delete meal success", %{account: account, user: user, token: token} do
