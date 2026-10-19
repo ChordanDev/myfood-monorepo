@@ -223,9 +223,10 @@ defmodule MealPlannerApi.Persistence.Calendar.MealMove do
             i.source == :planned_meal
       )
 
-    # An archived item is one a past day left unbought. Every status answers
-    # for its meal when the Shopping list is derived, so once the meal is due
-    # again the item is dropped and the next read derives an open one. It goes
+    # An archived item is one a past day left unbought. Open, removed and
+    # archived items answer for their meal's planned key when the Shopping
+    # list is derived (bought ones do not), so once the meal is due again the
+    # archived item is dropped and the next read derives an open one. It goes
     # first: only the rows that stay take the new date.
     if Date.compare(date, today) != :lt do
       Repo.delete_all(where(planned, [i], i.status == :archived))

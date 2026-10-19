@@ -24,6 +24,10 @@ defmodule MealPlannerApi.Cart do
       takes the Cart's lock of the Account, locks the items' meals `FOR KEY
       SHARE`, then the items, then stores or deletes their Shopping removals.
       It takes no Inventory key.
+    * A Shopping list read that stores or corrects planned items
+      (`ShoppingService.ensure_shopping_items_from_schedule/2`) takes the
+      Cart's lock of the Account, locks its meals `FOR KEY SHARE`, then the
+      `pending` items. It takes no Inventory key.
     * A replacement of a date range
       (`Persistence.Calendar.replace_scheduled_meals_for_range/3`) locks the
       range's meals `FOR UPDATE`, then deletes them with their Shopping items.
@@ -761,10 +765,13 @@ defmodule MealPlannerApi.Cart do
   Takes the Cart's advisory lock of the Account until the current
   transaction ends. Every Cart write takes it first, before any row lock.
   Outside this module only `set-status`
-  (`ShoppingService.set_item_status/2`) takes it, before it locks Shopping
-  items, so it cannot lock them in the opposite order to a Cart write. The
-  other writers of Shopping items (cooking, meal moves, plan confirms) do not
-  take it.
+  (`ShoppingService.set_item_status/2`) and the writes of a Shopping list read
+  (`ShoppingService.ensure_shopping_items_from_schedule/2`) take it, before
+  they lock Shopping items, so they cannot lock them in the opposite order to
+  a Cart write; the read also takes it so that no purchase or delivery commits
+  between the Shortage lines it computes and the items it stores. The other
+  writers of Shopping items (cooking, meal moves, plan confirms) do not take
+  it.
   """
   def lock_account!(account_id) do
     Repo.query!("SELECT pg_advisory_xact_lock(hashtext($1))", ["cart:#{account_id}"])

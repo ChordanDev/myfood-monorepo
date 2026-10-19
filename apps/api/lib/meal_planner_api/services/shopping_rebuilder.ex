@@ -18,10 +18,11 @@ defmodule MealPlannerApi.Services.ShoppingRebuilder do
 
   ## Reading the list
 
-  `limit_to_date/2` and `group_lines/2` shape the list for a read
-  (issue #39): the first keeps the meals up to a chosen day, the second
-  turns persisted Shopping items into the lines of the list, one per
-  ingredient or one per meal. Both are pure as well.
+  `group_lines/2` shapes the list for a read (issue #39): it turns
+  persisted Shopping items into the lines of the list, one per ingredient or
+  one per meal. A read derives its items from every upcoming meal, and its
+  `until_date` only filters the items it lists, so no read keeps the meals
+  up to a chosen day with `limit_to_date/2`. Both are pure as well.
   """
 
   alias MealPlannerApi.Persistence.Planning.ScheduledMeal

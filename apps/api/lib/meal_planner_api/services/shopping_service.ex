@@ -280,8 +280,18 @@ defmodule MealPlannerApi.Services.ShoppingService do
   # (`Persistence.Calendar.MealMove`). A line computed for the old date would
   # be stored next to the items the move carried to the new one, so lines are
   # stored and items corrected only under a row lock on their meal, and only
-  # while that meal still holds the date it was loaded with. The meals left
-  # out are handled by the next read, from the meals as it loads them.
+  # while that meal still holds the date it was loaded with and is not cooked:
+  # a Cooking session finish deletes the meal's open items and takes its
+  # Ingredients out of the Inventory, so a line derived for it afterwards
+  # would be stock nobody needs. The meals left out are handled by the next
+  # read, from the meals as it loads them.
+  #
+  # The lines that decide whether to write are computed without a lock, and a
+  # purchase or a delivery can commit right after: an item it bought no longer
+  # answers for its planned key, so a line computed before would store the
+  # bought quantity again. The lines that are written are computed again
+  # under the Cart's lock of the Account, which every purchase and delivery
+  # takes.
   #
   # A failure here must not fail the read: it is logged and the read answers
   # with the Shopping items already stored.
@@ -292,7 +302,35 @@ defmodule MealPlannerApi.Services.ShoppingService do
   @spec ensure_shopping_items_from_schedule(Ecto.UUID.t(), [map()]) :: :ok
   def ensure_shopping_items_from_schedule(account_id, scheduled_meals) do
     scheduled_meals = Repo.preload(scheduled_meals, recipe: :recipe_ingredients)
+    meal_ids = Enum.map(scheduled_meals, & &1.id)
 
+    lines =
+      account_id
+      |> shortage_lines(scheduled_meals, meal_ids)
+      |> log_unstorable_lines(account_id)
+
+    # Most reads find every line stored with its quantity and stop here,
+    # without a lock.
+    if missing_lines(account_id, meal_ids, lines) == [] and
+         stale_items(Shopping.pending_planned_items(account_id, meal_ids), lines) == {[], []} do
+      :ok
+    else
+      store_lines_of_unmoved_meals(account_id, scheduled_meals)
+    end
+  rescue
+    exception ->
+      Logger.error(
+        "shopping item derivation failed account_id=#{account_id} " <>
+          "exception=#{inspect(exception.__struct__)} message=#{Exception.message(exception)}"
+      )
+
+      :ok
+  end
+
+  # The Shortage lines of the meals, from the Inventory and from what was
+  # bought for each meal: it covers that meal first, since stock bought for
+  # tomorrow is not today's.
+  defp shortage_lines(account_id, scheduled_meals, meal_ids) do
     pool =
       InventoryService.list_for_account(account_id)
       |> Enum.reduce(%{}, fn item, pool ->
@@ -304,33 +342,8 @@ defmodule MealPlannerApi.Services.ShoppingService do
         )
       end)
 
-    meal_ids = Enum.map(scheduled_meals, & &1.id)
-
-    # What was bought for a meal covers that meal first: stock bought for
-    # tomorrow is not today's.
     bought = Shopping.bought_quantities(account_id, meal_ids)
-
-    lines =
-      scheduled_meals
-      |> ShoppingRebuilder.compute_net_shortages(pool, bought)
-      |> log_unstorable_lines(account_id)
-
-    # Most reads find every line stored with its quantity and stop here,
-    # without a lock.
-    if missing_lines(account_id, meal_ids, lines) == [] and
-         stale_items(Shopping.pending_planned_items(account_id, meal_ids), lines) == {[], []} do
-      :ok
-    else
-      store_lines_of_unmoved_meals(account_id, scheduled_meals, lines)
-    end
-  rescue
-    exception ->
-      Logger.error(
-        "shopping item derivation failed account_id=#{account_id} " <>
-          "exception=#{inspect(exception.__struct__)} message=#{Exception.message(exception)}"
-      )
-
-      :ok
+    ShoppingRebuilder.compute_net_shortages(scheduled_meals, pool, bought)
   end
 
   # An open, removed or archived Shopping item answers for its planned key.
@@ -387,23 +400,32 @@ defmodule MealPlannerApi.Services.ShoppingService do
     end)
   end
 
-  # One transaction: the locks on the meals are taken first and held until
-  # the writes commit, then the `pending` items are locked and read again. A
-  # move that commits before them is seen in the dates they return, one that
-  # starts after them waits and carries the new items along. An item stored
-  # for a meal and Ingredient the User removed is listed as removed
-  # (`Persistence.Shopping.ShoppingRemoval`).
-  defp store_lines_of_unmoved_meals(account_id, meals, lines) do
+  # One transaction, in the lock order of the moduledoc of `MealPlannerApi.Cart`:
+  # the Cart's lock of the Account first, so no purchase or delivery commits
+  # until the writes do, then the locks on the meals, held until the writes
+  # commit. The lines are computed again under both, from the meals that are
+  # still there and not cooked; a moved meal still takes its share of the
+  # Inventory, though its lines are left for the next read. Then the
+  # `pending` items are locked and read again. A move that commits before the meal locks is
+  # seen in the dates they return, one that starts after them waits and
+  # carries the new items along. An item stored for a meal and Ingredient the
+  # User removed is listed as removed (`Persistence.Shopping.ShoppingRemoval`).
+  defp store_lines_of_unmoved_meals(account_id, meals) do
     meal_ids = Enum.map(meals, & &1.id)
     loaded_dates = Map.new(meals, &{&1.id, &1.date})
 
     {:ok, :ok} =
       Repo.transaction(fn ->
+        MealPlannerApi.Cart.lock_account!(account_id)
         dates = lock_meal_dates(account_id, meal_ids)
         unmoved = for {id, date} <- dates, Map.get(loaded_dates, id) == date, do: id
 
+        live = Enum.filter(meals, &Map.has_key?(dates, &1.id))
+
         current =
-          Enum.filter(lines, &(Map.get(dates, &1.scheduled_meal_id) == &1.planned_date))
+          account_id
+          |> shortage_lines(live, Enum.map(live, & &1.id))
+          |> Enum.filter(&(Map.get(dates, &1.scheduled_meal_id) == &1.planned_date))
 
         {updates, deletes} =
           account_id
@@ -428,10 +450,11 @@ defmodule MealPlannerApi.Services.ShoppingService do
   # lock that conflicts with the `FOR UPDATE` of a move, and the one the
   # foreign key check of the insert takes on these rows anyway, so two reads
   # never wait for each other on a meal. In id order, as the move locks its
-  # meals. A meal deleted since it was loaded is not in the result.
+  # meals. A meal deleted or cooked since it was loaded is not in the result:
+  # Postgres checks `is_cooked` again on the row a finish it waited for left.
   defp lock_meal_dates(account_id, meal_ids) do
     from(m in MealPlannerApi.Persistence.Planning.ScheduledMeal,
-      where: m.account_id == ^account_id and m.id in ^meal_ids,
+      where: m.account_id == ^account_id and m.id in ^meal_ids and not m.is_cooked,
       order_by: m.id,
       lock: "FOR KEY SHARE",
       select: {m.id, m.date}
