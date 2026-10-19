@@ -620,6 +620,36 @@ defmodule MealPlannerApi.Generation.ServerTest do
     assert [%{quantity_milli: 1000}] = list_all_items(account)
   end
 
+  # A stored proposal can hold a slot key that is not a Meal slot: one written
+  # before a slot was removed (a snack slot before #342) or a malformed one.
+  # Confirming it is refused with nothing saved; it does not crash the server.
+  describe "confirm/3 — a slot key that is not a Meal slot" do
+    for {label, slot_key} <- [
+          {"an unknown slot", "2026-08-06_elevenses"},
+          {"a key without a slot", "2026-08-06lunch"},
+          {"a key with an invalid date", "someday_lunch"}
+        ] do
+      test "#{label} is refused, nothing is saved and the server keeps running" do
+        account = insert_account("Unknown slot confirmation")
+        user = insert_user_with_membership(account, "unknown-slot@example.com")
+        recipe = insert_recipe("Recipe in an unknown slot")
+        slot = Map.put(slot(~D[2026-08-06], :lunch, recipe.id), :slot_key, unquote(slot_key))
+
+        {_run, proposal} = insert_proposal_with_slots(account, user, [slot])
+        session = insert_active_session(account, user)
+        start_server!(account, user)
+        pid = pid_for_account(account)
+
+        assert {:error, :transaction_failed} = Server.confirm(pid, proposal.id, session.id)
+
+        assert Process.alive?(pid)
+        assert list_all_meals(account.id) == []
+        assert count_checkout_sessions(account) == 0
+        assert MealPlannerApi.Repo.get!(PlanningProposal, proposal.id).status == :pending
+      end
+    end
+  end
+
   # ---------------------------------------------------------------------------
   # @task 3.1 — re-confirm idempotency
   #

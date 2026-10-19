@@ -101,9 +101,15 @@ defmodule MealPlannerApi.Services.GenerationServiceTest do
 
   describe "parse_slot_key/1" do
     test "parses slot key back to date and atom slot" do
-      {date, slot} = GenerationService.parse_slot_key("2026-06-03_lunch")
-      assert date == "2026-06-03"
-      assert slot == :lunch
+      assert {:ok, {"2026-06-03", :lunch}} = GenerationService.parse_slot_key("2026-06-03_lunch")
+    end
+
+    test "refuses a slot that is not a Meal slot" do
+      assert :error = GenerationService.parse_slot_key("2026-06-03_elevenses")
+    end
+
+    test "refuses a key without a slot" do
+      assert :error = GenerationService.parse_slot_key("2026-06-03lunch")
     end
   end
 

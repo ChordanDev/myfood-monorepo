@@ -832,23 +832,23 @@ defmodule MealPlannerApi.Generation.Server do
 
     result =
       Enum.reduce_while(slots, [], fn slot, acc ->
-        [date, slot_name] = split_slot_key(slot)
-
-        attrs = %{
-          account_id: state.account_id,
-          user_id: state.user_id,
-          generation_run_id: proposal.generation_run_id,
-          planning_proposal_id: proposal.id,
-          date: Date.from_iso8601!(date),
-          slot: String.to_existing_atom(slot_name),
-          recipe_id: parse_recipe_id(Map.get(slot, :recipe_id) || Map.get(slot, "recipe_id")),
-          selected_quantity:
-            Map.get(slot, :selected_quantity, Map.get(slot, "selected_quantity", 1)),
-          is_cooked: false
-        }
-
-        case PlanningRepo.schedule_meal(attrs) do
-          {:ok, meal} -> {:cont, [meal | acc]}
+        with {:ok, date, meal_slot} <- parse_slot(slot),
+             {:ok, meal} <-
+               PlanningRepo.schedule_meal(%{
+                 account_id: state.account_id,
+                 user_id: state.user_id,
+                 generation_run_id: proposal.generation_run_id,
+                 planning_proposal_id: proposal.id,
+                 date: date,
+                 slot: meal_slot,
+                 recipe_id:
+                   parse_recipe_id(Map.get(slot, :recipe_id) || Map.get(slot, "recipe_id")),
+                 selected_quantity:
+                   Map.get(slot, :selected_quantity, Map.get(slot, "selected_quantity", 1)),
+                 is_cooked: false
+               }) do
+          {:cont, [meal | acc]}
+        else
           {:error, _} = err -> {:halt, err}
         end
       end)
@@ -864,11 +864,24 @@ defmodule MealPlannerApi.Generation.Server do
   # both shapes so the existing on-wire proposal format (atom-keyed from
   # `build_proposal_json`) and the same shape expressed as a string map
   # both flow through the confirm pipeline.
-  defp split_slot_key(%{slot_key: sk}) when is_binary(sk), do: String.split(sk, "_", parts: 2)
-  defp split_slot_key(%{"slot_key" => sk}) when is_binary(sk), do: String.split(sk, "_", parts: 2)
+  #
+  # A stored proposal can hold a slot key that is not a Meal slot (one written
+  # before a slot was removed) or a malformed one. That slot answers
+  # `:invalid_slot_key`, which aborts the confirm transaction: the proposal is
+  # refused as a whole, nothing is saved, and no slot is silently dropped.
+  defp parse_slot(slot) do
+    with sk when is_binary(sk) <- slot_key(slot),
+         {:ok, {date, meal_slot}} <- GenerationService.parse_slot_key(sk),
+         {:ok, date} <- Date.from_iso8601(date) do
+      {:ok, date, meal_slot}
+    else
+      _ -> {:error, :invalid_slot_key}
+    end
+  end
 
-  # Will fail loudly in `Date.from_iso8601!/1` / `String.to_existing_atom/1` rather than silently filter.
-  defp split_slot_key(_), do: [nil, nil]
+  defp slot_key(%{slot_key: sk}), do: sk
+  defp slot_key(%{"slot_key" => sk}), do: sk
+  defp slot_key(_slot), do: nil
 
   # Rebuilds the shopping cart from the FULL confirmed window.
   #
