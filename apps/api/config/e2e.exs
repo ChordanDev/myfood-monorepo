@@ -24,7 +24,7 @@ config :meal_planner_api, MealPlannerApiWeb.Endpoint,
       "e2eOnlySecretKeyBaseNeverUsedInProductionE2eOnlySecretKeyBase0001"
 
 config :meal_planner_api, MealPlannerApi.Auth.Guardian,
-  secret_key: "change_this_for_e2e_only_guardian_secret"
+  secret_key: System.get_env("GUARDIAN_SECRET_KEY") || "change_this_for_e2e_only_guardian_secret"
 
 # Planning proposals come from the OR-Tools optimizer, as in `dev`
 # (`pip install -r optimizer/requirements.txt`). `OPTIMIZER_PYTHON` points
