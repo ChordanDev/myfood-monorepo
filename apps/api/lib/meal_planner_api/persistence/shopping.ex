@@ -347,13 +347,17 @@ defmodule MealPlannerApi.Persistence.Shopping do
   def pending_planned_items(_account_id, []), do: []
 
   def pending_planned_items(account_id, scheduled_meal_ids) do
-    account_id |> pending_planned_query(scheduled_meal_ids) |> Repo.all()
+    account_id
+    |> pending_planned_query(scheduled_meal_ids)
+    |> Repo.all()
+    |> correctable()
   end
 
   @doc """
-  `pending_planned_items/2` after a `FOR UPDATE` lock on every `:pending` planned item of
-  the meals, taken in id order: the ones of a removed meal and Ingredient too, which
-  `mark_removed_items/2` updates next. A Cart reservation that commits first takes the
+  `pending_planned_items/2` in one statement that locks `FOR UPDATE`, in id order, every
+  `:pending` planned item of the meals: the ones of a removed meal and Ingredient too, which
+  `mark_removed_items/2` updates next. The items it returns are the ones it locked, so an
+  item committed after it is not corrected. A Cart reservation that commits first takes the
   item out of the result, and the plan confirm wipe locks the items it deletes in the same
   order (`Data.ShoppingRepo.delete_pending_for_window/3`), so the two cannot deadlock. Take
   the meals' locks first, as the lock order in the moduledoc of `MealPlannerApi.Cart` says.
@@ -362,19 +366,15 @@ defmodule MealPlannerApi.Persistence.Shopping do
   def lock_pending_planned_items(_account_id, []), do: []
 
   def lock_pending_planned_items(account_id, scheduled_meal_ids) do
-    from(i in ShoppingItem,
-      where:
-        i.account_id == ^account_id and i.scheduled_meal_id in ^scheduled_meal_ids and
-          i.source == :planned_meal and i.status == :pending,
-      order_by: i.id,
-      lock: "FOR UPDATE",
-      select: i.id
-    )
+    account_id
+    |> pending_planned_query(scheduled_meal_ids)
+    |> lock("FOR UPDATE")
     |> Repo.all()
-
-    pending_planned_items(account_id, scheduled_meal_ids)
+    |> correctable()
   end
 
+  # Every pending planned item of the meals, in id order, with whether its
+  # meal and Ingredient have a Shopping removal.
   defp pending_planned_query(account_id, scheduled_meal_ids) do
     removals =
       from(r in ShoppingRemoval,
@@ -389,14 +389,18 @@ defmodule MealPlannerApi.Persistence.Shopping do
       where:
         i.account_id == ^account_id and i.scheduled_meal_id in ^scheduled_meal_ids and
           i.source == :planned_meal and i.status == :pending,
-      where: not exists(removals),
       order_by: i.id,
       select: %{
         id: i.id,
         key: {i.scheduled_meal_id, i.planned_date, i.ingredient_id, i.unit},
-        quantity_milli: i.quantity_milli
+        quantity_milli: i.quantity_milli,
+        removed: exists(removals)
       }
     )
+  end
+
+  defp correctable(items) do
+    for %{removed: false} = item <- items, do: Map.delete(item, :removed)
   end
 
   @doc """
