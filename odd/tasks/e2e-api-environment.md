@@ -23,6 +23,7 @@ Delivery: one PR, stacked under #377. Test runner: `mix test` in `apps/api`.
 ## Tasks
 
 - [x] **T1** S1-S8. Route: inline (no writer trigger). Commit: `31619a9b`.
+- [x] **T3** Jorge SP-1 and SP-2 (PR #380). Route: inline. Commits: see `## Log` L8.
 - [x] **T2** Verifier blocker B1 (S2): `MealPlannerApi.AI` refused `MockClient` outside `:test` at call time. Route: inline. Commit: see `## Log` L6.
 
 ## Log
@@ -33,3 +34,5 @@ Delivery: one PR, stacked under #377. Test runner: `mix test` in `apps/api`.
 - **L4** Found while running: OR-Tools 9.12 has no wheels for Python 3.14, and the first start after creating the venv can time out the optimizer handshake. Both documented in the E2E README.
 - **L5** RDD: assessed `medium` (`under_budget`); review granted by the user, lenses risk and reliability, approved and acknowledged for `31619a9b`.
 - **L6** Independent verifier: S1, S3, S4, S6, S7, S8 met; S5 met but reworded from the issue ("a proposal from `MockClient`") by D2, pending the user's sign-off; blocker B1: `AI_CLIENT=mock` was accepted in `:e2e` but `MealPlannerApi.AI.client/0` answered `:ai_mock_client_forbidden` outside `:test`. Fixed with `AI.mock_client_allowed?/1` (`:test` and `:e2e`), RED then GREEN in `ai_mock_client_env_test.exs`; a live `MIX_ENV=e2e AI_CLIENT=mock` call now answers through the mock. Advisories taken: a test that sign-up codes stay random for the e2e email, and a clearer seed guard message. Full suite: 2265 passed, 40 skipped.
+- **L7** (2026-10-19) Jorge review of PR #380: CHANGES REQUESTED. SP-1 (blocker): `config/e2e.exs` read `DB_NAME`, the variable `dev` uses, so a developer with `DB_NAME=meal_planner_api_dev` exported would seed and drop the dev database. SP-2 (theoretical): `e2e_login_code/2` trusted `:e2e_login` with no environment guard of its own. CD-1 rejected. User: "arregla todos".
+- **L8** SP-1: `config/e2e.exs` reads `MYFOOD_E2E_DATABASE` (default `meal_planner_api_e2e`); the seed refuses a database whose name does not end in `_e2e`; README updated. RED: `test/config/e2e_config_test.exs` 2/3 failed (`DB_NAME=meal_planner_api_dev` gave `meal_planner_api_dev`). Live: the seed refuses `meal_planner_api_dev` and `meal_planner_api_e2e_376x`, and seeds `check376_e2e`. SP-2: `EmailCodeLogin.e2e_login_allowed?/1` (`:test`, `:e2e`) gates `:e2e_login`; RED 2 failures before. The seed journey test now gives the `start_planning` reply 2 s (it failed at the default 100 ms). Full suite: 2270 passed, 40 skipped; credo, sobelow, compile clean.

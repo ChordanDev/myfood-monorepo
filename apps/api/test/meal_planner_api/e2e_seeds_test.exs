@@ -102,7 +102,8 @@ defmodule MealPlannerApi.E2eSeedsTest do
     range_to = in_days(2)
 
     ref = push(socket, "start_planning", %{"rangeFrom" => range_from, "rangeTo" => range_to})
-    assert_reply(ref, :ok, %{"sessionId" => session_id})
+    # Starting the session writes and broadcasts before it replies.
+    assert_reply(ref, :ok, %{"sessionId" => session_id}, 2_000)
 
     answer_optimizer_request(optimizer)
     assert_push("proposal_ready", %{"proposalId" => proposal_id, "days" => days}, 5_000)
