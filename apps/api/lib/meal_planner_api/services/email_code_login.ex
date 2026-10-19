@@ -208,7 +208,7 @@ defmodule MealPlannerApi.Services.EmailCodeLogin do
   # the hourly request counters, so Maestro flows can sign in one after
   # another. Every other email, flow and environment draws a random code.
   defp e2e_login_code(email, :login) do
-    case Application.get_env(:meal_planner_api, :e2e_login) do
+    case e2e_login_allowed?(current_env()) && Application.get_env(:meal_planner_api, :e2e_login) do
       [email: e2e_email, code: code] when is_binary(e2e_email) and is_binary(code) ->
         if UserEmail.normalize(e2e_email) == email, do: {:ok, code}, else: :none
 
@@ -218,6 +218,19 @@ defmodule MealPlannerApi.Services.EmailCodeLogin do
   end
 
   defp e2e_login_code(_email, _flow), do: :none
+
+  @doc false
+  # The environments where `:e2e_login` is honoured: `e2e`, whose
+  # `config/runtime.exs` is the only one that sets it, and `test`. A second
+  # guard after that config, as for `MealPlannerApi.AI.MockClient`: a
+  # release runs as `:prod` and never issues the fixed code.
+  @spec e2e_login_allowed?(atom()) :: boolean()
+  def e2e_login_allowed?(env), do: env in [:test, :e2e]
+
+  # `Mix.env/0` while Mix is loaded; a release has no Mix and runs as `:prod`.
+  defp current_env do
+    if Code.ensure_loaded?(Mix) and function_exported?(Mix, :env, 0), do: Mix.env(), else: :prod
+  end
 
   # Runs after the code is committed: no connection or lock is held while
   # the mail provider answers.

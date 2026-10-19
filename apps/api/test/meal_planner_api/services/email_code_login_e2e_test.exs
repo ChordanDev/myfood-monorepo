@@ -125,6 +125,18 @@ defmodule MealPlannerApi.Services.EmailCodeLoginE2eTest do
     end
   end
 
+  describe "the environments that honour :e2e_login" do
+    test "test and e2e" do
+      assert EmailCodeLogin.e2e_login_allowed?(:test)
+      assert EmailCodeLogin.e2e_login_allowed?(:e2e)
+    end
+
+    test "not dev or prod, even with :e2e_login set" do
+      refute EmailCodeLogin.e2e_login_allowed?(:dev)
+      refute EmailCodeLogin.e2e_login_allowed?(:prod)
+    end
+  end
+
   describe "without the e2e login configured" do
     test "E2E_LOGIN_EMAIL gets a random code under the usual limits" do
       assert {:ok, _sent} = EmailCodeLogin.request_code(@e2e_email, @ip)
