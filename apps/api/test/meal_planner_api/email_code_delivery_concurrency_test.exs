@@ -1,10 +1,11 @@
 defmodule MealPlannerApi.EmailCodeDeliveryConcurrencyTest do
   @moduledoc """
-  Two code requests for one email whose mails are out at the same time
-  (issue #291): a code counts only once its mail is out, so the second
-  request passes the cooldown while the first is being sent. Whichever
-  is marked delivered last must consume the other, or a dead code keeps
-  logging in for its whole TTL.
+  Code requests for one email while a mail is out (issue #291). A code
+  still being mailed holds the resend cooldown for as long as a send can
+  take, so a second request is refused. A send slower than that lets a
+  second request through, and then whichever code is marked delivered
+  last must consume the other, or a dead code keeps logging in for its
+  whole TTL.
   """
   use ExUnit.Case, async: false
 
@@ -87,6 +88,19 @@ defmodule MealPlannerApi.EmailCodeDeliveryConcurrencyTest do
     {:ok, repo: repo, user: user}
   end
 
+  test "a request while the first mail is out is refused by the cooldown", f do
+    first = request_in_task(f, [])
+    assert_receive {:mailing, first_mailer}, 5000
+
+    second = request_in_task(f, [])
+    assert {:error, :rate_limited, retry_after} = Task.await(second, 5000)
+    assert retry_after in 1..60
+
+    send(first_mailer, :send)
+    assert {:ok, _sent} = Task.await(first, 5000)
+    assert [_only_the_first] = Bamboo.SentEmail.all()
+  end
+
   test "the send marked delivered last consumes the other, so only its code logs in", f do
     # The first send stops right after it marks its code delivered, before
     # it commits, the window where the second send used to slip past it.
@@ -100,6 +114,11 @@ defmodule MealPlannerApi.EmailCodeDeliveryConcurrencyTest do
 
     first = request_in_task(f, pause_after_mark: true)
     assert_receive {:mailing, first_mailer}, 5000
+
+    # The first send has taken longer than the cooldown waits for a send.
+    Repo.update_all(from(c in EmailVerificationCode, where: c.email == ^f.user.email),
+      set: [inserted_at: DateTime.add(DateTime.utc_now(), -31, :second)]
+    )
 
     second = request_in_task(f, [])
     assert_receive {:mailing, second_mailer}, 5000

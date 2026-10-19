@@ -205,8 +205,9 @@ defmodule MealPlannerApi.Services.EmailCodeLoginTest do
     test "an undelivered code left behind neither shadows the earlier code nor starts the cooldown",
          %{user: user} do
       insert_code!(user, "123456", seconds_ago(120))
-      # The process died after the commit, before the mail was out.
-      insert_code!(user, "654321", seconds_ago(5), delivered_at: nil)
+      # The process died after the commit, before the mail was out, longer
+      # ago than any send takes.
+      insert_code!(user, "654321", seconds_ago(45), delivered_at: nil)
 
       assert {:error, :code_invalid} =
                EmailCodeLogin.verify_code(user.email, "654321", "203.0.113.1", &session/2)
@@ -216,6 +217,19 @@ defmodule MealPlannerApi.Services.EmailCodeLoginTest do
 
       assert verified.id == user.id
       assert {:ok, _sent} = EmailCodeLogin.request_code(user.email, "203.0.113.1")
+    end
+
+    test "a code whose mail is still being sent starts the cooldown", %{user: user} do
+      insert_code!(user, "123456", seconds_ago(120))
+      insert_code!(user, "654321", seconds_ago(5), delivered_at: nil)
+
+      assert {:error, :rate_limited, retry_after} =
+               EmailCodeLogin.request_code(user.email, "203.0.113.1")
+
+      assert retry_after in 50..55
+      # A code still being mailed does not verify meanwhile.
+      assert {:ok, _session} =
+               EmailCodeLogin.verify_code(user.email, "123456", "203.0.113.1", &session/2)
     end
 
     @tag :capture_log

@@ -13,9 +13,11 @@ defmodule MealPlannerApi.Services.EmailCodeLogin do
     * a 60-second resend cooldown per email;
     * the code is stored and committed before it is mailed, so a slow
       mail provider holds no database connection or lock;
-    * a code counts only once its mail is out: until then it neither
-      verifies nor starts the cooldown, and a failed send deletes it and
-      gives back the hourly request slots it reserved;
+    * a code counts only once its mail is out: until then it does not
+      verify, and it holds the cooldown only for as long as a send can
+      take, so a row left behind by a send that never ended stops counting.
+      A failed send deletes the code and gives back the hourly request
+      slots it reserved;
     * a delivered code consumes every code delivered before it for that
       email, so only the latest delivered code can ever verify;
     * failed attempts are counted on the code row itself, and a code locks
@@ -57,6 +59,11 @@ defmodule MealPlannerApi.Services.EmailCodeLogin do
 
   @ttl_seconds 600
   @resend_cooldown_seconds 60
+  # How long a code whose mail is still being sent holds the cooldown,
+  # counted from when it was stored. Longer than a send takes, so a second
+  # request is refused while the first mail is out; once it is over, a row
+  # left behind by a send that never ended stops blocking a resend.
+  @delivery_window_seconds 30
   @max_attempts EmailCodeAuth.max_code_attempts()
   @max_verify_failures_per_ip EmailCodeAuth.max_verify_failures_per_ip()
 
@@ -127,9 +134,10 @@ defmodule MealPlannerApi.Services.EmailCodeLogin do
   #
   # The code is committed before the mail is sent, outside the
   # transaction, with no `delivered_at`: until the mail is out it does not
-  # verify and does not start the cooldown, so the earlier code stays
-  # usable meanwhile, and a row left behind by a process that died before
-  # the send ended never matters. Once the mail is out the code is marked
+  # verify, so the earlier code stays usable meanwhile, and it holds the
+  # cooldown only within the delivery window, so a row left behind by a
+  # process that died before the send ended stops mattering. Once the mail
+  # is out the code is marked
   # delivered and consumes the codes delivered before it; a failed
   # delivery deletes it and gives back the request slots it reserved.
   @spec issue_code(
@@ -238,18 +246,22 @@ defmodule MealPlannerApi.Services.EmailCodeLogin do
   end
 
   # The cooldown is per email whatever the flow: every code mailed to the
-  # address counts, from the moment its mail went out. A code whose mail
-  # is not out does not count.
+  # address counts from the moment its mail went out, and a code whose
+  # mail is still being sent counts from when it was stored, while it is
+  # younger than the delivery window.
   defp check_resend_cooldown(email, now) do
-    last_delivered_at =
+    sending_since = DateTime.add(now, -@delivery_window_seconds, :second)
+
+    last_issued_at =
       Repo.one(
         from(c in EmailVerificationCode,
           where: c.email == ^email,
-          select: max(c.delivered_at)
+          where: not is_nil(c.delivered_at) or c.inserted_at > ^sending_since,
+          select: type(max(coalesce(c.delivered_at, c.inserted_at)), :utc_datetime_usec)
         )
       )
 
-    elapsed = last_delivered_at && DateTime.diff(now, last_delivered_at, :second)
+    elapsed = last_issued_at && DateTime.diff(now, last_issued_at, :second)
 
     if is_nil(elapsed) or elapsed >= @resend_cooldown_seconds do
       :ok
