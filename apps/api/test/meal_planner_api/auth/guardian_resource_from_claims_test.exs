@@ -12,10 +12,10 @@ defmodule MealPlannerApi.Auth.GuardianResourceFromClaimsTest do
       (replaced by `Account.plan`). The User struct no longer carries
       that field, so re-attaching it gave a stale value that no caller
       should read post-Phase A.
-    * `:subscription_tier` IS still re-attached. The PR 3 controller
-      sweep (which is **out of PR 2b scope**) still reads
-      `user.subscription_tier`; removing the reattachment now would
-      break those controllers before they can be migrated.
+    * `:subscription_tier` IS still re-attached. `PlanningService`
+      still reads `user.subscription_tier`. The tier in the claims is
+      the Account's (`Accounts.claims_for/2`, #328), so the reattached
+      value is the Account's tier.
     * `:account_id` IS still re-attached. The PR 1
       `LoadCurrentMembership.synthesize_legacy_membership/2` reads
       `user.account_id` to seed the synthesized membership struct for
@@ -85,7 +85,7 @@ defmodule MealPlannerApi.Auth.GuardianResourceFromClaimsTest do
              "Guardian.resource_from_claims/1 must not reattach :account_type (it is a legacy field; Account.plan is the source of truth)"
     end
 
-    test "still attaches :subscription_tier (PR 3 controllers read it)" do
+    test "still attaches :subscription_tier (PlanningService reads it)" do
       plan = Repo.get_by!(MealPlannerApi.Subscriptions.Plan, name: "individual")
 
       {:ok, account} =
