@@ -41,6 +41,17 @@ if Mix.env() not in [:e2e, :test] do
   Mix.raise("priv/repo/e2e_seeds.exs runs in MIX_ENV=e2e (or test, for its tests), not #{Mix.env()}")
 end
 
+# A database named for `e2e` only: the seed overwrites shared catalog rows
+# and deletes journey data, which must never happen to a `dev` database.
+database = Repo.config()[:database]
+
+if Mix.env() == :e2e and not String.ends_with?(database, "_e2e") do
+  Mix.raise(
+    "priv/repo/e2e_seeds.exs refuses the database #{database}: its name must end in _e2e " <>
+      "(set MYFOOD_E2E_DATABASE)"
+  )
+end
+
 email =
   case System.get_env("E2E_LOGIN_EMAIL") do
     value when is_binary(value) and value != "" -> UserEmail.normalize(value)

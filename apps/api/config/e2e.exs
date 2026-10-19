@@ -5,11 +5,16 @@ import Config
 # test doubles `config/runtime.exs` accepts in this environment only:
 # `AI_CLIENT=mock` and the fixed login code of `E2E_LOGIN_EMAIL`.
 # `priv/repo/e2e_seeds.exs` seeds the data the flows need.
+#
+# The database has a variable of its own, not the `DB_NAME` of `dev`: the
+# seed rewrites data and the documented cleanup drops the database, so a
+# `DB_NAME` exported for `dev` must never reach them. The seed also refuses
+# a database whose name does not end in `_e2e`.
 config :meal_planner_api, MealPlannerApi.Repo,
   username: System.get_env("DB_USER", "postgres"),
   password: System.get_env("DB_PASSWORD", "postgres"),
   hostname: System.get_env("DB_HOST", "localhost"),
-  database: System.get_env("DB_NAME", "meal_planner_api_e2e"),
+  database: System.get_env("MYFOOD_E2E_DATABASE", "meal_planner_api_e2e"),
   stacktrace: true,
   show_sensitive_data_on_connection_error: true,
   pool_size: 10
