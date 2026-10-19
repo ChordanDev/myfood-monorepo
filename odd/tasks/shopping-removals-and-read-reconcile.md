@@ -25,7 +25,7 @@ Quoted from the owner's comments of 2026-10-15.
 ## Tasks
 
 - [x] **T1** S1-S8. `shopping_removals` table and `ShoppingRemoval` schema; set-status writes and deletes rows; read and rebuild mark items from the rows; range replace carries rows to the new meals that still use the Ingredient; `delete_open_items_for_meal/2` drops them. Route: inline (no writer reason). Commit `c661be82`.
-- [x] **T2** S9-S14. Read reconciles `pending` planned items under the meal-date locks. Route: inline. Commit: the `fix(api)` commit of #277.
+- [x] **T2** S9-S14. Read reconciles `pending` planned items under the meal-date locks. Route: inline. Commit `149b9a98`.
 
 ## Log
 
