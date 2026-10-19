@@ -66,15 +66,26 @@ defmodule MealPlannerApi.Persistence.Catalog do
   Writes the reviewed `allergens` of each `{ingredient_id, codes}`, in one
   transaction. An Ingredient whose `allergens` is no longer NULL is left as it
   is, so a review never overwrites an earlier one. Returns how many were
-  written and how many were skipped (already reviewed or not found).
+  written, how many were already reviewed, and the ids that match no
+  Ingredient, in the order given.
   """
   @spec apply_allergen_reviews([{Ecto.UUID.t(), [String.t()]}]) ::
-          {:ok, %{written: non_neg_integer(), skipped: non_neg_integer()}}
+          {:ok,
+           %{
+             written: non_neg_integer(),
+             already_reviewed: non_neg_integer(),
+             not_found: [Ecto.UUID.t()]
+           }}
   def apply_allergen_reviews(reviews) do
     now = DateTime.utc_now()
 
     Repo.transaction(fn ->
-      Enum.reduce(reviews, %{written: 0, skipped: 0}, &apply_allergen_review(&1, &2, now))
+      reviews
+      |> Enum.reduce(
+        %{written: 0, already_reviewed: 0, not_found: []},
+        &apply_allergen_review(&1, &2, now)
+      )
+      |> Map.update!(:not_found, &Enum.reverse/1)
     end)
   end
 
@@ -83,9 +94,16 @@ defmodule MealPlannerApi.Persistence.Catalog do
       from(i in Ingredient, where: i.id == ^id and is_nil(i.allergens))
       |> Repo.update_all(set: [allergens: codes, updated_at: now])
 
-    if count == 1,
-      do: %{acc | written: acc.written + 1},
-      else: %{acc | skipped: acc.skipped + 1}
+    cond do
+      count == 1 ->
+        %{acc | written: acc.written + 1}
+
+      Repo.exists?(from(i in Ingredient, where: i.id == ^id)) ->
+        %{acc | already_reviewed: acc.already_reviewed + 1}
+
+      true ->
+        %{acc | not_found: [id | acc.not_found]}
+    end
   end
 
   def list_ingredients, do: Repo.all(Ingredient)

@@ -13,6 +13,10 @@ defmodule Mix.Tasks.Catalog.ReviewAllergens do
   Codes inside a cell are separated by spaces. It prints how many Ingredients
   are unreviewed.
 
+  Fields are separated by commas only. A spreadsheet in a Spanish locale must
+  save the file as "CSV UTF-8 (comma delimited)"; a `;`-separated file fails
+  the header check and writes nothing.
+
   The reviewer corrects `allergens` and writes `yes` in `reviewed` on every
   row they checked. `--apply` then writes `allergens` on those rows only:
 
@@ -21,9 +25,12 @@ defmodule Mix.Tasks.Catalog.ReviewAllergens do
     * on a reviewed row an empty `allergens` cell means `[]`, reviewed with no
       allergens;
     * an Ingredient whose `allergens` is no longer NULL is left as it is;
+    * a reviewed row whose id matches no Ingredient writes nothing, and the
+      summary lists its id apart from the already reviewed ones;
     * a file with any code outside `peanut, tree_nut, shellfish, gluten,
-      dairy, egg, soy`, a malformed id or a different header writes nothing
-      and exits non-zero.
+      dairy, egg, soy`, a malformed id, a different header, a row with the
+      wrong number of columns, a quoted field that never closes, invalid
+      UTF-8 or no content writes nothing and exits non-zero.
   """
 
   use Mix.Task
@@ -89,13 +96,20 @@ defmodule Mix.Tasks.Catalog.ReviewAllergens do
       [] ->
         rows = for {:ok, row} <- parsed, do: row
         reviews = for %{reviewed?: true, id: id, codes: codes} <- rows, do: {id, codes}
-        {:ok, %{written: written, skipped: skipped}} = Catalog.apply_allergen_reviews(reviews)
+
+        {:ok, %{written: written, already_reviewed: already_reviewed, not_found: not_found}} =
+          Catalog.apply_allergen_reviews(reviews)
 
         Mix.shell().info(
-          "Wrote #{written} reviewed Ingredients; skipped #{skipped} already reviewed and " <>
+          "Wrote #{written} reviewed Ingredients; skipped #{already_reviewed} already reviewed, " <>
+            "#{length(not_found)} matching no Ingredient and " <>
             "#{length(rows) - length(reviews)} without reviewed = yes. " <>
             "#{Catalog.count_unreviewed_ingredients()} Ingredients are still unreviewed."
         )
+
+        if not_found != [] do
+          Mix.shell().info("Ids that match no Ingredient: #{Enum.join(not_found, ", ")}")
+        end
 
       errors ->
         Mix.raise("#{path} was not applied, nothing was written:\n" <> Enum.join(errors, "\n"))
