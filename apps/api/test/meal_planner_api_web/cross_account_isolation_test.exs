@@ -156,6 +156,15 @@ defmodule MealPlannerApiWeb.CrossAccountIsolationTest do
         suitable_for_slots: [:dinner]
       })
 
+    # 750 g needed less the 500 g of Inventory below: the Shopping item's 250 g.
+    {:ok, _} =
+      Catalog.add_recipe_ingredient(%{
+        recipe_id: dinner_recipe.id,
+        ingredient_id: ingredient.id,
+        quantity_milli: 750,
+        unit: :g
+      })
+
     {:ok, _calendar_meal} =
       Calendar.upsert_scheduled_meal(account_id, %{
         date: today,

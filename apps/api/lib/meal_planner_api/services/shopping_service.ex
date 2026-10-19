@@ -28,6 +28,12 @@ defmodule MealPlannerApi.Services.ShoppingService do
   @doc """
   The Shopping list of the caller's Account (issue #39).
 
+  The read derives the Shopping items the upcoming Scheduled meals need and
+  have none for, and brings every `needed` planned item in line with the
+  Shortage it computes: a new quantity, or no item when the Shortage is zero
+  (issue #277). Items in a Cart, removed, bought or added by hand keep what
+  they have.
+
   ## Parameters
 
     * `user` — the caller, scoped to the Account being read.
@@ -255,20 +261,25 @@ defmodule MealPlannerApi.Services.ShoppingService do
     |> Repo.all()
   end
 
-  # Ensure shopping items exist for the given scheduled meals.
+  # Ensure shopping items exist for the given scheduled meals, and that each
+  # `pending` one has the quantity of its Shortage line (issue #277).
   #
   # Runs on every Shopping list read that passes validation, from any number
   # of requests at once: the Shortage lines that have no Shopping item yet
   # are stored in one statement that skips the planned keys another request
-  # stored first.
+  # stored first. A `pending` planned item whose line has another quantity
+  # takes it, and one with no line (its Shortage is zero) is deleted, so a
+  # later Shortage derives it again as `needed`. Items in a Cart, removed,
+  # bought or manual, and items of a meal and Ingredient the User removed,
+  # are never changed.
   #
   # The meals were loaded earlier, outside any transaction, and a Scheduled
   # meal can change its date and keep its id since then
   # (`Persistence.Calendar.MealMove`). A line computed for the old date would
-  # be stored next to the items the move carried to the new one, so a line is
-  # stored only under a row lock on its meal, and only while that meal still
-  # holds the line's date. The lines left out are derived by the next read,
-  # from the meals as it loads them.
+  # be stored next to the items the move carried to the new one, so lines are
+  # stored and items corrected only under a row lock on their meal, and only
+  # while that meal still holds the date it was loaded with. The meals left
+  # out are handled by the next read, from the meals as it loads them.
   #
   # A failure here must not fail the read: it is logged and the read answers
   # with the Shopping items already stored.
@@ -294,10 +305,13 @@ defmodule MealPlannerApi.Services.ShoppingService do
     lines = ShoppingRebuilder.compute_net_shortages(scheduled_meals, pool)
     meal_ids = Enum.map(scheduled_meals, & &1.id)
 
-    # Most reads find every line stored and stop here, without a lock.
-    case missing_lines(account_id, meal_ids, lines) do
-      [] -> :ok
-      missing -> store_lines_of_unmoved_meals(account_id, meal_ids, missing)
+    # Most reads find every line stored with its quantity and stop here,
+    # without a lock.
+    if missing_lines(account_id, meal_ids, lines) == [] and
+         stale_items(Shopping.pending_planned_items(account_id, meal_ids), lines) == {[], []} do
+      :ok
+    else
+      store_lines_of_unmoved_meals(account_id, scheduled_meals, lines)
     end
   rescue
     exception ->
@@ -322,18 +336,49 @@ defmodule MealPlannerApi.Services.ShoppingService do
     end)
   end
 
-  # One transaction: the locks are taken just before the planned keys are read
-  # again and are held until the insert commits. A move that commits before
-  # them is seen in the dates they return, one that starts after them waits
-  # and carries the new items along. An item stored for a meal and Ingredient
-  # the User removed is listed as removed (`Persistence.Shopping.ShoppingRemoval`).
-  defp store_lines_of_unmoved_meals(account_id, meal_ids, lines) do
+  # The `pending` items whose line has another quantity, as
+  # `{item_id, quantity_milli}`, and the ones with no line.
+  defp stale_items(items, lines) do
+    quantities =
+      Map.new(lines, fn line ->
+        {{line.scheduled_meal_id, line.planned_date, line.ingredient_id, line.unit},
+         line.quantity_milli}
+      end)
+
+    Enum.reduce(items, {[], []}, fn item, {updates, deletes} ->
+      case Map.fetch(quantities, item.key) do
+        {:ok, quantity} when quantity == item.quantity_milli -> {updates, deletes}
+        {:ok, quantity} -> {[{item.id, quantity} | updates], deletes}
+        :error -> {updates, [item.id | deletes]}
+      end
+    end)
+  end
+
+  # One transaction: the locks on the meals are taken first and held until
+  # the writes commit, then the `pending` items are locked and read again. A
+  # move that commits before them is seen in the dates they return, one that
+  # starts after them waits and carries the new items along. An item stored
+  # for a meal and Ingredient the User removed is listed as removed
+  # (`Persistence.Shopping.ShoppingRemoval`).
+  defp store_lines_of_unmoved_meals(account_id, meals, lines) do
+    meal_ids = Enum.map(meals, & &1.id)
+    loaded_dates = Map.new(meals, &{&1.id, &1.date})
+
     {:ok, :ok} =
       Repo.transaction(fn ->
-        dates = lock_meal_dates(account_id, lines)
+        dates = lock_meal_dates(account_id, meal_ids)
+        unmoved = for {id, date} <- dates, Map.get(loaded_dates, id) == date, do: id
 
         current =
           Enum.filter(lines, &(Map.get(dates, &1.scheduled_meal_id) == &1.planned_date))
+
+        {updates, deletes} =
+          account_id
+          |> Shopping.lock_pending_planned_items(unmoved)
+          |> stale_items(current)
+
+        _updated = Shopping.update_pending_quantities(account_id, updates)
+        _deleted = Shopping.delete_pending_planned_items(account_id, deletes)
 
         :ok =
           Shopping.insert_planned_items(account_id, missing_lines(account_id, meal_ids, current))
@@ -345,14 +390,12 @@ defmodule MealPlannerApi.Services.ShoppingService do
     :ok
   end
 
-  # The date each meal of the lines holds now, read under `FOR KEY SHARE`: the
-  # weakest row lock that conflicts with the `FOR UPDATE` of a move, and the
-  # one the foreign key check of the insert takes on these rows anyway, so two
-  # reads never wait for each other. In id order, as the move locks its meals.
-  # A meal deleted since it was loaded is not in the result.
-  defp lock_meal_dates(account_id, lines) do
-    meal_ids = lines |> Enum.map(& &1.scheduled_meal_id) |> Enum.uniq()
-
+  # The date each meal holds now, read under `FOR KEY SHARE`: the weakest row
+  # lock that conflicts with the `FOR UPDATE` of a move, and the one the
+  # foreign key check of the insert takes on these rows anyway, so two reads
+  # never wait for each other on a meal. In id order, as the move locks its
+  # meals. A meal deleted since it was loaded is not in the result.
+  defp lock_meal_dates(account_id, meal_ids) do
     from(m in MealPlannerApi.Persistence.Planning.ScheduledMeal,
       where: m.account_id == ^account_id and m.id in ^meal_ids,
       order_by: m.id,

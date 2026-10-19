@@ -325,6 +325,107 @@ defmodule MealPlannerApi.Persistence.Shopping do
     Logger.error("#{message} account_id=#{account_id} #{key} errors=#{inspect(changeset.errors)}")
   end
 
+  @typedoc "A `:pending` planned Shopping item, as a read checks it against its Shortage."
+  @type pending_planned_item :: %{
+          id: Ecto.UUID.t(),
+          key: planned_key(),
+          quantity_milli: pos_integer()
+        }
+
+  @doc """
+  The `:pending` planned Shopping items of the given Scheduled meals, except the ones whose
+  meal and Ingredient have a Shopping removal: a read never corrects those (issue #277).
+  """
+  @spec pending_planned_items(Ecto.UUID.t(), [Ecto.UUID.t()]) :: [pending_planned_item()]
+  def pending_planned_items(_account_id, []), do: []
+
+  def pending_planned_items(account_id, scheduled_meal_ids) do
+    account_id |> pending_planned_query(scheduled_meal_ids) |> Repo.all()
+  end
+
+  @doc """
+  `pending_planned_items/2` under a `FOR UPDATE` lock on each item, taken in id order. A
+  Cart reservation that commits first takes the item out of the result, and the plan
+  confirm wipe locks the items it deletes in the same order
+  (`Data.ShoppingRepo.delete_pending_for_window/3`), so the two cannot deadlock. Take the
+  meals' locks first, as the lock order in the moduledoc of `MealPlannerApi.Cart` says.
+  """
+  @spec lock_pending_planned_items(Ecto.UUID.t(), [Ecto.UUID.t()]) :: [pending_planned_item()]
+  def lock_pending_planned_items(_account_id, []), do: []
+
+  def lock_pending_planned_items(account_id, scheduled_meal_ids) do
+    account_id
+    |> pending_planned_query(scheduled_meal_ids)
+    |> lock("FOR UPDATE")
+    |> Repo.all()
+  end
+
+  defp pending_planned_query(account_id, scheduled_meal_ids) do
+    removals =
+      from(r in ShoppingRemoval,
+        where:
+          r.scheduled_meal_id == parent_as(:item).scheduled_meal_id and
+            r.ingredient_id == parent_as(:item).ingredient_id,
+        select: 1
+      )
+
+    from(i in ShoppingItem,
+      as: :item,
+      where:
+        i.account_id == ^account_id and i.scheduled_meal_id in ^scheduled_meal_ids and
+          i.source == :planned_meal and i.status == :pending,
+      where: not exists(removals),
+      order_by: i.id,
+      select: %{
+        id: i.id,
+        key: {i.scheduled_meal_id, i.planned_date, i.ingredient_id, i.unit},
+        quantity_milli: i.quantity_milli
+      }
+    )
+  end
+
+  @doc """
+  Sets the `quantity_milli` of each `:pending` planned Shopping item of `quantities`, a list
+  of `{item_id, quantity_milli}`, and returns how many it changed. An item that is no longer
+  `:pending` is left alone.
+  """
+  @spec update_pending_quantities(Ecto.UUID.t(), [{Ecto.UUID.t(), pos_integer()}]) ::
+          non_neg_integer()
+  def update_pending_quantities(account_id, quantities) when is_list(quantities) do
+    now = DateTime.utc_now()
+
+    Enum.reduce(quantities, 0, fn {item_id, quantity_milli}, updated ->
+      {count, _} =
+        from(i in ShoppingItem,
+          where:
+            i.account_id == ^account_id and i.id == ^item_id and i.source == :planned_meal and
+              i.status == :pending
+        )
+        |> Repo.update_all(set: [quantity_milli: quantity_milli, updated_at: now])
+
+      updated + count
+    end)
+  end
+
+  @doc """
+  Deletes the `:pending` planned Shopping items of `item_ids` and returns how many it
+  deleted. An item that is no longer `:pending` is left alone.
+  """
+  @spec delete_pending_planned_items(Ecto.UUID.t(), [Ecto.UUID.t()]) :: non_neg_integer()
+  def delete_pending_planned_items(_account_id, []), do: 0
+
+  def delete_pending_planned_items(account_id, item_ids) when is_list(item_ids) do
+    {deleted, _} =
+      from(i in ShoppingItem,
+        where:
+          i.account_id == ^account_id and i.id in ^item_ids and i.source == :planned_meal and
+            i.status == :pending
+      )
+      |> Repo.delete_all()
+
+    deleted
+  end
+
   def list_pending_items(account_id, from_date, to_date) do
     from(i in ShoppingItem,
       where:

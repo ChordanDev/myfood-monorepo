@@ -138,13 +138,22 @@ defmodule MealPlannerApi.Data.ShoppingRepo do
   @spec delete_pending_for_window(String.t(), Date.t(), Date.t()) ::
           {non_neg_integer(), nil}
   def delete_pending_for_window(account_id, range_from, range_to) do
-    from(i in ShoppingItem,
-      where: i.account_id == ^account_id,
-      where: i.source == :planned_meal,
-      where: i.planned_date >= ^range_from and i.planned_date <= ^range_to,
-      where: i.status in [:pending, :in_cart, :removed]
-    )
-    |> Repo.delete_all()
+    window =
+      from(i in ShoppingItem,
+        where: i.account_id == ^account_id,
+        where: i.source == :planned_meal,
+        where: i.planned_date >= ^range_from and i.planned_date <= ^range_to,
+        where: i.status in [:pending, :in_cart, :removed]
+      )
+
+    # Locked in id order before the delete, the order a Shopping list read
+    # locks the pending items it corrects
+    # (`Persistence.Shopping.lock_pending_planned_items/2`): deleting them in
+    # the order it finds them, the wipe could hold one item a read waits for
+    # while it waits for another the read holds.
+    window |> order_by(:id) |> lock("FOR UPDATE") |> select([i], i.id) |> Repo.all()
+
+    Repo.delete_all(window)
   end
 
   # -------------------------------------------------------------------------

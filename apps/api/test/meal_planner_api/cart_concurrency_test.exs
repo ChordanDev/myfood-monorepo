@@ -311,7 +311,9 @@ defmodule MealPlannerApi.CartConcurrencyTest do
     assert {:ok, %{status: "completed", moved_to_inventory_count: 1}} = checkout_result
     assert {:ok, %{scheduled_meal: _}} = finish_result
     assert Repo.get!(ScheduledMeal, f.meal.id).is_cooked
-    assert Enum.sum(Enum.map(stock(f), & &1.quantity_milli)) == 300
+
+    # The meal needs 1000 g, so cooking it used up the 300 g bought for it.
+    assert Enum.sum(Enum.map(stock(f), & &1.quantity_milli)) == 0
 
     # The finish locked the meal after the checkout committed, so it deleted
     # the remainder too: the cooked meal keeps only what was bought.

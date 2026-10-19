@@ -5,6 +5,11 @@ defmodule MealPlannerApi.Services.ShoppingDerivationTest do
   stores each of them once, and a derivation that fails is logged and
   degrades the read to the items already stored.
 
+  A read also brings every `pending` planned item in line with the Shortage
+  it computes (issue #277): it takes the new quantity, or goes when the
+  Shortage is zero. Items in a Cart, removed, bought or added by hand are
+  never changed by a read.
+
   `async: false`: one test installs a trigger on `shopping_items` and another
   one commits rows on real connections.
   """
@@ -14,14 +19,18 @@ defmodule MealPlannerApi.Services.ShoppingDerivationTest do
   import ExUnit.CaptureLog
 
   alias Ecto.Adapters.SQL.Sandbox
+  alias MealPlannerApi.Data.PlanningRepo
+  alias MealPlannerApi.Generation.Server
   alias MealPlannerApi.Generation.ServerTestFixtures, as: Fixtures
   alias MealPlannerApi.Persistence.Accounts.Account
   alias MealPlannerApi.Persistence.Accounts.AccountMembership
   alias MealPlannerApi.Persistence.Accounts.User
   alias MealPlannerApi.Persistence.Catalog.Ingredient
   alias MealPlannerApi.Persistence.Catalog.Recipe
+  alias MealPlannerApi.Persistence.Inventory.InventoryItem
   alias MealPlannerApi.Persistence.Planning
   alias MealPlannerApi.Persistence.Planning.ScheduledMeal
+  alias MealPlannerApi.Persistence.Shopping
   alias MealPlannerApi.Persistence.Shopping.ShoppingItem
   alias MealPlannerApi.Repo
   alias MealPlannerApi.Services.ShoppingService
@@ -63,6 +72,125 @@ defmodule MealPlannerApi.Services.ShoppingDerivationTest do
       assert log =~ "account_id=#{f.account.id}"
       assert log =~ "shopping insert rejected by test"
       assert stored_items(f) == []
+    end
+  end
+
+  describe "get_shopping_list/3 against stored items with another quantity (#277)" do
+    setup do
+      :ok = Sandbox.checkout(Repo)
+      :ok = SubscriptionPlanFixtures.ensure_plans!()
+      f = schedule_fixture()
+      assert {:ok, _list} = ShoppingService.get_shopping_list(f.actor)
+      [first_meal, second_meal] = f.meals
+      [ingredient | _] = f.ingredients
+
+      {:ok,
+       Map.merge(f, %{first_meal: first_meal, second_meal: second_meal, ingredient: ingredient})}
+    end
+
+    test "inventory that grows after the derivation shrinks the pending quantity", f do
+      insert_stock!(f, f.ingredient, 100)
+
+      assert {:ok, _list} = ShoppingService.get_shopping_list(f.actor)
+
+      # The stock goes to the first meal, the one cooked first.
+      assert %{status: :pending, quantity_milli: 150} = item(f, f.first_meal, f.ingredient)
+      assert %{status: :pending, quantity_milli: 250} = item(f, f.second_meal, f.ingredient)
+    end
+
+    test "a pending item stored with a smaller quantity grows to the Shortage", f do
+      stale = item(f, f.first_meal, f.ingredient)
+      Repo.update!(Ecto.Changeset.change(stale, quantity_milli: 40))
+
+      assert {:ok, list} = ShoppingService.get_shopping_list(f.actor)
+
+      assert %{id: id, quantity_milli: 250} = item(f, f.first_meal, f.ingredient)
+      assert id == stale.id
+      assert line_quantity(list, f.ingredient) == 500
+    end
+
+    test "inventory that covers it deletes the pending item, and a later Shortage brings it back",
+         f do
+      stock = insert_stock!(f, f.ingredient, 250)
+      covered = item(f, f.first_meal, f.ingredient)
+
+      assert {:ok, list} = ShoppingService.get_shopping_list(f.actor)
+
+      assert Repo.get(ShoppingItem, covered.id) == nil
+      assert %{quantity_milli: 250} = item(f, f.second_meal, f.ingredient)
+      assert line_quantity(list, f.ingredient) == 250
+
+      Repo.delete!(stock)
+      assert {:ok, _list} = ShoppingService.get_shopping_list(f.actor)
+      assert %{status: :pending, quantity_milli: 250} = item(f, f.first_meal, f.ingredient)
+    end
+
+    test "never changes an item in a Cart, removed, bought or added by hand", f do
+      [_first, second_ingredient, third_ingredient] = f.ingredients
+      reserved = item(f, f.first_meal, f.ingredient)
+      assert {:ok, _cart} = MealPlannerApi.Cart.reserve(f.actor, [reserved.id])
+      in_cart = Repo.get!(ShoppingItem, reserved.id)
+      assert in_cart.status == :in_cart
+
+      bought =
+        Repo.update!(
+          Ecto.Changeset.change(item(f, f.second_meal, f.ingredient), status: :checked_out)
+        )
+
+      removed = item(f, f.first_meal, second_ingredient)
+
+      assert {:ok, _} =
+               ShoppingService.set_item_status(f.actor, %{
+                 "item_id" => removed.id,
+                 "status" => "removed"
+               })
+
+      {:ok, manual} =
+        Shopping.create_manual_item(%{
+          account_id: f.account.id,
+          name: "Dish soap",
+          ingredient_id: third_ingredient.id,
+          quantity_milli: 1_000,
+          unit: :g
+        })
+
+      # Enough stock to cover every meal: each pending item would go.
+      for ingredient <- f.ingredients, do: insert_stock!(f, ingredient, 10_000)
+
+      assert {:ok, _list} = ShoppingService.get_shopping_list(f.actor)
+
+      for kept <- [in_cart, bought, manual] do
+        assert %{status: status, quantity_milli: quantity} = Repo.get!(ShoppingItem, kept.id)
+        assert {status, quantity} == {kept.status, kept.quantity_milli}
+      end
+
+      assert %{status: :removed, quantity_milli: 250} = Repo.get!(ShoppingItem, removed.id)
+
+      # The pending items of the other Ingredients are covered and gone.
+      assert item(f, f.second_meal, second_ingredient) == nil
+      assert item(f, f.first_meal, third_ingredient) == nil
+    end
+
+    test "a restored item the stock covers is not listed", f do
+      removed = item(f, f.first_meal, f.ingredient)
+
+      assert {:ok, _} =
+               ShoppingService.set_item_status(f.actor, %{
+                 "item_id" => removed.id,
+                 "status" => "removed"
+               })
+
+      insert_stock!(f, f.ingredient, 250)
+
+      assert {:ok, _} =
+               ShoppingService.set_item_status(f.actor, %{
+                 "item_id" => removed.id,
+                 "status" => "needed"
+               })
+
+      assert {:ok, list} = ShoppingService.get_shopping_list(f.actor)
+      assert Repo.get(ShoppingItem, removed.id) == nil
+      refute removed.id in listed_item_ids(list)
     end
   end
 
@@ -124,6 +252,81 @@ defmodule MealPlannerApi.Services.ShoppingDerivationTest do
     end
   end
 
+  # Real connections, as above. The plan confirm runs in the Generation
+  # server, on the connection of the test; the read and the holder of the row
+  # lock have one each.
+  describe "get_shopping_list/3 at the same time as a plan confirm rebuild" do
+    setup do
+      :ok = Sandbox.checkout(Repo, sandbox: false)
+      :ok = SubscriptionPlanFixtures.ensure_committed_plan!("family_4")
+      suffix = Ecto.UUID.generate()
+      on_exit(fn -> delete_committed_fixture(suffix) end)
+
+      {:ok, schedule_fixture(suffix)}
+    end
+
+    test "a read that meets the rebuild's wipe leaves one item per planned key", f do
+      [first_meal, _second_meal] = f.meals
+      [ingredient | _] = f.ingredients
+      assert {:ok, _list} = ShoppingService.get_shopping_list(f.actor)
+
+      # A stale quantity, so the read has a pending item to correct.
+      stale = item(f, first_meal, ingredient)
+      Repo.update!(Ecto.Changeset.change(stale, quantity_milli: 40))
+
+      {pid, proposal, session} = start_confirmable_plan!(f)
+      supervisor = start_supervised!(Task.Supervisor)
+      parent = self()
+
+      # Holds the stale item's row lock, so the rebuild stops in its wipe.
+      holder =
+        Task.Supervisor.async(supervisor, fn ->
+          on_real_connection(fn ->
+            Repo.transaction(fn ->
+              Repo.one!(from(i in ShoppingItem, where: i.id == ^stale.id, lock: "FOR UPDATE"))
+              send(parent, {:holding, backend_pid()})
+
+              receive do
+                :release -> :ok
+              after
+                10_000 -> raise "row lock holder timed out"
+              end
+            end)
+          end)
+        end)
+
+      assert_receive {:holding, holder_backend}, 5_000
+
+      confirm =
+        Task.Supervisor.async(supervisor, fn -> Server.confirm(pid, proposal.id, session.id) end)
+
+      wait_until_waiting(holder_backend, :blocks)
+
+      reader =
+        Task.Supervisor.async(supervisor, fn ->
+          on_real_connection(fn ->
+            send(parent, {:reading, backend_pid()})
+            ShoppingService.get_shopping_list(f.actor)
+          end)
+        end)
+
+      # The read waits for the stale item behind the rebuild.
+      assert_receive {:reading, reader_backend}, 5_000
+      wait_until_waiting(reader_backend)
+      send(holder.pid, :release)
+
+      assert {:ok, _} = Task.await(holder, 10_000)
+      assert {:ok, _reply} = Task.await(confirm, 15_000)
+      assert {:ok, _list} = Task.await(reader, 15_000)
+
+      # The confirm added a third meal.
+      meals = Repo.all(from(m in ScheduledMeal, where: m.account_id == ^f.account.id))
+      assert length(meals) == @meal_count + 1
+      assert_one_item_per_planned_key(%{f | meals: meals})
+      assert Enum.all?(stored_items(f), &(&1.status == :pending and &1.quantity_milli == 250))
+    end
+  end
+
   # The Shopping items a read lists: each allocation of a planned line is one
   # of them.
   defp listed_item_ids(list) do
@@ -146,7 +349,122 @@ defmodule MealPlannerApi.Services.ShoppingDerivationTest do
   end
 
   defp stored_items(f) do
-    Repo.all(from(i in ShoppingItem, where: i.account_id == ^f.account.id, order_by: i.id))
+    Repo.all(
+      from(i in ShoppingItem,
+        where: i.account_id == ^f.account.id and i.source == :planned_meal,
+        order_by: i.id
+      )
+    )
+  end
+
+  defp item(f, meal, ingredient) do
+    Repo.one(
+      from(i in ShoppingItem,
+        where:
+          i.account_id == ^f.account.id and i.scheduled_meal_id == ^meal.id and
+            i.ingredient_id == ^ingredient.id
+      )
+    )
+  end
+
+  defp line_quantity(list, ingredient) do
+    list.planned
+    |> Enum.filter(&(&1.ingredient_id == ingredient.id and &1.status == "needed"))
+    |> Enum.map(& &1.quantity_milli)
+    |> Enum.sum()
+  end
+
+  defp insert_stock!(f, ingredient, quantity_milli) do
+    Repo.insert!(%InventoryItem{
+      account_id: f.account.id,
+      ingredient_id: ingredient.id,
+      quantity_milli: quantity_milli,
+      unit: :g,
+      source_kind: :extra,
+      last_mutation_at: DateTime.utc_now()
+    })
+  end
+
+  # A proposal for a third day of the fixture's recipe and an active planning
+  # session whose window holds every meal, with the Generation server of the
+  # Account allowed on the test's connection.
+  defp start_confirmable_plan!(f) do
+    today = Date.utc_today()
+    owner = Repo.get_by!(AccountMembership, account_id: f.account.id)
+    recipe_id = hd(f.meals).recipe_id
+
+    {_run, proposal} =
+      Fixtures.insert_proposal_with_slots(
+        f.account,
+        %{id: owner.user_id},
+        [Fixtures.slot(Date.add(today, 2), :dinner, recipe_id)]
+      )
+
+    {:ok, session} =
+      PlanningRepo.create_session(f.account.id, %{
+        range_from: today,
+        range_to: Date.add(today, 6),
+        lock_owner_user_id: owner.user_id,
+        lock_owner_membership_id: owner.id,
+        lease_expires_at: DateTime.add(DateTime.utc_now(), 120, :second)
+      })
+
+    via = {:via, Registry, {MealPlannerApi.Generation.Generations, {:generation, f.account.id}}}
+
+    pid =
+      start_supervised!(
+        {Server, account_id: f.account.id, user_id: owner.user_id, name: via},
+        id: {:generation_server, f.account.id}
+      )
+
+    Sandbox.allow(Repo, self(), pid)
+    {pid, proposal, session}
+  end
+
+  defp on_real_connection(fun) do
+    :ok = Sandbox.checkout(Repo, sandbox: false)
+
+    try do
+      fun.()
+    after
+      Sandbox.checkin(Repo)
+    end
+  end
+
+  defp backend_pid do
+    %{rows: [[backend]]} = Repo.query!("SELECT pg_backend_pid()")
+    backend
+  end
+
+  # Waits until the connection `backend` waits for a lock (`:waits`), or
+  # until another connection waits for one it holds (`:blocks`). It asks on a
+  # connection of its own: the test's one runs the confirm.
+  defp wait_until_waiting(backend, role \\ :waits) do
+    fn -> on_real_connection(fn -> poll_waiting(backend, role, 100) end) end
+    |> Task.async()
+    |> Task.await(10_000)
+  end
+
+  defp poll_waiting(_backend, _role, 0), do: flunk("no connection waited for a lock")
+
+  defp poll_waiting(backend, role, attempts) do
+    sql =
+      case role do
+        :waits ->
+          "SELECT cardinality(pg_blocking_pids($1)) > 0"
+
+        :blocks ->
+          "SELECT EXISTS (SELECT 1 FROM pg_stat_activity WHERE $1 = ANY(pg_blocking_pids(pid)))"
+      end
+
+    case Repo.query!(sql, [backend]) do
+      %{rows: [[true]]} ->
+        :ok
+
+      _not_yet ->
+        Process.sleep(50)
+        poll_waiting(backend, role, attempts - 1)
+    end
   end
 
   # An Account with a member and a recipe of several Ingredients scheduled on

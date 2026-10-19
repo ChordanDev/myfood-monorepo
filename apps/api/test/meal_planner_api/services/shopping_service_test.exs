@@ -308,7 +308,7 @@ defmodule MealPlannerApi.ShoppingServiceTest do
               checked_out: :dinner
             ] do
           ingredient = create_test_ingredient(account_id)
-          meal = schedule_meal!(account_id, user.id, date, slot)
+          meal = schedule_meal!(account_id, user.id, date, slot, ingredient, 100)
           pending_item!(account_id, meal, ingredient, 100, %{status: status})
           ingredient.id
         end
@@ -339,7 +339,7 @@ defmodule MealPlannerApi.ShoppingServiceTest do
             {:lunch, :pending, 4500},
             {:dinner, :in_cart, 900}
           ] do
-        meal = schedule_meal!(account_id, user.id, date, slot)
+        meal = schedule_meal!(account_id, user.id, date, slot, ingredient, 100)
 
         pending_item!(account_id, meal, ingredient, 100, %{
           status: status,

@@ -10,6 +10,7 @@ defmodule MealPlannerApiWeb.ShoppingPurchasedTest do
   """
   use MealPlannerApiWeb.ConnCase, async: false
 
+  import Ecto.Query
   import MealPlannerApi.CartFixtures
   import MealPlannerApi.FactoryHelpers
 
@@ -90,17 +91,16 @@ defmodule MealPlannerApiWeb.ShoppingPurchasedTest do
     end
 
     test "is not derived again as a Shortage by a later read", f do
-      # Both meals now need 1000 g, so tomorrow's is 500 g short even after
-      # the purchase. It already has its Shopping item: nothing is added.
-      {:ok, _} =
-        Catalog.add_recipe_ingredient(%{
-          recipe_id: f.recipe.id,
-          ingredient_id: f.ingredient.id,
-          quantity_milli: 1000,
-          unit: :g
-        })
-
       buy!(f)
+
+      # The stock the purchase brought is used up, so both meals are short
+      # again. Each already has its Shopping item: nothing is added.
+      Repo.delete_all(
+        from(i in MealPlannerApi.Persistence.Inventory.InventoryItem,
+          where: i.account_id == ^f.account.id
+        )
+      )
+
       before = lines(f)
 
       assert [%{"status" => "purchased", "quantityMilli" => 1500}] = list(f)["planned"]
@@ -209,10 +209,13 @@ defmodule MealPlannerApiWeb.ShoppingPurchasedTest do
   end
 
   test "purchased manual items are not listed, with or without an Ingredient", f do
+    # Another Ingredient than the planned line's: its stock covers no meal.
+    rice = MealPlannerApi.Generation.ServerTestFixtures.insert_ingredient("Rice #{f.account.id}")
+
     extra =
       manual_item!(f, %{
         name: "Extra rice",
-        ingredient_id: f.ingredient.id,
+        ingredient_id: rice.id,
         quantity_milli: 2000,
         unit: :g
       })
