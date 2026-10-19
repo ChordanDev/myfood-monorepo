@@ -115,6 +115,14 @@ defmodule MealPlannerApi.Services.GenerationServiceTest do
              )
     end
 
+    # Issue #342: snack is not a Meal slot.
+    test "a change for the snack names no slot, like an unknown slot" do
+      snack = GenerationService.parse_modification("cambia el snack 2026-06-04")
+
+      assert {:ok, %{change_type: :change_recipe, slot_key: "2026-06-04_"}} = snack
+      assert snack == GenerationService.parse_modification("cambia el brunch 2026-06-04")
+    end
+
     test "detects ingredient removal intent" do
       assert match?(
                {:ok, %{change_type: :remove_ingredient}},

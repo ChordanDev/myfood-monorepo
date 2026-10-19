@@ -1394,7 +1394,7 @@ defmodule MealPlannerApi.Data.PlanningRepoTest do
             {account.id, owner.id, ~D[2026-03-02], :dinner},
             {account.id, owner.id, ~D[2026-03-01], :lunch},
             # A slot that is not requested, a day outside the range, another Account.
-            {account.id, owner.id, ~D[2026-03-01], :snack},
+            {account.id, owner.id, ~D[2026-03-01], :breakfast},
             {account.id, owner.id, ~D[2026-03-04], :lunch},
             {other.id, other_owner.id, ~D[2026-03-01], :breakfast}
           ] do
@@ -1412,7 +1412,7 @@ defmodule MealPlannerApi.Data.PlanningRepoTest do
                account.id,
                ~D[2026-03-01],
                ~D[2026-03-03],
-               ~w(breakfast lunch dinner)
+               ~w(lunch dinner)
              ) == [{~D[2026-03-01], :lunch}, {~D[2026-03-02], :dinner}]
     end
 

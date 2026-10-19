@@ -696,17 +696,37 @@ defmodule MealPlannerApiWeb.PlanningControllerTest do
       %{token: token, account: account} = insert_identity_with_token!(plan: :family_4)
       today = pin_account_to_midday!(account.id)
 
-      {:ok, _meal} = Calendar.upsert_scheduled_meal(account.id, %{date: today, slot: :snack})
+      {:ok, _meal} = Calendar.upsert_scheduled_meal(account.id, %{date: today, slot: :breakfast})
 
       conn =
         build_conn()
         |> put_req_header("authorization", "Bearer " <> token)
         |> put("/api/planning/slots/favorite", %{
           "date" => Date.to_iso8601(today),
-          "slot" => "snack"
+          "slot" => "breakfast"
         })
 
       assert json_response(conn, 422) == %{"error" => "meal_without_recipe"}
+      assert Repo.aggregate(SlotFavorite, :count) == 0
+    end
+
+    # Issue #342: snack is not a Meal slot.
+    test "answers 400 invalid_slot for snack, like any unknown slot" do
+      %{token: token, account: account} = insert_identity_with_token!(plan: :family_4)
+      today = pin_account_to_midday!(account.id)
+
+      for slot <- ["snack", "brunch"] do
+        conn =
+          build_conn()
+          |> put_req_header("authorization", "Bearer " <> token)
+          |> put("/api/planning/slots/favorite", %{
+            "date" => Date.to_iso8601(today),
+            "slot" => slot
+          })
+
+        assert json_response(conn, 400) == %{"error" => "invalid_slot"}
+      end
+
       assert Repo.aggregate(SlotFavorite, :count) == 0
     end
   end

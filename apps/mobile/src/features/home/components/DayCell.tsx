@@ -13,7 +13,7 @@ import {
   SLOT_DOT_SIZE,
 } from '../constants/calendar';
 import { describeDayForAccessibility } from '../domain/calendarPlan';
-import type { HomeMealSlot } from '../domain/localMealPlan';
+import type { MealSlot } from '@/types/domain';
 
 // Fill of a day between the two ends of a range: the selection token, lighter than an end.
 const IN_RANGE_FILL_OPACITY = 0.3;
@@ -28,7 +28,7 @@ export interface DayCellProps {
   isToday: boolean;
   isPlanned: boolean;
   // The slots of the day that hold a Scheduled meal. Without it the day draws no slot dots.
-  plannedSlots?: HomeMealSlot[];
+  plannedSlots?: MealSlot[];
   isPendingConfirmation: boolean;
   daySize: number;
   dayFontSize: number;
@@ -37,7 +37,7 @@ export interface DayCellProps {
 }
 
 // A slot's dot: filled with the accent when the slot is planned, its outline when it is free.
-function SlotDot({ slot, isPlanned }: { slot: HomeMealSlot; isPlanned: boolean }) {
+function SlotDot({ slot, isPlanned }: { slot: MealSlot; isPlanned: boolean }) {
   const { theme } = useRecipeTheme();
   const dotStyle = useAnimatedThemeStyle({
     backgroundColor: isPlanned ? theme.primaryAccent : 'transparent',

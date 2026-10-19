@@ -96,13 +96,6 @@ describe('planned slots of a day', () => {
   it('counts a cooked meal as a Scheduled meal of its slot', () => {
     expect(getPlannedSlots([entry({ type: 'lunch', isCooked: true })])).toEqual(['lunch']);
   });
-
-  it('ignores a meal in the snack slot', () => {
-    expect(getPlannedSlots([entry({ type: 'snack' })])).toEqual([]);
-    expect(getPlannedSlots([entry({ type: 'snack' }), entry({ type: 'lunch' })])).toEqual([
-      'lunch',
-    ]);
-  });
 });
 
 describe('accessibility label of a day', () => {

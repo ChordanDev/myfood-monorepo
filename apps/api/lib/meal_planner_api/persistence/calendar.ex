@@ -242,7 +242,7 @@ defmodule MealPlannerApi.Persistence.Calendar do
   defp normalize_date(%Date{} = date), do: {:ok, date}
   defp normalize_date(_date), do: {:error, :invalid_date}
 
-  defp normalize_slot(slot) when slot in [:breakfast, :lunch, :snack, :dinner], do: {:ok, slot}
+  defp normalize_slot(slot) when slot in [:breakfast, :lunch, :dinner], do: {:ok, slot}
   defp normalize_slot(_slot), do: {:error, :invalid_slot}
 
   defp validate_meal_account(_account_id, nil), do: :ok

@@ -10,10 +10,10 @@ defmodule MealPlannerApi.Services.PlanningContext do
       Hard restriction codes travel as text only; nothing here filters on
       them;
     * `cookingSkill` and `householdSize` from the User row;
-    * `slotCookingTimes`, with the four Meal slots. A slot with no stored time
-      is `no_constraint`, a stored 0 minutes is `do_not_cook` and any other
-      value is `limited` to those minutes. The snack is never stored, so it is
-      always `no_constraint`;
+    * `slotCookingTimes`, with the three Meal slots (breakfast, lunch and
+      dinner). A slot with no stored time is `no_constraint`, a stored 0
+      minutes is `do_not_cook` and any other value is `limited` to those
+      minutes;
     * `favoriteRecipeIds`, the Favorite recipes the member preselected;
     * `leftovers`, the open Prepared leftovers of the Account that are not
       past their consume-by date, soonest first and at most 200 (issue #162),
@@ -37,7 +37,7 @@ defmodule MealPlannerApi.Services.PlanningContext do
   alias MealPlannerApi.Services.UserPreferencesService
 
   # The Meal slots of a plan, in meal order.
-  @slots [:breakfast, :lunch, :snack, :dinner]
+  @slots [:breakfast, :lunch, :dinner]
 
   @type slot_time :: %{
           slot: atom(),
@@ -144,14 +144,11 @@ defmodule MealPlannerApi.Services.PlanningContext do
   end
 
   defp slot_cooking_times_map(rows) do
-    # The snack is never stored. A row that names it is ignored so the
-    # contract holds whatever the table gains.
+    # A row for a slot outside the three is ignored, so the contract holds
+    # whatever the table gains.
     by_slot = Map.new(rows, &{&1.slot, &1})
 
-    Map.new(@slots, fn
-      :snack -> {"snack", no_constraint()}
-      slot -> {Atom.to_string(slot), slot_time(Map.get(by_slot, slot))}
-    end)
+    Map.new(@slots, &{Atom.to_string(&1), slot_time(Map.get(by_slot, &1))})
   end
 
   defp slot_time(nil), do: no_constraint()

@@ -220,7 +220,7 @@ defmodule MealPlannerApi.Services.ShoppingRebuilder do
 
   @doc """
   Position of a Scheduled meal slot in the order of the day: breakfast,
-  lunch, snack, dinner, as the Scheduled meal schema declares them.
+  lunch, dinner, as the Scheduled meal schema declares them.
 
   A slot outside the schema enum, `nil` included, ranks after every known
   slot. Sort rows by `{date, slot_rank(slot)}` to list them the way the

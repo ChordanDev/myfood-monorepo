@@ -48,7 +48,7 @@ This file and `docs/adr/` are the only durable docs in the repository. Specs, ma
 
 **Excluded ingredient** — One concrete ingredient a User will not eat, tagged as `allergy` (hard) or `dislike` (soft). `(code: Persistence.Accounts.UserExcludedIngredient)`
 
-**Meal slot** — A named eating occasion within a day: `breakfast`, `lunch`, `snack`, `dinner`. The mobile onboarding currently captures only breakfast, lunch and dinner. `(code: Persistence.Planning.ScheduledMeal.slot, mobile MealSlot)` `(alias: meal type, momento)`
+**Meal slot** — A named eating occasion within a day: `breakfast`, `lunch`, `dinner`. `(code: Persistence.Planning.ScheduledMeal.slot, mobile MealSlot)` `(alias: meal type, momento)`
 
 **Slot cooking time** — For each Meal slot, how many minutes the User is willing to cook (0 means they do not cook that slot) and their Hunger level. `(code: Persistence.Accounts.UserSlotCookingTime, mobile SlotCookingTime)`
 

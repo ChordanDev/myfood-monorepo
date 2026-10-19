@@ -32,7 +32,6 @@ export const MANUAL_ITEM_NAME_MAX_LENGTH = 200;
 export const SHOPPING_SLOT_LABELS: Record<ShoppingMealSlot, string> = {
   breakfast: 'Desayuno',
   lunch: 'Almuerzo',
-  snack: 'Merienda',
   dinner: 'Cena',
 };
 

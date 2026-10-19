@@ -241,7 +241,7 @@ describe('DayCell slot dots', () => {
     );
   });
 
-  it('draws the dots as breakfast, lunch and dinner, in that order, with no snack dot', () => {
+  it('draws the dots as breakfast, lunch and dinner, in that order', () => {
     const { root } = renderDayCell({ plannedSlots: ['dinner', 'breakfast'] });
 
     const dotIds = root

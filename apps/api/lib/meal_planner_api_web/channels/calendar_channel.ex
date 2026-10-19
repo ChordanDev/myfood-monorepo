@@ -152,7 +152,6 @@ defmodule MealPlannerApiWeb.CalendarChannel do
 
   defp parse_slot("breakfast"), do: {:ok, :breakfast}
   defp parse_slot("lunch"), do: {:ok, :lunch}
-  defp parse_slot("snack"), do: {:ok, :snack}
   defp parse_slot("dinner"), do: {:ok, :dinner}
   defp parse_slot(_), do: {:error, "invalid_slot"}
 end

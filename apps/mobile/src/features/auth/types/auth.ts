@@ -8,8 +8,8 @@ export type CookingSkill = 'beginner' | 'intermediate' | 'advanced';
 
 export type HungerLevel = 'light' | 'normal' | 'strong';
 
-// The meal slots the User cooks: the ones that carry a Slot cooking time.
-export type CookingTimeSlot = Exclude<MealSlot, 'snack'>;
+// The meal slots the User cooks: every Meal slot carries a Slot cooking time.
+export type CookingTimeSlot = MealSlot;
 
 export interface OnboardingProfile {
   displayName: string;

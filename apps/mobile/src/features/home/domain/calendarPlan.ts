@@ -1,8 +1,7 @@
 import { MEAL_SLOT_LABEL } from '@/constants/mealSlots';
-import type { MealPlanEntry, RecipeSummary } from '@/types/domain';
+import type { MealPlanEntry, MealSlot, RecipeSummary } from '@/types/domain';
 import { CALENDAR_DOT_SLOTS, WEEKDAY_NAMES } from '../constants/calendar';
 import type { CalendarMeal } from '../types/calendarApi';
-import type { HomeMealSlot } from './localMealPlan';
 
 const DAYS_BEFORE_TODAY = 31;
 const DAYS_AFTER_TODAY = 90;
@@ -60,19 +59,19 @@ export function toRecipeSummaries(meals: CalendarMeal[]): Record<string, RecipeS
   return summaries;
 }
 
-/** The slots of a day that hold a Scheduled meal, in the calendar's order. Snack is left out. */
-export function getPlannedSlots(entries: MealPlanEntry[] | undefined): HomeMealSlot[] {
+/** The slots of a day that hold a Scheduled meal, in the calendar's order. */
+export function getPlannedSlots(entries: MealPlanEntry[] | undefined): MealSlot[] {
   const types = new Set(entries?.map((entry) => entry.type));
   return CALENDAR_DOT_SLOTS.filter((slot) => types.has(slot));
 }
 
-function joinSlotNames(slots: HomeMealSlot[]) {
+function joinSlotNames(slots: MealSlot[]) {
   const names = slots.map((slot) => MEAL_SLOT_LABEL[slot].toLowerCase());
   return names.length > 1 ? `${names.slice(0, -1).join(', ')} y ${names.at(-1)}` : names[0];
 }
 
 /** What a screen reader says for a calendar day, such as "martes 14, desayuno y cena planificados". */
-export function describeDayForAccessibility(dayDate: Date, plannedSlots: HomeMealSlot[]) {
+export function describeDayForAccessibility(dayDate: Date, plannedSlots: MealSlot[]) {
   const day = `${WEEKDAY_NAMES[dayDate.getDay()]} ${dayDate.getDate()}`;
 
   if (!plannedSlots.length) {

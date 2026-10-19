@@ -87,7 +87,7 @@ defmodule MealPlannerApiWeb.MobileCasingContractTest do
 
       assert recipe_id == f.recipe.id
       assert is_binary(recipe_name)
-      assert slot in ~w(breakfast lunch snack dinner)
+      assert slot in ~w(breakfast lunch dinner)
 
       refute Map.has_key?(meal, "caloriesPerServing")
       refute Map.has_key?(meal, "label")

@@ -356,6 +356,37 @@ defmodule MealPlannerApiWeb.CalendarChannelTest do
       assert_reply(ref, :error, %{reason: "invalid_slot"})
     end
 
+    # Issue #342: snack is not a Meal slot.
+    test "upsert meal with the snack slot is refused like an unknown slot", %{
+      account: account,
+      user: user,
+      token: token
+    } do
+      {:ok, recipe} =
+        Catalog.create_recipe(%{
+          account_id: account.id,
+          created_by_user_id: user.id,
+          name: "Test Recipe for Snack Slot",
+          source: :user_created,
+          servings: 2,
+          suitable_for_slots: [:lunch]
+        })
+
+      {:ok, socket} = connect(UserSocket, %{"token" => token})
+
+      {:ok, _reply, socket} =
+        subscribe_and_join(socket, CalendarChannel, "calendar:#{account.id}")
+
+      ref =
+        push(socket, "upsert_meal", %{
+          "date" => "2026-03-24",
+          "slot" => "snack",
+          "recipe_id" => recipe.id
+        })
+
+      assert_reply(ref, :error, %{reason: "invalid_slot"})
+    end
+
     # Issue #368: only `set_is_cooked` and a Cooking session mark a meal cooked,
     # because marking it consumes Inventory; an upsert never changes the mark.
     test "stores a new meal not cooked when the payload says it is cooked",

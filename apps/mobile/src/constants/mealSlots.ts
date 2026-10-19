@@ -4,6 +4,5 @@ import type { MealSlot } from '@/types/domain';
 export const MEAL_SLOT_LABEL: Record<MealSlot, string> = {
   breakfast: 'Desayuno',
   lunch: 'Almuerzo',
-  snack: 'Snack',
   dinner: 'Cena',
 };

@@ -3,7 +3,7 @@
 // tests. Every parser rejects a missing key, an extra key and a wrong type, so a drift on
 // either side fails a test instead of reaching the screen as `undefined`.
 
-export const PLANNER_MEAL_SLOTS = ['breakfast', 'lunch', 'dinner', 'snack'] as const;
+export const PLANNER_MEAL_SLOTS = ['breakfast', 'lunch', 'dinner'] as const;
 export type PlannerMealSlot = (typeof PLANNER_MEAL_SLOTS)[number];
 
 export interface StartPlanningReply {

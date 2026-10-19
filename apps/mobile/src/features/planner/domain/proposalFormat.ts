@@ -4,7 +4,6 @@ export const MEAL_SLOT_LABELS: Record<PlannerMealSlot, string> = {
   breakfast: 'Desayuno',
   lunch: 'Almuerzo',
   dinner: 'Cena',
-  snack: 'Merienda',
 };
 
 // Fixed names instead of Intl so the output never depends on the device ICU data.

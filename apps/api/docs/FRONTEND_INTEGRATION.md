@@ -1064,10 +1064,10 @@ const date = "2026-06-10";
 
 ### Slots
 
-Valores posibles: `breakfast`, `lunch`, `snack`, `dinner`
+Valores posibles: `breakfast`, `lunch`, `dinner`
 
 ```javascript
-const SLOT_TYPES = ["breakfast", "lunch", "snack", "dinner"];
+const SLOT_TYPES = ["breakfast", "lunch", "dinner"];
 ```
 
 ### Monedas
