@@ -6,15 +6,21 @@ import Config
 # `AI_CLIENT=mock` and the fixed login code of `E2E_LOGIN_EMAIL`.
 # `priv/repo/e2e_seeds.exs` seeds the data the flows need.
 #
-# The database has a variable of its own, not the `DB_NAME` of `dev`: the
-# seed rewrites data and the documented cleanup drops the database, so a
-# `DB_NAME` exported for `dev` must never reach them. The seed also refuses
-# a database whose name does not end in `_e2e`.
+# The database has a variable of its own, not the `DB_NAME` of `dev`, and its
+# name must end in `_e2e`: the seed rewrites data and the documented cleanup
+# drops the database, so loading this config refuses any other name before
+# `ecto.drop`, `phx.server` or the seed can touch it.
+e2e_database = System.get_env("MYFOOD_E2E_DATABASE", "meal_planner_api_e2e")
+
+if not String.ends_with?(e2e_database, "_e2e") do
+  raise "The e2e database #{e2e_database} must end in _e2e (set MYFOOD_E2E_DATABASE)"
+end
+
 config :meal_planner_api, MealPlannerApi.Repo,
   username: System.get_env("DB_USER", "postgres"),
   password: System.get_env("DB_PASSWORD", "postgres"),
   hostname: System.get_env("DB_HOST", "localhost"),
-  database: System.get_env("MYFOOD_E2E_DATABASE", "meal_planner_api_e2e"),
+  database: e2e_database,
   stacktrace: true,
   show_sensitive_data_on_connection_error: true,
   pool_size: 10

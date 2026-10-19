@@ -35,6 +35,14 @@ defmodule MealPlannerApi.E2eConfigTest do
     assert repo_database(:e2e) == "myfood_local_e2e"
   end
 
+  test "the e2e config refuses a database whose name does not end in _e2e" do
+    System.put_env("MYFOOD_E2E_DATABASE", "meal_planner_api_dev")
+
+    assert_raise RuntimeError, ~r/meal_planner_api_dev.*must end in _e2e/, fn ->
+      repo_database(:e2e)
+    end
+  end
+
   test "dev still reads DB_NAME" do
     System.put_env("DB_NAME", "meal_planner_api_dev_other")
 
