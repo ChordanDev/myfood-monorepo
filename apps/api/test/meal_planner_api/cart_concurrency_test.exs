@@ -398,7 +398,7 @@ defmodule MealPlannerApi.CartConcurrencyTest do
     assert %{status: :removed, planned_date: ^to} = Repo.get!(ShoppingItem, item.id)
   end
 
-  # A replacement of a date range deletes its Scheduled meals. A confirm locks  # A replacement of a date range deletes its Scheduled meals. A confirm locks
+  # A replacement of a date range deletes its Scheduled meals. A confirm locks
   # the meals of its Cart in id order, so the replacement locks them in id
   # order too: deleting them in the order it finds them, it would hold one
   # meal while it waits for another that the confirm holds.
