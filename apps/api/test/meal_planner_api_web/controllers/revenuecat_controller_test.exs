@@ -549,12 +549,9 @@ defmodule MealPlannerApiWeb.RevenuecatControllerTest do
       refute conn.halted
 
       # The controller still serves its payload (which is independent
-      # of the capability gate). A pre-existing controller-side bug
-      # makes the response a `422 invalid_identity` for our synthetic
-      # User; that is OUT of the remediation scope — see apply-progress
-      # "Explicit Deviations from Design / Findings Still Open".
-      body = Jason.decode!(conn.resp_body)
-      assert is_map(body)
+      # of the capability gate).
+      body = json_response(conn, 200)
+      assert body["account"]["id"] == account.id
 
       # Account data must remain intact (the plug never deletes).
       assert Repo.get!(PersistenceAccount, account.id)

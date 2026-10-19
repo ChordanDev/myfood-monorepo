@@ -202,6 +202,62 @@ defmodule MealPlannerApiWeb.AccountsControllerTest do
     end
   end
 
+  describe "GET /api/account/context" do
+    setup do
+      %{user: user, account: account} = MealPlannerApi.IdentityFixtures.insert_identity!()
+      %{user: user, account: account}
+    end
+
+    test "a member gets the user, account, subscription and active users", %{
+      conn: conn,
+      user: user,
+      account: account
+    } do
+      {:ok, token, _claims} =
+        Guardian.encode_and_sign(user, MealPlannerApi.Accounts.claims_for(user, account),
+          token_type: "access"
+        )
+
+      body =
+        conn
+        |> put_req_header("authorization", "Bearer " <> token)
+        |> get("/api/account/context")
+        |> json_response(200)
+
+      assert body["user"]["id"] == user.id
+      assert body["user"]["email"] == user.email
+      assert body["account"]["id"] == account.id
+      assert body["subscription"]["user_id"] == user.id
+      assert body["subscription"]["account_id"] == account.id
+      assert [%{"id" => member_id}] = body["active_users"]
+      assert member_id == user.id
+    end
+
+    # The tier belongs to the Account (#328): a token claiming another
+    # tier does not change what the route reports.
+    test "reports the Account's tier, not the token's claim", %{
+      conn: conn,
+      user: user,
+      account: account
+    } do
+      claims =
+        MealPlannerApi.Accounts.claims_for(user, account)
+        |> Map.put("subscription_tier", "premium")
+
+      {:ok, token, _claims} = Guardian.encode_and_sign(user, claims, token_type: "access")
+
+      body =
+        conn
+        |> put_req_header("authorization", "Bearer " <> token)
+        |> get("/api/account/context")
+        |> json_response(200)
+
+      assert body["user"]["subscription_tier"] == "free"
+      assert body["subscription"]["subscription_tier"] == "free"
+      assert body["account"]["subscription_tier"] == "free"
+    end
+  end
+
   defp get_me(conn, token, path) do
     conn
     |> put_req_header("authorization", "Bearer " <> token)
