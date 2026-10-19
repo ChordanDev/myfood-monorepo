@@ -60,6 +60,18 @@ defmodule MealPlannerApi.Data.ShoppingRemovalsBackfillMigrationTest do
     item!(account, meal, already, :g, :removed)
     :ok = Shopping.put_removals(account.id, [{meal.id, already.id}])
 
+    # A manual item has no meal: removing it stores no removal.
+    {:ok, _manual} =
+      Shopping.create_shopping_item(%{
+        account_id: account.id,
+        source: :manual,
+        name: "Manual #{suffix}",
+        ingredient_id: kept.id,
+        unit: :g,
+        quantity_milli: 100,
+        status: :removed
+      })
+
     Repo.query!(migration.backfill_sql())
 
     assert removal_pairs(account) ==
