@@ -3,6 +3,7 @@ defmodule MealPlannerApiWeb.AccountsController do
 
   alias MealPlannerApi.Services.AccountService
   alias MealPlannerApiWeb.ApiError
+  alias MealPlannerApiWeb.Controllers.AccountScopeHelpers
   alias MealPlannerApiWeb.CurrentMe
 
   # Phase A — Tenancy Refactor (PR 3c task 3.22): tenancy scope is always
@@ -27,10 +28,12 @@ defmodule MealPlannerApiWeb.AccountsController do
     user = Guardian.Plug.current_resource(conn)
     membership = conn.assigns.current_membership
 
-    case AccountService.context(%{
-           account_id: membership.account_id,
-           user_id: user.id
-         }) do
+    # `AccountService.context/1` resolves the identity from the User's
+    # `id` and `account_id`, so the User is scoped to the membership's
+    # Account like the other account routes do.
+    case user
+         |> AccountScopeHelpers.scope_user_to_membership(membership)
+         |> AccountService.context() do
       {:ok, data} ->
         json(conn, %{
           user: %{
