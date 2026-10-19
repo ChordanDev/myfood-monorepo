@@ -279,6 +279,15 @@ defmodule MealPlannerApi.Services.TenancySweepTest do
           suitable_for_slots: [:dinner]
         })
 
+      # The meal needs the item's quantity, so the read keeps the item.
+      {:ok, _} =
+        Catalog.add_recipe_ingredient(%{
+          recipe_id: recipe.id,
+          ingredient_id: ingredient.id,
+          quantity_milli: 300,
+          unit: :g
+        })
+
       today = Date.utc_today()
 
       {:ok, meal} =

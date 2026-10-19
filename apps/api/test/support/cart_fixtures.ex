@@ -37,17 +37,23 @@ defmodule MealPlannerApi.CartFixtures do
             user_id: owner.id
           )
 
+        # The recipe needs 500 g of the Ingredient a serving. Today's dinner
+        # is two servings, so each Shopping item below is the Shortage of its
+        # meal with no Inventory, and a Shopping list read keeps it as it is.
+        Fixtures.attach_recipe_ingredient(recipe, ingredient, 500, :g)
+
         # Two Scheduled meals, today's dinner and tomorrow's: the two Shopping
         # items share the Ingredient and the unit, so the Shopping list groups
         # them, but only one open item is allowed per Scheduled meal.
         [meal, next_meal] =
-          for days_ahead <- [0, 1] do
+          for {days_ahead, servings} <- [{0, 2}, {1, 1}] do
             {:ok, meal} =
               Planning.schedule_meal(%{
                 account_id: account.id,
                 recipe_id: recipe.id,
                 date: Date.add(Date.utc_today(), days_ahead),
-                slot: :dinner
+                slot: :dinner,
+                selected_quantity: servings
               })
 
             meal

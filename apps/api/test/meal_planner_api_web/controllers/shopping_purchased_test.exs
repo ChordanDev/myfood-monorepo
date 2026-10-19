@@ -10,12 +10,14 @@ defmodule MealPlannerApiWeb.ShoppingPurchasedTest do
   """
   use MealPlannerApiWeb.ConnCase, async: false
 
+  import Ecto.Query
   import MealPlannerApi.CartFixtures
   import MealPlannerApi.FactoryHelpers
 
   alias MealPlannerApi.Cart
+  alias MealPlannerApi.Generation.ServerTestFixtures
   alias MealPlannerApi.Persistence.Accounts.AccountMembership
-  alias MealPlannerApi.Persistence.Catalog
+  alias MealPlannerApi.Persistence.Inventory.InventoryItem
   alias MealPlannerApi.Persistence.Planning.ScheduledMeal
   alias MealPlannerApi.Repo
 
@@ -89,23 +91,31 @@ defmodule MealPlannerApiWeb.ShoppingPurchasedTest do
       assert allocation["itemId"] == f.today_item.id
     end
 
-    test "is not derived again as a Shortage by a later read", f do
-      # Both meals now need 1000 g, so tomorrow's is 500 g short even after
-      # the purchase. It already has its Shopping item: nothing is added.
-      {:ok, _} =
-        Catalog.add_recipe_ingredient(%{
-          recipe_id: f.recipe.id,
-          ingredient_id: f.ingredient.id,
-          quantity_milli: 1000,
-          unit: :g
-        })
-
+    test "is not derived again while its stock is there", f do
       buy!(f)
       before = lines(f)
 
       assert [%{"status" => "purchased", "quantityMilli" => 1500}] = list(f)["planned"]
       assert [%{"status" => "purchased"}] = list(f)["planned"]
       assert lines(f) == before
+    end
+
+    test "brings back to buy only what its stock no longer covers", f do
+      buy!(f)
+
+      # 300 g of the 1500 g bought are used elsewhere. Each meal's purchase
+      # covers its own meal first, so tomorrow's is 300 g short.
+      lot = Repo.one!(from(i in InventoryItem, where: i.account_id == ^f.account.id, limit: 1))
+      Repo.update!(Ecto.Changeset.change(lot, quantity_milli: lot.quantity_milli - 300))
+
+      assert %{"planned" => [line], "totals" => %{"needed" => 1}} = list(f)
+
+      {needed, purchased} = Enum.split_with(line["allocations"], &(&1["status"] == "needed"))
+      assert Enum.map(purchased, & &1["quantityMilli"]) |> Enum.sort() == [500, 1000]
+      assert [%{"quantityMilli" => 300, "itemId" => new_id, "date" => date}] = needed
+      assert date == Date.to_iso8601(Date.add(Date.utc_today(), 1))
+
+      refute new_id in [f.today_item.id, f.next_item.id]
     end
   end
 
@@ -209,10 +219,13 @@ defmodule MealPlannerApiWeb.ShoppingPurchasedTest do
   end
 
   test "purchased manual items are not listed, with or without an Ingredient", f do
+    # Another Ingredient than the planned line's: its stock covers no meal.
+    rice = ServerTestFixtures.insert_ingredient("Rice #{f.account.id}")
+
     extra =
       manual_item!(f, %{
         name: "Extra rice",
-        ingredient_id: f.ingredient.id,
+        ingredient_id: rice.id,
         quantity_milli: 2000,
         unit: :g
       })

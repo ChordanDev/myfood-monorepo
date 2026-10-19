@@ -23,6 +23,9 @@ defmodule MealPlannerApi.Persistence.Shopping do
   @planned_line_fields @planned_key_fields ++ [:quantity_milli]
   @planned_item_fields [:account_id, :status | @planned_line_fields]
 
+  # The largest value the `int4` `quantity_milli` column holds.
+  @max_quantity_milli 2_147_483_647
+
   def create_supermarket(attrs),
     do: %Supermarket{} |> Supermarket.changeset(attrs) |> Repo.insert()
 
@@ -203,8 +206,11 @@ defmodule MealPlannerApi.Persistence.Shopping do
   Returns the planned keys the Account already has a Shopping item for, among
   the given Scheduled meals.
 
-  Every status counts: a Shopping item that was bought or archived still
-  answers for its Scheduled meal, so it is not derived again.
+  Every status counts but the bought ones (`:checked_out`, `:pending_delivery`):
+  an open, removed or archived item answers for its Scheduled meal, so it is not
+  derived again. A bought item does not, so what its meal still lacks after the
+  purchase can be derived (issue #277); the read's Shortage already counts what
+  was bought (`ShoppingRebuilder.compute_net_shortages/3`).
   """
   @spec planned_item_keys(Ecto.UUID.t(), [Ecto.UUID.t()]) :: MapSet.t(planned_key())
   def planned_item_keys(_account_id, []), do: MapSet.new()
@@ -212,6 +218,7 @@ defmodule MealPlannerApi.Persistence.Shopping do
   def planned_item_keys(account_id, scheduled_meal_ids) when is_list(scheduled_meal_ids) do
     from(i in ShoppingItem,
       where: i.account_id == ^account_id and i.scheduled_meal_id in ^scheduled_meal_ids,
+      where: i.status not in [:checked_out, :pending_delivery],
       distinct: true,
       select: {i.scheduled_meal_id, i.planned_date, i.ingredient_id, i.unit}
     )
@@ -323,6 +330,167 @@ defmodule MealPlannerApi.Persistence.Shopping do
       end)
 
     Logger.error("#{message} account_id=#{account_id} #{key} errors=#{inspect(changeset.errors)}")
+  end
+
+  @typedoc "A `:pending` planned Shopping item, as a read checks it against its Shortage."
+  @type pending_planned_item :: %{
+          id: Ecto.UUID.t(),
+          key: planned_key(),
+          quantity_milli: pos_integer()
+        }
+
+  @doc """
+  The `:pending` planned Shopping items of the given Scheduled meals, except the ones whose
+  meal and Ingredient have a Shopping removal: a read never corrects those (issue #277).
+  """
+  @spec pending_planned_items(Ecto.UUID.t(), [Ecto.UUID.t()]) :: [pending_planned_item()]
+  def pending_planned_items(_account_id, []), do: []
+
+  def pending_planned_items(account_id, scheduled_meal_ids) do
+    account_id
+    |> pending_planned_query(scheduled_meal_ids)
+    |> Repo.all()
+    |> correctable()
+  end
+
+  @doc """
+  `pending_planned_items/2` in one statement that locks `FOR UPDATE`, in id order, every
+  `:pending` planned item of the meals: the ones of a removed meal and Ingredient too, which
+  `mark_removed_items/2` updates next. The items it returns are the ones it locked, so an
+  item committed after it is not corrected. A Cart reservation that commits first takes the
+  item out of the result, and the plan confirm wipe locks the items it deletes in the same
+  order (`Data.ShoppingRepo.delete_pending_for_window/3`), so the two cannot deadlock. Take
+  the meals' locks first, as the lock order in the moduledoc of `MealPlannerApi.Cart` says.
+  """
+  @spec lock_pending_planned_items(Ecto.UUID.t(), [Ecto.UUID.t()]) :: [pending_planned_item()]
+  def lock_pending_planned_items(_account_id, []), do: []
+
+  def lock_pending_planned_items(account_id, scheduled_meal_ids) do
+    account_id
+    |> pending_planned_query(scheduled_meal_ids)
+    |> lock("FOR UPDATE")
+    |> Repo.all()
+    |> correctable()
+  end
+
+  # Every pending planned item of the meals, in id order, with whether its
+  # meal and Ingredient have a Shopping removal.
+  defp pending_planned_query(account_id, scheduled_meal_ids) do
+    removals =
+      from(r in ShoppingRemoval,
+        where:
+          r.scheduled_meal_id == parent_as(:item).scheduled_meal_id and
+            r.ingredient_id == parent_as(:item).ingredient_id,
+        select: 1
+      )
+
+    from(i in ShoppingItem,
+      as: :item,
+      where:
+        i.account_id == ^account_id and i.scheduled_meal_id in ^scheduled_meal_ids and
+          i.source == :planned_meal and i.status == :pending,
+      order_by: i.id,
+      select: %{
+        id: i.id,
+        key: {i.scheduled_meal_id, i.planned_date, i.ingredient_id, i.unit},
+        quantity_milli: i.quantity_milli,
+        removed: exists(removals)
+      }
+    )
+  end
+
+  defp correctable(items) do
+    for %{removed: false} = item <- items, do: Map.delete(item, :removed)
+  end
+
+  @doc """
+  What the bought planned Shopping items of the given Scheduled meals hold, per meal,
+  Ingredient and unit: `stocked` for the ones that reached Inventory (`:checked_out`) and
+  `in_transit` for an online purchase on its way (`:pending_delivery`). A Shopping list read
+  lets them cover their own meal first (`ShoppingRebuilder.compute_net_shortages/3`).
+  """
+  @spec bought_quantities(Ecto.UUID.t(), [Ecto.UUID.t()]) :: %{
+          {Ecto.UUID.t(), Ecto.UUID.t(), atom()} => %{
+            stocked: non_neg_integer(),
+            in_transit: non_neg_integer()
+          }
+        }
+  def bought_quantities(_account_id, []), do: %{}
+
+  def bought_quantities(account_id, scheduled_meal_ids) do
+    from(i in ShoppingItem,
+      where:
+        i.account_id == ^account_id and i.scheduled_meal_id in ^scheduled_meal_ids and
+          i.source == :planned_meal and i.status in [:checked_out, :pending_delivery],
+      group_by: [i.scheduled_meal_id, i.ingredient_id, i.unit, i.status],
+      select: {i.scheduled_meal_id, i.ingredient_id, i.unit, i.status, sum(i.quantity_milli)}
+    )
+    |> Repo.all()
+    |> Enum.reduce(%{}, fn {meal_id, ingredient_id, unit, status, quantity}, bought ->
+      field = if status == :checked_out, do: :stocked, else: :in_transit
+
+      Map.update(
+        bought,
+        {meal_id, ingredient_id, unit},
+        Map.put(%{stocked: 0, in_transit: 0}, field, quantity),
+        &Map.put(&1, field, quantity)
+      )
+    end)
+  end
+
+  @doc """
+  Sets the `quantity_milli` of each `:pending` planned Shopping item of `quantities`, a list
+  of `{item_id, quantity_milli}`, and returns how many it changed. An item that is no longer
+  `:pending` is left alone.
+  """
+  @spec update_pending_quantities(Ecto.UUID.t(), [{Ecto.UUID.t(), pos_integer()}]) ::
+          non_neg_integer()
+  def update_pending_quantities(account_id, quantities) when is_list(quantities) do
+    now = DateTime.utc_now()
+
+    # A quantity the `int4` column cannot hold would abort the read's whole
+    # transaction, on every read: it is skipped and logged, as
+    # `insert_planned_items/2` skips a line the changeset rejects.
+    {quantities, too_large} =
+      Enum.split_with(quantities, fn {_item_id, quantity} -> quantity <= @max_quantity_milli end)
+
+    Enum.each(too_large, fn {item_id, quantity_milli} ->
+      Logger.error(
+        "shopping pending quantity skipped account_id=#{account_id} item_id=#{item_id} " <>
+          "quantity_milli=#{quantity_milli}"
+      )
+    end)
+
+    Enum.reduce(quantities, 0, fn {item_id, quantity_milli}, updated ->
+      {count, _} =
+        from(i in ShoppingItem,
+          where:
+            i.account_id == ^account_id and i.id == ^item_id and i.source == :planned_meal and
+              i.status == :pending
+        )
+        |> Repo.update_all(set: [quantity_milli: quantity_milli, updated_at: now])
+
+      updated + count
+    end)
+  end
+
+  @doc """
+  Deletes the `:pending` planned Shopping items of `item_ids` and returns how many it
+  deleted. An item that is no longer `:pending` is left alone.
+  """
+  @spec delete_pending_planned_items(Ecto.UUID.t(), [Ecto.UUID.t()]) :: non_neg_integer()
+  def delete_pending_planned_items(_account_id, []), do: 0
+
+  def delete_pending_planned_items(account_id, item_ids) when is_list(item_ids) do
+    {deleted, _} =
+      from(i in ShoppingItem,
+        where:
+          i.account_id == ^account_id and i.id in ^item_ids and i.source == :planned_meal and
+            i.status == :pending
+      )
+      |> Repo.delete_all()
+
+    deleted
   end
 
   def list_pending_items(account_id, from_date, to_date) do
@@ -553,6 +721,15 @@ defmodule MealPlannerApi.Persistence.Shopping do
   def delete_removals(_account_id, []), do: :ok
 
   def delete_removals(account_id, pairs) when is_list(pairs) do
+    # A pair without a Scheduled meal has no removal: Ecto refuses to
+    # compare a column with `nil`.
+    case Enum.reject(pairs, &is_nil(elem(&1, 0))) do
+      [] -> :ok
+      pairs -> delete_removal_rows(account_id, pairs)
+    end
+  end
+
+  defp delete_removal_rows(account_id, pairs) do
     of_pairs =
       pairs
       |> Enum.group_by(&elem(&1, 0), &elem(&1, 1))

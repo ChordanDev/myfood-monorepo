@@ -93,6 +93,15 @@ defmodule MealPlannerApiWeb.ShoppingControllerTest do
           suitable_for_slots: [:dinner]
         })
 
+      # The meal needs the item's quantity, so the read keeps the item.
+      {:ok, _} =
+        Catalog.add_recipe_ingredient(%{
+          recipe_id: recipe.id,
+          ingredient_id: ingredient.id,
+          quantity_milli: 500,
+          unit: :g
+        })
+
       today = Date.utc_today()
 
       {:ok, meal} =
@@ -424,14 +433,15 @@ defmodule MealPlannerApiWeb.ShoppingControllerTest do
              ] =
                limited["planned"]
 
-      # The meal after the limit has no Shopping item derived yet.
-      assert length(Shopping.list_items_for_account(c.account.id)) == 1
+      # The read derives every upcoming meal's item: the limit only keeps the
+      # later one off the list.
+      assert length(Shopping.list_items_for_account(c.account.id)) == 2
 
       boundary = shopping_list(c.owner_token, %{"untilDate" => c.later})
 
       assert [%{"quantityMilli" => 800, "allocations" => [_, _]}] = boundary["planned"]
 
-      # Once that item exists, the limit still keeps it off the list.
+      # The limit still keeps it off the list.
       assert shopping_list(c.owner_token, %{"untilDate" => day_before}) == limited
     end
 
@@ -628,12 +638,32 @@ defmodule MealPlannerApiWeb.ShoppingControllerTest do
         is_cooked: false
       })
 
+    # The second meal needs 400 g, so the rows below are each meal's Shortage
+    # and the read keeps them.
+    {:ok, stew} =
+      Catalog.create_recipe(%{
+        account_id: account_id,
+        created_by_user_id: user_id,
+        name: "Estofado",
+        source: :user_created,
+        servings: 2,
+        suitable_for_slots: [:lunch]
+      })
+
+    {:ok, _ri} =
+      Catalog.add_recipe_ingredient(%{
+        recipe_id: stew.id,
+        ingredient_id: ingredient.id,
+        quantity_milli: 400,
+        unit: :g
+      })
+
     {:ok, meal_2} =
       Planning.schedule_meal(%{
         account_id: account_id,
         date: second_meal_date,
         slot: :lunch,
-        recipe_id: recipe.id,
+        recipe_id: stew.id,
         is_cooked: false
       })
 

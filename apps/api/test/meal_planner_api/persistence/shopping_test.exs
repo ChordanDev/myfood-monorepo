@@ -369,6 +369,14 @@ defmodule MealPlannerApi.Persistence.ShoppingTest do
   end
 
   describe "Shopping removals (#334)" do
+    test "a pair without a Scheduled meal deletes nothing and does not fail" do
+      %{account_id: account_id, scheduled_meal_id: meal_id} = attrs = planned_key_attrs()
+      :ok = Shopping.put_removals(account_id, [{meal_id, attrs.ingredient_id}])
+
+      assert :ok = Shopping.delete_removals(account_id, [{nil, attrs.ingredient_id}])
+      assert removal_count(meal_id) == 1
+    end
+
     test "a removal sets to removed the pending items of its meal and Ingredient" do
       %{account_id: account_id, scheduled_meal_id: meal_id} = attrs = planned_key_attrs()
       {:ok, item} = Shopping.create_shopping_item(attrs)
@@ -431,6 +439,22 @@ defmodule MealPlannerApi.Persistence.ShoppingTest do
 
       Repo.delete!(Repo.get!(MealPlannerApi.Persistence.Planning.ScheduledMeal, meal_id))
       assert removal_count(meal_id) == 0
+    end
+  end
+
+  describe "update_pending_quantities/2 (#277)" do
+    test "skips and logs a quantity the column cannot hold" do
+      %{account_id: account_id} = attrs = planned_key_attrs()
+      {:ok, item} = Shopping.create_shopping_item(attrs)
+
+      log =
+        capture_log(fn ->
+          assert Shopping.update_pending_quantities(account_id, [{item.id, 2_147_483_648}]) == 0
+        end)
+
+      assert log =~ "shopping pending quantity skipped"
+      assert log =~ "item_id=#{item.id}"
+      assert Repo.get!(ShoppingItem, item.id).quantity_milli == attrs.quantity_milli
     end
   end
 
