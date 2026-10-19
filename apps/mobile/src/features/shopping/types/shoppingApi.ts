@@ -15,7 +15,7 @@ export type ShoppingLineStatus = 'needed' | 'in_cart' | 'removed' | 'purchased';
 
 export type ShoppingLineSource = 'planned_meal' | 'manual';
 
-export type ShoppingMealSlot = 'breakfast' | 'lunch' | 'snack' | 'dinner';
+export type ShoppingMealSlot = 'breakfast' | 'lunch' | 'dinner';
 
 // The share of a line one Scheduled meal needs.
 export interface ShoppingLineAllocation {

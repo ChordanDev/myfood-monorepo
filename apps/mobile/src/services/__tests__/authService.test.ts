@@ -234,7 +234,6 @@ describe('authService', () => {
         breakfast: null,
         lunch: null,
         dinner: null,
-        snack: null,
       })
     );
 

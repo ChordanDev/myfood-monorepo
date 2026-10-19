@@ -8,23 +8,23 @@ import Animated, {
 } from 'react-native-reanimated';
 import { ShadowSurface } from '@/components';
 import { MEAL_SLOT_LABEL } from '@/constants/mealSlots';
-import type { HomeMealSlot } from '../domain/localMealPlan';
+import type { MealSlot } from '@/types/domain';
 import type { HomeMetrics } from '../utils/responsive';
 
 import { useThemeColor } from '@/hooks/useThemeColor';
 import { useAnimatedThemeStyle } from '@/hooks/useAnimatedThemeStyle';
 
 interface FoodTypeSwitcherProps {
-  value: HomeMealSlot | null;
-  availableTypes?: HomeMealSlot[];
-  onChange?: (mealType: HomeMealSlot) => void;
+  value: MealSlot | null;
+  availableTypes?: MealSlot[];
+  onChange?: (mealType: MealSlot) => void;
   metrics: HomeMetrics;
 }
 
-const ORDERED_MEAL_TYPES: HomeMealSlot[] = ['breakfast', 'lunch', 'dinner'];
+const ORDERED_MEAL_TYPES: MealSlot[] = ['breakfast', 'lunch', 'dinner'];
 
 interface SwitcherItemProps {
-  mealType: HomeMealSlot;
+  mealType: MealSlot;
   isActive: boolean;
   isUnavailable: boolean;
   onPress: () => void;

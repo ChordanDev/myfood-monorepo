@@ -2,8 +2,6 @@ import type { MealPlanEntry, MealSlot, RecipeSummary } from '@/types/domain';
 
 type RecipeSummaries = Record<string, RecipeSummary>;
 
-export type HomeMealSlot = Exclude<MealSlot, 'snack'>;
-
 export type LocalMealPlanByDate = Record<string, MealPlanEntry[]>;
 
 // The palette and image of the meal come from its Recipe, through `useHomeRecipeTheme`.
@@ -13,13 +11,13 @@ export type LocalMealSelection = MealPlanEntry & {
 
 export type HomeMealSummary = {
   id: string;
-  type: HomeMealSlot;
+  type: MealSlot;
   name: string;
 };
 
-const ORDERED_HOME_MEAL_TYPES: HomeMealSlot[] = ['breakfast', 'lunch', 'dinner'];
+const ORDERED_HOME_MEAL_TYPES: MealSlot[] = ['breakfast', 'lunch', 'dinner'];
 
-const MEAL_TYPE_MINUTES: Record<HomeMealSlot, number> = {
+const MEAL_TYPE_MINUTES: Record<MealSlot, number> = {
   breakfast: 8 * 60,
   lunch: 13 * 60,
   dinner: 20 * 60,
@@ -40,12 +38,12 @@ export function getInitialSelectedDate(availableDateKeys: string[], todayKey: st
   return availableDateKeys[0] ?? todayKey;
 }
 
-export function getAvailableHomeMealTypes(entries: MealPlanEntry[]): HomeMealSlot[] {
+export function getAvailableHomeMealTypes(entries: MealPlanEntry[]): MealSlot[] {
   const types = new Set(entries.map((entry) => entry.type));
   return ORDERED_HOME_MEAL_TYPES.filter((type) => types.has(type));
 }
 
-export function getClosestHomeMealType(availableMealTypes: HomeMealSlot[], now: Date) {
+export function getClosestHomeMealType(availableMealTypes: MealSlot[], now: Date) {
   if (!availableMealTypes.length) {
     return null;
   }
@@ -59,7 +57,7 @@ export function getClosestHomeMealType(availableMealTypes: HomeMealSlot[], now: 
   });
 }
 
-export function getDefaultHomeMealType(entries: MealPlanEntry[], now: Date): HomeMealSlot | null {
+export function getDefaultHomeMealType(entries: MealPlanEntry[], now: Date): MealSlot | null {
   const uncookedMealTypes = getAvailableHomeMealTypes(entries.filter((entry) => !entry.isCooked));
 
   return (
@@ -70,7 +68,7 @@ export function getDefaultHomeMealType(entries: MealPlanEntry[], now: Date): Hom
 
 export function getSelectedLocalMeal(
   entries: MealPlanEntry[],
-  selectedMealType: HomeMealSlot | null
+  selectedMealType: MealSlot | null
 ): LocalMealSelection | null {
   if (!selectedMealType) {
     return null;
@@ -119,7 +117,7 @@ export function getPendingConfirmationEntries(entries: MealPlanEntry[]) {
   );
 }
 
-export function getPendingHomeMealType(entries: MealPlanEntry[]): HomeMealSlot | null {
+export function getPendingHomeMealType(entries: MealPlanEntry[]): MealSlot | null {
   return getAvailableHomeMealTypes(getPendingConfirmationEntries(entries))[0] ?? null;
 }
 

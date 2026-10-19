@@ -1,4 +1,4 @@
-import type { HomeMealSlot } from '../domain/localMealPlan';
+import type { MealSlot } from '@/types/domain';
 
 export const CALENDAR_DEFAULTS = {
   daySize: 42,
@@ -12,8 +12,8 @@ export const CALENDAR_DEFAULTS = {
 export const DAY_ROW_GAP = 8;
 export const MAX_WEEK_ROWS = 6;
 
-// The slots a day shows one dot for, in the order the dots are drawn. Snack has no dot.
-export const CALENDAR_DOT_SLOTS: readonly HomeMealSlot[] = ['breakfast', 'lunch', 'dinner'];
+// The slots a day shows one dot for, in the order the dots are drawn.
+export const CALENDAR_DOT_SLOTS: readonly MealSlot[] = ['breakfast', 'lunch', 'dinner'];
 
 // The row of slot dots under each day, and the space it adds to the row of days.
 export const SLOT_DOT_SIZE = 5;

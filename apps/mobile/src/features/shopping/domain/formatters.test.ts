@@ -127,7 +127,6 @@ describe('formatItemMealsLine', () => {
   it.each([
     ['breakfast', 'Desayuno'],
     ['lunch', 'Almuerzo'],
-    ['snack', 'Merienda'],
     ['dinner', 'Cena'],
   ] as const)('names the %s slot "%s"', (slot, label) => {
     expect(formatItemMealsLine(line(share('2026-03-05', slot)), 'meal')).toBe(`5 Mar · ${label}`);

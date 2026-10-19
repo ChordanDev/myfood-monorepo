@@ -26,7 +26,6 @@ describe('MEAL_SLOT_LABELS', () => {
       breakfast: 'Desayuno',
       lunch: 'Almuerzo',
       dinner: 'Cena',
-      snack: 'Merienda',
     });
   });
 });

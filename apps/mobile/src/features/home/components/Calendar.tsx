@@ -13,7 +13,7 @@ import {
   WEEKDAYS,
 } from '../constants/calendar';
 import { getPlannedSlots } from '../domain/calendarPlan';
-import type { HomeMealSlot } from '../domain/localMealPlan';
+import type { MealSlot } from '@/types/domain';
 import { formatDateKey, isPendingDate } from '../utils/calendarDate';
 import { isBetweenRangeEdges, isRangeEdge } from '../utils/calendarRange';
 import type { CalendarProps } from '../types/calendar';
@@ -65,7 +65,7 @@ export function Calendar({
   const showsSlotDots = !markedDates;
   // One array per day, kept across renders so the memoized day cells do not redraw.
   const plannedSlotsByDate = useMemo(() => {
-    const slotsByDate: Record<string, HomeMealSlot[]> = {};
+    const slotsByDate: Record<string, MealSlot[]> = {};
     for (const [dateString, entries] of Object.entries(planByDate)) {
       slotsByDate[dateString] = getPlannedSlots(entries);
     }
@@ -197,7 +197,7 @@ export function Calendar({
 }
 
 const GRID_PADDING_TOP = 7;
-const NO_PLANNED_SLOTS: HomeMealSlot[] = [];
+const NO_PLANNED_SLOTS: MealSlot[] = [];
 
 const styles = StyleSheet.create({
   divider: {

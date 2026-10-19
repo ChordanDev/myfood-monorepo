@@ -3,14 +3,13 @@ import { MEAL_SLOT_LABEL } from './mealSlots';
 
 describe('meal slots', () => {
   it('lists the API meal slot codes in the order of the day', () => {
-    expect(ORDERED_MEAL_SLOTS).toEqual(['breakfast', 'lunch', 'snack', 'dinner']);
+    expect(ORDERED_MEAL_SLOTS).toEqual(['breakfast', 'lunch', 'dinner']);
   });
 
   it('labels every meal slot in Spanish', () => {
     expect(MEAL_SLOT_LABEL).toEqual({
       breakfast: 'Desayuno',
       lunch: 'Almuerzo',
-      snack: 'Snack',
       dinner: 'Cena',
     });
   });

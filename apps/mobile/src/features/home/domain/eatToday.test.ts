@@ -70,7 +70,7 @@ describe('getAvailableEatTodayDestinations', () => {
   });
 
   it('ignores cooked entries of other meal types', () => {
-    const entries = [buildEntry('breakfast', true), buildEntry('snack', true)];
+    const entries = [buildEntry('breakfast', true)];
 
     expect(getAvailableEatTodayDestinations(entries, at(10))).toEqual(['lunch', 'dinner']);
   });

@@ -42,7 +42,7 @@ export interface RecipeThemeConfig {
 
 // Meal slot codes of the API contract, in the order of the day. Their Spanish labels are
 // `MEAL_SLOT_LABEL`.
-export const ORDERED_MEAL_SLOTS = ['breakfast', 'lunch', 'snack', 'dinner'] as const;
+export const ORDERED_MEAL_SLOTS = ['breakfast', 'lunch', 'dinner'] as const;
 
 export type MealSlot = (typeof ORDERED_MEAL_SLOTS)[number];
 

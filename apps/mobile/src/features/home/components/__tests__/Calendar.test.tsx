@@ -184,11 +184,6 @@ describe('Calendar slot dots', () => {
       entry({ date: '2026-08-27', type: 'breakfast' }),
       entry({ date: '2026-08-27', type: 'lunch' }),
     ],
-    '2026-08-28': [
-      entry({ date: '2026-08-28', type: 'snack' }),
-      entry({ date: '2026-08-28', type: 'dinner' }),
-    ],
-    '2026-08-29': [entry({ date: '2026-08-29', type: 'snack' })],
   };
 
   it('hands each day the slots that have a Scheduled meal, in order', () => {
@@ -202,13 +197,6 @@ describe('Calendar slot dots', () => {
     const getDayCell = renderDayCells(planByDate);
 
     expect(getDayCell('2026-08-30').plannedSlots).toEqual([]);
-  });
-
-  it('ignores a meal in the snack slot', () => {
-    const getDayCell = renderDayCells(planByDate);
-
-    expect(getDayCell('2026-08-28').plannedSlots).toEqual(['dinner']);
-    expect(getDayCell('2026-08-29').plannedSlots).toEqual([]);
   });
 
   it('hands no slots when it only receives the marked days', () => {

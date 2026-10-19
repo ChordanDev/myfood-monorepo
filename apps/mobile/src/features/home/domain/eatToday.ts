@@ -1,8 +1,7 @@
-import type { MealPlanEntry } from '@/types/domain';
+import type { MealPlanEntry, MealSlot } from '@/types/domain';
 import type { CalendarMealDestination } from '../types/calendarApi';
-import type { HomeMealSlot } from './localMealPlan';
 
-export type EatTodayDestinationType = Extract<HomeMealSlot, 'lunch' | 'dinner'>;
+export type EatTodayDestinationType = Extract<MealSlot, 'lunch' | 'dinner'>;
 
 export const EAT_TODAY_DESTINATION_TYPES: EatTodayDestinationType[] = ['lunch', 'dinner'];
 
