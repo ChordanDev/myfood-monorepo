@@ -3,6 +3,9 @@ name: Plan the week, confirm it and see the Scheduled meals
 ---
 # Signs in as the seeded User, who skips onboarding and lands on Home.
 - runFlow: login-verification.yaml
+# A freshly seeded Account has no Scheduled meal yet, so the last assertion is the plan's.
+- assertNotVisible:
+    id: e2e-home-scheduled-meal
 - tapOn:
     id: e2e-home-open-planner
 # The start button is enabled once the Planning channel is joined.

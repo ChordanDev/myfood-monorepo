@@ -292,6 +292,7 @@ describe('Maestro Planning and Shopping selector contract', () => {
 
     expect(flow).toContain('- runFlow: login-verification.yaml');
     expect(flowSelectors('planning-confirm')).toEqual([
+      'e2e-home-scheduled-meal',
       'e2e-home-open-planner',
       'e2e-planner-start',
       'e2e-planner-start',
@@ -312,6 +313,7 @@ describe('Maestro Planning and Shopping selector contract', () => {
       'e2e-tab-cart',
       'e2e-shopping-screen',
       'e2e-shopping-item',
+      'e2e-shopping-item-in-cart',
       'e2e-shopping-item',
       'e2e-shopping-item-in-cart',
     ]);
@@ -321,9 +323,14 @@ describe('Maestro Planning and Shopping selector contract', () => {
     for (const flow of ['planning-confirm', 'shopping-check-off']) {
       const lines = readMobileFile(`e2e/maestro/${flow}.yaml`).split('\n');
 
-      // A bare `tapOn: <text>` or `visible: <text>` selects by copy; every selector is an `id:`.
+      // A bare `tapOn: <text>` or `visible: <text>`, or a `text:` key, selects by copy; every
+      // selector is an `id:`.
       expect(
-        lines.filter((line) => /^\s*-?\s*(tapOn|visible|assertVisible):\s*\S/.test(line))
+        lines.filter(
+          (line) =>
+            /^\s*-?\s*(tapOn|visible|assertVisible|assertNotVisible):\s*\S/.test(line) ||
+            /^\s*-?\s*text:/.test(line)
+        )
       ).toEqual([]);
     }
   });
