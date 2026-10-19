@@ -469,14 +469,13 @@ defmodule MealPlannerApi.Services.ShoppingRebuilderTest do
     test "allocations on the same date follow the order of the day's slots" do
       rows = [
         row("i1", "flour", %{slot: :dinner}),
-        row("i2", "flour", %{slot: :snack}),
         row("i3", "flour", %{slot: :breakfast}),
         row("i4", "flour", %{slot: :lunch})
       ]
 
       assert [line] = ShoppingRebuilder.group_lines(rows, :ingredient)
 
-      assert Enum.map(line.allocations, & &1.slot) == [:breakfast, :lunch, :snack, :dinner]
+      assert Enum.map(line.allocations, & &1.slot) == [:breakfast, :lunch, :dinner]
     end
 
     test "mixed statuses read as needed" do
@@ -683,10 +682,9 @@ defmodule MealPlannerApi.Services.ShoppingRebuilderTest do
 
   describe "slot_rank/1" do
     test "ranks the slots of the schema in the order of the day" do
-      slots = [:dinner, :snack, :breakfast, :lunch]
+      slots = [:dinner, :breakfast, :lunch]
 
-      assert Enum.sort_by(slots, &ShoppingRebuilder.slot_rank/1) ==
-               [:breakfast, :lunch, :snack, :dinner]
+      assert Enum.sort_by(slots, &ShoppingRebuilder.slot_rank/1) == [:breakfast, :lunch, :dinner]
     end
 
     test "ranks a slot outside the schema enum, nil included, after the known ones" do

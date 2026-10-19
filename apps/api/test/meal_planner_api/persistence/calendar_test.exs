@@ -139,7 +139,7 @@ defmodule MealPlannerApi.Persistence.CalendarTest do
                [
                  %{date: ~D[2026-07-02], slot: :lunch},
                  %{date: ~D[2026-07-04], slot: :dinner},
-                 %{date: ~D[2026-07-06], slot: :snack}
+                 %{date: ~D[2026-07-06], slot: :breakfast}
                ]
              )
 
@@ -150,7 +150,22 @@ defmodule MealPlannerApi.Persistence.CalendarTest do
 
     assert Enum.any?(meals, &(&1.date == ~D[2026-07-02] and &1.slot == :lunch))
     assert Enum.any?(meals, &(&1.date == ~D[2026-07-04] and &1.slot == :dinner))
-    assert Enum.any?(meals, &(&1.date == ~D[2026-07-06] and &1.slot == :snack))
+    assert Enum.any?(meals, &(&1.date == ~D[2026-07-06] and &1.slot == :breakfast))
+  end
+
+  test "refuses a snack meal like any unknown slot and writes nothing" do
+    account_id = account_id("calendar-snack@example.com")
+
+    for slot <- [:snack, :brunch] do
+      assert {:error, :invalid_slot} =
+               Calendar.replace_scheduled_meals_for_range(
+                 account_id,
+                 {~D[2026-07-01], ~D[2026-07-07]},
+                 [%{date: ~D[2026-07-02], slot: slot}]
+               )
+    end
+
+    assert [] = PlanningRepo.list_scheduled_meals(account_id, ~D[2026-07-01], ~D[2026-07-07])
   end
 
   describe "isSkipped and the Account's today" do

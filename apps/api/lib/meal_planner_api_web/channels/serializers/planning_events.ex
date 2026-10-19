@@ -16,7 +16,7 @@ defmodule MealPlannerApiWeb.Channels.Serializers.PlanningEvents do
 
   alias MealPlannerApiWeb.Casing
 
-  @slot_order ~w(breakfast lunch dinner snack)
+  @slot_order ~w(breakfast lunch dinner)
 
   @doc """
   The `proposal_ready` payload and the `planning_message` the assistant says

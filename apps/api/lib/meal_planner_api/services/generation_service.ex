@@ -535,7 +535,6 @@ defmodule MealPlannerApi.Services.GenerationService do
         Regex.run(~r/desayuno|breakfast/, msg) -> :breakfast
         Regex.run(~r/almuerzo|lunch/, msg) -> :lunch
         Regex.run(~r/cena|dinner/, msg) -> :dinner
-        Regex.run(~r/snack/, msg) -> :snack
         true -> nil
       end
 

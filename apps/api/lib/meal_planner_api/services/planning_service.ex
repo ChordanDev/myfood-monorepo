@@ -417,7 +417,6 @@ defmodule MealPlannerApi.Services.PlanningService do
     case s do
       "breakfast" -> {:ok, "breakfast"}
       "lunch" -> {:ok, "lunch"}
-      "snack" -> {:ok, "snack"}
       "dinner" -> {:ok, "dinner"}
       _ -> nil
     end

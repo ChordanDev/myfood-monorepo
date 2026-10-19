@@ -499,12 +499,11 @@ defmodule MealPlannerApiWeb.PlanningStartTest do
       })
     end
 
-    test "a meal outside the range or in a slot it does not plan leaves the start free", %{
+    test "a meal outside the range leaves the start free", %{
       account: account,
       user: user,
       token: token
     } do
-      schedule_meal!(account, user, in_days(2), :snack)
       schedule_meal!(account, user, in_days(4), :lunch)
       socket = join_planning!(token, account)
 
@@ -569,7 +568,7 @@ defmodule MealPlannerApiWeb.PlanningStartTest do
       stop_generation_server(account.id)
     end
 
-    test "a missing snack has no constraint and a 0-minute slot is do_not_cook", %{
+    test "the context has the three Meal slots and a 0-minute slot is do_not_cook", %{
       account: account,
       user: user,
       token: token
@@ -578,11 +577,7 @@ defmodule MealPlannerApiWeb.PlanningStartTest do
 
       times = start_and_read_context!(token, account)["slotCookingTimes"]
 
-      assert times["snack"] == %{
-               "cooking" => "no_constraint",
-               "maxMinutes" => nil,
-               "hungerLevel" => nil
-             }
+      assert times |> Map.keys() |> Enum.sort() == ~w(breakfast dinner lunch)
 
       assert times["lunch"] == %{
                "cooking" => "do_not_cook",

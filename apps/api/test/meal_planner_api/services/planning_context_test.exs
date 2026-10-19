@@ -58,7 +58,6 @@ defmodule MealPlannerApi.Services.PlanningContextTest do
                    "maxMinutes" => 0,
                    "hungerLevel" => "normal"
                  },
-                 "snack" => @no_constraint,
                  "dinner" => limited(45, "strong")
                },
                "favoriteRecipeIds" => ["recipe-a", "recipe-b"],
@@ -103,10 +102,10 @@ defmodule MealPlannerApi.Services.PlanningContextTest do
       assert context["householdSize"] == nil
     end
 
-    test "no stored time leaves all four slots with no constraint" do
+    test "no stored time leaves the three Meal slots with no constraint" do
       times = assemble_times([])
 
-      assert times |> Map.keys() |> Enum.sort() == ["breakfast", "dinner", "lunch", "snack"]
+      assert times |> Map.keys() |> Enum.sort() == ["breakfast", "dinner", "lunch"]
       assert Enum.all?(Map.values(times), &(&1 == @no_constraint))
     end
 
@@ -116,13 +115,12 @@ defmodule MealPlannerApi.Services.PlanningContextTest do
       assert times["dinner"] == limited(20, "strong")
       assert times["breakfast"] == @no_constraint
       assert times["lunch"] == @no_constraint
-      assert times["snack"] == @no_constraint
     end
 
-    test "the snack has no constraint even if a row names it" do
+    test "the snack is not a Meal slot, even if a row names it" do
       times = assemble_times([%{slot: :snack, cooking_time_minutes: 10, hunger_level: :light}])
 
-      assert times["snack"] == @no_constraint
+      refute Map.has_key?(times, "snack")
     end
 
     test "a stored 0 is do_not_cook and any other minutes are limited" do
@@ -259,7 +257,6 @@ defmodule MealPlannerApi.Services.PlanningContextTest do
                  "maxMinutes" => 0,
                  "hungerLevel" => "normal"
                },
-               "snack" => @no_constraint,
                "dinner" => limited(45, "strong")
              }
     end
@@ -289,7 +286,6 @@ defmodule MealPlannerApi.Services.PlanningContextTest do
 
       assert times["lunch"] == limited(25, "normal")
       assert times["breakfast"] == @no_constraint
-      assert times["snack"] == @no_constraint
       assert times["dinner"] == @no_constraint
     end
 

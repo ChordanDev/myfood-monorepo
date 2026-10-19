@@ -29,7 +29,7 @@ defmodule MealPlannerApi.Persistence.Catalog.SlotFavorite do
   # `:slot` is a `:string` column (not an `Ecto.Enum`), so the inclusion
   # list MUST be strings, not atoms — comparing a cast string value
   # against an atom list always fails validate_inclusion.
-  @slot_values ~w(breakfast lunch snack dinner)
+  @slot_values ~w(breakfast lunch dinner)
 
   def slot_values, do: @slot_values
 

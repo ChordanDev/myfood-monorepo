@@ -5,7 +5,7 @@ defmodule MealPlannerApi.Persistence.Catalog.Recipe do
   @primary_key {:id, :binary_id, autogenerate: true}
   @foreign_key_type :binary_id
 
-  @valid_slots MapSet.new(["breakfast", "lunch", "snack", "dinner"])
+  @valid_slots MapSet.new(["breakfast", "lunch", "dinner"])
 
   # The app's theme tokens, camelCase as the API serves them. All colors are
   # required; the background gradient is optional and has exactly two stops.

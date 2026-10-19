@@ -9,7 +9,7 @@ defmodule MealPlannerApi.Persistence.Planning.ScheduledMeal do
 
   schema "scheduled_meals" do
     field(:date, :date)
-    field(:slot, Ecto.Enum, values: [:breakfast, :lunch, :snack, :dinner])
+    field(:slot, Ecto.Enum, values: [:breakfast, :lunch, :dinner])
     field(:is_cooked, :boolean, default: false)
     field(:recipe_version_id, :binary_id, read_after_writes: true)
     field(:recipe_snapshot, :map, read_after_writes: true)

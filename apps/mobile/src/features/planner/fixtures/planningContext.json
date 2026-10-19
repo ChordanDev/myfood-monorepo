@@ -30,11 +30,6 @@
       "cooking": "do_not_cook",
       "hungerLevel": "normal",
       "maxMinutes": 0
-    },
-    "snack": {
-      "cooking": "no_constraint",
-      "hungerLevel": null,
-      "maxMinutes": null
     }
   },
   "softPreferences": ["quick_meals"]

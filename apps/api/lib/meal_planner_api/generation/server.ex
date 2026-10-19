@@ -67,7 +67,7 @@ defmodule MealPlannerApi.Generation.Server do
 
   # The slots a meal can be planned for, by name: the vocabulary of
   # `ScheduledMeal.slot` and of `Recipe.suitable_for_slots`.
-  @known_slots ~w(breakfast lunch snack dinner)
+  @known_slots ~w(breakfast lunch dinner)
 
   @default_slot_types ~w(breakfast lunch dinner)
 

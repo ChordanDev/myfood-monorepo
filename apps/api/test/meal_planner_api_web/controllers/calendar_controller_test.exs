@@ -249,6 +249,36 @@ defmodule MealPlannerApiWeb.CalendarControllerTest do
       assert %{"error" => "invalid_slot"} = json_response(conn, 422)
     end
 
+    # Issue #342: snack is not a Meal slot.
+    test "refuses snack with the error of any unknown slot" do
+      %{token: token} = insert_identity_with_token!(plan: :family_4)
+
+      for {method, path, params_for} <- [
+            {:get, "/api/calendar/slot", &%{"date" => "2026-06-15", "slot" => &1}},
+            {:get, "/api/calendar",
+             &%{"start_date" => "2026-06-01", "end_date" => "2026-06-30", "selected_slot" => &1}},
+            {:put, "/api/calendar/meals/range",
+             &%{
+               "from" => "2026-07-01",
+               "to" => "2026-07-07",
+               "meals" => [%{"date" => "2026-07-02", "slot" => &1}]
+             }}
+          ] do
+        answer = fn slot ->
+          conn =
+            build_conn()
+            |> put_req_header("authorization", "Bearer " <> token)
+            |> dispatch(@endpoint, method, path, params_for.(slot))
+
+          {conn.status, Jason.decode!(conn.resp_body)}
+        end
+
+        assert {status, _body} = answer.("snack")
+        assert status in 400..499, "#{method} #{path} accepted snack"
+        assert answer.("snack") == answer.("brunch")
+      end
+    end
+
     test "returns 422 for missing date param" do
       %{token: token} = insert_identity_with_token!(plan: :family_4)
 
@@ -835,7 +865,7 @@ defmodule MealPlannerApiWeb.CalendarControllerTest do
 
       {:ok, cooking} = Calendar.upsert_scheduled_meal(account_id, %{date: today, slot: :lunch})
       {:ok, finished} = Calendar.upsert_scheduled_meal(account_id, %{date: today, slot: :dinner})
-      {:ok, idle} = Calendar.upsert_scheduled_meal(account_id, %{date: today, slot: :snack})
+      {:ok, idle} = Calendar.upsert_scheduled_meal(account_id, %{date: today, slot: :breakfast})
       cooking_session!(cooking, :active)
       cooking_session!(finished, :completed)
 
@@ -965,12 +995,14 @@ defmodule MealPlannerApiWeb.CalendarControllerTest do
 
       body =
         f.token
-        |> move(source.id, %{"date" => Date.to_iso8601(f.today), "slot" => "snack"})
+        |> move(source.id, %{"date" => Date.to_iso8601(f.today), "slot" => "breakfast"})
         |> json_response(200)
 
-      assert %{"moved" => %{"mealId" => id, "slot" => "snack"}, "displaced" => nil} = body["data"]
+      assert %{"moved" => %{"mealId" => id, "slot" => "breakfast"}, "displaced" => nil} =
+               body["data"]
+
       assert id == source.id
-      assert stored_position(source) == {f.today, :snack}
+      assert stored_position(source) == {f.today, :breakfast}
     end
 
     test "answers 404 for the meal of another Account and leaves it in place", f do
@@ -1021,6 +1053,8 @@ defmodule MealPlannerApiWeb.CalendarControllerTest do
 
       for {body, field} <- [
             {%{"date" => today, "slot" => "brunch"}, "slot"},
+            # Not a Meal slot since issue #342.
+            {%{"date" => today, "slot" => "snack"}, "slot"},
             {%{"date" => today}, "slot"},
             {%{"date" => "08/10/2026", "slot" => "lunch"}, "date"},
             {%{"slot" => "lunch"}, "date"},
@@ -1222,7 +1256,7 @@ defmodule MealPlannerApiWeb.CalendarControllerTest do
 
       assert %{"error" => %{"code" => "validation_error", "message" => message}} =
                f.token
-               |> move(source.id, %{"date" => @before_year_one, "slot" => "snack"})
+               |> move(source.id, %{"date" => @before_year_one, "slot" => "lunch"})
                |> json_response(422)
 
       assert message =~ "date"

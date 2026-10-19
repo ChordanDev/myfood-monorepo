@@ -14,7 +14,7 @@ defmodule MealPlannerApiWeb.MealSummary do
 
   Keys are snake_case atoms: the `:mobile_casing` pipeline renders them as
   camelCase (`recipeId`, `recipeName`, `isFavorite`, `prepTimeMinutes`). The
-  slot is always one of the English `breakfast | lunch | snack | dinner`.
+  slot is always one of the English `breakfast | lunch | dinner`.
 
   Callers map their own source (a calendar row, an optimizer meal) to the
   attributes below; the shape lives only here. A caller that needs more keys

@@ -230,7 +230,7 @@ defmodule MealPlannerApi.Generation.ServerTest do
       actor = insert_user_with_membership(account, "generation-window@example.com")
 
       # About 180 thousand descriptors, every slot type a known one.
-      slot_types = ~w(breakfast lunch snack dinner) |> Stream.cycle() |> Enum.take(50)
+      slot_types = ~w(breakfast lunch dinner) |> Stream.cycle() |> Enum.take(50)
 
       assert {:error, :invalid_date_range} =
                Server.start_generation(
@@ -266,6 +266,9 @@ defmodule MealPlannerApi.Generation.ServerTest do
            :invalid_payload},
           {"an atom slot type that is not a known slot, under atom keys",
            %{slot_types: [:lunch, :brunch]}, :invalid_payload},
+          # Issue #342: snack is not a Meal slot.
+          {"the snack slot type", %{"slot_types" => ["lunch", "snack"]}, :invalid_payload},
+          {"the snack slot type as an atom", %{slot_types: [:lunch, :snack]}, :invalid_payload},
           {"a slot type that is neither a string nor an atom", %{"slot_types" => ["lunch", 3]},
            :invalid_payload}
         ] do
@@ -288,7 +291,7 @@ defmodule MealPlannerApi.Generation.ServerTest do
     for {label, constraints} <- [
           {"a range of seven days", %{"date_from" => "2026-02-01", "date_to" => "2026-02-07"}},
           {"known slot types, as strings and atoms and with duplicates",
-           %{"slot_types" => ["lunch", :lunch, "snack", :dinner, "dinner"]}}
+           %{"slot_types" => ["lunch", :lunch, "breakfast", :dinner, "dinner"]}}
         ] do
       test "#{label} is accepted" do
         account = insert_account("generation window account")

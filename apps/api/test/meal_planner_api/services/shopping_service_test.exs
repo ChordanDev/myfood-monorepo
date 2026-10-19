@@ -302,14 +302,15 @@ defmodule MealPlannerApi.ShoppingServiceTest do
       date = Date.add(Date.utc_today(), 1)
 
       [pending, in_cart, archived, checked_out] =
-        for {status, slot} <- [
-              pending: :breakfast,
-              in_cart: :lunch,
-              archived: :snack,
-              checked_out: :dinner
+        for {status, slot, day} <- [
+              {:pending, :breakfast, date},
+              {:in_cart, :lunch, date},
+              # On the next day: a day holds one meal per slot.
+              {:archived, :dinner, Date.add(date, 1)},
+              {:checked_out, :dinner, date}
             ] do
           ingredient = create_test_ingredient(account_id)
-          meal = schedule_meal!(account_id, user.id, date, slot, ingredient, 100)
+          meal = schedule_meal!(account_id, user.id, day, slot, ingredient, 100)
           pending_item!(account_id, meal, ingredient, 100, %{status: status})
 
           # A physical purchase stocks what it bought.
@@ -372,13 +373,13 @@ defmodule MealPlannerApi.ShoppingServiceTest do
       today = Date.utc_today()
       tomorrow = Date.add(today, 1)
 
-      # Alphabetical slot order would put dinner before lunch and snack.
+      # Alphabetical slot order would put dinner before lunch.
       planned =
         for {date, slot} <- [
               {tomorrow, :breakfast},
               {today, :dinner},
-              {today, :snack},
-              {today, :lunch}
+              {today, :lunch},
+              {today, :breakfast}
             ] do
           ingredient = create_test_ingredient(account_id)
           schedule_meal!(account_id, user.id, date, slot, ingredient, 100)

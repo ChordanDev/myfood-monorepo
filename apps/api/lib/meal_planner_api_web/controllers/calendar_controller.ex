@@ -188,7 +188,6 @@ defmodule MealPlannerApiWeb.CalendarController do
     case value do
       "breakfast" -> {:ok, :breakfast}
       "lunch" -> {:ok, :lunch}
-      "snack" -> {:ok, :snack}
       "dinner" -> {:ok, :dinner}
       _ -> {:error, "invalid_slot"}
     end
@@ -218,7 +217,6 @@ defmodule MealPlannerApiWeb.CalendarController do
     case value do
       "breakfast" -> {:ok, :breakfast}
       "lunch" -> {:ok, :lunch}
-      "snack" -> {:ok, :snack}
       "dinner" -> {:ok, :dinner}
       _ -> {:error, "invalid_slot"}
     end
