@@ -23,7 +23,7 @@ defmodule MealPlannerApi.Services.AccountService do
         {:ok,
          %{
            account: serialize_account(account),
-           subscription: serialize_subscription(identity),
+           subscription: serialize_subscription(identity, account),
            active_users: active_users_from_memberships(account)
          }}
 
@@ -172,13 +172,14 @@ defmodule MealPlannerApi.Services.AccountService do
     }
   end
 
-  defp serialize_subscription(identity) do
+  # The subscription tier belongs to the Account (#328).
+  defp serialize_subscription(identity, account) do
     %{
       user_id: identity.user_id,
       account_id: identity.account_id,
       plan: Map.get(identity, :plan, "individual"),
       account_type: Map.get(identity, :account_type, "individual"),
-      subscription_tier: Map.get(identity, :subscription_tier, :free)
+      subscription_tier: Map.get(account, :subscription_tier) || :free
     }
   end
 

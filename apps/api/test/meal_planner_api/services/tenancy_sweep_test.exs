@@ -111,14 +111,28 @@ defmodule MealPlannerApi.Services.TenancySweepTest do
       refute budget.weekly_limit_cents == 99_999
     end
 
-    # An Account Budget of 0 means "not set" (#212): the tier default applies.
-    test "resolves the tier default for an Account at 0", %{scoped_user_a: scoped_a} do
+    # An Account Budget of 0 means "not set" (#212): the default of the
+    # Account's tier applies. The tier is the Account's, not the User's (#328).
+    test "resolves the Account's tier default for an Account at 0", %{scoped_user_a: scoped_a} do
       assert AccountRepo.get_account!(scoped_a.account_id).default_budget_cents == 0
 
       assert BudgetService.resolve(scoped_a).weekly_limit_cents == 45_000
 
-      premium = Map.put(scoped_a, :subscription_tier, :premium)
-      assert BudgetService.resolve(premium).weekly_limit_cents == 85_000
+      premium_user = Map.put(scoped_a, :subscription_tier, :premium)
+      assert BudgetService.resolve(premium_user).weekly_limit_cents == 45_000
+    end
+
+    test "ignores a weekly Budget carried by the User", %{membership_a: membership_a, user: user} do
+      AccountRepo.get_account!(membership_a.account_id)
+      |> Ecto.Changeset.change(%{default_budget_cents: 11_111})
+      |> Repo.update!()
+
+      scoped_a =
+        user
+        |> AccountScopeHelpers.scope_user_to_membership(membership_a)
+        |> Map.put(:weekly_budget_cents, 99_999)
+
+      assert BudgetService.resolve(scoped_a).weekly_limit_cents == 11_111
     end
   end
 
@@ -131,7 +145,7 @@ defmodule MealPlannerApi.Services.TenancySweepTest do
       assert BudgetService.weekly_limit_cents(membership_a.account_id) == 11_111
     end
 
-    test "returns the standard tier default for an Account at 0", %{membership_a: membership_a} do
+    test "returns the Account's tier default for an Account at 0", %{membership_a: membership_a} do
       assert BudgetService.weekly_limit_cents(membership_a.account_id) == 45_000
     end
   end

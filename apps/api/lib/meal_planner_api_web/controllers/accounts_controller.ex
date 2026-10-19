@@ -37,7 +37,7 @@ defmodule MealPlannerApiWeb.AccountsController do
             id: user.id,
             email: user.email,
             name: user.name,
-            subscription_tier: to_string(user.subscription_tier || :free)
+            subscription_tier: data.account.subscription_tier
           },
           account: data.account,
           subscription: data.subscription,

@@ -55,15 +55,25 @@ defmodule MealPlannerApi.AccountsTest do
     end
   end
 
-  test "claims include subscription tier" do
+  # The subscription tier belongs to the Account (#328).
+  test "claims carry the Account's subscription tier, not the User's" do
     %{user: user, account: account} = insert_identity!()
 
-    user = Map.put(user, :subscription_tier, :premium)
-    account = Map.put(account, :subscription_tier, :premium)
+    premium_user = Map.put(user, :subscription_tier, :premium)
+    assert Accounts.claims_for(premium_user, account)["subscription_tier"] == "free"
 
-    claims = Accounts.claims_for(user, account)
+    premium_account = Map.put(account, :subscription_tier, :premium)
+    assert Accounts.claims_for(user, premium_account)["subscription_tier"] == "premium"
+  end
 
-    assert claims["subscription_tier"] == "premium"
+  test "only the serialized Account carries the subscription tier" do
+    %{user: user, account: account} = insert_identity!()
+
+    serialized_user = Accounts.serialize_user(Map.put(user, :subscription_tier, :premium))
+    refute Map.has_key?(serialized_user, :subscription_tier)
+
+    premium_account = Map.put(account, :subscription_tier, :premium)
+    assert Accounts.serialize_account(premium_account).subscription_tier == :premium
   end
 
   # ----------------------------------------------------------------------

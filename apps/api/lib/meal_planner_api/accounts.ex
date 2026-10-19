@@ -145,7 +145,7 @@ defmodule MealPlannerApi.Accounts do
   @spec claims_for(map(), map()) :: map()
   def claims_for(user, account) when is_map(user) and is_map(account) do
     legacy_account_type = legacy_account_type_from_plan(plan_from(account))
-    subscription_tier = subscription_tier_from(user)
+    subscription_tier = subscription_tier_from(account)
 
     %{
       "account_id" => account.id,
@@ -165,8 +165,7 @@ defmodule MealPlannerApi.Accounts do
       email: user.email,
       name: user.name,
       avatar_url: Map.get(user, :avatar_url),
-      plan: Map.get(user, :plan, :individual),
-      subscription_tier: subscription_tier_from(user)
+      plan: Map.get(user, :plan, :individual)
     }
   end
 
@@ -227,7 +226,9 @@ defmodule MealPlannerApi.Accounts do
   defp max_users_for_plan(:trial), do: 6
   defp max_users_for_plan(_), do: 1
 
-  defp subscription_tier_from(entity) do
-    Map.get(entity, :subscription_tier, :free)
+  # The subscription tier belongs to the Account (#328). No tier is persisted
+  # yet, so every Account reads `:free`.
+  defp subscription_tier_from(account) do
+    Map.get(account, :subscription_tier) || :free
   end
 end
