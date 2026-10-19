@@ -10,8 +10,8 @@ defmodule MealPlannerApi.Data.RemoveSnackMealSlotMigrationTest do
 
   alias Ecto.Adapters.SQL.Sandbox
   alias MealPlannerApi.Generation.ServerTestFixtures, as: Fixtures
-  alias MealPlannerApi.Persistence.{Leftovers, Planning, Shopping}
   alias MealPlannerApi.Persistence.Catalog.{Recipe, SlotFavorite}
+  alias MealPlannerApi.Persistence.{Leftovers, Planning, Shopping}
   alias MealPlannerApi.Persistence.Leftovers.PreparedLeftover
   alias MealPlannerApi.Persistence.Planning.ScheduledMeal
   alias MealPlannerApi.Persistence.Shopping.ShoppingItem
