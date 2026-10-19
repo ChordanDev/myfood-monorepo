@@ -3,9 +3,10 @@ defmodule MealPlannerApi.Persistence.Accounts.UserEmail do
   Single source of truth for how a User is found by email.
 
   An email is compared in its canonical form, trimmed and lower-cased,
-  against `lower(users.email)`. The unique `users_lower_email_index`
-  guarantees that at most one User matches, so no lookup has to break a
-  tie. Login, sign-up, invites and identities all go through here.
+  against `lower(users.email)`. The unique `users_lower_email_index`,
+  made unique by the migration
+  `20261014150000_make_users_lower_email_index_unique`, guarantees that at
+  most one User matches, so no lookup has to break a tie. Login, sign-up, invites and identities all go through here.
   """
 
   import Ecto.Query, warn: false

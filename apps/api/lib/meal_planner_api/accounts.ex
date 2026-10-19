@@ -34,8 +34,8 @@ defmodule MealPlannerApi.Accounts do
   later provider event finds a Trial already started and leaves it alone.
 
   Returns `{:error, :email_already_registered}` when a User has the email,
-  in any case, whether it is found up front or by the unique index on
-  `users.email`.
+  in any case, whether it is found up front or by the unique
+  `users_lower_email_index` on `lower(email)`.
   A failure leaves nothing behind; inside a caller's transaction it also
   leaves that transaction unusable, so the caller must roll it back.
   """
