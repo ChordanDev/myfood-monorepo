@@ -75,11 +75,17 @@ defmodule MealPlannerApi.Services.EmailCodeSignup do
   @spec verify_code(
           term(),
           term(),
-          (User.t(), AccountMembership.t() -> {:ok, session} | {:error, atom()})
+          (User.t(), AccountMembership.t() -> {:ok, session} | {:error, reason})
         ) ::
           {:ok, session}
-          | {:error, atom()}
-        when session: term()
+          | {:error,
+             :code_invalid
+             | :code_expired
+             | :too_many_attempts
+             | :email_already_exists
+             | :registration_failed}
+          | {:error, reason}
+        when session: term(), reason: atom()
   def verify_code(email, code, open_session) do
     EmailCodeLogin.redeem_code(email, code, :signup, fn row, now ->
       with {:ok, %{user: user, membership: membership}} <- register(row, now) do

@@ -294,12 +294,13 @@ defmodule MealPlannerApi.Services.EmailCodeLogin do
           term(),
           term(),
           String.t() | nil,
-          (User.t(), AccountMembership.t() -> {:ok, session} | {:error, atom()})
+          (User.t(), AccountMembership.t() -> {:ok, session} | {:error, reason})
         ) ::
           {:ok, session}
-          | {:error, atom()}
+          | {:error, :code_invalid | :code_expired | :too_many_attempts | :account_not_found}
+          | {:error, reason}
           | {:error, :rate_limited, pos_integer()}
-        when session: term()
+        when session: term(), reason: atom()
   def verify_code(email, code, client_ip, open_session) do
     redeem_code(
       email,
@@ -330,11 +331,14 @@ defmodule MealPlannerApi.Services.EmailCodeLogin do
           term(),
           term(),
           flow(),
-          (EmailVerificationCode.t(), DateTime.t() -> {:ok, result} | {:error, atom()}),
+          (EmailVerificationCode.t(), DateTime.t() -> {:ok, result} | {:error, reason}),
           keyword()
         ) ::
-          {:ok, result} | {:error, atom()} | {:error, :rate_limited, pos_integer()}
-        when result: term()
+          {:ok, result}
+          | {:error, :code_invalid | :code_expired | :too_many_attempts}
+          | {:error, reason}
+          | {:error, :rate_limited, pos_integer()}
+        when result: term(), reason: atom()
   def redeem_code(email, code, flow, on_match, opts \\ [])
 
   def redeem_code(email, code, flow, on_match, opts)

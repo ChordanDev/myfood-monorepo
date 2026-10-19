@@ -123,7 +123,7 @@ Error responses:
 - `429 too_many_attempts`: the code is locked; request a new one
 - `401 account_not_found`: login only, the User has no active Membership
 - `409 email_already_exists`: sign-up only, the email got a User after the code was sent
-- `429 rate_limited`: login only, a wrong, expired or locked code from a client IP that has 20 failed verifications in the last hour; the `retry-after` header carries the wait in seconds. The right digits of a code that is still valid are never refused by this limit; a wrong code still counts as an attempt on the code. If the right code gets this answer, it has expired or been locked: request a new one
+- `429 rate_limited`: login only, a wrong, expired or locked code from a client IP that has 20 failed verifications in the last hour (the API's `@max_verify_failures_per_ip_per_window`); the `retry-after` header carries the wait in seconds. The right digits of a code that is still valid are never refused by this limit; a wrong code still counts as an attempt on the code. If the right code gets this answer, it has expired or been locked: request a new one
 
 When the session cannot be opened after a right code (`account_not_found`, or a server error), the code is not spent and the same request can be retried.
 

@@ -102,6 +102,8 @@ defmodule MealPlannerApi.Services.InviteService do
 
   # Reuses the user whose email matches regardless of case, like sign-up
   # and login do, and stores a new invitee's email normalized.
+  # `UserEmail.get_user/1` normalizes on its own; the email is normalized
+  # up front for the create branch, which stores it.
   defp resolve_or_create_user(email) do
     email = UserEmail.normalize(email)
 

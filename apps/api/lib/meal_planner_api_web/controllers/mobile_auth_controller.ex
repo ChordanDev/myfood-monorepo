@@ -165,12 +165,6 @@ defmodule MealPlannerApiWeb.MobileAuthController do
       {:error, :email_already_exists} ->
         conn |> ApiError.error(:email_already_exists)
 
-      {:error, :registration_failed} ->
-        conn |> ApiError.server_fault()
-
-      {:error, :session_issue_failed} ->
-        conn |> ApiError.server_fault()
-
       {:error, unexpected} ->
         Logger.error("verify-code failed with an unexpected error: #{describe_error(unexpected)}")
         conn |> ApiError.server_fault()
