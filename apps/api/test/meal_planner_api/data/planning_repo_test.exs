@@ -608,6 +608,23 @@ defmodule MealPlannerApi.Data.PlanningRepoTest do
              )
     end
 
+    test "ignores allergens_proposed: an unreviewed Ingredient proposed as [] stays excluded",
+         %{account: account, owner: owner} do
+      proposed_none = recipe_with_allergens("Proposed none", nil)
+
+      {1, _} =
+        from(i in Ingredient, where: i.name == "Proposed none ingredient")
+        |> Repo.update_all(set: [allergens_proposed: []])
+
+      :ok = UserHardRestrictionRepo.replace_codes(owner.id, ["soy"])
+
+      refute proposed_none.id in PlanningRepo.candidate_recipe_ids_for_slots(
+               account.id,
+               [owner.id],
+               ["lunch"]
+             )
+    end
+
     test "keeps excluding Excluded ingredients alongside Hard restrictions",
          %{account: account, owner: owner, member: member} do
       :ok = UserHardRestrictionRepo.replace_codes(owner.id, ["tree_nut"])

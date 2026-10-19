@@ -36,6 +36,10 @@ defmodule MealPlannerApi.Persistence.Catalog.Ingredient do
     # means it was reviewed and carries none.
     field(:allergens, {:array, :string})
 
+    # The codes `mix ai_populate` proposes for an unreviewed Ingredient: a hint
+    # for the reviewer, never read by the planner.
+    field(:allergens_proposed, {:array, :string})
+
     has_many(:recipe_ingredients, MealPlannerApi.Persistence.Catalog.RecipeIngredient)
 
     timestamps(type: :utc_datetime_usec)
@@ -51,7 +55,8 @@ defmodule MealPlannerApi.Persistence.Catalog.Ingredient do
       :protein_g_per_100,
       :carbs_g_per_100,
       :fat_g_per_100,
-      :allergens
+      :allergens,
+      :allergens_proposed
     ])
     |> validate_required([:name, :category])
     |> validate_number(:calories_per_100, greater_than_or_equal_to: 0)
@@ -60,6 +65,8 @@ defmodule MealPlannerApi.Persistence.Catalog.Ingredient do
     |> validate_number(:fat_g_per_100, greater_than_or_equal_to: 0)
     |> validate_subset(:allergens, UserHardRestriction.codes())
     |> check_constraint(:allergens, name: :ingredients_allergens_check)
+    |> validate_subset(:allergens_proposed, UserHardRestriction.codes())
+    |> check_constraint(:allergens_proposed, name: :ingredients_allergens_proposed_check)
     |> unique_constraint(:name)
   end
 end
