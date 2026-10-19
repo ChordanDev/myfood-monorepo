@@ -368,26 +368,81 @@ defmodule MealPlannerApi.Persistence.ShoppingTest do
     end
   end
 
-  describe "restore_removed_items/4" do
-    test "sets back to removed the pending planned items whose key it remembers" do
-      %{account_id: account_id, planned_date: date} = attrs = planned_key_attrs()
+  describe "Shopping removals (#334)" do
+    test "a removal sets to removed the pending items of its meal and Ingredient" do
+      %{account_id: account_id, scheduled_meal_id: meal_id} = attrs = planned_key_attrs()
       {:ok, item} = Shopping.create_shopping_item(attrs)
       {:ok, other_unit} = Shopping.create_shopping_item(%{attrs | unit: :ml})
-      keys = MapSet.new([{date, :lunch, attrs.ingredient_id, :g}])
 
-      assert Shopping.restore_removed_items(account_id, keys, date, date) == 1
+      assert :ok = Shopping.put_removals(account_id, [{meal_id, attrs.ingredient_id}])
+      assert Shopping.mark_removed_items(account_id, [meal_id]) == 2
 
       assert Repo.get!(ShoppingItem, item.id).status == :removed
-      assert Repo.get!(ShoppingItem, other_unit.id).status == :pending
+      assert Repo.get!(ShoppingItem, other_unit.id).status == :removed
     end
 
-    test "changes nothing when it remembers no key" do
-      %{account_id: account_id, planned_date: date} = attrs = planned_key_attrs()
+    test "without a removal nothing is marked removed" do
+      %{account_id: account_id, scheduled_meal_id: meal_id} = attrs = planned_key_attrs()
       {:ok, item} = Shopping.create_shopping_item(attrs)
 
-      assert Shopping.restore_removed_items(account_id, MapSet.new(), date, date) == 0
+      assert Shopping.mark_removed_items(account_id, [meal_id]) == 0
       assert Repo.get!(ShoppingItem, item.id).status == :pending
     end
+
+    test "a meal and Ingredient hold one removal, and deleting it lets items stay pending" do
+      %{account_id: account_id, scheduled_meal_id: meal_id} = attrs = planned_key_attrs()
+      pair = {meal_id, attrs.ingredient_id}
+
+      assert :ok = Shopping.put_removals(account_id, [pair, pair])
+      assert :ok = Shopping.put_removals(account_id, [pair])
+      assert removal_count(meal_id) == 1
+
+      assert :ok = Shopping.delete_removals(account_id, [pair])
+      assert removal_count(meal_id) == 0
+
+      {:ok, item} = Shopping.create_shopping_item(attrs)
+      assert Shopping.mark_removed_items(account_id, [meal_id]) == 0
+      assert Repo.get!(ShoppingItem, item.id).status == :pending
+    end
+
+    test "a removal of another Account is never written or read" do
+      %{account_id: account_id, scheduled_meal_id: meal_id} = attrs = planned_key_attrs()
+      %{account_id: other_account_id} = planned_key_attrs()
+      {:ok, item} = Shopping.create_shopping_item(attrs)
+
+      assert :ok = Shopping.put_removals(other_account_id, [{meal_id, attrs.ingredient_id}])
+      assert removal_count(meal_id) == 0
+      assert Shopping.mark_removed_items(account_id, [meal_id]) == 0
+      assert Repo.get!(ShoppingItem, item.id).status == :pending
+    end
+
+    test "delete_open_items_for_meal/2 drops the meal's removals with its open items" do
+      %{account_id: account_id, scheduled_meal_id: meal_id} = attrs = planned_key_attrs()
+      {:ok, _item} = Shopping.create_shopping_item(%{attrs | status: :removed})
+      :ok = Shopping.put_removals(account_id, [{meal_id, attrs.ingredient_id}])
+
+      assert Shopping.delete_open_items_for_meal(account_id, meal_id) == 1
+      assert removal_count(meal_id) == 0
+    end
+
+    test "a removal goes with its Scheduled meal" do
+      %{account_id: account_id, scheduled_meal_id: meal_id} = attrs = planned_key_attrs()
+      :ok = Shopping.put_removals(account_id, [{meal_id, attrs.ingredient_id}])
+
+      Repo.delete!(Repo.get!(MealPlannerApi.Persistence.Planning.ScheduledMeal, meal_id))
+      assert removal_count(meal_id) == 0
+    end
+  end
+
+  defp removal_count(meal_id) do
+    import Ecto.Query, only: [from: 2]
+
+    Repo.aggregate(
+      from(r in MealPlannerApi.Persistence.Shopping.ShoppingRemoval,
+        where: r.scheduled_meal_id == ^meal_id
+      ),
+      :count
+    )
   end
 
   # The shape `ShoppingRebuilder.compute_net_shortages/2` emits: no Account

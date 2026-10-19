@@ -15,6 +15,7 @@ defmodule MealPlannerApi.Generation.ServerTest do
   alias MealPlannerApi.Persistence.Planning.PlanningProposal
   alias MealPlannerApi.Persistence.Shopping
   alias MealPlannerApi.Services.RecipeVersions
+  alias MealPlannerApi.Services.ShoppingService
 
   describe "via/1" do
     test "returns a Registry via tuple" do
@@ -927,6 +928,8 @@ defmodule MealPlannerApi.Generation.ServerTest do
           status: :removed
         })
 
+      :ok = Shopping.put_removals(account.id, [{prior_meal.id, prior_ingredient.id}])
+
       {:ok, manual} =
         Shopping.create_manual_item(%{
           account_id: account.id,
@@ -980,16 +983,17 @@ defmodule MealPlannerApi.Generation.ServerTest do
       assert manual.updated_at == c.manual.updated_at
     end
 
-    test "drops a removed item the meals no longer need", c do
+    test "keeps the removal while stock covers the Ingredient, until the stock is used up", c do
       # Stock now covers the prior meal, so it has no Shortage left.
-      MealPlannerApi.Repo.insert!(%MealPlannerApi.Persistence.Inventory.InventoryItem{
-        account_id: c.account.id,
-        ingredient_id: c.prior_ingredient.id,
-        quantity_milli: 100_000,
-        unit: :g,
-        source_kind: :extra,
-        last_mutation_at: DateTime.utc_now()
-      })
+      stock =
+        MealPlannerApi.Repo.insert!(%MealPlannerApi.Persistence.Inventory.InventoryItem{
+          account_id: c.account.id,
+          ingredient_id: c.prior_ingredient.id,
+          quantity_milli: 100_000,
+          unit: :g,
+          source_kind: :extra,
+          last_mutation_at: DateTime.utc_now()
+        })
 
       assert {:ok, _reply} = Server.confirm(c.pid, c.proposal.id, c.session.id)
 
@@ -999,6 +1003,19 @@ defmodule MealPlannerApi.Generation.ServerTest do
 
       assert [%{status: :pending}] =
                Enum.filter(items, &(&1.ingredient_id == c.new_ingredient.id))
+
+      # The stock is used up: the meal needs the Ingredient again, and the
+      # derivation brings it back as the User left it.
+      MealPlannerApi.Repo.delete!(stock)
+
+      :ok =
+        ShoppingService.ensure_shopping_items_from_schedule(
+          c.account.id,
+          [c.prior_meal]
+        )
+
+      assert [%{status: :removed, quantity_milli: 100_000}] =
+               Enum.filter(account_items(c.account), &(&1.ingredient_id == c.prior_ingredient.id))
     end
   end
 

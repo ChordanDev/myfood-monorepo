@@ -7,9 +7,12 @@ defmodule MealPlannerApi.Persistence.Shopping do
 
   alias MealPlannerApi.Repo
 
+  alias MealPlannerApi.Persistence.Planning.ScheduledMeal
+
   alias MealPlannerApi.Persistence.Shopping.{
     CheckoutSession,
     ShoppingItem,
+    ShoppingRemoval,
     Supermarket,
     SupermarketCatalog
   }
@@ -118,6 +121,32 @@ defmodule MealPlannerApi.Persistence.Shopping do
       :error ->
         nil
     end
+  end
+
+  @doc """
+  Locks `FOR KEY SHARE`, in id order, the Scheduled meals of the Account's Shopping items
+  among `item_ids`. Take it before the items: storing a Shopping removal checks its meal's
+  foreign key, and taken after the items that lock waits for a move or a finish that holds
+  the meal and waits for the items (the lock order in the moduledoc of `MealPlannerApi.Cart`).
+  An item never changes its meal, so the items locked next have no other one.
+  """
+  @spec lock_meals_of_items(Ecto.UUID.t(), [Ecto.UUID.t()]) :: :ok
+  def lock_meals_of_items(account_id, item_ids) when is_list(item_ids) do
+    meal_ids =
+      from(i in ShoppingItem,
+        where: i.account_id == ^account_id and i.id in ^item_ids,
+        select: i.scheduled_meal_id
+      )
+
+    from(m in ScheduledMeal,
+      where: m.account_id == ^account_id and m.id in subquery(meal_ids),
+      order_by: m.id,
+      lock: "FOR KEY SHARE",
+      select: m.id
+    )
+    |> Repo.all()
+
+    :ok
   end
 
   @doc """
@@ -432,8 +461,9 @@ defmodule MealPlannerApi.Persistence.Shopping do
   @doc """
   Deletes the planned Shopping items of one Scheduled meal that are still on the list
   (`:pending`, `:in_cart` and `:removed`), so the next list read derives them again from the
-  meal as it is now. Closed items are kept. A removed item goes too: it was removed for the
-  recipe the meal had, which is the one thing a caller of this changes.
+  meal as it is now, and returns how many it deleted. Closed items are kept. The meal's
+  Shopping removals go too: they were made for the recipe the meal had, which is the one
+  thing a caller of this changes.
   """
   @spec delete_open_items_for_meal(Ecto.UUID.t(), Ecto.UUID.t()) :: non_neg_integer()
   def delete_open_items_for_meal(account_id, scheduled_meal_id) do
@@ -445,65 +475,142 @@ defmodule MealPlannerApi.Persistence.Shopping do
       )
       |> Repo.delete_all()
 
+    from(r in ShoppingRemoval,
+      where: r.account_id == ^account_id and r.scheduled_meal_id == ^scheduled_meal_id
+    )
+    |> Repo.delete_all()
+
     deleted
   end
 
+  # -------------------------------------------------------------------------
+  # Shopping removals (issue #334)
+  # -------------------------------------------------------------------------
+
+  @typedoc "A Scheduled meal and an Ingredient: what a Shopping removal is for."
+  @type removal_pair :: {Ecto.UUID.t(), Ecto.UUID.t()}
+
   @typedoc """
-  What a removed item is remembered by while its Scheduled meals are replaced: the planned
-  date, the slot of the meal, the Ingredient and the unit. The meal id is not part of it,
-  because a replacement gives the meals new ids.
+  What a Shopping removal is remembered by while its Scheduled meals are replaced: the date
+  and slot of the meal and the Ingredient. The meal id is not part of it, because a
+  replacement gives the meals new ids.
   """
-  @type removed_key :: {Date.t(), atom(), Ecto.UUID.t(), atom()}
+  @type removal_key :: {Date.t(), atom(), Ecto.UUID.t()}
 
   @doc """
-  The keys of the planned Shopping items the Account removed whose date falls in
-  `[from_date, to_date]`. Take it before the meals of the window are replaced and hand it to
-  `restore_removed_items/4` once their items are derived again.
+  Stores a Shopping removal for each Scheduled meal and Ingredient of `pairs`. A pair that
+  has one already, or whose meal is not the Account's, stores nothing, so writing the same
+  pairs again, or from two requests at once, keeps one row per pair.
+
+  It does not change any Shopping item: `mark_removed_items/2` does.
   """
-  @spec removed_item_keys(Ecto.UUID.t(), Date.t(), Date.t()) :: MapSet.t(removed_key())
-  def removed_item_keys(account_id, from_date, to_date) do
-    planned_in_window(account_id, from_date, to_date, :removed)
-    |> Repo.all()
-    |> MapSet.new(fn {_id, key} -> key end)
-  end
+  @spec put_removals(Ecto.UUID.t(), [removal_pair()]) :: :ok
+  def put_removals(_account_id, []), do: :ok
 
-  @doc """
-  Sets back to `:removed` the `:pending` planned items of `[from_date, to_date]` whose key is
-  in `keys`, and returns how many it changed. A key no item has any more (the meals do not
-  need that Ingredient now) is dropped by doing nothing.
+  def put_removals(account_id, pairs) when is_list(pairs) do
+    meal_ids = pairs |> Enum.map(&elem(&1, 0)) |> Enum.uniq()
 
-  It takes no Cart lock, so a Membership can reserve an item between the read and the update.
-  The update only changes items that are still `:pending`: a reserved item stays in its Cart
-  and is not counted.
-  """
-  @spec restore_removed_items(Ecto.UUID.t(), MapSet.t(removed_key()), Date.t(), Date.t()) ::
-          non_neg_integer()
-  def restore_removed_items(account_id, keys, from_date, to_date) do
-    if MapSet.size(keys) == 0 do
-      0
-    else
-      ids =
-        planned_in_window(account_id, from_date, to_date, :pending)
-        |> Repo.all()
-        |> Enum.filter(fn {_id, key} -> MapSet.member?(keys, key) end)
-        |> Enum.map(fn {id, _key} -> id end)
+    own_meals =
+      from(m in ScheduledMeal,
+        where: m.account_id == ^account_id and m.id in ^meal_ids,
+        select: m.id
+      )
+      |> Repo.all()
+      |> MapSet.new()
 
-      {updated, _} =
-        from(i in ShoppingItem, where: i.id in ^ids and i.status == :pending)
-        |> Repo.update_all(set: [status: :removed, updated_at: DateTime.utc_now()])
+    now = DateTime.utc_now()
 
-      updated
-    end
-  end
+    # Sorted, so two requests that store the same pairs at the same time take
+    # the index entries in the same order and cannot deadlock each other.
+    rows =
+      pairs
+      |> Enum.uniq()
+      |> Enum.filter(fn {meal_id, _ingredient_id} -> MapSet.member?(own_meals, meal_id) end)
+      |> Enum.sort()
+      |> Enum.map(fn {meal_id, ingredient_id} ->
+        %{
+          account_id: account_id,
+          scheduled_meal_id: meal_id,
+          ingredient_id: ingredient_id,
+          inserted_at: now,
+          updated_at: now
+        }
+      end)
 
-  defp planned_in_window(account_id, from_date, to_date, status) do
-    from(i in ShoppingItem,
-      join: meal in assoc(i, :scheduled_meal),
-      where:
-        i.account_id == ^account_id and i.source == :planned_meal and i.status == ^status and
-          i.planned_date >= ^from_date and i.planned_date <= ^to_date,
-      select: {i.id, {i.planned_date, meal.slot, i.ingredient_id, i.unit}}
+    Repo.insert_all(ShoppingRemoval, rows,
+      on_conflict: :nothing,
+      conflict_target: [:scheduled_meal_id, :ingredient_id]
     )
+
+    :ok
+  end
+
+  @doc """
+  Deletes the Shopping removals of the Account for the Scheduled meals and Ingredients of
+  `pairs`. It does not change any Shopping item.
+  """
+  @spec delete_removals(Ecto.UUID.t(), [removal_pair()]) :: :ok
+  def delete_removals(_account_id, []), do: :ok
+
+  def delete_removals(account_id, pairs) when is_list(pairs) do
+    of_pairs =
+      pairs
+      |> Enum.group_by(&elem(&1, 0), &elem(&1, 1))
+      |> Enum.reduce(dynamic(false), fn {meal_id, ingredient_ids}, of_pairs ->
+        dynamic(
+          [r],
+          ^of_pairs or (r.scheduled_meal_id == ^meal_id and r.ingredient_id in ^ingredient_ids)
+        )
+      end)
+
+    from(r in ShoppingRemoval, where: r.account_id == ^account_id, where: ^of_pairs)
+    |> Repo.delete_all()
+
+    :ok
+  end
+
+  @doc """
+  Sets to `:removed` the `:pending` planned Shopping items of the given Scheduled meals whose
+  meal and Ingredient have a Shopping removal, in every unit, and returns how many it
+  changed. The derivation calls it after it stores items, so an item derived for a removal
+  is listed as removed.
+
+  It takes no Cart lock, so a Membership can reserve an item before the update: the update
+  only changes items that are still `:pending`, and a reserved item stays in its Cart.
+  """
+  @spec mark_removed_items(Ecto.UUID.t(), [Ecto.UUID.t()]) :: non_neg_integer()
+  def mark_removed_items(_account_id, []), do: 0
+
+  def mark_removed_items(account_id, scheduled_meal_ids) when is_list(scheduled_meal_ids) do
+    {updated, _} =
+      from(i in ShoppingItem,
+        join: r in ShoppingRemoval,
+        on:
+          r.account_id == i.account_id and r.scheduled_meal_id == i.scheduled_meal_id and
+            r.ingredient_id == i.ingredient_id,
+        where:
+          i.account_id == ^account_id and i.scheduled_meal_id in ^scheduled_meal_ids and
+            i.source == :planned_meal and i.status == :pending
+      )
+      |> Repo.update_all(set: [status: :removed, updated_at: DateTime.utc_now()])
+
+    updated
+  end
+
+  @doc """
+  The keys of the Shopping removals of the Account whose Scheduled meal falls in
+  `[from_date, to_date]`. Take it before the meals of the window are replaced, and store
+  the removals again for the new meals that still use the Ingredient.
+  """
+  @spec removal_keys(Ecto.UUID.t(), Date.t(), Date.t()) :: MapSet.t(removal_key())
+  def removal_keys(account_id, from_date, to_date) do
+    from(r in ShoppingRemoval,
+      join: meal in assoc(r, :scheduled_meal),
+      where: r.account_id == ^account_id and meal.date >= ^from_date and meal.date <= ^to_date,
+      select: {meal.date, meal.slot, r.ingredient_id}
+    )
+    |> Repo.all()
+    |> MapSet.new()
   end
 
   def update_open_items_for_ingredient(account_id, ingredient_id, attrs, from_date, to_date) do

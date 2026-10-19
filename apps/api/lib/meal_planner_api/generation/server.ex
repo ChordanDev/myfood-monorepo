@@ -900,10 +900,9 @@ defmodule MealPlannerApi.Generation.Server do
     # 3. Compute net shortages (pure)
     lines = ShoppingRebuilder.compute_net_shortages(all_meals, pool)
 
-    # 4. Wipe existing pending/in_cart/removed planned items in the window,
-    #    remembering the removed ones: the User's removals survive a rebuild
-    #    while a meal still needs the Ingredient. Manual items are not touched.
-    removed_keys = Shopping.removed_item_keys(state.account_id, range_from, range_to)
+    # 4. Wipe existing pending/in_cart/removed planned items in the window.
+    #    Manual items are not touched, and neither are the User's Shopping
+    #    removals: they are kept per meal and Ingredient, apart from the items.
     ShoppingRepo.delete_pending_for_window(state.account_id, range_from, range_to)
 
     # 5. Create checkout session and insert net-shortage rows
@@ -914,7 +913,8 @@ defmodule MealPlannerApi.Generation.Server do
              checkout_type: :physical
            }),
          :ok <- insert_cart_items(lines, state.account_id, checkout.id) do
-      Shopping.restore_removed_items(state.account_id, removed_keys, range_from, range_to)
+      # 6. A derived item whose meal and Ingredient the User removed is removed.
+      Shopping.mark_removed_items(state.account_id, Enum.map(all_meals, & &1.id))
 
       {:ok,
        %{

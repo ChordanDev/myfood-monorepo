@@ -357,6 +357,45 @@ defmodule MealPlannerApi.CartConcurrencyTest do
            ] = Enum.sort_by(meal_lines(f, f.meal), & &1.quantity_milli)
   end
 
+  # Issue #334. Removing an item stores a Shopping removal, and the foreign key
+  # of that insert needs the item's Scheduled meal. A move locks the meal and
+  # then moves its Shopping items. Unless set-status locks the meal before the
+  # items, each waits for the other.
+  test "a removal and a move of the meal it removes for both complete", f do
+    item = hd(f.items)
+    to = Date.add(f.meal.date, 3)
+    supervisor = start_supervised!(Task.Supervisor)
+    gate = "NEW.scheduled_meal_id = '#{item.scheduled_meal_id}'::uuid"
+
+    {remove_result, move_result} =
+      with_gate("INSERT", "shopping_removals", gate, fn holder, open_gate ->
+        remove =
+          worker(supervisor, f, fn ->
+            ShoppingService.set_item_status(f.actor, %{
+              "item_ids" => [item.id],
+              "status" => "removed"
+            })
+          end)
+
+        wait_until_blocked_by(remove.backend, holder)
+
+        move =
+          worker(supervisor, f, fn ->
+            MealMove.move(f.account.id, f.meal.id, to, :lunch, Date.utc_today())
+          end)
+
+        wait_until_blocked_by(move.backend, remove.backend)
+        open_gate.()
+        {Task.await(remove.task, 12_000), Task.await(move.task, 12_000)}
+      end)
+
+    refute {:aborted, :deadlock_detected} in [remove_result, move_result]
+    refute move_result == {:error, :conflict}
+    assert {:ok, %{updated_rows: 1}} = remove_result
+    assert {:ok, %{moved: %{date: ^to, slot: :lunch}}} = move_result
+    assert %{status: :removed, planned_date: ^to} = Repo.get!(ShoppingItem, item.id)
+  end
+
   # A replacement of a date range deletes its Scheduled meals. A confirm locks
   # the meals of its Cart in id order, so the replacement locks them in id
   # order too: deleting them in the order it finds them, it would hold one
@@ -407,12 +446,12 @@ defmodule MealPlannerApi.CartConcurrencyTest do
     assert stock(f) == []
   end
 
-  # Issue #307. A restore of removed items reads the `:pending` items of its
-  # window and then marks the ones it remembers `:removed`, with no Cart lock.
-  # A reserve that commits between the two keeps its item in the Cart.
-  test "a restore of removed items leaves an item reserved after its read in the Cart", f do
+  # Issues #307 and #334. Marking the items of a Shopping removal as removed
+  # updates the `:pending` items of its meals with no Cart lock. A reserve
+  # that commits while the update waits for the row keeps its item in the Cart.
+  test "marking removed items leaves an item reserved before the update in the Cart", f do
     item = hd(f.items)
-    keys = MapSet.new([{item.planned_date, f.meal.slot, item.ingredient_id, item.unit}])
+    :ok = Shopping.put_removals(f.account.id, [{item.scheduled_meal_id, item.ingredient_id}])
     supervisor = start_supervised!(Task.Supervisor)
     gate = "NEW.id = '#{item.id}'::uuid AND NEW.status = 'in_cart'"
 
@@ -422,16 +461,11 @@ defmodule MealPlannerApi.CartConcurrencyTest do
         reserve = worker(supervisor, f, fn -> Cart.reserve(f.actor, [item.id]) end)
         wait_until_blocked_by(reserve.backend, holder)
 
-        # The restore still reads the item as `:pending`, so it waits for the
-        # row in its update.
+        # The update still reads the item as `:pending`, so it waits for the
+        # row.
         restore =
           worker(supervisor, f, fn ->
-            Shopping.restore_removed_items(
-              f.account.id,
-              keys,
-              item.planned_date,
-              item.planned_date
-            )
+            Shopping.mark_removed_items(f.account.id, [item.scheduled_meal_id])
           end)
 
         wait_until_blocked_by(restore.backend, reserve.backend)
