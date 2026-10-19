@@ -1,6 +1,8 @@
 # Seeds the `e2e` database for the Maestro flows of `apps/mobile/e2e/`:
 #
-#     MIX_ENV=e2e E2E_LOGIN_EMAIL=... mix run priv/repo/e2e_seeds.exs
+#     MIX_ENV=e2e E2E_LOGIN_EMAIL=... E2E_LOGIN_CODE=... mix run priv/repo/e2e_seeds.exs
+#
+# `config/runtime.exs` refuses one of the two variables without the other.
 #
 # It leaves the same data however many times it runs:
 #
