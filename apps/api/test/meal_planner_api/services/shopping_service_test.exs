@@ -542,6 +542,45 @@ defmodule MealPlannerApi.ShoppingServiceTest do
                ])
     end
 
+    test "stores nothing for a meal cooked since it was loaded" do
+      {account_id, user} = identity!("stale_cooked")
+      today = Date.utc_today()
+      ingredient = create_test_ingredient(account_id)
+      kept_ingredient = create_test_ingredient(account_id)
+      cooked = schedule_meal!(account_id, user.id, today, :lunch, ingredient, 200)
+      kept = schedule_meal!(account_id, user.id, Date.add(today, 1), :lunch, kept_ingredient, 300)
+
+      stock =
+        Repo.insert!(%InventoryItem{
+          account_id: account_id,
+          ingredient_id: ingredient.id,
+          quantity_milli: 200,
+          unit: :g,
+          source_kind: :planned,
+          last_mutation_at: DateTime.utc_now()
+        })
+
+      # The stock covers the meal to cook, so only the other one needs buying.
+      assert {:ok, _list} = ShoppingService.get_shopping_list(user)
+
+      assert stored_planned_items(account_id) == [
+               {kept.id, kept.date, kept_ingredient.id, :pending}
+             ]
+
+      loaded = loaded_meals(account_id)
+
+      # What a Cooking session finish writes: the meal's Ingredients leave the
+      # Inventory and the meal is cooked.
+      Repo.delete!(stock)
+      cooked |> ScheduledMeal.changeset(%{is_cooked: true}) |> Repo.update!()
+
+      assert :ok = ShoppingService.ensure_shopping_items_from_schedule(account_id, loaded)
+
+      assert stored_planned_items(account_id) == [
+               {kept.id, kept.date, kept_ingredient.id, :pending}
+             ]
+    end
+
     test "skips a meal deleted since it was loaded, without failing the batch" do
       {account_id, user} = identity!("stale_deleted")
       tomorrow = Date.add(Date.utc_today(), 1)

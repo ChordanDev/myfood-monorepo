@@ -577,6 +577,43 @@ defmodule MealPlannerApi.CartConcurrencyTest do
     assert [%{status: :pending, quantity_milli: 500}] = meal_lines(f, f.next_meal)
   end
 
+  # Issue #277. A Cooking session finish locks its meal, deletes the meal's
+  # open Shopping items and takes its Ingredients out of the Inventory. A read
+  # that waits for that lock must not derive an item for the cooked meal from
+  # the Inventory the finish left.
+  test "a Shopping list read that waits for a cooking finish stores no item for the cooked meal",
+       f do
+    {:ok, %{session_id: session_id}} = CookingService.start_session(f.actor, f.meal.id)
+    [item, _next_item] = f.items
+
+    # The stock covers today's dinner, so the read finds today's item stale and
+    # goes through its lock transaction.
+    stock!(f, 1000)
+    supervisor = start_supervised!(Task.Supervisor)
+
+    {finish_result, read_result} =
+      with_gate("DELETE", "shopping_items", "OLD.id = '#{item.id}'::uuid", fn holder, open_gate ->
+        # The finish holds today's meal while it waits to delete the item.
+        finish =
+          worker(supervisor, f, fn -> CookingService.finish_session(f.actor, session_id) end)
+
+        wait_until_blocked_by(finish.backend, holder)
+        read = worker(supervisor, f, fn -> ShoppingService.get_shopping_list(f.actor) end)
+        wait_until_blocked_by(read.backend, finish.backend)
+        open_gate.()
+        {Task.await(finish.task, 12_000), Task.await(read.task, 12_000)}
+      end)
+
+    assert {:ok, %{scheduled_meal: _}} = finish_result
+    assert {:ok, _list} = read_result
+    assert Repo.get!(ScheduledMeal, f.meal.id).is_cooked
+    assert stock(f) |> Enum.map(& &1.quantity_milli) |> Enum.sum() == 0
+
+    # The cooked meal keeps no item; tomorrow's keeps its Shortage.
+    assert meal_lines(f, f.meal) == []
+    assert [%{status: :pending, quantity_milli: 500}] = meal_lines(f, f.next_meal)
+  end
+
   defp concurrent(f, commands) do
     parent = self()
     supervisor = start_supervised!(Task.Supervisor)
@@ -641,6 +678,20 @@ defmodule MealPlannerApi.CartConcurrencyTest do
       status: :pending
     })
     |> Repo.insert!()
+  end
+
+  # `quantity_milli` grams of the fixture Ingredient in the Account's
+  # Inventory.
+  defp stock!(f, quantity_milli) do
+    Repo.insert!(%MealPlannerApi.Persistence.Inventory.InventoryItem{
+      account_id: f.account.id,
+      ingredient_id: f.ingredient.id,
+      quantity_milli: quantity_milli,
+      unit: :g,
+      source_kind: :planned,
+      acquired_at: DateTime.utc_now(),
+      last_mutation_at: DateTime.utc_now()
+    })
   end
 
   # Pauses the real `Cart.purchase/3` inside the update that closes `item` as

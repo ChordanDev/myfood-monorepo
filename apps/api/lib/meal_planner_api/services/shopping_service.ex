@@ -280,8 +280,11 @@ defmodule MealPlannerApi.Services.ShoppingService do
   # (`Persistence.Calendar.MealMove`). A line computed for the old date would
   # be stored next to the items the move carried to the new one, so lines are
   # stored and items corrected only under a row lock on their meal, and only
-  # while that meal still holds the date it was loaded with. The meals left
-  # out are handled by the next read, from the meals as it loads them.
+  # while that meal still holds the date it was loaded with and is not cooked:
+  # a Cooking session finish deletes the meal's open items and takes its
+  # Ingredients out of the Inventory, so a line derived for it afterwards
+  # would be stock nobody needs. The meals left out are handled by the next
+  # read, from the meals as it loads them.
   #
   # The lines that decide whether to write are computed without a lock, and a
   # purchase or a delivery can commit right after: an item it bought no longer
@@ -400,8 +403,10 @@ defmodule MealPlannerApi.Services.ShoppingService do
   # One transaction, in the lock order of the moduledoc of `MealPlannerApi.Cart`:
   # the Cart's lock of the Account first, so no purchase or delivery commits
   # until the writes do, then the locks on the meals, held until the writes
-  # commit. The lines are computed again under both, then the `pending` items
-  # are locked and read again. A move that commits before the meal locks is
+  # commit. The lines are computed again under both, from the meals that are
+  # still there and not cooked; a moved meal still takes its share of the
+  # Inventory, though its lines are left for the next read. Then the
+  # `pending` items are locked and read again. A move that commits before the meal locks is
   # seen in the dates they return, one that starts after them waits and
   # carries the new items along. An item stored for a meal and Ingredient the
   # User removed is listed as removed (`Persistence.Shopping.ShoppingRemoval`).
@@ -415,9 +420,11 @@ defmodule MealPlannerApi.Services.ShoppingService do
         dates = lock_meal_dates(account_id, meal_ids)
         unmoved = for {id, date} <- dates, Map.get(loaded_dates, id) == date, do: id
 
+        live = Enum.filter(meals, &Map.has_key?(dates, &1.id))
+
         current =
           account_id
-          |> shortage_lines(meals, meal_ids)
+          |> shortage_lines(live, Enum.map(live, & &1.id))
           |> Enum.filter(&(Map.get(dates, &1.scheduled_meal_id) == &1.planned_date))
 
         {updates, deletes} =
@@ -443,10 +450,11 @@ defmodule MealPlannerApi.Services.ShoppingService do
   # lock that conflicts with the `FOR UPDATE` of a move, and the one the
   # foreign key check of the insert takes on these rows anyway, so two reads
   # never wait for each other on a meal. In id order, as the move locks its
-  # meals. A meal deleted since it was loaded is not in the result.
+  # meals. A meal deleted or cooked since it was loaded is not in the result:
+  # Postgres checks `is_cooked` again on the row a finish it waited for left.
   defp lock_meal_dates(account_id, meal_ids) do
     from(m in MealPlannerApi.Persistence.Planning.ScheduledMeal,
-      where: m.account_id == ^account_id and m.id in ^meal_ids,
+      where: m.account_id == ^account_id and m.id in ^meal_ids and not m.is_cooked,
       order_by: m.id,
       lock: "FOR KEY SHARE",
       select: {m.id, m.date}
