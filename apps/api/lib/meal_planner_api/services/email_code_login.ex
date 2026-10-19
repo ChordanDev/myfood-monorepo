@@ -18,9 +18,12 @@ defmodule MealPlannerApi.Services.EmailCodeLogin do
     * failed attempts are counted on the code row itself, and a code locks
       for good once it reaches the limit;
     * failed login verifications are also counted per client IP bucket
-      (an IPv4 address, or the /64 prefix of an IPv6 address), and a
-      bucket that reaches the hourly limit is refused before its code is
-      checked;
+      (an IPv4 address, or the /64 prefix of an IPv6 address), and once a
+      bucket reaches the hourly limit its failed checks (a wrong,
+      expired or locked code) are refused. The code is always checked
+      first, so the right digits of a code that is still pending, unexpired
+      and not locked log in whatever the bucket holds, and nobody sharing
+      an IP can lock another User out;
     * verification resolves a single Membership for the User, so the
       answer has one shape however many Accounts the User belongs to, and
       opens the caller's session before the code is consumed.
@@ -263,13 +266,17 @@ defmodule MealPlannerApi.Services.EmailCodeLogin do
   `MealPlannerApiWeb.ClientIp.resolve/1` gives it. Every verification
   answered `code_invalid`, `code_expired` or `too_many_attempts` counts
   against it; an IPv6 address shares its count with its whole /64 prefix.
+  The code is checked before the count is looked at, so a code that
+  verifies is never refused by it.
 
   Errors:
 
-    * `{:error, :rate_limited, retry_after}` — `client_ip` has
-      #{@max_verify_failures_per_ip} failed verifications in the last
-      hour. The code is not looked at, so it neither verifies nor counts
-      an attempt. `retry_after` is in whole seconds, at least 1.
+    * `{:error, :rate_limited, retry_after}` — the code is wrong, expired
+      or locked, and `client_ip` already has #{@max_verify_failures_per_ip}
+      failed verifications in the last hour. This failure is not counted
+      against the IP, but a wrong code still counts as an attempt on the
+      code, so the attempt cap bounds guessing from any IP. `retry_after`
+      is in whole seconds, at least 1.
     * `{:error, :code_invalid}` — no pending code for this email (unknown
       email, never requested, already used, or replaced by a newer code),
       or the code does not match.
@@ -316,8 +323,9 @@ defmodule MealPlannerApi.Services.EmailCodeLogin do
   # code stays pending.
   #
   # With `limit_failures_by: client_ip`, a failed code check is counted
-  # against `client_ip`, and an IP over the hourly limit is refused before
-  # the code is looked at.
+  # against `client_ip`, and a failed check from an IP over the hourly
+  # limit answers `rate_limited`. The code is matched first, so a match
+  # is never refused by the limit.
   @spec redeem_code(
           term(),
           term(),
@@ -339,8 +347,7 @@ defmodule MealPlannerApi.Services.EmailCodeLogin do
         lock_email(normalized_email)
         now = DateTime.utc_now()
 
-        with :ok <- check_failure_limit(failure_limit),
-             {:ok, row} <- match_code(normalized_email, code, flow, now, failure_limit) do
+        with {:ok, row} <- match_code(normalized_email, code, flow, now, failure_limit) do
           redeem_matched(row, on_match, now)
         end
       end,
@@ -364,20 +371,23 @@ defmodule MealPlannerApi.Services.EmailCodeLogin do
     end
   end
 
-  defp check_failure_limit({:ok, client_ip}), do: EmailCodeAuth.check_verify_failures(client_ip)
-  defp check_failure_limit(:error), do: :ok
-
-  # A failed check first reserves its place in the per-IP failure counter;
-  # only then does it count as an attempt on the code, so a failure
-  # refused by the IP limit leaves the code untouched.
+  # A match takes no per-IP lock and reads no per-IP count. A failed
+  # check first counts as an attempt on the code, then reserves its place
+  # in the per-IP failure counter. A failure refused by the IP limit keeps
+  # its attempt, because `redeem_code`'s transaction only rolls back
+  # through `Repo.rollback/1` and commits every error answer; so the
+  # attempt cap bounds the guesses at a code whatever the IP limit says.
   defp match_code(email, code, flow, now, failure_limit) do
     case classify_code(latest_pending_code(email, flow), code, now) do
       {:ok, row} ->
         {:ok, row}
 
       {:error, reason, row} ->
+        # The answer the failure gets unless the IP limit refuses it.
+        failure_answer = charge_failure(reason, row)
+
         with :ok <- reserve_failure(failure_limit) do
-          charge_failure(reason, row)
+          failure_answer
         end
     end
   end

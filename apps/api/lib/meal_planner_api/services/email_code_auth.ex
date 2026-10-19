@@ -15,9 +15,10 @@ defmodule MealPlannerApi.Services.EmailCodeAuth do
       for an IPv6 client, 100 per /56), kept in `email_auth_events` and
       serialized by Postgres advisory locks so concurrent requesters cannot
       collectively exceed them.
-    * `check_verify_failures/1` and `reserve_verify_failure/1` — the
-      rolling 1-hour counter of failed code verifications (20 per IP bucket),
-      kept in the same table under its own kind.
+    * `reserve_verify_failure/1` — the rolling 1-hour counter of failed
+      code verifications (20 per IP bucket), kept in the same table under
+      its own kind. Only failed checks read or write it, so a code that
+      verifies is never refused by it.
     * `max_code_attempts/0` — the failed attempts after which a code is
       locked for good.
     * `code_email/4` — the verification-code email.
@@ -115,41 +116,25 @@ defmodule MealPlannerApi.Services.EmailCodeAuth do
   end
 
   @doc """
-  Answers `{:error, :rate_limited, retry_after}` when `client_ip` has
-  #{@max_verify_failures_per_ip_per_window} failed code verifications in
-  the rolling 1-hour window, `:ok` otherwise. Nothing is recorded; the
-  caller reserves each failure with `reserve_verify_failure/1`.
+  Reserves one failed code verification for `client_ip`, or answers
+  `{:error, :rate_limited, retry_after}` and records nothing when the IP
+  already has #{@max_verify_failures_per_ip_per_window} in the rolling
+  1-hour window.
 
   `client_ip` is bucketed as in `reserve_request_slots/2`: an IPv4
   address on its own, an IPv6 address with its whole /64 prefix, and
   anything that is not an address (`nil` included) in one shared bucket.
   The /56 counter of code requests does not apply to failures.
 
-  No lock is taken, so verifications from one IP never wait on each
-  other: this is the fast refusal of an IP already over the limit. The
-  limit itself is enforced exactly by `reserve_verify_failure/1`.
-  """
-  @spec check_verify_failures(String.t() | nil) :: :ok | rate_limited()
-  def check_verify_failures(client_ip) do
-    check_slot(
-      "verification_failure",
-      nil,
-      normalize_client_ip(client_ip),
-      @max_verify_failures_per_ip_per_window,
-      DateTime.utc_now()
-    )
-  end
+  Call it only once a code check has failed, never before the code is
+  matched: a code that verifies must log in whatever the bucket holds,
+  so one client cannot lock out others sharing its IP (or the
+  unresolved bucket) by spending its failures.
 
-  @doc """
-  Reserves one failed code verification for `client_ip` in the counter
-  `check_verify_failures/1` reads, or answers
-  `{:error, :rate_limited, retry_after}` and records nothing when the IP
-  already has #{@max_verify_failures_per_ip_per_window} in the window.
-
-  Must run inside a `Repo.transaction/2`, before the failure has any
-  other effect: the transaction holds the lock of this IP's failure
-  counter until it ends, so concurrent failures from one IP cannot run
-  past the limit together. Successful verifications never take it.
+  Must run inside a `Repo.transaction/2`: the transaction holds the lock
+  of this IP's failure counter until it ends, so concurrent failures
+  from one IP cannot run past the limit together. Successful
+  verifications never take it.
   """
   @spec reserve_verify_failure(String.t() | nil) :: :ok | rate_limited()
   def reserve_verify_failure(client_ip) do
@@ -179,9 +164,9 @@ defmodule MealPlannerApi.Services.EmailCodeAuth do
   def max_code_attempts, do: @max_code_attempts
 
   @doc """
-  Failed code verifications per IP bucket (see `check_verify_failures/1`)
-  in the rolling 1-hour window after which `check_verify_failures/1`
-  refuses that bucket.
+  Failed code verifications per IP bucket (see `reserve_verify_failure/1`)
+  in the rolling 1-hour window after which `reserve_verify_failure/1`
+  refuses that bucket's further failures.
   """
   @spec max_verify_failures_per_ip() :: pos_integer()
   def max_verify_failures_per_ip, do: @max_verify_failures_per_ip_per_window
