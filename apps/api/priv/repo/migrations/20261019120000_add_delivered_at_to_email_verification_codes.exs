@@ -4,8 +4,10 @@ defmodule MealPlannerApi.Repo.Migrations.AddDeliveredAtToEmailVerificationCodes 
   (issue #291). A code is committed before it is mailed, so until now an
   unsent code was already the latest pending code: it shadowed the earlier
   code while the mail provider answered, and for good when the process
-  died before the failed send could delete it. Verification and the resend
-  cooldown now read only delivered codes.
+  died before the failed send could delete it. Verification now reads only
+  delivered codes. The resend cooldown counts a delivered code from
+  `delivered_at`, and a code still being sent from `inserted_at` for a short
+  delivery window only.
 
   The column stays empty while the mail is out. Every existing row was
   mailed when it was stored, so it is backfilled from `inserted_at`.

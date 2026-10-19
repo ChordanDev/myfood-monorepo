@@ -27,7 +27,9 @@ defmodule MealPlannerApi.Persistence.Auth.EmailVerificationCode do
     field(:expires_at, :utc_datetime_usec)
     field(:consumed_at, :utc_datetime_usec)
     # When the code's mail went out; empty while it is being sent. Only a
-    # delivered code verifies or starts the resend cooldown
+    # delivered code verifies. A delivered code holds the resend cooldown
+    # from this time, and a code still being sent holds it from
+    # `inserted_at` for the delivery window
     # (`MealPlannerApi.Services.EmailCodeLogin.issue_code/4`).
     field(:delivered_at, :utc_datetime_usec)
     # Failed verifications against this code, counted by every flow
