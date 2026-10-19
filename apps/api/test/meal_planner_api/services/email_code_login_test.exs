@@ -227,7 +227,10 @@ defmodule MealPlannerApi.Services.EmailCodeLoginTest do
                EmailCodeLogin.request_code(user.email, "203.0.113.1")
 
       assert retry_after in 50..55
-      # A code still being mailed does not verify meanwhile.
+      # A code still being mailed does not verify meanwhile; the earlier one does.
+      assert {:error, :code_invalid} =
+               EmailCodeLogin.verify_code(user.email, "654321", "203.0.113.1", &session/2)
+
       assert {:ok, _session} =
                EmailCodeLogin.verify_code(user.email, "123456", "203.0.113.1", &session/2)
     end
