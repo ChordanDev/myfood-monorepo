@@ -288,28 +288,28 @@ describe('PlannerScreen first proposal', () => {
       });
     });
 
-    expect(byTestId('planner-start')?.props.disabled).toBe(true);
+    expect(byTestId('e2e-planner-start')?.props.disabled).toBe(true);
     expect(composer().props.disabled).toBe(true);
 
     act(() => channel().replyOk());
 
-    expect(byTestId('planner-start')?.props.disabled).toBe(false);
+    expect(byTestId('e2e-planner-start')?.props.disabled).toBe(false);
     expect(composer().props.disabled).toBe(false);
   });
 
   it('names the range it will plan on the start button', () => {
     renderJoined();
 
-    expect(textsOf('planner-start')).toEqual(['Planificar 1 - 2 Enero']);
+    expect(textsOf('e2e-planner-start')).toEqual(['Planificar 1 - 2 Enero']);
   });
 
   it('names the one day it will plan when the range has only a start', () => {
     mockRange = { start: '2030-01-03', end: null };
     renderJoined();
 
-    expect(textsOf('planner-start')).toEqual(['Planificar 3 Enero']);
+    expect(textsOf('e2e-planner-start')).toEqual(['Planificar 3 Enero']);
 
-    press('planner-start');
+    press('e2e-planner-start');
 
     expect(lastPush().payload).toMatchObject({ rangeFrom: '2030-01-03', rangeTo: '2030-01-03' });
   });
@@ -318,7 +318,7 @@ describe('PlannerScreen first proposal', () => {
     renderJoined();
     type('  sin carne  ');
 
-    press('planner-start');
+    press('e2e-planner-start');
 
     expect(lastPush().event).toBe('start_planning');
     expect(lastPush().payload).toEqual({
@@ -337,7 +337,7 @@ describe('PlannerScreen first proposal', () => {
   it('keeps the typed request when the server refuses the start', async () => {
     renderJoined();
     type('sin carne');
-    press('planner-start');
+    press('e2e-planner-start');
 
     await replyError(planningRangeLockedError);
 
@@ -347,7 +347,7 @@ describe('PlannerScreen first proposal', () => {
   it('keeps what the User typed after the tap when the start is accepted', async () => {
     renderJoined();
     type('sin carne');
-    press('planner-start');
+    press('e2e-planner-start');
     type('sin carne y sin lacteos');
 
     await replyOk();
@@ -359,7 +359,7 @@ describe('PlannerScreen first proposal', () => {
     renderJoined();
     type('x'.repeat(1001));
 
-    press('planner-start');
+    press('e2e-planner-start');
 
     expect(channel().pushes).toHaveLength(0);
     expect(textsOf('planner-failure')).toEqual(['Los datos enviados no son válidos.']);
@@ -369,7 +369,7 @@ describe('PlannerScreen first proposal', () => {
   it('sends no request when nothing is typed', () => {
     renderJoined();
 
-    press('planner-start');
+    press('e2e-planner-start');
 
     expect(lastPush().payload).not.toHaveProperty('request');
   });
@@ -432,14 +432,14 @@ describe('PlannerScreen first proposal', () => {
       type('sin lacteos');
       submitComposer();
 
-      expect(byTestId('planner-proposal')).toBeDefined();
+      expect(byTestId('e2e-planner-proposal')).toBeDefined();
       expect(composer().props.disabled).toBe(true);
       expect(channel().pushes.map((push) => push.event)).toEqual(['start_planning']);
     });
 
     it('sends again once the session is cancelled', async () => {
       renderJoined();
-      press('planner-start');
+      press('e2e-planner-start');
       await replyOk();
       emitGenerationStarted();
       press('planner-cancel');
@@ -472,7 +472,7 @@ describe('PlannerScreen first proposal', () => {
       await renderJoinedWithFavorites([]);
 
       expect(byTestId('planner-favorites')).toBeUndefined();
-      expect(byTestId('planner-start')).toBeDefined();
+      expect(byTestId('e2e-planner-start')).toBeDefined();
     });
 
     it('checks a favorite when tapped and unchecks it when tapped again', async () => {
@@ -498,7 +498,7 @@ describe('PlannerScreen first proposal', () => {
       press('planner-favorite-recipe-2');
       press('planner-favorite-recipe-1');
 
-      press('planner-start');
+      press('e2e-planner-start');
 
       expect(lastPush().event).toBe('start_planning');
       expect(lastPush().payload).toEqual({
@@ -515,7 +515,7 @@ describe('PlannerScreen first proposal', () => {
       press('planner-favorite-recipe-1');
       press('planner-favorite-recipe-1');
 
-      press('planner-start');
+      press('e2e-planner-start');
 
       expect(lastPush().payload).not.toHaveProperty('favoriteRecipeIds');
     });
@@ -531,7 +531,7 @@ describe('PlannerScreen first proposal', () => {
       });
       expect(byTestId('planner-favorite-recipe-1')).toBeUndefined();
 
-      press('planner-start');
+      press('e2e-planner-start');
 
       expect(lastPush().payload).toMatchObject({ favoriteRecipeIds: ['recipe-2'] });
     });
@@ -539,7 +539,7 @@ describe('PlannerScreen first proposal', () => {
     it('goes away while the plan is generating', async () => {
       await renderJoinedWithFavorites(FAVORITES);
 
-      press('planner-start');
+      press('e2e-planner-start');
 
       expect(byTestId('planner-favorites')).toBeUndefined();
     });
@@ -547,7 +547,7 @@ describe('PlannerScreen first proposal', () => {
     it('sends the same favorites again from the retry button', async () => {
       await renderJoinedWithFavorites(FAVORITES);
       press('planner-favorite-recipe-2');
-      press('planner-start');
+      press('e2e-planner-start');
       await replyError(planningRangeLockedError);
 
       press('planner-retry');
@@ -559,20 +559,20 @@ describe('PlannerScreen first proposal', () => {
   it('shows progress from the tap until the proposal arrives', async () => {
     renderJoined();
 
-    press('planner-start');
+    press('e2e-planner-start');
     expect(byTestId('planner-progress')).toBeDefined();
-    expect(byTestId('planner-start')).toBeUndefined();
+    expect(byTestId('e2e-planner-start')).toBeUndefined();
 
     await replyOk();
     emitGenerationStarted();
 
     expect(byTestId('planner-progress')).toBeDefined();
-    expect(byTestId('planner-proposal')).toBeUndefined();
+    expect(byTestId('e2e-planner-proposal')).toBeUndefined();
   });
 
   it('renders the proposal as day cards with the assistant message and the estimated cost', async () => {
     renderJoined();
-    press('planner-start');
+    press('e2e-planner-start');
     await replyOk();
     emitGenerationStarted();
 
@@ -596,35 +596,37 @@ describe('PlannerScreen first proposal', () => {
       'Lentil stew',
       '500 kcal · P 12.5 g · C 60 g',
     ]);
-    expect(textsOf('planner-proposal')).toContain('Acá tenés tu menú para 2 días: 3 comidas.');
-    expect(textsOf('planner-proposal')).not.toContain(planningMessage.text);
+    expect(textsOf('e2e-planner-proposal')).toContain('Acá tenés tu menú para 2 días: 3 comidas.');
+    expect(textsOf('e2e-planner-proposal')).not.toContain(planningMessage.text);
     expect(textsOf('planner-proposal-cost')).toEqual(['Costo estimado: $20']);
     // The cost shows once, on its own line, and not again in the assistant message.
     expect(
-      textsOf('planner-proposal').filter((text) => /costo|cost|\$20|19[.,]50/i.test(text))
+      textsOf('e2e-planner-proposal').filter((text) => /costo|cost|\$20|19[.,]50/i.test(text))
     ).toEqual(['Costo estimado: $20']);
   });
 
   it('shows the proposal before the assistant message, which follows it', async () => {
     renderJoined();
-    press('planner-start');
+    press('e2e-planner-start');
     await replyOk();
     emitGenerationStarted();
 
     emit('proposal_ready', proposalReady);
 
     expect(byTestId('planner-proposal-day-2030-01-01')).toBeDefined();
-    expect(textsOf('planner-proposal')).not.toContain('Acá tenés tu menú para 2 días: 3 comidas.');
+    expect(textsOf('e2e-planner-proposal')).not.toContain(
+      'Acá tenés tu menú para 2 días: 3 comidas.'
+    );
 
     emit('planning_message', planningMessage);
 
-    expect(textsOf('planner-proposal')).toContain('Acá tenés tu menú para 2 días: 3 comidas.');
+    expect(textsOf('e2e-planner-proposal')).toContain('Acá tenés tu menú para 2 días: 3 comidas.');
   });
 
   it('ignores an error or a message that does not match the frozen shape, and keeps waiting', async () => {
     const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
     renderJoined();
-    press('planner-start');
+    press('e2e-planner-start');
     await replyOk();
     emitGenerationStarted();
 
@@ -635,7 +637,7 @@ describe('PlannerScreen first proposal', () => {
     expect(warn).toHaveBeenCalledTimes(2);
 
     emitProposal();
-    expect(byTestId('planner-proposal')).toBeDefined();
+    expect(byTestId('e2e-planner-proposal')).toBeDefined();
     warn.mockRestore();
   });
 
@@ -664,7 +666,7 @@ describe('PlannerScreen first proposal', () => {
       ['a slot outside the four', withFirstMeal({ slot: 'brunch' })],
     ])('fails the generation on %s, with a retry button', async (_case, payload) => {
       renderJoined();
-      press('planner-start');
+      press('e2e-planner-start');
       await replyOk();
       emitGenerationStarted();
 
@@ -678,7 +680,7 @@ describe('PlannerScreen first proposal', () => {
 
     it('fails on one whose run cannot be read either', async () => {
       renderJoined();
-      press('planner-start');
+      press('e2e-planner-start');
       await replyOk();
       emitGenerationStarted();
 
@@ -689,7 +691,7 @@ describe('PlannerScreen first proposal', () => {
 
     it('ignores one of a run the screen did not start', async () => {
       renderJoined();
-      press('planner-start');
+      press('e2e-planner-start');
       await replyOk();
       emitGenerationStarted();
 
@@ -703,7 +705,7 @@ describe('PlannerScreen first proposal', () => {
 
     it('retries after it, cancelling the session of the generation first', async () => {
       renderJoined();
-      press('planner-start');
+      press('e2e-planner-start');
       await replyOk();
       emitGenerationStarted();
       emit('proposal_ready', withFirstMeal({ slot: 'brunch' }));
@@ -729,7 +731,7 @@ describe('PlannerScreen first proposal', () => {
 
     async function startGeneration(): Promise<void> {
       renderJoined();
-      press('planner-start');
+      press('e2e-planner-start');
       await replyOk();
       emitGenerationStarted();
     }
@@ -793,7 +795,7 @@ describe('PlannerScreen first proposal', () => {
     it('offers to cancel from the tap', () => {
       renderJoined();
 
-      press('planner-start');
+      press('e2e-planner-start');
 
       expect(byTestId('planner-progress')).toBeDefined();
       expect(textsOf('planner-cancel')).toEqual(['Cancelar']);
@@ -801,7 +803,7 @@ describe('PlannerScreen first proposal', () => {
 
     it('cancels the session of the generation and offers to start again', async () => {
       renderJoined();
-      press('planner-start');
+      press('e2e-planner-start');
       await replyOk();
       emitGenerationStarted();
 
@@ -810,22 +812,22 @@ describe('PlannerScreen first proposal', () => {
       expect(lastPush().event).toBe('cancel_planning');
       expect(lastPush().payload).toEqual({ sessionId: generationStarted.sessionId });
       expect(byTestId('planner-progress')).toBeUndefined();
-      expect(byTestId('planner-start')).toBeDefined();
+      expect(byTestId('e2e-planner-start')).toBeDefined();
 
       // The generation it left behind no longer moves the draft.
       emitProposal();
-      expect(byTestId('planner-proposal')).toBeUndefined();
+      expect(byTestId('e2e-planner-proposal')).toBeUndefined();
     });
 
     it('cancels the session as soon as it is known when cancelled before it', async () => {
       renderJoined();
-      press('planner-start');
+      press('e2e-planner-start');
       await replyOk();
 
       press('planner-cancel');
 
       expect(channel().pushes.map((push) => push.event)).toEqual(['start_planning']);
-      expect(byTestId('planner-start')).toBeDefined();
+      expect(byTestId('e2e-planner-start')).toBeDefined();
 
       emitGenerationStarted();
 
@@ -834,14 +836,14 @@ describe('PlannerScreen first proposal', () => {
         'cancel_planning',
       ]);
       expect(lastPush().payload).toEqual({ sessionId: generationStarted.sessionId });
-      expect(byTestId('planner-start')).toBeDefined();
+      expect(byTestId('e2e-planner-start')).toBeDefined();
     });
   });
 
   describe('a start the server refuses', () => {
     it('shows the text of planning_invalid_range with a retry button', async () => {
       renderJoined();
-      press('planner-start');
+      press('e2e-planner-start');
 
       await replyError(planningInvalidRangeError);
 
@@ -854,7 +856,7 @@ describe('PlannerScreen first proposal', () => {
 
     it('names the owner of a range that another member holds', async () => {
       renderJoined();
-      press('planner-start');
+      press('e2e-planner-start');
 
       await replyError(planningRangeLockedError);
 
@@ -865,7 +867,7 @@ describe('PlannerScreen first proposal', () => {
 
     it('shows the plain text of a locked range when the reply names no owner', async () => {
       renderJoined();
-      press('planner-start');
+      press('e2e-planner-start');
 
       await replyError({
         error: { code: 'planning_range_locked', message: planningRangeLockedError.error.message },
@@ -878,7 +880,7 @@ describe('PlannerScreen first proposal', () => {
 
     it('keeps waiting when the server is slow to answer, and shows the proposal that follows', async () => {
       renderJoined();
-      press('planner-start');
+      press('e2e-planner-start');
 
       await act(async () => lastPush().timeout());
 
@@ -888,14 +890,14 @@ describe('PlannerScreen first proposal', () => {
       emitGenerationStarted();
       emitProposal();
 
-      expect(byTestId('planner-proposal')).toBeDefined();
+      expect(byTestId('e2e-planner-proposal')).toBeDefined();
     });
   });
 
   describe('a generation that fails', () => {
     it('shows the failure and a retry button', async () => {
       renderJoined();
-      press('planner-start');
+      press('e2e-planner-start');
       await replyOk();
       emitGenerationStarted();
 
@@ -908,7 +910,7 @@ describe('PlannerScreen first proposal', () => {
 
     it('fails on a generation_error that arrives before generation_started', async () => {
       renderJoined();
-      press('planner-start');
+      press('e2e-planner-start');
       await replyOk();
 
       emit('generation_error', generationError);
@@ -921,7 +923,7 @@ describe('PlannerScreen first proposal', () => {
 
     it('fails on an error that names no run and no request', async () => {
       renderJoined();
-      press('planner-start');
+      press('e2e-planner-start');
       await replyOk();
       emitGenerationStarted();
 
@@ -933,7 +935,7 @@ describe('PlannerScreen first proposal', () => {
 
     it('fails when the session of the generation is cancelled', async () => {
       renderJoined();
-      press('planner-start');
+      press('e2e-planner-start');
       await replyOk();
       emitGenerationStarted();
 
@@ -945,7 +947,7 @@ describe('PlannerScreen first proposal', () => {
 
     it('ignores the error of a run the screen did not start', async () => {
       renderJoined();
-      press('planner-start');
+      press('e2e-planner-start');
       await replyOk();
       emitGenerationStarted();
 
@@ -957,7 +959,7 @@ describe('PlannerScreen first proposal', () => {
     it('starts again from the retry button with the same range and request, and shows the proposal', async () => {
       renderJoined();
       type('sin carne');
-      press('planner-start');
+      press('e2e-planner-start');
       await replyOk();
       emitGenerationStarted();
       emit('generation_error', generationError);
@@ -989,7 +991,7 @@ describe('PlannerScreen first proposal', () => {
 
     it('retries after a refused start too', async () => {
       renderJoined();
-      press('planner-start');
+      press('e2e-planner-start');
       await replyError(planningRangeLockedError);
 
       press('planner-retry');
@@ -1002,13 +1004,13 @@ describe('PlannerScreen first proposal', () => {
         'start_planning',
         'start_planning',
       ]);
-      expect(byTestId('planner-proposal')).toBeDefined();
+      expect(byTestId('e2e-planner-proposal')).toBeDefined();
     });
   });
   describe('a proposal to confirm, reject or cancel', () => {
     async function renderProposal(): Promise<void> {
       renderJoined();
-      press('planner-start');
+      press('e2e-planner-start');
       await replyOk();
       emitGenerationStarted();
       emitProposal();
@@ -1023,23 +1025,23 @@ describe('PlannerScreen first proposal', () => {
     it('confirms over HTTP, says how many meals it scheduled and refreshes the calendar', async () => {
       await renderProposal();
 
-      await pressAsync('planner-confirm');
+      await pressAsync('e2e-planner-confirm');
 
       expect(mockConfirmProposal).toHaveBeenCalledWith({
         proposalId: proposalReady.proposalId,
         sessionId: generationStarted.sessionId,
       });
-      expect(textsOf('planner-committed')).toEqual([
+      expect(textsOf('e2e-planner-committed')).toEqual([
         'Listo: agendamos 4 comidas en tu calendario y actualizamos tu lista de compras.',
       ]);
-      expect(byTestId('planner-proposal')).toBeUndefined();
+      expect(byTestId('e2e-planner-proposal')).toBeUndefined();
       expect(mockLoadLivePlan).toHaveBeenCalledTimes(1);
     });
 
     it('commits on session_committed of its session too, as when the reply was lost', async () => {
       mockConfirmProposal.mockReturnValue(new Promise(() => {}));
       await renderProposal();
-      press('planner-confirm');
+      press('e2e-planner-confirm');
 
       emit('session_committed', {
         ...sessionCommitted,
@@ -1047,7 +1049,7 @@ describe('PlannerScreen first proposal', () => {
         sessionId: generationStarted.sessionId,
       });
 
-      expect(textsOf('planner-committed')).toEqual([
+      expect(textsOf('e2e-planner-committed')).toEqual([
         'Listo: agendamos 1 comida en tu calendario y actualizamos tu lista de compras.',
       ]);
       expect(mockLoadLivePlan).toHaveBeenCalledTimes(1);
@@ -1059,12 +1061,12 @@ describe('PlannerScreen first proposal', () => {
       );
       await renderProposal();
 
-      await pressAsync('planner-confirm');
+      await pressAsync('e2e-planner-confirm');
 
       expect(textsOf('planner-action-error')).toEqual([
         'Esta propuesta ya no está pendiente. Pedí una nueva.',
       ]);
-      expect(byTestId('planner-proposal')).toBeDefined();
+      expect(byTestId('e2e-planner-proposal')).toBeDefined();
       expect(mockLoadLivePlan).not.toHaveBeenCalled();
       // A refusal is an answer: the User may still leave the proposal.
       expect(byTestId('planner-reject')?.props.disabled).toBe(false);
@@ -1084,19 +1086,19 @@ describe('PlannerScreen first proposal', () => {
         mockConfirmProposal.mockRejectedValueOnce(new ApiError(code, 'no answer', status));
         await renderProposal();
 
-        await pressAsync('planner-confirm');
+        await pressAsync('e2e-planner-confirm');
 
         expect(textsOf('planner-action-error')).toEqual([
           'No sabemos si tu menú se guardó. Tocá Confirmar menú de nuevo para comprobarlo.',
         ]);
         expect(byTestId('planner-reject')?.props.disabled).toBe(true);
         expect(byTestId('planner-cancel')?.props.disabled).toBe(true);
-        expect(byTestId('planner-confirm')?.props.disabled).toBe(false);
+        expect(byTestId('e2e-planner-confirm')?.props.disabled).toBe(false);
 
-        await pressAsync('planner-confirm');
+        await pressAsync('e2e-planner-confirm');
 
         expect(mockConfirmProposal).toHaveBeenCalledTimes(2);
-        expect(textsOf('planner-committed')).toEqual([
+        expect(textsOf('e2e-planner-committed')).toEqual([
           'Listo: agendamos 4 comidas en tu calendario y actualizamos tu lista de compras.',
         ]);
       }
@@ -1108,8 +1110,8 @@ describe('PlannerScreen first proposal', () => {
         .mockRejectedValueOnce(new ApiError('lost_lock', 'lost', 409));
       await renderProposal();
 
-      await pressAsync('planner-confirm');
-      await pressAsync('planner-confirm');
+      await pressAsync('e2e-planner-confirm');
+      await pressAsync('e2e-planner-confirm');
 
       expect(byTestId('planner-reject')?.props.disabled).toBe(false);
       expect(byTestId('planner-cancel')?.props.disabled).toBe(false);
@@ -1119,12 +1121,12 @@ describe('PlannerScreen first proposal', () => {
       mockConfirmProposal.mockReturnValue(new Promise(() => {}));
       await renderProposal();
 
-      press('planner-confirm');
+      press('e2e-planner-confirm');
 
-      for (const id of ['planner-confirm', 'planner-reject', 'planner-cancel']) {
+      for (const id of ['e2e-planner-confirm', 'planner-reject', 'planner-cancel']) {
         expect(byTestId(id)?.props.disabled).toBe(true);
       }
-      press('planner-confirm');
+      press('e2e-planner-confirm');
       expect(mockConfirmProposal).toHaveBeenCalledTimes(1);
     });
 
@@ -1155,8 +1157,8 @@ describe('PlannerScreen first proposal', () => {
 
       await act(async () => lastPush().replyOk({ sessionId: 's', status: 'cancelled' }));
 
-      expect(byTestId('planner-proposal')).toBeUndefined();
-      expect(byTestId('planner-start')).toBeDefined();
+      expect(byTestId('e2e-planner-proposal')).toBeUndefined();
+      expect(byTestId('e2e-planner-start')).toBeDefined();
       expect(mockConfirmProposal).not.toHaveBeenCalled();
     });
 
@@ -1179,7 +1181,7 @@ describe('PlannerScreen first proposal', () => {
 
   it('says the range already has meals when the server refuses it as occupied', async () => {
     renderJoined();
-    press('planner-start');
+    press('e2e-planner-start');
 
     await replyError(planningSlotOccupiedError);
 

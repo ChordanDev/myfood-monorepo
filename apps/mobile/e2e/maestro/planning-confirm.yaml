@@ -1,0 +1,37 @@
+appId: com.myfood.e2e
+name: Plan the week, confirm it and see the Scheduled meals
+---
+# Signs in as the seeded User, who skips onboarding and lands on Home.
+- runFlow: login-verification.yaml
+- tapOn:
+    id: e2e-home-open-planner
+# The start button is enabled once the Planning channel is joined.
+- extendedWaitUntil:
+    visible:
+      id: e2e-planner-start
+      enabled: true
+    timeout: 15000
+- tapOn:
+    id: e2e-planner-start
+- extendedWaitUntil:
+    visible:
+      id: e2e-planner-proposal
+    timeout: 60000
+# Confirm sits under the day cards of the proposal.
+- scrollUntilVisible:
+    element:
+      id: e2e-planner-confirm
+    direction: DOWN
+- tapOn:
+    id: e2e-planner-confirm
+- extendedWaitUntil:
+    visible:
+      id: e2e-planner-committed
+    timeout: 15000
+- tapOn:
+    id: e2e-planner-close
+# Home shows today's Scheduled meal of the confirmed plan.
+- extendedWaitUntil:
+    visible:
+      id: e2e-home-scheduled-meal
+    timeout: 15000

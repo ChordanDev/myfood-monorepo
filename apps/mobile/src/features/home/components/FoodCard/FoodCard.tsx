@@ -175,6 +175,7 @@ export function FoodCard({
               },
             ]}>
             <Animated.Text
+              testID={descriptionText ? 'e2e-home-scheduled-meal' : undefined}
               style={[
                 styles.description,
                 {

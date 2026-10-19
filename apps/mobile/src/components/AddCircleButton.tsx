@@ -64,7 +64,7 @@ export function AddCircleButton({ size = DEFAULT_BUTTON_SIZE, onPress }: AddCirc
         onPress={onPress}
         accessibilityRole="button"
         accessibilityLabel="Agregar"
-        testID="home-open-planner"
+        testID="e2e-home-open-planner"
         style={({ pressed }) => ({
           alignItems: 'center',
           backgroundColor: 'transparent',

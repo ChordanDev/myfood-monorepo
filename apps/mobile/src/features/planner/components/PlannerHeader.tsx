@@ -54,6 +54,7 @@ export function PlannerHeader({ planningRange }: PlannerHeaderProps) {
       </Pressable>
       <Pressable
         onPress={() => router.back()}
+        testID="e2e-planner-close"
         style={[styles.closeButton, styles.shadow, { backgroundColor: theme.colorBlack }]}>
         <Check size={24} color={theme.primaryAccent} strokeWidth={2.5} />
       </Pressable>
