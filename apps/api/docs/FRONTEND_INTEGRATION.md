@@ -151,7 +151,8 @@ cuenta como intento sobre el código. Si el código correcto recibe esta respues
 bloqueado: pedir uno nuevo). Si la sesión no se puede abrir después de un código correcto, el código no se gasta y se
 puede reintentar. Al pedir el código: `422 invalid_email`, `404 email_not_found`, `429 rate_limited` (con
 el header `retry-after` en segundos) y `502 code_send_failed` (el código anterior sigue valiendo y se puede
-reintentar enseguida, aunque el pedido cuenta para el límite por hora).
+reintentar enseguida: un pedido cuyo email no salió no cuenta para el límite por hora ni para la espera de
+60 segundos).
 
 ### Registro
 

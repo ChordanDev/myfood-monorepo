@@ -59,6 +59,26 @@ defmodule MealPlannerApi.Services.EmailCodeLoginTest do
     def supports_attachments?, do: true
   end
 
+  # Runs the check the test left under `:during_delivery` while the mail
+  # is out, sends its answer to the test process, then delivers like the
+  # test adapter.
+  defmodule CheckingMailAdapter do
+    @moduledoc false
+    @behaviour Bamboo.Adapter
+
+    @impl true
+    def deliver(email, config) do
+      send(self(), {:during_delivery, Process.get(:during_delivery).()})
+      Bamboo.LocalAdapter.deliver(email, config)
+    end
+
+    @impl true
+    def handle_config(config), do: config
+
+    @impl true
+    def supports_attachments?, do: true
+  end
+
   # Delivers like the test adapter, and tells the test process whether
   # the delivery ran inside a database transaction and which codes were
   # stored by then.
@@ -109,12 +129,38 @@ defmodule MealPlannerApi.Services.EmailCodeLoginTest do
                Repo.all(from(c in EmailVerificationCode, where: is_nil(c.consumed_at)))
 
       refute pending.code_hash == EmailCodeAuth.hash_code("123456")
+      assert %DateTime{} = pending.delivered_at
+    end
+
+    test "the earlier code still verifies while the new code is being mailed", %{user: user} do
+      insert_code!(user, "123456", seconds_ago(120))
+
+      Process.put(:during_delivery, fn ->
+        EmailCodeLogin.verify_code(user.email, "123456", "203.0.113.1", &session/2)
+      end)
+
+      assert {:ok, _sent} =
+               with_mail_adapter(CheckingMailAdapter, fn ->
+                 EmailCodeLogin.request_code(user.email, "203.0.113.1")
+               end)
+
+      assert_received {:during_delivery, {:ok, %{user: verified}}}
+      assert verified.id == user.id
+
+      # The unsent code was not checked, so nothing was charged to it or to the IP.
+      assert [%EmailVerificationCode{attempts: 0, delivered_at: %DateTime{}}] =
+               Repo.all(from(c in EmailVerificationCode, where: is_nil(c.consumed_at)))
+
+      assert Repo.aggregate(
+               from(e in EmailAuthEvent, where: e.kind == "verification_failure"),
+               :count
+             ) == 0
     end
   end
 
   describe "request_code/2 when delivery fails" do
     @tag :capture_log
-    test "a refused delivery drops the new code, spends the request and keeps the previous code usable",
+    test "a refused delivery drops the new code, gives back the request and keeps the previous code usable",
          %{user: user} do
       insert_code!(user, "123456", seconds_ago(120))
 
@@ -127,12 +173,66 @@ defmodule MealPlannerApi.Services.EmailCodeLoginTest do
                Repo.all(EmailVerificationCode)
 
       assert previous.code_hash == EmailCodeAuth.hash_code("123456")
-      assert Repo.aggregate(EmailAuthEvent, :count) == 2
+      assert Repo.aggregate(EmailAuthEvent, :count) == 0
 
       assert {:ok, %{user: verified}} =
                EmailCodeLogin.verify_code(user.email, "123456", "203.0.113.1", &session/2)
 
       assert verified.id == user.id
+    end
+
+    @tag :capture_log
+    test "five refused deliveries spend no hourly slot, so the next request is delivered",
+         %{user: user} do
+      with_mail_adapter(RefusingMailAdapter, fn ->
+        for _attempt <- 1..5 do
+          assert {:error, :code_send_failed} =
+                   EmailCodeLogin.request_code(user.email, "203.0.113.1")
+        end
+      end)
+
+      assert Repo.aggregate(EmailAuthEvent, :count) == 0
+      assert Repo.aggregate(EmailVerificationCode, :count) == 0
+
+      assert {:ok, _sent} = EmailCodeLogin.request_code(user.email, "203.0.113.1")
+
+      assert [_mail] = Bamboo.SentEmail.all()
+      assert [%EmailVerificationCode{delivered_at: %DateTime{}}] = Repo.all(EmailVerificationCode)
+      # Only the delivered code spends the email's and the IP's slot.
+      assert Repo.aggregate(EmailAuthEvent, :count) == 2
+    end
+
+    test "an undelivered code left behind neither shadows the earlier code nor starts the cooldown",
+         %{user: user} do
+      insert_code!(user, "123456", seconds_ago(120))
+      # The process died after the commit, before the mail was out, longer
+      # ago than any send takes.
+      insert_code!(user, "654321", seconds_ago(45), delivered_at: nil)
+
+      assert {:error, :code_invalid} =
+               EmailCodeLogin.verify_code(user.email, "654321", "203.0.113.1", &session/2)
+
+      assert {:ok, %{user: verified}} =
+               EmailCodeLogin.verify_code(user.email, "123456", "203.0.113.1", &session/2)
+
+      assert verified.id == user.id
+      assert {:ok, _sent} = EmailCodeLogin.request_code(user.email, "203.0.113.1")
+    end
+
+    test "a code whose mail is still being sent starts the cooldown", %{user: user} do
+      insert_code!(user, "123456", seconds_ago(120))
+      insert_code!(user, "654321", seconds_ago(5), delivered_at: nil)
+
+      assert {:error, :rate_limited, retry_after} =
+               EmailCodeLogin.request_code(user.email, "203.0.113.1")
+
+      assert retry_after in 50..55
+      # A code still being mailed does not verify meanwhile; the earlier one does.
+      assert {:error, :code_invalid} =
+               EmailCodeLogin.verify_code(user.email, "654321", "203.0.113.1", &session/2)
+
+      assert {:ok, _session} =
+               EmailCodeLogin.verify_code(user.email, "123456", "203.0.113.1", &session/2)
     end
 
     @tag :capture_log
@@ -256,14 +356,17 @@ defmodule MealPlannerApi.Services.EmailCodeLoginTest do
   # Stands in for the Device session the controller opens.
   defp session(user, membership), do: {:ok, %{user: user, membership: membership}}
 
-  defp insert_code!(user, code, inserted_at) do
+  # A code whose mail went out when it was stored, unless `delivered_at`
+  # says otherwise.
+  defp insert_code!(user, code, inserted_at, overrides \\ []) do
     Repo.insert!(%EmailVerificationCode{
       user_id: user && user.id,
       email: "login-service@example.com",
       purpose: if(user, do: :login, else: :signup),
       code_hash: EmailCodeAuth.hash_code(code),
       expires_at: DateTime.add(DateTime.utc_now(), 600, :second),
-      inserted_at: inserted_at
+      inserted_at: inserted_at,
+      delivered_at: Keyword.get(overrides, :delivered_at, inserted_at)
     })
   end
 

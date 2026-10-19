@@ -1093,7 +1093,7 @@ defmodule MealPlannerApiWeb.MobileAuthControllerTest do
     end
 
     @tag :capture_log
-    test "a delivery failure gets code_send_failed, stores no code and spends the request", %{
+    test "a delivery failure gets code_send_failed, stores no code and gives back the request", %{
       conn: conn
     } do
       body = %{"email" => "signup-mail-down@example.com"}
@@ -1103,7 +1103,7 @@ defmodule MealPlannerApiWeb.MobileAuthControllerTest do
       end)
 
       assert Repo.aggregate(EmailVerificationCode, :count) == 0
-      assert Repo.aggregate(EmailAuthEvent, :count) == 2
+      assert Repo.aggregate(EmailAuthEvent, :count) == 0
 
       assert %{"status" => "code_sent"} =
                conn |> post(@signup_request_path, body) |> json_response(200)
@@ -1544,6 +1544,7 @@ defmodule MealPlannerApiWeb.MobileAuthControllerTest do
         },
         Map.new(overrides)
       )
+      |> delivered_when_stored()
 
     %EmailVerificationCode{} |> Ecto.Changeset.change(attrs) |> Repo.insert!()
   end
@@ -1560,8 +1561,15 @@ defmodule MealPlannerApiWeb.MobileAuthControllerTest do
         },
         Map.new(overrides)
       )
+      |> delivered_when_stored()
 
     %EmailVerificationCode{} |> Ecto.Changeset.change(attrs) |> Repo.insert!()
+  end
+
+  # A code inserted by a test was mailed when it was stored, unless the
+  # test says otherwise.
+  defp delivered_when_stored(attrs) do
+    Map.put_new(attrs, :delivered_at, Map.get(attrs, :inserted_at, DateTime.utc_now()))
   end
 
   defp insert_request_event!(email, client_ip, occurred_at) do

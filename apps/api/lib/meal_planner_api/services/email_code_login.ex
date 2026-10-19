@@ -13,8 +13,13 @@ defmodule MealPlannerApi.Services.EmailCodeLogin do
     * a 60-second resend cooldown per email;
     * the code is stored and committed before it is mailed, so a slow
       mail provider holds no database connection or lock;
-    * a delivered code consumes every earlier pending code for that
-      email, so only the latest code can ever verify;
+    * a code counts only once its mail is out: until then it does not
+      verify, and it holds the cooldown only for as long as a send can
+      take, so a row left behind by a send that never ended stops counting.
+      A failed send deletes the code and gives back the hourly request
+      slots it reserved;
+    * a delivered code consumes every code delivered before it for that
+      email, so only the latest delivered code can ever verify;
     * failed attempts are counted on the code row itself, and a code locks
       for good once it reaches the limit;
     * failed login verifications are also counted per client IP bucket
@@ -43,7 +48,6 @@ defmodule MealPlannerApi.Services.EmailCodeLogin do
 
   require Logger
 
-  alias Ecto.Adapters.SQL
   alias MealPlannerApi.Mailer
   alias MealPlannerApi.Mailer.EmailCodeEmail
   alias MealPlannerApi.Persistence.Accounts.AccountMembership
@@ -55,6 +59,11 @@ defmodule MealPlannerApi.Services.EmailCodeLogin do
 
   @ttl_seconds 600
   @resend_cooldown_seconds 60
+  # How long a code whose mail is still being sent holds the cooldown,
+  # counted from when it was stored. Longer than a send takes, so a second
+  # request is refused while the first mail is out; once it is over, a row
+  # left behind by a send that never ended stops blocking a resend.
+  @delivery_window_seconds 30
   @max_attempts EmailCodeAuth.max_code_attempts()
   @max_verify_failures_per_ip EmailCodeAuth.max_verify_failures_per_ip()
 
@@ -87,8 +96,8 @@ defmodule MealPlannerApi.Services.EmailCodeLogin do
       at least 1.
     * `{:error, :code_send_failed}` — the mailer refused the message or
       never answered. The unsent code is deleted and any earlier code
-      stays pending; the request still counts against the hourly limits,
-      but not toward the cooldown, so the caller may retry at once.
+      stays pending; the request spends no hourly per-email or per-IP slot
+      and does not start the cooldown, so the caller may retry at once.
   """
   @spec request_code(term(), String.t() | nil) ::
           {:ok, code_sent()}
@@ -124,9 +133,13 @@ defmodule MealPlannerApi.Services.EmailCodeLogin do
   # inside the transaction, under the email lock.
   #
   # The code is committed before the mail is sent, outside the
-  # transaction. Earlier pending codes are consumed only once the mail is
-  # out; a failed delivery deletes the new code instead, so they stay
-  # usable.
+  # transaction, with no `delivered_at`: until the mail is out it does not
+  # verify, so the earlier code stays usable meanwhile, and it holds the
+  # cooldown only within the delivery window, so a row left behind by a
+  # process that died before the send ended stops mattering. Once the mail
+  # is out the code is marked
+  # delivered and consumes the codes delivered before it; a failed
+  # delivery deletes it and gives back the request slots it reserved.
   @spec issue_code(
           String.t(),
           String.t() | nil,
@@ -146,8 +159,11 @@ defmodule MealPlannerApi.Services.EmailCodeLogin do
     )
     |> unwrap_transaction()
     |> case do
-      {:ok, %{row: row, mail: mail}} -> deliver_code(row, mail, flow)
-      error -> error
+      {:ok, %{row: row, mail: mail, slot_events: slot_events}} ->
+        deliver_code(row, mail, slot_events, flow)
+
+      error ->
+        error
     end
   end
 
@@ -159,26 +175,51 @@ defmodule MealPlannerApi.Services.EmailCodeLogin do
 
     with {:ok, user} <- admit.(email, client_ip),
          :ok <- check_resend_cooldown(email, now),
-         :ok <- EmailCodeAuth.reserve_request_slots(email, client_ip) do
+         {:ok, slot_events} <- EmailCodeAuth.reserve_request_slots(email, client_ip) do
       code = EmailCodeAuth.mint_code()
       row = insert_code!(user, email, code, flow, now)
 
-      {:ok, %{row: row, mail: code_email(user, email, code, flow)}}
+      {:ok, %{row: row, mail: code_email(user, email, code, flow), slot_events: slot_events}}
     end
   end
 
   # Runs after the code is committed: no connection or lock is held while
   # the mail provider answers.
-  defp deliver_code(%EmailVerificationCode{} = row, mail, flow) do
+  defp deliver_code(%EmailVerificationCode{} = row, mail, slot_events, flow) do
     case deliver(mail, flow) do
       :ok ->
-        consume_codes_issued_before(row, flow)
+        mark_delivered(row, flow)
         {:ok, code_sent()}
 
       :error ->
-        Repo.delete_all(from(c in EmailVerificationCode, where: c.id == ^row.id))
+        discard_undelivered(row, slot_events)
         {:error, :code_send_failed}
     end
+  end
+
+  # One transaction, so the earlier codes are never consumed without the
+  # new one taking their place. It holds the email lock, so two sends
+  # whose mails were out at once are marked one after the other: every
+  # other delivered code was marked before this one and is consumed.
+  defp mark_delivered(%EmailVerificationCode{id: id, email: email}, flow) do
+    Repo.transaction(fn ->
+      lock_email(email)
+
+      Repo.update_all(from(c in EmailVerificationCode, where: c.id == ^id),
+        set: [delivered_at: DateTime.utc_now()]
+      )
+
+      consume_codes_delivered_before(email, flow, id)
+    end)
+  end
+
+  # The request never reached the User, so it leaves the hourly counters
+  # as they were before it.
+  defp discard_undelivered(%EmailVerificationCode{id: id}, slot_events) do
+    Repo.transaction(fn ->
+      Repo.delete_all(from(c in EmailVerificationCode, where: c.id == ^id))
+      EmailCodeAuth.release_request_slots(slot_events)
+    end)
   end
 
   defp code_sent do
@@ -204,12 +245,20 @@ defmodule MealPlannerApi.Services.EmailCodeLogin do
     end
   end
 
-  # The cooldown is per email whatever the flow: every code issued for
-  # the address counts.
+  # The cooldown is per email whatever the flow: every code mailed to the
+  # address counts from the moment its mail went out, and a code whose
+  # mail is still being sent counts from when it was stored, while it is
+  # younger than the delivery window.
   defp check_resend_cooldown(email, now) do
+    sending_since = DateTime.add(now, -@delivery_window_seconds, :second)
+
     last_issued_at =
       Repo.one(
-        from(c in EmailVerificationCode, where: c.email == ^email, select: max(c.inserted_at))
+        from(c in EmailVerificationCode,
+          where: c.email == ^email,
+          where: not is_nil(c.delivered_at) or c.inserted_at > ^sending_since,
+          select: type(max(coalesce(c.delivered_at, c.inserted_at)), :utc_datetime_usec)
+        )
       )
 
     elapsed = last_issued_at && DateTime.diff(now, last_issued_at, :second)
@@ -221,22 +270,26 @@ defmodule MealPlannerApi.Services.EmailCodeLogin do
     end
   end
 
-  # Codes issued for the same email and flow after `row` are left alone:
-  # they belong to a later request.
-  defp consume_codes_issued_before(%EmailVerificationCode{} = row, flow) do
-    row.email
+  # Every pending code but `id`, the one just marked. Codes whose mail is
+  # not out yet are left alone: they belong to a request still being
+  # delivered, and consume this one if they make it. Runs under the email
+  # lock, so no other code is being marked meanwhile.
+  defp consume_codes_delivered_before(email, flow, id) do
+    email
     |> pending_codes(flow)
-    |> where([c], c.inserted_at < ^row.inserted_at)
+    |> where([c], c.id != ^id)
     |> Repo.update_all(set: [consumed_at: DateTime.utc_now()])
   end
 
-  # The unconsumed codes `flow` issued for `email`. Their `purpose` is what
-  # keeps one flow from verifying or consuming another's codes.
+  # The unconsumed codes `flow` mailed to `email`. Their `purpose` is what
+  # keeps one flow from verifying or consuming another's codes; a code
+  # whose mail is not out is never pending.
   defp pending_codes(email, flow) do
     from(c in EmailVerificationCode,
       where: c.email == ^email,
       where: c.purpose == ^flow,
-      where: is_nil(c.consumed_at)
+      where: is_nil(c.consumed_at),
+      where: not is_nil(c.delivered_at)
     )
   end
 
@@ -255,7 +308,7 @@ defmodule MealPlannerApi.Services.EmailCodeLogin do
   # ---------------------------------------------------------------------------
 
   @doc """
-  Verifies `code` against the latest pending code for `email` and, on a
+  Verifies `code` against the latest delivered pending code for `email` and, on a
   match, resolves the Membership the session is scoped to, opens the
   session with `open_session` and consumes the code, all in one
   transaction. `open_session` receives the User and the Membership and
@@ -403,7 +456,7 @@ defmodule MealPlannerApi.Services.EmailCodeLogin do
   defp charge_failure(reason, _row), do: {:error, reason}
 
   defp latest_pending_code(email, flow) do
-    query = from(c in pending_codes(email, flow), order_by: [desc: c.inserted_at], limit: 1)
+    query = from(c in pending_codes(email, flow), order_by: [desc: c.delivered_at], limit: 1)
 
     case Repo.one(query) do
       %EmailVerificationCode{} = row -> {:ok, row}
@@ -509,9 +562,10 @@ defmodule MealPlannerApi.Services.EmailCodeLogin do
   # Serializes every login and sign-up operation on one email for the rest
   # of the transaction, so two concurrent requests cannot both pass the
   # cooldown and two concurrent verifications cannot both spend the same
-  # attempt.
+  # attempt. `Repo.query!/2` runs on the caller's dynamic repo, so the
+  # lock is always taken on the transaction's own connection.
   defp lock_email(email) do
-    SQL.query!(Repo, "SELECT pg_advisory_xact_lock($1, $2)", [
+    Repo.query!("SELECT pg_advisory_xact_lock($1, $2)", [
       @lock_namespace,
       :erlang.phash2(email)
     ])

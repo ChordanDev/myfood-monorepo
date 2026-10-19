@@ -59,15 +59,15 @@ defmodule MealPlannerApi.Services.EmailCodeSignupTest do
 
   describe "request_code/2 when delivery fails" do
     @tag :capture_log
-    test "an adapter that raises is reported as code_send_failed and stores no code" do
+    test "an adapter that raises is reported as code_send_failed, stores no code and gives back the request" do
       assert {:error, :code_send_failed} =
                with_mail_adapter(RaisingMailAdapter, fn ->
                  EmailCodeSignup.request_code(@email, "203.0.113.1")
                end)
 
       assert Repo.aggregate(EmailVerificationCode, :count) == 0
-      # The request was made, so it is counted against the email and the IP.
-      assert Repo.aggregate(EmailAuthEvent, :count) == 2
+      # No code was delivered, so the email's and the IP's slots are given back.
+      assert Repo.aggregate(EmailAuthEvent, :count) == 0
     end
   end
 
@@ -122,7 +122,8 @@ defmodule MealPlannerApi.Services.EmailCodeSignupTest do
       email: @email,
       purpose: if(user_id, do: :login, else: :signup),
       code_hash: EmailCodeAuth.hash_code(code),
-      expires_at: DateTime.add(DateTime.utc_now(), 600, :second)
+      expires_at: DateTime.add(DateTime.utc_now(), 600, :second),
+      delivered_at: DateTime.utc_now()
     })
   end
 
