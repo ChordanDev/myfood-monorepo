@@ -73,7 +73,7 @@ Request body:
 
 Rules:
 
-- `code` is the six-digit code from the email. Only the latest code requested for an email can verify.
+- `code` is the six-digit code from the email. Only the latest code whose email was sent can verify.
 - `deviceId` is a non-blank string that names the phone, in practice a UUID the app generates and keeps.
   The session it opens replaces the one the same User already had on that device.
 - A sign-up verify creates the User, their individual Account, the owner Membership and the Trial.
