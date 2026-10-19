@@ -6,6 +6,7 @@ defmodule MealPlannerApi.Services.GenerationService do
   caller (GenerationServer). This separation makes GenerationServer testable.
   """
 
+  alias MealPlannerApi.Persistence.Planning.ScheduledMeal
   alias MealPlannerApi.Services.RecipeVersions
 
   # -------------------------------------------------------------------------
@@ -105,11 +106,21 @@ defmodule MealPlannerApi.Services.GenerationService do
     "#{date}_#{slot}"
   end
 
-  @doc "Parses a slot_key back into {date, slot}."
-  @spec parse_slot_key(String.t()) :: {String.t(), atom()}
+  @doc """
+  Parses a slot_key back into `{date, slot}`.
+
+  The slot is one of the Meal slots `ScheduledMeal.slot` holds. A key whose
+  slot is any other name, or that has no slot, answers `:error`; no atom is
+  made out of the key.
+  """
+  @spec parse_slot_key(String.t()) :: {:ok, {String.t(), atom()}} | :error
   def parse_slot_key(slot_key) when is_binary(slot_key) do
-    [date, slot] = String.split(slot_key, "_", parts: 2)
-    {date, String.to_existing_atom(slot)}
+    with [date, slot_name] <- String.split(slot_key, "_", parts: 2),
+         {slot, _name} <- List.keyfind(Ecto.Enum.mappings(ScheduledMeal, :slot), slot_name, 1) do
+      {:ok, {date, slot}}
+    else
+      _ -> :error
+    end
   end
 
   # -------------------------------------------------------------------------
