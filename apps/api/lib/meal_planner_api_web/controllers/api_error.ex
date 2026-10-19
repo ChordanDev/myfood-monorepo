@@ -237,7 +237,7 @@ defmodule MealPlannerApiWeb.ApiError do
     # Moving a Scheduled meal (issue #144). A missing, malformed-id and
     # other-Account meal reply `scheduled_meal_not_found`. Keep these above
     # the planning channel rows too.
-    scheduled_meal_cooked: {409, "A cooked meal cannot be moved."},
+    scheduled_meal_cooked: {409, "A cooked meal cannot be moved or replaced."},
     calendar_conflict: {409, "The calendar changed while the meal was moved. Nothing was saved."},
     # Stored rows that cannot follow the meal: a retry fails the same way.
     calendar_move_not_possible: {409, "This meal cannot be moved there. Nothing was saved."},

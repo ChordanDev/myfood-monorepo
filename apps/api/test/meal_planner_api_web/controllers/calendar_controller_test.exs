@@ -518,7 +518,8 @@ defmodule MealPlannerApiWeb.CalendarControllerTest do
       assert Enum.any?(meals, &(&1.date == ~D[2026-07-03] and &1.slot == :dinner))
     end
 
-    test "keeps recipe, cooked flag and quantity of the replacement meals", %{conn: conn} do
+    test "keeps recipe and quantity of the replacement meals and stores them not cooked",
+         %{conn: conn} do
       user =
         user_with_memberships(
           %{email: "calendar-controller-keep-attrs@example.com"},
@@ -567,8 +568,62 @@ defmodule MealPlannerApiWeb.CalendarControllerTest do
         )
 
       assert meal.recipe_id == recipe.id
-      assert meal.is_cooked == true
+      # Issue #368: marking a meal cooked consumes Inventory, which only
+      # `set_is_cooked` and a Cooking session do.
+      assert meal.is_cooked == false
       assert meal.selected_quantity == 2
+    end
+
+    test "keeps the cooked meals of the range, cooked", %{conn: conn} do
+      {membership, token} = range_owner!("calendar-controller-keeps-cooked@example.com")
+      cooked = cooked_meal!(membership.account_id, ~D[2026-07-02], :lunch)
+
+      conn =
+        conn
+        |> put_req_header("authorization", "Bearer " <> token)
+        |> put("/api/calendar/meals/range", %{
+          "from" => "2026-07-01",
+          "to" => "2026-07-07",
+          "meals" => [%{"date" => "2026-07-03", "slot" => "dinner"}]
+        })
+
+      assert %{"data" => %{"replaced" => 1}} = json_response(conn, 200)
+
+      meals =
+        PlanningRepo.list_scheduled_meals(membership.account_id, ~D[2026-07-01], ~D[2026-07-07])
+
+      cooked_id = cooked.id
+      assert [{^cooked_id, true}, {_new_id, false}] = Enum.map(meals, &{&1.id, &1.is_cooked})
+    end
+
+    test "answers 409 and changes no meal when a meal lands on a cooked one", %{conn: conn} do
+      {membership, token} = range_owner!("calendar-controller-refuses-cooked@example.com")
+      cooked = cooked_meal!(membership.account_id, ~D[2026-07-02], :lunch)
+
+      {:ok, planned} =
+        Calendar.upsert_scheduled_meal(membership.account_id, %{
+          date: ~D[2026-07-04],
+          slot: :dinner
+        })
+
+      conn =
+        conn
+        |> put_req_header("authorization", "Bearer " <> token)
+        |> put("/api/calendar/meals/range", %{
+          "from" => "2026-07-01",
+          "to" => "2026-07-07",
+          "meals" => [
+            %{"date" => "2026-07-02", "slot" => "lunch"},
+            %{"date" => "2026-07-03", "slot" => "dinner"}
+          ]
+        })
+
+      assert %{"error" => %{"code" => "scheduled_meal_cooked"}} = json_response(conn, 409)
+
+      meals =
+        PlanningRepo.list_scheduled_meals(membership.account_id, ~D[2026-07-01], ~D[2026-07-07])
+
+      assert [{cooked.id, true}, {planned.id, false}] == Enum.map(meals, &{&1.id, &1.is_cooked})
     end
 
     test "returns 422 when `from` is missing", %{conn: conn} do
@@ -929,7 +984,7 @@ defmodule MealPlannerApiWeb.CalendarControllerTest do
     end
 
     test "answers 409 for a cooked meal on either side", f do
-      cooked = scheduled!(f.account_id, f.tomorrow, :dinner, %{is_cooked: true})
+      cooked = cooked_meal!(f.account_id, f.tomorrow, :dinner)
       source = scheduled!(f.account_id, f.tomorrow, :lunch)
 
       for {meal, destination} <- [{cooked, {f.today, "lunch"}}, {source, {f.tomorrow, "dinner"}}] do
@@ -1182,5 +1237,16 @@ defmodule MealPlannerApiWeb.CalendarControllerTest do
       assert %{"error" => "invalid_date_format"} = json_response(slot_on.("0000-12-31"), 422)
       assert %{"data" => %{"date" => "0001-01-01"}} = json_response(slot_on.("0001-01-01"), 200)
     end
+  end
+
+  defp range_owner!(email) do
+    user = user_with_memberships(%{email: email}, [{%{name: email, plan: :family_4}, :owner}])
+    [membership] = user.memberships
+    {membership, issue_access_v2_token(user, membership)}
+  end
+
+  defp cooked_meal!(account_id, date, slot) do
+    {:ok, meal} = Calendar.upsert_scheduled_meal(account_id, %{date: date, slot: slot})
+    meal |> Planning.ScheduledMeal.changeset(%{is_cooked: true}) |> Repo.update!()
   end
 end

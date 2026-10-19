@@ -146,6 +146,9 @@ defmodule MealPlannerApiWeb.CalendarController do
   defp parse_replacement_meals(nil), do: {:error, "missing_meals"}
   defp parse_replacement_meals(_), do: {:error, "invalid_meals"}
 
+  defp render_error(conn, :scheduled_meal_cooked),
+    do: conn |> ApiError.error(:scheduled_meal_cooked)
+
   defp render_error(conn, reason) do
     conn
     |> put_status(:unprocessable_entity)

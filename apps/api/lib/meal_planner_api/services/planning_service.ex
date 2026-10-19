@@ -144,13 +144,6 @@ defmodule MealPlannerApi.Services.PlanningService do
     Enum.map(meals, &serialize_scheduled_meal/1)
   end
 
-  @spec mark_meal_cooked(Ecto.UUID.t()) :: {:ok, map()}
-  def mark_meal_cooked(meal_id) do
-    meal = PlanningRepo.get_scheduled_meal!(meal_id)
-    {:ok, updated} = PlanningRepo.update_scheduled_meal(meal, %{is_cooked: true})
-    {:ok, serialize_scheduled_meal(updated)}
-  end
-
   @spec delete_scheduled_meal(Ecto.UUID.t()) :: :ok | {:error, term()}
   def delete_scheduled_meal(meal_id) do
     PlanningRepo.delete_scheduled_meal(meal_id)

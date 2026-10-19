@@ -104,9 +104,13 @@ defmodule MealPlannerApi.Persistence.Calendar do
     }
   end
 
+  # An upsert never changes `is_cooked` (issue #368): marking a meal cooked
+  # consumes its Ingredients from Inventory, which `CookingService` does. A new
+  # meal starts not cooked and an existing one keeps its mark.
   def upsert_scheduled_meal(account_id, attrs) do
     date = Map.fetch!(attrs, :date)
     slot = Map.fetch!(attrs, :slot)
+    attrs = Map.delete(attrs, :is_cooked)
 
     case Repo.get_by(ScheduledMeal, account_id: account_id, date: date, slot: slot) do
       nil ->
@@ -166,12 +170,26 @@ defmodule MealPlannerApi.Persistence.Calendar do
     Ecto.ConstraintError -> {:error, :persistence_error}
   end
 
+  # The cooked meals of the range stay, cooked (issue #368). A replacement
+  # meal on the date and slot of one refuses the whole replacement; the meals
+  # are locked first, so a concurrent mark as cooked is seen here.
   defp replace_range_transaction(account_id, from_date, to_date, normalized_meals) do
     Multi.new()
     |> PlanningRepo.delete_scheduled_meals_for_range(account_id, {from_date, to_date})
+    |> Multi.run(:cooked_meals_kept, fn _repo, %{scheduled_meals_range_lock: locked} ->
+      refuse_cooked_slots(locked, normalized_meals)
+    end)
     |> PlanningRepo.insert_scheduled_meals(account_id, normalized_meals)
     |> Repo.transaction()
     |> map_replacement_result()
+  end
+
+  defp refuse_cooked_slots(locked, normalized_meals) do
+    cooked = for meal <- locked, meal.is_cooked, into: MapSet.new(), do: {meal.date, meal.slot}
+
+    if Enum.any?(normalized_meals, &MapSet.member?(cooked, {&1.date, &1.slot})),
+      do: {:error, :scheduled_meal_cooked},
+      else: {:ok, MapSet.size(cooked)}
   end
 
   defp validate_range(%Date{} = from_date, %Date{} = to_date) do
@@ -208,7 +226,7 @@ defmodule MealPlannerApi.Persistence.Calendar do
   end
 
   defp replacement_meal_attrs(meal, date, slot) do
-    [:recipe_id, :is_cooked, :ai_generation_id, :selected_quantity]
+    [:recipe_id, :ai_generation_id, :selected_quantity]
     |> Enum.reduce(%{}, fn key, acc ->
       case meal_value(meal, key) do
         nil -> acc
@@ -247,6 +265,9 @@ defmodule MealPlannerApi.Persistence.Calendar do
 
   defp map_replacement_result({:ok, %{scheduled_meals_replacement: {count, _}}}),
     do: {:ok, %{replaced: count}}
+
+  defp map_replacement_result({:error, :cooked_meals_kept, reason, _changes}),
+    do: {:error, reason}
 
   defp map_replacement_result({:error, _step, _reason, _changes}),
     do: {:error, :persistence_error}
