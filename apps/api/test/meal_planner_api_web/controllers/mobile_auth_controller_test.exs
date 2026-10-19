@@ -570,7 +570,7 @@ defmodule MealPlannerApiWeb.MobileAuthControllerTest do
       assert Repo.all(EmailAuthEvent) == []
     end
 
-    test "twenty failures from one IP rate limit its next verification, across emails", %{
+    test "twenty failures from one IP rate limit its next wrong code, across emails", %{
       conn: conn
     } do
       user = insert_owner!("login-ip-spray@example.com")
@@ -586,37 +586,91 @@ defmodule MealPlannerApiWeb.MobileAuthControllerTest do
       limited =
         conn
         |> from_client("203.0.113.32")
-        |> post(@verify_path, verify_body(user.email, "123456"))
+        |> post(@verify_path, verify_body(user.email, "000000"))
 
       assert_error(limited, 429, "rate_limited")
       assert retry_after(limited) in 3_590..3_600
+
+      # The refused failure is not recorded against the IP, but it still
+      # counts as an attempt on the code.
+      assert Repo.aggregate(EmailAuthEvent, :count) == 20
+
+      assert [%EmailVerificationCode{consumed_at: nil, attempts: 1}] =
+               Repo.all(EmailVerificationCode)
     end
 
-    test "a limited IP is refused even with the right code, which stays usable elsewhere", %{
+    test "wrong codes from an IP over the limit still lock the code after the attempt cap", %{
+      conn: conn
+    } do
+      user = insert_owner!("login-ip-capped@example.com")
+      insert_code!(user, "123456")
+
+      for _ <- 1..20 do
+        insert_verify_failure_event!("203.0.113.36", seconds_ago(600))
+      end
+
+      for _ <- 1..EmailCodeAuth.max_code_attempts() do
+        conn
+        |> from_client("203.0.113.36")
+        |> post(@verify_path, verify_body(user.email, "000000"))
+        |> assert_error(429, "rate_limited")
+      end
+
+      assert [%EmailVerificationCode{consumed_at: nil, attempts: 5}] =
+               Repo.all(EmailVerificationCode)
+
+      # The cap holds whatever IP the right code then comes from.
+      conn
+      |> from_client("203.0.113.37")
+      |> post(@verify_path, verify_body(user.email, "123456"))
+      |> assert_error(429, "too_many_attempts")
+    end
+
+    test "a right code logs in from an IP over the limit, whoever spent its failures", %{
       conn: conn
     } do
       user = insert_owner!("login-ip-limited@example.com")
       insert_code!(user, "123456")
 
-      for _ <- 1..20 do
-        insert_verify_failure_event!("203.0.113.33", seconds_ago(600))
-      end
-
-      limited =
+      for n <- 1..20 do
         conn
         |> from_client("203.0.113.33")
-        |> post(@verify_path, verify_body(user.email, "123456"))
-
-      assert_error(limited, 429, "rate_limited")
-      assert retry_after(limited) in 2_990..3_000
-
-      # The refused request neither spent the code nor counted as an attempt.
-      assert [%EmailVerificationCode{consumed_at: nil, attempts: 0}] =
-               Repo.all(EmailVerificationCode)
+        |> post(@verify_path, verify_body("login-lockout-#{n}@example.com", "000000"))
+        |> assert_error(422, "code_invalid")
+      end
 
       assert %{"accessToken" => _} =
                conn
-               |> from_client("203.0.113.34")
+               |> from_client("203.0.113.33")
+               |> post(@verify_path, verify_body(user.email, "123456"))
+               |> json_response(200)
+
+      assert [%EmailVerificationCode{consumed_at: %DateTime{}}] = Repo.all(EmailVerificationCode)
+      assert Repo.aggregate(EmailAuthEvent, :count) == 20
+    end
+
+    test "a right code logs in when the unresolved-IP bucket is over the limit", %{conn: conn} do
+      user = insert_owner!("login-ip-unresolved@example.com")
+      insert_code!(user, "123456")
+      # A Unix-socket peer has no IP, so ClientIp.resolve/1 answers nil.
+      unresolved = %{conn | remote_ip: {:local, "/tmp/api.sock"}}
+
+      for n <- 1..20 do
+        unresolved
+        |> post(@verify_path, verify_body("login-unresolved-#{n}@example.com", "000000"))
+        |> assert_error(422, "code_invalid")
+      end
+
+      assert EmailAuthEvent |> Repo.all() |> Enum.map(& &1.client_ip) |> Enum.uniq() == [
+               "unresolved"
+             ]
+
+      unresolved
+      |> post(@verify_path, verify_body(user.email, "000000"))
+      |> assert_error(429, "rate_limited")
+
+      assert %{"accessToken" => _} =
+               unresolved
                |> post(@verify_path, verify_body(user.email, "123456"))
                |> json_response(200)
     end

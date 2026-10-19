@@ -12,7 +12,6 @@ defmodule MealPlannerApi.Services.EmailCodeAuthTest do
 
   import Ecto.Query
 
-  alias Ecto.Adapters.SQL
   alias Ecto.Adapters.SQL.Sandbox
   alias MealPlannerApi.Persistence.Accounts.User, as: PersistenceUser
   alias MealPlannerApi.Persistence.Auth.EmailAuthEvent
@@ -351,34 +350,17 @@ defmodule MealPlannerApi.Services.EmailCodeAuthTest do
   end
 
   describe "per-IP verify failures" do
-    test "check_verify_failures/1 rate limits an IP once it has 20 failures in the hour" do
-      for _ <- 1..19 do
-        in_transaction(fn -> EmailCodeAuth.reserve_verify_failure("203.0.113.90") end)
+    test "reserve_verify_failure/1 rate limits an IP once it has 20 failures in the hour" do
+      for _ <- 1..20 do
+        assert :ok =
+                 in_transaction(fn -> EmailCodeAuth.reserve_verify_failure("203.0.113.90") end)
       end
 
-      assert :ok = in_transaction(fn -> EmailCodeAuth.check_verify_failures("203.0.113.90") end)
-
-      in_transaction(fn -> EmailCodeAuth.reserve_verify_failure("203.0.113.90") end)
-
       assert {:error, :rate_limited, retry_after} =
-               in_transaction(fn -> EmailCodeAuth.check_verify_failures("203.0.113.90") end)
+               in_transaction(fn -> EmailCodeAuth.reserve_verify_failure("203.0.113.90") end)
 
       assert retry_after in 3_590..3_600
-      assert :ok = in_transaction(fn -> EmailCodeAuth.check_verify_failures("203.0.113.91") end)
-    end
-
-    test "check_verify_failures/1 takes no lock, so verifications from one IP do not wait on each other" do
-      # The sandbox keeps every transaction-scoped lock until the test
-      # ends, so the check is measured by the locks it adds, on an IP
-      # nothing has locked yet.
-      {before, after_check} =
-        in_transaction(fn ->
-          before = advisory_lock_count()
-          assert :ok = EmailCodeAuth.check_verify_failures("203.0.113.94")
-          {before, advisory_lock_count()}
-        end)
-
-      assert after_check == before
+      assert :ok = in_transaction(fn -> EmailCodeAuth.reserve_verify_failure("203.0.113.91") end)
     end
 
     test "reserve_verify_failure/1 refuses the failure past the limit and records nothing" do
@@ -408,7 +390,7 @@ defmodule MealPlannerApi.Services.EmailCodeAuthTest do
         in_transaction(fn -> EmailCodeAuth.reserve_verify_failure("203.0.113.93") end)
       end
 
-      assert :ok = in_transaction(fn -> EmailCodeAuth.check_verify_failures("203.0.113.92") end)
+      assert :ok = in_transaction(fn -> EmailCodeAuth.reserve_verify_failure("203.0.113.92") end)
       assert :ok = in_transaction(fn -> EmailCodeAuth.reserve_ip_request_slot("203.0.113.93") end)
     end
 
@@ -418,7 +400,7 @@ defmodule MealPlannerApi.Services.EmailCodeAuthTest do
       end
 
       assert {:error, :rate_limited, _retry_after} =
-               in_transaction(fn -> EmailCodeAuth.check_verify_failures(nil) end)
+               in_transaction(fn -> EmailCodeAuth.reserve_verify_failure(nil) end)
     end
 
     test "an IPv6 /64 shares one failure count across its addresses" do
@@ -429,11 +411,11 @@ defmodule MealPlannerApi.Services.EmailCodeAuthTest do
 
       assert {:error, :rate_limited, _retry_after} =
                in_transaction(fn ->
-                 EmailCodeAuth.check_verify_failures("2001:db8:5:6:ffff::1")
+                 EmailCodeAuth.reserve_verify_failure("2001:db8:5:6:ffff::1")
                end)
 
       assert :ok =
-               in_transaction(fn -> EmailCodeAuth.check_verify_failures("2001:db8:5:7::1") end)
+               in_transaction(fn -> EmailCodeAuth.reserve_verify_failure("2001:db8:5:7::1") end)
     end
 
     # Failed verifications keep the /64 bucket alone: no /56 limit applies.
@@ -442,9 +424,6 @@ defmodule MealPlannerApi.Services.EmailCodeAuthTest do
         client_ip = "2001:db8:a:#{rem(n, 6)}::#{Integer.to_string(n + 1, 16)}"
         assert :ok = in_transaction(fn -> EmailCodeAuth.reserve_verify_failure(client_ip) end)
       end
-
-      assert :ok =
-               in_transaction(fn -> EmailCodeAuth.check_verify_failures("2001:db8:a:ff::1") end)
 
       assert :ok =
                in_transaction(fn -> EmailCodeAuth.reserve_verify_failure("2001:db8:a:ff::1") end)
@@ -459,29 +438,17 @@ defmodule MealPlannerApi.Services.EmailCodeAuthTest do
 
       assert {:error, :rate_limited, _retry_after} =
                in_transaction(fn ->
-                 EmailCodeAuth.check_verify_failures("::ffff:203.0.113.94")
+                 EmailCodeAuth.reserve_verify_failure("::ffff:203.0.113.94")
                end)
 
       assert :ok =
                in_transaction(fn ->
-                 EmailCodeAuth.check_verify_failures("::ffff:203.0.113.95")
+                 EmailCodeAuth.reserve_verify_failure("::ffff:203.0.113.95")
                end)
     end
   end
 
   # ---- Helpers ----------------------------------------------------------------
-
-  # Advisory locks this connection holds right now.
-  defp advisory_lock_count do
-    %{rows: [[count]]} =
-      SQL.query!(
-        Repo,
-        "SELECT count(*) FROM pg_locks WHERE locktype = 'advisory' AND pid = pg_backend_pid()",
-        []
-      )
-
-    count
-  end
 
   # Spends the 100 requests of the /56 `prefix`::/56 from six of its /64s,
   # none of them past its own limit of 20.

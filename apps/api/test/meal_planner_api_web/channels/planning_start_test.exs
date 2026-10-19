@@ -16,6 +16,7 @@ defmodule MealPlannerApiWeb.PlanningStartTest do
     only: [
       answer_optimizer_request: 1,
       insert_recipe: 2,
+      optimizer_request_payload: 1,
       start_optimizer_server!: 0,
       stop_generation_server: 1
     ]
@@ -24,6 +25,7 @@ defmodule MealPlannerApiWeb.PlanningStartTest do
 
   alias MealPlannerApi.Data.{AccountRepo, PlanningRepo, RecipeRepo}
   alias MealPlannerApi.Generation.Server
+  alias MealPlannerApi.HouseholdDietFixtures
   alias MealPlannerApi.Persistence.Accounts.Account
   alias MealPlannerApi.Persistence.Accounts.{AccountMembership, User}
   alias MealPlannerApi.Persistence.Leftovers
@@ -696,6 +698,45 @@ defmodule MealPlannerApiWeb.PlanningStartTest do
       assert session_children() == sessions_before
       refute_push("generation_started", _payload)
       assert Repo.aggregate(PlanningGenerationRun, :count) == 0
+    end
+  end
+
+  # Issue #311: `start_planning` names no participants, so the plan is for
+  # every active member of the Account and the engine is offered only the
+  # recipes that respect each one's rules.
+  describe "participants (#311)" do
+    test "the engine is offered only recipes every active member can eat", %{
+      account: account,
+      user: user,
+      token: token
+    } do
+      household = HouseholdDietFixtures.household_diet!(account, user)
+      breakfast = HouseholdDietFixtures.insert_safe_recipe!(account, user, "Oats", [:breakfast])
+      optimizer = start_optimizer_server!()
+
+      socket = join_planning!(token, account)
+      ref = push(socket, "start_planning", %{"rangeFrom" => in_days(1), "dayCount" => 2})
+
+      assert_reply(ref, :ok, %{"sessionId" => _})
+      assert_push("generation_started", %{"runId" => run_id})
+
+      offered_ids =
+        optimizer
+        |> optimizer_request_payload()
+        |> Map.fetch!("candidates_by_slot")
+        |> Map.values()
+        |> List.flatten()
+        |> Enum.map(& &1["recipe_id"])
+        |> Enum.uniq()
+        |> Enum.sort()
+
+      assert offered_ids == Enum.sort([breakfast.id | household.safe_recipe_ids])
+
+      assert Enum.sort(persisted_constraints(run_id)["participant_ids"]) ==
+               Enum.sort([user.id, household.member.id])
+
+      answer_optimizer_request(optimizer)
+      stop_generation_server(account.id)
     end
   end
 

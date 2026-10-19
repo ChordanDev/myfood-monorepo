@@ -5,6 +5,7 @@ defmodule MealPlannerApiWeb.PlanningChatControllerTest do
   import MealPlannerApi.IdentityFixtures
 
   alias MealPlannerApi.Auth.Guardian
+  alias MealPlannerApi.HouseholdDietFixtures
   alias MealPlannerApi.Persistence.Calendar
   alias MealPlannerApi.Persistence.Catalog
   alias MealPlannerApi.Persistence.Planning.{PlanningGenerationRun, PlanningProposal}
@@ -130,6 +131,31 @@ defmodule MealPlannerApiWeb.PlanningChatControllerTest do
     assert length(body["data"]["proposal"]["scheduledMeals"]) == 6
     assert is_map(body["data"]["proposal"]["weeklyPlan"])
     assert length(body["data"]["proposal"]["weeklyPlan"]["days"]) >= 2
+  end
+
+  # Issue #311: a chat request names no participants, so the menu is for
+  # every active member of the Account and respects each one's rules.
+  test "planning chat applies the rules of every active member, not only the requester's",
+       %{conn: conn} do
+    %{token: token, user: requester, account: account} =
+      insert_identity_with_token!(plan: :family_4)
+
+    household = HouseholdDietFixtures.household_diet!(account, requester)
+
+    body =
+      conn
+      |> put_req_header("authorization", "Bearer " <> token)
+      |> post("/api/planning/chat", %{
+        "message" => "Necesito menu para la semana",
+        "date_from" => "2026-03-23",
+        "date_to" => "2026-03-24"
+      })
+      |> json_response(200)
+
+    recipe_ids = Enum.map(body["data"]["proposal"]["scheduledMeals"], & &1["recipeId"])
+
+    assert recipe_ids != []
+    assert Enum.all?(recipe_ids, &(&1 in household.safe_recipe_ids))
   end
 
   # Issue #28 — reject goes through the session flow: the generation server

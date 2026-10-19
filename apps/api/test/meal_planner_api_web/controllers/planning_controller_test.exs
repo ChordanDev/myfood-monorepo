@@ -10,6 +10,7 @@ defmodule MealPlannerApiWeb.PlanningControllerTest do
   alias MealPlannerApi.Auth.Guardian
   alias MealPlannerApi.Data.PlanningRepo
   alias MealPlannerApi.Generation.Server
+  alias MealPlannerApi.HouseholdDietFixtures
   alias MealPlannerApi.Persistence.Accounts.AccountMembership
   alias MealPlannerApi.Persistence.Calendar
   alias MealPlannerApi.Persistence.Catalog
@@ -74,6 +75,60 @@ defmodule MealPlannerApiWeb.PlanningControllerTest do
 
       assert recipe_a.id in breakfast_recipe_ids
     end
+  end
+
+  # Issue #311: a plan names no participants, so it is for every active
+  # member of the Account, and the dietary rules of each one shape it.
+  describe "GET /api/planning/weekly participants (issue #311)" do
+    test "applies the rules of every active member, not only the requester's", %{conn: conn} do
+      %{token: token, user: requester, account: account} =
+        insert_identity_with_token!(plan: :family_4)
+
+      household = HouseholdDietFixtures.household_diet!(account, requester)
+
+      recipe_ids =
+        conn
+        |> put_req_header("authorization", "Bearer " <> token)
+        |> get("/api/planning/weekly")
+        |> json_response(200)
+        |> weekly_recipe_ids()
+
+      assert recipe_ids != []
+      assert Enum.all?(recipe_ids, &(&1 in household.safe_recipe_ids))
+    end
+
+    test "a single-member Account plans with its own rules, as before", %{conn: conn} do
+      %{token: token, user: requester, account: account} = insert_identity_with_token!()
+      safe = HouseholdDietFixtures.insert_safe_recipe!(account, requester, "Solo bowl", [:lunch])
+
+      _blocked =
+        HouseholdDietFixtures.insert_excluded_recipe!(
+          account,
+          requester,
+          requester,
+          "Solo nuts",
+          [
+            :lunch
+          ]
+        )
+
+      recipe_ids =
+        conn
+        |> put_req_header("authorization", "Bearer " <> token)
+        |> get("/api/planning/weekly")
+        |> json_response(200)
+        |> weekly_recipe_ids()
+
+      assert recipe_ids != []
+      assert Enum.all?(recipe_ids, &(&1 == safe.id))
+    end
+  end
+
+  defp weekly_recipe_ids(body) do
+    body["data"]["days"]
+    |> Enum.flat_map(& &1["meals"])
+    |> Enum.map(& &1["recipeId"])
+    |> Enum.reject(&is_nil/1)
   end
 
   test "requires auth token", %{conn: conn} do

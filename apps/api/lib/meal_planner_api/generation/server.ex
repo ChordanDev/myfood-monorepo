@@ -268,8 +268,8 @@ defmodule MealPlannerApi.Generation.Server do
            state.account_id,
            state.user_id
          ) do
-      {:ok, _constraints, _context} ->
-        run_authorized_pipeline(state)
+      {:ok, _constraints, %{participant_ids: participant_ids}} ->
+        run_authorized_pipeline(state, participant_ids)
 
       {:error, reason} ->
         broadcast(state, "generation_error", %{reason: Atom.to_string(reason)})
@@ -277,10 +277,11 @@ defmodule MealPlannerApi.Generation.Server do
     end
   end
 
-  defp run_authorized_pipeline(state) do
+  # `participant_ids` are the ones `PlanningRequestValidator` admitted: the
+  # request's own list, or every active member of the Account (issue #311).
+  defp run_authorized_pipeline(state, participant_ids) do
     %{
       account_id: account_id,
-      user_id: user_id,
       current_run_id: run_id,
       constraints: constraints
     } = state
@@ -288,7 +289,6 @@ defmodule MealPlannerApi.Generation.Server do
     # The candidate builder is the only recipe source. Client/AI payloads may
     # describe preferences, but never recipe IDs or account scope.
     descriptors = build_slot_descriptors(constraints)
-    participant_ids = constraints["participant_ids"] || constraints[:participant_ids] || [user_id]
 
     case PlanningCandidateBuilder.build_candidate_set(account_id, descriptors, participant_ids) do
       {:ok, %{slots: canonical_slots}} ->

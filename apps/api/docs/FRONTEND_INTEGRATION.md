@@ -144,9 +144,11 @@ Content-Type: application/json
 
 **Errores:** `422 code_invalid` (código incorrecto, o `deviceId` ausente o vacío), `401 code_expired`,
 `429 too_many_attempts` (el código quedó bloqueado; pedir uno nuevo), `401 account_not_found` (el usuario
-no tiene una membership activa) y `429 rate_limited` (la IP del cliente acumuló 20 verificaciones fallidas
-en la última hora; el header `retry-after` trae la espera en segundos y el código no se revisa, así que
-sigue valiendo). Si la sesión no se puede abrir después de un código correcto, el código no se gasta y se
+no tiene una membership activa) y `429 rate_limited` (código incorrecto, vencido o bloqueado desde una IP
+que acumuló 20 verificaciones fallidas en la última hora; el header `retry-after` trae la espera en
+segundos. Un código correcto y vigente nunca es rechazado por este límite; un código incorrecto igual
+cuenta como intento sobre el código. Si el código correcto recibe esta respuesta, venció o quedó
+bloqueado: pedir uno nuevo). Si la sesión no se puede abrir después de un código correcto, el código no se gasta y se
 puede reintentar. Al pedir el código: `422 invalid_email`, `404 email_not_found`, `429 rate_limited` (con
 el header `retry-after` en segundos) y `502 code_send_failed` (el código anterior sigue valiendo y se puede
 reintentar enseguida, aunque el pedido cuenta para el límite por hora).
@@ -601,7 +603,7 @@ Errores propios del código (además de los de la tabla de abajo):
 | `422` | `code_invalid` | Código incorrecto, no hay código pendiente para esta invitación, `code` no es un string con texto (un número, `null` o `""`), o falta `deviceId` o está vacío (en ese caso el código no se gasta) | Pedir que lo revise o pedir otro |
 | `401` | `code_expired` | Pasaron más de 10 minutos | Pedir otro código |
 | `429` | `too_many_attempts` | 5 intentos fallidos con este código; ya no sirve, ni el correcto | Pedir otro código |
-| `429` | `rate_limited` | Demasiados códigos fallidos desde esta IP en la última hora. Header `retry-after` | Esperar `retry-after` |
+| `429` | `rate_limited` | Código incorrecto, vencido o bloqueado, y demasiados códigos fallidos desde esta IP en la última hora; un código correcto y vigente entra igual. Header `retry-after` | Pedir que revise el código: el correcto y vigente entra igual. Si ya lo revisó, pedir otro código |
 
 **Response `200`** (con `name` o `Authorization`) — con la membership recién aceptada:
 ```json

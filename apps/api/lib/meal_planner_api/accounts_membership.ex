@@ -303,10 +303,11 @@ defmodule MealPlannerApi.AccountsMembership do
       checked and consumed as `MealPlannerApi.Services.EmailCodeLogin`
       checks a login code: only the latest pending invite code for that
       email matches, a wrong code counts against the code's attempt cap
-      and against `client_ip`'s hourly failure limit, and an IP over that
-      limit is refused before the code is looked at. A login or sign-up
-      code never matches. A stub accepted this way is claimed, so no
-      `name` accept can claim it afterwards. Extra errors:
+      and against `client_ip`'s hourly failure limit, and a failed check
+      (a wrong, expired or locked code) from an IP over that limit is
+      refused; a code that verifies is never refused by that limit. A
+      login or sign-up code never matches. A stub accepted this way is
+      claimed, so no `name` accept can claim it afterwards. Extra errors:
       `:code_invalid`, `:code_expired`, `:too_many_attempts` and
       `{:error, :rate_limited, retry_after}`. A `code` that is not a
       string is `:code_invalid` without a check, as the login refuses it,
