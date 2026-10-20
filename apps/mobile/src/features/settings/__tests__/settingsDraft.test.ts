@@ -242,6 +242,7 @@ describe('createBudgetDraft', () => {
     expect(createBudgetDraft(savedBudget)).toEqual({
       kind: 'budget',
       text: '45000',
+      savedWeeklyBudgetCents: 4500000,
       minWeeklyBudgetCents: 3000000,
     });
   });
@@ -262,6 +263,12 @@ describe('buildBudgetEdit', () => {
       ok: true,
       payload: { weeklyBudgetCents: 6000000 },
     });
+  });
+
+  it('has nothing to save when the amount is the one already saved', () => {
+    // So a default the owner did not change keeps following the tier.
+    expect(buildBudgetEdit(draft('45000'))).toEqual({ ok: true, payload: null });
+    expect(buildBudgetEdit(draft(' 45.000 '))).toEqual({ ok: true, payload: null });
   });
 
   it('accepts exactly the minimum', () => {

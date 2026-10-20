@@ -98,12 +98,15 @@ export interface BudgetDraft {
   kind: 'budget';
   /** Whole pesos, as typed. */
   text: string;
+  /** The Budget the sheet opened with, in cents. */
+  savedWeeklyBudgetCents: number;
   /** The least amount the server accepts, in cents. */
   minWeeklyBudgetCents: number;
 }
 
+// A null payload means nothing to save: the amount is the one already saved.
 export type BudgetEdit =
-  | { ok: true; payload: AccountBudgetPayload }
+  | { ok: true; payload: AccountBudgetPayload | null }
   | { ok: false; message: string };
 
 export type PreferenceDraft = DietDraft | HardRestrictionsDraft | SoftPreferencesDraft;
@@ -204,6 +207,7 @@ export function createBudgetDraft(saved: AccountBudget): BudgetDraft {
   return {
     kind: 'budget',
     text: String(Math.round(saved.weeklyBudgetCents / CENTS_PER_PESO)),
+    savedWeeklyBudgetCents: saved.weeklyBudgetCents,
     minWeeklyBudgetCents: saved.minWeeklyBudgetCents,
   };
 }
@@ -214,6 +218,8 @@ export function buildBudgetEdit(draft: BudgetDraft): BudgetEdit {
   if (!WHOLE_PESOS_PATTERN.test(text)) return { ok: false, message: BUDGET_INVALID_AMOUNT_MESSAGE };
 
   const weeklyBudgetCents = Number(text.replace(/\./g, '')) * CENTS_PER_PESO;
+  // Saving the shown amount sends nothing, so a tier default stays the default.
+  if (weeklyBudgetCents === draft.savedWeeklyBudgetCents) return { ok: true, payload: null };
   if (weeklyBudgetCents <= 0) return { ok: false, message: BUDGET_INVALID_AMOUNT_MESSAGE };
   if (weeklyBudgetCents > BUDGET_MAX_CENTS) return { ok: false, message: BUDGET_TOO_LARGE_MESSAGE };
   if (weeklyBudgetCents < draft.minWeeklyBudgetCents) {

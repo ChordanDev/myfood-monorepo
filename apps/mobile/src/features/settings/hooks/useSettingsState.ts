@@ -266,6 +266,11 @@ export function useSettingsState() {
         return;
       }
 
+      if (!edit.payload) {
+        hideSheet();
+        return;
+      }
+
       clearErrors();
       setIsSavingBudget(true);
       try {

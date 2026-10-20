@@ -1242,6 +1242,20 @@ describe('SettingsScreen', () => {
       expect(rowLabel(root, 'settings-row-budget')).toBe('Presupuesto semanal, $60.000');
     });
 
+    it('keeps following the tier default when the owner saves it unchanged', async () => {
+      const { root } = await renderScreen();
+
+      await press(root, 'settings-row-budget');
+      await typeInto(root, 'settings-budget-input', '45.000');
+      await press(root, 'settings-sheet-save');
+
+      expect(mockUpdateAccountBudget).not.toHaveBeenCalled();
+      expect(isSheetOpen(root)).toBe(false);
+      expect(rowLabel(root, 'settings-row-budget')).toBe(
+        'Presupuesto semanal, $45.000 (por defecto)'
+      );
+    });
+
     it('explains an amount below the minimum without sending it', async () => {
       const { root } = await renderScreen();
 
@@ -1261,6 +1275,7 @@ describe('SettingsScreen', () => {
       const { root } = await renderScreen();
 
       await press(root, 'settings-row-budget');
+      await typeInto(root, 'settings-budget-input', '60000');
       await press(root, 'settings-sheet-save');
 
       expect(isSheetOpen(root)).toBe(true);
