@@ -46,7 +46,7 @@ defmodule MealPlannerApi.AI do
         {:error, :ai_client_not_configured}
 
       MealPlannerApi.AI.MockClient ->
-        if current_env() == :test,
+        if mock_client_allowed?(current_env()),
           do: {:ok, MealPlannerApi.AI.MockClient},
           else: {:error, :ai_mock_client_forbidden}
 
@@ -57,6 +57,12 @@ defmodule MealPlannerApi.AI do
         {:error, :invalid_ai_client_configuration}
     end
   end
+
+  @doc false
+  # The environments whose `config/runtime.exs` accepts `AI_CLIENT=mock`:
+  # `test`, and `e2e` for the Maestro flows. A release runs as `:prod`.
+  @spec mock_client_allowed?(atom()) :: boolean()
+  def mock_client_allowed?(env), do: env in [:test, :e2e]
 
   defp ensure_client_ready(MealPlannerApi.AI.GeminiClient) do
     case System.get_env("GEMINI_API_KEY") do
