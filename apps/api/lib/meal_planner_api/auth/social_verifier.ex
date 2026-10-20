@@ -73,8 +73,9 @@ defmodule MealPlannerApi.Auth.SocialVerifier do
 
   defp verify_token("google", id_token, client_ids, opts) do
     url = option(opts, :google_tokeninfo_url, @default_google_tokeninfo_url)
+    request = [params: [id_token: id_token]]
 
-    with {:ok, claims} <- url |> get_json([params: [id_token: id_token]], opts) |> google_answer(),
+    with {:ok, claims} <- url |> get_json(request, opts) |> google_answer(),
          :ok <- validate_issuer(claims, @google_issuers),
          :ok <- validate_audience(claims, client_ids),
          :ok <- validate_expiry(claims) do
