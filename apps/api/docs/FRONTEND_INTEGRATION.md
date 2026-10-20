@@ -189,8 +189,11 @@ del login y el registro con código.
 - Errores: `401 social_token_invalid` (token ausente, mal formado, vencido o emitido para otra app;
   también un `deviceId` inválido), `422 social_email_unverified` (la primera vez, sin un email verificado),
   `422 social_provider_unsupported` (otro proveedor, o uno sin client ID configurado),
-  `401 account_not_found` (el usuario no tiene una membership activa) y `409 email_already_exists` (el
-  email pasó a tener un usuario mientras se registraba). Si el proveedor no responde, `500 unknown_error`.
+  `401 account_not_found` (el usuario no tiene una membership activa), `409 email_already_exists` (el
+  email pasó a tener un usuario mientras se registraba) y `429 rate_limited` (un token inválido desde una
+  IP que ya tiene 20 verificaciones fallidas en la última hora, contadas junto con los códigos por email;
+  el header `retry-after` trae la espera en segundos y un token válido nunca se rechaza por este límite).
+  Si el proveedor no responde, `500 unknown_error`.
 
 ### Renovar y cerrar la sesión
 

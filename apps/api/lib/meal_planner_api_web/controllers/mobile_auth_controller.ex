@@ -193,7 +193,12 @@ defmodule MealPlannerApiWeb.MobileAuthController do
       the token carries no email the provider marks verified;
     * `account_not_found` — the User has no active Membership;
     * `email_already_exists` — the email got a User while this sign-up was
-      being written.
+      being written;
+    * `rate_limited` (with a `retry-after` header in whole seconds) — the
+      token is invalid and the client IP (for IPv6, its whole /64 prefix)
+      already has #{@max_verify_failures_per_ip} failed verifications in
+      the last hour, counted together with failed email codes. Every
+      `social_token_invalid` counts; a valid token is never refused.
 
   A provider that cannot be reached answers `unknown_error`.
   """
@@ -205,10 +210,16 @@ defmodule MealPlannerApiWeb.MobileAuthController do
            SocialLogin.sign_in(
              params["provider"],
              params["idToken"],
-             &build_session(&1, &2, device_id)
+             &build_session(&1, &2, device_id),
+             limit_failures_by: ClientIp.resolve(conn)
            ) do
       render_session(conn, me, tokens)
     else
+      {:error, :rate_limited, retry_after} ->
+        conn
+        |> put_resp_header("retry-after", Integer.to_string(retry_after))
+        |> ApiError.error(:rate_limited)
+
       {:error, :device_id_invalid} ->
         conn |> ApiError.error(:social_token_invalid)
 

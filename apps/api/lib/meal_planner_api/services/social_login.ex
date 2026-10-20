@@ -32,6 +32,7 @@ defmodule MealPlannerApi.Services.SocialLogin do
   alias MealPlannerApi.Persistence.Accounts.UserEmail
   alias MealPlannerApi.Persistence.Auth.SocialIdentity
   alias MealPlannerApi.Repo
+  alias MealPlannerApi.Services.EmailCodeAuth
   alias MealPlannerApi.Services.EmailCodeLogin
 
   # First key of the two-key advisory lock form, apart from the ones
@@ -56,12 +57,20 @@ defmodule MealPlannerApi.Services.SocialLogin do
     * `{:error, :email_already_exists}` — the email got a User while this
       sign-up was being written.
     * `{:error, :registration_failed}` — the sign-up could not be written.
+    * `{:error, :rate_limited, retry_after}` — with `limit_failures_by:
+      client_ip`, the token is invalid and `client_ip` has already spent
+      its hourly failed verifications. Each `:invalid_token` counts against
+      it, in the bucket failed email-code verifications draw from
+      (`MealPlannerApi.Services.EmailCodeAuth.reserve_verify_failure/1`);
+      a valid token is never refused by it. `retry_after` is in whole
+      seconds, at least 1.
     * any error `open_session` answers.
   """
   @spec sign_in(
           term(),
           term(),
-          (User.t(), AccountMembership.t() -> {:ok, session} | {:error, reason})
+          (User.t(), AccountMembership.t() -> {:ok, session} | {:error, reason}),
+          keyword()
         ) ::
           {:ok, session}
           | {:error,
@@ -71,12 +80,31 @@ defmodule MealPlannerApi.Services.SocialLogin do
              | :email_already_exists
              | :registration_failed}
           | {:error, reason}
+          | {:error, :rate_limited, pos_integer()}
         when session: term(), reason: atom()
-  def sign_in(provider, id_token, open_session) do
-    with {:ok, identity} <- verifier().verify(provider, id_token, []) do
-      Repo.transaction(fn -> sign_in_identity(identity, open_session) end)
+  def sign_in(provider, id_token, open_session, opts \\ []) do
+    case verifier().verify(provider, id_token, []) do
+      {:ok, identity} ->
+        Repo.transaction(fn -> sign_in_identity(identity, open_session) end)
+
+      {:error, :invalid_token} ->
+        charge_failure(Keyword.fetch(opts, :limit_failures_by))
+
+      {:error, _reason} = error ->
+        error
     end
   end
+
+  # The counter's lock is held until its transaction ends, so concurrent
+  # failures from one IP cannot run past the limit together.
+  defp charge_failure({:ok, client_ip}) do
+    case Repo.transaction(fn -> EmailCodeAuth.reserve_verify_failure(client_ip) end) do
+      {:ok, :ok} -> {:error, :invalid_token}
+      {:ok, {:error, :rate_limited, _retry_after} = rate_limited} -> rate_limited
+    end
+  end
+
+  defp charge_failure(:error), do: {:error, :invalid_token}
 
   # Runs in the transaction; any error rolls back what it wrote.
   defp sign_in_identity(identity, open_session) do

@@ -8,6 +8,9 @@ defmodule MealPlannerApi.Auth.SocialVerifier do
       the audience and the expiry again.
     * `"apple"` — the token is an RS256 JWT verified against Apple's
       published keys, then its issuer, audience and expiry are checked.
+      The key set is cached for an hour per URL. A token naming a key the
+      cache lacks fetches it again at most once a minute, so forged tokens
+      cannot make every request call Apple.
 
   The audience must be one of the client IDs configured for the provider
   (`:google_oauth_client_ids`, `:apple_oauth_client_ids`). A provider with
@@ -48,6 +51,8 @@ defmodule MealPlannerApi.Auth.SocialVerifier do
 
   @default_google_tokeninfo_url "https://oauth2.googleapis.com/tokeninfo"
   @default_apple_jwks_url "https://appleid.apple.com/auth/keys"
+  @default_apple_jwks_ttl_seconds 3_600
+  @default_apple_jwks_min_refresh_seconds 60
 
   @doc """
   Verifies `id_token` for `provider`.
@@ -57,6 +62,11 @@ defmodule MealPlannerApi.Auth.SocialVerifier do
     * `:google_oauth_client_ids`, `:apple_oauth_client_ids` — the accepted
       audiences.
     * `:google_tokeninfo_url`, `:apple_jwks_url` — the provider endpoints.
+    * `:apple_jwks_ttl_seconds` (default #{@default_apple_jwks_ttl_seconds}),
+      `:apple_jwks_min_refresh_seconds` (default
+      #{@default_apple_jwks_min_refresh_seconds}) — how long a fetched key
+      set is used, and how soon a token naming an unknown key may fetch it
+      again.
     * `:req_options` — extra options for `Req`, such as a `:plug` in tests.
   """
   @impl true
@@ -166,15 +176,49 @@ defmodule MealPlannerApi.Auth.SocialVerifier do
     end
   end
 
+  defp fetch_apple_key(url, kid, opts) do
+    with {:ok, keys} <- apple_keys(url, kid, opts) do
+      case Enum.find(keys, &match?(%{"kid" => ^kid, "kty" => "RSA"}, &1)) do
+        nil -> {:error, :invalid_token}
+        key -> {:ok, JOSE.JWK.from_map(key)}
+      end
+    end
+  end
+
+  # The cached key set while it is younger than the TTL, unless the token
+  # names a key it lacks and the last fetch is older than the refresh
+  # interval: Apple may have rotated a key in.
+  defp apple_keys(url, kid, opts) do
+    now = System.monotonic_time(:second)
+
+    case :persistent_term.get({__MODULE__, :apple_jwks, url}, nil) do
+      %{keys: keys, fetched_at: fetched_at} ->
+        age = now - fetched_at
+        fresh? = age < option(opts, :apple_jwks_ttl_seconds, @default_apple_jwks_ttl_seconds)
+
+        known? =
+          Enum.any?(keys, &match?(%{"kid" => ^kid}, &1)) or
+            age <
+              option(
+                opts,
+                :apple_jwks_min_refresh_seconds,
+                @default_apple_jwks_min_refresh_seconds
+              )
+
+        if fresh? and known?, do: {:ok, keys}, else: fetch_apple_keys(url, now, opts)
+
+      nil ->
+        fetch_apple_keys(url, now, opts)
+    end
+  end
+
   # Apple's key set never depends on the token, so any failure to read it
   # is Apple's.
-  defp fetch_apple_key(url, kid, opts) do
+  defp fetch_apple_keys(url, now, opts) do
     case get_json(url, [], opts) do
       {:ok, %{"keys" => keys}} when is_list(keys) ->
-        case Enum.find(keys, &match?(%{"kid" => ^kid, "kty" => "RSA"}, &1)) do
-          nil -> {:error, :invalid_token}
-          key -> {:ok, JOSE.JWK.from_map(key)}
-        end
+        :persistent_term.put({__MODULE__, :apple_jwks, url}, %{keys: keys, fetched_at: now})
+        {:ok, keys}
 
       _failed ->
         {:error, :provider_unavailable}
@@ -197,11 +241,16 @@ defmodule MealPlannerApi.Auth.SocialVerifier do
   # not a JSON object included, is the provider's.
   defp get_json(url, request_options, opts) do
     options =
-      [receive_timeout: 10_000, retry: false]
+      [
+        receive_timeout: 10_000,
+        pool_timeout: 5_000,
+        connect_options: [timeout: 5_000],
+        retry: false
+      ]
       |> Keyword.merge(request_options)
       |> Keyword.merge(Keyword.get(opts, :req_options, []))
 
-    case Req.get(url, options) do
+    case request(url, options) do
       {:ok, %Req.Response{status: status, body: body}} when status in 200..299 and is_map(body) ->
         {:ok, body}
 
@@ -211,6 +260,14 @@ defmodule MealPlannerApi.Auth.SocialVerifier do
       _failed ->
         {:error, :provider_unavailable}
     end
+  end
+
+  # Finch raises when its connection pool is exhausted; that is the
+  # provider being unreachable too, not a crash of the request.
+  defp request(url, options) do
+    Req.get(url, options)
+  rescue
+    exception -> {:error, exception}
   end
 
   defp option(opts, key, default) do

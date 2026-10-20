@@ -23,6 +23,7 @@ defmodule MealPlannerApiWeb.MobileAuthSocialControllerTest do
 
   @path "/api/auth/social"
   @device_id "3f0c5f4e-6f0e-4a55-9d0b-1c7f1f6f2a10"
+  @max_failures MealPlannerApi.Services.EmailCodeAuth.max_verify_failures_per_ip()
 
   describe "POST /api/auth/social — sign-up" do
     test "a verified email with no User signs up and opens a session", %{conn: conn} do
@@ -276,6 +277,50 @@ defmodule MealPlannerApiWeb.MobileAuthSocialControllerTest do
     end
   end
 
+  describe "POST /api/auth/social — per-IP failure limit" do
+    test "once an IP has spent its failed verifications, its next invalid token is rate limited",
+         %{conn: conn} do
+      SocialVerifierFake.answer({:error, :invalid_token})
+
+      for _ <- 1..@max_failures do
+        conn = conn |> from_client("203.0.113.7") |> post(@path, body("apple"))
+        assert_error(conn, 401, "social_token_invalid")
+      end
+
+      conn = conn |> from_client("203.0.113.7") |> post(@path, body("apple"))
+
+      assert_error(conn, 429, "rate_limited")
+      assert [retry_after] = get_resp_header(conn, "retry-after")
+      assert String.to_integer(retry_after) >= 1
+
+      other = conn |> recycle() |> from_client("198.51.100.9") |> post(@path, body("apple"))
+      assert_error(other, 401, "social_token_invalid")
+    end
+
+    test "a valid token signs in from an IP over the limit", %{conn: conn} do
+      SocialVerifierFake.answer({:error, :invalid_token})
+
+      for _ <- 1..@max_failures do
+        conn |> from_client("203.0.113.8") |> post(@path, body("google"))
+      end
+
+      provider_answers("google", "google-sub-over-limit", "over-limit@example.com")
+
+      conn |> from_client("203.0.113.8") |> post(@path, body("google")) |> json_response(200)
+    end
+
+    test "only an invalid token counts as a failure", %{conn: conn} do
+      SocialVerifierFake.answer(
+        {:ok, %{provider: "google", subject: "google-sub-x", email: nil, email_verified: false}}
+      )
+
+      for _ <- 1..(@max_failures + 1) do
+        conn = conn |> from_client("203.0.113.9") |> post(@path, body("google"))
+        assert_error(conn, 422, "social_email_unverified")
+      end
+    end
+  end
+
   describe "POST /api/auth/social — Device session" do
     test "the refresh token it returns is renewed by POST /api/auth/refresh", %{conn: conn} do
       provider_answers("google", "google-sub-refresh", "refresh@example.com")
@@ -333,6 +378,12 @@ defmodule MealPlannerApiWeb.MobileAuthSocialControllerTest do
     %SocialIdentity{}
     |> SocialIdentity.changeset(%{user_id: user.id, provider: provider, subject: subject})
     |> Repo.insert!()
+  end
+
+  # Poses as `ip` through the header `config/test.exs` names as
+  # `:client_ip_header`.
+  defp from_client(conn, ip) do
+    put_req_header(conn, Application.fetch_env!(:meal_planner_api, :client_ip_header), ip)
   end
 
   defp assert_error(conn, status, code) do
