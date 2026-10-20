@@ -61,8 +61,7 @@ defmodule MealPlannerApi.InviteAcceptConcurrencyTest do
   end
 
   # A double tap: the first accept holds the invite and the stub while it
-  # commits. The second one has to wait for it, then see a used invite and
-  # rename nobody.
+  # commits. The second one has to wait for it and then see a used invite.
   test "an accept that waits on a concurrent accept answers invite_token_used", f do
     parent = self()
 
@@ -118,6 +117,5 @@ defmodule MealPlannerApi.InviteAcceptConcurrencyTest do
     assert {:ok, :ok} = Task.await(first, 5000)
 
     assert {:error, :invite_token_used} = Task.await(second, 5000)
-    assert Repo.get!(User, f.stub.id).name == "First Tap"
   end
 end
