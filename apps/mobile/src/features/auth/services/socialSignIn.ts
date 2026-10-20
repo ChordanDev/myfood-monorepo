@@ -47,9 +47,20 @@ async function requestGoogleIdToken(): Promise<string | null> {
   return response.data.idToken;
 }
 
-/** Google signs in on iOS and Android; Apple only on iOS, and not on every iOS device. */
+// The SDK cannot ask Google for an ID token without the web client ID, nor open its sheet on iOS
+// without the iOS one; a build without them shows no Google button.
+function isGoogleConfigured(): boolean {
+  if (!process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID) return false;
+  if (Platform.OS === 'ios') return Boolean(process.env.EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID);
+  return Platform.OS === 'android';
+}
+
+/**
+ * Google signs in on iOS and Android when the build has its client IDs; Apple only on iOS, and
+ * not on every iOS device.
+ */
 export async function isSocialProviderAvailable(provider: SocialProvider): Promise<boolean> {
-  if (provider === 'google') return Platform.OS === 'ios' || Platform.OS === 'android';
+  if (provider === 'google') return isGoogleConfigured();
   if (Platform.OS !== 'ios') return false;
   return AppleAuthentication.isAvailableAsync();
 }

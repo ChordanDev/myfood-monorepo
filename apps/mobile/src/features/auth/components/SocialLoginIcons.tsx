@@ -1,6 +1,7 @@
 import { Pressable, StyleSheet, View } from 'react-native';
 import { SvgXml } from 'react-native-svg';
 import { APPLE_SVG, GOOGLE_SVG } from '@/constants/svgIcons';
+import { useRecipeTheme } from '@/context/RecipeThemeContext';
 import type { SocialProvider } from '../types/auth';
 
 const PROVIDER_BUTTONS: Record<SocialProvider, { label: string; xml: string }> = {
@@ -25,6 +26,8 @@ export function SocialLoginIcons({
   containerSize = 48,
   gap = 64,
 }: SocialLoginIconsProps) {
+  const { theme } = useRecipeTheme();
+
   return (
     <View style={[styles.container, { gap }]}>
       {providers.map((provider) => (
@@ -40,7 +43,13 @@ export function SocialLoginIcons({
             styles.button,
             { width: containerSize, height: containerSize, opacity: disabled ? 0.55 : 1 },
           ]}>
-          <SvgXml xml={PROVIDER_BUTTONS[provider].xml} width={iconSize} height={iconSize} />
+          {/* Google's logo keeps its brand colors; Apple's is drawn in `currentColor`. */}
+          <SvgXml
+            xml={PROVIDER_BUTTONS[provider].xml}
+            width={iconSize}
+            height={iconSize}
+            color={theme.textBlack}
+          />
         </Pressable>
       ))}
     </View>

@@ -8,6 +8,7 @@
 
 import * as React from 'react';
 import { Alert, Platform, Text } from 'react-native';
+import { SvgXml } from 'react-native-svg';
 import * as AppleAuthentication from 'expo-apple-authentication';
 import { GoogleSignin } from '@react-native-google-signin/google-signin';
 import { act, create, type ReactTestInstance } from 'react-test-renderer';
@@ -153,10 +154,14 @@ describe('AuthLandingScreen sign-in entry points', () => {
     jest.mocked(AppleAuthentication.signInAsync).mockReset();
     jest.mocked(GoogleSignin.signIn).mockReset();
     jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+    process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID = 'web-client-id';
+    process.env.EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID = 'ios-client-id';
   });
 
   afterEach(() => {
     jest.restoreAllMocks();
+    delete process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID;
+    delete process.env.EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID;
   });
 
   it('offers Google and Apple on iOS, and never Facebook', async () => {
@@ -188,6 +193,33 @@ describe('AuthLandingScreen sign-in entry points', () => {
     expect(accessibilityLabels(root).filter((label) => SIGN_IN_PROVIDER.test(label))).toEqual([
       'Iniciar sesión con Google',
     ]);
+  });
+
+  it('hides Google in a build without its web client ID', async () => {
+    jest.replaceProperty(Platform, 'OS', 'android');
+    delete process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID;
+    const root = await renderScreen();
+
+    expect(accessibilityLabels(root).filter((label) => SIGN_IN_PROVIDER.test(label))).toEqual([]);
+  });
+
+  it('hides Google on iOS in a build without its iOS client ID', async () => {
+    jest.replaceProperty(Platform, 'OS', 'ios');
+    delete process.env.EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID;
+    const root = await renderScreen();
+
+    expect(accessibilityLabels(root).filter((label) => SIGN_IN_PROVIDER.test(label))).toEqual([
+      'Iniciar sesión con Apple',
+    ]);
+  });
+
+  it('draws the Apple logo in a palette color', async () => {
+    jest.replaceProperty(Platform, 'OS', 'ios');
+    const root = await renderScreen();
+
+    const logo = firstByTestId(root, 'e2e-social-apple').findByType(SvgXml);
+    expect(logo.props.xml).toContain('fill="currentColor"');
+    expect(logo.props.color).toBe(mockTheme.textBlack);
   });
 
   it('offers the login code request and the sign-up entry beside the provider buttons', async () => {
