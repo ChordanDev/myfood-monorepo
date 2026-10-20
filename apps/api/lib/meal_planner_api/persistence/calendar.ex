@@ -16,7 +16,8 @@ defmodule MealPlannerApi.Persistence.Calendar do
   @doc """
   The Home view of a date range. "Today" is the Account's (`AccountClock`) at
   `opts[:now]`, the current instant by default, and every meal carries
-  `is_skipped`: its date is before that today and it was not cooked, and
+  `is_skipped`: its date is before that today, it was not cooked, and it was
+  confirmed as not cooked or is past its confirmation window (issue #145), and
   `is_cooking`: its date is that today and it has an `active` Cooking session,
   so it cannot be moved.
   """
@@ -42,6 +43,7 @@ defmodule MealPlannerApi.Persistence.Calendar do
           date: m.date,
           slot: m.slot,
           is_cooked: m.is_cooked,
+          not_cooked_at: m.not_cooked_at,
           is_cooking: exists(subquery(active_cooking_session(today))),
           recipe_id: m.recipe_id,
           recipe_name:
@@ -298,6 +300,7 @@ defmodule MealPlannerApi.Persistence.Calendar do
         date: m.date,
         slot: m.slot,
         is_cooked: m.is_cooked,
+        not_cooked_at: m.not_cooked_at,
         is_cooking: exists(subquery(active_cooking_session(today))),
         recipe_id: m.recipe_id,
         recipe_name:
@@ -345,9 +348,17 @@ defmodule MealPlannerApi.Persistence.Calendar do
     )
   end
 
-  # A meal is skipped when its day passed uncooked; a cooked meal never is.
+  # A cooked meal is never skipped. A past meal that was not cooked is skipped
+  # once it was confirmed as not cooked, or once its confirmation window
+  # closed unanswered; inside the window it is unconfirmed (issue #145).
   defp put_is_skipped(meal, today) do
-    Map.put(meal, :is_skipped, Date.compare(meal.date, today) == :lt and not meal.is_cooked)
+    {not_cooked_at, meal} = Map.pop(meal, :not_cooked_at)
+
+    is_skipped =
+      Date.compare(meal.date, today) == :lt and not meal.is_cooked and
+        (not is_nil(not_cooked_at) or not ScheduledMeal.in_confirmation_window?(meal.date, today))
+
+    Map.put(meal, :is_skipped, is_skipped)
   end
 
   def toggle_favorite(account_id, user_id, recipe_id) do

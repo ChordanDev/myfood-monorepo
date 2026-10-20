@@ -151,6 +151,12 @@ defmodule MealPlannerApiWeb.ApiErrorTest do
       end
     end
 
+    test "maps the past meal confirmation codes to their HTTP status", %{conn: conn} do
+      for {code, status} <- [meal_already_confirmed: 409, confirmation_window_closed: 422] do
+        assert {code, ApiError.error(conn, code).status} == {code, status}
+      end
+    end
+
     test "maps the Cart lease codes to their HTTP status", %{conn: conn} do
       for {code, status} <- [cart_locked: 409, stale_cart: 409, cart_not_found: 404] do
         assert {code, ApiError.error(conn, code).status} == {code, status}
@@ -367,6 +373,9 @@ defmodule MealPlannerApiWeb.ApiErrorTest do
       meal_move_codes =
         ~w(scheduled_meal_cooked calendar_conflict calendar_move_not_possible calendar_meal_cooking_in_progress)a
 
+      # The codes of confirming a past Scheduled meal (issue #145).
+      meal_confirm_codes = ~w(meal_already_confirmed confirmation_window_closed)a
+
       # The code of the Planner confirm and reject routes (issue #28).
       proposal_codes = [:planning_proposal_not_pending]
 
@@ -379,6 +388,7 @@ defmodule MealPlannerApiWeb.ApiErrorTest do
                  auth_codes ++
                    [:recipe_not_found, :prepared_leftover_not_found] ++
                    meal_move_codes ++
+                   meal_confirm_codes ++
                    proposal_codes ++
                    planning_chat_codes ++
                    profile_codes ++

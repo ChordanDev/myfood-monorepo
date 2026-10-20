@@ -1,6 +1,7 @@
 defmodule MealPlannerApiWeb.CalendarControllerTest do
   use MealPlannerApiWeb.ConnCase, async: true
 
+  import Ecto.Query
   import MealPlannerApi.AccountClockFixtures
   import MealPlannerApi.FactoryHelpers
   import MealPlannerApi.IdentityFixtures
@@ -10,6 +11,7 @@ defmodule MealPlannerApiWeb.CalendarControllerTest do
   alias MealPlannerApi.Persistence.Accounts.Account
   alias MealPlannerApi.Persistence.Calendar
   alias MealPlannerApi.Persistence.Catalog
+  alias MealPlannerApi.Persistence.Inventory
   alias MealPlannerApi.Persistence.Planning
   alias MealPlannerApi.Persistence.Shopping.ShoppingItem
   alias MealPlannerApi.Repo
@@ -807,12 +809,24 @@ defmodule MealPlannerApiWeb.CalendarControllerTest do
       today = pin_account_to_midday!(account_id)
       yesterday = Date.add(today, -1)
 
+      # Issue #145: an unanswered past meal is unconfirmed, not skipped, until
+      # it is answered not cooked.
       {:ok, skipped} =
         Calendar.upsert_scheduled_meal(account_id, %{
           date: yesterday,
           slot: :lunch,
           recipe_id: recipe.id
         })
+
+      {:ok, unconfirmed} =
+        Calendar.upsert_scheduled_meal(account_id, %{
+          date: yesterday,
+          slot: :breakfast,
+          recipe_id: recipe.id
+        })
+
+      {:ok, _} =
+        CookingService.confirm_meal(%{id: user_id, account_id: account_id}, skipped.id, false)
 
       {:ok, cooked} =
         Calendar.upsert_scheduled_meal(account_id, %{
@@ -842,6 +856,7 @@ defmodule MealPlannerApiWeb.CalendarControllerTest do
 
       flags = Map.new(body["data"]["meals"], &{&1["mealId"], {&1["isCooked"], &1["isSkipped"]}})
       assert flags[skipped.id] == {false, true}
+      assert flags[unconfirmed.id] == {false, false}
       assert flags[cooked.id] == {true, false}
       assert flags[current.id] == {false, false}
 
@@ -1182,6 +1197,264 @@ defmodule MealPlannerApiWeb.CalendarControllerTest do
         status: :pending
       })
       |> Repo.insert!()
+    end
+  end
+
+  # Issue #145: a past meal is confirmed as cooked or not cooked, within 7 days
+  # of its date by the Account's today.
+  describe "POST /api/calendar/meals/:id/confirm" do
+    setup do
+      %{token: token, user: user, account: account} =
+        insert_identity_with_token!(plan: :family_4)
+
+      today = pin_account_to_midday!(account)
+
+      {:ok, recipe} =
+        Catalog.create_recipe(%{
+          account_id: account.id,
+          created_by_user_id: user.id,
+          name: "Confirm recipe",
+          source: :user_created,
+          servings: 2,
+          suitable_for_slots: [:lunch, :dinner]
+        })
+
+      ingredients =
+        for n <- 1..2 do
+          {:ok, ingredient} =
+            Catalog.upsert_ingredient_by_name(%{
+              name: "Confirm #{Ecto.UUID.generate()} #{n}",
+              category: :otros
+            })
+
+          {:ok, _} =
+            Catalog.add_recipe_ingredient(%{
+              recipe_id: recipe.id,
+              ingredient_id: ingredient.id,
+              quantity_milli: 200,
+              unit: :g
+            })
+
+          ingredient
+        end
+        |> Enum.sort_by(& &1.id)
+
+      %{
+        token: token,
+        account_id: account.id,
+        user_id: user.id,
+        today: today,
+        recipe: recipe,
+        ingredients: ingredients
+      }
+    end
+
+    defp confirm(token, meal_id, body) do
+      build_conn()
+      |> put_req_header("authorization", "Bearer " <> token)
+      |> post("/api/calendar/meals/#{meal_id}/confirm", body)
+    end
+
+    defp past_meal!(f, days_ago, slot \\ :lunch) do
+      {:ok, meal} =
+        Calendar.upsert_scheduled_meal(f.account_id, %{
+          date: Date.add(f.today, -days_ago),
+          slot: slot,
+          recipe_id: f.recipe.id
+        })
+
+      meal
+    end
+
+    defp confirm_lot!(f, ingredient, quantity_milli) do
+      %Inventory.InventoryItem{}
+      |> Inventory.InventoryItem.changeset(%{
+        account_id: f.account_id,
+        ingredient_id: ingredient.id,
+        quantity_milli: quantity_milli,
+        unit: :g,
+        source_kind: :planned,
+        last_mutation_at: DateTime.utc_now(),
+        expired_at: DateTime.add(DateTime.utc_now(), 30 * 86_400)
+      })
+      |> Repo.insert!()
+    end
+
+    defp mutation_events(f) do
+      Repo.all(
+        from(e in Inventory.InventoryMutationEvent,
+          where: e.account_id == ^f.account_id,
+          order_by: e.id
+        )
+      )
+    end
+
+    defp quantity(lot), do: Repo.get!(Inventory.InventoryItem, lot.id).quantity_milli
+
+    defp calendar_flags(f, meal) do
+      date = Date.to_iso8601(meal.date)
+
+      build_conn()
+      |> put_req_header("authorization", "Bearer " <> f.token)
+      |> get("/api/calendar", %{"start_date" => date, "end_date" => date})
+      |> json_response(200)
+      |> get_in(["data", "meals"])
+      |> Enum.find(&(&1["mealId"] == meal.id))
+      |> then(&{&1["isCooked"], &1["isSkipped"]})
+    end
+
+    test "cooked consumes the Ingredients, removes open Shopping items and reports shortages",
+         f do
+      [first, second] = f.ingredients
+      meal = past_meal!(f, 1)
+      lot = confirm_lot!(f, first, 1000)
+      short = confirm_lot!(f, second, 50)
+      open = open_planned_item!(meal, meal.date, first.id)
+
+      assert calendar_flags(f, meal) == {false, false}
+
+      body = f.token |> confirm(meal.id, %{"cooked" => true}) |> json_response(200)
+
+      assert %{
+               "data" => %{
+                 "scheduledMeal" => %{"id" => id, "isCooked" => true, "isSkipped" => false},
+                 "inventoryMutations" => mutations,
+                 "shortages" => [shortage]
+               }
+             } = body
+
+      assert id == meal.id
+      assert length(mutations) == 2
+
+      assert shortage == %{
+               "ingredientId" => second.id,
+               "ingredientName" => second.name,
+               "unit" => "g",
+               "requestedMilli" => 200,
+               "missingMilli" => 150
+             }
+
+      assert quantity(lot) == 800
+      assert quantity(short) == 0
+      refute Repo.get(ShoppingItem, open.id)
+
+      events = mutation_events(f)
+      assert length(events) == 2
+
+      for event <- events do
+        assert event.trigger_type == :cooking
+        assert event.operation == :subtract
+        assert event.source_user_id == f.user_id
+        assert event.source_cooking_session_id == nil
+        assert event.metadata["scheduled_meal_id"] == meal.id
+      end
+
+      assert Repo.get!(Planning.ScheduledMeal, meal.id).is_cooked
+      assert calendar_flags(f, meal) == {true, false}
+    end
+
+    test "not cooked stores the answer, consumes nothing and makes the meal skipped", f do
+      meal = past_meal!(f, 7)
+      lot = confirm_lot!(f, hd(f.ingredients), 1000)
+      open = open_planned_item!(meal, meal.date, hd(f.ingredients).id)
+
+      body = f.token |> confirm(meal.id, %{"cooked" => false}) |> json_response(200)
+
+      assert %{
+               "data" => %{
+                 "scheduledMeal" => %{"id" => id, "isCooked" => false, "isSkipped" => true},
+                 "inventoryMutations" => [],
+                 "shortages" => []
+               }
+             } = body
+
+      assert id == meal.id
+      stored = Repo.get!(Planning.ScheduledMeal, meal.id)
+      refute stored.is_cooked
+      assert %DateTime{} = stored.not_cooked_at
+
+      assert quantity(lot) == 1000
+      assert mutation_events(f) == []
+      assert Repo.get(ShoppingItem, open.id)
+      assert calendar_flags(f, meal) == {false, true}
+    end
+
+    test "a second answer is refused with 409 and consumes nothing", f do
+      lot = confirm_lot!(f, hd(f.ingredients), 1000)
+      cooked = past_meal!(f, 2, :lunch)
+      not_cooked = past_meal!(f, 2, :dinner)
+
+      assert json_response(confirm(f.token, cooked.id, %{"cooked" => true}), 200)
+      assert json_response(confirm(f.token, not_cooked.id, %{"cooked" => false}), 200)
+      consumed = {mutation_events(f), quantity(lot)}
+
+      for meal <- [cooked, not_cooked], answer <- [true, false] do
+        assert %{"error" => %{"code" => "meal_already_confirmed"}} =
+                 f.token |> confirm(meal.id, %{"cooked" => answer}) |> json_response(409)
+      end
+
+      assert {mutation_events(f), quantity(lot)} == consumed
+      assert calendar_flags(f, cooked) == {true, false}
+      assert calendar_flags(f, not_cooked) == {false, true}
+    end
+
+    test "a meal a Cooking session already cooked is refused with 409", f do
+      lot = confirm_lot!(f, hd(f.ingredients), 1000)
+      meal = past_meal!(f, 1)
+      meal |> Planning.ScheduledMeal.changeset(%{is_cooked: true}) |> Repo.update!()
+
+      assert %{"error" => %{"code" => "meal_already_confirmed"}} =
+               f.token |> confirm(meal.id, %{"cooked" => true}) |> json_response(409)
+
+      assert quantity(lot) == 1000
+      assert mutation_events(f) == []
+    end
+
+    test "a meal dated today, in the future or more than 7 days ago answers 422", f do
+      lot = confirm_lot!(f, hd(f.ingredients), 1000)
+
+      for {days_ago, slot} <- [{0, :lunch}, {-1, :lunch}, {8, :lunch}], answer <- [true, false] do
+        meal = past_meal!(f, days_ago, slot)
+
+        assert %{"error" => %{"code" => "confirmation_window_closed"}} =
+                 f.token |> confirm(meal.id, %{"cooked" => answer}) |> json_response(422)
+
+        stored = Repo.get!(Planning.ScheduledMeal, meal.id)
+        assert {days_ago, stored.is_cooked, stored.not_cooked_at} == {days_ago, false, nil}
+      end
+
+      assert quantity(lot) == 1000
+      assert mutation_events(f) == []
+    end
+
+    test "a missing, malformed or other Account's meal answers 404", f do
+      foreign = insert_identity!(plan: :family_4)
+
+      {:ok, elsewhere} =
+        Calendar.upsert_scheduled_meal(foreign.account.id, %{
+          date: Date.add(f.today, -1),
+          slot: :lunch
+        })
+
+      for id <- [elsewhere.id, Ecto.UUID.generate(), "meal_789"] do
+        assert %{"error" => %{"code" => "scheduled_meal_not_found"}} =
+                 f.token |> confirm(id, %{"cooked" => true}) |> json_response(404)
+      end
+
+      refute Repo.get!(Planning.ScheduledMeal, elsewhere.id).is_cooked
+    end
+
+    test "a cooked value that is not a boolean answers 422 naming cooked", f do
+      meal = past_meal!(f, 1)
+
+      for body <- [%{}, %{"cooked" => "true"}, %{"cooked" => nil}, %{"cooked" => 1}] do
+        assert %{"error" => %{"code" => "validation_error", "message" => message}} =
+                 f.token |> confirm(meal.id, body) |> json_response(422)
+
+        assert message =~ "cooked"
+      end
+
+      assert calendar_flags(f, meal) == {false, false}
     end
   end
 
