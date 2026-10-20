@@ -97,6 +97,26 @@ export async function finishCookingSession(
   return parseFinishResponse(response);
 }
 
+/**
+ * Answers whether a past Scheduled meal was cooked (`POST /api/calendar/meals/:mealId/confirm`).
+ * Cooked, its Ingredients leave the Inventory as a Cooking session finish takes them and the
+ * answer has the shape of a finish; not cooked, the server stores the answer and consumes
+ * nothing. The server refuses a meal answered already and one outside its confirmation window.
+ */
+export async function confirmPastMeal(
+  scheduledMealId: string,
+  cooked: boolean,
+  options?: RequestOptions
+): Promise<CookingFinish> {
+  const response = await apiClient.post<unknown>(
+    `/api/calendar/meals/${encodeURIComponent(scheduledMealId)}/confirm`,
+    { cooked },
+    postOptions(options)
+  );
+
+  return parseFinishResponse(response);
+}
+
 // The transport does not check the shape of a 2xx answer, so one without the members the app
 // reads is treated like any other unintelligible server answer.
 function parseSessionResponse(response: unknown): CookingSession {

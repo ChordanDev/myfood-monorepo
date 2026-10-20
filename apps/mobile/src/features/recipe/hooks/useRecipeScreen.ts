@@ -102,9 +102,14 @@ export function useRecipeScreen() {
     if (!entry || !canMarkAsCooked(entry)) return;
 
     // The summary and then the leftover prompt are shown over the recipe; the screen closes
-    // when the user is done with the prompt. A refusal asks nothing, so the recipe stays.
-    await cooking.markAsCooked(entry.id);
-  }, [cooking, entry]);
+    // when the user is done with the prompt. A refusal asks nothing, so the recipe stays. A
+    // past meal has no Cooking session: it is confirmed as cooked instead (issue #145).
+    if (entry.date < todayKey) {
+      await cooking.confirmPastMeal(entry.id, true);
+    } else {
+      await cooking.markAsCooked(entry.id);
+    }
+  }, [cooking, entry, todayKey]);
 
   const { closeLeftoverPrompt, leftoverPrompt } = cooking;
   const handleCloseLeftoverPrompt = useCallback(() => {

@@ -42,9 +42,15 @@ describe('plan entries from the calendar', () => {
         type: 'lunch',
         recipeId: 'recipe-1',
         isCooked: false,
+        isSkipped: false,
         isCooking: false,
       },
     ]);
+  });
+
+  // Issue #145: the server's answer, so a "not cooked" answer survives a reload.
+  it('carries whether the server counts the meal as skipped', () => {
+    expect(toPlanEntries([meal({ isSkipped: true })])).toMatchObject([{ isSkipped: true }]);
   });
 
   it('carries whether the meal has a Cooking session in progress', () => {

@@ -52,7 +52,7 @@ export interface MealPlanEntry {
   type: MealSlot;
   recipeId: string; // Id of the recipe, as `GET /api/recipes/:id` names it.
   isCooked: boolean;
-  isSkipped?: boolean; // The meal passed and was not cooked. Never true together with isCooked.
+  isSkipped?: boolean; // The server's Skipped meal: answered not cooked, or unanswered for more than 7 days. Never true together with isCooked.
   isCooking?: boolean; // The meal is today's and has a Cooking session in progress, so it cannot be moved.
 }
 

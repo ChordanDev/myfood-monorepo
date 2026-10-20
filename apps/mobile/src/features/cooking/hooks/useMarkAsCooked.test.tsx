@@ -2,7 +2,7 @@ import { act, create } from 'react-test-renderer';
 import { ApiError } from '@/api/errors';
 import { useMealPlanStore } from '@/store';
 import type { MealPlanEntry } from '@/types/domain';
-import { finishCookingSession, startCookingSession } from '../api';
+import { confirmPastMeal, finishCookingSession, startCookingSession } from '../api';
 import {
   COOKING_FINISH_WITH_SHORTAGE,
   COOKING_SCHEDULED_MEAL_ID,
@@ -17,10 +17,12 @@ jest.mock('@react-native-async-storage/async-storage', () =>
 jest.mock('../api', () => ({
   startCookingSession: jest.fn(),
   finishCookingSession: jest.fn(),
+  confirmPastMeal: jest.fn(),
 }));
 
 const startMock = jest.mocked(startCookingSession);
 const finishMock = jest.mocked(finishCookingSession);
+const confirmMock = jest.mocked(confirmPastMeal);
 
 const ENTRY: MealPlanEntry = {
   id: COOKING_SCHEDULED_MEAL_ID,
@@ -233,5 +235,68 @@ describe('useMarkAsCooked', () => {
 
       expect(hook.leftoverPrompt?.scheduledMealId).toBe(COOKING_SCHEDULED_MEAL_ID);
     });
+  });
+
+  // Issue #145: a past meal is confirmed without a Cooking session.
+  describe('confirmPastMeal', () => {
+    it('confirms a past meal cooked: no session, the summary and the local mark', async () => {
+      confirmMock.mockResolvedValue(COOKING_FINISH_WITH_SHORTAGE);
+
+      let result: boolean | undefined;
+      await act(async () => {
+        result = await hook.confirmPastMeal(ENTRY.id, true);
+      });
+
+      expect(confirmMock).toHaveBeenCalledWith(ENTRY.id, true);
+      expect(startMock).not.toHaveBeenCalled();
+      expect(finishMock).not.toHaveBeenCalled();
+      expect(result).toBe(true);
+      expect(hook.summary?.shortages).toHaveLength(1);
+      expect(useMealPlanStore.getState().entries[0]).toMatchObject({ isCooked: true });
+
+      act(() => hook.dismiss());
+      expect(hook.leftoverPrompt?.scheduledMealId).toBe(COOKING_SCHEDULED_MEAL_ID);
+    });
+
+    it('confirms a past meal not cooked: the entry is skipped and nothing is summarized', async () => {
+      confirmMock.mockResolvedValue({
+        scheduledMeal: { ...COOKING_FINISH_WITH_SHORTAGE.scheduledMeal, isSkipped: true },
+        inventoryMutations: [],
+        shortages: [],
+      } as never);
+
+      let result: boolean | undefined;
+      await act(async () => {
+        result = await hook.confirmPastMeal(ENTRY.id, false);
+      });
+
+      expect(confirmMock).toHaveBeenCalledWith(ENTRY.id, false);
+      expect(result).toBe(true);
+      expect(hook.summary).toBeNull();
+      expect(hook.errorMessage).toBeNull();
+      expect(useMealPlanStore.getState().entries[0]).toMatchObject({
+        isCooked: false,
+        isSkipped: true,
+      });
+    });
+
+    it.each([true, false])(
+      'leaves the entry as it was when the server refuses cooked: %s, and says why',
+      async (cooked) => {
+        confirmMock.mockRejectedValue(
+          new ApiError('meal_already_confirmed', 'Already confirmed', 409)
+        );
+
+        let result: boolean | undefined;
+        await act(async () => {
+          result = await hook.confirmPastMeal(ENTRY.id, cooked);
+        });
+
+        expect(result).toBe(false);
+        expect(hook.errorMessage).toBe('Esta comida ya tenía una respuesta. No se cambió nada.');
+        expect(hook.summary).toBeNull();
+        expect(useMealPlanStore.getState().entries[0]).toEqual(ENTRY);
+      }
+    );
   });
 });

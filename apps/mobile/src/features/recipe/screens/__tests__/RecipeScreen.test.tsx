@@ -8,6 +8,7 @@ import { addFavorite, listFavorites, removeFavorite } from '@/features/favorites
 import { useFavoritesStore } from '@/features/favorites/store';
 import {
   askCookingSession,
+  confirmPastMeal,
   finishCookingSession,
   getCookingSession,
   startCookingSession,
@@ -37,6 +38,7 @@ const mockBack = jest.fn();
 
 jest.mock('@/features/cooking/api', () => ({
   startCookingSession: jest.fn(),
+  confirmPastMeal: jest.fn(),
   getCookingSession: jest.fn(),
   askCookingSession: jest.fn(),
   finishCookingSession: jest.fn(),
@@ -696,6 +698,26 @@ describe('RecipeScreen', () => {
       expect(isConfirmSheetOpen(tree)).toBe(false);
       expect(useMealPlanStore.getState().entries[0].isCooked).toBe(false);
       expect(mockBack).not.toHaveBeenCalled();
+    });
+
+    // Issue #145: a past meal has no Cooking session; it is confirmed as cooked.
+    it('confirms a past meal as cooked through the server, without a Cooking session', async () => {
+      const yesterday = formatDateKey(new Date(Date.now() - 86_400_000));
+      useMealPlanStore.setState({ entries: [entry({ id: 'e-past', date: yesterday })] });
+      mockRouteParams = { id: 'r1', entryId: 'e-past' };
+      jest.mocked(confirmPastMeal).mockReset().mockResolvedValue(COOKING_FINISH_WITH_SHORTAGE);
+      const tree = await renderSettledScreen();
+
+      press(tree, 'recipe-header-cooked');
+      await pressAndSettle(tree, 'recipe-cooked-confirm-yes');
+
+      expect(confirmPastMeal).toHaveBeenCalledWith('e-past', true);
+      expect(startCookingSession).not.toHaveBeenCalled();
+      expect(finishCookingSession).not.toHaveBeenCalled();
+      expect(useMealPlanStore.getState().entries[0].isCooked).toBe(true);
+      expect(renderedTexts(tree)).toEqual(
+        expect.arrayContaining(['Esto se descontó de tu inventario'])
+      );
     });
 
     it('does not ask when the meal cannot be marked, even if the disabled check is pressed', async () => {

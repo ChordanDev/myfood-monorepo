@@ -15,6 +15,7 @@ import {
 } from '../fixtures';
 import {
   askCookingSession,
+  confirmPastMeal,
   finishCookingSession,
   getCookingSession,
   startCookingSession,
@@ -158,6 +159,41 @@ describe('the cooking API', () => {
 
       await expect(finishCookingSession(COOKING_SESSION_ID)).rejects.toMatchObject({
         code: 'cooking_already_finished',
+      });
+    });
+  });
+
+  describe('confirmPastMeal', () => {
+    it('posts the answer to the meal confirm path and returns the consumption', async () => {
+      fetchMock.mockReturnValue(mockJsonResponse(toCookingFinishResponse()));
+
+      const confirmation = await confirmPastMeal(COOKING_SCHEDULED_MEAL_ID, true);
+
+      const [url, init] = fetchMock.mock.calls[0];
+      expect(url).toBe(
+        `https://api.example.test/api/calendar/meals/${COOKING_SCHEDULED_MEAL_ID}/confirm`
+      );
+      expect(init.method).toBe('POST');
+      expect(JSON.parse(init.body)).toEqual({ cooked: true });
+      expect(confirmation).toEqual(COOKING_FINISH_WITH_SHORTAGE);
+    });
+
+    it('does not retry a timeout: a cooked answer consumes stock', async () => {
+      fetchMock.mockRejectedValue(Object.assign(new Error('aborted'), { name: 'AbortError' }));
+
+      await expect(confirmPastMeal(COOKING_SCHEDULED_MEAL_ID, false)).rejects.toBeInstanceOf(
+        ApiError
+      );
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    });
+
+    it('keeps the code of a refused answer', async () => {
+      fetchMock.mockReturnValue(
+        mockJsonResponse({ error: { code: 'meal_already_confirmed', message: 'x' } }, false, 409)
+      );
+
+      await expect(confirmPastMeal(COOKING_SCHEDULED_MEAL_ID, false)).rejects.toMatchObject({
+        code: 'meal_already_confirmed',
       });
     });
   });
