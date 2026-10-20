@@ -86,8 +86,9 @@ defmodule MealPlannerApiWeb.InviteController do
   accept also reads an optional `name`: a non-empty string becomes the
   name of the invited User while it is still the stub the invite created
   for an email nobody has signed in with, and is ignored for a registered
-  User; any other `name`, including a blank one or one longer than 255
-  characters, is ignored like an unknown key. A code accept
+  User. The name is trimmed and follows the rules of a profile name: any
+  other `name`, including a blank one, one longer than 64 graphemes or 255
+  code points, or one with a NUL character, is ignored like an unknown key. A code accept
   signs the invitee in as the email-code login does: it answers the `200`
   of `POST /api/auth/login/verify-code` (`accessToken`, `refreshToken`,
   `tokenType`, `me`) and opens a Device session on `deviceId`, validated
@@ -202,8 +203,9 @@ defmodule MealPlannerApiWeb.InviteController do
   end
 
   # Only a non-empty string is passed on; anything else is ignored.
-  # `AccountsMembership.accept_invite/2` also ignores a string the `name`
-  # column cannot hold (blank, too long, with a NUL character).
+  # `AccountsMembership.accept_invite/2` trims the string and also ignores
+  # one a profile name could not be (blank, longer than 64 graphemes or 255
+  # code points, with a NUL character).
   defp claim_name(name) when is_binary(name) and name != "", do: name
   defp claim_name(_name), do: nil
 

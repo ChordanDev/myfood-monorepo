@@ -91,14 +91,27 @@ defmodule MealPlannerApiWeb.InviteAcceptControllerTest do
       assert Repo.get!(AccountMembership, membership_id).status == :active
     end
 
+    # The name follows the rules of a profile name: it is trimmed.
+    test "a code accept trims the name it sets on a stub", %{conn: conn} do
+      owner = owner!("owner_accept_trimmed@example.com", "Family Accept Trimmed")
+
+      {:ok, %{token: plaintext}} =
+        AccountsMembership.invite(owner.account, owner, "trimmed_stub@example.com")
+
+      body = accept_with_code!(conn, plaintext, %{"name" => "  Ana  "})
+
+      assert body["me"]["user"]["displayName"] == "Ana"
+      assert Repo.get_by!(User, email: "trimmed_stub@example.com").name == "Ana"
+    end
+
     # A `name` that is not a non-empty string is ignored like an unknown
-    # key, and so is one the `name` column cannot hold: blank, longer than
-    # 255 characters or with a NUL character.
+    # key, and so is one a profile name could not be: blank, longer than 64
+    # graphemes or 255 code points, or with a NUL character.
     test "a code accept without a usable name keeps the stub's placeholder name",
          %{conn: conn} do
-      # Six invites, so two Accounts with room for them.
+      # Seven invites, so three Accounts with room for them.
       owners =
-        for plan_n <- 1..2 do
+        for plan_n <- 1..3 do
           [owner] =
             user_with_memberships(%{email: "owner_accept_unnamed_#{plan_n}@example.com"}, [
               {%{plan: :family_4, name: "Family Accept Unnamed #{plan_n}"}, :owner}
@@ -113,6 +126,7 @@ defmodule MealPlannerApiWeb.InviteAcceptControllerTest do
               %{"name" => ""},
               %{"name" => "   "},
               %{"name" => 42},
+              %{"name" => String.duplicate("a", 65)},
               %{"name" => String.duplicate("a", 256)},
               %{"name" => "Ana" <> <<0>>}
             ]) do

@@ -567,9 +567,12 @@ genera para el teléfono).
 `name` es opcional. Si es un string no vacío y el email invitado todavía
 no tiene cuenta, la cuenta que se crea al aceptar queda con ese nombre.
 Si el email ya tiene cuenta, `name` se ignora y el usuario conserva su
-nombre. Un `name` que no es un string con texto (vacío, solo espacios,
-un número) o que tiene más de 255 caracteres se ignora como cualquier
-otra clave. Sin `name`, un email sin cuenta queda con su email como
+nombre. El `name` se guarda sin los espacios de los extremos y sigue las
+reglas del `displayName` del perfil: de 1 a 64 caracteres (grafemas), sin
+superar los 255 code points Unicode ni contener el carácter NUL
+(`\u0000`). Un `name` que no es un string o que no cumple esas reglas
+(vacío, solo espacios, demasiado largo) se ignora como cualquier otra
+clave. Sin `name`, un email sin cuenta queda con su email como
 nombre. La invitación no pide password: después el usuario inicia
 sesión con un código enviado por email, igual que el resto. Cualquier
 otra clave del body se ignora.
