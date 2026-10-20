@@ -74,26 +74,28 @@ defmodule MealPlannerApiWeb.InviteController do
   end
 
   @doc """
-  `POST /api/invites/:token/accept` — body `{}` for an existing User
-  (identified via an optional `Authorization` header — this route is
-  deliberately NOT behind the `:auth` pipeline because the "new User"
-  case has no account/token yet, per `specs/invite-and-accept.md`
-  §"New User accepts") or `{"name": ...}` for a brand new User. Any
-  other key in the body is ignored. A `name` only claims the stub User
-  the invite created for an email nobody has signed in with; an invite
-  bound to any other User needs that User's Bearer token, or
-  `{"code": ..., "deviceId": ...}`: the code `request_code/2` mailed to the
-  invited email, which any invitee can accept with. A body with a `code`
-  key always takes this path, whatever the value: `code` wins over `name`
-  and over the `Authorization` header, and a `code` that is not a
-  non-empty string answers `422 code_invalid`. A code accept signs the
-  invitee in as the email-code login does: it answers the `200` of
-  `POST /api/auth/login/verify-code` (`accessToken`, `refreshToken`,
+  `POST /api/invites/:token/accept` — no `:auth` pipeline: an invitee
+  with no session proves the invited email with `{"code": ...,
+  "deviceId": ...}`, the code `request_code/2` mailed to it (issues #297
+  and #274), and an existing User with a session may instead send `{}`
+  with their Bearer token in the `Authorization` header. Holding the
+  token alone is never enough to join. Any other key in the body is
+  ignored. A body with a `code` key always takes the code path, whatever
+  the value: `code` wins over the `Authorization` header, and a `code`
+  that is not a non-empty string answers `422 code_invalid`. The code
+  accept also reads an optional `name`: a non-empty string becomes the
+  name of the invited User while it is still the stub the invite created
+  for an email nobody has signed in with, and is ignored for a registered
+  User. The name is trimmed and follows the rules of a profile name: any
+  other `name`, including a blank one, one longer than 64 graphemes or 255
+  code points, or one with a NUL character, is ignored like an unknown key. A code accept
+  signs the invitee in as the email-code login does: it answers the `200`
+  of `POST /api/auth/login/verify-code` (`accessToken`, `refreshToken`,
   `tokenType`, `me`) and opens a Device session on `deviceId`, validated
   as the login validates it (an invalid one is `422 code_invalid` before
   the code is looked at). Errors:
-  `401 unauthorized` (no `name` and no valid Bearer token, or a `name`
-  for an invite bound to a registered User), `403 invite_for_another_user`
+  `401 unauthorized` (no `code` and no valid Bearer token, a `name`
+  included), `403 invite_for_another_user`
   (a Bearer token of a User the invite is not bound to),
   `410 invite_token_used`,
   `410 invite_token_expired`, and for a `code`: `422 code_invalid`,
@@ -109,6 +111,7 @@ defmodule MealPlannerApiWeb.InviteController do
          {:ok, %{session: %{me: me, tokens: tokens}}} <-
            AccountsMembership.accept_invite(token, %{
              code: code,
+             name: claim_name(params["name"]),
              client_ip: ClientIp.resolve(conn),
              open_session: &build_session(&1, &2, device_id)
            }) do
@@ -138,8 +141,8 @@ defmodule MealPlannerApiWeb.InviteController do
     end
   end
 
-  def accept(conn, %{"token" => token} = params) do
-    case resolve_invitee(conn, params) do
+  def accept(conn, %{"token" => token}) do
+    case resolve_invitee(conn) do
       {:ok, invitee_arg} ->
         case AccountsMembership.accept_invite(token, invitee_arg) do
           {:ok, %{user: user, account: account, membership: membership, claims: claims}} ->
@@ -150,12 +153,6 @@ defmodule MealPlannerApiWeb.InviteController do
               membership,
               claims
             )
-
-          # A `name` for an invite bound to a User who is not an unclaimed
-          # invite stub: that User has to accept with their own token.
-          {:error, :invitee_authentication_required} ->
-            Logger.warning("invite accept rejected reason=invitee_authentication_required")
-            conn |> put_status(:unauthorized) |> json(%{error: "unauthorized"})
 
           {:error, reason}
           when reason in [:invite_token_used, :invite_token_expired, :invite_token_unknown] ->
@@ -205,24 +202,24 @@ defmodule MealPlannerApiWeb.InviteController do
     if DeviceSessions.valid_device_id?(device_id), do: :ok, else: {:error, :device_id_invalid}
   end
 
-  # New User path: {"name": ...} needs no prior auth — the invitee has
-  # no account/token yet. A non-empty string `name` selects this path;
-  # no other key of the body is read.
-  defp resolve_invitee(_conn, %{"name" => name}) when is_binary(name) and name != "" do
-    {:ok, %{name: name}}
-  end
+  # Only a non-empty string is passed on; anything else is ignored.
+  # `AccountsMembership.accept_invite/2` trims the string and also ignores
+  # one a profile name could not be (blank, longer than 64 graphemes or 255
+  # code points, with a NUL character).
+  defp claim_name(name) when is_binary(name) and name != "", do: name
+  defp claim_name(_name), do: nil
 
-  # Existing User path: the body carries no usable `name` — identify the
-  # caller via an optional Authorization header (manual decode, NOT the
-  # `:auth` pipeline, since this route must also serve unauthenticated
-  # new Users).
+  # Bearer path: identify the caller via an optional Authorization header
+  # (manual decode, NOT the `:auth` pipeline, since this route must also
+  # serve code accepts with no session). A body without a `code` and
+  # without a valid Bearer token is refused, whatever else it carries.
   #
   # Post-review fix pass, item 8 (security): Guardian's
   # `decode_and_verify/1` never checks `typ` on its own — without the
   # explicit `claims["typ"] in supported_typs()` assertion below, a
   # `refresh`-typed token presented as this Bearer header would
   # authenticate the caller just like a real access token.
-  defp resolve_invitee(conn, _params) do
+  defp resolve_invitee(conn) do
     with [header] <- Plug.Conn.get_req_header(conn, "authorization"),
          "Bearer " <> raw_token <- header,
          {:ok, claims} <- Guardian.decode_and_verify(raw_token),

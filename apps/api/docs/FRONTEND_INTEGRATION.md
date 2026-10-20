@@ -493,25 +493,25 @@ link, copiar/compartir, etc.) inmediatamente después de recibirlo.
 
 ### 2. Aceptar una invitación
 
-**Deliberadamente NO requiere `Authorization`** — el caso "usuario
-nuevo" no tiene cuenta/token todavía. Dos variantes según si el email
-invitado ya tiene cuenta en MyFood o no. Quién puede aceptar:
+**Deliberadamente NO requiere `Authorization`** — el invitado puede no
+tener sesión. Tener el token no alcanza para entrar: el invitado
+demuestra que es dueño del email invitado. Quién puede aceptar y cómo:
 
-- **Email con cuenta en MyFood:** solo ese usuario, con su propio
-  `Authorization` o con un código enviado al email invitado (ver
-  [Aceptar con código](#aceptar-con-código)). Con `{ "name" }` y sin
-  token la respuesta es `401 unauthorized`; con el token de otro
-  usuario, `403 invite_for_another_user`.
-- **Email sin cuenta:** quien tenga el token, con `{ "name" }`. Eso crea
-  la cuenta una sola vez: después de aceptar, cualquier otra invitación
-  a ese email se acepta con el token de ese usuario o con un código.
+- **Con el código mandado al email invitado:** cualquier invitado, tenga
+  o no cuenta en MyFood (ver [Aceptar con código](#aceptar-con-código)).
+  Es la única forma para un email sin cuenta y para un usuario sin sesión
+  (por ejemplo, alguien que fue removido de su única cuenta y no puede
+  iniciar sesión porque ya no tiene membership activa).
+- **Con su propio `Authorization`:** un usuario con sesión que es el
+  invitado. Con el token de otro usuario la respuesta es
+  `403 invite_for_another_user`.
 
-Un usuario sin sesión (por ejemplo, alguien que fue removido de su
-única cuenta y no puede iniciar sesión porque ya no tiene membership
-activa) acepta con código.
+Sin `code` y sin `Authorization` válido la respuesta es
+`401 unauthorized`, aunque el body traiga `name`: no se crea sesión y la
+invitación sigue pendiente.
 
-**Usuario existente** (manda su `Authorization` header actual; tiene que
-ser el usuario invitado):
+**Usuario con sesión** (manda su `Authorization` header actual; tiene
+que ser el usuario invitado):
 ```bash
 POST /api/invites/:token/accept
 Authorization: Bearer <existing_user_token>   # obligatorio
@@ -520,23 +520,11 @@ Content-Type: application/json
 {}
 ```
 
-**Usuario nuevo:**
-```bash
-POST /api/invites/:token/accept
-Content-Type: application/json
-
-{ "name": "Ana Pérez" }
-```
-
-El body solo lleva `name`, un string no vacío. La invitación no pide
-password: el usuario nuevo inicia sesión después con un código enviado
-por email, igual que el resto. Cualquier otra clave del body se ignora.
-
 #### Aceptar con código
 
-Para un invitado que ya tiene cuenta en MyFood pero no tiene sesión.
-Sirve para cualquier invitación, también la de un email sin cuenta.
-Primero se pide el código:
+Sirve para cualquier invitación: la de un email sin cuenta y la de un
+usuario que ya tiene cuenta pero no tiene sesión. Primero se pide el
+código:
 
 ```bash
 POST /api/invites/:token/code
@@ -570,14 +558,27 @@ Después se acepta con el código:
 POST /api/invites/:token/accept
 Content-Type: application/json
 
-{ "code": "123456", "deviceId": "6f1c2d3e-4a5b-4c6d-8e7f-901234567890" }
+{ "code": "123456", "deviceId": "6f1c2d3e-4a5b-4c6d-8e7f-901234567890", "name": "Ana Pérez" }
 ```
 
 `deviceId` es el mismo que manda el login con código (el UUID que la app
 genera para el teléfono).
 
+`name` es opcional. Si es un string no vacío y el email invitado todavía
+no tiene cuenta, la cuenta que se crea al aceptar queda con ese nombre.
+Si el email ya tiene cuenta, `name` se ignora y el usuario conserva su
+nombre. El `name` se guarda sin los espacios de los extremos y sigue las
+reglas del `displayName` del perfil: de 1 a 64 caracteres (grafemas), sin
+superar los 255 code points Unicode ni contener el carácter NUL
+(`\u0000`). Un `name` que no es un string o que no cumple esas reglas
+(vacío, solo espacios, demasiado largo) se ignora como cualquier otra
+clave. Sin `name`, un email sin cuenta queda con su email como
+nombre. La invitación no pide password: después el usuario inicia
+sesión con un código enviado por email, igual que el resto. Cualquier
+otra clave del body se ignora.
+
 Si el body trae la clave `code`, con cualquier valor, se usa el código:
-se ignoran `name` y el `Authorization`. Solo sirve el último código pedido por este endpoint
+se ignora el `Authorization`. Solo sirve el último código pedido por este endpoint
 para ese email; un código del login o del sign-up no acepta una
 invitación, y un código de invitación no inicia sesión. Si es correcto,
 la membership queda `active` y el invitado queda con la sesión iniciada
@@ -594,8 +595,8 @@ dispositivo que se renueva con `POST /api/auth/refresh`.
 }
 ```
 
-`me` es el mismo payload que devuelve `GET /api/me`. Un email sin cuenta
-que acepta así queda con su email como `name`.
+`me` es el mismo payload que devuelve `GET /api/me`; `me.user.displayName`
+trae el nombre con el que quedó el usuario.
 
 Errores propios del código (además de los de la tabla de abajo):
 
@@ -606,7 +607,7 @@ Errores propios del código (además de los de la tabla de abajo):
 | `429` | `too_many_attempts` | 5 intentos fallidos con este código; ya no sirve, ni el correcto | Pedir otro código |
 | `429` | `rate_limited` | Código incorrecto, vencido o bloqueado, y demasiados códigos fallidos desde esta IP en la última hora; un código correcto y vigente entra igual. Header `retry-after` | Pedir que revise el código: el correcto y vigente entra igual. Si ya lo revisó, pedir otro código |
 
-**Response `200`** (con `name` o `Authorization`) — con la membership recién aceptada:
+**Response `200`** (con `Authorization`) — con la membership recién aceptada:
 ```json
 {
   "access_token": "eyJ...",
@@ -638,7 +639,7 @@ usuario vuelve a iniciar sesión con un código.
 
 | Status | `error` | Causa | Acción recomendada |
 |--------|---------|-------|---------------------|
-| `401` | `unauthorized` | Body sin `name` (o con `name` vacío) y sin `Authorization` válido, o `name` para un email que ya tiene cuenta | Pedir login y reintentar con el token |
+| `401` | `unauthorized` | Body sin `code` y sin `Authorization` válido (también con `name`) | Aceptar con código, o pedir login y reintentar con el token |
 | `403` | `invite_for_another_user` | El `Authorization` es de un usuario distinto del invitado | Mostrar "esta invitación es para otro email" |
 | `410` | `invite_token_used` | El token ya fue usado antes | Mostrar "invitación ya usada", pedir una nueva |
 | `410` | `invite_token_expired` | Pasaron más de 7 días desde la invitación | Pedir al `owner` que reenvíe |
