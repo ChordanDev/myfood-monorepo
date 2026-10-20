@@ -30,7 +30,7 @@ Assumptions:
 | ID | Specs | Route | Status | Commit |
 |----|-------|-------|--------|--------|
 | T1 | S2-S6, S9 | inline (API, error codes, mobile allowlist) | done: 37 new API tests green; suite 2311/2312, the one failure is `router_test.exs` (owned by #274 lane) | `feat(api)` commit |
-| T2 | S1, S7, S9 | delegated writer (parallel unit, disjoint surface: `apps/mobile` except `src/api/errors.ts`) | pending | |
+| T2 | S1, S7, S9 | delegated writer (parallel unit, disjoint surface: `apps/mobile` except `src/api/errors.ts`) | done: jest 2598/2598, tsc and lint clean; written before its tests (no RED) | `feat(mobile)` commit |
 | T3 | S8 | inline | done | `feat(api)` commit |
 
 ## Log

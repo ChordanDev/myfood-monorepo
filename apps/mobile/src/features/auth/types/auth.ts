@@ -4,6 +4,9 @@ import type { MealSlot } from '@/types/domain';
 
 export type AuthFlow = 'login' | 'register';
 
+/** Identity providers `POST /api/auth/social` accepts. */
+export type SocialProvider = 'google' | 'apple';
+
 export type CookingSkill = 'beginner' | 'intermediate' | 'advanced';
 
 export type HungerLevel = 'light' | 'normal' | 'strong';
@@ -298,6 +301,8 @@ export interface AuthState {
 export interface AuthContextValue extends AuthState {
   signIn: (email: string, code: string) => Promise<void>;
   signUp: (email: string, code: string) => Promise<void>;
+  /** Signs in (or up) with the identity token an identity provider SDK returned. */
+  signInWithSocial: (provider: SocialProvider, idToken: string) => Promise<void>;
   signOut: () => Promise<void>;
   refreshMe: () => Promise<void>;
   completeOnboarding: (

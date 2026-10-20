@@ -13,6 +13,7 @@ import type {
   ProfileUpdateUser,
   SlotCookingTimes,
   SlotCookingTimesPayload,
+  SocialProvider,
   UserPreferences,
   UserPreferencesPayload,
 } from '../types/auth';
@@ -235,6 +236,15 @@ export function AuthProvider({ children }: AuthProviderProps) {
   const signUp = useCallback(
     async (email: string, code: string) => {
       const session = await authService.verifyAndSignUp(email, code);
+      applySession(session);
+      await accountDataResetRef.current;
+    },
+    [applySession]
+  );
+
+  const signInWithSocial = useCallback(
+    async (provider: SocialProvider, idToken: string) => {
+      const session = await authService.signInWithSocial(provider, idToken);
       applySession(session);
       await accountDataResetRef.current;
     },
@@ -558,6 +568,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
       isComplete,
       signIn,
       signUp,
+      signInWithSocial,
       signOut,
       refreshMe,
       completeOnboarding,
@@ -578,6 +589,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
       isComplete,
       signIn,
       signUp,
+      signInWithSocial,
       signOut,
       refreshMe,
       completeOnboarding,

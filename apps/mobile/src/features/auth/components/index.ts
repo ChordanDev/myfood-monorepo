@@ -1,9 +1,12 @@
 // Barrel de componentes de auth.
+export { SocialLoginIcons } from './SocialLoginIcons';
 export { CarouselImages } from './CarouselImages';
 export { AuthButton } from './AuthButton';
+export { SocialDivider } from './SocialDivider';
 export { EmailTextInput } from './EmailTextInput';
 export { InputErrorText } from './InputErrorText';
 export { AuthCredentialsForm } from './AuthCredentialsForm';
+export { SocialLogin } from './SocialLogin';
 export { RegisterEntryModal } from './RegisterEntryModal';
 export { VerificationCodeInput } from './VerificationCodeInput';
 export { VerificationActions } from './VerificationActions';

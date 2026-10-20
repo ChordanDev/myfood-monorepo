@@ -329,6 +329,53 @@ describe('authService', () => {
     );
   });
 
+  describe('signInWithSocial', () => {
+    it('posts the provider, the identity token and the device id, and stores the session like a verified code', async () => {
+      fetchMock.mockReturnValueOnce(
+        mockJsonResponse({
+          accessToken: 'access-1',
+          refreshToken: 'refresh-1',
+          tokenType: 'Bearer',
+          me,
+        })
+      );
+
+      const session = await authService.signInWithSocial('google', 'google-id-token');
+
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+      expect(url).toBe('https://api.example.test/api/auth/social');
+      expect(init.method).toBe('POST');
+      expect(JSON.parse(init.body as string)).toEqual({
+        provider: 'google',
+        idToken: 'google-id-token',
+        deviceId: await authService.getDeviceId(),
+      });
+      expect(session.me.account.access.canUseApp).toBe(true);
+      await expect(authService.getStoredSession()).resolves.toMatchObject({
+        accessToken: 'access-1',
+        refreshToken: 'refresh-1',
+        me,
+      });
+    });
+
+    it('rejects with the mapped code of an error envelope and stores no session', async () => {
+      fetchMock.mockReturnValueOnce(
+        mockJsonResponse(
+          { error: { code: 'social_email_unverified', message: 'Email not verified' } },
+          false,
+          422
+        )
+      );
+
+      await expect(authService.signInWithSocial('apple', 'apple-id-token')).rejects.toMatchObject({
+        code: 'social_email_unverified',
+        status: 422,
+      });
+      await expect(authService.getStoredSession()).resolves.toBeNull();
+    });
+  });
+
   it('refreshes with rotation, persists the new refresh token, and then reloads /me', async () => {
     await authService.persistSession({
       accessToken: 'old-access',

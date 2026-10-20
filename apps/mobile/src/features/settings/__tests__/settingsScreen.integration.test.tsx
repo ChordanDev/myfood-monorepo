@@ -161,6 +161,7 @@ function buildContext(me: CurrentMe, overrides: Partial<AuthContextValue>): Auth
     isComplete: true,
     signIn: jest.fn(),
     signUp: jest.fn(),
+    signInWithSocial: jest.fn(),
     signOut: jest.fn(() => Promise.resolve()),
     refreshMe: jest.fn(),
     completeOnboarding: jest.fn(),

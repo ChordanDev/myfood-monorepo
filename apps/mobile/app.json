@@ -15,6 +15,7 @@
       "expo-font",
       "expo-secure-store",
       "expo-status-bar",
+      "expo-apple-authentication",
       [
         "expo-splash-screen",
         {
@@ -30,6 +31,7 @@
     "assetBundlePatterns": ["**/*"],
     "ios": {
       "supportsTablet": true,
+      "usesAppleSignIn": true,
       "bundleIdentifier": "com.anonymous.my-expo-app"
     },
     "android": {
