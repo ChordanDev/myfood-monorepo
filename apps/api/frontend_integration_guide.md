@@ -15,12 +15,13 @@ This document is the integration reference for the current backend contracts in 
 
 ## 2. Authentication
 
-Sign-in and sign-up use a code sent by email; there is no password or social login. Login serves emails
+Sign-in and sign-up use a code sent by email, or a Google or Apple ID token (2.2.1); there is no password
+login. Login serves emails
 that already have a User, sign-up serves emails that do not. Both end in the same session: a short-lived
 access token and a refresh token bound to the device. The full contract is spec
 [#1](https://github.com/ChordanDev/myfood-monorepo/issues/1); this section summarises it.
 
-Errors on the routes in 2.1, 2.2 and `POST /api/auth/refresh` use the envelope
+Errors on the routes in 2.1, 2.2, 2.2.1 and `POST /api/auth/refresh` use the envelope
 `{ "error": { "code": "<code>", "message": "<text>" } }` (see section 10).
 
 ### 2.1 Request a code
@@ -126,6 +127,26 @@ Error responses:
 - `429 rate_limited`: login only, a wrong, expired or locked code from a client IP that has 20 failed verifications in the last hour (the API's `@max_verify_failures_per_ip_per_window`); the `retry-after` header carries the wait in seconds. The right digits of a code that is still valid are never refused by this limit; a wrong code still counts as an attempt on the code. If the right code gets this answer, it has expired or been locked: request a new one
 
 When the session cannot be opened after a right code (`account_not_found`, or a server error), the code is not spent and the same request can be retried.
+
+### 2.2.1 Sign in with Google or Apple
+
+- Method: `POST`
+- Path: `/api/auth/social`
+- Body: `{ "provider": "google" | "apple", "idToken": "<ID token from the provider SDK>", "deviceId": "<device UUID>" }`
+- `200`: the body of `POST /api/auth/login/verify-code`, with the same Device session (2.3 renews it)
+
+The provider's proof replaces the code. On the first sign-in the provider account is linked to the User of
+the email the provider marks verified (Apple's private relay address counts): a User with an active
+Membership signs in, an email with no User signs up as `POST /api/auth/signup/verify-code` does. Later
+sign-ins find the linked account even when the token carries no email.
+
+- `401 social_token_invalid`: missing, malformed, expired, or not issued for this app; also an invalid `deviceId`
+- `422 social_email_unverified`: not linked yet and no email the provider marks verified
+- `422 social_provider_unsupported`: another provider, or one the server has no client ID for
+- `401 account_not_found`: the User has no active Membership
+- `409 email_already_exists`: the email got a User while the sign-up was being written
+- `429 rate_limited`: an invalid token from a client IP that has 20 failed verifications in the last hour, counted together with failed email codes; `retry-after` carries the wait in seconds. A valid token is never refused by this limit
+- `500 unknown_error`: the provider could not be reached
 
 ### 2.3 Renew and end the session
 
@@ -1489,7 +1510,8 @@ Two error body shapes are in use. Which one a request gets depends on the code p
   - the capability guard in front of the capability-gated routes, when access enforcement is enabled:
     `403 trial_expired`;
   - the mobile auth routes `/api/auth/login/request-code`, `/api/auth/login/verify-code`,
-    `/api/auth/signup/request-code`, `/api/auth/signup/verify-code` and `/api/auth/refresh`;
+    `/api/auth/signup/request-code`, `/api/auth/signup/verify-code`, `/api/auth/social` and
+    `/api/auth/refresh`;
   - `GET /api/me` and its alias `GET /api/auth/me`;
   - `PUT /api/me/profile`: `422 validation_error` and `422 invalid_cooking_skill`;
   - `PUT /api/account/timezone`: `422 validation_error` (see 3.6);
