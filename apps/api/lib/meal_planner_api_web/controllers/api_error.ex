@@ -75,6 +75,9 @@ defmodule MealPlannerApiWeb.ApiError do
           | :too_many_attempts
           | :code_send_failed
           | :email_already_exists
+          | :social_token_invalid
+          | :social_email_unverified
+          | :social_provider_unsupported
           | :refresh_token_invalid
           | :refresh_token_revoked
           | :refresh_token_replayed
@@ -167,6 +170,10 @@ defmodule MealPlannerApiWeb.ApiError do
     too_many_attempts: {429, "Too many failed attempts for this code. Request a new one."},
     code_send_failed: {502, "The verification code could not be sent."},
     email_already_exists: {409, "An account already exists for this email address."},
+    # Social sign-in (issue #106).
+    social_token_invalid: {401, "The sign-in provider token is not valid."},
+    social_email_unverified: {422, "The sign-in provider did not confirm an email address."},
+    social_provider_unsupported: {422, "This sign-in provider is not supported."},
     refresh_token_invalid: {401, "The refresh token is not valid."},
     refresh_token_revoked: {401, "The refresh token has been revoked."},
     refresh_token_replayed: {401, "The refresh token has already been used."},

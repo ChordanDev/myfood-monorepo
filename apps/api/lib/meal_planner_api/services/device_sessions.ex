@@ -49,9 +49,9 @@ defmodule MealPlannerApi.Services.DeviceSessions do
   @revoked_retention_days 7
 
   # First key of the two-key advisory lock form. The only other locks of
-  # that form are the ones `EmailCodeLogin` and `CookingService` take under
-  # their own first keys; the single-key locks elsewhere live in a separate
-  # key space.
+  # that form are the ones `EmailCodeLogin`, `SocialLogin` and
+  # `CookingService` take under their own first keys; the single-key locks
+  # elsewhere live in a separate key space.
   @lock_namespace 0x4453_4553
 
   @type token_pair :: %{access_token: String.t(), refresh_token: String.t()}

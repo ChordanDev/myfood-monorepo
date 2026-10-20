@@ -337,7 +337,8 @@ defmodule MealPlannerApiWeb.ApiErrorTest do
       auth_codes =
         ~w(unauthenticated access_token_expired account_not_found trial_expired invalid_email
            email_not_found rate_limited code_invalid code_expired too_many_attempts
-           code_send_failed email_already_exists refresh_token_invalid refresh_token_revoked
+           code_send_failed email_already_exists social_token_invalid social_email_unverified
+           social_provider_unsupported refresh_token_invalid refresh_token_revoked
            refresh_token_replayed refresh_token_expired refresh_token_session_mismatch)a
 
       profile_codes = ~w(validation_error invalid_cooking_skill)a

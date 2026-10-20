@@ -53,6 +53,10 @@ defmodule MealPlannerApiWeb.Router do
     post("/auth/signup/request-code", MobileAuthController, :request_signup_code)
     post("/auth/signup/verify-code", MobileAuthController, :verify_signup_code)
 
+    # Social sign-in with a Google or Apple ID token (issue #106). It
+    # answers what verify-code does and opens the same Device session.
+    post("/auth/social", MobileAuthController, :social)
+
     post("/billing/revenuecat/webhook", RevenuecatController, :webhook)
 
     # Deliberately NOT behind `:auth`: an invitee with no session accepts

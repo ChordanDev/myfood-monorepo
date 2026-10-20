@@ -551,7 +551,15 @@ defmodule MealPlannerApi.Services.EmailCodeLogin do
     )
   end
 
-  defp resolve_session(user_id) do
+  @doc false
+  # The User and the Membership a login is scoped to, or
+  # `:account_not_found` when the User has no active Membership. Social
+  # sign-in (`MealPlannerApi.Services.SocialLogin`) lands with this rule
+  # too.
+  @spec resolve_session(Ecto.UUID.t()) ::
+          {:ok, %{user: User.t(), membership: AccountMembership.t()}}
+          | {:error, :account_not_found}
+  def resolve_session(user_id) do
     user = Repo.get!(User, user_id)
 
     case user_id |> EmailCodeAuth.load_active_memberships() |> preferred_membership() do

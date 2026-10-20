@@ -7,8 +7,13 @@ defmodule MealPlannerApiWeb.MobileAuthController do
     * `POST /api/auth/signup/request-code` — body `{ "email" }`
     * `POST /api/auth/signup/verify-code` — body `{ "email", "code", "deviceId" }`
 
-  A thin translator over `MealPlannerApi.Services.EmailCodeLogin` and
-  `MealPlannerApi.Services.EmailCodeSignup`: it reads the camelCase body,
+  and social sign-in (issue #106):
+
+    * `POST /api/auth/social` — body `{ "provider", "idToken", "deviceId" }`
+
+  A thin translator over `MealPlannerApi.Services.EmailCodeLogin`,
+  `MealPlannerApi.Services.EmailCodeSignup` and
+  `MealPlannerApi.Services.SocialLogin`: it reads the camelCase body,
   and renders either the success body typed in
   `apps/mobile/src/features/auth/types/auth.ts` or the error envelope
   through `MealPlannerApiWeb.ApiError`.
@@ -26,6 +31,7 @@ defmodule MealPlannerApiWeb.MobileAuthController do
   alias MealPlannerApi.Services.EmailCodeAuth
   alias MealPlannerApi.Services.EmailCodeLogin
   alias MealPlannerApi.Services.EmailCodeSignup
+  alias MealPlannerApi.Services.SocialLogin
   alias MealPlannerApiWeb.ApiError
   alias MealPlannerApiWeb.ClientIp
   alias MealPlannerApiWeb.CurrentMe
@@ -135,12 +141,7 @@ defmodule MealPlannerApiWeb.MobileAuthController do
     with :ok <- validate_device_id(device_id),
          {:ok, %{me: me, tokens: tokens}} <-
            verify.(params["email"], params["code"], &build_session(&1, &2, device_id)) do
-      json(conn, %{
-        accessToken: tokens.access_token,
-        refreshToken: tokens.refresh_token,
-        tokenType: "Bearer",
-        me: me
-      })
+      render_session(conn, me, tokens)
     else
       {:error, :rate_limited, retry_after} ->
         conn
@@ -171,12 +172,85 @@ defmodule MealPlannerApiWeb.MobileAuthController do
     end
   end
 
+  @doc """
+  `POST /api/auth/social`.
+
+  `provider` is `"google"` or `"apple"`, and `idToken` the ID token its
+  SDK handed the app. The `200` answer is the one of `verify_login_code/2`,
+  with a Device session `POST /api/auth/refresh` renews; `deviceId`
+  follows the same rule, and one that rule refuses gets
+  `social_token_invalid` before the token is verified.
+
+  The token signs in the User the provider account is linked to, or the
+  User of the email the provider marks verified, linking it; an email with
+  no User signs up as `verify_signup_code/2` does. Errors:
+
+    * `social_provider_unsupported` — another provider, or one this server
+      has no client ID for;
+    * `social_token_invalid` — the token is missing, malformed, expired, or
+      not issued by the provider for this app;
+    * `social_email_unverified` — the provider account is not linked yet and
+      the token carries no email the provider marks verified;
+    * `account_not_found` — the User has no active Membership;
+    * `email_already_exists` — the email got a User while this sign-up was
+      being written.
+
+  A provider that cannot be reached answers `unknown_error`.
+  """
+  def social(conn, params) do
+    device_id = params["deviceId"]
+
+    with :ok <- validate_device_id(device_id),
+         {:ok, %{me: me, tokens: tokens}} <-
+           SocialLogin.sign_in(
+             params["provider"],
+             params["idToken"],
+             &build_session(&1, &2, device_id)
+           ) do
+      render_session(conn, me, tokens)
+    else
+      {:error, :device_id_invalid} ->
+        conn |> ApiError.error(:social_token_invalid)
+
+      {:error, :invalid_token} ->
+        conn |> ApiError.error(:social_token_invalid)
+
+      {:error, :unsupported_provider} ->
+        conn |> ApiError.error(:social_provider_unsupported)
+
+      {:error, :email_unverified} ->
+        conn |> ApiError.error(:social_email_unverified)
+
+      {:error, :account_not_found} ->
+        conn |> ApiError.error(:account_not_found)
+
+      {:error, :email_already_exists} ->
+        conn |> ApiError.error(:email_already_exists)
+
+      {:error, unexpected} ->
+        Logger.error(
+          "social sign-in failed with an unexpected error: #{describe_error(unexpected)}"
+        )
+
+        conn |> ApiError.server_fault()
+    end
+  end
+
+  defp render_session(conn, me, tokens) do
+    json(conn, %{
+      accessToken: tokens.access_token,
+      refreshToken: tokens.refresh_token,
+      tokenType: "Bearer",
+      me: me
+    })
+  end
+
   # Only an atom is logged as it is: any other reason may carry the email
   # or other request data.
   defp describe_error(reason) when is_atom(reason), do: inspect(reason)
   defp describe_error(_reason), do: "a non-atom reason"
 
-  # The `me` payload and the Device session of a verified code.
+  # The `me` payload and the Device session of a verified code or ID token.
   defp build_session(user, membership, device_id) do
     with {:ok, me} <- CurrentMe.load(user, membership),
          {:ok, tokens} <- DeviceSessions.open(user, membership, device_id) do
