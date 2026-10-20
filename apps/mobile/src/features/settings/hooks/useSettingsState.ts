@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useState } from 'react';
 import { isApiError } from '@/api/errors';
+import { fetchAccountBudget, updateAccountBudget } from '@/features/account/api/accountApi';
 import { useAuth } from '@/features/auth';
 import type {
+  AccountBudget,
   ProfileUpdatePayload,
   SlotCookingTimes,
   UserPreferences,
@@ -22,8 +24,10 @@ import {
   type LoadState,
 } from '../utils/profileLoadState';
 import {
+  buildBudgetEdit,
   buildPreferencesEdit,
   buildSlotTimesEdit,
+  createBudgetDraft,
   createPreferenceDraft,
   createProfileDraft,
   createSlotDraft,
@@ -33,6 +37,9 @@ import {
   type SettingsDraft,
   type SettingsEditorTarget,
 } from '../utils/settingsDraft';
+
+/** The weekly Budget loads apart from the preferences: a failure of one leaves the other usable. */
+export type BudgetStatus = 'loading' | 'ready' | 'error';
 
 interface EditorSheetState {
   /** Kept apart from the draft so the content stays put while the sheet fades out. */
@@ -108,7 +115,12 @@ export function useSettingsState() {
   // The profile does not depend on the loaded data, so its save is tracked
   // apart from the load state machine.
   const [isSavingProfile, setIsSavingProfile] = useState(false);
-  const isSaving = loadState.saving || isSavingProfile;
+  const [budget, setBudget] = useState<AccountBudget | null>(null);
+  const [budgetStatus, setBudgetStatus] = useState<BudgetStatus>('loading');
+  const [isSavingBudget, setIsSavingBudget] = useState(false);
+  const isSaving = loadState.saving || isSavingProfile || isSavingBudget;
+  // Every member sees the Budget; only the owner may change it (the API answers `not_owner`).
+  const canEditBudget = me?.membership.role === 'owner' && budgetStatus === 'ready';
 
   const loadData = useCallback(async () => {
     setLoadState((prev) => startLoading(prev));
@@ -129,13 +141,32 @@ export function useSettingsState() {
     }
   }, [fetchSlotCookingTimes, fetchUserPreferences]);
 
+  const loadBudget = useCallback(async () => {
+    setBudgetStatus('loading');
+    try {
+      const response = await fetchAccountBudget();
+      setBudget(response.budget);
+      setBudgetStatus('ready');
+    } catch (error) {
+      console.warn('[Settings] Failed to load the weekly budget:', error);
+      setBudgetStatus('error');
+    }
+  }, []);
+
   // Only the first load is automatic. After a failure the status is
   // "error", so the user has to ask for the retry.
   useEffect(() => {
     if (isAuthenticated && isComplete && canUseApp && loadState.status === 'idle') {
       loadData();
+      loadBudget();
     }
-  }, [canUseApp, isAuthenticated, isComplete, loadData, loadState.status]);
+  }, [canUseApp, isAuthenticated, isComplete, loadBudget, loadData, loadState.status]);
+
+  // The retry also reloads a Budget that failed, but leaves a loaded one alone.
+  const retryLoad = useCallback(() => {
+    loadData();
+    if (budgetStatus === 'error') loadBudget();
+  }, [budgetStatus, loadBudget, loadData]);
 
   // Always a fresh draft from the saved value: a cancelled edit leaves no trace.
   const openEditor = useCallback(
@@ -144,6 +175,9 @@ export function useSettingsState() {
       if (target.kind === 'profile') {
         if (!me) return;
         draft = createProfileDraft(me.user, target.field);
+      } else if (target.kind === 'budget') {
+        if (!canEditBudget || !budget) return;
+        draft = createBudgetDraft(budget);
       } else {
         // Never over data that was not loaded: the save would overwrite it.
         if (loadState.status !== 'ready' || !preferences || !slotTimes) return;
@@ -154,7 +188,7 @@ export function useSettingsState() {
       }
       setSheet({ visible: true, draft, errorMessage: null, fieldError: null });
     },
-    [loadState.status, me, preferences, slotTimes]
+    [budget, canEditBudget, loadState.status, me, preferences, slotTimes]
   );
 
   const closeEditor = useCallback(() => {
@@ -204,6 +238,30 @@ export function useSettingsState() {
       return;
     }
 
+    if (draft.kind === 'budget') {
+      // Refused here with the same rules as the server, so nothing is sent.
+      const edit = buildBudgetEdit(draft);
+      if (!edit.ok) {
+        setSheet(
+          (current) => current && { ...current, errorMessage: edit.message, fieldError: null }
+        );
+        return;
+      }
+
+      clearErrors();
+      setIsSavingBudget(true);
+      try {
+        const response = await updateAccountBudget(edit.payload);
+        setBudget(response.budget);
+        hideSheet();
+      } catch (error) {
+        showSaveError(error);
+      } finally {
+        setIsSavingBudget(false);
+      }
+      return;
+    }
+
     if (!canSave(loadState) || !preferences || !slotTimes) return;
     clearErrors();
     setLoadState((prev) => startSaving(prev));
@@ -236,8 +294,11 @@ export function useSettingsState() {
     now,
     preferences,
     slotTimes,
+    budget,
+    budgetStatus,
+    canEditBudget,
     loadStatus: loadState.status,
-    retryLoad: loadData,
+    retryLoad,
     signOut,
     sheet,
     isSaving,

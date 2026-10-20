@@ -81,6 +81,24 @@ export interface AccountTimezoneResponse {
   account: { id: string; timezone: string | null };
 }
 
+/** The Account's weekly Budget, as `GET` and `PUT /api/account/budget` answer it. */
+export interface AccountBudget {
+  weeklyBudgetCents: number;
+  /** True while the Account never set a Budget and the tier default applies. */
+  isDefault: boolean;
+  /** The least amount the owner may set. */
+  minWeeklyBudgetCents: number;
+  currency: string;
+}
+
+export interface AccountBudgetPayload {
+  weeklyBudgetCents: number;
+}
+
+export interface AccountBudgetResponse {
+  budget: AccountBudget;
+}
+
 export interface ProfileUpdateResponse {
   user: ProfileUpdateUser;
 }
@@ -175,6 +193,7 @@ export type AuthErrorCode =
   | 'calendar_meal_cooking_in_progress'
   | 'meal_already_confirmed'
   | 'confirmation_window_closed'
+  | 'not_owner'
   | 'configuration_error'
   | 'network_error'
   | 'timeout'

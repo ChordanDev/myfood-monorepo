@@ -1,4 +1,6 @@
 import {
+  formatBudgetMinimum,
+  formatBudgetSummary,
   formatCookingSkillSummary,
   formatCookingTime,
   formatDietSummary,
@@ -301,5 +303,27 @@ describe('formatSoftPreferencesSummary', () => {
 
   it('shows a placeholder when there are none', () => {
     expect(formatSoftPreferencesSummary([])).toBe('Ninguna');
+  });
+});
+
+describe('formatBudgetSummary', () => {
+  it('shows the weekly Budget in pesos', () => {
+    expect(formatBudgetSummary({ weeklyBudgetCents: 6000000, isDefault: false })).toBe('$60.000');
+  });
+
+  it('marks the tier default the Account never changed', () => {
+    expect(formatBudgetSummary({ weeklyBudgetCents: 45000, isDefault: true })).toBe(
+      '$450 (por defecto)'
+    );
+  });
+});
+
+describe('formatBudgetMinimum', () => {
+  it('names the least Budget the owner may set', () => {
+    expect(formatBudgetMinimum(3000000)).toBe('Mínimo: $30.000 por semana');
+  });
+
+  it('says there is no minimum while the floor is 0', () => {
+    expect(formatBudgetMinimum(0)).toBe('Sin mínimo por ahora');
   });
 });
