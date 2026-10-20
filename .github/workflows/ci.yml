@@ -1,11 +1,8 @@
 name: CI
 
-# Pull requests are checked only when they target main, the integration
-# branch: pull requests into a feature branch are not, the feature's pull
-# request to main is. Draft pull requests are skipped until marked ready.
+# Draft pull requests are skipped until they are marked ready for review.
 on:
   pull_request:
-    branches: [main]
     types: [opened, synchronize, reopened, ready_for_review]
   push:
     branches:
