@@ -4,6 +4,7 @@ defmodule MealPlannerApiWeb.PlanningChatControllerTest do
   import MealPlannerApi.FactoryHelpers
   import MealPlannerApi.IdentityFixtures
 
+  alias Ecto.Adapters.SQL
   alias MealPlannerApi.Auth.Guardian
   alias MealPlannerApi.HouseholdDietFixtures
   alias MealPlannerApi.Persistence.Calendar
