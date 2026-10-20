@@ -365,8 +365,8 @@ defmodule MealPlannerApi.AccountsMembershipTest do
     test "an invitee argument matching neither known shape returns :invalid_invitee" do
       # Post-review fix pass, item 7: `error_status/1`'s `invalid_invitee`
       # mapping (400) has no HTTP-level path that can trigger it —
-      # `InviteController.resolve_invitee/2` only ever produces a
-      # `%PersistenceUser{}` or a `%{name:}` map, both of which match
+      # `InviteController` only ever passes a `%PersistenceUser{}` or a
+      # `%{code:, open_session:}` proof, both of which match
       # `accept_invite/2`'s named clauses. The catch-all
       # clause (`accept_invite(_plaintext, _args), do: {:error,
       # :invalid_invitee}`) was previously untested at ANY layer — this
@@ -446,15 +446,9 @@ defmodule MealPlannerApi.AccountsMembershipTest do
                AccountsMembership.accept_invite(plaintext, invitee)
     end
 
-    test "new User acceptance (map arity) fills in the stub User's name" do
-      # PR 3a task 3.4 regression: the map-based accept_invite/2 arity
-      # (invitee has no User yet) previously called
-      # `resolve_user.(:stub)` with the literal atom `:stub` instead of
-      # the actual stub %User{} row created by
-      # `InviteService.create_invite_row/2` — the closure in this arity
-      # pattern-matches `%PersistenceUser{}`, so this always raised
-      # `FunctionClauseError` and the "new User accepts" flow could
-      # never have worked end-to-end.
+    # Holding the token is not enough to join (#274): there is no accept by
+    # `name`, so it is an argument of no known shape and writes nothing.
+    test "a name-only accept of a stub invite returns :invalid_invitee and claims nothing" do
       owner =
         user_with_memberships(
           %{email: "new-user-owner@example.com"},
@@ -466,16 +460,16 @@ defmodule MealPlannerApi.AccountsMembershipTest do
       [owner_membership] = owner.memberships
       account = Repo.get!(PersistenceAccount, owner_membership.account_id)
 
-      {:ok, %{token: plaintext}} =
+      {:ok, %{token: plaintext, membership_id: membership_id}} =
         AccountsMembership.invite(account, owner_membership, "brand-new-invitee@example.com")
 
-      assert {:ok, result} =
+      assert {:error, :invalid_invitee} =
                AccountsMembership.accept_invite(plaintext, %{name: "Brand New Invitee"})
 
-      assert result.user.email == "brand-new-invitee@example.com"
-      assert result.user.name == "Brand New Invitee"
-      assert result.membership.status == :active
-      assert result.membership.user_id == result.user.id
+      stub = Repo.get_by!(PersistenceUser, email: "brand-new-invitee@example.com")
+      assert stub.invite_stub
+      assert stub.name == "brand-new-invitee@example.com"
+      assert Repo.get!(AccountMembership, membership_id).status == :invited
     end
 
     test "an :active User accepting an invite for an email they already own returns :already_a_member" do

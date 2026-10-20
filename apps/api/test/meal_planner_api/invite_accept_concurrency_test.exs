@@ -6,6 +6,7 @@ defmodule MealPlannerApi.InviteAcceptConcurrencyTest do
 
   alias MealPlannerApi.AccountsMembership
   alias MealPlannerApi.Persistence.Accounts.{Account, AccountMembership, User}
+  alias MealPlannerApi.Persistence.Auth.{EmailAuthEvent, EmailVerificationCode}
   alias MealPlannerApi.Repo
 
   @moduletag :runtime_db_concurrency
@@ -31,6 +32,7 @@ defmodule MealPlannerApi.InviteAcceptConcurrencyTest do
   setup %{repo: repo} do
     Repo.put_dynamic_repo(repo)
     :ok = MealPlannerApi.SubscriptionPlanFixtures.ensure_plans!()
+    Bamboo.SentEmail.reset()
 
     owner =
       user_with_memberships(%{email: "owner_#{Ecto.UUID.generate()}@example.com"}, [
@@ -48,6 +50,8 @@ defmodule MealPlannerApi.InviteAcceptConcurrencyTest do
     on_exit(fn ->
       Repo.put_dynamic_repo(repo)
       account_id = owner_membership.account_id
+      Repo.delete_all(from(c in EmailVerificationCode, where: c.email == ^email))
+      Repo.delete_all(from(e in EmailAuthEvent, where: e.email == ^email))
       Repo.delete_all(from(m in AccountMembership, where: m.account_id == ^account_id))
       Repo.delete_all(from(u in User, where: u.id in ^[owner.id, stub.id]))
       Repo.delete_all(from(a in Account, where: a.id == ^account_id))
@@ -57,9 +61,13 @@ defmodule MealPlannerApi.InviteAcceptConcurrencyTest do
   end
 
   # A double tap: the first accept holds the invite and the stub while it
-  # commits. The second one has to wait for it and then see a used invite.
+  # commits. The second one has to wait for it, then see a used invite and
+  # rename nobody.
   test "an accept that waits on a concurrent accept answers invite_token_used", f do
     parent = self()
+
+    {:ok, _sent} = AccountsMembership.request_invite_code(f.token, nil)
+    [code] = Regex.run(~r/\b\d{6}\b/, hd(Bamboo.SentEmail.all()).text_body)
 
     first =
       Task.async(fn ->
@@ -94,7 +102,13 @@ defmodule MealPlannerApi.InviteAcceptConcurrencyTest do
     second =
       Task.async(fn ->
         Repo.put_dynamic_repo(f.repo)
-        AccountsMembership.accept_invite(f.token, %{name: "Second Tap"})
+
+        AccountsMembership.accept_invite(f.token, %{
+          code: code,
+          name: "Second Tap",
+          client_ip: nil,
+          open_session: fn _user, _membership -> {:ok, :session} end
+        })
       end)
 
     # The second accept is blocked behind the first one's row locks.

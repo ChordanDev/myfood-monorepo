@@ -47,11 +47,16 @@ defmodule MealPlannerApiWeb.RouterTest do
     assert conn2.status == 201
     invite_token = json_response(conn2, 201)["invite"]["token"]
 
+    # POST /api/invites/:token/code
+    assert post(build_conn(), "/api/invites/#{invite_token}/code", %{}).status == 200
+    [code] = Regex.run(~r/\b\d{6}\b/, hd(Bamboo.SentEmail.all()).text_body)
+
     # POST /api/invites/:token/accept
     conn3 =
       post(build_conn(), "/api/invites/#{invite_token}/accept", %{
-        "name" => "Router Invitee",
-        "password" => "supersecret123"
+        "code" => code,
+        "deviceId" => Ecto.UUID.generate(),
+        "name" => "Router Invitee"
       })
 
     assert conn3.status == 200

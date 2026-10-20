@@ -187,6 +187,9 @@ Owner (Account A)                 API                          Invitee
       │                            │   POST /api/invites/:token/accept
       │                            │◄───────────────────────────────│
       │                            │ AccountsMembership.accept_invite/2
+      │                            │  - invitee proves the email: email code
+      │                            │    (POST /api/invites/:token/code) or
+      │                            │    their own Bearer token
       │                            │  - verify + consume token (single-use)
       │                            │  - flip :invited → :active
       │                            │  - claims_for/2 → access_v2 (Account A)

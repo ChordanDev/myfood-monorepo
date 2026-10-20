@@ -51,56 +51,106 @@ defmodule MealPlannerApiWeb.InviteAcceptControllerTest do
       assert body["account"]["id"] == account.id
     end
 
-    test "new User accepts, creating the User row", %{conn: conn} do
-      owner =
-        user_with_memberships(%{email: "owner_accept_b@example.com"}, [
-          {%{plan: :family_4, name: "Family Accept B"}, :owner}
-        ])
+    # Holding the token is not enough to join (#274): a `name` without a
+    # `code` and without a Bearer token is refused as an empty body is.
+    test "a name accept of a stub invite is refused and leaves the stub unclaimed",
+         %{conn: conn} do
+      owner = owner!("owner_accept_b@example.com", "Family Accept B")
 
-      [owner_membership] = owner.memberships
-      account = owner_membership.account
-
-      {:ok, %{token: plaintext}} =
-        AccountsMembership.invite(account, owner_membership, "brand_new@example.com")
+      {:ok, %{token: plaintext, membership_id: membership_id}} =
+        AccountsMembership.invite(owner.account, owner, "brand_new@example.com")
 
       conn = post(conn, "/api/invites/#{plaintext}/accept", %{"name" => "Brand New"})
 
-      body = json_response(conn, 200)
+      body = json_response(conn, 401)
+      assert body["error"] == "unauthorized"
+      refute Map.has_key?(body, "access_token")
+      refute Map.has_key?(body, "accessToken")
 
-      assert body["user"]["email"] == "brand_new@example.com"
-      assert body["membership"]["status"] == "active"
-
-      new_user =
-        Repo.get_by(MealPlannerApi.Persistence.Accounts.User, email: "brand_new@example.com")
-
-      assert new_user.name == "Brand New"
+      stub = Repo.get_by!(User, email: "brand_new@example.com")
+      assert stub.invite_stub
+      assert stub.name == "brand_new@example.com"
+      assert Repo.get!(AccountMembership, membership_id).status == :invited
     end
 
-    # The new User path is selected by `name` alone: any other key in the
-    # body is ignored, `password` included.
-    test "new User accepts when the body also carries a password key", %{conn: conn} do
-      owner =
-        user_with_memberships(%{email: "owner_accept_stray@example.com"}, [
-          {%{plan: :family_4, name: "Family Accept Stray"}, :owner}
+    test "a code accept with a name on a stub invite sets the name and claims the stub",
+         %{conn: conn} do
+      owner = owner!("owner_accept_named@example.com", "Family Accept Named")
+
+      {:ok, %{token: plaintext, membership_id: membership_id}} =
+        AccountsMembership.invite(owner.account, owner, "named_stub@example.com")
+
+      body = accept_with_code!(conn, plaintext, %{"name" => "Named Stub"})
+
+      assert body["me"]["user"]["email"] == "named_stub@example.com"
+      assert body["me"]["user"]["displayName"] == "Named Stub"
+
+      user = Repo.get_by!(User, email: "named_stub@example.com")
+      refute user.invite_stub
+      assert user.name == "Named Stub"
+      assert Repo.get!(AccountMembership, membership_id).status == :active
+    end
+
+    # A `name` that is not a non-empty string is ignored like an unknown
+    # key, and so is a blank one.
+    test "a code accept without a usable name keeps the stub's placeholder name",
+         %{conn: conn} do
+      # Four invites, so a plan with room for them all.
+      [owner] =
+        user_with_memberships(%{email: "owner_accept_unnamed@example.com"}, [
+          {%{plan: :family_6, name: "Family Accept Unnamed"}, :owner}
+        ]).memberships
+
+      for {extra, n} <-
+            Enum.with_index([%{}, %{"name" => ""}, %{"name" => "   "}, %{"name" => 42}]) do
+        email = "unnamed_stub_#{n}@example.com"
+        {:ok, %{token: plaintext}} = AccountsMembership.invite(owner.account, owner, email)
+
+        body = accept_with_code!(conn, plaintext, extra)
+
+        assert body["me"]["user"]["displayName"] == email
+
+        user = Repo.get_by!(User, email: email)
+        refute user.invite_stub
+        assert user.name == email
+      end
+    end
+
+    test "a code accept with a name on an invite to a registered User keeps that User's name",
+         %{conn: conn} do
+      owner = owner!("owner_accept_registered@example.com", "Family Accept Registered")
+
+      registered =
+        user_with_memberships(%{email: "registered_named@example.com", name: "Registered"}, [
+          {%{plan: :individual, name: "Registered Own Account"}, :owner}
         ])
 
-      [owner_membership] = owner.memberships
-      account = owner_membership.account
+      {:ok, %{token: plaintext, membership_id: membership_id}} =
+        AccountsMembership.invite(owner.account, owner, registered.email)
+
+      body = accept_with_code!(conn, plaintext, %{"name" => "Renamed"})
+
+      assert body["me"]["user"]["id"] == registered.id
+      assert body["me"]["user"]["displayName"] == "Registered"
+      assert Repo.get!(User, registered.id).name == "Registered"
+      assert Repo.get!(AccountMembership, membership_id).status == :active
+    end
+
+    # Any other key in the body is ignored, `password` included.
+    test "a code accept ignores a password key in the body", %{conn: conn} do
+      owner = owner!("owner_accept_stray@example.com", "Family Accept Stray")
 
       {:ok, %{token: plaintext}} =
-        AccountsMembership.invite(account, owner_membership, "stray_key@example.com")
+        AccountsMembership.invite(owner.account, owner, "stray_key@example.com")
 
-      conn =
-        post(conn, "/api/invites/#{plaintext}/accept", %{
+      body =
+        accept_with_code!(conn, plaintext, %{
           "name" => "Stray Key",
           "password" => "supersecret123"
         })
 
-      body = json_response(conn, 200)
-
-      assert body["user"]["email"] == "stray_key@example.com"
-      assert body["user"]["name"] == "Stray Key"
-      assert body["membership"]["status"] == "active"
+      assert body["me"]["user"]["email"] == "stray_key@example.com"
+      assert body["me"]["user"]["displayName"] == "Stray Key"
     end
 
     test "replaying an already-accepted token returns 410 invite_token_used", %{conn: conn} do
@@ -115,9 +165,13 @@ defmodule MealPlannerApiWeb.InviteAcceptControllerTest do
       {:ok, %{token: plaintext}} =
         AccountsMembership.invite(account, owner_membership, "replay@example.com")
 
-      _first = post(conn, "/api/invites/#{plaintext}/accept", %{"name" => "Replay User"})
+      accept_with_code!(conn, plaintext)
 
-      conn = post(conn, "/api/invites/#{plaintext}/accept", %{"name" => "Replay User"})
+      conn =
+        post(build_conn(), "/api/invites/#{plaintext}/accept", %{
+          "deviceId" => @device_id,
+          "code" => mailed_code()
+        })
 
       assert json_response(conn, 410)["error"] == "invite_token_used"
     end
@@ -140,7 +194,11 @@ defmodule MealPlannerApiWeb.InviteAcceptControllerTest do
       })
       |> Repo.update!()
 
-      conn = post(conn, "/api/invites/#{plaintext}/accept", %{"name" => "Expired User"})
+      conn =
+        post(conn, "/api/invites/#{plaintext}/accept", %{
+          "deviceId" => @device_id,
+          "code" => "123456"
+        })
 
       assert json_response(conn, 410)["error"] == "invite_token_expired"
     end
@@ -192,7 +250,11 @@ defmodule MealPlannerApiWeb.InviteAcceptControllerTest do
     # Post-review fix pass, item 7: `error_status/1`'s `invite_token_unknown`
     # mapping (404) had zero HTTP-level test coverage.
     test "an unknown/bogus token returns 404 invite_token_unknown", %{conn: conn} do
-      conn = post(conn, "/api/invites/#{Ecto.UUID.generate()}/accept", %{"name" => "Nobody"})
+      conn =
+        post(conn, "/api/invites/#{Ecto.UUID.generate()}/accept", %{
+          "deviceId" => @device_id,
+          "code" => "123456"
+        })
 
       assert json_response(conn, 404)["error"] == "invite_token_unknown"
     end
@@ -257,7 +319,7 @@ defmodule MealPlannerApiWeb.InviteAcceptControllerTest do
       :ok
     end
 
-    test "new User accept mints access (not access_v2) when the flag is off", %{conn: conn} do
+    test "a Bearer accept mints access (not access_v2) when the flag is off", %{conn: conn} do
       owner =
         user_with_memberships(%{email: "owner_accept_flagoff@example.com"}, [
           {%{plan: :family_4, name: "Family Accept FlagOff"}, :owner}
@@ -266,14 +328,23 @@ defmodule MealPlannerApiWeb.InviteAcceptControllerTest do
       [owner_membership] = owner.memberships
       account = owner_membership.account
 
+      invitee =
+        user_with_memberships(%{email: "flagoff_invitee@example.com"}, [
+          {%{plan: :individual, name: "Flag Off Own Account"}, :owner}
+        ])
+
+      [invitee_own_membership] = invitee.memberships
+      invitee_token = issue_access_v2_token(invitee, invitee_own_membership)
+
       {:ok, %{token: plaintext}} =
-        AccountsMembership.invite(account, owner_membership, "flagoff_new@example.com")
+        AccountsMembership.invite(account, owner_membership, invitee.email)
 
       Application.put_env(:meal_planner_api, :tenancy_v2_only, false)
 
       body =
         conn
-        |> post("/api/invites/#{plaintext}/accept", %{"name" => "Flag Off New"})
+        |> put_req_header("authorization", "Bearer " <> invitee_token)
+        |> post("/api/invites/#{plaintext}/accept", %{})
         |> json_response(200)
 
       {:ok, claims} = Guardian.decode_and_verify(body["access_token"])
@@ -317,14 +388,9 @@ defmodule MealPlannerApiWeb.InviteAcceptControllerTest do
       {:ok, %{token: second_plaintext}} =
         InviteService.create_invite_row(owner_membership, "dupe_invitee@example.com")
 
-      first_conn =
-        post(conn, "/api/invites/#{first_plaintext}/accept", %{"name" => "Dupe Invitee"})
-
-      assert json_response(first_conn, 200)
-
-      # The first accept claimed the stub, so the second accept has to come
-      # from that now-registered User.
-      %{"access_token" => access_token} = json_response(first_conn, 200)
+      # The first accept claimed the stub, so the second accept comes from
+      # that now-registered User.
+      %{"accessToken" => access_token} = accept_with_code!(conn, first_plaintext)
 
       second_conn =
         build_conn()
@@ -335,10 +401,9 @@ defmodule MealPlannerApiWeb.InviteAcceptControllerTest do
     end
   end
 
-  # The name path is unauthenticated, so it may only claim the stub User an
-  # invite created for an email nobody has signed in with. An invite bound
-  # to any other User needs that User's own Bearer token.
-  describe "name-only accept of an invite bound to a registered User" do
+  # There is no name path (#274): a `name` without a `code` and without a
+  # Bearer token never joins, whoever the invite is bound to.
+  describe "name-only accept" do
     test "returns 401 and leaves the User and the invite untouched", %{conn: conn} do
       owner =
         user_with_memberships(%{email: "owner_takeover@example.com"}, [
@@ -385,7 +450,7 @@ defmodule MealPlannerApiWeb.InviteAcceptControllerTest do
       assert accepted["membership"]["status"] == "active"
     end
 
-    test "a stub claimed through one invite cannot be claimed again through another",
+    test "a User claimed through one invite is not renamed through another",
          %{conn: conn} do
       family_a =
         user_with_memberships(%{email: "owner_claim_a@example.com"}, [
@@ -406,8 +471,8 @@ defmodule MealPlannerApiWeb.InviteAcceptControllerTest do
       {:ok, %{token: token_b}} =
         AccountsMembership.invite(membership_b.account, membership_b, "claimed_once@example.com")
 
-      first = post(conn, "/api/invites/#{token_a}/accept", %{"name" => "Real Invitee"})
-      assert json_response(first, 200)["user"]["name"] == "Real Invitee"
+      first = accept_with_code!(conn, token_a, %{"name" => "Real Invitee"})
+      assert first["me"]["user"]["displayName"] == "Real Invitee"
 
       second = post(build_conn(), "/api/invites/#{token_b}/accept", %{"name" => "Attacker"})
       assert json_response(second, 401)["error"] == "unauthorized"
@@ -415,7 +480,7 @@ defmodule MealPlannerApiWeb.InviteAcceptControllerTest do
       assert Repo.get_by!(User, email: "claimed_once@example.com").name == "Real Invitee"
     end
 
-    test "a removed member cannot be claimed by name through a new invite", %{conn: conn} do
+    test "a removed member cannot join by name through a new invite", %{conn: conn} do
       first_owner =
         user_with_memberships(%{email: "owner_removed_a@example.com"}, [
           {%{plan: :family_4, name: "Family Removed A"}, :owner}
@@ -436,10 +501,8 @@ defmodule MealPlannerApiWeb.InviteAcceptControllerTest do
           "removed_member@example.com"
         )
 
-      %{"user" => %{"id" => member_id}} =
-        conn
-        |> post("/api/invites/#{first_token}/accept", %{"name" => "Removed Member"})
-        |> json_response(200)
+      %{"me" => %{"user" => %{"id" => member_id}}} =
+        accept_with_code!(conn, first_token, %{"name" => "Removed Member"})
 
       :ok =
         AccountsMembership.remove_member(first_membership.account, member_id, first_membership)
@@ -455,33 +518,6 @@ defmodule MealPlannerApiWeb.InviteAcceptControllerTest do
 
       assert json_response(conn, 401)["error"] == "unauthorized"
       assert Repo.get!(User, member_id).name == "Removed Member"
-    end
-
-    test "a claim whose membership update fails is undone", %{conn: conn} do
-      owner =
-        user_with_memberships(%{email: "owner_claim_rollback@example.com"}, [
-          {%{plan: :family_4, name: "Family Claim Rollback"}, :owner}
-        ])
-
-      [owner_membership] = owner.memberships
-
-      {:ok, %{membership: first}} =
-        InviteService.create_invite_row(owner_membership, "claim_rollback@example.com")
-
-      {:ok, %{token: second_token}} =
-        InviteService.create_invite_row(owner_membership, "claim_rollback@example.com")
-
-      # The stub already holds an active row on this Account, so activating
-      # the second invite fails after the stub has been claimed.
-      first |> AccountMembership.changeset(%{status: :active}) |> Repo.update!()
-
-      conn = post(conn, "/api/invites/#{second_token}/accept", %{"name" => "Rolled Back"})
-
-      assert json_response(conn, 409)["error"] == "already_a_member"
-
-      stub = Repo.get_by!(User, email: "claim_rollback@example.com")
-      assert stub.invite_stub
-      assert stub.name == "claim_rollback@example.com"
     end
   end
 
@@ -563,7 +599,7 @@ defmodule MealPlannerApiWeb.InviteAcceptControllerTest do
     test "a removed member invited again accepts with the code mailed to the invite's email",
          %{conn: conn} do
       %{member_id: member_id, token: token, membership_id: membership_id} =
-        removed_member_invited_again!(conn, "rejoin_code@example.com")
+        removed_member_invited_again!("rejoin_code@example.com")
 
       sent =
         build_conn()
@@ -617,7 +653,7 @@ defmodule MealPlannerApiWeb.InviteAcceptControllerTest do
     test "a code accept without a valid deviceId is refused and leaves the code untouched",
          %{conn: conn} do
       %{token: token, membership_id: membership_id} =
-        removed_member_invited_again!(conn, "rejoin_no_device@example.com")
+        removed_member_invited_again!("rejoin_no_device@example.com")
 
       build_conn() |> post("/api/invites/#{token}/code", %{}) |> json_response(200)
       code = mailed_code()
@@ -640,7 +676,7 @@ defmodule MealPlannerApiWeb.InviteAcceptControllerTest do
 
     test "a wrong code is refused and counts as a failed verification", %{conn: conn} do
       %{token: token, membership_id: membership_id} =
-        removed_member_invited_again!(conn, "rejoin_wrong@example.com")
+        removed_member_invited_again!("rejoin_wrong@example.com")
 
       build_conn() |> post("/api/invites/#{token}/code", %{}) |> json_response(200)
       wrong = if mailed_code() == "000000", do: "111111", else: "000000"
@@ -665,7 +701,7 @@ defmodule MealPlannerApiWeb.InviteAcceptControllerTest do
 
     test "the right code accepts from an IP over the failed-verification limit", %{conn: conn} do
       %{token: token, membership_id: membership_id} =
-        removed_member_invited_again!(conn, "rejoin_ip_limited@example.com")
+        removed_member_invited_again!("rejoin_ip_limited@example.com")
 
       build_conn() |> post("/api/invites/#{token}/code", %{}) |> json_response(200)
       code = mailed_code()
@@ -695,7 +731,7 @@ defmodule MealPlannerApiWeb.InviteAcceptControllerTest do
     test "a wrong code from an IP over the limit is rate limited and still counts as an attempt",
          %{conn: conn} do
       %{token: token, membership_id: membership_id} =
-        removed_member_invited_again!(conn, "rejoin_ip_wrong@example.com")
+        removed_member_invited_again!("rejoin_ip_wrong@example.com")
 
       build_conn() |> post("/api/invites/#{token}/code", %{}) |> json_response(200)
       wrong = if mailed_code() == "000000", do: "111111", else: "000000"
@@ -736,7 +772,7 @@ defmodule MealPlannerApiWeb.InviteAcceptControllerTest do
     test "the code locks after the attempt cap, and the right code is refused too",
          %{conn: conn} do
       %{token: token, membership_id: membership_id} =
-        removed_member_invited_again!(conn, "rejoin_locked@example.com")
+        removed_member_invited_again!("rejoin_locked@example.com")
 
       build_conn() |> post("/api/invites/#{token}/code", %{}) |> json_response(200)
       code = mailed_code()
@@ -818,7 +854,7 @@ defmodule MealPlannerApiWeb.InviteAcceptControllerTest do
     end
 
     test "a second code request inside the cooldown is rate limited", %{conn: conn} do
-      %{token: token} = removed_member_invited_again!(conn, "rejoin_cooldown@example.com")
+      %{token: token} = removed_member_invited_again!("rejoin_cooldown@example.com")
 
       build_conn() |> post("/api/invites/#{token}/code", %{}) |> json_response(200)
       again = post(build_conn(), "/api/invites/#{token}/code", %{})
@@ -836,11 +872,21 @@ defmodule MealPlannerApiWeb.InviteAcceptControllerTest do
       unknown = post(conn, "/api/invites/not-a-real-token/code", %{})
       assert json_response(unknown, 404)["error"] == "invite_token_unknown"
 
-      {:ok, %{token: used}} =
-        AccountsMembership.invite(owner.account, owner, "code_used@example.com")
+      used_invitee =
+        user_with_memberships(%{email: "code_used@example.com"}, [
+          {%{plan: :individual, name: "Code Used Own Account"}, :owner}
+        ])
+
+      [used_own_membership] = used_invitee.memberships
+
+      {:ok, %{token: used}} = AccountsMembership.invite(owner.account, owner, used_invitee.email)
 
       build_conn()
-      |> post("/api/invites/#{used}/accept", %{"name" => "Used"})
+      |> put_req_header(
+        "authorization",
+        "Bearer " <> issue_access_v2_token(used_invitee, used_own_membership)
+      )
+      |> post("/api/invites/#{used}/accept", %{})
       |> json_response(200)
 
       used_conn = post(build_conn(), "/api/invites/#{used}/code", %{})
@@ -859,7 +905,7 @@ defmodule MealPlannerApiWeb.InviteAcceptControllerTest do
       assert Bamboo.SentEmail.all() == []
     end
 
-    test "a stub accepted with a code can no longer be claimed by name", %{conn: conn} do
+    test "a User who accepted with a code cannot join another Account by name", %{conn: conn} do
       first = owner!("owner_stub_code_a@example.com", "Family Stub Code A")
       second = owner!("owner_stub_code_b@example.com", "Family Stub Code B")
 
@@ -914,7 +960,7 @@ defmodule MealPlannerApiWeb.InviteAcceptControllerTest do
     test "a code that is not a string is refused without counting a failed verification",
          %{conn: conn} do
       %{token: token, membership_id: membership_id} =
-        removed_member_invited_again!(conn, "rejoin_number_code@example.com")
+        removed_member_invited_again!("rejoin_number_code@example.com")
 
       build_conn() |> post("/api/invites/#{token}/code", %{}) |> json_response(200)
 
@@ -936,7 +982,7 @@ defmodule MealPlannerApiWeb.InviteAcceptControllerTest do
              ) == 0
     end
 
-    test "a code accept whose activation fails leaves the code pending and the stub unclaimed",
+    test "a code accept whose activation fails leaves the code pending and the stub as it was",
          %{conn: conn} do
       owner =
         user_with_memberships(%{email: "owner_code_conflict@example.com"}, [
@@ -962,12 +1008,16 @@ defmodule MealPlannerApiWeb.InviteAcceptControllerTest do
       conflict =
         post(build_conn(), "/api/invites/#{token}/accept", %{
           "deviceId" => @device_id,
-          "code" => mailed_code()
+          "code" => mailed_code(),
+          "name" => "Rolled Back"
         })
 
       assert json_response(conflict, 409)["error"] == "already_a_member"
       assert Repo.get!(AccountMembership, second.id).status == :invited
-      assert Repo.get_by!(User, email: "code_conflict@example.com").invite_stub
+
+      stub = Repo.get_by!(User, email: "code_conflict@example.com")
+      assert stub.invite_stub
+      assert stub.name == "code_conflict@example.com"
 
       assert [%EmailVerificationCode{attempts: 0, consumed_at: nil}] =
                Repo.all(EmailVerificationCode)
@@ -981,18 +1031,27 @@ defmodule MealPlannerApiWeb.InviteAcceptControllerTest do
     membership
   end
 
-  # A User who joined one Account by name, was removed, and is invited to
-  # another Account: no Membership left and no longer an invite stub.
-  defp removed_member_invited_again!(conn, email) do
+  # A User who joined one Account, was removed, and is invited to another
+  # Account: no Membership left and no longer an invite stub. The first
+  # accept is written straight to the database, so it leaves no code behind
+  # and starts no code cooldown for the email.
+  defp removed_member_invited_again!(email) do
     first = owner!("first_" <> email, "First " <> email)
     second = owner!("second_" <> email, "Second " <> email)
 
-    {:ok, %{token: first_token}} = AccountsMembership.invite(first.account, first, email)
+    {:ok, %{membership_id: first_membership_id}} =
+      AccountsMembership.invite(first.account, first, email)
 
-    %{"user" => %{"id" => member_id}} =
-      conn
-      |> post("/api/invites/#{first_token}/accept", %{"name" => "Former Member"})
-      |> json_response(200)
+    %User{id: member_id} = Repo.get_by!(User, email: email)
+
+    {1, _} =
+      Repo.update_all(from(u in User, where: u.id == ^member_id),
+        set: [invite_stub: false, name: "Former Member"]
+      )
+
+    Repo.get!(AccountMembership, first_membership_id)
+    |> Ecto.Changeset.change(status: :active, joined_at: DateTime.utc_now())
+    |> Repo.update!()
 
     :ok = AccountsMembership.remove_member(first.account, member_id, first)
 
@@ -1002,6 +1061,17 @@ defmodule MealPlannerApiWeb.InviteAcceptControllerTest do
     %{member_id: member_id, token: token, membership_id: membership_id}
   end
 
+  # Accepts with the code mailed to the invite's email, as an invitee with
+  # no session does, and answers the `200` body. The body is real JSON, so
+  # a `name` keeps its JSON type.
+  defp accept_with_code!(conn, token, extra \\ %{}) do
+    conn |> post("/api/invites/#{token}/code", %{}) |> json_response(200)
+
+    "/api/invites/#{token}/accept"
+    |> post_json(Map.merge(%{"deviceId" => @device_id, "code" => mailed_code()}, extra))
+    |> json_response(200)
+  end
+
   # A real JSON body, so the code keeps its JSON type (a number or null).
   defp post_json(path, body) do
     build_conn()
@@ -1009,8 +1079,9 @@ defmodule MealPlannerApiWeb.InviteAcceptControllerTest do
     |> post(path, Jason.encode!(body))
   end
 
+  # The newest mail comes first.
   defp mailed_code do
-    email = List.last(Bamboo.SentEmail.all())
+    [email | _older] = Bamboo.SentEmail.all()
     [code] = Regex.run(~r/\b\d{6}\b/, email.text_body)
     code
   end

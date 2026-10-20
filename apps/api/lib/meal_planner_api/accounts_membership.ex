@@ -279,7 +279,7 @@ defmodule MealPlannerApi.AccountsMembership do
   end
 
   @doc """
-  Accepts an invite token. Three entry points:
+  Accepts an invite token. Two entry points:
 
     * `accept_invite(plaintext, %User{} = user)` — existing User. Flips
       the membership `:invited → :active` and sets `joined_at`. The
@@ -287,27 +287,25 @@ defmodule MealPlannerApi.AccountsMembership do
       else returns `:invite_for_another_user`. Returns the auth payload
       ready for the API layer to mint an `access_v2` JWT.
 
-    * `accept_invite(plaintext, %{name: ...})` — new User. The
-      `InviteService.create_invite_row/2` created a stub `User` row at
-      invite time; this function claims it with the real `name`, then
-      flips the membership. The User holds no credential: they sign in
-      with an email code. The caller is not authenticated, so only a
-      User still marked `invite_stub` can be claimed, and only once. An
-      invite bound to any other User returns
-      `:invitee_authentication_required`: that User has to accept with
-      their own token or with an email code.
-
     * `accept_invite(plaintext, %{code: ..., client_ip: ..., open_session: ...})` — any
       invitee, proving they own the invited email with the code
-      `request_invite_code/2` mailed to it (issue #297). The code is
+      `request_invite_code/2` mailed to it (issue #297). Holding the token
+      is not enough to join: an invitee with no session always accepts
+      this way (issue #274). The code is
       checked and consumed as `MealPlannerApi.Services.EmailCodeLogin`
       checks a login code: only the latest pending invite code for that
       email matches, a wrong code counts against the code's attempt cap
       and against `client_ip`'s hourly failure limit, and a failed check
       (a wrong, expired or locked code) from an IP over that limit is
       refused; a code that verifies is never refused by that limit. A
-      login or sign-up code never matches. A stub accepted this way is
-      claimed, so no `name` accept can claim it afterwards. Extra errors:
+      login or sign-up code never matches. The stub User
+      `InviteService.create_invite_row/2` created for an email nobody has
+      signed in with is claimed here: the update that clears
+      `invite_stub` also sets the User's name to the optional `name`
+      string of the proof (a blank one is ignored). A `name` is only
+      written while the User is
+      still a stub, so it never renames a registered User; without one
+      the stub keeps its placeholder name. Extra errors:
       `:code_invalid`, `:code_expired`, `:too_many_attempts` and
       `{:error, :rate_limited, retry_after}`. A `code` that is not a
       string is `:code_invalid` without a check, as the login refuses it,
@@ -319,8 +317,8 @@ defmodule MealPlannerApi.AccountsMembership do
       is written and the code stays pending.
 
   Errors: `:invite_token_used`, `:invite_token_expired`,
-  `:invite_token_unknown`, `:invitee_authentication_required`,
-  `:invite_for_another_user`. Nothing
+  `:invite_token_unknown`, `:invite_for_another_user`, and
+  `:invalid_invitee` for any other argument. Nothing
   is written when the accept fails.
 
   The returned `claims` map matches design §3.2 — `AccountsMembership.
@@ -339,7 +337,12 @@ defmodule MealPlannerApi.AccountsMembership do
            }}
           | {:error, atom() | Ecto.Changeset.t()}
           | {:error, :rate_limited, pos_integer()}
-  def accept_invite(plaintext, %PersistenceUser{} = invitee) when is_binary(plaintext) do
+  # Matched on `__struct__` alone: the Bearer User
+  # `MealPlannerApi.Auth.Guardian.resource_from_claims/1` loads carries keys
+  # the schema does not, which a `%PersistenceUser{}` pattern refuses at
+  # type-check time.
+  def accept_invite(plaintext, %{__struct__: PersistenceUser} = invitee)
+      when is_binary(plaintext) do
     accept_invite_with_lookup(plaintext, fn
       %PersistenceUser{id: id} when id == invitee.id -> {:ok, invitee}
       %PersistenceUser{} -> {:error, :invite_for_another_user}
@@ -355,73 +358,61 @@ defmodule MealPlannerApi.AccountsMembership do
         UserEmail.normalize(invitee.email),
         code,
         :invite,
-        fn row, _now -> accept_with_code(hash, row, open_session) end,
+        fn row, _now -> accept_with_code(hash, row, Map.get(proof, :name), open_session) end,
         limit_failures_by: Map.get(proof, :client_ip)
       )
     end
   end
 
-  def accept_invite(plaintext, %{name: name})
-      when is_binary(plaintext) and is_binary(name) do
-    accept_invite_with_lookup(plaintext, &claim_invite_stub(&1, name))
-  end
-
   def accept_invite(_plaintext, _args), do: {:error, :invalid_invitee}
-
-  # The update only matches while the row is still a stub, so two accepts
-  # racing on two invites for the same email claim it once.
-  defp claim_invite_stub(%PersistenceUser{invite_stub: true} = stub, name) do
-    changeset = PersistenceUser.changeset(stub, %{name: name})
-
-    if changeset.valid? do
-      query =
-        from(u in PersistenceUser,
-          where: u.id == ^stub.id and u.invite_stub == true,
-          select: u
-        )
-
-      case Repo.update_all(query,
-             set: [
-               name: Ecto.Changeset.get_field(changeset, :name),
-               invite_stub: false,
-               updated_at: DateTime.utc_now()
-             ]
-           ) do
-        {1, [claimed]} -> {:ok, claimed}
-        {0, _} -> {:error, :invitee_authentication_required}
-      end
-    else
-      {:error, changeset}
-    end
-  end
-
-  defp claim_invite_stub(%PersistenceUser{}, _name),
-    do: {:error, :invitee_authentication_required}
 
   # Runs in the transaction that consumes the code, which rolls back on
   # any error, so a session that cannot be opened undoes the accept.
-  defp accept_with_code(hash, row, open_session) do
-    with {:ok, accepted} <- accept_pending_invite(hash, &claim_with_code(&1, row)),
+  defp accept_with_code(hash, row, name, open_session) do
+    with {:ok, accepted} <- accept_pending_invite(hash, &claim_with_code(&1, row, name)),
          {:ok, session} <- open_session.(accepted.user, accepted.membership) do
       {:ok, Map.put(accepted, :session, session)}
     end
   end
 
   # The code was issued for the User the invite is bound to, so it proves
-  # they own the email. A stub stops being one here: from now on that User
-  # accepts with their own token or a code, never by `name`.
-  defp claim_with_code(%PersistenceUser{id: id} = invitee, %EmailVerificationCode{user_id: id}) do
-    if invitee.invite_stub do
-      Repo.update_all(from(u in PersistenceUser, where: u.id == ^id),
-        set: [invite_stub: false, updated_at: DateTime.utc_now()]
-      )
-    end
-
-    {:ok, %{invitee | invite_stub: false}}
+  # they own the email. A stub stops being one here, and only a stub takes
+  # the `name`: a registered User keeps the name they have.
+  defp claim_with_code(
+         %PersistenceUser{id: id} = invitee,
+         %EmailVerificationCode{user_id: id},
+         name
+       ) do
+    if invitee.invite_stub, do: claim_invite_stub(invitee, name), else: {:ok, invitee}
   end
 
-  defp claim_with_code(%PersistenceUser{}, %EmailVerificationCode{}),
+  defp claim_with_code(%PersistenceUser{}, %EmailVerificationCode{}, _name),
     do: {:error, :code_invalid}
+
+  # The update only matches while the row is still a stub, so an accept
+  # that finds it already claimed renames nobody.
+  defp claim_invite_stub(%PersistenceUser{id: id}, name) do
+    query = from(u in PersistenceUser, where: u.id == ^id and u.invite_stub == true, select: u)
+
+    case Repo.update_all(query,
+           set: [invite_stub: false, updated_at: DateTime.utc_now()] ++ stub_name_change(name)
+         ) do
+      {1, [claimed]} -> {:ok, claimed}
+      {0, _} -> {:ok, Repo.get!(PersistenceUser, id)}
+    end
+  end
+
+  # A name `PersistenceUser.changeset/2` refuses (a blank one) is ignored
+  # like a missing one, so the stub keeps its placeholder name.
+  defp stub_name_change(nil), do: []
+
+  defp stub_name_change(name) do
+    changeset = PersistenceUser.changeset(%PersistenceUser{}, %{name: name})
+
+    if Keyword.has_key?(changeset.errors, :name),
+      do: [],
+      else: [name: Ecto.Changeset.get_field(changeset, :name)]
+  end
 
   @doc """
   Mails a code to the email of the User the invite `plaintext` is bound
@@ -556,8 +547,7 @@ defmodule MealPlannerApi.AccountsMembership do
   end
 
   # One transaction that locks the invite row first: a concurrent accept of
-  # the same token waits for this one and then sees a used invite, and a
-  # failed membership update also undoes the stub claim.
+  # the same token waits for this one and then sees a used invite.
   defp accept_invite_with_lookup(plaintext, resolve_user) when is_binary(plaintext) do
     hash = InviteService.hash_token(plaintext)
 
