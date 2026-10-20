@@ -267,6 +267,37 @@ defmodule MealPlannerApiWeb.PlanningChatControllerTest do
       refute_receive %Phoenix.Socket.Broadcast{event: "proposal_rejected"}
     end
 
+    # Issue #350: with no generation server, the proposal and its Generation
+    # run are written in one transaction. A run that cannot be completed
+    # rejects nothing and tells nobody.
+    test "answers 500 and writes nothing when the Generation run update fails with no server",
+         %{conn: conn} do
+      %{token: token, user: user, account: account} = insert_identity_with_token!(plan: :family_4)
+      proposal = insert_pending_proposal(account, user)
+      run = Repo.get!(PlanningGenerationRun, proposal.generation_run_id)
+
+      run
+      |> Ecto.Changeset.change(%{status: :processing, completed_at: nil})
+      |> Repo.update!()
+
+      Phoenix.PubSub.subscribe(MealPlannerApi.PubSub, "planning:#{account.id}")
+      fail_run_updates!(run.id)
+
+      conn =
+        conn
+        |> put_req_header("authorization", "Bearer " <> token)
+        |> post("/api/planning/proposals/#{proposal.id}/reject")
+
+      assert json_response(conn, 500)
+      restore_run_updates!()
+      assert Repo.get!(PlanningProposal, proposal.id).status == :pending
+
+      assert %{status: :processing, completed_at: nil} =
+               Repo.get!(PlanningGenerationRun, run.id)
+
+      refute_receive %Phoenix.Socket.Broadcast{event: "proposal_rejected"}
+    end
+
     test "answers 404 not_found for a proposal of another Account", %{conn: conn} do
       %{user: user, account: account} = insert_identity_with_token!(plan: :family_4)
       proposal = insert_pending_proposal(account, user)
@@ -457,6 +488,38 @@ defmodule MealPlannerApiWeb.PlanningChatControllerTest do
         GenServer.reply(from, if(request == :get_status, do: %{}, else: reply))
         busy_server_loop(test_pid, exits_on, false, reply)
     end
+  end
+
+  # Sandbox-scoped failure injection: an update of the run points it at a User
+  # that does not exist, so it fails on the foreign key and the changeset
+  # answers `{:error, changeset}`.
+  defp fail_run_updates!(run_id) do
+    SQL.query!(
+      Repo,
+      """
+      CREATE FUNCTION fail_test_run_update() RETURNS trigger LANGUAGE plpgsql AS $$
+      BEGIN
+        IF NEW.id = '#{run_id}'::uuid THEN
+          NEW.user_id := '#{Ecto.UUID.generate()}'::uuid;
+        END IF;
+        RETURN NEW;
+      END $$
+      """
+    )
+
+    SQL.query!(
+      Repo,
+      "CREATE TRIGGER fail_test_run_update BEFORE UPDATE ON planning_generation_runs FOR EACH ROW EXECUTE FUNCTION fail_test_run_update()"
+    )
+  end
+
+  defp restore_run_updates! do
+    SQL.query!(
+      Repo,
+      "DROP TRIGGER fail_test_run_update ON planning_generation_runs"
+    )
+
+    SQL.query!(Repo, "DROP FUNCTION fail_test_run_update()")
   end
 
   defp insert_pending_proposal(account, user) do
