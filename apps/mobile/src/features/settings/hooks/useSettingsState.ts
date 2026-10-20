@@ -168,6 +168,12 @@ export function useSettingsState() {
     if (budgetStatus === 'error') loadBudget();
   }, [budgetStatus, loadBudget, loadData]);
 
+  // When only the Budget failed, the preferences retry is not shown, so the
+  // Budget gets a retry of its own that leaves the loaded preferences alone.
+  const retryBudget = useCallback(() => {
+    if (budgetStatus === 'error') loadBudget();
+  }, [budgetStatus, loadBudget]);
+
   // Always a fresh draft from the saved value: a cancelled edit leaves no trace.
   const openEditor = useCallback(
     (target: SettingsEditorTarget) => {
@@ -299,6 +305,7 @@ export function useSettingsState() {
     canEditBudget,
     loadStatus: loadState.status,
     retryLoad,
+    retryBudget,
     signOut,
     sheet,
     isSaving,
