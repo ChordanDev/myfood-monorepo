@@ -1302,6 +1302,32 @@ describe('SettingsScreen', () => {
       expect(getButton(root, 'settings-row-budget').props.disabled).toBe(false);
     });
 
+    it('a late refresh does not overwrite a Budget the owner saved meanwhile', async () => {
+      const { root } = await renderScreen();
+      let answerRefresh: (value: unknown) => void = () => {};
+      mockFetchAccountBudget.mockReturnValue(
+        new Promise((resolve) => {
+          answerRefresh = resolve;
+        })
+      );
+
+      await press(root, 'settings-row-household-size');
+      await press(root, 'settings-stepper-increment');
+      await press(root, 'settings-sheet-save');
+
+      await press(root, 'settings-row-budget');
+      await typeInto(root, 'settings-budget-input', '60000');
+      await press(root, 'settings-sheet-save');
+      expect(rowLabel(root, 'settings-row-budget')).toBe('Presupuesto semanal, $60.000');
+
+      await act(async () => {
+        answerRefresh({ budget: defaultBudget });
+      });
+      await flushEffects();
+
+      expect(rowLabel(root, 'settings-row-budget')).toBe('Presupuesto semanal, $60.000');
+    });
+
     it('is not fetched again when the saved profile keeps the household size', async () => {
       const { root } = await renderScreen();
 

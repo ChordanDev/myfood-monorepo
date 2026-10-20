@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { isApiError } from '@/api/errors';
 import { fetchAccountBudget, updateAccountBudget } from '@/features/account/api/accountApi';
 import { useAuth } from '@/features/auth';
@@ -118,6 +118,8 @@ export function useSettingsState() {
   const [budget, setBudget] = useState<AccountBudget | null>(null);
   const [budgetStatus, setBudgetStatus] = useState<BudgetStatus>('loading');
   const [isSavingBudget, setIsSavingBudget] = useState(false);
+  // Counts the Budget saves, so a refresh answered before one never overwrites it.
+  const budgetSaves = useRef(0);
   const isSaving = loadState.saving || isSavingProfile || isSavingBudget;
   // Every member sees the Budget; only the owner may change it (the API answers `not_owner`).
   const canEditBudget = me?.membership.role === 'owner' && budgetStatus === 'ready';
@@ -156,8 +158,10 @@ export function useSettingsState() {
   // The minimum follows the owner's household size, so a saved size reads the Budget again.
   // Unlike `loadBudget` it is silent: a failure keeps the Budget already shown.
   const refreshBudget = useCallback(async () => {
+    const savesBefore = budgetSaves.current;
     try {
       const response = await fetchAccountBudget();
+      if (budgetSaves.current !== savesBefore) return;
       setBudget(response.budget);
       setBudgetStatus('ready');
     } catch (error) {
@@ -266,6 +270,7 @@ export function useSettingsState() {
       setIsSavingBudget(true);
       try {
         const response = await updateAccountBudget(edit.payload);
+        budgetSaves.current += 1;
         setBudget(response.budget);
         hideSheet();
       } catch (error) {
