@@ -13,6 +13,9 @@ export interface CalendarMeal {
   // The meal is on the Account's today and has an active Cooking session, so the server refuses
   // to move it (issue #337). Optional: a server older than issue #207 does not send it.
   isCooking?: boolean;
+  // The meal passed and was not cooked: it was answered "not cooked", or its 7-day confirmation
+  // window closed unanswered (issue #145). Optional, so a test fixture can leave it out.
+  isSkipped?: boolean;
   selectedQuantity: number | null;
   prepTimeMinutes: number | null;
   macros: { calories: number | null };

@@ -183,6 +183,7 @@ defmodule MealPlannerApiWeb.Router do
     get("/calendar/slot", CalendarController, :show_slot)
     put("/calendar/meals/range", CalendarController, :replace_range)
     post("/calendar/meals/:id/move", CalendarController, :move_meal)
+    post("/calendar/meals/:id/confirm", CalendarController, :confirm_meal)
     get("/planning/weekly", PlanningController, :weekly)
     post("/planning/confirm", PlanningController, :confirm)
     get("/planning/favorites", PlanningChatController, :favorites)

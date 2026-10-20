@@ -7,8 +7,9 @@ defmodule MealPlannerApi.Services.CookingService do
   - Step tracking with snapshot persistence
   - Cooking chat: AI answers built from the frozen Context snapshot and the
     session's prior turns, with both turns of every answered question stored
-  - Inventory deduction on session completion, and on a meal marked cooked
-    from the calendar (`set_meal_cooked/4`)
+  - Inventory deduction on session completion, on a meal marked cooked from
+    the calendar (`set_meal_cooked/4`), and on a past meal confirmed cooked
+    (`confirm_meal/4`)
 
   Stateless service — all DB via PlanningRepo and InventoryRepo.
   """
@@ -151,6 +152,42 @@ defmodule MealPlannerApi.Services.CookingService do
     with {:ok, meal_id} <- cast_id(meal_id, :not_found) do
       ids = %{user_id: user_id, account_id: account_id}
       persist_cooked_mark(ids, meal_id, is_cooked, AccountClock.today(account_id, now))
+    end
+  end
+
+  @doc """
+  Confirms a past Scheduled meal of the Account as cooked or not cooked
+  (issue #145), without a Cooking session.
+
+  Confirmed cooked, the meal is a Cooked meal exactly as `set_meal_cooked/4`
+  leaves it: in one transaction its open Shopping items are removed and the
+  recipe's Ingredients are consumed from Inventory oldest lot first, clamped at
+  zero, with `cooking` Inventory mutation events audited to the actor. Lot
+  usability uses the Account's today at `now`. Confirmed not cooked, the
+  answer is stored at `now` and nothing is consumed: the meal is a Skipped
+  meal.
+
+  Returns the meal, one mutation per lot touched and one shortage per
+  Ingredient the stock could not cover, as a Cooking session finish does; a
+  "not cooked" answer has neither. The meal must be dated within the
+  confirmation window (`ScheduledMeal.in_confirmation_window?/2`), or it is
+  `{:error, :confirmation_window_closed}`. A meal that is already cooked or
+  already confirmed not cooked is `{:error, :meal_already_confirmed}` and
+  consumes nothing. A meal that is not the Account's is
+  `{:error, :scheduled_meal_not_found}`.
+  """
+  @spec confirm_meal(map(), binary(), boolean(), DateTime.t()) ::
+          {:ok, map()} | {:error, term()}
+  def confirm_meal(
+        %{id: user_id, account_id: account_id},
+        meal_id,
+        cooked,
+        now \\ DateTime.utc_now()
+      )
+      when is_binary(meal_id) and is_boolean(cooked) do
+    with {:ok, meal_id} <- cast_id(meal_id, :scheduled_meal_not_found) do
+      ids = %{user_id: user_id, account_id: account_id}
+      persist_confirmation(ids, meal_id, cooked, now, AccountClock.today(account_id, now))
     end
   end
 
@@ -826,6 +863,60 @@ defmodule MealPlannerApi.Services.CookingService do
     end)
   end
 
+  # The same meal row lock as a mark and a finish, so two confirmations of one
+  # meal, or a confirmation and a mark, never both consume it: the second sees
+  # the meal answered and changes nothing.
+  defp persist_confirmation(ids, meal_id, cooked, now, today) do
+    Repo.transaction(fn ->
+      meal =
+        PlanningRepo.lock_cooking_meal_for_account(ids.account_id, meal_id) ||
+          Repo.rollback(:scheduled_meal_not_found)
+
+      if meal.is_cooked or not is_nil(meal.not_cooked_at),
+        do: Repo.rollback(:meal_already_confirmed)
+
+      unless ScheduledMeal.in_confirmation_window?(meal.date, today),
+        do: Repo.rollback(:confirmation_window_closed)
+
+      if cooked, do: confirm_cooked(ids, meal, today), else: confirm_not_cooked(meal, now)
+    end)
+  end
+
+  # Lock order: Scheduled meal, then Shopping rows and the Inventory key, the
+  # lock order in the moduledoc of `MealPlannerApi.Cart`.
+  defp confirm_cooked(ids, meal, today) do
+    {mutations, shortages} = consume_meal(ids, nil, meal, today)
+
+    case PlanningRepo.update_scheduled_meal(meal, %{is_cooked: true}) do
+      {:ok, cooked} ->
+        %{
+          scheduled_meal: serialize_finished_meal(cooked, meal),
+          inventory_mutations: mutations,
+          shortages: shortages
+        }
+
+      {:error, reason} ->
+        Repo.rollback(reason)
+    end
+  end
+
+  defp confirm_not_cooked(meal, now) do
+    # The column keeps microseconds, whatever precision `now` carries.
+    answered_at = DateTime.add(now, 0, :microsecond)
+
+    case meal |> Ecto.Changeset.change(not_cooked_at: answered_at) |> Repo.update() do
+      {:ok, answered} ->
+        %{
+          scheduled_meal: serialize_meal(answered, meal, true),
+          inventory_mutations: [],
+          shortages: []
+        }
+
+      {:error, reason} ->
+        Repo.rollback(reason)
+    end
+  end
+
   # What cooking a meal takes, under the caller's lock on the meal: its open
   # Shopping items, then its Ingredients from the Inventory.
   defp consume_meal(ids, session_id, meal, today) do
@@ -834,7 +925,9 @@ defmodule MealPlannerApi.Services.CookingService do
   end
 
   # A cooked meal is never skipped, so the flag is fixed to false.
-  defp serialize_finished_meal(cooked, locked) do
+  defp serialize_finished_meal(cooked, locked), do: serialize_meal(cooked, locked, false)
+
+  defp serialize_meal(cooked, locked, is_skipped) do
     recipe = RecipeVersions.recipe_for_meal(locked)
 
     %{
@@ -842,7 +935,7 @@ defmodule MealPlannerApi.Services.CookingService do
       date: Date.to_iso8601(cooked.date),
       slot: Atom.to_string(cooked.slot),
       is_cooked: cooked.is_cooked,
-      is_skipped: false,
+      is_skipped: is_skipped,
       recipe_id: cooked.recipe_id,
       recipe_version_id: cooked.recipe_version_id,
       selected_quantity: cooked.selected_quantity,

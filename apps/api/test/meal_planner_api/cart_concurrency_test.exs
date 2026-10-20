@@ -700,6 +700,37 @@ defmodule MealPlannerApi.CartConcurrencyTest do
     assert [%{status: :pending, quantity_milli: 500}] = meal_lines(f, f.next_meal)
   end
 
+  # Issue #145. A past meal is answered once: two confirmations of it as
+  # cooked, from two devices, take the meal row lock in turn, and the second
+  # sees the meal cooked and consumes nothing.
+  test "two concurrent confirmations of a past meal as cooked consume it once", f do
+    past = meal!(f, Ecto.UUID.generate(), Date.add(Date.utc_today(), -2))
+    item = planned_item!(f, past)
+    stock!(f, 1000)
+    supervisor = start_supervised!(Task.Supervisor)
+    confirm = fn -> CookingService.confirm_meal(f.actor, past.id, true) end
+
+    {first_result, second_result} =
+      with_gate("DELETE", "shopping_items", "OLD.id = '#{item.id}'::uuid", fn holder, open_gate ->
+        # The first confirmation holds the meal while it waits to delete the item.
+        first = worker(supervisor, f, confirm)
+        wait_until_blocked_by(first.backend, holder)
+        second = worker(supervisor, f, confirm)
+        wait_until_blocked_by(second.backend, first.backend)
+        open_gate.()
+        {Task.await(first.task, 12_000), Task.await(second.task, 12_000)}
+      end)
+
+    assert {:ok, %{scheduled_meal: %{is_cooked: true}}} = first_result
+    assert {:error, :meal_already_confirmed} = second_result
+    assert Repo.get!(ScheduledMeal, past.id).is_cooked
+
+    # The recipe came out of the stock once, by one event.
+    assert [%{trigger_type: :cooking, quantity_delta_milli: -500}] = events(f)
+    assert stock(f) |> Enum.map(& &1.quantity_milli) |> Enum.sum() == 500
+    assert meal_lines(f, past) == []
+  end
+
   defp concurrent(f, commands) do
     parent = self()
     supervisor = start_supervised!(Task.Supervisor)

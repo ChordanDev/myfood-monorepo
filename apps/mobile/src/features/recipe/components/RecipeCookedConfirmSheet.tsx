@@ -8,7 +8,10 @@ interface RecipeCookedConfirmSheetProps {
   onCancel: () => void;
 }
 
-/** Asks before a meal is marked as cooked: marking it consumes its ingredients from the inventory. */
+/**
+ * Asks before a meal is marked as cooked: marking it consumes its ingredients from the inventory.
+ * Today's meal is cooked through a Cooking session, a past one is confirmed as cooked.
+ */
 export function RecipeCookedConfirmSheet({
   visible,
   onConfirm,

@@ -173,6 +173,8 @@ export type AuthErrorCode =
   | 'calendar_conflict'
   | 'calendar_move_not_possible'
   | 'calendar_meal_cooking_in_progress'
+  | 'meal_already_confirmed'
+  | 'confirmation_window_closed'
   | 'configuration_error'
   | 'network_error'
   | 'timeout'

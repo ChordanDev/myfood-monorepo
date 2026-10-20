@@ -61,8 +61,8 @@ function selectDate(dateString: string) {
   });
 }
 
-// Marking a meal as cooked in the store is only local: the server consumes the stock.
-function confirm(action: 'markAsCooked' | 'markAsSkipped', entryId: string) {
+// What the store applies once the server stored the answer: the server consumes the stock.
+function confirm(action: 'markAsCooked' | 'applyNotCookedAnswer', entryId: string) {
   act(() => {
     useMealPlanStore.getState()[action](entryId);
   });
@@ -152,7 +152,7 @@ describe('useHomeState', () => {
       act(() => {
         hookResult.handleMealTypeChange('dinner');
       });
-      confirm('markAsSkipped', `${YESTERDAY}-dinner`);
+      confirm('applyNotCookedAnswer', `${YESTERDAY}-dinner`);
       confirm('markAsCooked', `${YESTERDAY}-lunch`);
 
       expect(hookResult.selectedDate).toBe(TODAY);
@@ -192,7 +192,7 @@ describe('useHomeState', () => {
       expect(hookResult.selectedDate).toBe(TODAY);
 
       selectDate(YESTERDAY);
-      confirm('markAsSkipped', `${YESTERDAY}-dinner`);
+      confirm('applyNotCookedAnswer', `${YESTERDAY}-dinner`);
 
       expect(hookResult.selectedDate).toBe(TODAY);
       expect(hookResult.selectedMealType).toBeNull();

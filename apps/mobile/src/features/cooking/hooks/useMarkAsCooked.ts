@@ -1,7 +1,11 @@
 import { useCallback, useRef, useState } from 'react';
 import { getAuthErrorMessage, isApiError } from '@/api/errors';
 import { useMealPlanStore } from '@/store';
-import { finishCookingSession, startCookingSession } from '../api';
+import {
+  confirmPastMeal as confirmPastMealOnServer,
+  finishCookingSession,
+  startCookingSession,
+} from '../api';
 import { summarizeCookingFinish, type CookingSummary } from '../domain';
 
 /**
@@ -19,6 +23,7 @@ import { summarizeCookingFinish, type CookingSummary } from '../domain';
  */
 export function useMarkAsCooked() {
   const markEntryCooked = useMealPlanStore((state) => state.markAsCooked);
+  const applyNotCookedAnswer = useMealPlanStore((state) => state.applyNotCookedAnswer);
   const [isPending, setIsPending] = useState(false);
   const [summary, setSummary] = useState<CookingSummary | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -60,6 +65,42 @@ export function useMarkAsCooked() {
     [markEntryCooked]
   );
 
+  /**
+   * Answers whether a past meal was cooked: no Cooking session runs for a day that has passed.
+   * Cooked, the server consumes the Ingredients and the result is a summary like a finish's, with
+   * its leftovers prompt; not cooked, the server stores the answer, consumes nothing and the meal
+   * becomes skipped. The local entry follows only once the server stored the answer, so a refusal
+   * (an answer given already, a meal outside the 7-day window) leaves it as it was.
+   */
+  const confirmPastMeal = useCallback(
+    async (entryId: string, cooked: boolean): Promise<boolean> => {
+      if (inFlightRef.current) return false;
+
+      inFlightRef.current = true;
+      setIsPending(true);
+      setErrorMessage(null);
+
+      try {
+        const confirmation = await confirmPastMealOnServer(entryId, cooked);
+
+        if (cooked) {
+          markEntryCooked(entryId);
+          setSummary(summarizeCookingFinish(confirmation));
+        } else {
+          applyNotCookedAnswer(entryId);
+        }
+        return true;
+      } catch (error) {
+        setErrorMessage(getAuthErrorMessage(error));
+        return false;
+      } finally {
+        inFlightRef.current = false;
+        setIsPending(false);
+      }
+    },
+    [applyNotCookedAnswer, markEntryCooked]
+  );
+
   const dismiss = useCallback(() => {
     // A refusal has no summary, so it asks nothing; a second dismiss finds none either.
     if (summary) setLeftoverPrompt(summary);
@@ -71,6 +112,7 @@ export function useMarkAsCooked() {
 
   return {
     markAsCooked,
+    confirmPastMeal,
     isPending,
     summary,
     errorMessage,

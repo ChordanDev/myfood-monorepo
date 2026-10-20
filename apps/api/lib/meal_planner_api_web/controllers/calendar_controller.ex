@@ -4,7 +4,7 @@ defmodule MealPlannerApiWeb.CalendarController do
   alias MealPlannerApi.AccountClock
   alias MealPlannerApi.Persistence.Calendar
   alias MealPlannerApi.Persistence.Calendar.MealMove
-  alias MealPlannerApi.Services.ShoppingService
+  alias MealPlannerApi.Services.{CookingService, ShoppingService}
   alias MealPlannerApiWeb.ApiError
   alias MealPlannerApiWeb.MealSummary
 
@@ -97,6 +97,32 @@ defmodule MealPlannerApiWeb.CalendarController do
     end
   end
 
+  @doc """
+  `POST /api/calendar/meals/:id/confirm` with `cooked`, `true` or `false`:
+  answers whether the past Scheduled meal `:id` of the caller's Account was
+  cooked (issue #145). `true` consumes the recipe's Ingredients from Inventory
+  as a Cooking session finish does; `false` stores the answer and consumes
+  nothing. The response carries `scheduled_meal`, `inventory_mutations` and
+  `shortages`, the shape of a finish.
+
+  Errors use the envelope of `ApiError`: 404 `scheduled_meal_not_found`,
+  422 `validation_error` naming `cooked`, 409 `meal_already_confirmed` for a
+  meal already cooked or confirmed not cooked, and 422
+  `confirmation_window_closed` for a meal dated the Account's today or later,
+  or more than 7 days before it.
+  """
+  def confirm_meal(conn, %{"id" => meal_id, "cooked" => cooked}) when is_boolean(cooked) do
+    membership = conn.assigns.current_membership
+    actor = %{id: membership.user_id, account_id: membership.account_id}
+
+    case CookingService.confirm_meal(actor, meal_id, cooked) do
+      {:ok, result} -> json(conn, %{data: result})
+      {:error, reason} -> render_confirm_error(conn, reason)
+    end
+  end
+
+  def confirm_meal(conn, _params), do: ApiError.validation_error(conn, "cooked")
+
   def show_slot(conn, params) do
     user = Guardian.Plug.current_resource(conn)
     membership = conn.assigns.current_membership
@@ -170,6 +196,18 @@ defmodule MealPlannerApiWeb.CalendarController do
   defp render_move_error(conn, reason)
        when reason in [:meal_cooking_in_progress, :target_meal_cooking_in_progress],
        do: conn |> ApiError.error(:calendar_meal_cooking_in_progress)
+
+  @confirm_refusals [
+    :scheduled_meal_not_found,
+    :meal_already_confirmed,
+    :confirmation_window_closed,
+    :inventory_mutation_failed
+  ]
+
+  defp render_confirm_error(conn, reason) when reason in @confirm_refusals,
+    do: conn |> ApiError.error(reason)
+
+  defp render_confirm_error(conn, _reason), do: conn |> ApiError.server_fault()
 
   defp validate_date_range(start_date, end_date) do
     if Date.compare(start_date, end_date) in [:lt, :eq] do

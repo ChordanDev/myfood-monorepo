@@ -148,6 +148,8 @@ defmodule MealPlannerApiWeb.ApiError do
           | :calendar_conflict
           | :calendar_move_not_possible
           | :calendar_meal_cooking_in_progress
+          | :meal_already_confirmed
+          | :confirmation_window_closed
           | :planning_proposal_not_pending
           | :planning_slot_occupied
 
@@ -251,6 +253,11 @@ defmodule MealPlannerApiWeb.ApiError do
     # A meal with an active Cooking session, on either side (issue #207).
     calendar_meal_cooking_in_progress:
       {409, "A meal being cooked cannot be moved. Finish cooking it first."},
+    # Confirming a past Scheduled meal as cooked or not cooked (issue #145).
+    # Keep these above the planning channel rows too.
+    meal_already_confirmed: {409, "This meal was already confirmed. Nothing was changed."},
+    confirmation_window_closed:
+      {422, "Only a meal from the last 7 days can be confirmed as cooked or not cooked."},
     # Confirm and reject of a Planner proposal over HTTP (issue #28): only a
     # pending proposal is confirmed or rejected. Keep it above the planning
     # channel rows too.

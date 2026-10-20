@@ -102,29 +102,29 @@ describe('meal confirmation', () => {
     expect(getInventory()).toEqual(initialInventory);
   });
 
-  it('marks an entry as skipped and leaves the inventory untouched', () => {
+  it('applies a stored not-cooked answer as skipped and leaves the inventory untouched', () => {
     seedEntry();
 
-    useMealPlanStore.getState().markAsSkipped('entry-1');
+    useMealPlanStore.getState().applyNotCookedAnswer('entry-1');
 
     expect(getEntry()).toMatchObject({ isSkipped: true, isCooked: false });
     expect(getInventory()).toEqual(initialInventory);
   });
 
-  it('does not skip an entry that is already cooked', () => {
+  it('does not apply a not-cooked answer to an entry that is already cooked', () => {
     seedEntry({ isCooked: true });
 
-    useMealPlanStore.getState().markAsSkipped('entry-1');
+    useMealPlanStore.getState().applyNotCookedAnswer('entry-1');
 
     expect(getEntry().isSkipped).toBeUndefined();
     expect(getEntry().isCooked).toBe(true);
   });
 
-  it('ignores a skip for an entry that does not exist', () => {
+  it('ignores a not-cooked answer for an entry that does not exist', () => {
     seedEntry();
     const entriesBefore = useMealPlanStore.getState().entries;
 
-    useMealPlanStore.getState().markAsSkipped('missing-entry');
+    useMealPlanStore.getState().applyNotCookedAnswer('missing-entry');
 
     expect(useMealPlanStore.getState().entries).toBe(entriesBefore);
   });

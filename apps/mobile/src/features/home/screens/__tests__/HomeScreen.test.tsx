@@ -40,6 +40,7 @@ jest.mock('../../hooks/useHomeRecipeTheme', () => ({
   }),
 }));
 let mockSelectedDate = '2099-01-01';
+let mockIsPendingConfirmationDay = false;
 jest.mock('../../hooks/useHomeState', () => ({
   useHomeState: () => ({
     selectedDate: mockSelectedDate,
@@ -47,7 +48,7 @@ jest.mock('../../hooks/useHomeState', () => ({
     availableMealTypes: ['lunch'],
     selectedMeal: { id: 'entry-1', recipeId: 'r1', type: 'lunch', description: '' },
     selectedDayMeals: [],
-    isPendingConfirmationDay: false,
+    isPendingConfirmationDay: mockIsPendingConfirmationDay,
     planByDate: {},
     handleSelectDate: jest.fn(),
     handleMealTypeChange: jest.fn(),
@@ -66,10 +67,12 @@ jest.mock('../../components/FoodCard', () => ({ FoodCard: 'FoodCard' }));
 // The finish the cooking flow asks about leftovers for; none until a test cooks.
 let mockLeftoverPrompt: unknown = null;
 const mockCloseLeftoverPrompt = jest.fn();
+const mockConfirmPastMeal = jest.fn();
 jest.mock('@/features/cooking', () => ({
   CookingResultSheet: 'CookingResultSheet',
   useMarkAsCooked: () => ({
     markAsCooked: jest.fn(),
+    confirmPastMeal: mockConfirmPastMeal,
     summary: null,
     errorMessage: null,
     dismiss: jest.fn(),
@@ -85,6 +88,11 @@ jest.mock('@/features/inventory', () => ({
 jest.mock('@/features/leftovers', () => ({ createPreparedLeftover: jest.fn() }));
 const mockEatToday = jest.fn();
 jest.mock('../../hooks/useEatToday', () => ({ useEatToday: () => mockEatToday }));
+const mockRefreshLivePlan = jest.fn();
+jest.mock('../../hooks/useLoadLivePlan', () => ({
+  useLoadLivePlan: jest.fn(),
+  refreshLivePlan: () => mockRefreshLivePlan(),
+}));
 
 function mount() {
   let tree: ReturnType<typeof create>;
@@ -196,5 +204,43 @@ describe('HomeScreen eat today', () => {
     });
 
     expect(tree.root.findByType('EatTodaySheet' as never).props.visible).toBe(false);
+  });
+});
+
+// Issue #145: both answers of the "did you eat it?" card go to the server.
+describe('HomeScreen past meal confirmation', () => {
+  beforeEach(() => {
+    mockIsPendingConfirmationDay = true;
+    mockSelectedDate = '2026-08-24';
+    mockConfirmPastMeal.mockReset();
+    mockRefreshLivePlan.mockReset().mockResolvedValue(undefined);
+  });
+
+  afterEach(() => {
+    mockIsPendingConfirmationDay = false;
+    mockSelectedDate = '2099-01-01';
+  });
+
+  it.each([
+    ['onConfirmCooked', true],
+    ['onConfirmSkipped', false],
+  ])('%s sends cooked: %s for the selected meal to the server', async (handler, cooked) => {
+    mockConfirmPastMeal.mockResolvedValue(true);
+    const card = mount().root.findByType('CookedConfirmationCard' as never);
+
+    await act(async () => card.props[handler]());
+
+    expect(mockConfirmPastMeal).toHaveBeenCalledWith('entry-1', cooked);
+    expect(mockRefreshLivePlan).not.toHaveBeenCalled();
+  });
+
+  it('reads the plan again when the server refuses the answer', async () => {
+    mockConfirmPastMeal.mockResolvedValue(false);
+    const card = mount().root.findByType('CookedConfirmationCard' as never);
+
+    await act(async () => card.props.onConfirmSkipped());
+
+    expect(mockConfirmPastMeal).toHaveBeenCalledWith('entry-1', false);
+    expect(mockRefreshLivePlan).toHaveBeenCalledTimes(1);
   });
 });

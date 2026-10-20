@@ -21,7 +21,7 @@ import {
 import { useHomeResponsiveScale } from '../hooks/useHomeResponsiveScale';
 import { useEatToday } from '../hooks/useEatToday';
 import { useHomeState } from '../hooks/useHomeState';
-import { useLoadLivePlan } from '../hooks/useLoadLivePlan';
+import { refreshLivePlan, useLoadLivePlan } from '../hooks/useLoadLivePlan';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useHomeRecipeTheme } from '../hooks/useHomeRecipeTheme';
 import { formatDateKey } from '../utils/calendarDate';
@@ -46,7 +46,6 @@ export function HomeScreen() {
   const recipeSummaries = useMealPlanStore((state) => state.recipeSummaries);
   const cooking = useMarkAsCooked();
   const addInventoryExtra = useInventoryStore((state) => state.addExtra);
-  const markAsSkipped = useMealPlanStore((state) => state.markAsSkipped);
   // Destinations are captured when the sheet opens so the options cannot change while it is shown.
   // A move that did not go as asked opens the sheet again with its message alone.
   const [eatTodaySheet, setEatTodaySheet] = useState<{
@@ -109,16 +108,21 @@ export function HomeScreen() {
     }
   };
 
+  // Both answers go to the server. One it refuses was most likely given on another device, so
+  // the plan is read again to show it.
+  const confirmSelectedMeal = async (cooked: boolean) => {
+    if (!selectedMeal) return;
+
+    const confirmed = await cooking.confirmPastMeal(selectedMeal.id, cooked);
+    if (!confirmed) void refreshLivePlan().catch(() => undefined);
+  };
+
   const handleConfirmCooked = () => {
-    if (selectedMeal) {
-      void cooking.markAsCooked(selectedMeal.id);
-    }
+    void confirmSelectedMeal(true);
   };
 
   const handleConfirmSkipped = () => {
-    if (selectedMeal) {
-      markAsSkipped(selectedMeal.id);
-    }
+    void confirmSelectedMeal(false);
   };
 
   const handleEatToday = () => {

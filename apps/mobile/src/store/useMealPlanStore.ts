@@ -10,7 +10,8 @@ interface MealPlanState {
   setPlan: (entries: MealPlanEntry[]) => void;
   setRecipeSummaries: (recipeSummaries: Record<string, RecipeSummary>) => void;
   markAsCooked: (entryId: string) => void;
-  markAsSkipped: (entryId: string) => void;
+  /** Applies a "not cooked" answer the server already stored: the meal is a Skipped meal. */
+  applyNotCookedAnswer: (entryId: string) => void;
   /** Drops everything cached for the signed-in account (plan and summaries). */
   resetAccountData: () => void;
   getEntryByDateAndType: (date: string, type: string) => MealPlanEntry | undefined;
@@ -46,7 +47,9 @@ export const useMealPlanStore = create<MealPlanState>()(
           entries: state.entries.map((e) => (e.id === entryId ? { ...e, isCooked: true } : e)),
         }));
       },
-      markAsSkipped: (entryId) => {
+      // Never the answer itself: `POST /api/calendar/meals/:id/confirm` stores it, and the next
+      // calendar read serves it as `isSkipped` on every device.
+      applyNotCookedAnswer: (entryId) => {
         const entry = get().entries.find((e) => e.id === entryId);
         if (!entry || entry.isCooked || entry.isSkipped) return;
 

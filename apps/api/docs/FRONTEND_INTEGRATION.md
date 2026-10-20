@@ -298,6 +298,7 @@ asumir un tipo específico.
 | `GET` | `/api/me` | Usuario actual |
 | `GET` | `/api/calendar` | Obtener calendario mensual |
 | `GET` | `/api/calendar/slot?date=YYYY-MM-DD&slot=breakfast` | Obtener slot específico |
+| `POST` | `/api/calendar/meals/:mealId/confirm` | Confirmar si una comida pasada se cocinó |
 | `POST` | `/api/planning/generate` | Generar plan semanal |
 | `POST` | `/api/planning/confirm` | Confirmar propuesta |
 | `GET` | `/api/shopping/list` | Lista de compras |
@@ -438,6 +439,52 @@ Authorization: Bearer <token>
   }
 }
 ```
+
+### Confirmar una comida pasada
+
+Una comida cuyo día ya pasó (según el "hoy" de la cuenta), hace 7 días o menos, que no se
+cocinó ni se respondió, está **sin confirmar**. El usuario la confirma una sola vez:
+
+```bash
+POST /api/calendar/meals/:mealId/confirm
+Authorization: Bearer <token>
+Content-Type: application/json
+
+{ "cooked": true }
+```
+
+- `cooked: true`: los Ingredientes de la receta se descuentan del Inventario (lote más viejo
+  primero, sin bajar de cero), se borran sus Shopping items abiertos y la comida queda cocinada.
+  No abre una Cooking session.
+- `cooked: false`: se guarda la respuesta y no se descuenta nada; la comida queda salteada.
+
+La respuesta tiene la forma del cierre de una Cooking session. Un faltante no hace fallar la
+confirmación: se informa en `shortages`, uno por Ingrediente que el stock no cubrió.
+
+```json
+{
+  "data": {
+    "scheduledMeal": { "id": "…", "date": "2026-10-19", "slot": "lunch", "isCooked": true, "isSkipped": false, "recipeId": "…", "recipeVersionId": "…", "selectedQuantity": 1, "recipeName": "Pollo al horno" },
+    "inventoryMutations": [{ "inventoryItemId": "…", "ingredientId": "…", "ingredientName": "Arroz", "unit": "g", "quantityBeforeMilli": 1000, "quantityDeltaMilli": -200, "quantityAfterMilli": 800 }],
+    "shortages": [{ "ingredientId": "…", "ingredientName": "Sal", "unit": "g", "requestedMilli": 200, "missingMilli": 150 }]
+  }
+}
+```
+
+Con `cooked: false`, `scheduledMeal.isSkipped` es `true` e `inventoryMutations` y `shortages`
+vienen vacíos.
+
+| Estado | Código | Cuándo |
+|--------|--------|--------|
+| 404 | `scheduled_meal_not_found` | La comida no existe o es de otra cuenta |
+| 409 | `meal_already_confirmed` | La comida ya estaba cocinada o confirmada como no cocinada; no se cambia ni se descuenta nada |
+| 422 | `confirmation_window_closed` | La comida es de hoy o posterior (se cocina con una Cooking session), o de hace más de 7 días |
+| 422 | `validation_error` | `cooked` falta o no es booleano |
+
+En `GET /api/calendar`, `isSkipped` sigue esta regla: una comida pasada sin cocinar tiene
+`isSkipped: true` si se confirmó como no cocinada o si pasaron más de 7 días sin respuesta; dentro
+de esos 7 días, sin respuesta, tiene `isCooked: false` e `isSkipped: false` (sin confirmar). Las
+dos respuestas se leen igual desde cualquier dispositivo de la cuenta.
 
 ### Ejemplo: Generar Plan
 
@@ -1009,6 +1056,8 @@ formato por defecto:
 | `not_found` | Recurso no existe | Verificar IDs |
 | `invalid_payload` | Datos inválidos | Validar input del usuario |
 | `validation_error` | Un campo de la request no es válido; el `message` nombra el campo | Corregir ese campo |
+| `meal_already_confirmed` | La comida pasada ya estaba cocinada o confirmada como no cocinada | Volver a leer el plan |
+| `confirmation_window_closed` | La comida no es de los últimos 7 días | Usar una Cooking session para la comida de hoy |
 | `invalid_cooking_skill` | `cookingSkill` no está en el catálogo | Enviar `beginner`, `intermediate` o `advanced` |
 | `slot_cooking_times_not_found` | El usuario todavía no guardó los tiempos de cocina por slot | Usar los valores por defecto y guardarlos con `PUT /api/me/slot-cooking-times` |
 | `invalid_hunger_level` | `hungerLevel` no está en el catálogo | Enviar `light`, `normal` o `strong` |

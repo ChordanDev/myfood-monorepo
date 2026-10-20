@@ -49,7 +49,7 @@ function prefetchTodayRecipes(now: Date = new Date()) {
 }
 
 // Home and the Planner both mount the hook: they wait for one read instead of firing one each.
-function refreshLivePlan(): Promise<void> {
+export function refreshLivePlan(): Promise<void> {
   sharedRead ??= loadLivePlan().finally(() => {
     sharedRead = null;
   });
