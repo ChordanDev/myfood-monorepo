@@ -238,12 +238,20 @@ describe('loadLivePlan', () => {
     const olderRead = loadLivePlan();
     const newerRead = loadLivePlan();
 
-    newer.resolve({ meals: [calendarMeal('m1', TOMORROW, 'lunch', 'r-newer')] });
+    newer.resolve({
+      today: '2026-10-21',
+      meals: [calendarMeal('m1', TOMORROW, 'lunch', 'r-newer')],
+    });
     await newerRead;
-    older.resolve({ meals: [calendarMeal('m1', TOMORROW, 'lunch', 'r-older')] });
+    older.resolve({
+      today: '2026-10-20',
+      meals: [calendarMeal('m1', TOMORROW, 'lunch', 'r-older')],
+    });
     await olderRead;
 
     expect(plannedRecipeIds()).toEqual(['r-newer']);
+    // Issue #396: the Account's today is the newest read's too.
+    expect(useMealPlanStore.getState().today).toBe('2026-10-21');
   });
 
   it('keeps the answer of an older read when the newer one fails', async () => {
