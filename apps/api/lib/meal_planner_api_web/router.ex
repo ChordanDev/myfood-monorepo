@@ -55,11 +55,11 @@ defmodule MealPlannerApiWeb.Router do
 
     post("/billing/revenuecat/webhook", RevenuecatController, :webhook)
 
-    # Phase A — Tenancy Refactor (PR 3a task 3.4): deliberately NOT behind
-    # `:auth` — the "new User accepts" case has no account/token yet
-    # (spec `invite-and-accept.md` §"New User accepts"). The controller
-    # manually decodes an optional Authorization header for the
-    # "existing User accepts" case instead of relying on the pipeline.
+    # Deliberately NOT behind `:auth`: an invitee with no session accepts
+    # with the code mailed to the invited email (issues #297 and #274). The
+    # controller manually decodes an optional Authorization header for an
+    # invitee who accepts with their own session instead of relying on the
+    # pipeline.
     post("/invites/:token/accept", InviteController, :accept)
     # Mails a code to the invited email for an accept with `{"code"}`
     # (issue #297): how an invitee who already has a User but no session
