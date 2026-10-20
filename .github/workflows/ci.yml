@@ -22,7 +22,7 @@ jobs:
   # `docs/` (or anything else outside the two apps) trigger neither job.
   changes:
     name: Detect changed paths
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux]
     timeout-minutes: 5
     permissions:
       contents: read
@@ -67,7 +67,7 @@ jobs:
     name: API (Elixir)
     needs: changes
     if: github.event_name == 'workflow_dispatch' || needs.changes.outputs.api == 'true'
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux]
     timeout-minutes: 25
     defaults:
       run:
@@ -164,7 +164,7 @@ jobs:
     name: Mobile (Expo)
     needs: changes
     if: github.event_name == 'workflow_dispatch' || needs.changes.outputs.mobile == 'true'
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux]
     timeout-minutes: 20
     defaults:
       run:
