@@ -1670,3 +1670,85 @@ Errors use the envelope of section 10:
 | `409`  | `calendar_move_not_possible` | The stored Shopping items of a meal cannot follow it to its new date. A retry fails the same way; show the message and keep the meal where it is |
 
 Nothing is saved on any error.
+
+### 12.2 Confirm a past meal as cooked or not cooked
+
+- Method: `POST`
+- Path: `/api/calendar/meals/:mealId/confirm`
+
+Request body:
+
+```json
+{
+  "cooked": true
+}
+```
+
+- `mealId`: the `mealId` of a meal of `GET /api/calendar`.
+- `cooked`: required, `true` or `false`.
+
+A past meal whose day passed, by the Account's today, no more than 7 days ago and that was neither cooked
+nor answered is unconfirmed. The User answers it once:
+
+- `cooked: true`: the recipe's Ingredients are consumed from the Inventory oldest lot first, clamped at
+  zero, with `cooking` Inventory mutation events; the meal's open Shopping items are removed and the meal is
+  cooked. No Cooking session is opened; today's meal keeps the Cooking session.
+- `cooked: false`: the answer is stored and nothing is consumed; the meal is skipped.
+
+Success response (`200`), the shape of a Cooking session finish:
+
+```json
+{
+  "data": {
+    "scheduledMeal": {
+      "id": "<scheduled_meal_uuid>",
+      "date": "2026-10-19",
+      "slot": "lunch",
+      "isCooked": true,
+      "isSkipped": false,
+      "recipeId": "<recipe_uuid>",
+      "recipeVersionId": "<recipe_version_uuid>",
+      "selectedQuantity": 1,
+      "recipeName": "Pollo al horno"
+    },
+    "inventoryMutations": [
+      {
+        "inventoryItemId": "<inventory_item_uuid>",
+        "ingredientId": "<ingredient_uuid>",
+        "ingredientName": "Arroz",
+        "unit": "g",
+        "quantityBeforeMilli": 1000,
+        "quantityDeltaMilli": -200,
+        "quantityAfterMilli": 800
+      }
+    ],
+    "shortages": [
+      {
+        "ingredientId": "<ingredient_uuid>",
+        "ingredientName": "Sal",
+        "unit": "g",
+        "requestedMilli": 200,
+        "missingMilli": 150
+      }
+    ]
+  }
+}
+```
+
+A shortage does not fail the confirmation: there is one per Ingredient the stock could not cover, to show
+as information. For `cooked: false`, `scheduledMeal.isSkipped` is `true` and both lists are empty.
+
+`GET /api/calendar` and `GET /api/calendar/slot` serve the answer on every device: a past meal that was not
+cooked has `isSkipped: true` once it was answered not cooked, or once more than 7 days passed without an
+answer. Within those 7 days an unanswered meal has `isCooked: false` and `isSkipped: false`.
+
+Errors use the envelope of section 10:
+
+| Status | Code                         | When                                                                                       |
+| ------ | ---------------------------- | ------------------------------------------------------------------------------------------ |
+| `404`  | `scheduled_meal_not_found`   | The id is unknown, of another Account or not a UUID                                        |
+| `422`  | `validation_error`           | `cooked` is missing or not a boolean                                                       |
+| `409`  | `meal_already_confirmed`     | The meal is already cooked or already answered not cooked. There is no second answer       |
+| `422`  | `confirmation_window_closed` | The meal is dated the Account's today or later, or more than 7 days before it              |
+
+Nothing is saved or consumed on any error.

@@ -108,13 +108,15 @@ This file and `docs/adr/` are the only durable docs in the repository. Specs, ma
 
 **Scheduled meal** — An accepted meal on a date and slot, carrying its Recipe snapshot and whether it was cooked. The set of Scheduled meals is the Account's live plan. `(code: Persistence.Planning.ScheduledMeal, mobile MealPlanEntry)` `(alias: Confirmed Meal Plan, Active Meal Plan, Plan de Comidas Local)`
 
-**Skipped meal** — A Scheduled meal whose date passed without being cooked; never cooked and skipped at once. Derived by the API from the Account's today. `(code: mobile MealPlanEntry.isSkipped, Persistence.Calendar)`
+**Unconfirmed meal** — A Scheduled meal whose date passed, by the Account's today, no more than 7 days ago, that was neither cooked nor answered. The User confirms it once, as cooked or as not cooked; after those 7 days an unanswered meal becomes a Skipped meal. `(code: Persistence.Calendar, Services.CookingService.confirm_meal)` `(alias: pending confirmation)`
+
+**Skipped meal** — A past Scheduled meal that was not cooked: the User confirmed it as not cooked, or it stayed unconfirmed for more than 7 days after its date. Nothing is consumed for it. Never cooked and skipped at once. `(code: ScheduledMeal.not_cooked_at, mobile MealPlanEntry.isSkipped, Persistence.Calendar)`
 
 **Rescue plan** — A single recipe suggested on demand from ingredients the User wants to use up before they spoil. `(code: Services.InventoryService.rescue_plan)`
 
 ## Cooking
 
-**Cooking session** — The runtime of cooking one Scheduled meal: `active` or `completed`, with its step events and chat. It can start only for a meal scheduled on the Account's today that is not cooked yet; finishing it consumes the recipe's Ingredients from Inventory oldest lot first and reports any shortfall as a shortage. While a session is `active` and its meal is on the Account's today, that meal is neither moved nor displaced by a move; off today an unfinished session no longer holds its meal. `(code: Persistence.Planning.CookingSession, Services.CookingService)`
+**Cooking session** — The runtime of cooking one Scheduled meal: `active` or `completed`, with its step events and chat. It can start only for a meal scheduled on the Account's today that is not cooked yet; finishing it consumes the recipe's Ingredients from Inventory oldest lot first and reports any shortfall as a shortage. While a session is `active` and its meal is on the Account's today, that meal is neither moved nor displaced by a move; off today an unfinished session no longer holds its meal. A past meal has no Cooking session: an Unconfirmed meal is confirmed as cooked instead. `(code: Persistence.Planning.CookingSession, Services.CookingService)`
 
 **Cooking step event** — A recorded progression through a recipe step during a Cooking session. `(code: Persistence.Planning.CookingStepEvent)`
 
@@ -122,7 +124,7 @@ This file and `docs/adr/` are the only durable docs in the repository. Specs, ma
 
 **Context snapshot** — The frozen recipe-and-inventory state the Cooking chat answers from, captured by the first question of the Account's day and reused by that day's later questions; later Inventory changes do not alter it, and starting a Cooking session captures nothing. `(code: CookingSession.context_snapshot["frozen"]; Persistence.Planning.ContextSnapshot holds the step state)`
 
-**Cooked meal** — A Scheduled meal marked as cooked, which consumes its ingredients from Inventory and removes its items from the shopping list. `(code: ScheduledMeal.is_cooked, InventoryMutationEvent trigger=cooking)` `(alias: Consumo Automático)`
+**Cooked meal** — A Scheduled meal marked as cooked, by a finished Cooking session or by confirming an Unconfirmed meal as cooked, which consumes its ingredients from Inventory and removes its items from the shopping list. `(code: ScheduledMeal.is_cooked, InventoryMutationEvent trigger=cooking)` `(alias: Consumo Automático)`
 
 **Ingredient leftover** — A remaining raw ingredient after cooking, kept in Inventory as a normal item flagged as leftover. `(code: mobile InventoryItem.isLeftover)` `(alias: Sobras de Ingrediente)`
 
