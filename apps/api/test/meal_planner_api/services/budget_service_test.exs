@@ -119,6 +119,7 @@ defmodule MealPlannerApi.Services.BudgetServiceTest do
           {"a negative amount", -1},
           {"a float", 500.5},
           {"a string", "50000"},
+          {"a boolean", true},
           {"nil", nil},
           {"an amount past the column range", 2_147_483_648}
         ] do
