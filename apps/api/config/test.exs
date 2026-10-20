@@ -49,3 +49,7 @@ config :meal_planner_api, MealPlannerApi.Mailer, adapter: Bamboo.LocalAdapter
 # header no real proxy sends, so controller tests can pose as distinct
 # clients.
 config :meal_planner_api, client_ip_header: "x-test-client-ip"
+
+# Social sign-in (issue #106): tests answer for the provider through the
+# fake verifier.
+config :meal_planner_api, social_verifier: MealPlannerApi.Auth.SocialVerifierFake

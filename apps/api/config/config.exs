@@ -42,6 +42,15 @@ config :meal_planner_api,
   optimizer_timeout_ms: 15_000,
   optimizer_inventory_weight: 100
 
+# Social sign-in (issue #106). A provider with no client ID is refused,
+# so both lists stay empty until `config/runtime.exs` reads them.
+config :meal_planner_api,
+  social_verifier: MealPlannerApi.Auth.SocialVerifier,
+  google_oauth_client_ids: [],
+  apple_oauth_client_ids: [],
+  google_tokeninfo_url: "https://oauth2.googleapis.com/tokeninfo",
+  apple_jwks_url: "https://appleid.apple.com/auth/keys"
+
 # Configure the endpoint
 config :meal_planner_api, MealPlannerApiWeb.Endpoint,
   url: [host: "localhost"],
@@ -62,10 +71,12 @@ config :logger, :default_formatter,
 config :phoenix, :json_library, Jason
 
 # Cooking conversations and spoken inventory transcripts must not be retained
-# in request parameter logs.
+# in request parameter logs. Phoenix matches case-sensitively, so `"Token"`
+# covers the mobile contract's `idToken`, `accessToken` and `refreshToken`.
 config :phoenix, :filter_parameters, [
   "password",
   "token",
+  "Token",
   "secret",
   "code",
   "message",

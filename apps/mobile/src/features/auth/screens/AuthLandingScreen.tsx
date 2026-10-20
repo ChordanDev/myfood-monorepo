@@ -6,19 +6,28 @@ import { useAuth, useAuthResponsiveScale } from '../hooks';
 import { useKeyboardAnimation } from '@/hooks/useKeyboardAnimation';
 import { AUTH_FOOD_IMAGES } from '@/constants/authAssets';
 import { GRADIENTS } from '@/constants/theme';
-import { AuthButton, AuthCredentialsForm, CarouselImages, RegisterEntryModal } from '../components';
+import {
+  AuthButton,
+  AuthCredentialsForm,
+  CarouselImages,
+  RegisterEntryModal,
+  SocialLogin,
+} from '../components';
 import { NoisyBackground, SafeAreaContent, TitlePrimary, TopFadeMask } from '@/components';
 import { useRouter } from 'expo-router';
 import { getAuthErrorMessage } from '@/services/authService';
+import { requestSocialIdToken } from '../services/socialSignIn';
+import type { SocialProvider } from '../types/auth';
 
 export function AuthLandingScreen() {
   // Estado local para validacion y modal de registro.
-  const { requestVerificationCode } = useAuth();
+  const { requestVerificationCode, signInWithSocial } = useAuth();
   const metrics = useAuthResponsiveScale();
   const [isCredentialsValid, setIsCredentialsValid] = useState(false);
   const [loginEmail, setLoginEmail] = useState('');
   const [isRequestingLoginCode, setIsRequestingLoginCode] = useState(false);
   const [isRequestingRegisterCode, setIsRequestingRegisterCode] = useState(false);
+  const [isSigningInWithSocial, setIsSigningInWithSocial] = useState(false);
   const router = useRouter();
   const [showRegisterModal, setShowRegisterModal] = useState(false);
   const { inputAnimatedStyle, isKeyboardOpen } = useKeyboardAnimation({
@@ -80,6 +89,28 @@ export function AuthLandingScreen() {
     }
   }, [isRequestingLoginCode, loginEmail, requestVerificationCode, router]);
 
+  const handleSocialLogin = useCallback(
+    async (provider: SocialProvider) => {
+      if (isSigningInWithSocial) return;
+
+      setIsSigningInWithSocial(true);
+      try {
+        const idToken = await requestSocialIdToken(provider);
+        // The User dismissed the provider sheet: nothing to report.
+        if (idToken === null) return;
+
+        await signInWithSocial(provider, idToken);
+        // Same as after verifying a code: the gate in index.tsx picks the route.
+        router.replace('/');
+      } catch (error) {
+        Alert.alert('Error', getAuthErrorMessage(error));
+      } finally {
+        setIsSigningInWithSocial(false);
+      }
+    },
+    [isSigningInWithSocial, router, signInWithSocial]
+  );
+
   // Estabiliza la referencia para evitar re-renders en AuthCredentialsForm.
   const handleCredentialsChange = useCallback(({ email }: { email: string }) => {
     setLoginEmail(email);
@@ -131,13 +162,18 @@ export function AuthLandingScreen() {
           </TopFadeMask>
         </View>
 
-        <View style={{ flex: 3 }}>
-          {/* Acceso al registro. La vista conserva su proporción de altura para que el bloque superior no se mueva. */}
+        <View style={{ flex: 3, justifyContent: 'space-between' }}>
+          {/* Accesos alternativos al registro y login social. */}
           <AuthButton
             title="Crear una cuenta"
             variant="secondary"
             metrics={metrics}
             onPress={openRegisterModal}
+          />
+          <SocialLogin
+            metrics={metrics}
+            onPress={handleSocialLogin}
+            disabled={isSigningInWithSocial}
           />
         </View>
       </SafeAreaContent>

@@ -58,8 +58,8 @@ headers: {
 
 ## Autenticación
 
-La app inicia sesión y se registra con un código enviado por email; no hay login con password ni con
-proveedores sociales. El contrato completo está en la
+La app inicia sesión y se registra con un código enviado por email, o con Google o Apple (ver
+[Login social](#login-social)); no hay login con password. El contrato completo está en la
 [spec #1](https://github.com/ChordanDev/myfood-monorepo/issues/1); esta sección lo resume.
 
 - El login atiende solo emails que ya tienen un usuario (`404 email_not_found` si no); el registro
@@ -162,6 +162,39 @@ membership `owner` y el trial, y abre la sesión. Pedir el código responde `409
 lugar de `email_not_found`) cuando el email ya tiene un usuario; verificarlo responde lo mismo si el email
 pasó a tener un usuario después de enviado el código.
 
+### Login social
+
+`POST /api/auth/social` inicia sesión o registra con el ID token que entrega el SDK de Google (iOS y
+Android) o de Apple (solo iOS). La prueba del proveedor reemplaza al código; el resto sigue el contrato
+del login y el registro con código.
+
+```json
+{ "provider": "google", "idToken": "<ID token del SDK>", "deviceId": "<UUID del dispositivo>" }
+```
+
+- `provider` es `google` o `apple`. Con Google, el `idToken` tiene que estar emitido para el web client ID
+  que el backend tiene en `GOOGLE_OAUTH_CLIENT_IDS`; con Apple, para el bundle ID de
+  `APPLE_OAUTH_CLIENT_IDS`.
+- La app muestra el botón de Google solo si el build tiene `EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID` (y, en iOS,
+  `EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID`); el plugin nativo de Google se agrega en el prebuild cuando está
+  `GOOGLE_IOS_URL_SCHEME`. El de Apple, solo en iOS y si el dispositivo lo soporta.
+- La respuesta `200` es la de `POST /api/auth/login/verify-code` (`accessToken`, `refreshToken`,
+  `tokenType`, `me`) y abre la misma Device session, así que `POST /api/auth/refresh` la renueva.
+- La primera vez, la cuenta del proveedor se vincula al usuario del email que el proveedor marca como
+  verificado (la dirección de relay privado de Apple cuenta como email real). Si ese email tiene un
+  usuario con una membership activa, inicia sesión; si no tiene usuario, se registra con su cuenta
+  individual, la membership `owner` y el trial, como `POST /api/auth/signup/verify-code`. Las siguientes
+  veces se reconoce la cuenta del proveedor aunque el token no traiga email (Apple lo manda solo la
+  primera vez). No hay pantalla para desvincular.
+- Errores: `401 social_token_invalid` (token ausente, mal formado, vencido o emitido para otra app;
+  también un `deviceId` inválido), `422 social_email_unverified` (la primera vez, sin un email verificado),
+  `422 social_provider_unsupported` (otro proveedor, o uno sin client ID configurado),
+  `401 account_not_found` (el usuario no tiene una membership activa), `409 email_already_exists` (el
+  email pasó a tener un usuario mientras se registraba) y `429 rate_limited` (un token inválido desde una
+  IP que ya tiene 20 verificaciones fallidas en la última hora, contadas junto con los códigos por email;
+  el header `retry-after` trae la espera en segundos y un token válido nunca se rechaza por este límite).
+  Si el proveedor no responde, `500 unknown_error`.
+
 ### Renovar y cerrar la sesión
 
 ```bash
@@ -259,6 +292,7 @@ asumir un tipo específico.
 | `POST` | `/api/auth/login/verify-code` | Verificar el código e iniciar sesión |
 | `POST` | `/api/auth/signup/request-code` | Pedir código de registro por email |
 | `POST` | `/api/auth/signup/verify-code` | Verificar el código y crear la cuenta |
+| `POST` | `/api/auth/social` | Iniciar sesión o registrarse con Google o Apple |
 | `POST` | `/api/auth/refresh` | Renovar la sesión |
 | `POST` | `/api/auth/logout` | Cerrar la sesión |
 | `GET` | `/api/me` | Usuario actual |
@@ -921,8 +955,8 @@ Lo devuelven:
 - el control de acceso delante de las rutas que requieren acceso vigente, cuando la verificación de
   acceso está habilitada: `403 trial_expired`;
 - las rutas de autenticación de la app móvil: `/api/auth/login/request-code`,
-  `/api/auth/login/verify-code`, `/api/auth/signup/request-code`, `/api/auth/signup/verify-code` y
-  `/api/auth/refresh`;
+  `/api/auth/login/verify-code`, `/api/auth/signup/request-code`, `/api/auth/signup/verify-code`,
+  `/api/auth/social` y `/api/auth/refresh`;
 - `GET /api/me` y su alias `GET /api/auth/me`;
 - `PUT /api/me/profile`: `422 validation_error` y `422 invalid_cooking_skill`;
 - `GET` y `PUT /api/me/slot-cooking-times`, los tiempos de cocina por comida del usuario

@@ -27,6 +27,7 @@ export {
   logout,
   requestVerificationCode,
   sendVerificationCode,
+  signInWithSocial,
   verifyAndSignIn,
   verifyAndSignUp,
   verifyCode,

@@ -117,7 +117,9 @@ defmodule MealPlannerApiWeb.RouterTest do
   end
 
   # Legacy authentication sweep (issue #14): the password, social and
-  # `/api/auth/email-code/*` routes are gone. Each body is one the removed
+  # `/api/auth/email-code/*` routes are gone. `POST /api/auth/social` is
+  # mounted again on the mobile contract (issue #106); its old
+  # `/google`, `/facebook` and `/apple` aliases are not. Each body is one the removed
   # action answered without a 404, so a route that is still mounted fails
   # the test: the password action registered the User (200), the social
   # action refused a payload without `id_token` (400), the code request
@@ -138,7 +140,6 @@ defmodule MealPlannerApiWeb.RouterTest do
           {"/api/auth/password", password_body},
           {"/api/auth/login", password_body},
           {"/api/auth/register", password_body},
-          {"/api/auth/social", social_body},
           {"/api/auth/google", social_body},
           {"/api/auth/facebook", social_body},
           {"/api/auth/apple", social_body},
@@ -159,6 +160,7 @@ defmodule MealPlannerApiWeb.RouterTest do
             {"/api/auth/login/verify-code", MobileAuthController, :verify_login_code},
             {"/api/auth/signup/request-code", MobileAuthController, :request_signup_code},
             {"/api/auth/signup/verify-code", MobileAuthController, :verify_signup_code},
+            {"/api/auth/social", MobileAuthController, :social},
             {"/api/auth/refresh", AuthController, :refresh},
             {"/api/auth/logout", AuthController, :logout},
             {"/api/auth/switch-account", AccountLifecycleController, :switch_account}

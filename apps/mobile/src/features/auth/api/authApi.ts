@@ -1,6 +1,12 @@
 import { apiClient } from '@/api/client';
 import { getDeviceId, persistSession } from '@/api/authTokenStore';
-import type { AuthFlow, AuthSession, CodeRequestResponse, CurrentMe } from '../types/auth';
+import type {
+  AuthFlow,
+  AuthSession,
+  CodeRequestResponse,
+  CurrentMe,
+  SocialProvider,
+} from '../types/auth';
 import { normalizeCurrentMe } from '../utils/currentMe';
 import type { RequestOptions } from '@/api/transport';
 
@@ -26,20 +32,25 @@ export function sendVerificationCode(
   return requestVerificationCode(email, flow);
 }
 
-export async function verifyCode(
-  email: string,
-  code: string,
-  flow: AuthFlow
+// Both proofs (email code, provider token) answer the same session body, so they share how the
+// session is read and stored.
+async function postForSession(
+  endpoint: string,
+  body: Record<string, string>
 ): Promise<AuthSession> {
   const deviceId = await getDeviceId();
-  const response = await apiClient.post<AuthSession>(endpointForVerify(flow), {
-    email,
-    code,
-    deviceId,
-  });
+  const response = await apiClient.post<AuthSession>(endpoint, { ...body, deviceId });
   const session: AuthSession = { ...response, me: normalizeCurrentMe(response.me) };
   await persistSession(session);
   return session;
+}
+
+export function verifyCode(email: string, code: string, flow: AuthFlow): Promise<AuthSession> {
+  return postForSession(endpointForVerify(flow), { email, code });
+}
+
+export function signInWithSocial(provider: SocialProvider, idToken: string): Promise<AuthSession> {
+  return postForSession('/api/auth/social', { provider, idToken });
 }
 
 export function verifyAndSignIn(email: string, code: string): Promise<AuthSession> {

@@ -37,6 +37,7 @@ const mockService = {
   verifyCode: jest.fn(),
   verifyAndSignIn: jest.fn(),
   verifyAndSignUp: jest.fn(),
+  signInWithSocial: jest.fn(),
   getMe: jest.fn(),
   getUserPreferences: jest.fn(),
   updateUserPreferences: jest.fn(),
