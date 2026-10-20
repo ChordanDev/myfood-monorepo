@@ -437,8 +437,11 @@ defmodule MealPlannerApi.Generation.Server do
     multi =
       Ecto.Multi.new()
       |> PlanningRepo.mark_committed(state.account_id, session_id)
+      # A reject without a server can commit after `guard_confirmable/1` read
+      # the proposal (issue #350); the accept then finds it no longer pending
+      # and the whole transaction rolls back.
       |> Ecto.Multi.run(:accept_proposal, fn _repo, _changes ->
-        PlanningRepo.update_proposal(proposal, %{status: :accepted})
+        PlanningRepo.update_pending_proposal_status(proposal, :accepted)
       end)
       |> Ecto.Multi.run(:scheduled_meals, fn _repo, _changes ->
         persist_scheduled_meals(proposal, state)
@@ -461,6 +464,9 @@ defmodule MealPlannerApi.Generation.Server do
            checkout_session_id: cart_summary.checkout_session_id
          }}
 
+      {:error, :accept_proposal, :not_pending, _changes} ->
+        {:error, :not_pending}
+
       {:error, _step, _reason, _changes} ->
         {:error, :transaction_failed}
     end
@@ -477,13 +483,17 @@ defmodule MealPlannerApi.Generation.Server do
 
   # Re-confirm idempotency guard (planning-shopping-extraction design §3 Decision 5).
   # A proposal already in :accepted status must NOT trigger any write — no
-  # second `CheckoutSession` and no extra `ShoppingItem` rows. Concurrency:
-  # `update_proposal(:accepted)` in the next call serializes on the row,
-  # so a race between two confirms still terminates with at most one cart.
+  # second `CheckoutSession` and no extra `ShoppingItem` rows. The server
+  # handles one confirm at a time, so a second confirm of the same proposal
+  # is seen here.
   #
-  # Issue #287: only a pending proposal is confirmed. A rejected one answers
-  # `:not_pending` before any write, so a proposal never ends both rejected
-  # and confirmed.
+  # Issue #287: only a pending proposal is confirmed. A proposal rejected
+  # before this read answers `:not_pending` before any write. This read alone
+  # does not keep a proposal from ending both rejected and confirmed: a reject
+  # with no generation server can commit after it (issue #350). The accept in
+  # `run_confirm_transaction/4` and every reject write check the proposal is
+  # still pending in the same statement, so of a confirm and a reject only
+  # the one that commits first writes anything.
   defp guard_confirmable(%{status: :pending}), do: :ok
   defp guard_confirmable(%{status: :accepted}), do: {:error, :already_confirmed}
   defp guard_confirmable(_proposal), do: {:error, :not_pending}
@@ -492,18 +502,25 @@ defmodule MealPlannerApi.Generation.Server do
   # `:not_pending` and writes nothing: no proposal or run update and no
   # `proposal_rejected` broadcast. The server runs one message at a time, so
   # a confirm handled first is seen here.
+  #
+  # Issue #350: the proposal and its Generation run are written in one
+  # transaction. A run that cannot be completed rejects nothing, broadcasts
+  # nothing and answers `:transaction_failed`.
   defp handle_reject(state, proposal_id) do
     with :ok <- verify_ownership(proposal_id, state.account_id),
          {:ok, proposal, run} <- fetch_proposal_with_run(proposal_id),
          :ok <- guard_pending(proposal),
-         {:ok, _} <- PlanningRepo.update_proposal(proposal, %{status: :rejected}) do
-      PlanningRepo.update_generation_run(run, %{
-        status: :completed,
-        completed_at: DateTime.utc_now()
-      })
-
+         {:ok, _rejected} <- reject_pending(proposal, run) do
       broadcast(state, "proposal_rejected", %{proposal_id: proposal_id})
       :ok
+    end
+  end
+
+  defp reject_pending(proposal, run) do
+    case PlanningRepo.reject_pending_proposal(proposal, run) do
+      {:ok, _rejected} = ok -> ok
+      {:error, :not_pending} = error -> error
+      {:error, %Ecto.Changeset{}} -> {:error, :transaction_failed}
     end
   end
 

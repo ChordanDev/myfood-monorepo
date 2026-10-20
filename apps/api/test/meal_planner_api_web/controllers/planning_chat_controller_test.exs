@@ -230,6 +230,43 @@ defmodule MealPlannerApiWeb.PlanningChatControllerTest do
       end
     end
 
+    # Issue #350: with no generation server, a confirm can accept the proposal
+    # between the reject's read and its write. The reject then writes nothing.
+    test "answers 409 and writes nothing when the proposal is accepted after the reject read it",
+         %{conn: conn} do
+      %{token: token, user: user, account: account} = insert_identity_with_token!(plan: :family_4)
+      proposal = insert_pending_proposal(account, user)
+      run = Repo.get!(PlanningGenerationRun, proposal.generation_run_id)
+
+      run
+      |> Ecto.Changeset.change(%{status: :processing, completed_at: nil})
+      |> Repo.update!()
+
+      Phoenix.PubSub.subscribe(MealPlannerApi.PubSub, "planning:#{account.id}")
+
+      # The reject reads the proposal twice: once to answer 404 for another
+      # Account's proposal, once more right before it rejects it.
+      MealPlannerApi.ProposalRace.change_status_after_read(proposal.id, :accepted,
+        process: self(),
+        reads: 2
+      )
+
+      conn =
+        conn
+        |> put_req_header("authorization", "Bearer " <> token)
+        |> post("/api/planning/proposals/#{proposal.id}/reject")
+
+      assert %{"error" => %{"code" => "planning_proposal_not_pending"}} =
+               json_response(conn, 409)
+
+      assert Repo.get!(PlanningProposal, proposal.id).status == :accepted
+
+      assert %{status: :processing, completed_at: nil} =
+               Repo.get!(PlanningGenerationRun, run.id)
+
+      refute_receive %Phoenix.Socket.Broadcast{event: "proposal_rejected"}
+    end
+
     test "answers 404 not_found for a proposal of another Account", %{conn: conn} do
       %{user: user, account: account} = insert_identity_with_token!(plan: :family_4)
       proposal = insert_pending_proposal(account, user)
