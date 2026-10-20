@@ -22,6 +22,7 @@ defmodule MealPlannerApiWeb.MobileAuthControllerTest do
   import ExUnit.CaptureLog
   import MealPlannerApi.FactoryHelpers
 
+  alias MealPlannerApi.AccountsMembership
   alias MealPlannerApi.Auth.Guardian
   alias MealPlannerApi.Persistence.Accounts.Account
   alias MealPlannerApi.Persistence.Accounts.AccountMembership
@@ -789,6 +790,30 @@ defmodule MealPlannerApiWeb.MobileAuthControllerTest do
 
       assert_error(conn, 401, "account_not_found")
       assert [%EmailVerificationCode{consumed_at: nil}] = Repo.all(EmailVerificationCode)
+    end
+
+    # An invite stub stops being one only when it accepts an invite, so a
+    # login can never give a stub a session: the name a later code accept
+    # gives a stub can then never replace a profile name the User chose.
+    test "an invite stub gets account_not_found and stays a stub", %{conn: conn} do
+      [owner] =
+        user_with_memberships(%{email: "login-stub-host@example.com"}, [
+          {%{plan: :family_4, name: "Stub host family"}, :owner}
+        ]).memberships
+
+      {:ok, %{membership_id: membership_id}} =
+        AccountsMembership.invite(owner.account, owner, "login-stub@example.com")
+
+      conn |> post(@request_path, %{"email" => "login-stub@example.com"}) |> json_response(200)
+
+      conn =
+        post(build_conn(), @verify_path, verify_body("login-stub@example.com", mailed_code()))
+
+      assert_error(conn, 401, "account_not_found")
+      assert Repo.get_by!(User, email: "login-stub@example.com").invite_stub
+      assert Repo.get!(AccountMembership, membership_id).status == :invited
+      assert [%EmailVerificationCode{consumed_at: nil}] = Repo.all(EmailVerificationCode)
+      assert Repo.all(DeviceSession) == []
     end
 
     test "a User who has not finished onboarding still gets a session", %{conn: conn} do
