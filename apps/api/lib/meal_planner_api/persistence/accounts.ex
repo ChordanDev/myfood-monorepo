@@ -71,6 +71,40 @@ defmodule MealPlannerApi.Persistence.Accounts do
     end
   end
 
+  @doc """
+  Stores `cents` as the weekly Budget (`default_budget_cents`) of the
+  Account with `account_id`. The rules are the ones of
+  `Account.budget_changeset/2`; nothing is stored when it rejects the amount.
+  The floor of the amount is checked by `BudgetService`, not here.
+  """
+  @spec update_account_budget(Ecto.UUID.t(), term()) ::
+          {:ok, Account.t()} | {:error, :account_not_found | Ecto.Changeset.t()}
+  def update_account_budget(account_id, cents) do
+    case Repo.get(Account, account_id) do
+      %Account{} = account ->
+        account |> Account.budget_changeset(%{default_budget_cents: cents}) |> Repo.update()
+
+      nil ->
+        {:error, :account_not_found}
+    end
+  end
+
+  @doc """
+  The Household size of the active owner of the Account with `account_id`,
+  or `nil` when the owner has not set one (or the Account has no owner).
+  """
+  @spec owner_household_size(Ecto.UUID.t()) :: pos_integer() | nil
+  def owner_household_size(account_id) do
+    from(m in AccountMembership,
+      join: u in User,
+      on: u.id == m.user_id,
+      where: m.account_id == ^account_id and m.role == :owner and m.status == :active,
+      select: u.household_size,
+      limit: 1
+    )
+    |> Repo.one()
+  end
+
   def upsert_user_dietary_profile(user_id, attrs) do
     attrs = Map.put(attrs, :user_id, user_id)
 

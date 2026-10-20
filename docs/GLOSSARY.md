@@ -54,7 +54,7 @@ This file and `docs/adr/` are the only durable docs in the repository. Specs, ma
 
 **Hunger level** — How big a meal the User wants in a slot: `light`, `normal` or `strong`. `(code: Persistence.Accounts.UserSlotCookingTime.hunger_level, mobile HungerLevel)`
 
-**Budget** — The weekly spending limit for an Account, resolved from the Account alone, the same way on every path. The subscription tier is the Account's: every member shares its tier and its Budget, whoever plans. An Account value of 0 means "not set": the default of the Account's tier applies. `(code: Budgets.Budget, Services.BudgetService)` `(alias: spending level, presupuesto total)`
+**Budget** — The weekly spending limit for an Account, resolved from the Account alone, the same way on every path. The subscription tier is the Account's: every member shares its tier and its Budget, whoever plans. An Account value of 0 means "not set": the default of the Account's tier applies. Every member reads it; only the owner sets it, and never below the minimum weekly Budget: a per-person amount times the owner's Household size. `(code: Budgets.Budget, Services.BudgetService)` `(alias: spending level, presupuesto total)`
 
 ## Catalog
 

@@ -7,6 +7,8 @@
 
 import { MEAL_SLOT_LABEL } from '@/constants/mealSlots';
 import type {
+  AccountBudget,
+  AccountBudgetPayload,
   AuthUser,
   CookingTimeSlot,
   SlotCookingTime,
@@ -25,7 +27,11 @@ import { SLOT_PRESET_BUCKETS } from '@/features/preferences/constants/preference
 import { parseListInput } from '@/features/preferences/utils/parseListInput';
 import { buildPreferencesPayload } from '@/features/preferences/utils/preferencesPayload';
 import type { ProfileFormState } from '@/features/preferences/utils/profilePayload';
+import { formatCostCents } from '@/features/planner/domain/proposalFormat';
 import {
+  BUDGET_INVALID_AMOUNT_MESSAGE,
+  BUDGET_LABEL,
+  BUDGET_TOO_LARGE_MESSAGE,
   PREFERENCE_FIELD_LABELS,
   PROFILE_FIELD_LABELS,
   type PreferenceField,
@@ -35,11 +41,17 @@ import {
 const PROFILE_FIELDS: readonly ProfileField[] = ['displayName', 'householdSize', 'cookingSkill'];
 const HOUSEHOLD_SIZE_MIN = 1;
 const HOUSEHOLD_SIZE_MAX = 20;
+const CENTS_PER_PESO = 100;
+// Largest value the server stores for a Budget: its integer column.
+const BUDGET_MAX_CENTS = 2_147_483_647;
+// Whole pesos, with or without thousands dots: `60000` or `60.000`.
+const WHOLE_PESOS_PATTERN = /^(\d+|\d{1,3}(\.\d{3})+)$/;
 
 export type SettingsEditorTarget =
   | { kind: 'profile'; field: ProfileField }
   | { kind: PreferenceField }
-  | { kind: 'slot'; slot: CookingTimeSlot };
+  | { kind: 'slot'; slot: CookingTimeSlot }
+  | { kind: 'budget' };
 
 export interface ProfileDraft {
   kind: 'profile';
@@ -82,8 +94,23 @@ export interface SlotDraft {
   minuteOptions: number[];
 }
 
+export interface BudgetDraft {
+  kind: 'budget';
+  /** Whole pesos, as typed. */
+  text: string;
+  /** The Budget the sheet opened with, in cents. */
+  savedWeeklyBudgetCents: number;
+  /** The least amount the server accepts, in cents. */
+  minWeeklyBudgetCents: number;
+}
+
+// A null payload means nothing to save: the amount is the one already saved.
+export type BudgetEdit =
+  | { ok: true; payload: AccountBudgetPayload | null }
+  | { ok: false; message: string };
+
 export type PreferenceDraft = DietDraft | HardRestrictionsDraft | SoftPreferencesDraft;
-export type SettingsDraft = ProfileDraft | PreferenceDraft | SlotDraft;
+export type SettingsDraft = ProfileDraft | PreferenceDraft | SlotDraft | BudgetDraft;
 
 function isMissing(user: Pick<AuthUser, ProfileField>, field: ProfileField): boolean {
   if (field === 'displayName') return !user.displayName?.trim();
@@ -175,8 +202,35 @@ export function buildSlotTimesEdit(
   return { ...saved, [draft.slot]: draft.value };
 }
 
+// The Budget is edited in whole pesos: the server counts cents, the User does not.
+export function createBudgetDraft(saved: AccountBudget): BudgetDraft {
+  return {
+    kind: 'budget',
+    text: String(Math.round(saved.weeklyBudgetCents / CENTS_PER_PESO)),
+    savedWeeklyBudgetCents: saved.weeklyBudgetCents,
+    minWeeklyBudgetCents: saved.minWeeklyBudgetCents,
+  };
+}
+
+// Same rules as the server, so a refused amount is explained before the round trip.
+export function buildBudgetEdit(draft: BudgetDraft): BudgetEdit {
+  const text = draft.text.trim();
+  if (!WHOLE_PESOS_PATTERN.test(text)) return { ok: false, message: BUDGET_INVALID_AMOUNT_MESSAGE };
+
+  const weeklyBudgetCents = Number(text.replace(/\./g, '')) * CENTS_PER_PESO;
+  // Saving the shown amount sends nothing, so a tier default stays the default.
+  if (weeklyBudgetCents === draft.savedWeeklyBudgetCents) return { ok: true, payload: null };
+  if (weeklyBudgetCents <= 0) return { ok: false, message: BUDGET_INVALID_AMOUNT_MESSAGE };
+  if (weeklyBudgetCents > BUDGET_MAX_CENTS) return { ok: false, message: BUDGET_TOO_LARGE_MESSAGE };
+  if (weeklyBudgetCents < draft.minWeeklyBudgetCents) {
+    return { ok: false, message: `Ingresá ${formatCostCents(draft.minWeeklyBudgetCents)} o más.` };
+  }
+  return { ok: true, payload: { weeklyBudgetCents } };
+}
+
 export function getSettingsDraftTitle(draft: SettingsDraft): string {
   if (draft.kind === 'profile') return PROFILE_FIELD_LABELS[draft.field];
   if (draft.kind === 'slot') return MEAL_SLOT_LABEL[draft.slot];
+  if (draft.kind === 'budget') return BUDGET_LABEL;
   return PREFERENCE_FIELD_LABELS[draft.kind];
 }

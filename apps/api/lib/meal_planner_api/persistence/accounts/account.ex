@@ -96,6 +96,24 @@ defmodule MealPlannerApi.Persistence.Accounts.Account do
     |> foreign_key_constraint(:subscription_plan_id)
   end
 
+  # Largest value of the `integer` column `default_budget_cents`.
+  @max_budget_cents 2_147_483_647
+
+  @doc """
+  Casts and validates the weekly Budget alone (issue #271): a whole number
+  of cents above 0 that fits the column. 0 means "not set" and is only ever
+  stored by creating an Account, never by this changeset.
+  """
+  def budget_changeset(account, attrs) do
+    account
+    |> cast(attrs, [:default_budget_cents])
+    |> validate_required([:default_budget_cents])
+    |> validate_number(:default_budget_cents,
+      greater_than: 0,
+      less_than_or_equal_to: @max_budget_cents
+    )
+  end
+
   @doc """
   Casts and validates the Account timezone alone: it is required and must
   be a zone the configured time zone database knows.

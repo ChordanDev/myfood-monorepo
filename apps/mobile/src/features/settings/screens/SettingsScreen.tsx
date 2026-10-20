@@ -20,6 +20,7 @@ import {
 } from '../components';
 import { SETTINGS_TITLE_FONT_SIZE } from '../constants/layout';
 import {
+  BUDGET_LABEL,
   LOADING_VALUE_LABEL,
   PREFERENCE_FIELD_LABELS,
   PROFILE_FIELD_LABELS,
@@ -28,6 +29,7 @@ import {
 import { useSettingsState } from '../hooks/useSettingsState';
 import { getSettingsDraftTitle } from '../utils/settingsDraft';
 import {
+  formatBudgetSummary,
   formatCookingSkillSummary,
   formatDietSummary,
   formatDisplayNameSummary,
@@ -52,6 +54,9 @@ export function SettingsScreen() {
     now,
     preferences,
     slotTimes,
+    budget,
+    budgetStatus,
+    canEditBudget,
     loadStatus,
     retryLoad,
     signOut,
@@ -201,6 +206,22 @@ export function SettingsScreen() {
               testID="settings-row-favorites"
               label="Favoritos"
               onPress={() => router.push('/favorites')}
+            />
+            <SettingsRow
+              testID="settings-row-budget"
+              label={BUDGET_LABEL}
+              value={
+                budget
+                  ? formatBudgetSummary(budget)
+                  : budgetStatus === 'error'
+                    ? UNAVAILABLE_VALUE_LABEL
+                    : LOADING_VALUE_LABEL
+              }
+              // A member who is not the owner reads it without a way to edit it.
+              onPress={
+                me.membership.role === 'owner' ? () => openEditor({ kind: 'budget' }) : undefined
+              }
+              disabled={!canEditBudget}
             />
             <SettingsRow
               testID="settings-row-plan"

@@ -1,7 +1,9 @@
 import type { SlotCookingTimes, UserPreferences } from '@/features/auth/types/auth';
 import {
+  buildBudgetEdit,
   buildPreferencesEdit,
   buildSlotTimesEdit,
+  createBudgetDraft,
   createPreferenceDraft,
   createProfileDraft,
   createSlotDraft,
@@ -224,5 +226,76 @@ describe('getSettingsDraftTitle', () => {
       'Restricciones duras'
     );
     expect(getSettingsDraftTitle(createSlotDraft('dinner', savedSlotTimes))).toBe('Cena');
+    expect(getSettingsDraftTitle(createBudgetDraft(savedBudget))).toBe('Presupuesto semanal');
+  });
+});
+
+const savedBudget = {
+  weeklyBudgetCents: 4500000,
+  isDefault: true,
+  minWeeklyBudgetCents: 3000000,
+  currency: 'ARS',
+};
+
+describe('createBudgetDraft', () => {
+  it('starts from the saved Budget in whole pesos and keeps the minimum', () => {
+    expect(createBudgetDraft(savedBudget)).toEqual({
+      kind: 'budget',
+      text: '45000',
+      savedWeeklyBudgetCents: 4500000,
+      minWeeklyBudgetCents: 3000000,
+    });
+  });
+});
+
+describe('buildBudgetEdit', () => {
+  const draft = (text: string) => ({ ...createBudgetDraft(savedBudget), text });
+
+  it('turns the pesos typed into the cents the endpoint takes', () => {
+    expect(buildBudgetEdit(draft('60000'))).toEqual({
+      ok: true,
+      payload: { weeklyBudgetCents: 6000000 },
+    });
+  });
+
+  it('accepts surrounding spaces and thousands dots', () => {
+    expect(buildBudgetEdit(draft(' 60.000 '))).toEqual({
+      ok: true,
+      payload: { weeklyBudgetCents: 6000000 },
+    });
+  });
+
+  it('has nothing to save when the amount is the one already saved', () => {
+    // So a default the owner did not change keeps following the tier.
+    expect(buildBudgetEdit(draft('45000'))).toEqual({ ok: true, payload: null });
+    expect(buildBudgetEdit(draft(' 45.000 '))).toEqual({ ok: true, payload: null });
+  });
+
+  it('accepts exactly the minimum', () => {
+    expect(buildBudgetEdit(draft('30000'))).toEqual({
+      ok: true,
+      payload: { weeklyBudgetCents: 3000000 },
+    });
+  });
+
+  it('refuses an amount below the minimum and names it', () => {
+    expect(buildBudgetEdit(draft('29999'))).toEqual({
+      ok: false,
+      message: 'Ingresá $30.000 o más.',
+    });
+  });
+
+  it.each(['', '0', 'abc', '450,50', '-100', '12.5'])('refuses %p as an amount', (text) => {
+    expect(buildBudgetEdit({ ...draft(text), minWeeklyBudgetCents: 0 })).toEqual({
+      ok: false,
+      message: 'Ingresá un monto en pesos, sin centavos.',
+    });
+  });
+
+  it('refuses an amount past what the server stores', () => {
+    expect(buildBudgetEdit({ ...draft('21474837'), minWeeklyBudgetCents: 0 })).toEqual({
+      ok: false,
+      message: 'Ingresá un monto menor.',
+    });
   });
 });

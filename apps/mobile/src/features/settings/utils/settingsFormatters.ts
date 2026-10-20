@@ -5,11 +5,13 @@
 // unit-tested without rendering or mocking timers.
 
 import type {
+  AccountBudget,
   AuthAccount,
   AuthSubscriptionStatus,
   CookingSkill,
   SlotCookingTime,
 } from '@/features/auth/types/auth';
+import { formatCostCents } from '@/features/planner/domain/proposalFormat';
 import {
   DIET_LABELS,
   HARD_RESTRICTION_LABELS,
@@ -20,7 +22,11 @@ import {
   COOKING_SKILL_LABELS,
   HUNGER_LEVEL_LABELS,
 } from '@/features/preferences/constants/preferenceOptions';
-import { ACCOUNT_TYPE_LABELS } from '../constants/settingsLabels';
+import {
+  ACCOUNT_TYPE_LABELS,
+  BUDGET_DEFAULT_SUFFIX,
+  BUDGET_NO_MINIMUM_LABEL,
+} from '../constants/settingsLabels';
 
 const MAX_INITIALS = 2;
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
@@ -153,4 +159,17 @@ export function formatHardRestrictionsSummary(hardRestrictions: readonly string[
 
 export function formatSoftPreferencesSummary(softPreferences: readonly string[]): string {
   return softPreferences.length > 0 ? softPreferences.join(LIST_SEPARATOR) : EMPTY_LIST_LABEL;
+}
+
+export function formatBudgetSummary(
+  budget: Pick<AccountBudget, 'weeklyBudgetCents' | 'isDefault'>
+): string {
+  const amount = formatCostCents(budget.weeklyBudgetCents);
+  return budget.isDefault ? `${amount} ${BUDGET_DEFAULT_SUFFIX}` : amount;
+}
+
+// While the server floor is 0 there is no minimum worth naming.
+export function formatBudgetMinimum(minWeeklyBudgetCents: number): string {
+  if (minWeeklyBudgetCents <= 0) return BUDGET_NO_MINIMUM_LABEL;
+  return `Mínimo: ${formatCostCents(minWeeklyBudgetCents)} por semana`;
 }

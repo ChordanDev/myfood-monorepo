@@ -310,6 +310,8 @@ asumir un tipo específico.
 | `GET` | `/api/me/favorites` | Recetas favoritas del usuario actual |
 | `POST` | `/api/me/favorites` | Marcar una receta como favorita (idempotente) |
 | `DELETE` | `/api/me/favorites/:recipeId` | Quitar una receta de los favoritos |
+| `GET` | `/api/account/budget` | Presupuesto semanal de la cuenta |
+| `PUT` | `/api/account/budget` | Cambiar el presupuesto semanal (solo `owner`) |
 
 ### Editar el perfil de Onboarding
 
@@ -485,6 +487,51 @@ En `GET /api/calendar`, `isSkipped` sigue esta regla: una comida pasada sin coci
 `isSkipped: true` si se confirmó como no cocinada o si pasaron más de 7 días sin respuesta; dentro
 de esos 7 días, sin respuesta, tiene `isCooked: false` e `isSkipped: false` (sin confirmar). Las
 dos respuestas se leen igual desde cualquier dispositivo de la cuenta.
+
+### Presupuesto semanal de la cuenta
+
+El presupuesto semanal es de la cuenta: todos los miembros lo leen y solo el `owner` lo cambia.
+Mientras la cuenta no guardó uno, vale el presupuesto por defecto de su tier y `isDefault` es
+`true`.
+
+```bash
+GET /api/account/budget
+Authorization: Bearer <token>
+```
+
+```bash
+PUT /api/account/budget
+Authorization: Bearer <token>
+Content-Type: application/json
+
+{ "weeklyBudgetCents": 60000 }
+```
+
+Las dos responden lo mismo:
+
+```json
+{
+  "budget": {
+    "weeklyBudgetCents": 60000,
+    "isDefault": false,
+    "minWeeklyBudgetCents": 30000,
+    "currency": "ARS"
+  }
+}
+```
+
+- `weeklyBudgetCents`: el presupuesto que usa la generación de planes, en centavos.
+- `minWeeklyBudgetCents`: lo mínimo que acepta `PUT`. Es un monto por persona (configuración
+  del servidor, hoy `0`) por el tamaño del hogar del `owner`; si el `owner` no lo cargó, cuenta
+  como una persona.
+- `weeklyBudgetCents` en `PUT` es un entero de centavos mayor que `0` y no menor que
+  `minWeeklyBudgetCents`. Una vez guardado, no se vuelve al valor por defecto, así que el cliente no
+  envía `PUT` si el owner guarda el mismo monto que ya ve: un presupuesto por defecto sigue al tier.
+
+| Estado | Código | Cuándo |
+|--------|--------|--------|
+| 403 | `not_owner` | `PUT` de un miembro que no es el `owner`, sea cual sea el body |
+| 422 | `validation_error` | `weeklyBudgetCents` falta, no es entero, es `0` o menos, o es menor que `minWeeklyBudgetCents`; no se guarda nada |
 
 ### Ejemplo: Generar Plan
 
@@ -1058,6 +1105,7 @@ formato por defecto:
 | `validation_error` | Un campo de la request no es válido; el `message` nombra el campo | Corregir ese campo |
 | `meal_already_confirmed` | La comida pasada ya estaba cocinada o confirmada como no cocinada | Volver a leer el plan |
 | `confirmation_window_closed` | La comida no es de los últimos 7 días | Usar una Cooking session para la comida de hoy |
+| `not_owner` | Solo el `owner` de la cuenta puede hacer este cambio | Mostrar el valor sin permitir editarlo |
 | `invalid_cooking_skill` | `cookingSkill` no está en el catálogo | Enviar `beginner`, `intermediate` o `advanced` |
 | `slot_cooking_times_not_found` | El usuario todavía no guardó los tiempos de cocina por slot | Usar los valores por defecto y guardarlos con `PUT /api/me/slot-cooking-times` |
 | `invalid_hunger_level` | `hungerLevel` no está en el catálogo | Enviar `light`, `normal` o `strong` |

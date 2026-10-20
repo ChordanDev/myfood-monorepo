@@ -1,4 +1,5 @@
 import type { ProfileFieldError, SettingsDraft } from '../utils/settingsDraft';
+import { BudgetEditor } from './BudgetEditor';
 import { DietEditor, HardRestrictionsEditor, SoftPreferencesEditor } from './PreferenceEditors';
 import { ProfileEditor } from './ProfileEditor';
 import { SlotTimeEditor } from './SlotTimeEditor';
@@ -22,5 +23,7 @@ export function SettingsEditor({ draft, fieldError, onChange }: SettingsEditorPr
       return <SoftPreferencesEditor draft={draft} onChange={onChange} />;
     case 'slot':
       return <SlotTimeEditor draft={draft} onChange={onChange} />;
+    case 'budget':
+      return <BudgetEditor draft={draft} onChange={onChange} />;
   }
 }

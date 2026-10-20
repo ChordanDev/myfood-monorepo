@@ -14,6 +14,7 @@ import { ApiError } from '@/api/errors';
 import { AuthContext } from '@/features/auth/context/AuthContext';
 import { fixtureCurrentMe } from '@/features/auth/fixtures/currentMe';
 import type {
+  AccountBudget,
   AuthContextValue,
   CurrentMe,
   ProfileUpdatePayload,
@@ -80,6 +81,16 @@ jest.mock('@/features/auth', () => {
   };
 });
 
+// The Account's weekly Budget is read and saved straight through the account API, not
+// through AuthContext. Every test starts from the tier default; a test overrides it.
+const mockFetchAccountBudget = jest.fn();
+const mockUpdateAccountBudget = jest.fn();
+
+jest.mock('@/features/account/api/accountApi', () => ({
+  fetchAccountBudget: () => mockFetchAccountBudget(),
+  updateAccountBudget: (payload: unknown) => mockUpdateAccountBudget(payload),
+}));
+
 jest.mock('@/context/RecipeThemeContext', () => ({
   useRecipeTheme: () => ({ theme: mockTheme }),
 }));
@@ -131,6 +142,14 @@ const RAW_CODES =
 const savedPreferences: UserPreferences = fixturePreferences();
 
 const savedSlotTimes: SlotCookingTimes = fixtureSlotCookingTimes();
+
+// What `GET /api/account/budget` answers for an Account that never set its Budget.
+const defaultBudget: AccountBudget = {
+  weeklyBudgetCents: 4500000,
+  isDefault: true,
+  minWeeklyBudgetCents: 3000000,
+  currency: 'ARS',
+};
 
 // The frozen `GET /api/me` body. The trial date is the only field replaced by default: it
 // is relative to the clock these tests fake.
@@ -357,6 +376,12 @@ describe('SettingsScreen', () => {
       ],
     });
     warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    mockFetchAccountBudget.mockReset().mockResolvedValue({ budget: defaultBudget });
+    mockUpdateAccountBudget
+      .mockReset()
+      .mockImplementation(async ({ weeklyBudgetCents }: { weeklyBudgetCents: number }) => ({
+        budget: { ...defaultBudget, weeklyBudgetCents, isDefault: false },
+      }));
   });
 
   afterEach(() => {
@@ -1184,6 +1209,182 @@ describe('SettingsScreen', () => {
         await press(root, testID);
         expect(isSheetOpen(root)).toBe(false);
       }
+    });
+  });
+
+  describe('weekly budget', () => {
+    const memberMe = (): CurrentMe => ({ ...makeMe(), membership: { role: 'member' } });
+
+    it('shows the Budget in pesos, marked while it is the default', async () => {
+      const { root } = await renderScreen();
+
+      expect(mockFetchAccountBudget).toHaveBeenCalledTimes(1);
+      expect(rowLabel(root, 'settings-row-budget')).toBe(
+        'Presupuesto semanal, $45.000 (por defecto)'
+      );
+    });
+
+    it('lets the owner set it, showing the minimum, and shows the saved value', async () => {
+      const { root } = await renderScreen();
+
+      await press(root, 'settings-row-budget');
+      expect(isSheetOpen(root)).toBe(true);
+      expect(getTexts(getHost(root, 'settings-sheet'))).toEqual(
+        expect.arrayContaining(['Presupuesto semanal', 'Mínimo: $30.000 por semana'])
+      );
+      expect(getInput(root, 'settings-budget-input').props.value).toBe('45000');
+
+      await typeInto(root, 'settings-budget-input', '60.000');
+      await press(root, 'settings-sheet-save');
+
+      expect(mockUpdateAccountBudget).toHaveBeenCalledWith({ weeklyBudgetCents: 6000000 });
+      expect(isSheetOpen(root)).toBe(false);
+      expect(rowLabel(root, 'settings-row-budget')).toBe('Presupuesto semanal, $60.000');
+    });
+
+    it('keeps following the tier default when the owner saves it unchanged', async () => {
+      const { root } = await renderScreen();
+
+      await press(root, 'settings-row-budget');
+      await typeInto(root, 'settings-budget-input', '45.000');
+      await press(root, 'settings-sheet-save');
+
+      expect(mockUpdateAccountBudget).not.toHaveBeenCalled();
+      expect(isSheetOpen(root)).toBe(false);
+      expect(rowLabel(root, 'settings-row-budget')).toBe(
+        'Presupuesto semanal, $45.000 (por defecto)'
+      );
+    });
+
+    it('explains an amount below the minimum without sending it', async () => {
+      const { root } = await renderScreen();
+
+      await press(root, 'settings-row-budget');
+      await typeInto(root, 'settings-budget-input', '29999');
+      await press(root, 'settings-sheet-save');
+
+      expect(mockUpdateAccountBudget).not.toHaveBeenCalled();
+      expect(isSheetOpen(root)).toBe(true);
+      expect(getHost(root, 'settings-sheet-error').props.children).toBe('Ingresá $30.000 o más.');
+    });
+
+    it("keeps the sheet open with the server's reason when the save is refused", async () => {
+      mockUpdateAccountBudget.mockRejectedValue(
+        new ApiError('not_owner', 'Only the owner of the account can change this.', 403)
+      );
+      const { root } = await renderScreen();
+
+      await press(root, 'settings-row-budget');
+      await typeInto(root, 'settings-budget-input', '60000');
+      await press(root, 'settings-sheet-save');
+
+      expect(isSheetOpen(root)).toBe(true);
+      expect(getHost(root, 'settings-sheet-error').props.children).toBe(
+        'Solo quien administra la cuenta puede cambiar esto.'
+      );
+      expect(rowLabel(root, 'settings-row-budget')).toBe(
+        'Presupuesto semanal, $45.000 (por defecto)'
+      );
+    });
+
+    it('shows the new minimum after the owner changes the household size', async () => {
+      const { root } = await renderScreen();
+      mockFetchAccountBudget.mockResolvedValue({
+        budget: { ...defaultBudget, minWeeklyBudgetCents: 4500000 },
+      });
+
+      await press(root, 'settings-row-household-size');
+      await press(root, 'settings-stepper-increment');
+      await press(root, 'settings-sheet-save');
+
+      expect(mockFetchAccountBudget).toHaveBeenCalledTimes(2);
+      await press(root, 'settings-row-budget');
+      expect(getTexts(getHost(root, 'settings-sheet'))).toContain('Mínimo: $45.000 por semana');
+    });
+
+    it('keeps the Budget editable when that refresh fails', async () => {
+      const { root } = await renderScreen();
+      mockFetchAccountBudget.mockRejectedValue(new ApiError('network_error', 'offline'));
+
+      await press(root, 'settings-row-household-size');
+      await press(root, 'settings-stepper-increment');
+      await press(root, 'settings-sheet-save');
+
+      expect(mockFetchAccountBudget).toHaveBeenCalledTimes(2);
+      expect(rowLabel(root, 'settings-row-budget')).toBe(
+        'Presupuesto semanal, $45.000 (por defecto)'
+      );
+      expect(getButton(root, 'settings-row-budget').props.disabled).toBe(false);
+    });
+
+    it('a late refresh does not overwrite a Budget the owner saved meanwhile', async () => {
+      const { root } = await renderScreen();
+      let answerRefresh: (value: unknown) => void = () => {};
+      mockFetchAccountBudget.mockReturnValue(
+        new Promise((resolve) => {
+          answerRefresh = resolve;
+        })
+      );
+
+      await press(root, 'settings-row-household-size');
+      await press(root, 'settings-stepper-increment');
+      await press(root, 'settings-sheet-save');
+
+      await press(root, 'settings-row-budget');
+      await typeInto(root, 'settings-budget-input', '60000');
+      await press(root, 'settings-sheet-save');
+      expect(rowLabel(root, 'settings-row-budget')).toBe('Presupuesto semanal, $60.000');
+
+      await act(async () => {
+        answerRefresh({ budget: defaultBudget });
+      });
+      await flushEffects();
+
+      expect(rowLabel(root, 'settings-row-budget')).toBe('Presupuesto semanal, $60.000');
+    });
+
+    it('is not fetched again when the saved profile keeps the household size', async () => {
+      const { root } = await renderScreen();
+
+      await press(root, 'settings-row-display-name');
+      await typeInto(root, 'settings-input-display-name', 'Lucca G');
+      await press(root, 'settings-sheet-save');
+
+      expect(mockFetchAccountBudget).toHaveBeenCalledTimes(1);
+    });
+
+    it('shows it to a member who is not the owner, without a way to edit it', async () => {
+      const { root } = await renderScreen({ me: memberMe() });
+
+      expect(rowLabel(root, 'settings-row-budget')).toBe(
+        'Presupuesto semanal, $45.000 (por defecto)'
+      );
+      expect(queryButton(root, 'settings-row-budget')).toBeNull();
+    });
+
+    it('cannot be opened while it failed to load, and the other rows still work', async () => {
+      mockFetchAccountBudget.mockRejectedValue(new ApiError('network_error', 'offline'));
+      const { root } = await renderScreen();
+
+      expect(rowLabel(root, 'settings-row-budget')).toBe('Presupuesto semanal, No disponible');
+      expect(getButton(root, 'settings-row-budget').props.disabled).toBe(true);
+      expect(getButton(root, 'settings-row-diet').props.disabled).toBe(false);
+    });
+
+    it('loads it again with the retry of a failed load', async () => {
+      mockFetchAccountBudget.mockRejectedValueOnce(new ApiError('network_error', 'offline'));
+      const fetchUserPreferences = jest
+        .fn()
+        .mockRejectedValueOnce(new ApiError('network_error', 'offline'))
+        .mockResolvedValue(savedPreferences);
+      const { root } = await renderScreen({ context: { fetchUserPreferences } });
+
+      await press(root, 'settings-load-retry');
+
+      expect(mockFetchAccountBudget).toHaveBeenCalledTimes(2);
+      expect(rowLabel(root, 'settings-row-budget')).toBe(
+        'Presupuesto semanal, $45.000 (por defecto)'
+      );
     });
   });
 
