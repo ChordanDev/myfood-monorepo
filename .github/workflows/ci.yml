@@ -1,7 +1,12 @@
 name: CI
 
+# Pull requests are checked only when they target main, the integration
+# branch: pull requests into a feature branch are not, the feature's pull
+# request to main is. Draft pull requests are skipped until marked ready.
 on:
   pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened, ready_for_review]
   push:
     branches:
       - main
@@ -22,6 +27,8 @@ jobs:
   # `docs/` (or anything else outside the two apps) trigger neither job.
   changes:
     name: Detect changed paths
+    # The app jobs need this one, so skipping it on a draft skips them too.
+    if: ${{ !github.event.pull_request.draft }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
