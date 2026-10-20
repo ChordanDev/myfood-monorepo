@@ -66,7 +66,7 @@ const AnimatedTabButton = ({ isFocused, onPress, options }: any) => {
   });
 
   return (
-    <Pressable onPress={onPress} style={styles.tabButton}>
+    <Pressable onPress={onPress} testID={options.tabBarButtonTestID} style={styles.tabButton}>
       <Animated.View style={[styles.tabIndicator, animatedOvalStyle, ovalThemeStyle]} />
       <Animated.View style={animatedIconStyle}>
         {/* Icono de la tab que fue previamente definido en TabsLayout */}
@@ -222,6 +222,7 @@ export default function TabsLayout() {
         name="cart"
         options={{
           title: 'Carrito',
+          tabBarButtonTestID: 'e2e-tab-cart',
           tabBarIcon: ({ color, size, focused }) => (
             <Ionicons name={focused ? 'cart' : 'cart-outline'} size={size} color={color} />
           ),

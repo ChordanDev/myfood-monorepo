@@ -2,17 +2,29 @@
 
 set -eu
 
+# `login` and `restore` are the auth tracers. Any other mode names one flow of
+# e2e/maestro/, and `all` runs every journey in `all_flows` order.
 mode=${1:-login}
 
+# Run after `restore` (login, expiry wait and restoration). planning-confirm
+# goes before shopping-check-off, which checks off an item of its plan.
+all_flows='planning-confirm shopping-check-off'
+
 case "$mode" in
-  login | restore) ;;
-  *)
+  login | restore | all) ;;
+  '' | *[!a-z0-9-]*)
     printf 'Unknown Maestro E2E mode: %s\n' "$mode" >&2
     exit 1
     ;;
+  *)
+    if [ ! -f "e2e/maestro/$mode.yaml" ]; then
+      printf 'Unknown Maestro E2E mode: %s\n' "$mode" >&2
+      exit 1
+    fi
+    ;;
 esac
 
-if [ "$mode" = 'restore' ]; then
+if [ "$mode" = 'restore' ] || [ "$mode" = 'all' ]; then
   wait_seconds=${E2E_ACCESS_TOKEN_EXPIRY_WAIT_SECONDS:-4}
 
   case "$wait_seconds" in
@@ -104,23 +116,39 @@ fi
 
 printf 'Using Java %s from %s\n' "$resolved_java_major" "$JAVA_HOME"
 
-run_login_flow() {
+run_flow() {
   maestro test \
     -e E2E_LOGIN_EMAIL="$E2E_LOGIN_EMAIL" \
     -e E2E_LOGIN_CODE="$E2E_LOGIN_CODE" \
     --test-output-dir=e2e/artifacts/maestro \
-    e2e/maestro/login-verification.yaml
+    "e2e/maestro/$1.yaml"
 }
 
-run_login_flow
-
-if [ "$mode" = 'restore' ]; then
+# The login flow, the wait for its access token to expire, then the cold
+# relaunch that must restore the session.
+run_restore() {
+  run_flow login-verification
   sleep "$wait_seconds"
-  exec maestro test \
+  maestro test \
     --test-output-dir=e2e/artifacts/maestro \
     e2e/maestro/authenticated-restoration.yaml
-fi
+}
 
-if [ "$mode" = 'login' ]; then
-  exit 0
-fi
+# `set -e` stops at the first flow that fails, with its exit status.
+case "$mode" in
+  login)
+    run_flow login-verification
+    ;;
+  restore)
+    run_restore
+    ;;
+  all)
+    run_restore
+    for flow in $all_flows; do
+      run_flow "$flow"
+    done
+    ;;
+  *)
+    run_flow "$mode"
+    ;;
+esac

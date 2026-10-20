@@ -143,7 +143,7 @@ export function ShoppingScreen() {
   const mutedStyle = useAnimatedThemeStyle({ color: withOpacity(theme.textBlack, 0.6) });
 
   return (
-    <Animated.View style={[styles.screen, groundStyle]}>
+    <Animated.View testID="e2e-shopping-screen" style={[styles.screen, groundStyle]}>
       <NoisyBackground opacity={0.3} />
       <SafeAreaContent includeBottom={false}>
         <View style={styles.header}>

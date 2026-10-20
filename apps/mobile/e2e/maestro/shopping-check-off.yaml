@@ -1,0 +1,25 @@
+appId: com.myfood.e2e
+name: Check off an item of the Shopping list of a confirmed plan
+---
+# Needs the plan planning-confirm.yaml confirms; the `all` mode runs that flow first.
+- runFlow: login-verification.yaml
+- tapOn:
+    id: e2e-tab-cart
+- extendedWaitUntil:
+    visible:
+      id: e2e-shopping-screen
+    timeout: 10000
+- extendedWaitUntil:
+    visible:
+      id: e2e-shopping-item
+    timeout: 15000
+# Nothing is in the Cart yet, so the last assertion is the tap's.
+- assertNotVisible:
+    id: e2e-shopping-item-in-cart
+- tapOn:
+    id: e2e-shopping-item
+    index: 0
+- extendedWaitUntil:
+    visible:
+      id: e2e-shopping-item-in-cart
+    timeout: 15000

@@ -8,7 +8,7 @@ function readFeatureSource(relativePath: string): string {
   return readFileSync(resolve(__dirname, relativePath), 'utf8');
 }
 
-function createRestoreRunnerHarness() {
+function createRestoreRunnerHarness(mode = 'restore', failingFlow = '') {
   const workspace = mkdtempSync(resolve(tmpdir(), 'maestro-restore-contract-'));
   const javaHome = resolve(workspace, 'java-home');
   const maestroBin = resolve(workspace, 'home/.maestro/bin');
@@ -27,7 +27,8 @@ function createRestoreRunnerHarness() {
   writeFileSync(javaHomeResolver, `#!/bin/sh\necho '${javaHome}'\n`);
   writeFileSync(
     resolve(maestroBin, 'maestro'),
-    '#!/bin/sh\nprintf \'MAESTRO\\n\' >> "$E2E_CAPTURE_FILE"\nprintf \'%s\\n\' "$@" >> "$E2E_CAPTURE_FILE"\n'
+    '#!/bin/sh\nprintf \'MAESTRO\\n\' >> "$E2E_CAPTURE_FILE"\nprintf \'%s\\n\' "$@" >> "$E2E_CAPTURE_FILE"\n' +
+      'if [ -n "$E2E_FAILING_FLOW" ]; then case "$*" in *"$E2E_FAILING_FLOW"*) exit 1 ;; esac; fi\n'
   );
   writeFileSync(
     resolve(toolsBin, 'sleep'),
@@ -45,23 +46,20 @@ function createRestoreRunnerHarness() {
     captureFile,
     cleanup: () => rmSync(workspace, { force: true, recursive: true }),
     run: (waitSeconds?: string) =>
-      spawnSync(
-        'sh',
-        [resolve(__dirname, '../../../../scripts/run-maestro-e2e-macos.sh'), 'restore'],
-        {
-          encoding: 'utf8',
-          env: {
-            ...process.env,
-            E2E_ACCESS_TOKEN_EXPIRY_WAIT_SECONDS: waitSeconds,
-            E2E_CAPTURE_FILE: captureFile,
-            E2E_JAVA_HOME_RESOLVER: javaHomeResolver,
-            E2E_LOGIN_CODE: '123456',
-            E2E_LOGIN_EMAIL: 'e2e-user@example.test',
-            HOME: resolve(workspace, 'home'),
-            PATH: `${toolsBin}:${process.env.PATH ?? ''}`,
-          },
-        }
-      ),
+      spawnSync('sh', [resolve(__dirname, '../../../../scripts/run-maestro-e2e-macos.sh'), mode], {
+        encoding: 'utf8',
+        env: {
+          ...process.env,
+          E2E_ACCESS_TOKEN_EXPIRY_WAIT_SECONDS: waitSeconds,
+          E2E_CAPTURE_FILE: captureFile,
+          E2E_FAILING_FLOW: failingFlow,
+          E2E_JAVA_HOME_RESOLVER: javaHomeResolver,
+          E2E_LOGIN_CODE: '123456',
+          E2E_LOGIN_EMAIL: 'e2e-user@example.test',
+          HOME: resolve(workspace, 'home'),
+          PATH: `${toolsBin}:${process.env.PATH ?? ''}`,
+        },
+      }),
   };
 }
 
@@ -79,24 +77,27 @@ describe('Maestro login tracer selector contract', () => {
     expect(readFeatureSource('../components/VerificationActions.tsx')).toContain(
       'testID="e2e-verify-code"'
     );
-    expect(
-      readFileSync(resolve(__dirname, '../../onboarding/screens/OnboardingScreen.tsx'), 'utf8')
-    ).toContain('testID="e2e-onboarding-screen"');
+    expect(readFileSync(resolve(__dirname, '../../home/screens/HomeScreen.tsx'), 'utf8')).toContain(
+      'testID="e2e-home-screen"'
+    );
   });
 
-  it('dismisses the success alert before checking onboarding in the Maestro flow', () => {
+  it('dismisses the success alert before checking Home in the Maestro flow', () => {
     const maestroFlow = readFileSync(
       resolve(__dirname, '../../../../e2e/maestro/login-verification.yaml'),
       'utf8'
     );
 
+    // `clearState` keeps the iOS Keychain, so a session of an earlier run would skip login.
+    expect(maestroFlow.indexOf('- clearKeychain')).toBeGreaterThan(-1);
+    expect(maestroFlow.indexOf('- clearKeychain')).toBeLessThan(
+      maestroFlow.indexOf('clearState: true')
+    );
     expect(maestroFlow).toContain('Sesión iniciada');
     expect(maestroFlow).toContain('tapOn:');
     expect(maestroFlow).toContain('OK');
-    expect(maestroFlow).toContain('id: e2e-onboarding-screen');
-    expect(maestroFlow.indexOf('OK')).toBeLessThan(
-      maestroFlow.indexOf('id: e2e-onboarding-screen')
-    );
+    expect(maestroFlow).toContain('id: e2e-home-screen');
+    expect(maestroFlow.indexOf('OK')).toBeLessThan(maestroFlow.indexOf('id: e2e-home-screen'));
   });
 
   it('preserves the original login-only command and keeps Expo native scripts convergent', () => {
@@ -132,7 +133,7 @@ describe('Maestro login tracer selector contract', () => {
     }
   });
 
-  it('cold-relaunches without clearing persisted authentication before asserting onboarding', () => {
+  it('cold-relaunches without clearing persisted authentication before asserting Home', () => {
     const restorationFlow = readFileSync(
       resolve(__dirname, '../../../../e2e/maestro/authenticated-restoration.yaml'),
       'utf8'
@@ -141,12 +142,12 @@ describe('Maestro login tracer selector contract', () => {
     expect(restorationFlow).toContain('- stopApp');
     expect(restorationFlow).toContain('clearState: false');
     expect(restorationFlow).not.toContain('clearState: true');
-    expect(restorationFlow).toContain('id: e2e-onboarding-screen');
+    expect(restorationFlow).toContain('id: e2e-home-screen');
     expect(restorationFlow.indexOf('- stopApp')).toBeLessThan(
       restorationFlow.indexOf('clearState: false')
     );
     expect(restorationFlow.indexOf('clearState: false')).toBeLessThan(
-      restorationFlow.indexOf('id: e2e-onboarding-screen')
+      restorationFlow.indexOf('id: e2e-home-screen')
     );
   });
 
@@ -248,6 +249,162 @@ describe('Maestro login tracer selector contract', () => {
       expect(invocation).not.toContain('e2e/maestro/authenticated-restoration.yaml');
     } finally {
       rmSync(workspace, { force: true, recursive: true });
+    }
+  });
+});
+
+function readMobileFile(relativePath: string): string {
+  return readFileSync(resolve(__dirname, '../../../..', relativePath), 'utf8');
+}
+
+// Every `id:` a flow selects, in order.
+function flowSelectors(flow: string): string[] {
+  return [...readMobileFile(`e2e/maestro/${flow}.yaml`).matchAll(/id: (\S+)/g)].map(
+    (match) => match[1]
+  );
+}
+
+describe('Maestro Planning and Shopping selector contract', () => {
+  it('exposes the testIDs the Planning and Shopping flows select', () => {
+    const sources: [string, string][] = [
+      ['src/features/home/screens/HomeScreen.tsx', 'testID="e2e-home-screen"'],
+      ['src/components/AddCircleButton.tsx', 'testID="e2e-home-open-planner"'],
+      ['src/features/planner/components/PlanningDraftPanel.tsx', "'e2e-planner-start'"],
+      ['src/features/planner/components/PlanningDraftPanel.tsx', 'testID="e2e-planner-proposal"'],
+      ['src/features/planner/components/PlanningDraftPanel.tsx', "'e2e-planner-confirm'"],
+      ['src/features/planner/components/PlanningDraftPanel.tsx', 'testID="e2e-planner-committed"'],
+      ['src/features/planner/components/PlannerHeader.tsx', 'testID="e2e-planner-close"'],
+      ['src/features/home/components/FoodCard/FoodCard.tsx', "'e2e-home-scheduled-meal'"],
+      ['app/(tabs)/_layout.tsx', "tabBarButtonTestID: 'e2e-tab-cart'"],
+      ['app/(tabs)/_layout.tsx', 'testID={options.tabBarButtonTestID}'],
+      ['src/features/shopping/screens/ShoppingScreen.tsx', 'testID="e2e-shopping-screen"'],
+      ['src/features/shopping/components/ShoppingItemRow.tsx', "'e2e-shopping-item-in-cart'"],
+      ['src/features/shopping/components/ShoppingItemRow.tsx', "'e2e-shopping-item'"],
+    ];
+
+    for (const [path, selector] of sources) {
+      expect(readMobileFile(path)).toContain(selector);
+    }
+  });
+
+  it('plans, confirms and checks the Scheduled meals by testID, after signing in', () => {
+    const flow = readMobileFile('e2e/maestro/planning-confirm.yaml');
+
+    expect(flow).toContain('- runFlow: login-verification.yaml');
+    expect(flowSelectors('planning-confirm')).toEqual([
+      'e2e-home-scheduled-meal',
+      'e2e-home-open-planner',
+      'e2e-planner-start',
+      'e2e-planner-start',
+      'e2e-planner-proposal',
+      'e2e-planner-confirm',
+      'e2e-planner-confirm',
+      'e2e-planner-committed',
+      'e2e-planner-close',
+      'e2e-home-scheduled-meal',
+    ]);
+  });
+
+  it('opens the Shopping list and checks an item off by testID, after signing in', () => {
+    const flow = readMobileFile('e2e/maestro/shopping-check-off.yaml');
+
+    expect(flow).toContain('- runFlow: login-verification.yaml');
+    expect(flowSelectors('shopping-check-off')).toEqual([
+      'e2e-tab-cart',
+      'e2e-shopping-screen',
+      'e2e-shopping-item',
+      'e2e-shopping-item-in-cart',
+      'e2e-shopping-item',
+      'e2e-shopping-item-in-cart',
+    ]);
+  });
+
+  it('never selects by visible copy in the Planning and Shopping flows', () => {
+    for (const flow of ['planning-confirm', 'shopping-check-off']) {
+      const lines = readMobileFile(`e2e/maestro/${flow}.yaml`).split('\n');
+
+      // A bare `tapOn: <text>` or `visible: <text>`, or a `text:` key, selects by copy; every
+      // selector is an `id:`.
+      expect(
+        lines.filter(
+          (line) =>
+            /^\s*-?\s*(tapOn|visible|assertVisible|assertNotVisible):\s*\S/.test(line) ||
+            /^\s*-?\s*text:/.test(line)
+        )
+      ).toEqual([]);
+    }
+  });
+
+  it('keeps the Planner probes of .maestro on the renamed Home button', () => {
+    for (const probe of [
+      'planner-input-motion-probe',
+      'planner-sent-message-anchor',
+      'planner-sent-message-displacement',
+    ]) {
+      const flow = readMobileFile(`.maestro/${probe}.yaml`);
+
+      expect(flow).toContain('id: e2e-home-open-planner');
+      expect(flow).not.toMatch(/id: home-open-planner/);
+    }
+  });
+
+  it('runs every flow in order with all', () => {
+    const harness = createRestoreRunnerHarness('all');
+
+    try {
+      const result = harness.run();
+
+      expect(result.status).toBe(0);
+      expect(readFileSync(harness.captureFile, 'utf8')).toMatch(
+        /MAESTRO[\s\S]*e2e\/maestro\/login-verification\.yaml\nSLEEP\n4\nMAESTRO[\s\S]*e2e\/maestro\/authenticated-restoration\.yaml\nMAESTRO[\s\S]*e2e\/maestro\/planning-confirm\.yaml\nMAESTRO[\s\S]*e2e\/maestro\/shopping-check-off\.yaml\n$/
+      );
+    } finally {
+      harness.cleanup();
+    }
+  });
+
+  it('stops with a non-zero exit at the first flow of all that fails', () => {
+    const harness = createRestoreRunnerHarness('all', 'planning-confirm');
+
+    try {
+      const result = harness.run();
+      const events = readFileSync(harness.captureFile, 'utf8');
+
+      expect(result.status).not.toBe(0);
+      expect(events).toContain('e2e/maestro/planning-confirm.yaml');
+      expect(events).not.toContain('e2e/maestro/shopping-check-off.yaml');
+    } finally {
+      harness.cleanup();
+    }
+  });
+
+  it('runs one flow by name, and fails for a flow that does not exist', () => {
+    const harness = createRestoreRunnerHarness('shopping-check-off');
+
+    try {
+      const result = harness.run();
+      const invocations = readFileSync(harness.captureFile, 'utf8');
+
+      expect(result.status).toBe(0);
+      expect(invocations).toContain('E2E_LOGIN_EMAIL=e2e-user@example.test');
+      expect(invocations.match(/e2e\/maestro\/\S+\.yaml/g)).toEqual([
+        'e2e/maestro/shopping-check-off.yaml',
+      ]);
+    } finally {
+      harness.cleanup();
+    }
+
+    for (const unknownMode of ['missing-flow', '../package', 'Login']) {
+      const unknown = createRestoreRunnerHarness(unknownMode);
+
+      try {
+        const result = unknown.run();
+
+        expect(result.status).toBe(1);
+        expect(result.stderr).toContain(`Unknown Maestro E2E mode: ${unknownMode}`);
+      } finally {
+        unknown.cleanup();
+      }
     }
   });
 });

@@ -163,7 +163,9 @@ export function HomeScreen() {
   };
 
   return (
-    <View style={[styles.screen, { backgroundColor: backgroundColors[1] }]}>
+    <View
+      testID="e2e-home-screen"
+      style={[styles.screen, { backgroundColor: backgroundColors[1] }]}>
       <LinearGradient
         colors={previousBackgroundColors}
         start={{ x: 0, y: 0 }}

@@ -5,10 +5,10 @@ appId: com.anonymous.my-expo-app
 - waitForAnimationToEnd
 - extendedWaitUntil:
     visible:
-      id: home-open-planner
+      id: e2e-home-open-planner
     timeout: 10000
 - tapOn:
-    id: home-open-planner
+    id: e2e-home-open-planner
 - extendedWaitUntil:
     visible:
       id: planner-conversation-list

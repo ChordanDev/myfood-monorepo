@@ -87,7 +87,7 @@ export function PlanningDraftPanel({
     const { proposal, message } = draft;
     const canLeave = pendingAction === null && canStart && !isConfirmUnresolved;
     return (
-      <View testID="planner-proposal" style={styles.proposal}>
+      <View testID="e2e-planner-proposal" style={styles.proposal}>
         {message === null ? null : (
           <Text style={[styles.message, { color: theme.textBlack }]}>
             {describePlanningMessage(message.summary)}
@@ -112,7 +112,7 @@ export function PlanningDraftPanel({
           </View>
         )}
         <View style={styles.actions}>
-          {action('Confirmar menú', onConfirm, pendingAction !== null, 'planner-confirm')}
+          {action('Confirmar menú', onConfirm, pendingAction !== null, 'e2e-planner-confirm')}
           {/* Rejecting and cancelling go through the topic: they need it joined. After a
               confirm with no answer they wait for a new confirm to read the result. */}
           {action('Pedir otra propuesta', onReject, !canLeave, 'planner-reject')}
@@ -127,7 +127,7 @@ export function PlanningDraftPanel({
       <View
         accessible
         accessibilityLiveRegion="polite"
-        testID="planner-committed"
+        testID="e2e-planner-committed"
         style={[styles.progress, { backgroundColor: theme.colorLight }]}>
         <Text style={[styles.progressText, { color: theme.textDark }]}>
           {describeCommittedPlan(draft.scheduledMealsCount)}
@@ -154,7 +154,7 @@ export function PlanningDraftPanel({
     );
   }
 
-  return action(startLabel, onStart, !canStart, 'planner-start');
+  return action(startLabel, onStart, !canStart, 'e2e-planner-start');
 }
 
 const styles = StyleSheet.create({

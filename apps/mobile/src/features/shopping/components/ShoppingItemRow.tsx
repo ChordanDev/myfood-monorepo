@@ -113,6 +113,7 @@ export function ShoppingItemRow({ item, meta, onToggle, onRemove }: ShoppingItem
             }
           : undefined
       }
+      testID={isInCart ? 'e2e-shopping-item-in-cart' : 'e2e-shopping-item'}
       accessibilityRole={onToggle ? 'checkbox' : 'button'}
       accessibilityLabel={onToggle || !isInCart ? label : `${label}, ${IN_CART_LABEL}`}
       accessibilityState={onToggle ? { checked: isInCart } : undefined}
