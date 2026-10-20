@@ -1272,6 +1272,46 @@ describe('SettingsScreen', () => {
       );
     });
 
+    it('shows the new minimum after the owner changes the household size', async () => {
+      const { root } = await renderScreen();
+      mockFetchAccountBudget.mockResolvedValue({
+        budget: { ...defaultBudget, minWeeklyBudgetCents: 4500000 },
+      });
+
+      await press(root, 'settings-row-household-size');
+      await press(root, 'settings-stepper-increment');
+      await press(root, 'settings-sheet-save');
+
+      expect(mockFetchAccountBudget).toHaveBeenCalledTimes(2);
+      await press(root, 'settings-row-budget');
+      expect(getTexts(getHost(root, 'settings-sheet'))).toContain('Mínimo: $45.000 por semana');
+    });
+
+    it('keeps the Budget editable when that refresh fails', async () => {
+      const { root } = await renderScreen();
+      mockFetchAccountBudget.mockRejectedValue(new ApiError('network_error', 'offline'));
+
+      await press(root, 'settings-row-household-size');
+      await press(root, 'settings-stepper-increment');
+      await press(root, 'settings-sheet-save');
+
+      expect(mockFetchAccountBudget).toHaveBeenCalledTimes(2);
+      expect(rowLabel(root, 'settings-row-budget')).toBe(
+        'Presupuesto semanal, $45.000 (por defecto)'
+      );
+      expect(getButton(root, 'settings-row-budget').props.disabled).toBe(false);
+    });
+
+    it('is not fetched again when the saved profile keeps the household size', async () => {
+      const { root } = await renderScreen();
+
+      await press(root, 'settings-row-display-name');
+      await typeInto(root, 'settings-input-display-name', 'Lucca G');
+      await press(root, 'settings-sheet-save');
+
+      expect(mockFetchAccountBudget).toHaveBeenCalledTimes(1);
+    });
+
     it('shows it to a member who is not the owner, without a way to edit it', async () => {
       const { root } = await renderScreen({ me: memberMe() });
 

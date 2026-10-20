@@ -153,6 +153,18 @@ export function useSettingsState() {
     }
   }, []);
 
+  // The minimum follows the owner's household size, so a saved size reads the Budget again.
+  // Unlike `loadBudget` it is silent: a failure keeps the Budget already shown.
+  const refreshBudget = useCallback(async () => {
+    try {
+      const response = await fetchAccountBudget();
+      setBudget(response.budget);
+      setBudgetStatus('ready');
+    } catch (error) {
+      console.warn('[Settings] Failed to refresh the weekly budget:', error);
+    }
+  }, []);
+
   // Only the first load is automatic. After a failure the status is
   // "error", so the user has to ask for the retry.
   useEffect(() => {
@@ -228,8 +240,10 @@ export function useSettingsState() {
       setIsSavingProfile(true);
       try {
         // The provider reflects the saved profile on `me`, which the rows read.
+        const householdSizeChanged = payload.householdSize !== me?.user.householdSize;
         await updateProfile(payload);
         hideSheet();
+        if (householdSizeChanged) refreshBudget();
       } catch (error) {
         showSaveError(error);
       } finally {
@@ -281,7 +295,9 @@ export function useSettingsState() {
   }, [
     isSaving,
     loadState,
+    me,
     preferences,
+    refreshBudget,
     saveSlotCookingTimes,
     saveUserPreferences,
     sheet,
