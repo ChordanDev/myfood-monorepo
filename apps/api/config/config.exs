@@ -71,10 +71,12 @@ config :logger, :default_formatter,
 config :phoenix, :json_library, Jason
 
 # Cooking conversations and spoken inventory transcripts must not be retained
-# in request parameter logs.
+# in request parameter logs. Phoenix matches case-sensitively, so `"Token"`
+# covers the mobile contract's `idToken`, `accessToken` and `refreshToken`.
 config :phoenix, :filter_parameters, [
   "password",
   "token",
+  "Token",
   "secret",
   "code",
   "message",
