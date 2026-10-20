@@ -157,6 +157,10 @@ defmodule MealPlannerApiWeb.ApiErrorTest do
       end
     end
 
+    test "maps the weekly Budget owner code to its HTTP status", %{conn: conn} do
+      assert ApiError.error(conn, :not_owner).status == 403
+    end
+
     test "maps the Cart lease codes to their HTTP status", %{conn: conn} do
       for {code, status} <- [cart_locked: 409, stale_cart: 409, cart_not_found: 404] do
         assert {code, ApiError.error(conn, code).status} == {code, status}
@@ -376,6 +380,10 @@ defmodule MealPlannerApiWeb.ApiErrorTest do
       # The codes of confirming a past Scheduled meal (issue #145).
       meal_confirm_codes = ~w(meal_already_confirmed confirmation_window_closed)a
 
+      # The code of `PUT /api/account/budget` from a member who is not the
+      # owner (issue #271).
+      budget_codes = [:not_owner]
+
       # The code of the Planner confirm and reject routes (issue #28).
       proposal_codes = [:planning_proposal_not_pending]
 
@@ -389,6 +397,7 @@ defmodule MealPlannerApiWeb.ApiErrorTest do
                    [:recipe_not_found, :prepared_leftover_not_found] ++
                    meal_move_codes ++
                    meal_confirm_codes ++
+                   budget_codes ++
                    proposal_codes ++
                    planning_chat_codes ++
                    profile_codes ++

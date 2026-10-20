@@ -227,6 +227,12 @@ defmodule MealPlannerApiWeb.Router do
     post("/leftovers/prepared", PreparedLeftoverController, :create)
     post("/leftovers/prepared/:id/consume", PreparedLeftoverController, :consume)
     post("/leftovers/prepared/:id/discard", PreparedLeftoverController, :discard)
+
+    # Issue #271 — the Account's weekly Budget. Any member reads it, only the
+    # owner changes it. It only feeds generation, which needs the capability
+    # too, so it is not exempt.
+    get("/account/budget", AccountBudgetController, :show)
+    put("/account/budget", AccountBudgetController, :update)
   end
 
   # Phase A — Tenancy Refactor (PR 3a): membership / invite / lifecycle

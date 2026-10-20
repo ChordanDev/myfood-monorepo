@@ -32,6 +32,12 @@ config :meal_planner_api, MealPlannerApi.Auth.Guardian,
 config :meal_planner_api,
   refresh_retry_window_seconds: 10
 
+# Least weekly Budget per person, in cents (issue #271): the owner cannot set
+# an Account's weekly Budget below this times the owner's Household size.
+# `0` means no floor until the real amount is known from supermarket prices.
+config :meal_planner_api,
+  min_weekly_budget_per_person_cents: 0
+
 config :meal_planner_api,
   ai_client: MealPlannerApi.AI.GeminiClient
 

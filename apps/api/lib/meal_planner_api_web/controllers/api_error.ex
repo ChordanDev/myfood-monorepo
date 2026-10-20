@@ -150,6 +150,7 @@ defmodule MealPlannerApiWeb.ApiError do
           | :calendar_meal_cooking_in_progress
           | :meal_already_confirmed
           | :confirmation_window_closed
+          | :not_owner
           | :planning_proposal_not_pending
           | :planning_slot_occupied
 
@@ -258,6 +259,9 @@ defmodule MealPlannerApiWeb.ApiError do
     meal_already_confirmed: {409, "This meal was already confirmed. Nothing was changed."},
     confirmation_window_closed:
       {422, "Only a meal from the last 7 days can be confirmed as cooked or not cooked."},
+    # The Account's weekly Budget (issue #271): any member reads it, only the
+    # owner changes it. Keep it above the planning channel rows too.
+    not_owner: {403, "Only the owner of the account can change this."},
     # Confirm and reject of a Planner proposal over HTTP (issue #28): only a
     # pending proposal is confirmed or rejected. Keep it above the planning
     # channel rows too.
