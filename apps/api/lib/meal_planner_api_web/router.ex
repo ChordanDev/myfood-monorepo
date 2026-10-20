@@ -9,7 +9,8 @@ defmodule MealPlannerApiWeb.Router do
   # this pipeline translate request params to snake_case and response keys to
   # camelCase (see `Plugs.MobileCasing`). It goes right after `:api`, before
   # any pipeline that can halt, so the response of a halting plug is
-  # translated too. Auth, `/auth/me`, `/account/*` and
+  # translated too. Auth, `/auth/me`, the `/account/*` routes other than
+  # `/account/timezone` and `/account/budget`, and
   # `/api/accounts/:account_id/*` are deliberately left out.
   pipeline :mobile_casing do
     plug(MealPlannerApiWeb.Plugs.MobileCasing)
