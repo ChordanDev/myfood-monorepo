@@ -9,7 +9,7 @@ import {
   COOKING_SESSION_ID,
   COOKING_START,
 } from '../fixtures';
-import { useMarkAsCooked } from './useMarkAsCooked';
+import { useMarkAsCooked, type PastMealConfirmation } from './useMarkAsCooked';
 
 jest.mock('@react-native-async-storage/async-storage', () =>
   jest.requireActual('@react-native-async-storage/async-storage/jest/async-storage-mock')
@@ -242,7 +242,7 @@ describe('useMarkAsCooked', () => {
     it('confirms a past meal cooked: no session, the summary and the local mark', async () => {
       confirmMock.mockResolvedValue(COOKING_FINISH_WITH_SHORTAGE);
 
-      let result: boolean | undefined;
+      let result: PastMealConfirmation | undefined;
       await act(async () => {
         result = await hook.confirmPastMeal(ENTRY.id, true);
       });
@@ -250,7 +250,7 @@ describe('useMarkAsCooked', () => {
       expect(confirmMock).toHaveBeenCalledWith(ENTRY.id, true);
       expect(startMock).not.toHaveBeenCalled();
       expect(finishMock).not.toHaveBeenCalled();
-      expect(result).toBe(true);
+      expect(result).toBe('confirmed');
       expect(hook.summary?.shortages).toHaveLength(1);
       expect(useMealPlanStore.getState().entries[0]).toMatchObject({ isCooked: true });
 
@@ -265,13 +265,13 @@ describe('useMarkAsCooked', () => {
         shortages: [],
       } as never);
 
-      let result: boolean | undefined;
+      let result: PastMealConfirmation | undefined;
       await act(async () => {
         result = await hook.confirmPastMeal(ENTRY.id, false);
       });
 
       expect(confirmMock).toHaveBeenCalledWith(ENTRY.id, false);
-      expect(result).toBe(true);
+      expect(result).toBe('confirmed');
       expect(hook.summary).toBeNull();
       expect(hook.errorMessage).toBeNull();
       expect(useMealPlanStore.getState().entries[0]).toMatchObject({
@@ -287,16 +287,43 @@ describe('useMarkAsCooked', () => {
           new ApiError('meal_already_confirmed', 'Already confirmed', 409)
         );
 
-        let result: boolean | undefined;
+        let result: PastMealConfirmation | undefined;
         await act(async () => {
           result = await hook.confirmPastMeal(ENTRY.id, cooked);
         });
 
-        expect(result).toBe(false);
+        expect(result).toBe('refused');
         expect(hook.errorMessage).toBe('Esta comida ya tenía una respuesta. No se cambió nada.');
         expect(hook.summary).toBeNull();
         expect(useMealPlanStore.getState().entries[0]).toEqual(ENTRY);
       }
     );
+
+    // Issue #396: a dropped tap is not a refusal, so its caller does not read the plan again.
+    it('reports a second tap while the first answer is on its way as busy, not refused', async () => {
+      let release: (value: typeof COOKING_FINISH_WITH_SHORTAGE) => void = () => {};
+      confirmMock.mockReturnValue(new Promise((resolve) => (release = resolve)));
+
+      let first: Promise<PastMealConfirmation> = Promise.resolve('refused');
+      act(() => {
+        first = hook.confirmPastMeal(ENTRY.id, true);
+      });
+
+      let second: PastMealConfirmation | undefined;
+      await act(async () => {
+        second = await hook.confirmPastMeal(ENTRY.id, true);
+      });
+
+      let firstResult: PastMealConfirmation | undefined;
+      await act(async () => {
+        release(COOKING_FINISH_WITH_SHORTAGE);
+        firstResult = await first;
+      });
+
+      expect(second).toBe('busy');
+      expect(firstResult).toBe('confirmed');
+      expect(confirmMock).toHaveBeenCalledTimes(1);
+      expect(hook.errorMessage).toBeNull();
+    });
   });
 });

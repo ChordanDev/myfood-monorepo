@@ -199,6 +199,23 @@ describe('the plan cache', () => {
       }),
     ]);
     expect(useMealPlanStore.getState().recipeSummaries['recipe-9']?.name).toBe('Lentil stew');
+    // Issue #396: the Account's today, which tells a past meal from today's, comes with it.
+    expect(useMealPlanStore.getState().today).toBe('2026-10-08');
+  });
+
+  // A today kept on the device would be stale on the next launch; the next read brings it again.
+  it("does not write the Account's today to the device, and forgets it with the account", async () => {
+    useMealPlanStore.setState({ entries: [storedEntry], today: '2026-10-08' });
+
+    const stored = JSON.parse((await AsyncStorage.getItem(STORAGE_KEY)) ?? '{}');
+
+    expect(stored.version).toBe(3);
+    expect(stored.state.entries).toEqual([storedEntry]);
+    expect(stored.state).not.toHaveProperty('today');
+
+    useMealPlanStore.getState().resetAccountData();
+
+    expect(useMealPlanStore.getState().today).toBeNull();
   });
 
   it('keeps the cached plan when the calendar read fails', async () => {

@@ -9,6 +9,13 @@ import {
 import { summarizeCookingFinish, type CookingSummary } from '../domain';
 
 /**
+ * How a past meal's answer went: the server stored it (`confirmed`), refused it or could not be
+ * reached (`refused`), or the tap was dropped because an answer was already on its way (`busy`).
+ * Only `refused` says the cached plan may be out of step with the server.
+ */
+export type PastMealConfirmation = 'confirmed' | 'refused' | 'busy';
+
+/**
  * Marks a planned meal as cooked through the server: a Cooking session starts and finishes, and
  * the answer says what was consumed and what the stock could not cover. The local plan entry is
  * marked only once the server confirmed, so a refusal leaves the meal as it was.
@@ -73,8 +80,8 @@ export function useMarkAsCooked() {
    * (an answer given already, a meal outside the 7-day window) leaves it as it was.
    */
   const confirmPastMeal = useCallback(
-    async (entryId: string, cooked: boolean): Promise<boolean> => {
-      if (inFlightRef.current) return false;
+    async (entryId: string, cooked: boolean): Promise<PastMealConfirmation> => {
+      if (inFlightRef.current) return 'busy';
 
       inFlightRef.current = true;
       setIsPending(true);
@@ -89,10 +96,10 @@ export function useMarkAsCooked() {
         } else {
           applyNotCookedAnswer(entryId);
         }
-        return true;
+        return 'confirmed';
       } catch (error) {
         setErrorMessage(getAuthErrorMessage(error));
-        return false;
+        return 'refused';
       } finally {
         inFlightRef.current = false;
         setIsPending(false);
