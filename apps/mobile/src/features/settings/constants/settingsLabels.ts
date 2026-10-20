@@ -34,6 +34,12 @@ export const PROFILE_FIELD_ERRORS: Record<ProfileField, string> = {
 export const LOADING_VALUE_LABEL = 'Cargando…';
 export const UNAVAILABLE_VALUE_LABEL = 'No disponible';
 
+// Why a retry is offered, for each part of the screen that loads on its own.
+export const PREFERENCES_LOAD_ERROR_MESSAGE =
+  'No pudimos cargar tus preferencias ni tus tiempos por comida. Reintentá para verlos y editarlos.';
+export const BUDGET_LOAD_ERROR_MESSAGE =
+  'No pudimos cargar tu presupuesto semanal. Reintentá para verlo.';
+
 // The Account's weekly Budget row (issue #271). Its sheet reuses the label as its title.
 export const BUDGET_LABEL = 'Presupuesto semanal';
 export const BUDGET_INPUT_PLACEHOLDER = 'Monto en pesos';

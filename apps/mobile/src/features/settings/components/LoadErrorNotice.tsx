@@ -5,26 +5,26 @@ import { useRecipeTheme } from '@/context/RecipeThemeContext';
 import { useAnimatedThemeStyle } from '@/hooks/useAnimatedThemeStyle';
 
 interface LoadErrorNoticeProps {
+  /** What failed to load and what retrying brings back. */
+  message: string;
   onRetry: () => void;
+  testID: string;
 }
 
-// Shown when preferences and slot times could not be loaded. Retrying is
-// explicit: the screen never reloads on its own after a failure.
-export function LoadErrorNotice({ onRetry }: LoadErrorNoticeProps) {
+// Shown when data on the screen could not be loaded. Retrying is explicit:
+// the screen never reloads on its own after a failure.
+export function LoadErrorNotice({ message, onRetry, testID }: LoadErrorNoticeProps) {
   const { theme } = useRecipeTheme();
   const surfaceStyle = useAnimatedThemeStyle({ backgroundColor: theme.colorLight });
 
   return (
     <ShadowSurface style={styles.shadowSurface}>
       <Animated.View style={[styles.surface, surfaceStyle]}>
-        <Text style={[styles.message, { color: theme.textDark }]}>
-          No pudimos cargar tus preferencias ni tus tiempos por comida. Reintentá para verlos y
-          editarlos.
-        </Text>
+        <Text style={[styles.message, { color: theme.textDark }]}>{message}</Text>
         <Pressable
           accessibilityRole="button"
           onPress={onRetry}
-          testID="settings-load-retry"
+          testID={testID}
           style={({ pressed }) => [
             styles.button,
             { backgroundColor: theme.colorDark, opacity: pressed ? 0.8 : 1 },

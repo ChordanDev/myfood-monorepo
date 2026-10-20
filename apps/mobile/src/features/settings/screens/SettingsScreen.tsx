@@ -21,7 +21,9 @@ import {
 import { SETTINGS_TITLE_FONT_SIZE } from '../constants/layout';
 import {
   BUDGET_LABEL,
+  BUDGET_LOAD_ERROR_MESSAGE,
   LOADING_VALUE_LABEL,
+  PREFERENCES_LOAD_ERROR_MESSAGE,
   PREFERENCE_FIELD_LABELS,
   PROFILE_FIELD_LABELS,
   UNAVAILABLE_VALUE_LABEL,
@@ -59,6 +61,7 @@ export function SettingsScreen() {
     canEditBudget,
     loadStatus,
     retryLoad,
+    retryBudget,
     signOut,
     sheet,
     isSaving,
@@ -154,7 +157,13 @@ export function SettingsScreen() {
             />
           </SettingsGroup>
 
-          {loadStatus === 'error' ? <LoadErrorNotice onRetry={retryLoad} /> : null}
+          {loadStatus === 'error' ? (
+            <LoadErrorNotice
+              message={PREFERENCES_LOAD_ERROR_MESSAGE}
+              onRetry={retryLoad}
+              testID="settings-load-retry"
+            />
+          ) : null}
 
           <SettingsGroup title="Preferencias" testID="settings-group-preferences">
             <SettingsRow
@@ -200,6 +209,15 @@ export function SettingsScreen() {
               />
             ))}
           </SettingsGroup>
+
+          {/* The preferences retry above also reloads the Budget, so it gets no second notice. */}
+          {budgetStatus === 'error' && loadStatus !== 'error' ? (
+            <LoadErrorNotice
+              message={BUDGET_LOAD_ERROR_MESSAGE}
+              onRetry={retryBudget}
+              testID="settings-budget-retry"
+            />
+          ) : null}
 
           <SettingsGroup title="Cuenta" testID="settings-group-account">
             <SettingsRow

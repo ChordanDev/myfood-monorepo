@@ -1371,6 +1371,25 @@ describe('SettingsScreen', () => {
       expect(getButton(root, 'settings-row-diet').props.disabled).toBe(false);
     });
 
+    it('offers its own retry when only the Budget failed to load', async () => {
+      mockFetchAccountBudget.mockRejectedValueOnce(new ApiError('network_error', 'offline'));
+      const fetchUserPreferences = jest.fn().mockResolvedValue(savedPreferences);
+      const { root } = await renderScreen({ context: { fetchUserPreferences } });
+
+      expect(rowLabel(root, 'settings-row-budget')).toBe('Presupuesto semanal, No disponible');
+      expect(queryHost(root, 'settings-load-retry')).toBeNull();
+
+      await press(root, 'settings-budget-retry');
+
+      expect(mockFetchAccountBudget).toHaveBeenCalledTimes(2);
+      expect(fetchUserPreferences).toHaveBeenCalledTimes(1);
+      expect(rowLabel(root, 'settings-row-budget')).toBe(
+        'Presupuesto semanal, $45.000 (por defecto)'
+      );
+      expect(getButton(root, 'settings-row-budget').props.disabled).toBe(false);
+      expect(queryHost(root, 'settings-budget-retry')).toBeNull();
+    });
+
     it('loads it again with the retry of a failed load', async () => {
       mockFetchAccountBudget.mockRejectedValueOnce(new ApiError('network_error', 'offline'));
       const fetchUserPreferences = jest
@@ -1379,6 +1398,8 @@ describe('SettingsScreen', () => {
         .mockResolvedValue(savedPreferences);
       const { root } = await renderScreen({ context: { fetchUserPreferences } });
 
+      // One retry covers both failures, so the Budget gets no second notice.
+      expect(queryHost(root, 'settings-budget-retry')).toBeNull();
       await press(root, 'settings-load-retry');
 
       expect(mockFetchAccountBudget).toHaveBeenCalledTimes(2);
