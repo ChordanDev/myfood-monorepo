@@ -7,12 +7,18 @@ import { registerAccountDataReset } from '@/features/auth/utils/accountDataReset
 interface MealPlanState {
   entries: MealPlanEntry[];
   recipeSummaries: Record<string, RecipeSummary>;
+  /**
+   * The Account's today as the last calendar read served it (`YYYY-MM-DD`), `null` before one.
+   * It tells a past meal from today's; the device's date can be another day.
+   */
+  today: string | null;
   setPlan: (entries: MealPlanEntry[]) => void;
   setRecipeSummaries: (recipeSummaries: Record<string, RecipeSummary>) => void;
+  setToday: (today: string) => void;
   markAsCooked: (entryId: string) => void;
   /** Applies a "not cooked" answer the server already stored: the meal is a Skipped meal. */
   applyNotCookedAnswer: (entryId: string) => void;
-  /** Drops everything cached for the signed-in account (plan and summaries). */
+  /** Drops everything cached for the signed-in account (plan, summaries and its today). */
   resetAccountData: () => void;
   getEntryByDateAndType: (date: string, type: string) => MealPlanEntry | undefined;
 }
@@ -35,8 +41,10 @@ export const useMealPlanStore = create<MealPlanState>()(
     (set, get) => ({
       entries: [],
       recipeSummaries: {},
+      today: null,
       setPlan: (entries) => set({ entries }),
       setRecipeSummaries: (recipeSummaries) => set({ recipeSummaries }),
+      setToday: (today) => set({ today }),
       // Only the local mark: the stock is consumed by the server's Cooking session, whose
       // summary the user sees, so the plan does not subtract anything from the inventory.
       markAsCooked: (entryId) => {
@@ -57,7 +65,7 @@ export const useMealPlanStore = create<MealPlanState>()(
           entries: state.entries.map((e) => (e.id === entryId ? { ...e, isSkipped: true } : e)),
         }));
       },
-      resetAccountData: () => set({ entries: [], recipeSummaries: {} }),
+      resetAccountData: () => set({ entries: [], recipeSummaries: {}, today: null }),
       getEntryByDateAndType: (date, type) => {
         return get().entries.find((e) => e.date === date && e.type === type);
       },
@@ -68,6 +76,9 @@ export const useMealPlanStore = create<MealPlanState>()(
       // then empties it. Version 3: the plan is a cache of `GET /api/calendar`, not fixtures.
       version: 3,
       migrate: migrateMealPlanState,
+      // The Account's today is not kept: on the next launch it may be another day, and the
+      // calendar read brings it again.
+      partialize: ({ today: _today, ...rest }) => rest,
       storage: createJSONStorage(() => safeAsyncStorage),
     }
   )

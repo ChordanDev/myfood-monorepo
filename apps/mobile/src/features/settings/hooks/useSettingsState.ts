@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { isApiError } from '@/api/errors';
 import { fetchAccountBudget, updateAccountBudget } from '@/features/account/api/accountApi';
 import { useAuth } from '@/features/auth';
@@ -118,6 +118,8 @@ export function useSettingsState() {
   const [budget, setBudget] = useState<AccountBudget | null>(null);
   const [budgetStatus, setBudgetStatus] = useState<BudgetStatus>('loading');
   const [isSavingBudget, setIsSavingBudget] = useState(false);
+  // Counts the Budget saves, so a refresh answered before one never overwrites it.
+  const budgetSaves = useRef(0);
   const isSaving = loadState.saving || isSavingProfile || isSavingBudget;
   // Every member sees the Budget; only the owner may change it (the API answers `not_owner`).
   const canEditBudget = me?.membership.role === 'owner' && budgetStatus === 'ready';
@@ -150,6 +152,20 @@ export function useSettingsState() {
     } catch (error) {
       console.warn('[Settings] Failed to load the weekly budget:', error);
       setBudgetStatus('error');
+    }
+  }, []);
+
+  // The minimum follows the owner's household size, so a saved size reads the Budget again.
+  // Unlike `loadBudget` it is silent: a failure keeps the Budget already shown.
+  const refreshBudget = useCallback(async () => {
+    const savesBefore = budgetSaves.current;
+    try {
+      const response = await fetchAccountBudget();
+      if (budgetSaves.current !== savesBefore) return;
+      setBudget(response.budget);
+      setBudgetStatus('ready');
+    } catch (error) {
+      console.warn('[Settings] Failed to refresh the weekly budget:', error);
     }
   }, []);
 
@@ -234,8 +250,10 @@ export function useSettingsState() {
       setIsSavingProfile(true);
       try {
         // The provider reflects the saved profile on `me`, which the rows read.
+        const householdSizeChanged = payload.householdSize !== me?.user.householdSize;
         await updateProfile(payload);
         hideSheet();
+        if (householdSizeChanged) refreshBudget();
       } catch (error) {
         showSaveError(error);
       } finally {
@@ -254,10 +272,16 @@ export function useSettingsState() {
         return;
       }
 
+      if (!edit.payload) {
+        hideSheet();
+        return;
+      }
+
       clearErrors();
       setIsSavingBudget(true);
       try {
         const response = await updateAccountBudget(edit.payload);
+        budgetSaves.current += 1;
         setBudget(response.budget);
         hideSheet();
       } catch (error) {
@@ -287,7 +311,9 @@ export function useSettingsState() {
   }, [
     isSaving,
     loadState,
+    me,
     preferences,
+    refreshBudget,
     saveSlotCookingTimes,
     saveUserPreferences,
     sheet,

@@ -525,7 +525,8 @@ Las dos responden lo mismo:
   del servidor, hoy `0`) por el tamaño del hogar del `owner`; si el `owner` no lo cargó, cuenta
   como una persona.
 - `weeklyBudgetCents` en `PUT` es un entero de centavos mayor que `0` y no menor que
-  `minWeeklyBudgetCents`. Una vez guardado, no se vuelve al valor por defecto.
+  `minWeeklyBudgetCents`. Una vez guardado, no se vuelve al valor por defecto, así que el cliente no
+  envía `PUT` si el owner guarda el mismo monto que ya ve: un presupuesto por defecto sigue al tier.
 
 | Estado | Código | Cuándo |
 |--------|--------|--------|

@@ -731,6 +731,79 @@ defmodule MealPlannerApi.CartConcurrencyTest do
     assert meal_lines(f, past) == []
   end
 
+  # Issue #398. A "cooked" and a "not cooked" answer to one past meal take the
+  # meal row lock in turn: the second sees the meal answered, so the meal is
+  # answered once and its recipe comes out of the stock at most once.
+  test "a cooked and a not cooked confirmation of a past meal answer it once", f do
+    past = meal!(f, Ecto.UUID.generate(), Date.add(Date.utc_today(), -2))
+    item = planned_item!(f, past)
+    stock!(f, 1000)
+    supervisor = start_supervised!(Task.Supervisor)
+
+    {cooked_result, not_cooked_result} =
+      with_gate("DELETE", "shopping_items", "OLD.id = '#{item.id}'::uuid", fn holder, open_gate ->
+        # The "cooked" answer holds the meal while it waits to delete the item.
+        cooked =
+          worker(supervisor, f, fn -> CookingService.confirm_meal(f.actor, past.id, true) end)
+
+        wait_until_blocked_by(cooked.backend, holder)
+
+        not_cooked =
+          worker(supervisor, f, fn -> CookingService.confirm_meal(f.actor, past.id, false) end)
+
+        wait_until_blocked_by(not_cooked.backend, cooked.backend)
+        open_gate.()
+        {Task.await(cooked.task, 12_000), Task.await(not_cooked.task, 12_000)}
+      end)
+
+    assert {:ok, %{scheduled_meal: %{is_cooked: true}}} = cooked_result
+    assert {:error, :meal_already_confirmed} = not_cooked_result
+
+    answered = Repo.get!(ScheduledMeal, past.id)
+    assert answered.is_cooked
+    assert is_nil(answered.not_cooked_at)
+
+    # The recipe came out of the stock once, by one event.
+    assert [%{trigger_type: :cooking, quantity_delta_milli: -500}] = events(f)
+    assert stock(f) |> Enum.map(& &1.quantity_milli) |> Enum.sum() == 500
+    assert meal_lines(f, past) == []
+  end
+
+  # Issue #398. A confirmation of a past meal as cooked and a calendar mark of
+  # it as cooked take the meal row lock in turn: the mark sees the meal cooked
+  # and consumes nothing again.
+  test "a confirmation as cooked and a calendar mark of a past meal consume it once", f do
+    past = meal!(f, Ecto.UUID.generate(), Date.add(Date.utc_today(), -2))
+    item = planned_item!(f, past)
+    stock!(f, 1000)
+    supervisor = start_supervised!(Task.Supervisor)
+
+    {confirm_result, mark_result} =
+      with_gate("DELETE", "shopping_items", "OLD.id = '#{item.id}'::uuid", fn holder, open_gate ->
+        # The confirmation holds the meal while it waits to delete the item.
+        confirm =
+          worker(supervisor, f, fn -> CookingService.confirm_meal(f.actor, past.id, true) end)
+
+        wait_until_blocked_by(confirm.backend, holder)
+
+        mark =
+          worker(supervisor, f, fn -> CookingService.set_meal_cooked(f.actor, past.id, true) end)
+
+        wait_until_blocked_by(mark.backend, confirm.backend)
+        open_gate.()
+        {Task.await(confirm.task, 12_000), Task.await(mark.task, 12_000)}
+      end)
+
+    assert {:ok, %{scheduled_meal: %{is_cooked: true}}} = confirm_result
+    assert {:ok, %ScheduledMeal{is_cooked: true}} = mark_result
+    assert Repo.get!(ScheduledMeal, past.id).is_cooked
+
+    # The recipe came out of the stock once, by one event.
+    assert [%{trigger_type: :cooking, quantity_delta_milli: -500}] = events(f)
+    assert stock(f) |> Enum.map(& &1.quantity_milli) |> Enum.sum() == 500
+    assert meal_lines(f, past) == []
+  end
+
   defp concurrent(f, commands) do
     parent = self()
     supervisor = start_supervised!(Task.Supervisor)

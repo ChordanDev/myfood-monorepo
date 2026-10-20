@@ -109,12 +109,13 @@ export function HomeScreen() {
   };
 
   // Both answers go to the server. One it refuses was most likely given on another device, so
-  // the plan is read again to show it.
+  // the plan is read again to show it. A tap dropped while an answer is on its way reads nothing:
+  // that read could land before the answer is stored and show the meal unanswered again.
   const confirmSelectedMeal = async (cooked: boolean) => {
     if (!selectedMeal) return;
 
-    const confirmed = await cooking.confirmPastMeal(selectedMeal.id, cooked);
-    if (!confirmed) void refreshLivePlan().catch(() => undefined);
+    const outcome = await cooking.confirmPastMeal(selectedMeal.id, cooked);
+    if (outcome === 'refused') void refreshLivePlan().catch(() => undefined);
   };
 
   const handleConfirmCooked = () => {
