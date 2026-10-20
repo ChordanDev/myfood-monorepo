@@ -568,7 +568,8 @@ genera para el teléfono).
 no tiene cuenta, la cuenta que se crea al aceptar queda con ese nombre.
 Si el email ya tiene cuenta, `name` se ignora y el usuario conserva su
 nombre. Un `name` que no es un string con texto (vacío, solo espacios,
-un número) se ignora como cualquier otra clave. Sin `name`, un email sin cuenta queda con su email como
+un número) o que tiene más de 255 caracteres se ignora como cualquier
+otra clave. Sin `name`, un email sin cuenta queda con su email como
 nombre. La invitación no pide password: después el usuario inicia
 sesión con un código enviado por email, igual que el resto. Cualquier
 otra clave del body se ignora.

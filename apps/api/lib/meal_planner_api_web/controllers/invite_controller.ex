@@ -86,8 +86,8 @@ defmodule MealPlannerApiWeb.InviteController do
   accept also reads an optional `name`: a non-empty string becomes the
   name of the invited User while it is still the stub the invite created
   for an email nobody has signed in with, and is ignored for a registered
-  User; any other `name`, a blank one included, is ignored like an
-  unknown key. A code accept
+  User; any other `name`, including a blank one or one longer than 255
+  characters, is ignored like an unknown key. A code accept
   signs the invitee in as the email-code login does: it answers the `200`
   of `POST /api/auth/login/verify-code` (`accessToken`, `refreshToken`,
   `tokenType`, `me`) and opens a Device session on `deviceId`, validated
@@ -201,7 +201,9 @@ defmodule MealPlannerApiWeb.InviteController do
     if DeviceSessions.valid_device_id?(device_id), do: :ok, else: {:error, :device_id_invalid}
   end
 
-  # Only a non-empty string names the stub; anything else is ignored.
+  # Only a non-empty string is passed on; anything else is ignored.
+  # `AccountsMembership.accept_invite/2` also ignores a string the `name`
+  # column cannot hold (blank, too long, with a NUL character).
   defp claim_name(name) when is_binary(name) and name != "", do: name
   defp claim_name(_name), do: nil
 

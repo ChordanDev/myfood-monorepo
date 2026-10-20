@@ -302,8 +302,8 @@ defmodule MealPlannerApi.AccountsMembership do
       `InviteService.create_invite_row/2` created for an email nobody has
       signed in with is claimed here: the update that clears
       `invite_stub` also sets the User's name to the optional `name`
-      string of the proof (a blank one is ignored). A `name` is only
-      written while the User is
+      string of the proof (one the `name` column cannot hold, such as a
+      blank one, is ignored). A `name` is only written while the User is
       still a stub, so it never renames a registered User; without one
       the stub keeps its placeholder name. Extra errors:
       `:code_invalid`, `:code_expired`, `:too_many_attempts` and
@@ -402,14 +402,19 @@ defmodule MealPlannerApi.AccountsMembership do
     end
   end
 
-  # A name `PersistenceUser.changeset/2` refuses (a blank one) is ignored
-  # like a missing one, so the stub keeps its placeholder name.
+  # A name the `name` column cannot hold is ignored like a missing one, so
+  # the stub keeps its placeholder name: a blank one, one longer than the
+  # 255 codepoints of `varchar(255)`, or one with a NUL character, which
+  # Postgres does not store.
   defp stub_name_change(nil), do: []
 
   defp stub_name_change(name) do
-    changeset = PersistenceUser.changeset(%PersistenceUser{}, %{name: name})
+    changeset =
+      %PersistenceUser{}
+      |> PersistenceUser.changeset(%{name: name})
+      |> Ecto.Changeset.validate_length(:name, max: 255, count: :codepoints)
 
-    if Keyword.has_key?(changeset.errors, :name),
+    if Keyword.has_key?(changeset.errors, :name) or String.contains?(name, <<0>>),
       do: [],
       else: [name: Ecto.Changeset.get_field(changeset, :name)]
   end

@@ -92,18 +92,32 @@ defmodule MealPlannerApiWeb.InviteAcceptControllerTest do
     end
 
     # A `name` that is not a non-empty string is ignored like an unknown
-    # key, and so is a blank one.
+    # key, and so is one the `name` column cannot hold: blank, longer than
+    # 255 characters or with a NUL character.
     test "a code accept without a usable name keeps the stub's placeholder name",
          %{conn: conn} do
-      # Four invites, so a plan with room for them all.
-      [owner] =
-        user_with_memberships(%{email: "owner_accept_unnamed@example.com"}, [
-          {%{plan: :family_6, name: "Family Accept Unnamed"}, :owner}
-        ]).memberships
+      # Six invites, so two Accounts with room for them.
+      owners =
+        for plan_n <- 1..2 do
+          [owner] =
+            user_with_memberships(%{email: "owner_accept_unnamed_#{plan_n}@example.com"}, [
+              {%{plan: :family_4, name: "Family Accept Unnamed #{plan_n}"}, :owner}
+            ]).memberships
+
+          owner
+        end
 
       for {extra, n} <-
-            Enum.with_index([%{}, %{"name" => ""}, %{"name" => "   "}, %{"name" => 42}]) do
+            Enum.with_index([
+              %{},
+              %{"name" => ""},
+              %{"name" => "   "},
+              %{"name" => 42},
+              %{"name" => String.duplicate("a", 256)},
+              %{"name" => "Ana" <> <<0>>}
+            ]) do
         email = "unnamed_stub_#{n}@example.com"
+        owner = Enum.at(owners, div(n, 3))
         {:ok, %{token: plaintext}} = AccountsMembership.invite(owner.account, owner, email)
 
         body = accept_with_code!(conn, plaintext, extra)
