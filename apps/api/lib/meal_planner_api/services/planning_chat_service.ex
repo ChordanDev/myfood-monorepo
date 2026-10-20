@@ -132,7 +132,11 @@ defmodule MealPlannerApi.Services.PlanningChatService do
   is not overwritten by a reject that read the proposal before it committed.
   A confirm that reaches the server after that read is caught by the
   server's own pending guard, and the reject answers
-  `:planning_proposal_not_pending`. A server that cannot be reached answers
+  `:planning_proposal_not_pending`. With no server running, the write itself
+  checks the proposal is still pending: a confirm that commits after the read
+  keeps the proposal confirmed, and the reject answers
+  `:planning_proposal_not_pending` and broadcasts nothing (issue #350). A
+  server that cannot be reached answers
   `:reject_unavailable` and rejects nothing; so does a reject the server did
   not apply.
   """
@@ -227,6 +231,8 @@ defmodule MealPlannerApi.Services.PlanningChatService do
   # proposal read and, still pending, rejected. A confirm that reaches the
   # server between that read and the reject is caught by the engine's own
   # pending guard, which answers `:not_pending` and writes nothing (#287).
+  # With no server, the reject's write checks the proposal is still pending
+  # (#350).
   defp reject_through_session_flow(account_id, proposal_id) do
     case generation_server(account_id) do
       {:ok, pid} ->
@@ -275,14 +281,20 @@ defmodule MealPlannerApi.Services.PlanningChatService do
   end
 
   # What the server does on `reject`, for a proposal no server is running for.
+  # A server can start after the read above and confirm the proposal before
+  # this write (issue #350), so the write itself checks the proposal is still
+  # pending. One that is not answers `:planning_proposal_not_pending` and
+  # nothing is written or broadcast.
   defp reject_without_server(account_id, proposal) do
-    with {:ok, _rejected} <- PlanningRepo.update_proposal(proposal, %{status: :rejected}),
-         {:ok, _run} <-
-           PlanningRepo.update_generation_run(proposal.generation_run, %{
-             status: :completed,
-             completed_at: DateTime.utc_now()
-           }) do
-      broadcast(account_id, "proposal_rejected", %{proposal_id: proposal.id})
+    case PlanningRepo.reject_pending_proposal(proposal, proposal.generation_run) do
+      {:ok, _rejected} ->
+        broadcast(account_id, "proposal_rejected", %{proposal_id: proposal.id})
+
+      {:error, :not_pending} ->
+        {:error, :planning_proposal_not_pending}
+
+      {:error, _changeset} = error ->
+        error
     end
   end
 

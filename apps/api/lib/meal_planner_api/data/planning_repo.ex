@@ -60,6 +60,48 @@ defmodule MealPlannerApi.Data.PlanningRepo do
   def update_proposal(proposal, attrs),
     do: proposal |> PlanningProposal.changeset(attrs) |> Repo.update()
 
+  @doc """
+  Sets the status of a proposal that is still pending in the database (issue
+  #350). The check and the write are one statement, so a writer that read the
+  proposal as pending cannot overwrite a status another writer committed
+  since: it answers `{:error, :not_pending}` and writes nothing.
+  """
+  @spec update_pending_proposal_status(PlanningProposal.t(), :accepted | :rejected) ::
+          {:ok, PlanningProposal.t()} | {:error, :not_pending}
+  def update_pending_proposal_status(%PlanningProposal{id: id}, status)
+      when status in [:accepted, :rejected] do
+    query =
+      from(p in PlanningProposal,
+        where: p.id == ^id and p.status == :pending,
+        select: p
+      )
+
+    case Repo.update_all(query, set: [status: status, updated_at: DateTime.utc_now()]) do
+      {1, [updated]} -> {:ok, updated}
+      {0, []} -> {:error, :not_pending}
+    end
+  end
+
+  @doc """
+  Rejects a proposal that is still pending and completes its Generation run,
+  in one transaction (issue #350). A proposal no longer pending answers
+  `{:error, :not_pending}`; a run that cannot be updated answers its
+  changeset error. Either way nothing is written.
+  """
+  @spec reject_pending_proposal(PlanningProposal.t(), PlanningGenerationRun.t()) ::
+          {:ok, PlanningProposal.t()} | {:error, :not_pending | Ecto.Changeset.t()}
+  def reject_pending_proposal(proposal, run) do
+    Repo.transaction(fn ->
+      with {:ok, rejected} <- update_pending_proposal_status(proposal, :rejected),
+           {:ok, _run} <-
+             update_generation_run(run, %{status: :completed, completed_at: DateTime.utc_now()}) do
+        rejected
+      else
+        {:error, reason} -> Repo.rollback(reason)
+      end
+    end)
+  end
+
   @spec get_proposal_with_run!(Ecto.UUID.t()) :: {PlanningProposal.t(), PlanningGenerationRun.t()}
   def get_proposal_with_run!(proposal_id) do
     query =

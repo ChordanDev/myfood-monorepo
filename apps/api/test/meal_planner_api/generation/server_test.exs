@@ -797,6 +797,24 @@ defmodule MealPlannerApi.Generation.ServerTest do
         refute_receive %Phoenix.Socket.Broadcast{event: "proposal_rejected"}
       end
     end
+
+    # Issue #350: a reject that cannot complete the Generation run rejects
+    # nothing and tells nobody.
+    test "answers an error and writes nothing when the Generation run update fails" do
+      account = insert_account("350 reject run fails")
+      user = insert_user_with_membership(account, "350-reject-run-fails@example.com")
+      {run, proposal} = insert_proposal_with_slots(account, user, [])
+      start_server!(account, user)
+      Phoenix.PubSub.subscribe(MealPlannerApi.PubSub, "planning:#{account.id}")
+      fail_run_updates!(run.id)
+
+      assert {:error, :transaction_failed} = Server.reject(pid_for_account(account), proposal.id)
+
+      restore_run_updates!()
+      assert MealPlannerApi.Repo.get!(PlanningProposal, proposal.id).status == :pending
+      assert generation_run(run.id).status == :processing
+      refute_receive %Phoenix.Socket.Broadcast{event: "proposal_rejected"}
+    end
   end
 
   describe "confirm/3 — pending guard (#287)" do
@@ -812,6 +830,39 @@ defmodule MealPlannerApi.Generation.ServerTest do
       session = insert_active_session(account, user)
       start_server!(account, user)
       Phoenix.PubSub.subscribe(MealPlannerApi.PubSub, "planning:#{account.id}")
+
+      assert {:error, :not_pending} =
+               Server.confirm(pid_for_account(account), proposal.id, session.id)
+
+      assert MealPlannerApi.Repo.get!(PlanningProposal, proposal.id).status == :rejected
+      assert generation_run(run.id).status == :processing
+      assert fetch_session(session.id).status == :active
+      assert list_all_meals(account.id) == []
+      assert count_checkout_sessions(account) == 0
+      refute_receive %Phoenix.Socket.Broadcast{event: "proposal_confirmed"}
+    end
+
+    # Issue #350: a reject with no generation server can commit between the
+    # confirm's read of the proposal and its accept. The confirm then commits
+    # nothing.
+    test "a proposal rejected after the confirm read it answers :not_pending and commits nothing" do
+      account = insert_account("350 confirm loses")
+      user = insert_user_with_membership(account, "350-confirm-loses@example.com")
+      recipe = insert_recipe("350 confirm loses recipe")
+
+      {run, proposal} =
+        insert_proposal_with_slots(account, user, [slot(~D[2026-08-06], :lunch, recipe.id)])
+
+      session = insert_active_session(account, user)
+      start_server!(account, user)
+      Phoenix.PubSub.subscribe(MealPlannerApi.PubSub, "planning:#{account.id}")
+
+      # The confirm reads the proposal twice: once to check the Account owns
+      # it, once more right before its guard and its transaction.
+      MealPlannerApi.ProposalRace.change_status_after_read(proposal.id, :rejected,
+        process: pid_for_account(account),
+        reads: 2
+      )
 
       assert {:error, :not_pending} =
                Server.confirm(pid_for_account(account), proposal.id, session.id)
@@ -1912,6 +1963,38 @@ defmodule MealPlannerApi.Generation.ServerTest do
   defp drop_open_item_after_wipe! do
     SQL.query!(MealPlannerApi.Repo, "DROP TRIGGER store_test_open_item ON checkout_sessions")
     SQL.query!(MealPlannerApi.Repo, "DROP FUNCTION store_test_open_item()")
+  end
+
+  # Sandbox-scoped failure injection: an update of the run points it at a User
+  # that does not exist, so it fails on the foreign key and the changeset
+  # answers `{:error, changeset}`.
+  defp fail_run_updates!(run_id) do
+    SQL.query!(
+      MealPlannerApi.Repo,
+      """
+      CREATE FUNCTION fail_test_run_update() RETURNS trigger LANGUAGE plpgsql AS $$
+      BEGIN
+        IF NEW.id = '#{run_id}'::uuid THEN
+          NEW.user_id := '#{Ecto.UUID.generate()}'::uuid;
+        END IF;
+        RETURN NEW;
+      END $$
+      """
+    )
+
+    SQL.query!(
+      MealPlannerApi.Repo,
+      "CREATE TRIGGER fail_test_run_update BEFORE UPDATE ON planning_generation_runs FOR EACH ROW EXECUTE FUNCTION fail_test_run_update()"
+    )
+  end
+
+  defp restore_run_updates! do
+    SQL.query!(
+      MealPlannerApi.Repo,
+      "DROP TRIGGER fail_test_run_update ON planning_generation_runs"
+    )
+
+    SQL.query!(MealPlannerApi.Repo, "DROP FUNCTION fail_test_run_update()")
   end
 
   # Sandbox-scoped failure injection preserves immutable recipe versions.
