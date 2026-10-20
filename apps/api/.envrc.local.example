@@ -14,9 +14,10 @@ export GEMINI_API_KEY="pega_tu_api_key_aqui"
 # export GEMINI_TIMEOUT_MS="15000"
 
 # Social sign-in (issue #106): the Google web client ID the app's SDK asks
-# ID tokens for, and the app's bundle ID for Apple.
+# ID tokens for, and for Apple the app's bundle ID (`ios.bundleIdentifier`
+# in apps/mobile/app.json).
 # export GOOGLE_OAUTH_CLIENT_IDS="your_google_web_client_id"
-# export APPLE_OAUTH_CLIENT_IDS="com.myfood.app"
+# export APPLE_OAUTH_CLIENT_IDS="your_ios_bundle_id"
 
 # Provider endpoint overrides (optional)
 # export GOOGLE_TOKENINFO_URL="https://oauth2.googleapis.com/tokeninfo"

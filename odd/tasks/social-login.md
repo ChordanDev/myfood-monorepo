@@ -29,7 +29,7 @@ Assumptions:
 
 | ID | Specs | Route | Status | Commit |
 |----|-------|-------|--------|--------|
-| T1 | S2-S6, S9 | inline (API, error codes, mobile allowlist) | done: 37 new API tests green; suite 2311/2312, the one failure is `router_test.exs` (owned by #274 lane) | `feat(api)` commit |
+| T1 | S2-S6, S9 | inline (API, error codes, mobile allowlist) | done: API suite 2314/2314 after the rebase on main | `feat(api)` commit |
 | T2 | S1, S7, S9 | delegated writer (parallel unit, disjoint surface: `apps/mobile` except `src/api/errors.ts`) | done: jest 2598/2598, tsc and lint clean; written before its tests (no RED) | `feat(mobile)` commit |
 | T3 | S8 | inline | done | `feat(api)` commit |
 
@@ -39,3 +39,6 @@ Assumptions:
 - **L2:** Recovered verifier read from `4f007773^`. Its `validate_audience(_, [])` accepted every audience, and Google tokens without an email passed; both are closed in T1. Membership selection lives in the private `EmailCodeLogin.resolve_session/1`; T1 exposes it `@doc false` instead of copying it, so the rule stays one.
 - **L3:** T1 tests were written after the code, so RED was not observed first. Mutation checks instead: accepting an unverified email, ignoring a stored identity, accepting any audience and treating an empty client ID list as configured each make the new tests fail (1, 3, 2 and 1 failures).
 - **L4:** `test/meal_planner_api_web/router_test.exs` pins `POST /api/auth/social` as a removed route (404). That file belongs to the #274 lane, so it is not edited here; the PR is blocked on it until the user decides.
+- **L5 (2026-10-20, user):** "ya mergee 274". Rebased on `main` (`0b078173`); `router_test.exs` now lists `POST /api/auth/social` as routed.
+- **L6:** RDD review (risk, resilience, reliability) approved and acknowledged, 11 non-blocking findings. Independent verifier (opus): every S# met, no blockers, 6 advisories. Fixed in one batch, each with a RED test first: a Google 429 is a provider failure, not an invalid token; the snake_case test now proves `idToken` is the key read; the Google button shows only in a build with its client IDs; the Apple logo is drawn in a palette color (`apps/mobile/CLAUDE.md`). Left as follow-ups: Apple JWKS cache, a rate limit on the route, an Apple nonce, a cross-provider email lock, a concurrency test for the lock.
+- **L7:** Open: the Google logo keeps its four brand colors as literals in `svgIcons.ts`, which `apps/mobile/CLAUDE.md` does not list as an allowed literal. Needs the owner's call.

@@ -81,10 +81,11 @@ defmodule MealPlannerApi.Auth.SocialVerifierTest do
       end
     end
 
-    test "a token Google rejects is invalid, and a Google failure is the provider's" do
+    test "a token Google rejects is invalid, and a Google failure or throttle is the provider's" do
       rejected = fn conn -> conn |> Plug.Conn.put_status(400) |> Req.Test.json(%{}) end
       failing = fn conn -> Plug.Conn.send_resp(conn, 503, "unavailable") end
       not_json = fn conn -> Plug.Conn.send_resp(conn, 200, "not json") end
+      throttled = fn conn -> Plug.Conn.send_resp(conn, 429, "slow down") end
 
       assert SocialVerifier.verify("google", "t", opts(rejected)) == {:error, :invalid_token}
 
@@ -92,6 +93,10 @@ defmodule MealPlannerApi.Auth.SocialVerifierTest do
                {:error, :provider_unavailable}
 
       assert SocialVerifier.verify("google", "t", opts(not_json)) ==
+               {:error, :provider_unavailable}
+
+      # Google throttling this server says nothing about the token.
+      assert SocialVerifier.verify("google", "t", opts(throttled)) ==
                {:error, :provider_unavailable}
     end
   end

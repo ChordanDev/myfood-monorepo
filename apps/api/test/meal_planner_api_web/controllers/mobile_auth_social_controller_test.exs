@@ -265,13 +265,14 @@ defmodule MealPlannerApiWeb.MobileAuthSocialControllerTest do
     end
 
     test "the old snake_case body is not read", %{conn: conn} do
-      provider_answers("google", "google-sub-snake", "snake@example.com")
+      # The real verifier refuses a missing token (`social_verifier_test.exs`).
+      SocialVerifierFake.answer({:error, :invalid_token})
 
       conn =
-        post(conn, @path, %{"provider" => "google", "id_token" => "x", "device_id" => @device_id})
+        post(conn, @path, %{"provider" => "google", "id_token" => "x", "deviceId" => @device_id})
 
       assert_error(conn, 401, "social_token_invalid")
-      assert Repo.all(User) == []
+      assert SocialVerifierFake.calls() == [{"google", nil}]
     end
   end
 

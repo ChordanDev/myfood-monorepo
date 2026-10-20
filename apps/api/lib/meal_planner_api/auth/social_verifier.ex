@@ -191,8 +191,9 @@ defmodule MealPlannerApi.Auth.SocialVerifier do
     _malformed -> {:error, :invalid_token}
   end
 
-  # A 4xx is `:rejected`; any other failure, a body that is not a JSON
-  # object included, is the provider's.
+  # A 4xx is `:rejected`, except a 429: the provider throttling this
+  # server says nothing about the token. Any other failure, a body that is
+  # not a JSON object included, is the provider's.
   defp get_json(url, request_options, opts) do
     options =
       [receive_timeout: 10_000, retry: false]
@@ -203,7 +204,7 @@ defmodule MealPlannerApi.Auth.SocialVerifier do
       {:ok, %Req.Response{status: status, body: body}} when status in 200..299 and is_map(body) ->
         {:ok, body}
 
-      {:ok, %Req.Response{status: status}} when status in 400..499 ->
+      {:ok, %Req.Response{status: status}} when status in 400..499 and status != 429 ->
         {:error, :rejected}
 
       _failed ->

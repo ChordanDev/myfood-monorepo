@@ -175,6 +175,9 @@ del login y el registro con código.
 - `provider` es `google` o `apple`. Con Google, el `idToken` tiene que estar emitido para el web client ID
   que el backend tiene en `GOOGLE_OAUTH_CLIENT_IDS`; con Apple, para el bundle ID de
   `APPLE_OAUTH_CLIENT_IDS`.
+- La app muestra el botón de Google solo si el build tiene `EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID` (y, en iOS,
+  `EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID`); el plugin nativo de Google se agrega en el prebuild cuando está
+  `GOOGLE_IOS_URL_SCHEME`. El de Apple, solo en iOS y si el dispositivo lo soporta.
 - La respuesta `200` es la de `POST /api/auth/login/verify-code` (`accessToken`, `refreshToken`,
   `tokenType`, `me`) y abre la misma Device session, así que `POST /api/auth/refresh` la renueva.
 - La primera vez, la cuenta del proveedor se vincula al usuario del email que el proveedor marca como
