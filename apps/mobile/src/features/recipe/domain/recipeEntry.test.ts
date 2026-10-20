@@ -1,5 +1,10 @@
 import type { MealPlanEntry } from '@/types/domain';
-import { canMarkAsCooked, isRecipeChatEnabled, resolveRecipeEntry } from './recipeEntry';
+import {
+  canMarkAsCooked,
+  isPastMeal,
+  isRecipeChatEnabled,
+  resolveRecipeEntry,
+} from './recipeEntry';
 
 const YESTERDAY_KEY = '2026-08-24';
 const TODAY_KEY = '2026-08-25';
@@ -119,5 +124,13 @@ describe('canMarkAsCooked', () => {
 
   it('rejects a missing entry', () => {
     expect(canMarkAsCooked(null)).toBe(false);
+  });
+});
+
+describe('isPastMeal', () => {
+  it('is true only for a meal planned before the given today', () => {
+    expect(isPastMeal(buildEntry({ id: 'past', date: YESTERDAY_KEY }), TODAY_KEY)).toBe(true);
+    expect(isPastMeal(buildEntry({ id: 'today' }), TODAY_KEY)).toBe(false);
+    expect(isPastMeal(buildEntry({ id: 'future', date: TOMORROW_KEY }), TODAY_KEY)).toBe(false);
   });
 });

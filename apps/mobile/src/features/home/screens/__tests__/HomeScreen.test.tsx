@@ -225,7 +225,7 @@ describe('HomeScreen past meal confirmation', () => {
     ['onConfirmCooked', true],
     ['onConfirmSkipped', false],
   ])('%s sends cooked: %s for the selected meal to the server', async (handler, cooked) => {
-    mockConfirmPastMeal.mockResolvedValue(true);
+    mockConfirmPastMeal.mockResolvedValue('confirmed');
     const card = mount().root.findByType('CookedConfirmationCard' as never);
 
     await act(async () => card.props[handler]());
@@ -235,12 +235,22 @@ describe('HomeScreen past meal confirmation', () => {
   });
 
   it('reads the plan again when the server refuses the answer', async () => {
-    mockConfirmPastMeal.mockResolvedValue(false);
+    mockConfirmPastMeal.mockResolvedValue('refused');
     const card = mount().root.findByType('CookedConfirmationCard' as never);
 
     await act(async () => card.props.onConfirmSkipped());
 
     expect(mockConfirmPastMeal).toHaveBeenCalledWith('entry-1', false);
     expect(mockRefreshLivePlan).toHaveBeenCalledTimes(1);
+  });
+
+  // Issue #396: the read could land before the first answer is stored and show the meal unanswered.
+  it('does not read the plan again for a tap dropped while the first answer is on its way', async () => {
+    mockConfirmPastMeal.mockResolvedValue('busy');
+    const card = mount().root.findByType('CookedConfirmationCard' as never);
+
+    await act(async () => card.props.onConfirmCooked());
+
+    expect(mockRefreshLivePlan).not.toHaveBeenCalled();
   });
 });

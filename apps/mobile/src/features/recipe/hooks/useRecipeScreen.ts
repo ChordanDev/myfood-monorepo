@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Keyboard } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
+import { refreshLivePlan } from '@/features/home/hooks/useLoadLivePlan';
 import { formatDateKey } from '@/features/home/utils/calendarDate';
 import { favoriteSummaryFromRecipe } from '@/features/favorites/domain/favoriteFormat';
 import { selectIsFavorite, useFavoritesStore } from '@/features/favorites/store';
@@ -8,7 +9,12 @@ import { useMarkAsCooked } from '@/features/cooking';
 import { useInventoryStore } from '@/features/inventory';
 import { createPreparedLeftover } from '@/features/leftovers';
 import { useMealPlanStore } from '@/store';
-import { canMarkAsCooked, isRecipeChatEnabled, resolveRecipeEntry } from '../domain/recipeEntry';
+import {
+  canMarkAsCooked,
+  isPastMeal,
+  isRecipeChatEnabled,
+  resolveRecipeEntry,
+} from '../domain/recipeEntry';
 import { resolveRecipeIngredients } from '../domain/recipeIngredients';
 import { useRecipe } from './useRecipe';
 
@@ -40,6 +46,7 @@ export function useRecipeScreen() {
 
   const { recipe, status, retry } = useRecipe(recipeId, firstParam(params.recipeVersionId));
   const entries = useMealPlanStore((state) => state.entries);
+  const accountToday = useMealPlanStore((state) => state.today);
   const isFavorite = useFavoritesStore(selectIsFavorite(recipeId));
   const toggleFavorite = useFavoritesStore((state) => state.toggle);
   const cooking = useMarkAsCooked();
@@ -49,7 +56,8 @@ export function useRecipeScreen() {
   // The answer is taken once: a second tap on "Sí" lands before the sheet has closed.
   const isAwaitingCookedAnswerRef = useRef(false);
 
-  const todayKey = formatDateKey(new Date());
+  // The Account's today from the last calendar read; the device's date only until one arrives.
+  const todayKey = accountToday ?? formatDateKey(new Date());
   const entry = useMemo(
     () => resolveRecipeEntry({ entries, recipeId, entryId, todayKey }),
     [entries, entryId, recipeId, todayKey]
@@ -103,9 +111,12 @@ export function useRecipeScreen() {
 
     // The summary and then the leftover prompt are shown over the recipe; the screen closes
     // when the user is done with the prompt. A refusal asks nothing, so the recipe stays. A
-    // past meal has no Cooking session: it is confirmed as cooked instead (issue #145).
-    if (entry.date < todayKey) {
-      await cooking.confirmPastMeal(entry.id, true);
+    // past meal has no Cooking session: it is confirmed as cooked instead (issue #145). An answer
+    // it refuses or that does not come back may be stored already, so the plan is read again to
+    // show it (issue #396).
+    if (isPastMeal(entry, todayKey)) {
+      const outcome = await cooking.confirmPastMeal(entry.id, true);
+      if (outcome === 'refused') void refreshLivePlan().catch(() => undefined);
     } else {
       await cooking.markAsCooked(entry.id);
     }

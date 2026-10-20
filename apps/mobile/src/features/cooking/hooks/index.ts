@@ -1,1 +1,1 @@
-export { useMarkAsCooked } from './useMarkAsCooked';
+export { useMarkAsCooked, type PastMealConfirmation } from './useMarkAsCooked';

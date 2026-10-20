@@ -15,9 +15,9 @@ let latestAppliedReadId = 0;
 let sharedRead: Promise<void> | null = null;
 
 /**
- * Reads the live plan from `GET /api/calendar` and replaces the cached one with it. The store is
- * only a cache of that answer: a failed read leaves what was cached untouched, and so does an
- * answer that arrives after a later read's answer.
+ * Reads the live plan from `GET /api/calendar` and replaces the cached one with it, together with
+ * the Account's today that comes with it. The store is only a cache of that answer: a failed read
+ * leaves what was cached untouched, and so does an answer that arrives after a later read's answer.
  */
 export async function loadLivePlan(now: Date = new Date()): Promise<void> {
   latestReadId += 1;
@@ -25,10 +25,11 @@ export async function loadLivePlan(now: Date = new Date()): Promise<void> {
   const calendar = await getCalendar(getCalendarWindow(now));
   if (readId < latestAppliedReadId) return;
   latestAppliedReadId = readId;
-  const { setPlan, setRecipeSummaries } = useMealPlanStore.getState();
+  const { setPlan, setRecipeSummaries, setToday } = useMealPlanStore.getState();
 
   setRecipeSummaries(toRecipeSummaries(calendar.meals));
   setPlan(toPlanEntries(calendar.meals));
+  setToday(calendar.today);
 }
 
 /**

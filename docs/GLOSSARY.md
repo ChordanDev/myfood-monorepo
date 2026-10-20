@@ -28,7 +28,7 @@ This file and `docs/adr/` are the only durable docs in the repository. Specs, ma
 
 **Subscription plan** — A purchasable tier that maps to an Account plan and its seat cap. `(code: Subscriptions.Plan)` `(alias: Family plan, Premium family)`
 
-**Account's today** — The current calendar date for an Account: the date in the Account's stored IANA timezone, and the UTC date while none is stored. The server computes it; the app never sends its local date. `(code: AccountClock, Account.timezone)` `(alias: Account timezone, local date)`
+**Account's today** — The current calendar date for an Account: the date in the Account's stored IANA timezone, and the UTC date while none is stored. The server computes it; the app never sends its local date. `(code: AccountClock, Account.timezone, mobile useMealPlanStore.today)` `(alias: Account timezone, local date)`
 
 ## Profile & preferences
 

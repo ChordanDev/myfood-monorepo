@@ -37,3 +37,11 @@ export function isRecipeChatEnabled(entry: MealPlanEntry | null, todayKey: strin
 export function canMarkAsCooked(entry: MealPlanEntry | null): boolean {
   return entry !== null && !entry.isCooked && !entry.isSkipped;
 }
+
+/**
+ * A meal planned before the Account's today has no Cooking session: it is confirmed instead. The
+ * day is the server's, so a device on another date does not send today's meal to be confirmed.
+ */
+export function isPastMeal(entry: MealPlanEntry, todayKey: string): boolean {
+  return entry.date < todayKey;
+}

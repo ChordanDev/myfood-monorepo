@@ -48,6 +48,11 @@ const fetchMock = jest.fn();
 let mockRouteParams: { id: string; entryId?: string; recipeVersionId?: string };
 
 // The session of a signed-in user: every recipe request carries its access token.
+const mockRefreshLivePlan = jest.fn();
+jest.mock('@/features/home/hooks/useLoadLivePlan', () => ({
+  refreshLivePlan: () => mockRefreshLivePlan(),
+}));
+
 jest.mock('expo-secure-store', () => ({
   getItemAsync: jest.fn(() => Promise.resolve('access-1')),
   setItemAsync: jest.fn(() => Promise.resolve()),
@@ -336,7 +341,8 @@ describe('RecipeScreen', () => {
     jest.mocked(addFavorite).mockReset();
     jest.mocked(removeFavorite).mockReset();
     mockRouteParams = { id: 'r1', entryId: 'e-today' };
-    useMealPlanStore.setState({ entries: [entry()] });
+    mockRefreshLivePlan.mockReset().mockResolvedValue(undefined);
+    useMealPlanStore.setState({ entries: [entry()], today: null });
     useInventoryStore.setState({ items: [inventoryItem()] });
   });
 
@@ -718,6 +724,60 @@ describe('RecipeScreen', () => {
       expect(renderedTexts(tree)).toEqual(
         expect.arrayContaining(['Esto se descontó de tu inventario'])
       );
+      expect(mockRefreshLivePlan).not.toHaveBeenCalled();
+    });
+
+    // Issue #396: the answer may be stored already (a lost response, another device), so the
+    // plan is read again to show it instead of refusing every retry.
+    it.each([
+      ['is refused', new ApiError('meal_already_confirmed', 'Already confirmed', 409)],
+      ['fails', new ApiError('network_error', 'offline')],
+    ])("reads the plan again when a past meal's confirmation %s", async (_case, error) => {
+      const yesterday = formatDateKey(new Date(Date.now() - 86_400_000));
+      useMealPlanStore.setState({ entries: [entry({ id: 'e-past', date: yesterday })] });
+      mockRouteParams = { id: 'r1', entryId: 'e-past' };
+      jest.mocked(confirmPastMeal).mockReset().mockRejectedValue(error);
+      const tree = await renderSettledScreen();
+
+      press(tree, 'recipe-header-cooked');
+      await pressAndSettle(tree, 'recipe-cooked-confirm-yes');
+
+      expect(confirmPastMeal).toHaveBeenCalledWith('e-past', true);
+      expect(mockRefreshLivePlan).toHaveBeenCalledTimes(1);
+      expect(useMealPlanStore.getState().entries[0].isCooked).toBe(false);
+    });
+
+    // Issue #396: the Account's today decides, not the device's date (midnight, another timezone).
+    it("starts a Cooking session for the Account's today though the device is already a day ahead", async () => {
+      const yesterday = formatDateKey(new Date(Date.now() - 86_400_000));
+      useMealPlanStore.setState({
+        entries: [entry({ id: 'e-account-today', date: yesterday })],
+        today: yesterday,
+      });
+      mockRouteParams = { id: 'r1', entryId: 'e-account-today' };
+      jest.mocked(confirmPastMeal).mockReset();
+      const tree = await renderSettledScreen();
+
+      press(tree, 'recipe-header-cooked');
+      await pressAndSettle(tree, 'recipe-cooked-confirm-yes');
+
+      expect(startCookingSession).toHaveBeenCalledWith('e-account-today');
+      expect(confirmPastMeal).not.toHaveBeenCalled();
+      expect(useMealPlanStore.getState().entries[0].isCooked).toBe(true);
+    });
+
+    it("confirms the device's today as a past meal when the Account's day is already the next one", async () => {
+      const tomorrow = formatDateKey(new Date(Date.now() + 86_400_000));
+      useMealPlanStore.setState({ entries: [entry({ id: 'e-device-today' })], today: tomorrow });
+      mockRouteParams = { id: 'r1', entryId: 'e-device-today' };
+      jest.mocked(confirmPastMeal).mockReset().mockResolvedValue(COOKING_FINISH_WITH_SHORTAGE);
+      const tree = await renderSettledScreen();
+
+      press(tree, 'recipe-header-cooked');
+      await pressAndSettle(tree, 'recipe-cooked-confirm-yes');
+
+      expect(confirmPastMeal).toHaveBeenCalledWith('e-device-today', true);
+      expect(startCookingSession).not.toHaveBeenCalled();
     });
 
     it('does not ask when the meal cannot be marked, even if the disabled check is pressed', async () => {
