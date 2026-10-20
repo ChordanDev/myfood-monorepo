@@ -302,6 +302,9 @@ Errors (envelope, see section 10):
 Request body: the same shape as the response in 3.4. The body is the whole set and replaces the saved one;
 nothing is saved when it is refused.
 
+Last writer wins: this route and `PUT /api/me/preferences` take no precondition, so when two devices of the
+same User save, the later save overwrites the earlier one, slots it did not change included (ADR 0006).
+
 Rules:
 
 - Exactly the three slots `breakfast`, `lunch` and `dinner`, each an object. `snack` is neither required
