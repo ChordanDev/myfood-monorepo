@@ -78,6 +78,7 @@ defmodule MealPlannerApiWeb.CalendarChannelShoppingTest do
         end
 
       upsert_meal(ctx, ctx.new_recipe)
+      assert open_ingredient_ids(ctx) == [ctx.new_ingredient.id]
 
       assert Repo.get(ShoppingItem, open_item.id) == nil
 
@@ -120,6 +121,17 @@ defmodule MealPlannerApiWeb.CalendarChannelShoppingTest do
     {:ok, list} = ShoppingService.get_shopping_list(ctx.shopper, %{"group_by" => "meal"})
 
     list.planned |> Enum.map(& &1.ingredient_id) |> Enum.sort()
+  end
+
+  # The lines still to buy. A purchased item stays listed while its Scheduled
+  # meal is uncooked (issue #43), so closed items can share the list.
+  defp open_ingredient_ids(ctx) do
+    {:ok, list} = ShoppingService.get_shopping_list(ctx.shopper, %{"group_by" => "meal"})
+
+    list.planned
+    |> Enum.reject(&(&1.status in ["removed", "purchased"]))
+    |> Enum.map(& &1.ingredient_id)
+    |> Enum.sort()
   end
 
   defp items_for_meal(meal_id) do
