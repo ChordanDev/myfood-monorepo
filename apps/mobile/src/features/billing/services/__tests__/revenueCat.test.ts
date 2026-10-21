@@ -100,6 +100,38 @@ describe('RevenueCat identity', () => {
     expect(store.getState().appUserId).toBeNull();
   });
 
+  it("never hands out the previous Account's id while a switch is identifying", async () => {
+    const { service, Purchases, fetchBillingStatus, store } = load();
+    fetchBillingStatus.mockResolvedValueOnce(status('rc-first-account'));
+    await service.identifyAccount();
+
+    let answer: (value: unknown) => void = () => {};
+    fetchBillingStatus.mockReturnValueOnce(new Promise((resolve) => (answer = resolve)));
+    const switching = service.identifyAccount();
+
+    expect(store.getState().appUserId).toBeNull();
+
+    fetchBillingStatus.mockResolvedValueOnce(status('rc-second-account'));
+    await expect(service.ensureIdentified()).resolves.toBe('rc-second-account');
+    answer(status('rc-second-account'));
+    await switching;
+
+    expect(Purchases.logIn).toHaveBeenLastCalledWith('rc-second-account');
+  });
+
+  it("does not fall back to the previous Account's id when the switch fails", async () => {
+    const { service, fetchBillingStatus, store } = load();
+    fetchBillingStatus.mockResolvedValueOnce(status('rc-first-account'));
+    await service.identifyAccount();
+
+    fetchBillingStatus.mockRejectedValueOnce(new Error('offline'));
+    await expect(service.identifyAccount()).rejects.toThrow('offline');
+
+    expect(store.getState().appUserId).toBeNull();
+    fetchBillingStatus.mockRejectedValueOnce(new Error('still offline'));
+    await expect(service.ensureIdentified()).rejects.toThrow('still offline');
+  });
+
   it('ensureIdentified reuses the logged-in id without asking the server again', async () => {
     const { service, Purchases, fetchBillingStatus } = load();
     fetchBillingStatus.mockResolvedValue(status(SERVER_ID));

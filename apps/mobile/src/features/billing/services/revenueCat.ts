@@ -61,6 +61,9 @@ export async function identifyAccount(): Promise<string | null> {
   if (!configureRevenueCat()) return null;
 
   const generation = ++identityGeneration;
+  // Until this Account's id is in, the previous one must not open any store UI: a purchase
+  // made then would land on the previous Account's RevenueCat user.
+  useBillingStore.getState().reset();
   const { data } = await fetchBillingStatus();
   if (generation !== identityGeneration) return null;
   if (!data.app_user_id) throw new BillingIdentityError();
