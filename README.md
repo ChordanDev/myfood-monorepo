@@ -68,6 +68,34 @@ EXPO_PUBLIC_API_URL=http://127.0.0.1:4000 npx expo start
 
 Checks: `npm run lint`, `npx tsc --noEmit`, `npx jest`.
 
+### Subscriptions (RevenueCat)
+
+The app sells its subscription with RevenueCat (`react-native-purchases` and
+`react-native-purchases-ui`). Those are native modules, so purchases need a
+development build: Expo Go only runs RevenueCat's preview mode, with no real
+purchases. Google Sign-In needs the same build.
+
+1. Copy `apps/mobile/.env.example` to `apps/mobile/.env` and set
+   `EXPO_PUBLIC_REVENUECAT_API_KEY` to the project's public SDK key from the
+   RevenueCat dashboard (the Test Store key while testing).
+   `EXPO_PUBLIC_REVENUECAT_IOS_API_KEY` and
+   `EXPO_PUBLIC_REVENUECAT_ANDROID_API_KEY` override it per platform. Never
+   commit a key: this repository is public, and `.env` is gitignored.
+2. Build and run the development build:
+
+   ```sh
+   cd apps/mobile
+   npx expo run:ios      # or: npx expo run:android
+   ```
+
+   Rebuild after adding or upgrading a native module; a JS reload is not
+   enough.
+
+Without a key the app runs as before and hides the subscription UI. Access is
+always the server's decision: after a purchase the app asks
+`/api/billing/revenuecat/purchase` until RevenueCat's webhook has reached the
+API (see `apps/api/docs/FRONTEND_INTEGRATION.md`).
+
 ## Docs
 
 The durable docs are `docs/GLOSSARY.md` (ubiquitous language per bounded

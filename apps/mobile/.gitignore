@@ -24,6 +24,7 @@ android
 
 # Entornos y secrets
 .env
+.env*.local
 .venv
 # Local Pi runtime state
 .atl/
