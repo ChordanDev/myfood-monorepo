@@ -22,14 +22,14 @@ export interface SubscribeState {
 
 /**
  * Whether the restore the Paywall reported found the subscription. A restore with nothing to
- * restore must not wait for a webhook that never comes. When CustomerInfo cannot be read, the
- * server is asked anyway.
+ * restore must not wait for a webhook that never comes. `unknown` when CustomerInfo cannot be
+ * read: nothing says the store took a payment, so the Paywall stays reachable.
  */
-async function restoreFoundSubscription(): Promise<boolean> {
+async function restoreOutcome(): Promise<'found' | 'none' | 'unknown'> {
   try {
-    return hasProEntitlement(await Purchases.getCustomerInfo());
+    return hasProEntitlement(await Purchases.getCustomerInfo()) ? 'found' : 'none';
   } catch {
-    return true;
+    return 'unknown';
   }
 }
 
@@ -110,11 +110,14 @@ export function useSubscribe(): SubscribeState {
       if (result === PAYWALL_RESULT.PURCHASED) {
         await confirm('purchase');
       } else if (result === PAYWALL_RESULT.RESTORED) {
-        if (await restoreFoundSubscription()) {
+        const restored = await restoreOutcome();
+        if (restored === 'found') {
           await confirm('restore');
-        } else {
+        } else if (restored === 'none') {
           setStatus('idle');
           setMessage(BILLING_COPY.nothingRestored);
+        } else {
+          fail(BILLING_COPY.restoreUnverified);
         }
       } else if (result === PAYWALL_RESULT.ERROR) {
         fail(BILLING_COPY.storeError);
