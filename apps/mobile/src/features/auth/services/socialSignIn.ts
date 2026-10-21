@@ -78,6 +78,9 @@ export function requestSocialIdToken(provider: SocialProvider): Promise<string |
  * Never throws: a failure of the SDK must not stop the User from logging out.
  */
 export async function signOutOfGoogle(): Promise<void> {
+  // A build without the client IDs never signed in with Google, and configuring the SDK there
+  // fails outside the try below: the SDK only reports that failure to a later sign-in.
+  if (!isGoogleConfigured()) return;
   try {
     // The SDK refuses to sign out before it is configured, as after an app restart.
     configureGoogle();

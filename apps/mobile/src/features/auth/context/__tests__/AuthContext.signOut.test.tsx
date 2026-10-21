@@ -200,7 +200,14 @@ describe('AuthProvider — signing out drops the Inventory and Shopping caches',
 // Issue #407 — logout also signs out of the Google SDK, so the next Google sign-in shows the
 // account chooser instead of reusing the cached account.
 describe('AuthProvider — signing out signs out of Google', () => {
+  beforeEach(() => {
+    process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID = 'web-client-id';
+    process.env.EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID = 'ios-client-id';
+  });
+
   afterEach(async () => {
+    delete process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID;
+    delete process.env.EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID;
     jest.restoreAllMocks();
     jest.mocked(GoogleSignin.signOut).mockReset();
     jest.mocked(authService.logout).mockReset();
