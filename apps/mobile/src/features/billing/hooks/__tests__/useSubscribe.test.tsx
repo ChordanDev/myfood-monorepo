@@ -185,11 +185,15 @@ describe('useSubscribe', () => {
     mockPurchases.getCustomerInfo.mockRejectedValueOnce(new Error('store unreachable'));
     (confirmRestore as jest.Mock).mockResolvedValue(pending);
     const rendered = await render();
-    const { result } = rendered;
+    const { result, refreshMe } = rendered;
+    // Best effort: a failed refresh keeps the same error.
+    refreshMe.mockRejectedValueOnce(new ApiError('network_error', 'Network request failed'));
 
     await subscribe(rendered);
 
     expect(confirmRestore).not.toHaveBeenCalled();
+    // `/me` still unlocks the app if the restore did reach the server.
+    expect(refreshMe).toHaveBeenCalledTimes(1);
     expect(result.current.status).toBe('error');
     expect(result.current.message).toBe(BILLING_COPY.restoreUnverified);
   });

@@ -128,6 +128,8 @@ export function useSubscribe(): SubscribeState {
           setStatus('idle');
           setMessage(BILLING_COPY.nothingRestored);
         } else {
+          // If the restore did reach the server, `/me` lets the User in anyway.
+          await refreshMe().catch(() => undefined);
           fail(BILLING_COPY.restoreUnverified);
         }
       } else if (result === PAYWALL_RESULT.ERROR) {
@@ -138,7 +140,7 @@ export function useSubscribe(): SubscribeState {
     } finally {
       busyRef.current = false;
     }
-  }, [confirm, fail]);
+  }, [confirm, fail, refreshMe]);
 
   const checkAgain = useCallback(async () => {
     if (busyRef.current) return;
