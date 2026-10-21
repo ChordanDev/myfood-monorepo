@@ -44,12 +44,23 @@ function errorMessage(error: unknown): string {
  * Cancelling the Paywall is not an error.
  */
 export function useSubscribe(): SubscribeState {
-  const { refreshMe } = useAuth();
+  const { me, refreshMe } = useAuth();
+  const accountId = me?.account.id ?? null;
   const [status, setStatus] = useState<SubscribeStatus>('idle');
   const [message, setMessage] = useState<string | null>(null);
   const busyRef = useRef(false);
-  // What the store completed last, so checking again asks the same route.
-  const lastKindRef = useRef<ConfirmationKind>('purchase');
+  // What the store completed last and for which Account, so checking again asks the same route.
+  const lastConfirmationRef = useRef<{ accountId: string | null; kind: ConfirmationKind } | null>(
+    null
+  );
+
+  // A switched Account starts clean: the previous Account's confirmation is not its own.
+  const [shownAccountId, setShownAccountId] = useState(accountId);
+  if (shownAccountId !== accountId) {
+    setShownAccountId(accountId);
+    setStatus('idle');
+    setMessage(null);
+  }
 
   const fail = useCallback((nextMessage: string) => {
     setStatus('error');
@@ -60,7 +71,7 @@ export function useSubscribe(): SubscribeState {
   // again: the User checks again instead.
   const confirm = useCallback(
     async (kind: ConfirmationKind) => {
-      lastKindRef.current = kind;
+      lastConfirmationRef.current = { accountId, kind };
       setStatus('confirming');
       setMessage(null);
       try {
@@ -77,7 +88,7 @@ export function useSubscribe(): SubscribeState {
         setMessage(isApiError(error) ? getAuthErrorMessage(error) : BILLING_COPY.confirmError);
       }
     },
-    [refreshMe]
+    [accountId, refreshMe]
   );
 
   const subscribe = useCallback(async () => {
@@ -133,11 +144,12 @@ export function useSubscribe(): SubscribeState {
     if (busyRef.current) return;
     busyRef.current = true;
     try {
-      await confirm(lastKindRef.current);
+      const last = lastConfirmationRef.current;
+      await confirm(last?.accountId === accountId ? last.kind : 'purchase');
     } finally {
       busyRef.current = false;
     }
-  }, [confirm]);
+  }, [accountId, confirm]);
 
   return { isAvailable: isBillingEnabled(), status, message, subscribe, checkAgain };
 }
