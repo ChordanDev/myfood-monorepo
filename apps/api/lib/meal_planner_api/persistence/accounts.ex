@@ -239,6 +239,9 @@ defmodule MealPlannerApi.Persistence.Accounts do
   Account's. Concurrent first calls race on the unique `account_id` index:
   the losers insert nothing and read the winner's row, so every caller gets
   the same id.
+
+  Returns `{:error, changeset}` when the Account does not exist, and
+  `{:ok, nil}` when it is deleted between the insert and the read back.
   """
   def ensure_revenuecat_customer(account_id) when is_binary(account_id) do
     case get_revenuecat_customer_by_account_id(account_id) do
