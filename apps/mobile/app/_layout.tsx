@@ -21,12 +21,20 @@ import {
 } from '@expo-google-fonts/inter';
 import { COLORS } from '../src/constants/theme';
 import { AuthProvider } from '../src/features/auth';
+import { useRevenueCatSession } from '../src/features/billing';
 import { useClearFavoritesOnSignOut } from '../src/features/favorites';
 import { RecipeThemeProvider } from '../src/context/RecipeThemeContext';
 
 // Lives under the AuthProvider, which it reads; it draws nothing.
 function FavoritesSession() {
   useClearFavoritesOnSignOut();
+
+  return null;
+}
+
+// Keeps RevenueCat logged in with the signed-in Account; under the AuthProvider, draws nothing.
+function RevenueCatSession() {
+  useRevenueCatSession();
 
   return null;
 }
@@ -72,6 +80,7 @@ export default function RootLayout() {
       <SafeAreaProvider>
         <AuthProvider>
           <FavoritesSession />
+          <RevenueCatSession />
           <RecipeThemeProvider>
             <Stack screenOptions={{ headerShown: false }} />
           </RecipeThemeProvider>
