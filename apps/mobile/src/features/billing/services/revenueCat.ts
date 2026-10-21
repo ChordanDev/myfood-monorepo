@@ -1,14 +1,14 @@
 import { Platform } from 'react-native';
 import Purchases, { type CustomerInfo } from 'react-native-purchases';
 import { fetchBillingStatus } from '../api/billingApi';
-import { PRO_ENTITLEMENT_ID } from '../constants';
+import { LOGIN_WAIT_TIMEOUT_MS, PRO_ENTITLEMENT_ID } from '../constants';
 import { useBillingStore } from '../store/useBillingStore';
 
 let configured = false;
 // Each identity change bumps it, so an answer that arrives after a newer change is dropped.
 let identityGeneration = 0;
-// The native login in flight, so a sign-out can wait for it before checking who is logged in.
-let pendingLogIn: Promise<unknown> | null = null;
+// The native login in flight and its id, so a sign-out or another Account's login can wait for it.
+let pendingLogIn: { appUserId: string; promise: Promise<unknown> } | null = null;
 
 /**
  * The public SDK key for this platform. A per-platform key wins over the shared one. Each
@@ -48,9 +48,28 @@ export function hasProEntitlement(customerInfo: CustomerInfo): boolean {
 }
 
 export class BillingIdentityError extends Error {
-  constructor() {
-    super('The server issued no RevenueCat app_user_id for this Account.');
+  constructor(message = 'The server issued no RevenueCat app_user_id for this Account.') {
+    super(message);
     this.name = 'BillingIdentityError';
+  }
+}
+
+/** Whether `promise` settles, either way, within `ms`. */
+async function settlesWithin(promise: Promise<unknown>, ms: number): Promise<boolean> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<boolean>((resolve) => {
+    timer = setTimeout(() => resolve(false), ms);
+  });
+  try {
+    return await Promise.race([
+      promise.then(
+        () => true,
+        () => true
+      ),
+      timeout,
+    ]);
+  } finally {
+    clearTimeout(timer);
   }
 }
 
@@ -70,9 +89,18 @@ export async function identifyAccount(): Promise<string | null> {
   if (generation !== identityGeneration) return null;
   if (!data.app_user_id) throw new BillingIdentityError();
 
-  const logIn = Purchases.logIn(data.app_user_id);
+  // The native SDK stays on whichever login finishes last, so another Account's login still in
+  // flight could finish after this one and keep that Account's user. Wait for it first, and give
+  // up rather than log in while it could still land. The same Account's login is no risk.
+  while (pendingLogIn && pendingLogIn.appUserId !== data.app_user_id) {
+    const settled = await settlesWithin(pendingLogIn.promise, LOGIN_WAIT_TIMEOUT_MS);
+    if (generation !== identityGeneration) return null;
+    if (!settled) throw new BillingIdentityError('An earlier RevenueCat login has not finished.');
+  }
+
+  const logIn = { appUserId: data.app_user_id, promise: Purchases.logIn(data.app_user_id) };
   pendingLogIn = logIn;
-  const { customerInfo } = await logIn.finally(() => {
+  const { customerInfo } = await logIn.promise.finally(() => {
     if (pendingLogIn === logIn) pendingLogIn = null;
   });
   if (generation !== identityGeneration) return null;
@@ -102,7 +130,7 @@ export async function signOutOfRevenueCat(): Promise<void> {
   if (!configureRevenueCat()) return;
 
   // A login still in flight would otherwise land after this check and stay logged in.
-  if (pendingLogIn) await pendingLogIn.catch(() => undefined);
+  if (pendingLogIn) await pendingLogIn.promise.catch(() => undefined);
   // A newer sign-in owns the SDK now: logging out would leave that User anonymous.
   if (generation !== identityGeneration) return;
 

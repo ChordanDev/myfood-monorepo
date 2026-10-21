@@ -1,4 +1,6 @@
 /* eslint-disable @typescript-eslint/no-require-imports */
+import { LOGIN_WAIT_TIMEOUT_MS } from '../../constants';
+
 // The service keeps whether the SDK is configured in module state, so each test loads it fresh
 // with its own mocks.
 type Loaded = {
@@ -203,13 +205,110 @@ describe('RevenueCat identity', () => {
     await Promise.resolve();
     await Promise.resolve();
     const signingOut = service.signOutOfRevenueCat();
-    await expect(service.identifyAccount()).resolves.toBe('rc-second-account');
+    // The second login waits for the first one, still in flight, before it starts.
+    const identifyingSecond = service.identifyAccount();
     finishFirstLogIn();
+    await expect(identifyingSecond).resolves.toBe('rc-second-account');
     await signingOut;
     await identifyingFirst;
 
     expect(Purchases.logOut).not.toHaveBeenCalled();
     expect(store.getState().appUserId).toBe('rc-second-account');
+  });
+
+  it('keeps the SDK on the newest Account when an older login finishes last', async () => {
+    const { service, Purchases, fetchBillingStatus, store } = load();
+    fetchBillingStatus
+      .mockResolvedValueOnce(status('rc-first-account'))
+      .mockResolvedValueOnce(status('rc-second-account'));
+    // The native SDK stays on whichever login finishes last.
+    let sdkUser: string | null = null;
+    const finishers = new Map<string, () => void>();
+    Purchases.logIn.mockImplementation(
+      (id: string) =>
+        new Promise((resolve) => {
+          finishers.set(id, () => {
+            sdkUser = id;
+            resolve({ customerInfo: customerInfo([]), created: false } as never);
+          });
+        }) as never
+    );
+    const finish = (id: string) => {
+      const finisher = finishers.get(id);
+      finishers.delete(id);
+      finisher?.();
+    };
+    const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
+
+    const identifyingFirst = service.identifyAccount();
+    await flush();
+    const identifyingSecond = service.identifyAccount();
+    await flush();
+    // When both logins are in flight, the native SDK finishes the second one first.
+    finish('rc-second-account');
+    await flush();
+    finish('rc-first-account');
+    await flush();
+    finish('rc-second-account');
+    await expect(identifyingFirst).resolves.toBeNull();
+    await expect(identifyingSecond).resolves.toBe('rc-second-account');
+
+    expect(store.getState().appUserId).toBe('rc-second-account');
+    expect(sdkUser).toBe('rc-second-account');
+  });
+
+  it('gives up instead of waiting forever behind a login that never finishes', async () => {
+    jest.useFakeTimers();
+    try {
+      const { service, Purchases, fetchBillingStatus, store } = load();
+      fetchBillingStatus
+        .mockResolvedValueOnce(status('rc-first-account'))
+        .mockResolvedValueOnce(status('rc-second-account'));
+      Purchases.logIn.mockReturnValueOnce(new Promise(() => {}) as never);
+
+      void service.identifyAccount();
+      await jest.advanceTimersByTimeAsync(0);
+      const identifyingSecond = service.identifyAccount();
+      const refused = expect(identifyingSecond).rejects.toBeInstanceOf(
+        service.BillingIdentityError
+      );
+      await jest.advanceTimersByTimeAsync(LOGIN_WAIT_TIMEOUT_MS);
+      await refused;
+
+      // Logging in anyway could let the stuck login land later on the previous Account.
+      expect(Purchases.logIn).toHaveBeenCalledTimes(1);
+      expect(store.getState().appUserId).toBeNull();
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it("does not make a tap wait for the same Account's login still in flight", async () => {
+    jest.useFakeTimers();
+    try {
+      const { service, Purchases, fetchBillingStatus, store } = load();
+      fetchBillingStatus.mockResolvedValue(status('rc-first-account'));
+      let finishBackgroundLogIn: () => void = () => {};
+      Purchases.logIn.mockReturnValueOnce(
+        new Promise((resolve) => {
+          finishBackgroundLogIn = () =>
+            resolve({ customerInfo: customerInfo([]), created: false } as never);
+        }) as never
+      );
+
+      // The session logs the Account in on its own; the User taps Subscribe meanwhile.
+      void service.identifyAccount();
+      await jest.advanceTimersByTimeAsync(0);
+      const tapping = service.ensureIdentified();
+      const identified = expect(tapping).resolves.toBe('rc-first-account');
+      await jest.advanceTimersByTimeAsync(LOGIN_WAIT_TIMEOUT_MS);
+      finishBackgroundLogIn();
+      await identified;
+
+      expect(store.getState().appUserId).toBe('rc-first-account');
+    } finally {
+      jest.useRealTimers();
+    }
   });
 
   it('skips logOut for an anonymous user, which the SDK would reject', async () => {

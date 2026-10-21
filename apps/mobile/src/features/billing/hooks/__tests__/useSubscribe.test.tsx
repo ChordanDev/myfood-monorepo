@@ -26,6 +26,7 @@ jest.mock('../../api/billingApi', () => ({
 jest.mock('../../constants', () => ({
   PRO_ENTITLEMENT_ID: 'brosky_company_pro',
   PENDING_WEBHOOK_RETRY_DELAYS_MS: [0, 0],
+  LOGIN_WAIT_TIMEOUT_MS: 10000,
 }));
 
 const mockPurchases = jest.mocked(Purchases);
@@ -134,6 +135,24 @@ describe('useSubscribe', () => {
     expect(mockPaywall.presentPaywall).toHaveBeenCalledTimes(1);
   });
 
+  it('confirms a purchase whose webhook started the one-time trial', async () => {
+    // An Account with no trial on record starts it on the first webhook, and the server
+    // answers `trial` ahead of `active` while that window runs.
+    mockPaywall.presentPaywall.mockResolvedValueOnce(PAYWALL_RESULT.PURCHASED);
+    (confirmPurchase as jest.Mock)
+      .mockResolvedValueOnce(pending)
+      .mockResolvedValueOnce({ data: { state: 'trial', source: 'trial' } });
+    const rendered = await render();
+    const { result, refreshMe } = rendered;
+
+    await subscribe(rendered);
+
+    expect(confirmPurchase).toHaveBeenCalledTimes(2);
+    expect(refreshMe).toHaveBeenCalledTimes(1);
+    expect(result.current.status).toBe('idle');
+    expect(result.current.message).toBeNull();
+  });
+
   it('confirms a restore on the restore route', async () => {
     mockPurchases.getCustomerInfo.mockResolvedValueOnce(proCustomerInfo);
     mockPaywall.presentPaywall.mockResolvedValueOnce(PAYWALL_RESULT.RESTORED);
@@ -160,6 +179,24 @@ describe('useSubscribe', () => {
     expect(refreshMe).not.toHaveBeenCalled();
     expect(result.current.status).toBe('idle');
     expect(result.current.message).toBe(BILLING_COPY.nothingRestored);
+  });
+
+  it('keeps "Suscribirme" when CustomerInfo cannot be read after a restore', async () => {
+    mockPaywall.presentPaywall.mockResolvedValueOnce(PAYWALL_RESULT.RESTORED);
+    mockPurchases.getCustomerInfo.mockRejectedValueOnce(new Error('store unreachable'));
+    (confirmRestore as jest.Mock).mockResolvedValue(pending);
+    const rendered = await render();
+    const { result, refreshMe } = rendered;
+    // Best effort: a failed refresh keeps the same error.
+    refreshMe.mockRejectedValueOnce(new ApiError('network_error', 'Network request failed'));
+
+    await subscribe(rendered);
+
+    expect(confirmRestore).not.toHaveBeenCalled();
+    // `/me` still unlocks the app if the restore did reach the server.
+    expect(refreshMe).toHaveBeenCalledTimes(1);
+    expect(result.current.status).toBe('error');
+    expect(result.current.message).toBe(BILLING_COPY.restoreUnverified);
   });
 
   it('treats a cancelled Paywall as no error', async () => {
@@ -242,6 +279,152 @@ describe('useSubscribe', () => {
 
     expect(result.current.status).toBe('pending');
     expect(result.current.message).toBe('No pudimos conectar con el servidor. Revisá tu conexión.');
+  });
+
+  it("forgets the previous Account's pending confirmation when the Account changes", async () => {
+    mockPurchases.getCustomerInfo.mockResolvedValueOnce(proCustomerInfo);
+    mockPaywall.presentPaywall.mockResolvedValueOnce(PAYWALL_RESULT.RESTORED);
+    (confirmRestore as jest.Mock).mockResolvedValue(pending);
+    const result = { current: null as unknown as SubscribeState };
+    function Probe() {
+      result.current = useSubscribe();
+      return null;
+    }
+    const refreshMe = jest.fn(() => Promise.resolve());
+    const signedInAs = (accountId: string) =>
+      ({ me: { account: { id: accountId } }, refreshMe }) as unknown as AuthContextValue;
+    const tree = (value: AuthContextValue) => (
+      <AuthContext.Provider value={value}>
+        <Probe />
+      </AuthContext.Provider>
+    );
+    let renderer: ReturnType<typeof create> | undefined;
+    await act(async () => {
+      renderer = create(tree(signedInAs('account-a')));
+    });
+
+    await act(async () => {
+      await result.current.subscribe();
+    });
+    expect(result.current.status).toBe('pending');
+
+    await act(async () => {
+      renderer?.update(tree(signedInAs('account-b')));
+    });
+
+    expect(result.current.status).toBe('idle');
+    expect(result.current.message).toBeNull();
+
+    (confirmPurchase as jest.Mock).mockResolvedValueOnce(active);
+    await act(async () => {
+      await result.current.checkAgain();
+    });
+
+    expect(confirmRestore).toHaveBeenCalledTimes(3);
+    expect(confirmPurchase).toHaveBeenCalledTimes(1);
+  });
+
+  it("lets the next Account subscribe while the previous one's confirmation still runs", async () => {
+    let answerFirstCheck: (value: unknown) => void = () => {};
+    (confirmPurchase as jest.Mock)
+      .mockReturnValueOnce(new Promise((resolve) => (answerFirstCheck = resolve)))
+      .mockResolvedValue(pending);
+    mockPaywall.presentPaywall
+      .mockResolvedValueOnce(PAYWALL_RESULT.PURCHASED)
+      .mockResolvedValueOnce(PAYWALL_RESULT.CANCELLED);
+    const result = { current: null as unknown as SubscribeState };
+    function Probe() {
+      result.current = useSubscribe();
+      return null;
+    }
+    const refreshMe = jest.fn(() => Promise.resolve());
+    const signedInAs = (accountId: string) =>
+      ({ me: { account: { id: accountId } }, refreshMe }) as unknown as AuthContextValue;
+    const tree = (value: AuthContextValue) => (
+      <AuthContext.Provider value={value}>
+        <Probe />
+      </AuthContext.Provider>
+    );
+    let renderer: ReturnType<typeof create> | undefined;
+    await act(async () => {
+      renderer = create(tree(signedInAs('account-a')));
+    });
+
+    let firstAccountRun: Promise<void> = Promise.resolve();
+    await act(async () => {
+      firstAccountRun = result.current.subscribe();
+    });
+    expect(result.current.status).toBe('confirming');
+
+    await act(async () => {
+      renderer?.update(tree(signedInAs('account-b')));
+    });
+    await act(async () => {
+      await result.current.subscribe();
+    });
+
+    expect(mockPaywall.presentPaywall).toHaveBeenCalledTimes(2);
+
+    await act(async () => {
+      answerFirstCheck(pending);
+      await firstAccountRun;
+    });
+
+    // The previous Account's confirmation ends pending, but never on this Account's screen.
+    expect(result.current.status).toBe('idle');
+    expect(result.current.message).toBeNull();
+  });
+
+  it('keeps an Account from reopening the Paywall while its own confirmation still runs', async () => {
+    let answerFirstCheck: (value: unknown) => void = () => {};
+    (confirmPurchase as jest.Mock)
+      .mockReturnValueOnce(new Promise((resolve) => (answerFirstCheck = resolve)))
+      .mockResolvedValue(active);
+    mockPaywall.presentPaywall
+      .mockResolvedValueOnce(PAYWALL_RESULT.PURCHASED)
+      .mockResolvedValueOnce(PAYWALL_RESULT.CANCELLED);
+    const result = { current: null as unknown as SubscribeState };
+    function Probe() {
+      result.current = useSubscribe();
+      return null;
+    }
+    const refreshMe = jest.fn(() => Promise.resolve());
+    const signedInAs = (accountId: string) =>
+      ({ me: { account: { id: accountId } }, refreshMe }) as unknown as AuthContextValue;
+    const tree = (value: AuthContextValue) => (
+      <AuthContext.Provider value={value}>
+        <Probe />
+      </AuthContext.Provider>
+    );
+    let renderer: ReturnType<typeof create> | undefined;
+    await act(async () => {
+      renderer = create(tree(signedInAs('account-a')));
+    });
+
+    let firstAccountRun: Promise<void> = Promise.resolve();
+    await act(async () => {
+      firstAccountRun = result.current.subscribe();
+    });
+    await act(async () => {
+      renderer?.update(tree(signedInAs('account-b')));
+    });
+    await act(async () => {
+      await result.current.subscribe();
+    });
+    await act(async () => {
+      renderer?.update(tree(signedInAs('account-a')));
+    });
+    await act(async () => {
+      await result.current.subscribe();
+    });
+
+    // Account A already paid; its confirmation is still running.
+    expect(mockPaywall.presentPaywall).toHaveBeenCalledTimes(2);
+
+    await act(async () => {
+      answerFirstCheck(active);
+      await firstAccountRun;
+    });
   });
 
   it('never opens the Paywall when the server issued no app_user_id', async () => {
