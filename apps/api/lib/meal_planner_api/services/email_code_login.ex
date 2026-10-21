@@ -621,7 +621,13 @@ defmodule MealPlannerApi.Services.EmailCodeLogin do
   # cooldown and two concurrent verifications cannot both spend the same
   # attempt. `Repo.query!/2` runs on the caller's dynamic repo, so the
   # lock is always taken on the transaction's own connection.
-  defp lock_email(email) do
+  #
+  # `MealPlannerApi.Services.SocialLogin` takes it too, before it finds or
+  # registers a User by email, so a social sign-up and a code flow on one
+  # email never write that User at once. `email` must already be cast.
+  @doc false
+  @spec lock_email(String.t()) :: Postgrex.Result.t()
+  def lock_email(email) do
     Repo.query!("SELECT pg_advisory_xact_lock($1, $2)", [
       @lock_namespace,
       :erlang.phash2(email)
