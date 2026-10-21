@@ -562,8 +562,9 @@ Authorization: Bearer <token>
 - `app_user_id`: el id con el que la app hace `Purchases.logIn` en RevenueCat. Lo emite el
   servidor en la primera llamada de la cuenta (un UUID al azar, no derivado de la cuenta ni del
   email) y desde ahí es siempre el mismo para todos los miembros. Al cambiar de cuenta, la app
-  vuelve a leerlo y hace `logIn` con el de la nueva. Solo es `null` si el servidor no pudo
-  guardarlo; en ese caso la app no compra.
+  vuelve a leerlo y hace `logIn` con el de la nueva. Es `null` cuando el servidor no pudo emitir
+  un id para ese pedido: no hay cuenta actual o la cuenta ya no existe. En ese caso la app no
+  compra.
 - `state`: `trial`, `active` o `expired`. Es la fuente de verdad del acceso; la app no habilita
   nada por su cuenta a partir del `CustomerInfo` del SDK.
 
