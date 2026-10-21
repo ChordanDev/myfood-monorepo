@@ -61,6 +61,7 @@ defmodule MealPlannerApi.MixProject do
       {:telemetry_poller, "~> 1.0"},
       {:req, "~> 0.5"},
       {:jason, "~> 1.2"},
+      {:jose, "~> 1.11"},
       {:guardian, "~> 2.4"},
       {:ecto_sql, "~> 3.12"},
       {:postgrex, ">= 0.0.0"},

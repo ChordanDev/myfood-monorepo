@@ -21,10 +21,24 @@ defmodule MealPlannerApi.Services.SocialLogin do
   code login uses.
 
   The token is verified before any database work, so no connection is held
-  while the provider answers. The rest runs in one transaction, under a
-  lock on the provider account, so two first sign-ins of the same person
-  link and register once.
+  while the provider answers. The rest runs in one transaction, under two
+  advisory locks taken in this order:
+
+    1. the provider account lock, so two first sign-ins of one provider
+       account link and register once;
+    2. the email lock `MealPlannerApi.Services.EmailCodeLogin.lock_email/1`
+       takes, before a User is found or registered by email, so a Google
+       and an Apple first sign-in with one new email end on one User, and a
+       social sign-up never races a code flow on that email.
+
+  No flow takes the provider account lock while it holds the email lock,
+  so the order cannot deadlock.
+
+  A database error while charging a failed verification to the client IP
+  fails open: the caller gets `:invalid_token`, never a server error.
   """
+
+  require Logger
 
   alias MealPlannerApi.Accounts
   alias MealPlannerApi.Persistence.Accounts.AccountMembership
@@ -96,15 +110,26 @@ defmodule MealPlannerApi.Services.SocialLogin do
   end
 
   # The counter's lock is held until its transaction ends, so concurrent
-  # failures from one IP cannot run past the limit together.
+  # failures from one IP cannot run past the limit together. A counter
+  # that cannot be charged fails open: the token is still invalid, and the
+  # database error is logged without the client IP.
   defp charge_failure({:ok, client_ip}) do
     case Repo.transaction(fn -> EmailCodeAuth.reserve_verify_failure(client_ip) end) do
       {:ok, :ok} -> {:error, :invalid_token}
       {:ok, {:error, :rate_limited, _retry_after} = rate_limited} -> rate_limited
+      {:error, reason} -> uncharged_failure(inspect(reason))
     end
+  rescue
+    exception in [DBConnection.ConnectionError, Postgrex.Error] ->
+      uncharged_failure(inspect(exception.__struct__))
   end
 
   defp charge_failure(:error), do: {:error, :invalid_token}
+
+  defp uncharged_failure(cause) do
+    Logger.warning("social sign-in failure counter not charged cause=#{cause}")
+    {:error, :invalid_token}
+  end
 
   # Runs in the transaction; any error rolls back what it wrote.
   defp sign_in_identity(identity, open_session) do
@@ -143,6 +168,8 @@ defmodule MealPlannerApi.Services.SocialLogin do
   defp verified_email(_identity), do: {:error, :email_unverified}
 
   defp sign_in_or_register(email) do
+    EmailCodeLogin.lock_email(email)
+
     case UserEmail.get_user(email) do
       %User{id: user_id} -> EmailCodeLogin.resolve_session(user_id)
       nil -> register(email)

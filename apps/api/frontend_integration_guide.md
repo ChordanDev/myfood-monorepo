@@ -1656,8 +1656,8 @@ favorites of both positions, and their planned Shopping items, which now read th
 state (in a Cart, removed, bought). The exception is an archived item, one a past day left unbought: when its
 meal lands on the Account's today or later the item is deleted, and the next Shopping list read derives an
 open one again. A move to another slot of the same day touches no Shopping item. Use this route to move a
-meal; `PUT /api/calendar/meals/range` deletes the meals of its range and creates new ones, and is meant for
-replacing a plan.
+meal; `PUT /api/calendar/meals/range` keeps the cooked meals of its range and the ones answered not cooked,
+deletes the others and creates new ones, and is meant for replacing a plan.
 
 Errors use the envelope of section 10:
 
@@ -1666,6 +1666,7 @@ Errors use the envelope of section 10:
 | `404`  | `scheduled_meal_not_found`   | The id is unknown, of another Account or not a UUID                                                                                              |
 | `422`  | `validation_error`           | `date` or `slot` is missing or not valid, or is the position the meal already has                                                                |
 | `409`  | `scheduled_meal_cooked`      | The meal, or the meal at the destination, is cooked. A cooked meal stays on its day                                                              |
+| `409`  | `meal_already_confirmed`     | The meal, or the meal at the destination, was answered not cooked. An answered meal stays on its day                                             |
 | `409`  | `calendar_conflict`          | Another write took the destination meanwhile. Read the calendar again and retry                                                                  |
 | `409`  | `calendar_move_not_possible` | The stored Shopping items of a meal cannot follow it to its new date. A retry fails the same way; show the message and keep the meal where it is |
 

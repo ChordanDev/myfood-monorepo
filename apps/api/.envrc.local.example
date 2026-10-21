@@ -20,5 +20,5 @@ export GEMINI_API_KEY="pega_tu_api_key_aqui"
 # export APPLE_OAUTH_CLIENT_IDS="your_ios_bundle_id"
 
 # Provider endpoint overrides (optional)
-# export GOOGLE_TOKENINFO_URL="https://oauth2.googleapis.com/tokeninfo"
+# export GOOGLE_JWKS_URL="https://www.googleapis.com/oauth2/v3/certs"
 # export APPLE_JWKS_URL="https://appleid.apple.com/auth/keys"

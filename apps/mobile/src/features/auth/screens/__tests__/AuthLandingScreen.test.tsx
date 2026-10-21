@@ -49,7 +49,7 @@ jest.mock('expo-apple-authentication', () => ({
 }));
 
 jest.mock('@react-native-google-signin/google-signin', () => ({
-  GoogleSignin: { configure: jest.fn(), signIn: jest.fn() },
+  GoogleSignin: { configure: jest.fn(), signIn: jest.fn(), signOut: jest.fn() },
   isCancelledResponse: (response: { type: string }) => response.type === 'cancelled',
 }));
 

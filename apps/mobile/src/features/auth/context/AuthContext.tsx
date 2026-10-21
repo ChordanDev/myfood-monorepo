@@ -20,6 +20,7 @@ import type {
 import * as authService from '@/services/authService';
 import { isTransientAuthError } from '@/services/authService';
 import { useAccountTimezoneSync } from '../hooks/useAccountTimezoneSync';
+import { signOutOfGoogle } from '../services/socialSignIn';
 import {
   normalizeProfileFields,
   withAccountTimezone,
@@ -260,6 +261,8 @@ export function AuthProvider({ children }: AuthProviderProps) {
     } catch (error) {
       console.warn('[AuthProvider] Error cerrando sesión remota:', error);
     } finally {
+      // After the API logout, and also when it fails: the next Google sign-in shows the chooser.
+      await signOutOfGoogle();
       await authService.clearSession();
       applySession(null);
       lastTrialRefreshTrialEndsAt.current = undefined;

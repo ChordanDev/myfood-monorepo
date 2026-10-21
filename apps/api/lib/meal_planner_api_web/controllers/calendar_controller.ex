@@ -75,6 +75,7 @@ defmodule MealPlannerApiWeb.CalendarController do
   `ApiError`: 404 `scheduled_meal_not_found`, 422 `validation_error` naming
   `date` or `slot` (the position the meal already has is not a valid
   destination), 409 `scheduled_meal_cooked` when either meal is cooked,
+  409 `meal_already_confirmed` when either meal was answered "not cooked",
   409 `calendar_meal_cooking_in_progress` when either meal is on the
   Account's today and has an active Cooking session,
   409 `calendar_conflict` when a concurrent write took the destination, and
@@ -172,8 +173,9 @@ defmodule MealPlannerApiWeb.CalendarController do
   defp parse_replacement_meals(nil), do: {:error, "missing_meals"}
   defp parse_replacement_meals(_), do: {:error, "invalid_meals"}
 
-  defp render_error(conn, :scheduled_meal_cooked),
-    do: conn |> ApiError.error(:scheduled_meal_cooked)
+  defp render_error(conn, reason)
+       when reason in [:scheduled_meal_cooked, :meal_already_confirmed],
+       do: conn |> ApiError.error(reason)
 
   defp render_error(conn, reason) do
     conn
@@ -192,6 +194,10 @@ defmodule MealPlannerApiWeb.CalendarController do
 
   defp render_move_error(conn, reason) when reason in [:meal_cooked, :target_meal_cooked],
     do: conn |> ApiError.error(:scheduled_meal_cooked)
+
+  defp render_move_error(conn, reason)
+       when reason in [:meal_already_confirmed, :target_meal_already_confirmed],
+       do: conn |> ApiError.error(:meal_already_confirmed)
 
   defp render_move_error(conn, reason)
        when reason in [:meal_cooking_in_progress, :target_meal_cooking_in_progress],

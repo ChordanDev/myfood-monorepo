@@ -299,6 +299,8 @@ asumir un tipo específico.
 | `GET` | `/api/calendar` | Obtener calendario mensual |
 | `GET` | `/api/calendar/slot?date=YYYY-MM-DD&slot=breakfast` | Obtener slot específico |
 | `POST` | `/api/calendar/meals/:mealId/confirm` | Confirmar si una comida pasada se cocinó |
+| `POST` | `/api/calendar/meals/:mealId/move` | Mover una comida a otra fecha y slot |
+| `PUT` | `/api/calendar/meals/range` | Reemplazar las comidas de un rango de fechas |
 | `POST` | `/api/planning/generate` | Generar plan semanal |
 | `POST` | `/api/planning/confirm` | Confirmar propuesta |
 | `GET` | `/api/shopping/list` | Lista de compras |
@@ -490,6 +492,47 @@ En `GET /api/calendar`, `isSkipped` sigue esta regla: una comida pasada sin coci
 `isSkipped: true` si se confirmó como no cocinada o si pasaron más de 7 días sin respuesta; dentro
 de esos 7 días, sin respuesta, tiene `isCooked: false` e `isSkipped: false` (sin confirmar). Las
 dos respuestas se leen igual desde cualquier dispositivo de la cuenta.
+
+Una comida respondida, cocinada o confirmada como no cocinada, es definitiva: no se mueve, no
+cambia de receta y no se reemplaza (ver [Mover una comida](#mover-una-comida)).
+
+### Mover una comida
+
+```bash
+POST /api/calendar/meals/:mealId/move
+Authorization: Bearer <token>
+Content-Type: application/json
+
+{ "date": "2026-10-22", "slot": "dinner" }
+```
+
+La comida conserva su id. Si ya hay una comida en ese `date` y `slot`, pasa al lugar que deja la
+movida y vuelve como `displaced` (`null` si el destino estaba vacío):
+
+```json
+{
+  "data": {
+    "moved": { "mealId": "…", "date": "2026-10-22", "slot": "dinner" },
+    "displaced": { "mealId": "…", "date": "2026-10-20", "slot": "lunch" }
+  }
+}
+```
+
+Si la request falla, no se guarda nada:
+
+| Estado | Código | Cuándo |
+|--------|--------|--------|
+| 404 | `scheduled_meal_not_found` | La comida no existe o es de otra cuenta |
+| 409 | `scheduled_meal_cooked` | La comida o la del destino está cocinada |
+| 409 | `meal_already_confirmed` | La comida o la del destino se confirmó como no cocinada |
+| 409 | `calendar_meal_cooking_in_progress` | La comida o la del destino es de hoy y tiene una Cooking session activa |
+| 409 | `calendar_conflict` | Otra escritura tomó el destino al mismo tiempo; se puede reintentar |
+| 409 | `calendar_move_not_possible` | Lo guardado de la comida no puede seguirla; reintentar falla igual |
+| 422 | `validation_error` | `date` o `slot` no es válido, o es la posición que la comida ya tiene |
+
+`PUT /api/calendar/meals/range` reemplaza las comidas de un rango, pero conserva las cocinadas y
+las confirmadas como no cocinadas, con su respuesta. Si una comida nueva cae en el `date` y `slot`
+de una de ellas, no se cambia nada y responde 409 `scheduled_meal_cooked` o `meal_already_confirmed`.
 
 ### Presupuesto semanal de la cuenta
 
@@ -1153,7 +1196,7 @@ formato por defecto:
 | `not_found` | Recurso no existe | Verificar IDs |
 | `invalid_payload` | Datos inválidos | Validar input del usuario |
 | `validation_error` | Un campo de la request no es válido; el `message` nombra el campo | Corregir ese campo |
-| `meal_already_confirmed` | La comida pasada ya estaba cocinada o confirmada como no cocinada | Volver a leer el plan |
+| `meal_already_confirmed` | La comida ya estaba respondida (cocinada o confirmada como no cocinada) y no se cambió nada | Volver a leer el plan |
 | `confirmation_window_closed` | La comida no es de los últimos 7 días | Usar una Cooking session para la comida de hoy |
 | `not_owner` | Solo el `owner` de la cuenta puede hacer este cambio | Mostrar el valor sin permitir editarlo |
 | `invalid_cooking_skill` | `cookingSkill` no está en el catálogo | Enviar `beginner`, `intermediate` o `advanced` |

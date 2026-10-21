@@ -1,4 +1,5 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { GoogleSignin } from '@react-native-google-signin/google-signin';
 import { useEffect } from 'react';
 import { act, create } from 'react-test-renderer';
 import type { AuthSession, CurrentMe } from '@/features/auth/types/auth';
@@ -192,6 +193,73 @@ describe('AuthProvider — signing out drops the Inventory and Shopping caches',
     });
 
     expectNoCacheOfThePreviousAccount();
+    act(() => tree.unmount());
+  });
+});
+
+// Issue #407 — logout also signs out of the Google SDK, so the next Google sign-in shows the
+// account chooser instead of reusing the cached account.
+describe('AuthProvider — signing out signs out of Google', () => {
+  beforeEach(() => {
+    process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID = 'web-client-id';
+    process.env.EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID = 'ios-client-id';
+  });
+
+  afterEach(async () => {
+    delete process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID;
+    delete process.env.EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID;
+    jest.restoreAllMocks();
+    jest.mocked(GoogleSignin.signOut).mockReset();
+    jest.mocked(authService.logout).mockReset();
+    await AsyncStorage.clear();
+  });
+
+  it('signs out of Google after the API logout', async () => {
+    const calls: string[] = [];
+    jest.mocked(authService.logout).mockImplementationOnce(async () => {
+      calls.push('api logout');
+    });
+    jest.mocked(GoogleSignin.signOut).mockImplementationOnce(async () => {
+      calls.push('google sign-out');
+      return null;
+    });
+    const tree = await mountSignedIn('account-1');
+
+    await act(async () => {
+      await auth.current!.signOut();
+    });
+
+    expect(calls).toEqual(['api logout', 'google sign-out']);
+    expect(auth.current!.me).toBeNull();
+    act(() => tree.unmount());
+  });
+
+  it('signs out of Google when the API logout fails', async () => {
+    jest.spyOn(console, 'warn').mockImplementation(() => {});
+    jest.mocked(authService.logout).mockRejectedValueOnce(new Error('network down'));
+    const tree = await mountSignedIn('account-1');
+
+    await act(async () => {
+      await auth.current!.signOut();
+    });
+
+    expect(GoogleSignin.signOut).toHaveBeenCalledTimes(1);
+    expect(auth.current!.me).toBeNull();
+    act(() => tree.unmount());
+  });
+
+  it('still clears the session when the Google sign-out throws', async () => {
+    jest.spyOn(console, 'warn').mockImplementation(() => {});
+    jest.mocked(GoogleSignin.signOut).mockRejectedValueOnce(new Error('SDK failure'));
+    const tree = await mountSignedIn('account-1');
+
+    await act(async () => {
+      await expect(auth.current!.signOut()).resolves.toBeUndefined();
+    });
+
+    expect(GoogleSignin.signOut).toHaveBeenCalledTimes(1);
+    expect(authService.clearSession).toHaveBeenCalled();
+    expect(auth.current!.me).toBeNull();
     act(() => tree.unmount());
   });
 });
