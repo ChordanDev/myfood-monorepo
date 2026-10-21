@@ -272,6 +272,49 @@ describe('useSubscribe', () => {
     expect(result.current.message).toBe('No pudimos conectar con el servidor. Revisá tu conexión.');
   });
 
+  it("forgets the previous Account's pending confirmation when the Account changes", async () => {
+    mockPurchases.getCustomerInfo.mockResolvedValueOnce(proCustomerInfo);
+    mockPaywall.presentPaywall.mockResolvedValueOnce(PAYWALL_RESULT.RESTORED);
+    (confirmRestore as jest.Mock).mockResolvedValue(pending);
+    const result = { current: null as unknown as SubscribeState };
+    function Probe() {
+      result.current = useSubscribe();
+      return null;
+    }
+    const refreshMe = jest.fn(() => Promise.resolve());
+    const signedInAs = (accountId: string) =>
+      ({ me: { account: { id: accountId } }, refreshMe }) as unknown as AuthContextValue;
+    const tree = (value: AuthContextValue) => (
+      <AuthContext.Provider value={value}>
+        <Probe />
+      </AuthContext.Provider>
+    );
+    let renderer: ReturnType<typeof create> | undefined;
+    await act(async () => {
+      renderer = create(tree(signedInAs('account-a')));
+    });
+
+    await act(async () => {
+      await result.current.subscribe();
+    });
+    expect(result.current.status).toBe('pending');
+
+    await act(async () => {
+      renderer?.update(tree(signedInAs('account-b')));
+    });
+
+    expect(result.current.status).toBe('idle');
+    expect(result.current.message).toBeNull();
+
+    (confirmPurchase as jest.Mock).mockResolvedValueOnce(active);
+    await act(async () => {
+      await result.current.checkAgain();
+    });
+
+    expect(confirmRestore).toHaveBeenCalledTimes(3);
+    expect(confirmPurchase).toHaveBeenCalledTimes(1);
+  });
+
   it('never opens the Paywall when the server issued no app_user_id', async () => {
     (fetchBillingStatus as jest.Mock).mockResolvedValue({ data: { app_user_id: null } });
     const rendered = await render();
