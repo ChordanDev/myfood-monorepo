@@ -82,10 +82,23 @@ defmodule MealPlannerApi.Integrations.RatoneandoPriceAdapterTest do
     test "matches a brand only as whole words, never inside another word" do
       [price] =
         RatoneandoPriceAdapter.to_prices(
-          scrape_result([product(%{name: "Mermelada Noelito 400 g"})])
+          scrape_result([product(%{name: "Galletitas Incaicas 200 g"})])
         )
 
       assert price.brand == ""
+    end
+
+    # "Noel" was a brand, but "Papá Noel" is in many Christmas product names.
+    test "does not read a brand from the words Papá Noel" do
+      prices =
+        RatoneandoPriceAdapter.to_prices(
+          scrape_result([
+            product(%{name: "Figura Papá Noel de chocolate Arcor 30 g"}),
+            product(%{name: "Pan Dulce Papá Noel 400 g"})
+          ])
+        )
+
+      assert Enum.map(prices, & &1.brand) == ["Arcor", ""]
     end
 
     test "takes the brand that appears first when the name has several" do

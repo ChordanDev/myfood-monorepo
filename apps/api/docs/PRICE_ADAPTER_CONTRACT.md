@@ -69,14 +69,14 @@ One map per product:
 ## Known brands
 
 The scraper returns no brand. The adapter looks for one of these brands in the product name,
-ignoring case, accents and punctuation, and only as whole words ("Noel" is not found in
-"Noelito"). When the name holds several, the one that appears first wins; at the same position,
+ignoring case, accents and punctuation, and only as whole words ("Inca" is not found in
+"Incaicas"). When the name holds several, the one that appears first wins; at the same position,
 the longest. A name with none of them gets an empty brand.
 
 The list lives in `MealPlannerApi.Integrations.RatoneandoPriceAdapter.KnownBrands`. A test fails
 when a brand there is missing from this table, so add a brand in both places. Leave out brands
-that are also common words in product names (such as "Disco", "Dia", "Vea" or "Ser"): they would
-match names that do not carry the brand.
+that are also common words or phrases in product names (such as "Disco", "Dia", "Vea", "Ser", or
+"Noel", found in "Papá Noel"): they would match names that do not carry the brand.
 
 | Brand |
 | --- |
@@ -130,7 +130,6 @@ match names that do not carry the brand.
 | Morixe |
 | Natura |
 | Nescafé |
-| Noel |
 | Paladini |
 | Paty |
 | Pepsi |

@@ -8,8 +8,9 @@ defmodule MealPlannerApi.Integrations.RatoneandoPriceAdapter.KnownBrands do
 
   The list is documented in `docs/PRICE_ADAPTER_CONTRACT.md`; a test fails when
   a brand here is missing from that document. Leave out brands that are also
-  common words in product names (such as "Disco", "Dia", "Vea" or "Ser"), since
-  they would match names that do not carry the brand.
+  common words or phrases in product names (such as "Disco", "Dia", "Vea",
+  "Ser", or "Noel", found in "Papá Noel"), since they would match names that do
+  not carry the brand.
   """
 
   @brands [
@@ -63,7 +64,6 @@ defmodule MealPlannerApi.Integrations.RatoneandoPriceAdapter.KnownBrands do
     "Morixe",
     "Natura",
     "Nescafé",
-    "Noel",
     "Paladini",
     "Paty",
     "Pepsi",
@@ -92,7 +92,7 @@ defmodule MealPlannerApi.Integrations.RatoneandoPriceAdapter.KnownBrands do
   The known brand in a product name, or `""` when there is none.
 
   Case, accents and punctuation are ignored, and a brand matches only as whole
-  words, so "Noel" is not found in "Noelito". When the name holds several
+  words, so "Inca" is not found in "Incaicas". When the name holds several
   brands, the one that appears first wins; at the same position, the longest.
 
       iex> KnownBrands.match("LECHE ENTERA LA SERENISIMA 1 L")
