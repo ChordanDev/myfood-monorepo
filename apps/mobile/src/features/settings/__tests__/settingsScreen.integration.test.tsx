@@ -12,6 +12,8 @@ import { loadReactNative } from '@/testing/loadReactNative';
 import { act, create, type ReactTestInstance } from 'react-test-renderer';
 import { ApiError } from '@/api/errors';
 import { AuthContext } from '@/features/auth/context/AuthContext';
+import { useBillingStore } from '@/features/billing/store/useBillingStore';
+import RevenueCatUI from 'react-native-purchases-ui';
 import { fixtureCurrentMe } from '@/features/auth/fixtures/currentMe';
 import type {
   AccountBudget,
@@ -555,6 +557,59 @@ describe('SettingsScreen', () => {
       await press(root, 'settings-row-favorites');
 
       expect(mockPush).toHaveBeenCalledWith('/favorites');
+    });
+  });
+
+  describe('subscription', () => {
+    const originalKey = process.env.EXPO_PUBLIC_REVENUECAT_API_KEY;
+
+    beforeEach(() => {
+      process.env.EXPO_PUBLIC_REVENUECAT_API_KEY = 'test_placeholder_key';
+      useBillingStore.getState().reset();
+      jest.mocked(RevenueCatUI.presentCustomerCenter).mockClear();
+    });
+
+    afterEach(() => {
+      process.env.EXPO_PUBLIC_REVENUECAT_API_KEY = originalKey;
+      useBillingStore.getState().reset();
+    });
+
+    it('hides "Gestionar suscripción" while the Account has no active subscription', async () => {
+      const { root } = await renderScreen({
+        me: makeMe({ account: { subscriptionStatus: 'none' } }),
+      });
+
+      expect(queryHost(root, 'settings-row-manage-subscription')).toBeNull();
+    });
+
+    it('hides it in a build without a RevenueCat key', async () => {
+      delete process.env.EXPO_PUBLIC_REVENUECAT_API_KEY;
+      const { root } = await renderScreen({
+        me: makeMe({ account: { subscriptionStatus: 'active' } }),
+      });
+
+      expect(queryHost(root, 'settings-row-manage-subscription')).toBeNull();
+    });
+
+    it('shows it when RevenueCat reports the Pro entitlement before the server does', async () => {
+      useBillingStore.getState().setIdentity('rc-issued-id', true);
+      const { root } = await renderScreen({
+        me: makeMe({ account: { subscriptionStatus: 'none' } }),
+      });
+
+      expect(rowLabel(root, 'settings-row-manage-subscription')).toBe('Gestionar suscripción');
+    });
+
+    it('opens the Customer Center for a subscribed Account, then refreshes /me', async () => {
+      useBillingStore.getState().setIdentity('rc-issued-id', false);
+      const { root, context } = await renderScreen({
+        me: makeMe({ account: { subscriptionStatus: 'active' } }),
+      });
+
+      await press(root, 'settings-row-manage-subscription');
+
+      expect(RevenueCatUI.presentCustomerCenter).toHaveBeenCalledTimes(1);
+      expect(context.refreshMe).toHaveBeenCalledTimes(1);
     });
   });
 

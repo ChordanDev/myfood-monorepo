@@ -6,6 +6,7 @@ import { NoisyBackground, SafeAreaContent, TitlePrimary } from '@/components';
 import { MEAL_SLOT_LABEL } from '@/constants/mealSlots';
 import { useRecipeTheme } from '@/context/RecipeThemeContext';
 import { useAuth } from '@/features/auth';
+import { BILLING_COPY, useManageSubscription } from '@/features/billing';
 import { CUSTOM_TAB_BAR_CONTENT_HEIGHT } from '@/features/planner/constants';
 import { COOKING_TIME_SLOTS } from '@/features/preferences/constants/preferenceOptions';
 import { useGradientCrossfade } from '@/hooks/useGradientCrossfade';
@@ -51,6 +52,7 @@ export function SettingsScreen() {
   const { theme } = useRecipeTheme();
   const router = useRouter();
   const { isLoading, isAuthenticated, isComplete, canUseApp } = useAuth();
+  const { canManage: canManageSubscription, openCustomerCenter } = useManageSubscription();
   const {
     me,
     now,
@@ -246,6 +248,13 @@ export function SettingsScreen() {
               label="Plan"
               value={formatPlanSummary(account, now)}
             />
+            {canManageSubscription ? (
+              <SettingsRow
+                testID="settings-row-manage-subscription"
+                label={BILLING_COPY.manageSubscription}
+                onPress={openCustomerCenter}
+              />
+            ) : null}
             <SettingsRow
               testID="settings-row-sign-out"
               label="Cerrar sesión"
