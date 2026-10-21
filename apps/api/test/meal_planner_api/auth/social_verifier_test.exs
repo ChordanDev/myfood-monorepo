@@ -1,8 +1,8 @@
 defmodule MealPlannerApi.Auth.SocialVerifierTest do
   @moduledoc """
-  `MealPlannerApi.Auth.SocialVerifier` against stand-ins for Google's
-  `tokeninfo` endpoint and Apple's key set, served through Req's `:plug`
-  option. Apple tokens are signed here with a generated RSA key.
+  `MealPlannerApi.Auth.SocialVerifier` against stand-ins for Google's and
+  Apple's key sets, served through Req's `:plug` option. Tokens are signed
+  here with generated RSA keys.
   """
   use ExUnit.Case, async: true
 
@@ -37,13 +37,24 @@ defmodule MealPlannerApi.Auth.SocialVerifierTest do
   end
 
   describe "google" do
-    test "a token Google accepts for this app returns its subject and verified email" do
+    setup do
+      key = JOSE.JWK.generate_key({:rsa, 2048})
+      %{key: key, plug: keys_plug(key, "google-key")}
+    end
+
+    test "a token signed by Google for this app signs in without asking tokeninfo", %{key: key} do
+      test = self()
+      keys = jwks(key, "google-key")
+
       plug = fn conn ->
-        assert conn.query_string == "id_token=google-token"
-        Req.Test.json(conn, google_claims())
+        send(test, {:requested, conn.host, conn.request_path})
+
+        if conn.host == "oauth2.googleapis.com" or conn.request_path =~ "tokeninfo",
+          do: raise("tokeninfo must not be called"),
+          else: Req.Test.json(conn, keys)
       end
 
-      assert SocialVerifier.verify("google", "google-token", opts(plug)) ==
+      assert SocialVerifier.verify("google", google_token(key, %{}), opts(plug)) ==
                {:ok,
                 %{
                   provider: "google",
@@ -51,53 +62,75 @@ defmodule MealPlannerApi.Auth.SocialVerifierTest do
                   email: "person@example.com",
                   email_verified: true
                 }}
+
+      assert_received {:requested, "google.test", path}
+      assert path =~ "/oauth2/v3/certs"
+      refute_received {:requested, _host, _path}
     end
 
-    test "an email Google does not mark verified is returned as unverified" do
+    test "either issuer Google uses is accepted", %{key: key, plug: plug} do
+      for issuer <- ["accounts.google.com", "https://accounts.google.com"] do
+        token = google_token(key, %{"iss" => issuer})
+
+        assert {:ok, %{subject: "google-sub"}} =
+                 SocialVerifier.verify("google", token, opts(plug))
+      end
+    end
+
+    test "an email Google does not mark verified is returned as unverified", %{
+      key: key,
+      plug: plug
+    } do
       for verified <- ["false", false, nil] do
-        plug = fn conn -> Req.Test.json(conn, google_claims(%{"email_verified" => verified})) end
+        token = google_token(key, %{"email_verified" => verified})
 
         assert {:ok, %{email_verified: false}} =
-                 SocialVerifier.verify("google", "google-token", opts(plug))
+                 SocialVerifier.verify("google", token, opts(plug))
       end
     end
 
-    test "a token issued for another client is invalid" do
+    test "a token signed by another key is invalid", %{plug: plug} do
+      token = google_token(JOSE.JWK.generate_key({:rsa, 2048}), %{})
+      assert SocialVerifier.verify("google", token, opts(plug)) == {:error, :invalid_token}
+    end
+
+    test "a token issued for another client is invalid", %{key: key, plug: plug} do
       for audience <- ["someone-else", [@google_client], nil] do
-        plug = fn conn -> Req.Test.json(conn, google_claims(%{"aud" => audience})) end
-        assert SocialVerifier.verify("google", "t", opts(plug)) == {:error, :invalid_token}
+        token = google_token(key, %{"aud" => audience})
+        assert SocialVerifier.verify("google", token, opts(plug)) == {:error, :invalid_token}
       end
     end
 
-    test "a token from another issuer, expired, or without a subject is invalid" do
-      for claims <- [
-            %{"iss" => "https://evil.example.com"},
-            %{"exp" => Integer.to_string(System.os_time(:second) - 1)},
-            %{"exp" => "soon"},
-            %{"sub" => ""}
+    test "a token from another issuer is invalid", %{key: key, plug: plug} do
+      for issuer <- ["https://evil.example.com", "https://appleid.apple.com", nil] do
+        token = google_token(key, %{"iss" => issuer})
+        assert SocialVerifier.verify("google", token, opts(plug)) == {:error, :invalid_token}
+      end
+    end
+
+    test "an expired token is invalid", %{key: key, plug: plug} do
+      for exp <- [System.os_time(:second) - 1, nil] do
+        token = google_token(key, %{"exp" => exp})
+        assert SocialVerifier.verify("google", token, opts(plug)) == {:error, :invalid_token}
+      end
+    end
+
+    test "a token without a subject is invalid", %{key: key, plug: plug} do
+      token = google_token(key, %{"sub" => ""})
+      assert SocialVerifier.verify("google", token, opts(plug)) == {:error, :invalid_token}
+    end
+
+    test "Google's key set failing or throttled is the provider's", %{key: key} do
+      token = google_token(key, %{})
+
+      for plug <- [
+            fn conn -> Plug.Conn.send_resp(conn, 503, "unavailable") end,
+            fn conn -> Plug.Conn.send_resp(conn, 429, "slow down") end,
+            fn conn -> Plug.Conn.send_resp(conn, 200, "not json") end
           ] do
-        plug = fn conn -> Req.Test.json(conn, google_claims(claims)) end
-        assert SocialVerifier.verify("google", "t", opts(plug)) == {:error, :invalid_token}
+        assert SocialVerifier.verify("google", token, opts(plug)) ==
+                 {:error, :provider_unavailable}
       end
-    end
-
-    test "a token Google rejects is invalid, and a Google failure or throttle is the provider's" do
-      rejected = fn conn -> conn |> Plug.Conn.put_status(400) |> Req.Test.json(%{}) end
-      failing = fn conn -> Plug.Conn.send_resp(conn, 503, "unavailable") end
-      not_json = fn conn -> Plug.Conn.send_resp(conn, 200, "not json") end
-      throttled = fn conn -> Plug.Conn.send_resp(conn, 429, "slow down") end
-
-      assert SocialVerifier.verify("google", "t", opts(rejected)) == {:error, :invalid_token}
-
-      assert SocialVerifier.verify("google", "t", opts(failing)) ==
-               {:error, :provider_unavailable}
-
-      assert SocialVerifier.verify("google", "t", opts(not_json)) ==
-               {:error, :provider_unavailable}
-
-      # Google throttling this server says nothing about the token.
-      assert SocialVerifier.verify("google", "t", opts(throttled)) ==
-               {:error, :provider_unavailable}
     end
   end
 
@@ -185,7 +218,7 @@ defmodule MealPlannerApi.Auth.SocialVerifierTest do
     end
   end
 
-  describe "apple key set cache" do
+  describe "key set cache" do
     setup do
       key = JOSE.JWK.generate_key({:rsa, 2048})
       url = "http://apple.test/#{System.unique_integer([:positive])}/auth/keys"
@@ -253,7 +286,7 @@ defmodule MealPlannerApi.Auth.SocialVerifierTest do
                SocialVerifier.verify(
                  "apple",
                  token,
-                 opts(rotated_plug, apple_jwks_url: url, apple_jwks_min_refresh_seconds: 0)
+                 opts(rotated_plug, apple_jwks_url: url, jwks_min_refresh_seconds: 0)
                )
 
       assert fetches() == 2
@@ -267,33 +300,64 @@ defmodule MealPlannerApi.Auth.SocialVerifierTest do
                  SocialVerifier.verify(
                    "apple",
                    apple_token(key, %{}),
-                   opts(plug, apple_jwks_url: url, apple_jwks_ttl_seconds: 0)
+                   opts(plug, apple_jwks_url: url, jwks_ttl_seconds: 0)
                  )
       end
 
       assert fetches() == 2
     end
+
+    test "concurrent sign-ins against an empty cache fetch the key set once", %{
+      key: key,
+      url: url
+    } do
+      test = self()
+      keys = jwks(key, "google-key")
+
+      # Slow enough that every sign-in finds the cache empty while the
+      # first fetch is still running.
+      plug = fn conn ->
+        send(test, :jwks_fetched)
+        Process.sleep(100)
+        Req.Test.json(conn, keys)
+      end
+
+      opts = opts(plug, google_jwks_url: url)
+
+      results =
+        1..20
+        |> Task.async_stream(
+          fn _ -> SocialVerifier.verify("google", google_token(key, %{}), opts) end,
+          max_concurrency: 20
+        )
+        |> Enum.map(fn {:ok, result} -> result end)
+
+      assert Enum.all?(results, &match?({:ok, %{subject: "google-sub"}}, &1))
+      assert fetches() == 1
+    end
   end
 
   describe "provider requests" do
     test "a request that raises, such as a full connection pool, is the provider's" do
+      key = JOSE.JWK.generate_key({:rsa, 2048})
       raising = fn _conn -> raise RuntimeError, "Finch was unable to provide a connection" end
 
-      assert SocialVerifier.verify("google", "t", opts(raising)) ==
+      assert SocialVerifier.verify("google", google_token(key, %{}), opts(raising)) ==
                {:error, :provider_unavailable}
     end
   end
 
   # ---- helpers ---------------------------------------------------------------
 
-  # Every call names its own Apple key set URL unless `overrides` names
-  # one, so the key set cache never carries over between calls or tests.
+  # Every call names its own key set URLs unless `overrides` names one, so
+  # the key set cache never carries over between calls or tests.
   defp opts(plug \\ fn conn -> Req.Test.json(conn, %{}) end, overrides \\ []) do
     Keyword.merge(
       [
         google_oauth_client_ids: [@google_client],
         apple_oauth_client_ids: [@apple_client],
-        google_tokeninfo_url: "http://google.test/tokeninfo",
+        google_jwks_url:
+          "http://google.test/#{System.unique_integer([:positive])}/oauth2/v3/certs",
         apple_jwks_url: "http://apple.test/#{System.unique_integer([:positive])}/auth/keys",
         req_options: [plug: plug]
       ],
@@ -301,18 +365,22 @@ defmodule MealPlannerApi.Auth.SocialVerifierTest do
     )
   end
 
-  defp google_claims(overrides \\ %{}) do
+  defp google_claims(overrides) do
     Map.merge(
       %{
         "iss" => "https://accounts.google.com",
         "aud" => @google_client,
         "sub" => "google-sub",
         "email" => "person@example.com",
-        "email_verified" => "true",
-        "exp" => Integer.to_string(System.os_time(:second) + 3_600)
+        "email_verified" => true,
+        "exp" => System.os_time(:second) + 3_600
       },
       overrides
     )
+  end
+
+  defp google_token(key, overrides, kid \\ "google-key") do
+    sign(key, kid, google_claims(overrides))
   end
 
   defp apple_claims(overrides) do
@@ -330,9 +398,13 @@ defmodule MealPlannerApi.Auth.SocialVerifierTest do
   end
 
   defp apple_token(key, overrides, kid \\ "apple-key") do
+    sign(key, kid, apple_claims(overrides))
+  end
+
+  defp sign(key, kid, claims) do
     {_jws, token} =
       key
-      |> JOSE.JWT.sign(%{"alg" => "RS256", "kid" => kid}, apple_claims(overrides))
+      |> JOSE.JWT.sign(%{"alg" => "RS256", "kid" => kid}, claims)
       |> JOSE.JWS.compact()
 
     token
@@ -341,7 +413,7 @@ defmodule MealPlannerApi.Auth.SocialVerifierTest do
   # Serves `key` and tells the test process each time it is asked.
   defp counting_keys_plug(key, kid \\ "apple-key") do
     test = self()
-    keys = apple_keys(key, kid)
+    keys = jwks(key, kid)
 
     fn conn ->
       send(test, :jwks_fetched)
@@ -357,15 +429,15 @@ defmodule MealPlannerApi.Auth.SocialVerifierTest do
     end
   end
 
-  defp apple_keys(key, kid) do
+  defp jwks(key, kid) do
     {_fields, public} = key |> JOSE.JWK.to_public() |> JOSE.JWK.to_map()
     %{"keys" => [Map.merge(public, %{"kid" => kid, "alg" => "RS256"})]}
   end
 
-  defp apple_keys_plug(key) do
-    {_fields, public} = key |> JOSE.JWK.to_public() |> JOSE.JWK.to_map()
-    keys = %{"keys" => [Map.merge(public, %{"kid" => "apple-key", "alg" => "RS256"})]}
-
+  defp keys_plug(key, kid) do
+    keys = jwks(key, kid)
     fn conn -> Req.Test.json(conn, keys) end
   end
+
+  defp apple_keys_plug(key), do: keys_plug(key, "apple-key")
 end

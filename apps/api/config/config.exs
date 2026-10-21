@@ -54,7 +54,7 @@ config :meal_planner_api,
   social_verifier: MealPlannerApi.Auth.SocialVerifier,
   google_oauth_client_ids: [],
   apple_oauth_client_ids: [],
-  google_tokeninfo_url: "https://oauth2.googleapis.com/tokeninfo",
+  google_jwks_url: "https://www.googleapis.com/oauth2/v3/certs",
   apple_jwks_url: "https://appleid.apple.com/auth/keys"
 
 # Configure the endpoint
