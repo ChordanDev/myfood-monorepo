@@ -26,7 +26,9 @@ defmodule MealPlannerApi.Integrations.GoScraperClient do
 
     * The real response has no `unavailable` field: the scraper drops
       unavailable products itself, so the `false` default here is correct.
-    * `unit` is an uppercase code (`"KG"`, `"LT"`, `"UN"`, `"MT"`) or absent.
+    * `unit` is usually an uppercase code (`"KG"`, `"LT"`, `"UN"`, `"MT"`).
+      When the scraper reads no unit from the product name, it is the store's
+      own unit as the store wrote it (often `"un"`), or absent.
       `parse_response/1` maps it to the unit prices are stored in.
     * With `ENV=release` the scraper answers `403` unless the `Referer`
       contains its `WEB_URL`. This client sends no `Referer`, so the scraper
@@ -118,9 +120,10 @@ defmodule MealPlannerApi.Integrations.GoScraperClient do
   Parses a Go scraper response body.
 
   The scraper's `unit` codes become the units prices are stored in
-  (`"KG"` -> `"kg"`, `"LT"` -> `"l"`, `"UN"` -> `"unit"`). Any other code,
-  such as `"MT"`, or a missing unit becomes `""`, so no `UnitConversion`
-  matches it and `mix price_sync.run` skips that product.
+  (`"KG"` -> `"kg"`, `"LT"` -> `"l"`, `"UN"` -> `"unit"`), in any case. Any
+  other code, such as `"MT"` or a store's own `"gr"`, or a missing unit
+  becomes `""`, so no `UnitConversion` matches it and `mix price_sync.run`
+  skips that product.
   """
   @spec parse_response(term()) :: {:ok, scrape_result()} | {:error, :parse_error}
   def parse_response(body) when is_map(body) do
@@ -149,8 +152,13 @@ defmodule MealPlannerApi.Integrations.GoScraperClient do
   # Private
   # -------------------------------------------------------------------------
 
-  # `apps/scraper/unit/mapper.go` normalizes every unit to one of these codes.
+  # `apps/scraper/unit/mapper.go` codes, in upper case. When the scraper reads
+  # no unit from the product name it passes the store's own unit through as
+  # the store wrote it (`unit/extractor.go`), so "un" or "kg" arrive too.
   @stored_units %{"KG" => "kg", "LT" => "l", "UN" => "unit"}
 
-  defp stored_unit(unit), do: Map.get(@stored_units, unit, "")
+  defp stored_unit(unit) when is_binary(unit),
+    do: Map.get(@stored_units, String.upcase(unit), "")
+
+  defp stored_unit(_unit), do: ""
 end

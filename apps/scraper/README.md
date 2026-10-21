@@ -98,9 +98,11 @@ Checked against the imported commit:
   and all VTEX stores), and the VTEX query also sets `hideUnavailableItems`. The only scraper that
   could return one, Mercado Libre (`cores/html`), is disabled in `controllers/normalized_scrapper.go`.
   The client's `false` default is therefore correct and the client does not change for it.
-- **`unit`.** An uppercase code from `unit/mapper.go`: `KG`, `LT`, `UN` or `MT`, or absent when
-  the name has no unit. `GoScraperClient` turns `KG`, `LT` and `UN` into `kg`, `l` and `unit`, the
-  units `ingredient_prices` accepts, and any other value into `""`, which no conversion matches.
+- **`unit`.** Usually an uppercase code from `unit/mapper.go`: `KG`, `LT`, `UN` or `MT`. When the
+  scraper reads no unit from the product name, `unit/extractor.go` passes the store's own unit
+  through as the store wrote it (often `un`), or leaves it absent. `GoScraperClient` turns `KG`,
+  `LT` and `UN`, in any case, into `kg`, `l` and `unit`, the units `ingredient_prices` accepts, and
+  any other value (`MT`, a store's own `gr`, nothing) into `""`, which no conversion matches.
 - **Uppercase queries.** A `q` with uppercase letters gets `403 Forbidden`. The client downcases
   every query.
 - **`Referer`.** With `ENV=release` the scraper answers `403 Forbidden` unless the `Referer` header

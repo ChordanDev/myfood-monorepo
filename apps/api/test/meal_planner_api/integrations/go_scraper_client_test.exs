@@ -43,6 +43,15 @@ defmodule MealPlannerApi.Integrations.GoScraperClientTest do
       assert Enum.map(products, & &1.unit) == ["kg", "l", "unit"]
     end
 
+    # When the scraper cannot read a unit from the product name it passes the
+    # store's own unit through as the store wrote it, such as "un" or "kg".
+    test "maps a store unit passed through in lowercase the same way" do
+      body = scraper_body(Enum.map(["kg", "lt", "un", "Kg"], &scraper_product/1))
+
+      assert {:ok, %{products: products}} = GoScraperClient.parse_response(body)
+      assert Enum.map(products, & &1.unit) == ["kg", "l", "unit", "kg"]
+    end
+
     test "leaves a unit it cannot store empty, so no unit conversion matches it" do
       body = scraper_body([scraper_product("MT"), scraper_product(nil)])
 
