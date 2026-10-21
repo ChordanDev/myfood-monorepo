@@ -71,6 +71,28 @@ defmodule MealPlannerApi.Auth.JwksCacheTest do
     assert fetches() == 1
   end
 
+  # Every other test swaps the HTTP client for a `:plug`; this one goes
+  # through Req's real Finch adapter, so options it rejects show up here.
+  test "a key set is fetched over real HTTP", %{server: server} do
+    bandit = start_supervised!({Bandit, plug: __MODULE__.KeysPlug, ip: :loopback, port: 0})
+    {:ok, {_ip, port}} = ThousandIsland.listener_info(bandit)
+    url = "http://127.0.0.1:#{port}/#{System.unique_integer([:positive])}/certs"
+
+    assert JwksCache.keys(url, "key-1", jwks_cache: server) == {:ok, @keys}
+  end
+
+  defmodule KeysPlug do
+    @moduledoc false
+    @behaviour Plug
+
+    @impl true
+    def init(opts), do: opts
+
+    @impl true
+    def call(conn, _opts),
+      do: Req.Test.json(conn, %{"keys" => [%{"kid" => "key-1", "kty" => "RSA"}]})
+  end
+
   # ---- helpers ---------------------------------------------------------------
 
   defp opts(server, plug, overrides \\ []) do

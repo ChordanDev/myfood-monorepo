@@ -21,6 +21,8 @@ defmodule MealPlannerApi.Auth.JwksCache do
 
   use GenServer
 
+  require Logger
+
   @default_ttl_seconds 3_600
   @default_min_refresh_seconds 60
 
@@ -135,12 +137,15 @@ defmodule MealPlannerApi.Auth.JwksCache do
     {:noreply, %{state | fetches: fetches, urls: Map.delete(state.urls, url)}}
   end
 
+  # `pool_timeout` stays top-level: Req deprecates it in favour of
+  # `finch: [pool_timeout: ...]`, but refuses `:finch` next to
+  # `:connect_options`.
   defp fetch(url, req_options) do
     options =
       Keyword.merge(
         [
           receive_timeout: 10_000,
-          finch: [pool_timeout: 5_000],
+          pool_timeout: 5_000,
           connect_options: [timeout: 5_000],
           retry: false
         ],
@@ -152,13 +157,21 @@ defmodule MealPlannerApi.Auth.JwksCache do
       when status in 200..299 and is_list(keys) ->
         {:ok, keys}
 
-      _failed ->
-        {:error, :provider_unavailable}
+      {:ok, %Req.Response{status: status}} ->
+        fetch_failed(url, "status #{status} or a body without keys")
+
+      {:error, exception} ->
+        fetch_failed(url, Exception.message(exception))
     end
   rescue
     # Finch raises when its connection pool is exhausted; that is the
     # provider being unreachable too.
-    _exception -> {:error, :provider_unavailable}
+    exception -> fetch_failed(url, Exception.message(exception))
+  end
+
+  defp fetch_failed(url, reason) do
+    Logger.warning("JWKS fetch from #{url} failed: #{reason}")
+    {:error, :provider_unavailable}
   end
 
   defp option(opts, key, default) do
