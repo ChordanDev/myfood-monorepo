@@ -162,6 +162,20 @@ describe('useSubscribe', () => {
     expect(result.current.message).toBe(BILLING_COPY.nothingRestored);
   });
 
+  it('keeps "Suscribirme" when CustomerInfo cannot be read after a restore', async () => {
+    mockPaywall.presentPaywall.mockResolvedValueOnce(PAYWALL_RESULT.RESTORED);
+    mockPurchases.getCustomerInfo.mockRejectedValueOnce(new Error('store unreachable'));
+    (confirmRestore as jest.Mock).mockResolvedValue(pending);
+    const rendered = await render();
+    const { result } = rendered;
+
+    await subscribe(rendered);
+
+    expect(confirmRestore).not.toHaveBeenCalled();
+    expect(result.current.status).toBe('error');
+    expect(result.current.message).toBe(BILLING_COPY.restoreUnverified);
+  });
+
   it('treats a cancelled Paywall as no error', async () => {
     mockPaywall.presentPaywall.mockResolvedValueOnce(PAYWALL_RESULT.CANCELLED);
     const rendered = await render();

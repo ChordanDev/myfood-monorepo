@@ -4,6 +4,7 @@ export const BILLING_COPY = {
   pending:
     'Recibimos tu pago y lo estamos confirmando. Puede tardar unos minutos: revisá de nuevo en un rato.',
   nothingRestored: 'No encontramos una suscripción para restaurar con esta cuenta de la tienda.',
+  restoreUnverified: 'No pudimos verificar la restauración con la tienda. Probá de nuevo.',
   unavailable: 'Las suscripciones no están disponibles en esta versión de la app.',
   identityError: 'No pudimos preparar tu suscripción. Reintentá en unos segundos.',
   storeError: 'La tienda no pudo completar la operación. Probá de nuevo.',
