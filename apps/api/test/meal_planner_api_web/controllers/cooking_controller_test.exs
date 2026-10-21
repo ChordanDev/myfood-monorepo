@@ -478,6 +478,68 @@ defmodule MealPlannerApiWeb.CookingControllerTest do
       conn = post(conn, "/api/cooking/start", %{"scheduledMealId" => meal.id})
       assert %{"error" => %{"code" => "subscription_required"}} = json_response(conn, 403)
     end
+
+    # Issue #397: a Cooking session always needs an eligible Account, even with
+    # the access enforcement switch off, unlike consuming from the calendar.
+    test "switch off: an expired Account's finish is 403 subscription_required and consumes nothing",
+         %{conn: conn, account_id: account_id, recipe: recipe, today: today} do
+      {:ok, ingredient} =
+        Catalog.upsert_ingredient_by_name(%{
+          name: "Finish expired #{Ecto.UUID.generate()}",
+          category: :otros
+        })
+
+      {:ok, _} =
+        Catalog.add_recipe_ingredient(%{
+          recipe_id: recipe.id,
+          ingredient_id: ingredient.id,
+          quantity_milli: 300,
+          unit: :g
+        })
+
+      lot =
+        %InventoryItem{}
+        |> InventoryItem.changeset(%{
+          account_id: account_id,
+          ingredient_id: ingredient.id,
+          quantity_milli: 1000,
+          unit: :g,
+          source_kind: :planned,
+          last_mutation_at: DateTime.utc_now(),
+          expired_at: DateTime.add(DateTime.utc_now(), 5 * 86_400)
+        })
+        |> MealPlannerApi.Repo.insert!()
+
+      {:ok, meal} =
+        Planning.schedule_meal(%{
+          account_id: account_id,
+          date: today,
+          slot: :dinner,
+          recipe_id: recipe.id
+        })
+
+      session_id =
+        conn
+        |> post("/api/cooking/start", %{"scheduledMealId" => meal.id})
+        |> json_response(200)
+        |> get_in(["data", "sessionId"])
+
+      account = MealPlannerApi.Repo.get!(MealPlannerApi.Persistence.Accounts.Account, account_id)
+      MealPlannerApiWeb.ChannelHelpers.persist_trial_window!(account, :expired)
+
+      previous = Application.get_env(:meal_planner_api, :revenuecat_access_enforcement)
+      Application.put_env(:meal_planner_api, :revenuecat_access_enforcement, false)
+
+      try do
+        finish = post(conn, "/api/cooking/sessions/#{session_id}/finish")
+        assert %{"error" => %{"code" => "subscription_required"}} = json_response(finish, 403)
+      after
+        Application.put_env(:meal_planner_api, :revenuecat_access_enforcement, previous)
+      end
+
+      assert MealPlannerApi.Repo.get!(InventoryItem, lot.id).quantity_milli == 1000
+      refute MealPlannerApi.Repo.get!(Planning.ScheduledMeal, meal.id).is_cooked
+    end
   end
 
   describe "cooking chat (issue #36)" do

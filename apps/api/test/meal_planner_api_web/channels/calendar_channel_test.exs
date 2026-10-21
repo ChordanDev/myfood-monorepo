@@ -655,6 +655,68 @@ defmodule MealPlannerApiWeb.CalendarChannelTest do
       assert user_id == user.id
     end
 
+    # Issue #397: with the access enforcement switch on, an Account that is not
+    # eligible is refused at the join, so its set_is_cooked never runs.
+    test "switch on: an expired Account's join is refused with subscription_required and consumes nothing",
+         %{account: account, user: user, token: token} do
+      {:ok, recipe} =
+        Catalog.create_recipe(%{
+          account_id: account.id,
+          created_by_user_id: user.id,
+          name: "Expired cooked recipe",
+          source: :user_created,
+          servings: 2,
+          suitable_for_slots: [:lunch]
+        })
+
+      {:ok, ingredient} =
+        Catalog.upsert_ingredient_by_name(%{
+          name: "Expired cooked #{Ecto.UUID.generate()}",
+          category: :otros
+        })
+
+      {:ok, _} =
+        Catalog.add_recipe_ingredient(%{
+          recipe_id: recipe.id,
+          ingredient_id: ingredient.id,
+          quantity_milli: 300,
+          unit: :g
+        })
+
+      lot =
+        Repo.insert!(%InventoryItem{
+          account_id: account.id,
+          ingredient_id: ingredient.id,
+          quantity_milli: 1000,
+          unit: :g,
+          source_kind: :planned,
+          last_mutation_at: DateTime.utc_now()
+        })
+
+      {:ok, meal} =
+        Planning.schedule_meal(%{
+          account_id: account.id,
+          date: Date.utc_today(),
+          slot: :lunch,
+          recipe_id: recipe.id
+        })
+
+      _ = persist_trial_window!(account, :expired)
+
+      with_enforcement_enabled!(fn ->
+        {:ok, socket} = connect(UserSocket, %{"token" => token})
+
+        assert {:error, %{reason: "subscription_required"}} =
+                 subscribe_and_join(socket, CalendarChannel, "calendar:#{account.id}")
+      end)
+
+      refute Repo.get!(Planning.ScheduledMeal, meal.id).is_cooked
+      assert Repo.get!(InventoryItem, lot.id).quantity_milli == 1000
+
+      assert [] =
+               Repo.all(from(e in InventoryMutationEvent, where: e.inventory_item_id == ^lot.id))
+    end
+
     test "set is_cooked with non-boolean value", %{account: account, token: token} do
       {:ok, socket} = connect(UserSocket, %{"token" => token})
 
