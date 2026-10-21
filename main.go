@@ -1,0 +1,36 @@
+package main
+
+import (
+	"github.com/gin-gonic/gin"
+
+	"ratoneando/config"
+	"ratoneando/history"
+	"ratoneando/middlewares"
+	"ratoneando/routes"
+	"ratoneando/utils/cache"
+	"ratoneando/utils/logger"
+)
+
+func main() {
+	logger.Init()
+	config.Init()
+	cache.Init()
+	history.Init()
+
+	gin.SetMode(config.ENV)
+
+	port := config.PORT
+
+	router := gin.Default()
+
+	middlewares.CORS(router)
+
+	// Register routes
+	routes.RegisterRoutes(router)
+
+	// Start the server
+	logger.Log("Starting server on port " + port)
+	if err := router.Run(":" + port); err != nil {
+		logger.LogFatal("Could not start server: " + err.Error())
+	}
+}
