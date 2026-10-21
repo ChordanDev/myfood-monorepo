@@ -18,7 +18,7 @@ friends still show the pre-monorepo commits.
 ## Running the API (`apps/api`)
 
 Prerequisites: Elixir ~> 1.15 (CI uses 1.17 / OTP 27), PostgreSQL, Python 3
-with OR-Tools.
+with OR-Tools 9.15 (pinned in `optimizer/requirements.txt`).
 
 ```sh
 cd apps/api
@@ -53,7 +53,9 @@ direnv stub that sets safe defaults and sources `.envrc.local` for secrets.
 
 Tests: `mix test` (uses `postgres`/`postgres` on `localhost`, database
 `meal_planner_api_test`; override with `MYFOOD_TEST_DATABASE`). The optimizer
-has its own suite: `cd optimizer && python3 -m unittest test_optimizador`.
+has its own suite: `cd optimizer && python3 -m unittest test_optimizador`. Its
+request and reply shapes are in `apps/api/docs/OPTIMIZER_CONTRACT.md`; there is
+no fallback plan, so an unavailable optimizer is an error.
 
 ## Running the mobile app (`apps/mobile`)
 
@@ -106,8 +108,9 @@ App-specific guides stay next to their app (`apps/mobile/docs/THEMING.md`,
 
 ## CI
 
-`.github/workflows/ci.yml` runs an `api` job (compile with warnings as errors,
-`mix test` against Postgres 16) and a `mobile` job (lint, typecheck, jest).
+`.github/workflows/ci.yml` runs an `api` job (the optimizer's Python suite,
+compile with warnings as errors, `mix test` against Postgres 16) and a `mobile`
+job (lint, typecheck, jest).
 Each job only runs when its `apps/<name>/` tree changes; `docs/`-only changes
 trigger neither.
 

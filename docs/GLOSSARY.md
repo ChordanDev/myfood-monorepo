@@ -98,7 +98,7 @@ This file and `docs/adr/` are the only durable docs in the repository. Specs, ma
 
 **Planning candidate** — A Recipe eligible to enter the optimizer after server-side filtering by account scope, restrictions and slot suitability. `(code: Services.PlanningCandidateBuilder)`
 
-**Optimizer** — The external solver that assigns candidates to slots under budget and variety constraints, with a fallback when it is unavailable. `(code: Optimization.OptimizerPort, Optimization.OptimizerFallback)`
+**Optimizer** — The external solver that assigns candidates to slots under budget, nutrition and variety constraints. It always returns the closest plan and names every goal the plan misses; when it is unavailable or finds no plan, planning reports an error, never a substitute plan. `(code: Optimization.OptimizerPort, Optimization.OptimizerServer)`
 
 **Planning proposal** — A generated plan awaiting the User's decision: `pending`, `accepted` or `rejected`. `(code: Persistence.Planning.PlanningProposal)` `(alias: Draft Meal Plan, Borrador de Plan)`
 
