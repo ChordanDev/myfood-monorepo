@@ -48,8 +48,8 @@ export function useSubscribe(): SubscribeState {
   const accountId = me?.account.id ?? null;
   const [status, setStatus] = useState<SubscribeStatus>('idle');
   const [message, setMessage] = useState<string | null>(null);
-  // The flow in progress and the Account that started it. Only that Account waits for it.
-  const runRef = useRef<{ accountId: string | null } | null>(null);
+  // The Accounts with a flow in progress. Each waits only for its own, never for another's.
+  const runningRef = useRef(new Set<string | null>());
   // The Account on screen now, so a flow the previous Account started stops showing anything.
   const accountRef = useRef(accountId);
   // What the store completed last and for which Account, so checking again asks the same route.
@@ -80,13 +80,12 @@ export function useSubscribe(): SubscribeState {
 
   const runExclusive = useCallback(
     async (task: () => Promise<void>) => {
-      if (runRef.current?.accountId === accountId) return;
-      const run = { accountId };
-      runRef.current = run;
+      if (runningRef.current.has(accountId)) return;
+      runningRef.current.add(accountId);
       try {
         await task();
       } finally {
-        if (runRef.current === run) runRef.current = null;
+        runningRef.current.delete(accountId);
       }
     },
     [accountId]
