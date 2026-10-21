@@ -26,14 +26,24 @@ defmodule MealPlannerApi.Auth.JwksCache do
   @default_ttl_seconds 3_600
   @default_min_refresh_seconds 60
 
-  # Longer than the slowest fetch `Req` allows below (pool, connect and
-  # receive timeouts), so a waiter always hears the fetch's own answer.
+  # A fetch waits at most 5s for a pooled connection, 5s to connect and
+  # `@default_request_timeout` for the whole response, and follows no
+  # redirect. The call outlasts that, so a waiter always hears the fetch's
+  # own answer.
+  @default_request_timeout 15_000
   @call_timeout 30_000
 
   @type key :: map()
 
+  @doc """
+  Starts the server. `:request_timeout` (default
+  #{@default_request_timeout} ms) bounds how long one fetch waits for the
+  whole response; it must stay well under the 30s callers wait.
+  """
   def start_link(opts \\ []) do
-    GenServer.start_link(__MODULE__, :ok, name: Keyword.get(opts, :name, __MODULE__))
+    request_timeout = Keyword.get(opts, :request_timeout, @default_request_timeout)
+    name = Keyword.get(opts, :name, __MODULE__)
+    GenServer.start_link(__MODULE__, request_timeout, name: name)
   end
 
   @doc """
@@ -88,7 +98,9 @@ defmodule MealPlannerApi.Auth.JwksCache do
   # ---- server ------------------------------------------------------------------
 
   @impl true
-  def init(:ok), do: {:ok, %{fetches: %{}, urls: %{}}}
+  def init(request_timeout) do
+    {:ok, %{fetches: %{}, urls: %{}, request_timeout: request_timeout}}
+  end
 
   @impl true
   def handle_call({:refresh, url, seen, req_options}, from, state) do
@@ -105,9 +117,12 @@ defmodule MealPlannerApi.Auth.JwksCache do
       true ->
         server = self()
         tag = make_ref()
+        request_timeout = state.request_timeout
 
         {_pid, monitor} =
-          spawn_monitor(fn -> send(server, {:jwks_fetched, tag, fetch(url, req_options)}) end)
+          spawn_monitor(fn ->
+            send(server, {:jwks_fetched, tag, fetch(url, request_timeout, req_options)})
+          end)
 
         fetch = %{url: url, waiters: [from], monitor: monitor}
 
@@ -151,11 +166,13 @@ defmodule MealPlannerApi.Auth.JwksCache do
   # `pool_timeout` stays top-level: Req deprecates it in favour of
   # `finch: [pool_timeout: ...]`, but refuses `:finch` next to
   # `:connect_options`.
-  defp fetch(url, req_options) do
+  defp fetch(url, request_timeout, req_options) do
     options =
       Keyword.merge(
         [
           receive_timeout: 10_000,
+          request_timeout: request_timeout,
+          redirect: false,
           pool_timeout: 5_000,
           connect_options: [timeout: 5_000],
           retry: false
