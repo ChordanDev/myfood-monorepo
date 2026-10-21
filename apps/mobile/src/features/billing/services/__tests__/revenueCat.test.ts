@@ -203,13 +203,56 @@ describe('RevenueCat identity', () => {
     await Promise.resolve();
     await Promise.resolve();
     const signingOut = service.signOutOfRevenueCat();
-    await expect(service.identifyAccount()).resolves.toBe('rc-second-account');
+    // The second login waits for the first one, still in flight, before it starts.
+    const identifyingSecond = service.identifyAccount();
     finishFirstLogIn();
+    await expect(identifyingSecond).resolves.toBe('rc-second-account');
     await signingOut;
     await identifyingFirst;
 
     expect(Purchases.logOut).not.toHaveBeenCalled();
     expect(store.getState().appUserId).toBe('rc-second-account');
+  });
+
+  it('keeps the SDK on the newest Account when an older login finishes last', async () => {
+    const { service, Purchases, fetchBillingStatus, store } = load();
+    fetchBillingStatus
+      .mockResolvedValueOnce(status('rc-first-account'))
+      .mockResolvedValueOnce(status('rc-second-account'));
+    // The native SDK stays on whichever login finishes last.
+    let sdkUser: string | null = null;
+    const finishers = new Map<string, () => void>();
+    Purchases.logIn.mockImplementation(
+      (id: string) =>
+        new Promise((resolve) => {
+          finishers.set(id, () => {
+            sdkUser = id;
+            resolve({ customerInfo: customerInfo([]), created: false } as never);
+          });
+        }) as never
+    );
+    const finish = (id: string) => {
+      const finisher = finishers.get(id);
+      finishers.delete(id);
+      finisher?.();
+    };
+    const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
+
+    const identifyingFirst = service.identifyAccount();
+    await flush();
+    const identifyingSecond = service.identifyAccount();
+    await flush();
+    // When both logins are in flight, the native SDK finishes the second one first.
+    finish('rc-second-account');
+    await flush();
+    finish('rc-first-account');
+    await flush();
+    finish('rc-second-account');
+    await expect(identifyingFirst).resolves.toBeNull();
+    await expect(identifyingSecond).resolves.toBe('rc-second-account');
+
+    expect(store.getState().appUserId).toBe('rc-second-account');
+    expect(sdkUser).toBe('rc-second-account');
   });
 
   it('skips logOut for an anonymous user, which the SDK would reject', async () => {
