@@ -72,3 +72,20 @@ export async function isSocialProviderAvailable(provider: SocialProvider): Promi
 export function requestSocialIdToken(provider: SocialProvider): Promise<string | null> {
   return provider === 'apple' ? requestAppleIdToken() : requestGoogleIdToken();
 }
+
+/**
+ * Forgets the Google account the SDK cached, so the next Google sign-in shows the account chooser.
+ * Never throws: a failure of the SDK must not stop the User from logging out.
+ */
+export async function signOutOfGoogle(): Promise<void> {
+  // A build without the client IDs never signed in with Google, and configuring the SDK there
+  // fails outside the try below: the SDK only reports that failure to a later sign-in.
+  if (!isGoogleConfigured()) return;
+  try {
+    // The SDK refuses to sign out before it is configured, as after an app restart.
+    configureGoogle();
+    await GoogleSignin.signOut();
+  } catch (error) {
+    console.warn('[socialSignIn] Error signing out of Google:', error);
+  }
+}
