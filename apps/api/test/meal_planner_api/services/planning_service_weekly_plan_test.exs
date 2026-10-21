@@ -4,13 +4,38 @@ defmodule MealPlannerApi.Services.PlanningServiceWeeklyPlanTest do
   import MealPlannerApi.IdentityFixtures
 
   alias Ecto.Adapters.SQL.Sandbox
-  alias MealPlannerApi.Optimization.{OptimizerFallback, OptimizerMock}
+  alias MealPlannerApi.Optimization.OptimizerMock
   alias MealPlannerApi.Persistence.Accounts.UserExcludedIngredient
   alias MealPlannerApi.Persistence.Catalog
   alias MealPlannerApi.Persistence.Catalog.{Ingredient, Recipe, RecipeIngredient}
   alias MealPlannerApi.Persistence.Shopping
   alias MealPlannerApi.Repo
   alias MealPlannerApi.Services.PlanningService
+
+  defmodule DeviatingOptimizer do
+    @moduledoc false
+    @behaviour MealPlannerApi.Optimization.OptimizerPort
+
+    # Answers like `OptimizerMock`, but the plan breaks the budget.
+    @impl true
+    def select_weekly_menu(payload) do
+      {:ok, result} = OptimizerMock.select_weekly_menu(payload)
+
+      deviation = %{
+        "goal" => "budget",
+        "priority" => 1,
+        "direction" => "above_max",
+        "bound" => 100,
+        "actual" => 250,
+        "amount" => 150
+      }
+
+      {:ok, Map.put(result, "deviations", [deviation])}
+    end
+
+    @impl true
+    def health_check, do: :ok
+  end
 
   setup do
     :ok = Sandbox.checkout(Repo)
@@ -120,7 +145,7 @@ defmodule MealPlannerApi.Services.PlanningServiceWeeklyPlanTest do
                )
     end
 
-    for optimizer <- [OptimizerMock, OptimizerFallback] do
+    for optimizer <- [OptimizerMock] do
       test "keeps the plan of a valid #{inspect(optimizer)} answer unchanged" do
         %{user: user, recipes: recipes} =
           create_identity_with_recipes("u_valid", "free", "individual")
@@ -144,6 +169,39 @@ defmodule MealPlannerApi.Services.PlanningServiceWeeklyPlanTest do
                  |> Enum.map(&(&1["estimated_cost_cents"] || 0))
                  |> Enum.sum()
       end
+    end
+  end
+
+  # The v2 optimizer plans ISO dates and returns the closest plan with every
+  # missed goal as a Deviation (issue #422).
+  describe "v2 optimizer contract" do
+    test "sends one ISO date per planned day, from today, and keeps the plan's day names" do
+      Application.put_env(:meal_planner_api, :planning_optimizer_capture_pid, self())
+      %{user: user} = create_identity_with_recipes("u_iso_days", "free", "individual")
+
+      assert {:ok, plan} =
+               PlanningService.generate_weekly_plan(
+                 user,
+                 %{"days" => 2},
+                 MealPlannerApi.PlanningCaptureOptimizerClient
+               )
+
+      assert_receive {:optimizer_payload, payload}
+      today = Date.utc_today()
+      assert payload["days"] == [Date.to_iso8601(today), Date.to_iso8601(Date.add(today, 1))]
+
+      assert Enum.map(plan.days, & &1.day) == ["monday", "tuesday"]
+
+      for day <- plan.days, meal <- day.meals do
+        assert meal["day"] == day.day
+      end
+    end
+
+    test "refuses a plan with a Deviation: this planner keeps budget and nutrition hard" do
+      %{user: user} = create_identity_with_recipes("u_deviation", "free", "individual")
+
+      assert {:error, :optimization_failed} =
+               PlanningService.generate_weekly_plan(user, %{"days" => 1}, DeviatingOptimizer)
     end
   end
 

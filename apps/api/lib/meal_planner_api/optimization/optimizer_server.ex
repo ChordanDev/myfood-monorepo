@@ -7,7 +7,10 @@ defmodule MealPlannerApi.Optimization.OptimizerServer do
     Python responds `{"type":"ready","version":"1.0"}`
   - Request: Elixir sends `{"type":"solve","id":"<uuid>","payload":{...}}`
   - Response: Python responds `{"type":"solution","id":"<uuid>","result":{...}}`
-    or `{"type":"error","id":"<uuid>","error":"..."}`
+    or `{"type":"error","id":"<uuid>","error":"...","details":{...}}`
+
+  The payload and replies follow the v2 optimizer contract
+  (`docs/OPTIMIZER_CONTRACT.md`).
 
   Responsibilities:
   - Spawns Python process on startup (via the injectable `OptimizerPortRunner`)
@@ -15,14 +18,14 @@ defmodule MealPlannerApi.Optimization.OptimizerServer do
   - Implements circuit breaker (3 failures → open → after reset window → closed + restart)
   - Maps requests to responses via UUID matching
   - Cancels per-request timers on reply, replies `:optimizer_unavailable` on expiry
-  - Falls back to `OptimizerFallback` when the circuit is open
+  - Replies `:optimizer_unavailable` while the circuit is open: there is no
+    fallback plan, so an unavailable optimizer is always a clear error
   """
 
   use GenServer
 
   require Logger
 
-  alias MealPlannerApi.Optimization.OptimizerFallback
   alias MealPlannerApi.Optimization.OptimizerPortRunner
 
   @behaviour MealPlannerApi.Optimization.OptimizerPort
@@ -106,7 +109,7 @@ defmodule MealPlannerApi.Optimization.OptimizerServer do
         dispatch_solve(payload, from, fresh)
 
       _ ->
-        {:reply, OptimizerFallback.select_weekly_menu(payload), state}
+        {:reply, {:error, :optimizer_unavailable}, state}
     end
   end
 
@@ -508,8 +511,9 @@ defmodule MealPlannerApi.Optimization.OptimizerServer do
   defp normalize_optimizer_error("infeasible", details) when is_map(details),
     do: {:infeasible, details}
 
-  defp normalize_optimizer_error("unbounded", details) when is_map(details),
-    do: {:unbounded, details}
+  # The deadline passed before any plan was found: never an infeasibility.
+  defp normalize_optimizer_error("inconclusive", details) when is_map(details),
+    do: {:inconclusive, details}
 
   defp normalize_optimizer_error("abnormal", details) when is_map(details),
     do: {:abnormal, details}

@@ -20,7 +20,7 @@ defmodule MealPlannerApi.Optimization.OptimizerServerTest do
   end
 
   @payload %{
-    days: ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"],
+    days: ["2026-09-07", "2026-09-08", "2026-09-09"],
     slots: ["breakfast", "lunch", "dinner"],
     constraints: %{
       weekly_budget_cents: 50_000,
@@ -386,7 +386,7 @@ defmodule MealPlannerApi.Optimization.OptimizerServerTest do
       assert log =~ "circuit breaker reset"
     end
 
-    test "circuit-open solve calls fall back to OptimizerFallback (no OptimizerServer call)" do
+    test "circuit-open solve calls reply :optimizer_unavailable without a plan" do
       {pid, port, _name} = start_and_ready!()
 
       capture_log(fn ->
@@ -411,10 +411,34 @@ defmodule MealPlannerApi.Optimization.OptimizerServerTest do
 
       assert :sys.get_state(pid).circuit_state == :open
 
-      # Subsequent call should return the fallback's {:ok, ...} shape immediately,
-      # without ever adding to pending_requests.
-      assert {:ok, %{meals: _meals}} = OptimizerServer.select_weekly_menu(@payload)
+      # There is no greedy fallback: the caller gets a clear error at once,
+      # and the request never reaches Python.
+      assert {:error, :optimizer_unavailable} = OptimizerServer.select_weekly_menu(@payload)
       assert map_size(:sys.get_state(pid).pending_requests) == 0
+    end
+  end
+
+  describe "v2 error replies" do
+    test "an infeasible reply carries its named causes" do
+      {pid, port, _name} = start_and_ready!()
+      reply_task = async_select()
+      request_id = await_pending(pid)
+
+      details = %{"causes" => [%{"cause" => "coverage", "slot" => "lunch"}]}
+      send(pid, {port, {:data, error_frame(request_id, "infeasible", details)}})
+
+      assert {:error, {:infeasible, ^details}} = Task.await(reply_task, 500)
+    end
+
+    test "an inconclusive reply is reported as inconclusive, never as infeasible" do
+      {pid, port, _name} = start_and_ready!()
+      reply_task = async_select()
+      request_id = await_pending(pid)
+
+      details = %{"reason" => "time_limit"}
+      send(pid, {port, {:data, error_frame(request_id, "inconclusive", details)}})
+
+      assert {:error, {:inconclusive, ^details}} = Task.await(reply_task, 500)
     end
   end
 
@@ -471,6 +495,15 @@ defmodule MealPlannerApi.Optimization.OptimizerServerTest do
     :ok = await_handshake_ready(pid)
 
     {pid, port, name}
+  end
+
+  defp error_frame(request_id, reason, details) do
+    Jason.encode!(%{
+      "type" => "error",
+      "id" => request_id,
+      "error" => reason,
+      "details" => details
+    }) <> "\n"
   end
 
   defp async_select do

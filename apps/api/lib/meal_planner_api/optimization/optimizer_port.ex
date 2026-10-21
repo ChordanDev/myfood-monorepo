@@ -5,24 +5,30 @@ defmodule MealPlannerApi.Optimization.OptimizerPort do
   Implementors must provide a way to select a weekly menu given candidate
   recipes, nutritional constraints, and budget limits.
 
-  Payloads and successful results use JSON-decoded string keys. Payloads carry
-  `"days"`, `"slots"`, `"constraints"`, and `"candidates_by_slot"`; results
-  carry `"meals"`, whose entries include `"day"`, `"slot"`, and `"recipe_id"`.
+  Payloads and successful results use JSON-decoded string keys and follow the
+  v2 optimizer contract (`docs/OPTIMIZER_CONTRACT.md`). Payloads carry
+  `"days"` (ISO dates), `"slots"`, `"constraints"`, and `"candidates_by_slot"`;
+  results carry `"meals"`, whose entries include `"day"`, `"slot"`, and
+  `"recipe_id"`, plus `"deviations"` (every goal the plan misses) and
+  `"optimality"`.
   Candidate maps preserve all input fields (e.g. `"estimated_cost_cents"`,
   `"label"`, `"price_per_serving_cents"`) so downstream code can rely on the
   full candidate shape, not a trimmed subset.
 
-  The port may raise an error for:
+  There is no fallback plan. The port returns an error for:
   - `:optimizer_timeout` — solver did not respond in time
   - `:optimizer_unavailable` — process is down or circuit is open
-  - `:optimizer_error` — solver returned an error (e.g. malformed input)
+  - `{:infeasible, details}` — a hard rule leaves a meal without a recipe;
+    `details["causes"]` names each cause
+  - `{:inconclusive, details}` — the solver deadline passed before any plan
+  - `:optimizer_error` — solver returned another error (e.g. malformed input)
   """
 
   @type optimizer_payload :: %{required(String.t()) => term()}
 
   @type optimizer_constraints :: %{required(String.t()) => term()}
 
-  @type optimizer_result :: {:ok, %{required(String.t()) => [selected_meal()]}} | {:error, term()}
+  @type optimizer_result :: {:ok, %{required(String.t()) => term()}} | {:error, term()}
 
   @type macro_bounds :: %{required(String.t()) => %{required(String.t()) => float()}}
 
@@ -33,7 +39,8 @@ defmodule MealPlannerApi.Optimization.OptimizerPort do
   @doc """
   Given a payload describing the planning request, returns a weekly plan.
 
-  The result `meals` list must contain one entry per day × slot combination.
+  The result `meals` list must contain one entry per day × slot combination
+  that is not skipped.
   """
   defmacro __using__(_opts) do
     quote do
