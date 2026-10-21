@@ -97,14 +97,17 @@ export async function ensureIdentified(): Promise<string> {
  * out.
  */
 export async function signOutOfRevenueCat(): Promise<void> {
-  identityGeneration += 1;
+  const generation = ++identityGeneration;
   useBillingStore.getState().reset();
   if (!configureRevenueCat()) return;
 
   // A login still in flight would otherwise land after this check and stay logged in.
   if (pendingLogIn) await pendingLogIn.catch(() => undefined);
+  // A newer sign-in owns the SDK now: logging out would leave that User anonymous.
+  if (generation !== identityGeneration) return;
 
-  if (!(await Purchases.isAnonymous())) {
-    await Purchases.logOut();
-  }
+  const isAnonymous = await Purchases.isAnonymous();
+  if (generation !== identityGeneration || isAnonymous) return;
+
+  await Purchases.logOut();
 }

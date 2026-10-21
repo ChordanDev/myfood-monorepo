@@ -181,6 +181,35 @@ describe('RevenueCat identity', () => {
     expect(store.getState().appUserId).toBeNull();
   });
 
+  it('does not log out a User who signed in while the previous sign-out was waiting', async () => {
+    const { service, Purchases, fetchBillingStatus, store } = load();
+    fetchBillingStatus
+      .mockResolvedValueOnce(status('rc-first-account'))
+      .mockResolvedValueOnce(status('rc-second-account'));
+    let finishFirstLogIn: () => void = () => {};
+    Purchases.logIn
+      .mockReturnValueOnce(
+        new Promise((resolve) => {
+          finishFirstLogIn = () =>
+            resolve({ customerInfo: customerInfo([]), created: false } as never);
+        }) as never
+      )
+      .mockResolvedValueOnce({ customerInfo: customerInfo([]), created: false } as never);
+    Purchases.isAnonymous.mockResolvedValue(false);
+
+    const identifyingFirst = service.identifyAccount();
+    await Promise.resolve();
+    await Promise.resolve();
+    const signingOut = service.signOutOfRevenueCat();
+    await expect(service.identifyAccount()).resolves.toBe('rc-second-account');
+    finishFirstLogIn();
+    await signingOut;
+    await identifyingFirst;
+
+    expect(Purchases.logOut).not.toHaveBeenCalled();
+    expect(store.getState().appUserId).toBe('rc-second-account');
+  });
+
   it('skips logOut for an anonymous user, which the SDK would reject', async () => {
     const { service, Purchases } = load();
     Purchases.isAnonymous.mockResolvedValue(true);
