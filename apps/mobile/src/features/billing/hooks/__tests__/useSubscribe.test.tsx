@@ -134,18 +134,22 @@ describe('useSubscribe', () => {
     expect(mockPaywall.presentPaywall).toHaveBeenCalledTimes(1);
   });
 
-  it('does not take a 200 during the trial as a confirmed purchase', async () => {
+  it('confirms a purchase whose webhook started the one-time trial', async () => {
+    // An Account with no trial on record starts it on the first webhook, and the server
+    // answers `trial` ahead of `active` while that window runs.
     mockPaywall.presentPaywall.mockResolvedValueOnce(PAYWALL_RESULT.PURCHASED);
-    (confirmPurchase as jest.Mock).mockResolvedValue({ data: { state: 'trial', source: 'trial' } });
+    (confirmPurchase as jest.Mock)
+      .mockResolvedValueOnce(pending)
+      .mockResolvedValueOnce({ data: { state: 'trial', source: 'trial' } });
     const rendered = await render();
     const { result, refreshMe } = rendered;
 
     await subscribe(rendered);
 
-    expect(confirmPurchase).toHaveBeenCalledTimes(3);
+    expect(confirmPurchase).toHaveBeenCalledTimes(2);
     expect(refreshMe).toHaveBeenCalledTimes(1);
-    expect(result.current.status).toBe('pending');
-    expect(result.current.message).toBe(BILLING_COPY.pending);
+    expect(result.current.status).toBe('idle');
+    expect(result.current.message).toBeNull();
   });
 
   it('confirms a restore on the restore route', async () => {
