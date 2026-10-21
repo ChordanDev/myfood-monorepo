@@ -14,6 +14,79 @@ defmodule MealPlannerApi.Integrations.GoScraperClientTest do
     end
   end
 
+  describe "parse_response/1" do
+    # The shape `apps/scraper` answers: `unit` is an uppercase code or `null`,
+    # and there is no `unavailable` field.
+    defp scraper_body(products) do
+      %{
+        "products" => products,
+        "failedScrapers" => ["carrefour"],
+        "timestamp" => "2026-10-21T14:51:40Z"
+      }
+    end
+
+    defp scraper_product(unit) do
+      %{
+        "id" => "1",
+        "source" => "jumbo",
+        "name" => "Leche entera 1 L",
+        "price" => 1500.0,
+        "unit" => unit,
+        "unitPrice" => 1500.0
+      }
+    end
+
+    test "maps the scraper unit codes to the units prices are stored in" do
+      body = scraper_body(Enum.map(["KG", "LT", "UN"], &scraper_product/1))
+
+      assert {:ok, %{products: products}} = GoScraperClient.parse_response(body)
+      assert Enum.map(products, & &1.unit) == ["kg", "l", "unit"]
+    end
+
+    # When the scraper cannot read a unit from the product name it passes the
+    # store's own unit through as the store wrote it, such as "un" or "kg".
+    test "maps a store unit passed through in lowercase the same way" do
+      body = scraper_body(Enum.map(["kg", "lt", "un", "Kg"], &scraper_product/1))
+
+      assert {:ok, %{products: products}} = GoScraperClient.parse_response(body)
+      assert Enum.map(products, & &1.unit) == ["kg", "l", "unit", "kg"]
+    end
+
+    test "leaves a unit it cannot store empty, so no unit conversion matches it" do
+      body = scraper_body([scraper_product("MT"), scraper_product(nil)])
+
+      assert {:ok, %{products: products}} = GoScraperClient.parse_response(body)
+      assert Enum.map(products, & &1.unit) == ["", ""]
+    end
+
+    test "keeps the other fields and the failed scrapers" do
+      assert {:ok, result} = GoScraperClient.parse_response(scraper_body([scraper_product("LT")]))
+
+      assert result.failed_scrapers == ["carrefour"]
+
+      assert [
+               %{
+                 source: "jumbo",
+                 name: "Leche entera 1 L",
+                 price: 1500.0,
+                 unit_price: 1500.0,
+                 unavailable: false
+               }
+             ] = result.products
+    end
+
+    test "still reads an unavailable flag when one is sent" do
+      product = Map.put(scraper_product("KG"), "unavailable", true)
+
+      assert {:ok, %{products: [%{unavailable: true}]}} =
+               GoScraperClient.parse_response(scraper_body([product]))
+    end
+
+    test "rejects a body that is not a JSON object" do
+      assert GoScraperClient.parse_response("Forbidden.") == {:error, :parse_error}
+    end
+  end
+
   describe "unit_price_to_cents/1" do
     test "converts float price to cents (integer)" do
       assert GoScraperClient.unit_price_to_cents(15.99) == 1599
