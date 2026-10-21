@@ -15,11 +15,13 @@ defmodule MealPlannerApiWeb.RevenuecatController do
       eligible and expired Accounts (recovery route).
     * `purchase/2` / `restore/2` — POST, payloadless. Confirms the
       current server state after the React Native SDK has completed
-      the store-side flow. Returns `200` with the current state, or
-      `202 {"state":"pending_webhook"}` when no webhook has yet
-      granted eligibility. Any entitlement/receipt input on these
-      routes is `422 client_entitlement_grant_forbidden` — only a
-      validated webhook may ever grant eligibility.
+      the store-side flow. Returns `200` with the current state while
+      the Account is eligible (an active trial counts, so a `200` during
+      the trial does not confirm the purchase), or
+      `202 {"state":"pending_webhook"}` while it is not. Any
+      entitlement/receipt input on these routes is
+      `422 client_entitlement_grant_forbidden` — only a validated
+      webhook may ever grant eligibility.
 
   The previous client `sync/2` endpoint has been DELETED. The legacy
   `RevenuecatService.process_webhook/2` and

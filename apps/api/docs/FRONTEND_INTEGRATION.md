@@ -569,8 +569,13 @@ Authorization: Bearer <token>
 
 Después de que el SDK completa una compra o una restauración, la app llama sin body a
 `POST /api/billing/revenuecat/purchase` o `POST /api/billing/revenuecat/restore`. Responden `200`
-con `state` y `source` cuando el webhook de RevenueCat ya habilitó la cuenta, y
-`202 {"data": {"state": "pending_webhook"}}` mientras no llegó; la app reintenta con backoff.
+con `state` y `source` cuando la cuenta tiene acceso en este momento, por trial o por suscripción,
+y `202 {"data": {"state": "pending_webhook"}}` cuando todavía no tiene acceso; con `202` la app
+reintenta con backoff.
+
+Un `200` durante el trial no confirma la compra: la cuenta ya tenía acceso por el trial y el
+webhook puede no haber llegado. Tampoco sirve mirar `source`, que sigue en `trial` mientras el
+trial esté vigente aunque ya haya una suscripción activa.
 
 | Estado | Código | Cuándo |
 |--------|--------|--------|
