@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import Purchases from 'react-native-purchases';
 import RevenueCatUI, { PAYWALL_RESULT } from 'react-native-purchases-ui';
 import { getAuthErrorMessage, isApiError } from '@/api/errors';
@@ -48,11 +48,18 @@ export function useSubscribe(): SubscribeState {
   const accountId = me?.account.id ?? null;
   const [status, setStatus] = useState<SubscribeStatus>('idle');
   const [message, setMessage] = useState<string | null>(null);
-  const busyRef = useRef(false);
+  // The flow in progress and the Account that started it. Only that Account waits for it.
+  const runRef = useRef<{ accountId: string | null } | null>(null);
+  // The Account on screen now, so a flow the previous Account started stops showing anything.
+  const accountRef = useRef(accountId);
   // What the store completed last and for which Account, so checking again asks the same route.
   const lastConfirmationRef = useRef<{ accountId: string | null; kind: ConfirmationKind } | null>(
     null
   );
+
+  useEffect(() => {
+    accountRef.current = accountId;
+  }, [accountId]);
 
   // A switched Account starts clean: the previous Account's confirmation is not its own.
   const [shownAccountId, setShownAccountId] = useState(accountId);
@@ -62,96 +69,102 @@ export function useSubscribe(): SubscribeState {
     setMessage(null);
   }
 
-  const fail = useCallback((nextMessage: string) => {
-    setStatus('error');
-    setMessage(nextMessage);
-  }, []);
+  const show = useCallback(
+    (nextStatus: SubscribeStatus, nextMessage: string | null) => {
+      if (accountRef.current !== accountId) return;
+      setStatus(nextStatus);
+      setMessage(nextMessage);
+    },
+    [accountId]
+  );
+
+  const runExclusive = useCallback(
+    async (task: () => Promise<void>) => {
+      if (runRef.current?.accountId === accountId) return;
+      const run = { accountId };
+      runRef.current = run;
+      try {
+        await task();
+      } finally {
+        if (runRef.current === run) runRef.current = null;
+      }
+    },
+    [accountId]
+  );
 
   // The store already took the payment by now, so a failure here never offers the Paywall
   // again: the User checks again instead.
   const confirm = useCallback(
     async (kind: ConfirmationKind) => {
       lastConfirmationRef.current = { accountId, kind };
-      setStatus('confirming');
-      setMessage(null);
+      show('confirming', null);
       try {
         const outcome = await confirmWithServer(kind);
         await refreshMe();
-        if (outcome === 'pending') {
-          setStatus('pending');
-          setMessage(BILLING_COPY.pending);
-        } else {
-          setStatus('idle');
-        }
+        if (outcome === 'pending') show('pending', BILLING_COPY.pending);
+        else show('idle', null);
       } catch (error) {
-        setStatus('pending');
-        setMessage(isApiError(error) ? getAuthErrorMessage(error) : BILLING_COPY.confirmError);
+        show('pending', isApiError(error) ? getAuthErrorMessage(error) : BILLING_COPY.confirmError);
       }
     },
-    [accountId, refreshMe]
+    [accountId, refreshMe, show]
   );
 
-  const subscribe = useCallback(async () => {
-    if (busyRef.current) return;
-    if (!isBillingEnabled()) {
-      fail(BILLING_COPY.unavailable);
-      return;
-    }
-
-    busyRef.current = true;
-    setStatus('opening');
-    setMessage(null);
-    try {
-      // Never open the store before RevenueCat is logged in with the server's id.
-      try {
-        await ensureIdentified();
-      } catch (error) {
-        fail(errorMessage(error));
-        return;
-      }
-
-      let result: PAYWALL_RESULT;
-      try {
-        result = await RevenueCatUI.presentPaywall();
-      } catch {
-        fail(BILLING_COPY.storeError);
-        return;
-      }
-
-      if (result === PAYWALL_RESULT.PURCHASED) {
-        await confirm('purchase');
-      } else if (result === PAYWALL_RESULT.RESTORED) {
-        const restored = await restoreOutcome();
-        if (restored === 'found') {
-          await confirm('restore');
-        } else if (restored === 'none') {
-          setStatus('idle');
-          setMessage(BILLING_COPY.nothingRestored);
-        } else {
-          // If the restore did reach the server, `/me` lets the User in anyway.
-          await refreshMe().catch(() => undefined);
-          fail(BILLING_COPY.restoreUnverified);
+  const subscribe = useCallback(
+    () =>
+      runExclusive(async () => {
+        if (!isBillingEnabled()) {
+          show('error', BILLING_COPY.unavailable);
+          return;
         }
-      } else if (result === PAYWALL_RESULT.ERROR) {
-        fail(BILLING_COPY.storeError);
-      } else {
-        setStatus('idle');
-      }
-    } finally {
-      busyRef.current = false;
-    }
-  }, [confirm, fail, refreshMe]);
 
-  const checkAgain = useCallback(async () => {
-    if (busyRef.current) return;
-    busyRef.current = true;
-    try {
-      const last = lastConfirmationRef.current;
-      await confirm(last?.accountId === accountId ? last.kind : 'purchase');
-    } finally {
-      busyRef.current = false;
-    }
-  }, [accountId, confirm]);
+        show('opening', null);
+        // Never open the store before RevenueCat is logged in with the server's id.
+        try {
+          await ensureIdentified();
+        } catch (error) {
+          show('error', errorMessage(error));
+          return;
+        }
+
+        let result: PAYWALL_RESULT;
+        try {
+          result = await RevenueCatUI.presentPaywall();
+        } catch {
+          show('error', BILLING_COPY.storeError);
+          return;
+        }
+
+        if (result === PAYWALL_RESULT.PURCHASED) {
+          await confirm('purchase');
+        } else if (result === PAYWALL_RESULT.RESTORED) {
+          const restored = await restoreOutcome();
+          if (restored === 'found') {
+            await confirm('restore');
+          } else if (restored === 'none') {
+            show('idle', BILLING_COPY.nothingRestored);
+          } else {
+            // If the restore did reach the server, `/me` lets the User in anyway.
+            await refreshMe().catch(() => undefined);
+            show('error', BILLING_COPY.restoreUnverified);
+          }
+        } else if (result === PAYWALL_RESULT.ERROR) {
+          show('error', BILLING_COPY.storeError);
+        } else {
+          show('idle', null);
+        }
+      }),
+    [confirm, refreshMe, runExclusive, show]
+  );
+
+  const checkAgain = useCallback(
+    () =>
+      runExclusive(async () => {
+        const last = lastConfirmationRef.current;
+        await confirm(last?.accountId === accountId ? last.kind : 'purchase');
+      }),
+    [accountId, confirm, runExclusive]
+  );
 
   return { isAvailable: isBillingEnabled(), status, message, subscribe, checkAgain };
 }

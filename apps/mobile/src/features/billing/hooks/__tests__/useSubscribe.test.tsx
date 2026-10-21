@@ -323,6 +323,57 @@ describe('useSubscribe', () => {
     expect(confirmPurchase).toHaveBeenCalledTimes(1);
   });
 
+  it("lets the next Account subscribe while the previous one's confirmation still runs", async () => {
+    let answerFirstCheck: (value: unknown) => void = () => {};
+    (confirmPurchase as jest.Mock)
+      .mockReturnValueOnce(new Promise((resolve) => (answerFirstCheck = resolve)))
+      .mockResolvedValue(pending);
+    mockPaywall.presentPaywall
+      .mockResolvedValueOnce(PAYWALL_RESULT.PURCHASED)
+      .mockResolvedValueOnce(PAYWALL_RESULT.CANCELLED);
+    const result = { current: null as unknown as SubscribeState };
+    function Probe() {
+      result.current = useSubscribe();
+      return null;
+    }
+    const refreshMe = jest.fn(() => Promise.resolve());
+    const signedInAs = (accountId: string) =>
+      ({ me: { account: { id: accountId } }, refreshMe }) as unknown as AuthContextValue;
+    const tree = (value: AuthContextValue) => (
+      <AuthContext.Provider value={value}>
+        <Probe />
+      </AuthContext.Provider>
+    );
+    let renderer: ReturnType<typeof create> | undefined;
+    await act(async () => {
+      renderer = create(tree(signedInAs('account-a')));
+    });
+
+    let firstAccountRun: Promise<void> = Promise.resolve();
+    await act(async () => {
+      firstAccountRun = result.current.subscribe();
+    });
+    expect(result.current.status).toBe('confirming');
+
+    await act(async () => {
+      renderer?.update(tree(signedInAs('account-b')));
+    });
+    await act(async () => {
+      await result.current.subscribe();
+    });
+
+    expect(mockPaywall.presentPaywall).toHaveBeenCalledTimes(2);
+
+    await act(async () => {
+      answerFirstCheck(pending);
+      await firstAccountRun;
+    });
+
+    // The previous Account's confirmation ends pending, but never on this Account's screen.
+    expect(result.current.status).toBe('idle');
+    expect(result.current.message).toBeNull();
+  });
+
   it('never opens the Paywall when the server issued no app_user_id', async () => {
     (fetchBillingStatus as jest.Mock).mockResolvedValue({ data: { app_user_id: null } });
     const rendered = await render();
