@@ -134,6 +134,20 @@ describe('useSubscribe', () => {
     expect(mockPaywall.presentPaywall).toHaveBeenCalledTimes(1);
   });
 
+  it('does not take a 200 during the trial as a confirmed purchase', async () => {
+    mockPaywall.presentPaywall.mockResolvedValueOnce(PAYWALL_RESULT.PURCHASED);
+    (confirmPurchase as jest.Mock).mockResolvedValue({ data: { state: 'trial', source: 'trial' } });
+    const rendered = await render();
+    const { result, refreshMe } = rendered;
+
+    await subscribe(rendered);
+
+    expect(confirmPurchase).toHaveBeenCalledTimes(3);
+    expect(refreshMe).toHaveBeenCalledTimes(1);
+    expect(result.current.status).toBe('pending');
+    expect(result.current.message).toBe(BILLING_COPY.pending);
+  });
+
   it('confirms a restore on the restore route', async () => {
     mockPurchases.getCustomerInfo.mockResolvedValueOnce(proCustomerInfo);
     mockPaywall.presentPaywall.mockResolvedValueOnce(PAYWALL_RESULT.RESTORED);
