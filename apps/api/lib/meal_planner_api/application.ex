@@ -25,6 +25,9 @@ defmodule MealPlannerApi.Application do
       MealPlannerApi.Generation.PlanningSession.Sweeper,
       MealPlannerApi.CartSweeper,
       MealPlannerApi.IdempotencySweeper,
+      # Provider key sets for social sign-in: one fetch per URL, however
+      # many sign-ins find the cached copy stale at once.
+      MealPlannerApi.Auth.JwksCache,
       # Start a worker by calling: MealPlannerApi.Worker.start_link(arg)
       # {MealPlannerApi.Worker, arg},
       # Start to serve requests, typically the last entry

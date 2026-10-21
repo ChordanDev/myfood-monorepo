@@ -134,8 +134,8 @@ if config_env() != :test do
   config :meal_planner_api,
     google_oauth_client_ids: oauth_client_ids.("GOOGLE_OAUTH_CLIENT_IDS"),
     apple_oauth_client_ids: oauth_client_ids.("APPLE_OAUTH_CLIENT_IDS"),
-    google_tokeninfo_url:
-      System.get_env("GOOGLE_TOKENINFO_URL", "https://oauth2.googleapis.com/tokeninfo"),
+    google_jwks_url:
+      System.get_env("GOOGLE_JWKS_URL", "https://www.googleapis.com/oauth2/v3/certs"),
     apple_jwks_url: System.get_env("APPLE_JWKS_URL", "https://appleid.apple.com/auth/keys")
 end
 
