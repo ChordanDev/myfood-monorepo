@@ -2,7 +2,8 @@ defmodule MealPlannerApi.Data.IngredientAllergensTest do
   @moduledoc """
   The `allergens` of an Ingredient (issue #114): the tags the data migration
   writes from Ingredient names, the codes the changeset accepts, and the
-  guard that no Ingredient ships without tags.
+  guard that no Ingredient ships without tags. The Diet marks (issue #441) are
+  Ingredient codes too.
   """
   use ExUnit.Case, async: false
 
@@ -10,6 +11,7 @@ defmodule MealPlannerApi.Data.IngredientAllergensTest do
   import ExUnit.CaptureIO
 
   alias Ecto.Adapters.SQL.Sandbox
+  alias MealPlannerApi.Persistence.Accounts.UserHardRestriction
   alias MealPlannerApi.Persistence.Catalog
   alias MealPlannerApi.Persistence.Catalog.{AllergenRules, Ingredient}
   alias MealPlannerApi.Repo
@@ -19,6 +21,11 @@ defmodule MealPlannerApi.Data.IngredientAllergensTest do
                     "../../../priv/repo/migrations/20261015130010_tag_ingredient_allergens.exs",
                     __DIR__
                   )
+  @diet_marks_migration MealPlannerApi.Repo.Migrations.AddDietMarkCodesToIngredientAllergens
+  @diet_marks_migration_path Path.expand(
+                               "../../../priv/repo/migrations/20261022000000_add_diet_mark_codes_to_ingredient_allergens.exs",
+                               __DIR__
+                             )
   @seeds_path Path.expand("../../../priv/repo/seeds.exs", __DIR__)
 
   setup_all do
@@ -168,8 +175,8 @@ defmodule MealPlannerApi.Data.IngredientAllergensTest do
       end
     end
 
-    test "rejects a code outside the Hard restriction catalog" do
-      changeset = Ingredient.changeset(%Ingredient{}, ingredient_attrs("Fish", ["fish"]))
+    test "rejects a code outside the Ingredient codes" do
+      changeset = Ingredient.changeset(%Ingredient{}, ingredient_attrs("Sesame", ["sesame"]))
 
       refute changeset.valid?
       assert {_message, [validation: :subset, enum: _codes]} = changeset.errors[:allergens]
@@ -184,8 +191,8 @@ defmodule MealPlannerApi.Data.IngredientAllergensTest do
       end
     end
 
-    test "the changeset rejects a code outside the Hard restriction catalog" do
-      attrs = Map.put(ingredient_attrs("Fish", nil), :allergens_proposed, ["fish"])
+    test "the changeset rejects a code outside the Ingredient codes" do
+      attrs = Map.put(ingredient_attrs("Sesame", nil), :allergens_proposed, ["sesame"])
       changeset = Ingredient.changeset(%Ingredient{}, attrs)
 
       refute changeset.valid?
@@ -213,15 +220,72 @@ defmodule MealPlannerApi.Data.IngredientAllergensTest do
              ) == {:granos, nil, ["gluten", "egg"]}
     end
 
-    test "the database rejects a code outside the Hard restriction catalog" do
+    test "the database rejects a code outside the Ingredient codes" do
       ingredient = insert_ingredient("Raw write", nil)
 
       assert {:error,
               %Postgrex.Error{postgres: %{constraint: "ingredients_allergens_proposed_check"}}} =
                Repo.query(
-                 "UPDATE ingredients SET allergens_proposed = ARRAY['fish']::varchar[] WHERE id = $1",
+                 "UPDATE ingredients SET allergens_proposed = ARRAY['sesame']::varchar[] WHERE id = $1",
                  [Ecto.UUID.dump!(ingredient.id)]
                )
+    end
+  end
+
+  describe "the Diet marks migration" do
+    setup do
+      unless Code.ensure_loaded?(@diet_marks_migration),
+        do: Code.require_file(@diet_marks_migration_path)
+
+      {:ok, diet_marks_migration: @diet_marks_migration}
+    end
+
+    test "the database accepts the Diet marks in allergens and allergens_proposed" do
+      ingredient = insert_ingredient("Raw write", nil)
+
+      assert {:ok, _result} =
+               Repo.query(
+                 "UPDATE ingredients SET allergens = ARRAY['meat', 'fish', 'animal_product']::varchar[], " <>
+                   "allergens_proposed = ARRAY['meat', 'fish', 'animal_product']::varchar[] WHERE id = $1",
+                 [Ecto.UUID.dump!(ingredient.id)]
+               )
+    end
+
+    test "the database rejects a code outside the Ingredient codes in allergens" do
+      ingredient = insert_ingredient("Raw write", nil)
+
+      assert {:error, %Postgrex.Error{postgres: %{constraint: "ingredients_allergens_check"}}} =
+               Repo.query(
+                 "UPDATE ingredients SET allergens = ARRAY['sesame']::varchar[] WHERE id = $1",
+                 [Ecto.UUID.dump!(ingredient.id)]
+               )
+    end
+
+    test "a Diet mark is not a Hard restriction a User can declare" do
+      changeset = UserHardRestriction.changeset(%UserHardRestriction{}, %{code: "meat"})
+
+      refute changeset.valid?
+      assert {_message, [validation: :inclusion, enum: _codes]} = changeset.errors[:code]
+    end
+
+    test "moves every reviewed Ingredient back to unreviewed, keeping its codes as the proposal",
+         %{diet_marks_migration: migration} do
+      reviewed_none = insert_ingredient("Pechuga de pollo", [])
+      reviewed_codes = insert_ingredient("Milanesa de carne", ["gluten", "egg"])
+
+      {:ok, unreviewed} =
+        Catalog.create_ingredient(%{
+          name: "Rogel",
+          category: :otros,
+          allergens: nil,
+          allergens_proposed: ["gluten", "dairy"]
+        })
+
+      Repo.query!(migration.reset_sql())
+
+      assert review_state(reviewed_none) == {nil, []}
+      assert review_state(reviewed_codes) == {nil, ["gluten", "egg"]}
+      assert review_state(unreviewed) == {nil, ["gluten", "dairy"]}
     end
   end
 
@@ -245,6 +309,15 @@ defmodule MealPlannerApi.Data.IngredientAllergensTest do
 
   defp ingredient_attrs(name, allergens),
     do: %{name: name, category: :otros, allergens: allergens}
+
+  defp review_state(ingredient) do
+    Repo.one!(
+      from(i in Ingredient,
+        where: i.id == ^ingredient.id,
+        select: {i.allergens, i.allergens_proposed}
+      )
+    )
+  end
 
   defp allergens_by_name do
     from(i in Ingredient, select: {i.name, i.allergens})

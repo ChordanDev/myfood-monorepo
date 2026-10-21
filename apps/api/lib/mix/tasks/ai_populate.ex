@@ -17,9 +17,8 @@ defmodule Mix.Tasks.AiPopulate do
   require Logger
 
   alias MealPlannerApi.AI
-  alias MealPlannerApi.Persistence.Accounts.UserHardRestriction
   alias MealPlannerApi.Persistence.Catalog
-  alias MealPlannerApi.Persistence.Catalog.AllergenRules
+  alias MealPlannerApi.Persistence.Catalog.{AllergenRules, Ingredient}
 
   @shortdoc "Puebla ingredientes por lotes via IA usando taxonomia de supermercado"
 
@@ -245,7 +244,7 @@ defmodule Mix.Tasks.AiPopulate do
   # The union leans towards tagging: a code either source names is proposed.
   defp proposed_allergens(item) do
     proposed = item["allergens"] ++ AllergenRules.codes_for_name(item["name"])
-    Enum.filter(UserHardRestriction.codes(), &(&1 in proposed))
+    Enum.filter(Ingredient.codes(), &(&1 in proposed))
   end
 
   defp ask_ai_for_ingredients(category_atom, sub_topic, per_topic) do
@@ -262,7 +261,10 @@ defmodule Mix.Tasks.AiPopulate do
     4) Usa nombres especificos y realistas para mercado argentino.
     5) Macros y calorias deben ser numeros >= 0.
     6) allergens es un array con los alergenos que el producto puede contener,
-       incluidas trazas, usando solo estos codigos: #{Enum.join(UserHardRestriction.codes(), ", ")}.
+       incluidas trazas, usando solo estos codigos: #{Enum.join(Ingredient.codes(), ", ")}.
+       meat es carne de cualquier animal, aves incluidas; fish es pescado o
+       marisco; animal_product es cualquier otro producto de origen animal,
+       como miel o gelatina.
        Ante la duda, incluye el codigo. Usa [] solo si no contiene ninguno.
     """
 
@@ -325,7 +327,7 @@ defmodule Mix.Tasks.AiPopulate do
     {known, unknown} =
       codes
       |> Enum.map(&normalize_code/1)
-      |> Enum.split_with(&(&1 in UserHardRestriction.codes()))
+      |> Enum.split_with(&(&1 in Ingredient.codes()))
 
     if unknown != [] do
       Logger.warning(

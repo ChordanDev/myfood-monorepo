@@ -37,14 +37,16 @@ defmodule Mix.Tasks.AiPopulateTest do
     end)
   end
 
-  test "asks the AI for the allergens of each item, drawn from the seven codes" do
+  test "asks the AI for the allergens of each item, drawn from the Ingredient codes" do
     answer([item("Huevos de campo", ["egg"])])
 
     capture_log(fn -> AiPopulate.run(@args) end)
 
     assert_received {:prompt, prompt}
     assert prompt =~ "allergens"
-    assert prompt =~ "peanut, tree_nut, shellfish, gluten, dairy, egg, soy"
+
+    assert prompt =~
+             "peanut, tree_nut, shellfish, gluten, dairy, egg, soy, meat, fish, animal_product"
   end
 
   test "saves the union of the AI codes and the name-rule codes as the proposal, leaving allergens NULL" do
@@ -62,13 +64,29 @@ defmodule Mix.Tasks.AiPopulateTest do
              %{allergens: nil, allergens_proposed: ["gluten", "dairy", "egg"]}
   end
 
+  test "proposes the Diet marks the AI names, leaving allergens NULL" do
+    answer([
+      item("Bife de chorizo", ["meat"]),
+      item("Merluza rebozada", ["fish"]),
+      item("Miel", ["animal_product"])
+    ])
+
+    capture_log(fn -> AiPopulate.run(@args) end)
+
+    assert ingredient!("Bife de chorizo") |> Map.take([:allergens, :allergens_proposed]) ==
+             %{allergens: nil, allergens_proposed: ["meat"]}
+
+    assert ingredient!("Merluza rebozada").allergens_proposed == ["gluten", "egg", "fish"]
+    assert ingredient!("Miel").allergens_proposed == ["animal_product"]
+  end
+
   test "drops an unknown AI code with a warning and still saves the item" do
-    answer([item("Merluza congelada", ["fish", "gluten"])])
+    answer([item("Merluza congelada", ["sesame", "gluten"])])
 
     log = capture_log(fn -> AiPopulate.run(@args) end)
 
     assert ingredient!("Merluza congelada").allergens_proposed == ["gluten"]
-    assert log =~ ~s("fish")
+    assert log =~ ~s("sesame")
   end
 
   test "saves an item without the allergens key, or with an invalid one, with the name-rule proposal only" do
