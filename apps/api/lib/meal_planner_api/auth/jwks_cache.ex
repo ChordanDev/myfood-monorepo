@@ -96,45 +96,56 @@ defmodule MealPlannerApi.Auth.JwksCache do
 
     cond do
       Map.has_key?(state.urls, url) ->
-        ref = state.urls[url]
-        {:noreply, update_in(state.fetches[ref].waiters, &[from | &1])}
+        tag = state.urls[url]
+        {:noreply, update_in(state.fetches[tag].waiters, &[from | &1])}
 
       cached != nil and cached.version != seen ->
         {:reply, {:ok, cached.keys}, state}
 
       true ->
-        {_pid, ref} = spawn_monitor(fn -> exit({:shutdown, {:jwks, fetch(url, req_options)}}) end)
+        server = self()
+        tag = make_ref()
+
+        {_pid, monitor} =
+          spawn_monitor(fn -> send(server, {:jwks_fetched, tag, fetch(url, req_options)}) end)
+
+        fetch = %{url: url, waiters: [from], monitor: monitor}
 
         {:noreply,
          %{
            state
-           | fetches: Map.put(state.fetches, ref, %{url: url, waiters: [from]}),
-             urls: Map.put(state.urls, url, ref)
+           | fetches: Map.put(state.fetches, tag, fetch),
+             urls: Map.put(state.urls, url, tag)
          }}
     end
   end
 
+  # The fetch process sends its answer before it exits, so the monitor is
+  # only heard from when it died without one.
   @impl true
-  def handle_info({:DOWN, ref, :process, _pid, reason}, state) do
-    {%{url: url, waiters: waiters}, fetches} = Map.pop(state.fetches, ref)
+  def handle_info({:jwks_fetched, tag, result}, state) do
+    Process.demonitor(state.fetches[tag].monitor, [:flush])
+    {:noreply, finish(state, tag, result)}
+  end
 
-    answer =
-      case reason do
-        {:shutdown, {:jwks, {:ok, keys}}} ->
-          :persistent_term.put({__MODULE__, url}, %{
-            keys: keys,
-            fetched_at: System.monotonic_time(:second),
-            version: System.unique_integer([:monotonic])
-          })
+  def handle_info({:DOWN, monitor, :process, _pid, _reason}, state) do
+    {tag, _fetch} = Enum.find(state.fetches, fn {_tag, fetch} -> fetch.monitor == monitor end)
+    {:noreply, finish(state, tag, {:error, :provider_unavailable})}
+  end
 
-          {:ok, keys}
+  defp finish(state, tag, result) do
+    {%{url: url, waiters: waiters}, fetches} = Map.pop(state.fetches, tag)
 
-        _failed ->
-          {:error, :provider_unavailable}
-      end
+    with {:ok, keys} <- result do
+      :persistent_term.put({__MODULE__, url}, %{
+        keys: keys,
+        fetched_at: System.monotonic_time(:second),
+        version: System.unique_integer([:monotonic])
+      })
+    end
 
-    Enum.each(waiters, &GenServer.reply(&1, answer))
-    {:noreply, %{state | fetches: fetches, urls: Map.delete(state.urls, url)}}
+    Enum.each(waiters, &GenServer.reply(&1, result))
+    %{state | fetches: fetches, urls: Map.delete(state.urls, url)}
   end
 
   # `pool_timeout` stays top-level: Req deprecates it in favour of
