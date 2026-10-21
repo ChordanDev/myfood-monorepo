@@ -217,8 +217,8 @@ defmodule MealPlannerApiWeb.RevenuecatController do
   # could not be written, and the client must not purchase without it.
   defp app_user_id_for_account(account_id) do
     case AccountsPersistence.ensure_revenuecat_customer(account_id) do
-      {:ok, customer} -> customer.rc_app_user_id
-      {:error, _changeset} -> nil
+      {:ok, %{rc_app_user_id: app_user_id}} -> app_user_id
+      _not_issued -> nil
     end
   end
 
