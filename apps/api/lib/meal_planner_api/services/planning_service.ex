@@ -97,8 +97,7 @@ defmodule MealPlannerApi.Services.PlanningService do
   def max_planning_days, do: @max_planning_days
 
   @spec run_optimizer(module(), [String.t()], map(), planning_user()) ::
-          {:ok, %{required(String.t()) => [map()]}}
-          | {:error, :optimization_failed | :optimizer_unavailable}
+          {:ok, %{required(String.t()) => term()}} | {:error, term()}
   def run_optimizer(_optimizer, [], _candidates, _user),
     do: {:ok, %{"meals" => [], "deviations" => [], "optimality" => "optimal"}}
 

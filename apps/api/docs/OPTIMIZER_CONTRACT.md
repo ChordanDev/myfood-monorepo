@@ -9,8 +9,9 @@ contract between the planning code and the solver (spec #93, issues #97, #98 and
 > modules this page names (`Optimization.Contract`, `Optimization.Variety`,
 > `Planning.ProposalStatus`, `PlanningAgent.Optimizer.Port`) arrive with the
 > planning agent port (#423). Until then `OptimizerServer` is the only caller:
-> it sends no variety context, and the legacy planners refuse a plan with a
-> Deviation. There is no fallback plan: an unavailable optimizer is an error.
+> it sends no prior meals and no cap, so the default variety cap of 2 applies,
+> and the legacy planners refuse a plan that misses the budget or a nutrition
+> goal. There is no fallback plan: an unavailable optimizer is an error.
 
 ## Solver
 
