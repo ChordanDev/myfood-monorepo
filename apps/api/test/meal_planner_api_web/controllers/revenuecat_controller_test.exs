@@ -349,6 +349,33 @@ defmodule MealPlannerApiWeb.RevenuecatControllerTest do
       assert %{"state" => "active", "app_user_id" => ^app_user_id} =
                Jason.decode!(status_body)["data"]
     end
+
+    # A purchase during the trial does not change `state` or `source`: the
+    # trial ranks above an active entitlement until it ends.
+    test "an Account that subscribes during its trial still reports the trial", %{conn: conn} do
+      {:ok, account} = insert_account_with_eligible_trial!()
+      {user, membership} = member_of(account)
+
+      app_user_id = get_app_user_id(conn, user, membership)
+      body = signed_webhook(%{"app_user_id" => app_user_id})
+
+      assert %Plug.Conn{status: 200} =
+               build_conn()
+               |> put_req_header("content-type", "application/json")
+               |> put_req_header("x-revenuecat-webhook-signature", signature_header(body))
+               |> post("/api/billing/revenuecat/webhook", body)
+
+      token = issue_access_v2_token(user, membership)
+
+      assert %Plug.Conn{status: 200, resp_body: status_body} =
+               build_conn()
+               |> put_req_header("authorization", "Bearer " <> token)
+               |> get("/api/billing/revenuecat/status")
+
+      data = Jason.decode!(status_body)["data"]
+      assert %{"state" => "trial", "source" => "trial"} = data
+      assert data["latest_provider_event_at"]
+    end
   end
 
   # ─── Purchase / Restore (payloadless recovery) ───────────────────────────

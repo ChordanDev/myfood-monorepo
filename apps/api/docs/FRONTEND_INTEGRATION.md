@@ -575,8 +575,9 @@ y `202 {"data": {"state": "pending_webhook"}}` cuando todavía no tiene acceso; 
 reintenta con backoff.
 
 Un `200` durante el trial no confirma la compra: la cuenta ya tenía acceso por el trial y el
-webhook puede no haber llegado. Tampoco sirve mirar `source`, que sigue en `trial` mientras el
-trial esté vigente aunque ya haya una suscripción activa.
+webhook puede no haber llegado. Tampoco sirve mirar `state` ni `source`: los dos siguen en `trial`
+mientras el trial esté vigente, aunque ya haya una suscripción activa, y pasan a `active` y
+`entitlement` cuando el trial termina.
 
 | Estado | Código | Cuándo |
 |--------|--------|--------|
