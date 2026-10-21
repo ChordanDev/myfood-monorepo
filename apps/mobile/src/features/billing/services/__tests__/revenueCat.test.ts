@@ -283,6 +283,34 @@ describe('RevenueCat identity', () => {
     }
   });
 
+  it("does not make a tap wait for the same Account's login still in flight", async () => {
+    jest.useFakeTimers();
+    try {
+      const { service, Purchases, fetchBillingStatus, store } = load();
+      fetchBillingStatus.mockResolvedValue(status('rc-first-account'));
+      let finishBackgroundLogIn: () => void = () => {};
+      Purchases.logIn.mockReturnValueOnce(
+        new Promise((resolve) => {
+          finishBackgroundLogIn = () =>
+            resolve({ customerInfo: customerInfo([]), created: false } as never);
+        }) as never
+      );
+
+      // The session logs the Account in on its own; the User taps Subscribe meanwhile.
+      void service.identifyAccount();
+      await jest.advanceTimersByTimeAsync(0);
+      const tapping = service.ensureIdentified();
+      const identified = expect(tapping).resolves.toBe('rc-first-account');
+      await jest.advanceTimersByTimeAsync(LOGIN_WAIT_TIMEOUT_MS);
+      finishBackgroundLogIn();
+      await identified;
+
+      expect(store.getState().appUserId).toBe('rc-first-account');
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
   it('skips logOut for an anonymous user, which the SDK would reject', async () => {
     const { service, Purchases } = load();
     Purchases.isAnonymous.mockResolvedValue(true);
