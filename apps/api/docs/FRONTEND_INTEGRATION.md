@@ -314,6 +314,9 @@ asumir un tipo específico.
 | `DELETE` | `/api/me/favorites/:recipeId` | Quitar una receta de los favoritos |
 | `GET` | `/api/account/budget` | Presupuesto semanal de la cuenta |
 | `PUT` | `/api/account/budget` | Cambiar el presupuesto semanal (solo `owner`) |
+| `GET` | `/api/billing/revenuecat/status` | Estado de acceso de la cuenta y su `app_user_id` de RevenueCat |
+| `POST` | `/api/billing/revenuecat/purchase` | Confirmar el estado después de una compra en el SDK |
+| `POST` | `/api/billing/revenuecat/restore` | Confirmar el estado después de restaurar compras en el SDK |
 
 ### Editar el perfil de Onboarding
 
@@ -575,6 +578,53 @@ Las dos responden lo mismo:
 |--------|--------|--------|
 | 403 | `not_owner` | `PUT` de un miembro que no es el `owner`, sea cual sea el body |
 | 422 | `validation_error` | `weeklyBudgetCents` falta, no es entero, es `0` o menos, o es menor que `minWeeklyBudgetCents`; no se guarda nada |
+
+### Suscripción (RevenueCat)
+
+La suscripción es de la cuenta, no del dispositivo ni del usuario. Estas tres rutas responden
+aunque el trial de la cuenta haya vencido, para que la app pueda cobrar o restaurar.
+
+```bash
+GET /api/billing/revenuecat/status
+Authorization: Bearer <token>
+```
+
+```json
+{
+  "data": {
+    "state": "trial",
+    "source": "trial",
+    "trial_started_at": "2026-10-14T12:00:00.000000Z",
+    "trial_ends_at": "2026-10-21T12:00:00.000000Z",
+    "latest_provider_event_at": null,
+    "app_user_id": "5b0c8f3e-2f7d-4c1a-9e2b-7d1f4a6c3e90"
+  }
+}
+```
+
+- `app_user_id`: el id con el que la app hace `Purchases.logIn` en RevenueCat. Lo emite el
+  servidor en la primera llamada de la cuenta (un UUID al azar, no derivado de la cuenta ni del
+  email) y desde ahí es siempre el mismo para todos los miembros. Al cambiar de cuenta, la app
+  vuelve a leerlo y hace `logIn` con el de la nueva. Es `null` cuando el servidor no pudo emitir
+  un id para ese pedido: no hay cuenta actual o la cuenta ya no existe. En ese caso la app no
+  compra.
+- `state`: `trial`, `active` o `expired`. Es la fuente de verdad del acceso; la app no habilita
+  nada por su cuenta a partir del `CustomerInfo` del SDK.
+
+Después de que el SDK completa una compra o una restauración, la app llama sin body a
+`POST /api/billing/revenuecat/purchase` o `POST /api/billing/revenuecat/restore`. Responden `200`
+con `state` y `source` cuando la cuenta tiene acceso en este momento, por trial o por suscripción,
+y `202 {"data": {"state": "pending_webhook"}}` cuando todavía no tiene acceso; con `202` la app
+reintenta con backoff.
+
+Un `200` durante el trial no confirma la compra: la cuenta ya tenía acceso por el trial y el
+webhook puede no haber llegado. Tampoco sirve mirar `state` ni `source`: los dos siguen en `trial`
+mientras el trial esté vigente, aunque ya haya una suscripción activa, y pasan a `active` y
+`entitlement` cuando el trial termina.
+
+| Estado | Código | Cuándo |
+|--------|--------|--------|
+| 422 | `client_entitlement_grant_forbidden` | `status`, `purchase` o `restore` con datos de entitlement o recibo en el body o en el query string; solo el webhook firmado habilita una cuenta |
 
 ### Ejemplo: Generar Plan
 

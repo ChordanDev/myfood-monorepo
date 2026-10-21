@@ -73,4 +73,18 @@ defmodule MealPlannerApi.Persistence.AccountsTest do
                Accounts.update_account_timezone(Ecto.UUID.generate(), "Asia/Tokyo")
     end
   end
+
+  describe "ensure_revenuecat_customer/1" do
+    # The Account can be deleted between `/status` loading it and issuing
+    # the id (issue #412); the controller then answers `app_user_id: null`.
+    test "returns the changeset and stores nothing when the Account does not exist" do
+      missing_account_id = Ecto.UUID.generate()
+
+      assert {:error, %Ecto.Changeset{valid?: false} = changeset} =
+               Accounts.ensure_revenuecat_customer(missing_account_id)
+
+      assert {"does not exist", _} = changeset.errors[:account_id]
+      assert Accounts.get_revenuecat_customer_by_account_id(missing_account_id) == nil
+    end
+  end
 end

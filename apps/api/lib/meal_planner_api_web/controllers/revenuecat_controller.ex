@@ -15,11 +15,13 @@ defmodule MealPlannerApiWeb.RevenuecatController do
       eligible and expired Accounts (recovery route).
     * `purchase/2` / `restore/2` — POST, payloadless. Confirms the
       current server state after the React Native SDK has completed
-      the store-side flow. Returns `200` with the current state, or
-      `202 {"state":"pending_webhook"}` when no webhook has yet
-      granted eligibility. Any entitlement/receipt input on these
-      routes is `422 client_entitlement_grant_forbidden` — only a
-      validated webhook may ever grant eligibility.
+      the store-side flow. Returns `200` with the current state while
+      the Account is eligible (an active trial counts, so a `200` during
+      the trial does not confirm the purchase), or
+      `202 {"state":"pending_webhook"}` while it is not. Any
+      entitlement/receipt input on these routes is
+      `422 client_entitlement_grant_forbidden` — only a validated
+      webhook may ever grant eligibility.
 
   The previous client `sync/2` endpoint has been DELETED. The legacy
   `RevenuecatService.process_webhook/2` and
@@ -211,12 +213,15 @@ defmodule MealPlannerApiWeb.RevenuecatController do
   end
 
   # The Account's `app_user_id` is server-issued and stored on the
-  # `RevenuecatCustomer` row (PR 1). All members of an Account share the
-  # same `app_user_id`; account switching logs into the new one.
+  # `RevenuecatCustomer` row, created on the first `/status` call
+  # (issue #412). All members of an Account share the same `app_user_id`;
+  # account switching logs into the new one. `null` when no id could be
+  # issued for this request (no current Account, or the Account no longer
+  # exists); the client must not purchase without it.
   defp app_user_id_for_account(account_id) do
-    case AccountsPersistence.get_revenuecat_customer_by_account_id(account_id) do
-      nil -> nil
-      customer -> customer.rc_app_user_id
+    case AccountsPersistence.ensure_revenuecat_customer(account_id) do
+      {:ok, %{rc_app_user_id: app_user_id}} -> app_user_id
+      _not_issued -> nil
     end
   end
 

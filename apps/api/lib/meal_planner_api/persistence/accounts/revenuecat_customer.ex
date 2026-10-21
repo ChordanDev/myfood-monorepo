@@ -21,6 +21,7 @@ defmodule MealPlannerApi.Persistence.Accounts.RevenuecatCustomer do
     |> cast(attrs, [:account_id, :user_id, :rc_app_user_id])
     |> validate_required([:account_id, :rc_app_user_id])
     |> unique_constraint(:rc_app_user_id)
+    |> unique_constraint(:account_id)
     |> foreign_key_constraint(:account_id)
     |> foreign_key_constraint(:user_id)
   end

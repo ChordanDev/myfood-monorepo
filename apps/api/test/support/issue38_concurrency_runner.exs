@@ -45,5 +45,6 @@ Mix.Task.run("test", [
   "test/meal_planner_api/email_code_delivery_concurrency_test.exs",
   "test/meal_planner_api/invite_accept_concurrency_test.exs",
   "test/meal_planner_api/social_login_concurrency_test.exs",
-  "test/meal_planner_api/persistence/idempotency_concurrency_test.exs"
+  "test/meal_planner_api/persistence/idempotency_concurrency_test.exs",
+  "test/meal_planner_api/revenuecat_customer_concurrency_test.exs"
 ])
