@@ -551,8 +551,8 @@ Authorization: Bearer <token>
   "data": {
     "state": "trial",
     "source": "trial",
-    "trial_started_at": "2026-10-14T12:00:00Z",
-    "trial_ends_at": "2026-10-21T12:00:00Z",
+    "trial_started_at": "2026-10-14T12:00:00.000000Z",
+    "trial_ends_at": "2026-10-21T12:00:00.000000Z",
     "latest_provider_event_at": null,
     "app_user_id": "5b0c8f3e-2f7d-4c1a-9e2b-7d1f4a6c3e90"
   }
