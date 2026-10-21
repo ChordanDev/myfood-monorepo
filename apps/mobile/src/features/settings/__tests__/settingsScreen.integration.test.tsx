@@ -7,7 +7,7 @@
 /* eslint-disable @typescript-eslint/no-require-imports */
 
 import * as React from 'react';
-import { StyleSheet, Text } from 'react-native';
+import { Alert, StyleSheet, Text } from 'react-native';
 import { loadReactNative } from '@/testing/loadReactNative';
 import { act, create, type ReactTestInstance } from 'react-test-renderer';
 import { ApiError } from '@/api/errors';
@@ -610,6 +610,21 @@ describe('SettingsScreen', () => {
 
       expect(RevenueCatUI.presentCustomerCenter).toHaveBeenCalledTimes(1);
       expect(context.refreshMe).toHaveBeenCalledTimes(1);
+    });
+
+    it('does not report a failure when only the /me refresh after it fails', async () => {
+      useBillingStore.getState().setIdentity('rc-issued-id', false);
+      const alert = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+      const { root } = await renderScreen({
+        me: makeMe({ account: { subscriptionStatus: 'active' } }),
+        context: { refreshMe: jest.fn(() => Promise.reject(new Error('offline'))) },
+      });
+
+      await press(root, 'settings-row-manage-subscription');
+
+      expect(RevenueCatUI.presentCustomerCenter).toHaveBeenCalledTimes(1);
+      expect(alert).not.toHaveBeenCalled();
+      alert.mockRestore();
     });
   });
 

@@ -15,7 +15,7 @@ export interface SubscribeState {
   /** Spanish copy for `pending` and `error`; `null` otherwise. */
   message: string | null;
   subscribe: () => Promise<void>;
-  /** After a `pending` purchase: asks the server again and refreshes `/me`. */
+  /** After a `pending` purchase or restore: asks the server again and refreshes `/me`. */
   checkAgain: () => Promise<void>;
 }
 
@@ -34,14 +34,19 @@ export function useSubscribe(): SubscribeState {
   const [status, setStatus] = useState<SubscribeStatus>('idle');
   const [message, setMessage] = useState<string | null>(null);
   const busyRef = useRef(false);
+  // What the store completed last, so checking again asks the same route.
+  const lastKindRef = useRef<ConfirmationKind>('purchase');
 
   const fail = useCallback((nextMessage: string) => {
     setStatus('error');
     setMessage(nextMessage);
   }, []);
 
+  // The store already took the payment by now, so a failure here never offers the Paywall
+  // again: the User checks again instead.
   const confirm = useCallback(
     async (kind: ConfirmationKind) => {
+      lastKindRef.current = kind;
       setStatus('confirming');
       setMessage(null);
       try {
@@ -54,10 +59,11 @@ export function useSubscribe(): SubscribeState {
           setStatus('idle');
         }
       } catch (error) {
-        fail(isApiError(error) ? getAuthErrorMessage(error) : BILLING_COPY.confirmError);
+        setStatus('pending');
+        setMessage(isApiError(error) ? getAuthErrorMessage(error) : BILLING_COPY.confirmError);
       }
     },
-    [fail, refreshMe]
+    [refreshMe]
   );
 
   const subscribe = useCallback(async () => {
@@ -105,7 +111,7 @@ export function useSubscribe(): SubscribeState {
     if (busyRef.current) return;
     busyRef.current = true;
     try {
-      await confirm('purchase');
+      await confirm(lastKindRef.current);
     } finally {
       busyRef.current = false;
     }

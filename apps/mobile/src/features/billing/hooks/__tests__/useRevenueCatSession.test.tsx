@@ -131,6 +131,17 @@ describe('useRevenueCatSession', () => {
     expect(mockPurchases.isAnonymous).not.toHaveBeenCalled();
   });
 
+  it('ignores CustomerInfo updates once signed out', async () => {
+    currentAccountId = 'account-1';
+    const tree = await render(contextFor(meFor('account-1')));
+    const listener = mockPurchases.addCustomerInfoUpdateListener.mock.calls[0][0];
+
+    await update(tree, contextFor(null));
+    act(() => listener(customerInfo(['brosky_company_pro'])));
+
+    expect(useBillingStore.getState().hasProEntitlement).toBe(false);
+  });
+
   it('follows CustomerInfo updates for brosky_company_pro and stops on unmount', async () => {
     currentAccountId = 'account-1';
     const tree = await render(contextFor(meFor('account-1')));

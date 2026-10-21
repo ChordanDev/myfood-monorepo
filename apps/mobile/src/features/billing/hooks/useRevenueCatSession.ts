@@ -23,7 +23,10 @@ export function useRevenueCatSession() {
     if (!configureRevenueCat()) return;
 
     const listener = (customerInfo: CustomerInfo) => {
-      useBillingStore.getState().setHasProEntitlement(hasProEntitlement(customerInfo));
+      const store = useBillingStore.getState();
+      // Signed out or mid-switch: the update belongs to a user this app no longer shows.
+      if (store.appUserId === null) return;
+      store.setHasProEntitlement(hasProEntitlement(customerInfo));
     };
     Purchases.addCustomerInfoUpdateListener(listener);
     return () => {

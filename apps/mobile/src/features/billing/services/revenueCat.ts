@@ -7,6 +7,8 @@ import { useBillingStore } from '../store/useBillingStore';
 let configured = false;
 // Each identity change bumps it, so an answer that arrives after a newer change is dropped.
 let identityGeneration = 0;
+// The native login in flight, so a sign-out can wait for it before checking who is logged in.
+let pendingLogIn: Promise<unknown> | null = null;
 
 /**
  * The public SDK key for this platform. A per-platform key wins over the shared one. Each
@@ -68,7 +70,11 @@ export async function identifyAccount(): Promise<string | null> {
   if (generation !== identityGeneration) return null;
   if (!data.app_user_id) throw new BillingIdentityError();
 
-  const { customerInfo } = await Purchases.logIn(data.app_user_id);
+  const logIn = Purchases.logIn(data.app_user_id);
+  pendingLogIn = logIn;
+  const { customerInfo } = await logIn.finally(() => {
+    if (pendingLogIn === logIn) pendingLogIn = null;
+  });
   if (generation !== identityGeneration) return null;
 
   useBillingStore.getState().setIdentity(data.app_user_id, hasProEntitlement(customerInfo));
@@ -94,6 +100,9 @@ export async function signOutOfRevenueCat(): Promise<void> {
   identityGeneration += 1;
   useBillingStore.getState().reset();
   if (!configureRevenueCat()) return;
+
+  // A login still in flight would otherwise land after this check and stay logged in.
+  if (pendingLogIn) await pendingLogIn.catch(() => undefined);
 
   if (!(await Purchases.isAnonymous())) {
     await Purchases.logOut();

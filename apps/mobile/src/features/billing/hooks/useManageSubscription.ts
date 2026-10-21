@@ -33,14 +33,20 @@ export function useManageSubscription(): ManageSubscriptionState {
     try {
       await ensureIdentified();
       await RevenueCatUI.presentCustomerCenter();
-      await refreshMe();
     } catch (error) {
       Alert.alert(
         BILLING_COPY.manageErrorTitle,
         isApiError(error) ? getAuthErrorMessage(error) : BILLING_COPY.storeError
       );
+      return;
     } finally {
       openingRef.current = false;
+    }
+    // The Customer Center did open; a failed refresh catches up on the next one.
+    try {
+      await refreshMe();
+    } catch {
+      // Nothing to tell the User: the subscription was managed.
     }
   }, [refreshMe]);
 

@@ -155,6 +155,32 @@ describe('RevenueCat identity', () => {
     expect(store.getState()).toMatchObject({ appUserId: null, hasProEntitlement: false });
   });
 
+  it('waits for a login in flight before deciding whether to log out', async () => {
+    const { service, Purchases, fetchBillingStatus, store } = load();
+    fetchBillingStatus.mockResolvedValue(status(SERVER_ID));
+    let finishLogIn: () => void = () => {};
+    Purchases.logIn.mockReturnValueOnce(
+      new Promise((resolve) => {
+        finishLogIn = () => resolve({ customerInfo: customerInfo([]), created: false } as never);
+      }) as never
+    );
+    // Anonymous until the native login lands, identified after it.
+    let loggedIn = false;
+    Purchases.isAnonymous.mockImplementation(async () => !loggedIn);
+
+    const identifying = service.identifyAccount();
+    await Promise.resolve();
+    await Promise.resolve();
+    const signingOut = service.signOutOfRevenueCat();
+    loggedIn = true;
+    finishLogIn();
+    await identifying;
+    await signingOut;
+
+    expect(Purchases.logOut).toHaveBeenCalledTimes(1);
+    expect(store.getState().appUserId).toBeNull();
+  });
+
   it('skips logOut for an anonymous user, which the SDK would reject', async () => {
     const { service, Purchases } = load();
     Purchases.isAnonymous.mockResolvedValue(true);

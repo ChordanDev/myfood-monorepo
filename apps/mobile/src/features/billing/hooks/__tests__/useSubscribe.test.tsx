@@ -166,7 +166,7 @@ describe('useSubscribe', () => {
     expect(result.current.message).toBe(BILLING_COPY.storeError);
   });
 
-  it('shows the network message when the confirmation cannot reach the server', async () => {
+  it('keeps a paid purchase to check again when the confirmation cannot reach the server', async () => {
     mockPaywall.presentPaywall.mockResolvedValueOnce(PAYWALL_RESULT.PURCHASED);
     (confirmPurchase as jest.Mock).mockRejectedValueOnce(
       new ApiError('network_error', 'Network request failed')
@@ -177,7 +177,48 @@ describe('useSubscribe', () => {
     await subscribe(rendered);
 
     expect(refreshMe).not.toHaveBeenCalled();
-    expect(result.current.status).toBe('error');
+    expect(result.current.status).toBe('pending');
+    expect(result.current.message).toBe('No pudimos conectar con el servidor. Revisá tu conexión.');
+
+    (confirmPurchase as jest.Mock).mockResolvedValueOnce(active);
+    await act(async () => {
+      await result.current.checkAgain();
+    });
+
+    expect(confirmPurchase).toHaveBeenCalledTimes(2);
+    expect(mockPaywall.presentPaywall).toHaveBeenCalledTimes(1);
+    expect(refreshMe).toHaveBeenCalledTimes(1);
+    expect(result.current.status).toBe('idle');
+  });
+
+  it('checks a pending restore again on the restore route', async () => {
+    mockPaywall.presentPaywall.mockResolvedValueOnce(PAYWALL_RESULT.RESTORED);
+    (confirmRestore as jest.Mock).mockResolvedValue(pending);
+    const rendered = await render();
+    const { result } = rendered;
+
+    await subscribe(rendered);
+    expect(result.current.status).toBe('pending');
+
+    (confirmRestore as jest.Mock).mockResolvedValue(active);
+    await act(async () => {
+      await result.current.checkAgain();
+    });
+
+    expect(confirmPurchase).not.toHaveBeenCalled();
+    expect(result.current.status).toBe('idle');
+  });
+
+  it('keeps the purchase to check again when /me cannot be refreshed after it', async () => {
+    mockPaywall.presentPaywall.mockResolvedValueOnce(PAYWALL_RESULT.PURCHASED);
+    (confirmPurchase as jest.Mock).mockResolvedValueOnce(active);
+    const rendered = await render();
+    const { result, refreshMe } = rendered;
+    refreshMe.mockRejectedValueOnce(new ApiError('network_error', 'Network request failed'));
+
+    await subscribe(rendered);
+
+    expect(result.current.status).toBe('pending');
     expect(result.current.message).toBe('No pudimos conectar con el servidor. Revisá tu conexión.');
   });
 
