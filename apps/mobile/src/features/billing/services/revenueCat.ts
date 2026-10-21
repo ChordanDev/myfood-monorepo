@@ -1,7 +1,7 @@
 import { Platform } from 'react-native';
 import Purchases, { type CustomerInfo } from 'react-native-purchases';
 import { fetchBillingStatus } from '../api/billingApi';
-import { PRO_ENTITLEMENT_ID } from '../constants';
+import { LOGIN_WAIT_TIMEOUT_MS, PRO_ENTITLEMENT_ID } from '../constants';
 import { useBillingStore } from '../store/useBillingStore';
 
 let configured = false;
@@ -48,9 +48,28 @@ export function hasProEntitlement(customerInfo: CustomerInfo): boolean {
 }
 
 export class BillingIdentityError extends Error {
-  constructor() {
-    super('The server issued no RevenueCat app_user_id for this Account.');
+  constructor(message = 'The server issued no RevenueCat app_user_id for this Account.') {
+    super(message);
     this.name = 'BillingIdentityError';
+  }
+}
+
+/** Whether `promise` settles, either way, within `ms`. */
+async function settlesWithin(promise: Promise<unknown>, ms: number): Promise<boolean> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<boolean>((resolve) => {
+    timer = setTimeout(() => resolve(false), ms);
+  });
+  try {
+    return await Promise.race([
+      promise.then(
+        () => true,
+        () => true
+      ),
+      timeout,
+    ]);
+  } finally {
+    clearTimeout(timer);
   }
 }
 
@@ -71,10 +90,12 @@ export async function identifyAccount(): Promise<string | null> {
   if (!data.app_user_id) throw new BillingIdentityError();
 
   // The native SDK stays on whichever login finishes last, so an older login still in flight
-  // could finish after this one and keep the previous Account's user. Wait for it first.
+  // could finish after this one and keep the previous Account's user. Wait for it first, and
+  // give up rather than log in while it could still land.
   while (pendingLogIn) {
-    await pendingLogIn.catch(() => undefined);
+    const settled = await settlesWithin(pendingLogIn, LOGIN_WAIT_TIMEOUT_MS);
     if (generation !== identityGeneration) return null;
+    if (!settled) throw new BillingIdentityError('An earlier RevenueCat login has not finished.');
   }
 
   const logIn = Purchases.logIn(data.app_user_id);

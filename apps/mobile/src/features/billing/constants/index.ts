@@ -6,3 +6,9 @@ export const PRO_ENTITLEMENT_ID = 'brosky_company_pro';
  * About half a minute in total; after it the purchase stays pending and the User can check again.
  */
 export const PENDING_WEBHOOK_RETRY_DELAYS_MS = [1000, 2000, 4000, 8000, 15000];
+
+/**
+ * How long a new RevenueCat login waits for an earlier one still in flight. Past it the new login
+ * fails instead of starting, since the earlier one could still land and win.
+ */
+export const LOGIN_WAIT_TIMEOUT_MS = 10000;

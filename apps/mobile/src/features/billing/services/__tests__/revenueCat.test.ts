@@ -1,4 +1,6 @@
 /* eslint-disable @typescript-eslint/no-require-imports */
+import { LOGIN_WAIT_TIMEOUT_MS } from '../../constants';
+
 // The service keeps whether the SDK is configured in module state, so each test loads it fresh
 // with its own mocks.
 type Loaded = {
@@ -253,6 +255,32 @@ describe('RevenueCat identity', () => {
 
     expect(store.getState().appUserId).toBe('rc-second-account');
     expect(sdkUser).toBe('rc-second-account');
+  });
+
+  it('gives up instead of waiting forever behind a login that never finishes', async () => {
+    jest.useFakeTimers();
+    try {
+      const { service, Purchases, fetchBillingStatus, store } = load();
+      fetchBillingStatus
+        .mockResolvedValueOnce(status('rc-first-account'))
+        .mockResolvedValueOnce(status('rc-second-account'));
+      Purchases.logIn.mockReturnValueOnce(new Promise(() => {}) as never);
+
+      void service.identifyAccount();
+      await jest.advanceTimersByTimeAsync(0);
+      const identifyingSecond = service.identifyAccount();
+      const refused = expect(identifyingSecond).rejects.toBeInstanceOf(
+        service.BillingIdentityError
+      );
+      await jest.advanceTimersByTimeAsync(LOGIN_WAIT_TIMEOUT_MS);
+      await refused;
+
+      // Logging in anyway could let the stuck login land later on the previous Account.
+      expect(Purchases.logIn).toHaveBeenCalledTimes(1);
+      expect(store.getState().appUserId).toBeNull();
+    } finally {
+      jest.useRealTimers();
+    }
   });
 
   it('skips logOut for an anonymous user, which the SDK would reject', async () => {

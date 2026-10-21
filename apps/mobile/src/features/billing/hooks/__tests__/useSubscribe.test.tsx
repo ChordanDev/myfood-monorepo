@@ -26,6 +26,7 @@ jest.mock('../../api/billingApi', () => ({
 jest.mock('../../constants', () => ({
   PRO_ENTITLEMENT_ID: 'brosky_company_pro',
   PENDING_WEBHOOK_RETRY_DELAYS_MS: [0, 0],
+  LOGIN_WAIT_TIMEOUT_MS: 10000,
 }));
 
 const mockPurchases = jest.mocked(Purchases);
