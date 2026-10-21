@@ -102,6 +102,23 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      # The OR-Tools optimizer behind `OptimizerServer` (issue #422). Its
+      # suite drives the real script over the port protocol, so it needs the
+      # pinned `ortools` from `optimizer/requirements.txt`.
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: apps/api/optimizer/requirements.txt
+
+      - name: Install optimizer dependencies
+        run: pip install -r optimizer/requirements.txt
+
+      - name: Optimizer tests (Python)
+        working-directory: apps/api/optimizer
+        run: python -m unittest -v test_optimizador
+
       - name: Setup Elixir / OTP
         id: beam
         uses: erlef/setup-beam@v1
