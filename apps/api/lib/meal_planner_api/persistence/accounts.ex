@@ -232,6 +232,34 @@ defmodule MealPlannerApi.Persistence.Accounts do
     |> Repo.one()
   end
 
+  @doc """
+  Returns the Account's `RevenuecatCustomer`, creating it with a new random
+  UUID as `rc_app_user_id` when the Account has none (issue #412). The id is
+  never derived from the Account or a User, so a client cannot guess another
+  Account's. Concurrent first calls race on the unique `account_id` index:
+  the losers insert nothing and read the winner's row, so every caller gets
+  the same id.
+  """
+  def ensure_revenuecat_customer(account_id) when is_binary(account_id) do
+    case get_revenuecat_customer_by_account_id(account_id) do
+      %RevenuecatCustomer{} = customer -> {:ok, customer}
+      nil -> insert_revenuecat_customer(account_id)
+    end
+  end
+
+  defp insert_revenuecat_customer(account_id) do
+    %RevenuecatCustomer{}
+    |> RevenuecatCustomer.changeset(%{
+      account_id: account_id,
+      rc_app_user_id: Ecto.UUID.generate()
+    })
+    |> Repo.insert(on_conflict: :nothing, conflict_target: [:account_id])
+    |> case do
+      {:ok, _maybe_inserted} -> {:ok, get_revenuecat_customer_by_account_id(account_id)}
+      {:error, _changeset} = error -> error
+    end
+  end
+
   def upsert_revenuecat_entitlement(attrs) do
     # Normalize status → is_active for backwards compatibility
     attrs =

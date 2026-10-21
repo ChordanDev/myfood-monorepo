@@ -23,12 +23,14 @@ defmodule MealPlannerApiWeb.RevenuecatControllerTest do
 
   use MealPlannerApiWeb.ConnCase, async: false
 
+  import Ecto.Query
   import MealPlannerApi.FactoryHelpers
 
   alias MealPlannerApi.AccountAccess
   alias MealPlannerApi.Persistence.Accounts, as: AccountsPersistence
   alias MealPlannerApi.Persistence.Accounts.Account, as: PersistenceAccount
   alias MealPlannerApi.Persistence.Accounts.AccountMembership
+  alias MealPlannerApi.Persistence.Accounts.RevenuecatCustomer
   alias MealPlannerApi.Repo
 
   @secret "whsec_test_revenuecat"
@@ -259,6 +261,93 @@ defmodule MealPlannerApiWeb.RevenuecatControllerTest do
 
       decoded = Jason.decode!(resp_body)
       assert decoded["data"]["state"] == "expired"
+    end
+
+    # Issue #412: nothing created the Account's `RevenuecatCustomer`, so
+    # `app_user_id` was always null and no webhook could reach an Account.
+    test "issues a random UUID app_user_id to an Account that has none", %{conn: conn} do
+      {:ok, account} = insert_account_with_eligible_trial!()
+      {user, membership} = member_of(account)
+
+      assert AccountsPersistence.get_revenuecat_customer_by_account_id(account.id) == nil
+
+      app_user_id = get_app_user_id(conn, user, membership)
+
+      assert {:ok, ^app_user_id} = Ecto.UUID.cast(app_user_id)
+      assert app_user_id != account.id
+      assert app_user_id != user.id
+      refute String.contains?(app_user_id, user.email)
+
+      assert %{rc_app_user_id: ^app_user_id, account_id: account_id} =
+               AccountsPersistence.get_revenuecat_customer_by_account_id(account.id)
+
+      assert account_id == account.id
+    end
+
+    test "a second call returns the same app_user_id and keeps one row", %{conn: conn} do
+      {:ok, account} = insert_account_with_eligible_trial!()
+      {user, membership} = member_of(account)
+
+      first = get_app_user_id(conn, user, membership)
+      second = get_app_user_id(build_conn(), user, membership)
+
+      assert first == second
+      assert customer_count(account.id) == 1
+    end
+
+    test "every member of the Account gets the Account's app_user_id", %{conn: conn} do
+      {:ok, account} = insert_account_with_eligible_trial!()
+      {owner, owner_membership} = member_of(account)
+      {member, member_membership} = member_of(account, :member)
+
+      from_owner = get_app_user_id(conn, owner, owner_membership)
+      from_member = get_app_user_id(build_conn(), member, member_membership)
+
+      assert from_owner == from_member
+      assert customer_count(account.id) == 1
+    end
+
+    test "an Account that already has a customer keeps its app_user_id", %{conn: conn} do
+      {:ok, account} = insert_account_with_eligible_trial!()
+      {user, membership} = member_of(account)
+
+      {:ok, _} =
+        AccountsPersistence.upsert_revenuecat_customer(%{
+          account_id: account.id,
+          rc_app_user_id: "rc_existing_#{Ecto.UUID.generate()}"
+        })
+
+      existing = AccountsPersistence.get_revenuecat_customer_by_account_id(account.id)
+
+      assert get_app_user_id(conn, user, membership) == existing.rc_app_user_id
+      assert customer_count(account.id) == 1
+    end
+
+    test "a signed webhook for the issued app_user_id activates the Account", %{conn: conn} do
+      {:ok, account} = insert_account!()
+      expire_account!(account)
+      {user, membership} = member_of(account)
+
+      app_user_id = get_app_user_id(conn, user, membership)
+      body = signed_webhook(%{"app_user_id" => app_user_id})
+
+      assert %Plug.Conn{status: 200, resp_body: webhook_body} =
+               build_conn()
+               |> put_req_header("content-type", "application/json")
+               |> put_req_header("x-revenuecat-webhook-signature", signature_header(body))
+               |> post("/api/billing/revenuecat/webhook", body)
+
+      assert Jason.decode!(webhook_body)["data"]["status"] == "processed"
+
+      token = issue_access_v2_token(user, membership)
+
+      assert %Plug.Conn{status: 200, resp_body: status_body} =
+               build_conn()
+               |> put_req_header("authorization", "Bearer " <> token)
+               |> get("/api/billing/revenuecat/status")
+
+      assert %{"state" => "active", "app_user_id" => ^app_user_id} =
+               Jason.decode!(status_body)["data"]
     end
   end
 
@@ -664,6 +753,21 @@ defmodule MealPlannerApiWeb.RevenuecatControllerTest do
   # recovery routes we need the user's membership to land on the Account
   # whose trial/entitlement state we just arranged.
   defp user_with_membership_for_account(%PersistenceAccount{} = account) do
+    {user, membership} = member_of(account)
+
+    {:ok, _} =
+      AccountsPersistence.upsert_revenuecat_customer(%{
+        account_id: account.id,
+        user_id: user.id,
+        rc_app_user_id: "rc_pr3_app_#{Ecto.UUID.generate()}"
+      })
+
+    {user, membership}
+  end
+
+  # A fresh User with an active membership on the Account, and no
+  # RevenueCat customer, so `/status` has to issue the `app_user_id`.
+  defp member_of(%PersistenceAccount{} = account, role \\ :owner) do
     alias MealPlannerApi.Persistence.Accounts.User, as: PersistenceUser
 
     user =
@@ -680,19 +784,30 @@ defmodule MealPlannerApiWeb.RevenuecatControllerTest do
       |> AccountMembership.changeset(%{
         account_id: account.id,
         user_id: user.id,
-        role: :owner,
+        role: role,
         status: :active,
         joined_at: DateTime.utc_now()
       })
       |> Repo.insert!()
 
-    {:ok, _} =
-      AccountsPersistence.upsert_revenuecat_customer(%{
-        account_id: account.id,
-        user_id: user.id,
-        rc_app_user_id: "rc_pr3_app_#{Ecto.UUID.generate()}"
-      })
-
     {user, membership}
+  end
+
+  defp get_app_user_id(conn, user, membership) do
+    token = issue_access_v2_token(user, membership)
+
+    assert %Plug.Conn{status: 200, resp_body: resp_body} =
+             conn
+             |> put_req_header("authorization", "Bearer " <> token)
+             |> get("/api/billing/revenuecat/status")
+
+    Jason.decode!(resp_body)["data"]["app_user_id"]
+  end
+
+  defp customer_count(account_id) do
+    Repo.aggregate(
+      from(c in RevenuecatCustomer, where: c.account_id == ^account_id),
+      :count
+    )
   end
 end

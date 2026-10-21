@@ -211,12 +211,14 @@ defmodule MealPlannerApiWeb.RevenuecatController do
   end
 
   # The Account's `app_user_id` is server-issued and stored on the
-  # `RevenuecatCustomer` row (PR 1). All members of an Account share the
-  # same `app_user_id`; account switching logs into the new one.
+  # `RevenuecatCustomer` row, created on the first `/status` call
+  # (issue #412). All members of an Account share the same `app_user_id`;
+  # account switching logs into the new one. `null` only when the row
+  # could not be written, and the client must not purchase without it.
   defp app_user_id_for_account(account_id) do
-    case AccountsPersistence.get_revenuecat_customer_by_account_id(account_id) do
-      nil -> nil
-      customer -> customer.rc_app_user_id
+    case AccountsPersistence.ensure_revenuecat_customer(account_id) do
+      {:ok, customer} -> customer.rc_app_user_id
+      {:error, _changeset} -> nil
     end
   end
 
