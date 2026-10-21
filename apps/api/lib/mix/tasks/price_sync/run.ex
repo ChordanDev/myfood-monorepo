@@ -92,6 +92,10 @@ defmodule Mix.Tasks.PriceSync.Run do
         true -> 0
       end
 
+    # Mix ignores a task's return value, so a failure has to exit for the
+    # shell (or a scheduler) to see its code.
+    if exit_code != 0, do: exit({:shutdown, exit_code})
+
     {:ok, exit_code}
   end
 
@@ -143,11 +147,14 @@ defmodule Mix.Tasks.PriceSync.Run do
     try do
       case fetch_once.() do
         {:retry, reason} when retries > 0 ->
-          Mix.shell().warn(
+          Mix.shell().info(
             "  Retry #{@max_retries - retries + 1} for '#{ingredient_name}' (#{reason})"
           )
 
           fetch_with_retry(ingredient_name, client, retries - 1)
+
+        {:retry, reason} ->
+          {:error, reason}
 
         other ->
           other
