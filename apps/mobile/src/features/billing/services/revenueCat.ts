@@ -7,7 +7,7 @@ import { useBillingStore } from '../store/useBillingStore';
 let configured = false;
 // Each identity change bumps it, so an answer that arrives after a newer change is dropped.
 let identityGeneration = 0;
-// The native login in flight, so a sign-out can wait for it before checking who is logged in.
+// The native login in flight, so a sign-out or a newer login can wait for it first.
 let pendingLogIn: Promise<unknown> | null = null;
 
 /**
@@ -69,6 +69,13 @@ export async function identifyAccount(): Promise<string | null> {
   const { data } = await fetchBillingStatus();
   if (generation !== identityGeneration) return null;
   if (!data.app_user_id) throw new BillingIdentityError();
+
+  // The native SDK stays on whichever login finishes last, so an older login still in flight
+  // could finish after this one and keep the previous Account's user. Wait for it first.
+  while (pendingLogIn) {
+    await pendingLogIn.catch(() => undefined);
+    if (generation !== identityGeneration) return null;
+  }
 
   const logIn = Purchases.logIn(data.app_user_id);
   pendingLogIn = logIn;
