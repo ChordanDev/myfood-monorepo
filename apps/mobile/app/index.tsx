@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { ActivityIndicator, StyleSheet, View } from 'react-native';
 import { Redirect } from 'expo-router';
 import { AuthLandingScreen, TrialExpiredScreen, useAuth } from '../src/features/auth';
+import { useSubscribe } from '../src/features/billing';
 import { COLORS } from '../src/constants/theme';
 import { isStartHomeBypassEnabled } from '../src/navigation/start-home-bypass';
 import { useIndexRoute } from '@/navigation/useIndexRoute';
@@ -29,6 +30,7 @@ export default function IndexScreen() {
   // Called unconditionally before any early return so React's rules
   // of hooks are satisfied.
   const route = useIndexRoute(startHomeBypassEnabled);
+  const subscription = useSubscribe();
 
   const handleSignOut = async () => {
     if (isSigningOut) return;
@@ -64,6 +66,11 @@ export default function IndexScreen() {
         email={user?.email}
         isSigningOut={isSigningOut}
         onSignOut={handleSignOut}
+        canSubscribe={subscription.isAvailable}
+        subscribeStatus={subscription.status}
+        subscribeMessage={subscription.message}
+        onSubscribe={subscription.subscribe}
+        onCheckAgain={subscription.checkAgain}
       />
     );
   }
