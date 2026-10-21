@@ -73,7 +73,9 @@ describe('useSubscribe', () => {
   });
 
   afterAll(() => {
-    process.env.EXPO_PUBLIC_REVENUECAT_API_KEY = ORIGINAL_KEY;
+    // Assigning `undefined` would store the string 'undefined', a key for every later test.
+    if (ORIGINAL_KEY === undefined) delete process.env.EXPO_PUBLIC_REVENUECAT_API_KEY;
+    else process.env.EXPO_PUBLIC_REVENUECAT_API_KEY = ORIGINAL_KEY;
   });
 
   beforeEach(() => {

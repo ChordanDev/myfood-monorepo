@@ -570,7 +570,9 @@ describe('SettingsScreen', () => {
     });
 
     afterEach(() => {
-      process.env.EXPO_PUBLIC_REVENUECAT_API_KEY = originalKey;
+      // Assigning `undefined` would store the string 'undefined', a key for every later test.
+      if (originalKey === undefined) delete process.env.EXPO_PUBLIC_REVENUECAT_API_KEY;
+      else process.env.EXPO_PUBLIC_REVENUECAT_API_KEY = originalKey;
       useBillingStore.getState().reset();
     });
 
