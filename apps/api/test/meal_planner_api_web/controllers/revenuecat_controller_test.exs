@@ -376,6 +376,20 @@ defmodule MealPlannerApiWeb.RevenuecatControllerTest do
       assert %{"state" => "trial", "source" => "trial"} = data
       assert data["latest_provider_event_at"]
     end
+
+    test "a grant key in the query string is rejected with 422", %{conn: conn} do
+      {:ok, account} = insert_account_with_eligible_trial!()
+      {user, membership} = member_of(account)
+      token = issue_access_v2_token(user, membership)
+
+      assert %Plug.Conn{status: 422, resp_body: resp_body} =
+               conn
+               |> put_req_header("authorization", "Bearer " <> token)
+               |> get("/api/billing/revenuecat/status?receipt=forged")
+
+      assert Jason.decode!(resp_body)["error"] == "client_entitlement_grant_forbidden"
+      assert AccountsPersistence.get_revenuecat_customer_by_account_id(account.id) == nil
+    end
   end
 
   # ─── Purchase / Restore (payloadless recovery) ───────────────────────────

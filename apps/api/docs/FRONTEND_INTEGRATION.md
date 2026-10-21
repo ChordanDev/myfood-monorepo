@@ -581,7 +581,7 @@ mientras el trial esté vigente, aunque ya haya una suscripción activa, y pasan
 
 | Estado | Código | Cuándo |
 |--------|--------|--------|
-| 422 | `client_entitlement_grant_forbidden` | `purchase` o `restore` con datos de entitlement o recibo en el body; solo el webhook firmado habilita una cuenta |
+| 422 | `client_entitlement_grant_forbidden` | `status`, `purchase` o `restore` con datos de entitlement o recibo en el body o en el query string; solo el webhook firmado habilita una cuenta |
 
 ### Ejemplo: Generar Plan
 
