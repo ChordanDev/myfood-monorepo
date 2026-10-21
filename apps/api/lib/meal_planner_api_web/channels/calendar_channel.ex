@@ -77,8 +77,15 @@ defmodule MealPlannerApiWeb.CalendarChannel do
       broadcast!(socket, "meal_updated", event)
       {:reply, {:ok, event}, socket}
     else
-      {:error, reason} when is_binary(reason) -> {:reply, {:error, %{reason: reason}}, socket}
-      {:error, _} -> {:reply, {:error, %{reason: "upsert_failed"}}, socket}
+      {:error, reason} when is_binary(reason) ->
+        {:reply, {:error, %{reason: reason}}, socket}
+
+      # Issue #395: an answered meal is final, so an upsert of one changes nothing.
+      {:error, :meal_already_confirmed} ->
+        {:reply, {:error, %{reason: "meal_already_confirmed"}}, socket}
+
+      {:error, _} ->
+        {:reply, {:error, %{reason: "upsert_failed"}}, socket}
     end
   end
 

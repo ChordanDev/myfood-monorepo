@@ -226,6 +226,31 @@ defmodule MealPlannerApi.Persistence.Calendar.MealMoveTest do
       assert position(target) == {@today, :lunch}
     end
 
+    # Issue #395: a meal answered "not cooked" is final, on either side.
+    test "a meal answered not cooked is not moved and keeps its answer", f do
+      source = answered_not_cooked!(meal!(f.account, Date.add(@today, -3), :dinner))
+      target = meal!(f.account, Date.add(@today, 2), :dinner)
+
+      assert {:error, :meal_already_confirmed} =
+               MealMove.move(f.account.id, source.id, Date.add(@today, 2), :dinner, @today)
+
+      assert position(source) == {Date.add(@today, -3), :dinner}
+      assert position(target) == {Date.add(@today, 2), :dinner}
+      assert Repo.get!(ScheduledMeal, source.id).not_cooked_at == source.not_cooked_at
+    end
+
+    test "a meal answered not cooked at the destination is not displaced", f do
+      source = meal!(f.account, @tomorrow, :dinner)
+      target = answered_not_cooked!(meal!(f.account, @yesterday, :lunch))
+
+      assert {:error, :target_meal_already_confirmed} =
+               MealMove.move(f.account.id, source.id, @yesterday, :lunch, @today)
+
+      assert position(source) == {@tomorrow, :dinner}
+      assert position(target) == {@yesterday, :lunch}
+      assert Repo.get!(ScheduledMeal, target.id).not_cooked_at == target.not_cooked_at
+    end
+
     # Issue #207: a meal being cooked stays where it is, on either side.
     test "a meal with an active Cooking session is not moved", f do
       source = meal!(f.account, @today, :dinner)
@@ -392,6 +417,12 @@ defmodule MealPlannerApi.Persistence.Calendar.MealMoveTest do
       )
 
     meal
+  end
+
+  defp answered_not_cooked!(meal) do
+    meal
+    |> Ecto.Changeset.change(not_cooked_at: DateTime.utc_now())
+    |> Repo.update!()
   end
 
   defp cooking_session!(meal, status \\ :active) do

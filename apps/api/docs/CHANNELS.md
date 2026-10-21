@@ -83,6 +83,11 @@ Real-time calendar updates for meal planning.
 | `subscribe` | `{"date_range": {"start": "YYYY-MM-DD", "end": "YYYY-MM-DD"}}` | Subscribe to calendar updates in date range |
 | `unsubscribe` | `{"date_range": {...}}` | Unsubscribe from date range updates |
 | `refresh` | `{}` | Request full calendar refresh |
+| `upsert_meal` | `{"date": "YYYY-MM-DD", "slot": "lunch", "recipe_id": "uuid"}` | Create the meal of that date and slot, or give the existing one this recipe |
+
+`upsert_meal` never marks a meal cooked: a new meal starts not cooked. It refuses a meal that is
+cooked or answered "not cooked", since an answered meal is final, and replies
+`{"reason": "meal_already_confirmed"}` without changing the meal or broadcasting `meal_updated`.
 
 **Example Payload (subscribe):**
 ```json

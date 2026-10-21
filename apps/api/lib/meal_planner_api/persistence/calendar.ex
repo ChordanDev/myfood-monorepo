@@ -108,43 +108,61 @@ defmodule MealPlannerApi.Persistence.Calendar do
 
   # An upsert never changes `is_cooked` (issue #368): marking a meal cooked
   # consumes its Ingredients from Inventory, which `CookingService` does. A new
-  # meal starts not cooked and an existing one keeps its mark.
+  # meal starts not cooked. An answered meal, cooked or answered "not cooked",
+  # is final (issue #395): it is `{:error, :meal_already_confirmed}` and
+  # nothing changes. The meal is locked first, the row lock a confirmation
+  # takes, so an answer given meanwhile is seen here.
   def upsert_scheduled_meal(account_id, attrs) do
     date = Map.fetch!(attrs, :date)
     slot = Map.fetch!(attrs, :slot)
     attrs = Map.delete(attrs, :is_cooked)
 
-    case Repo.get_by(ScheduledMeal, account_id: account_id, date: date, slot: slot) do
-      nil ->
-        %ScheduledMeal{}
-        |> ScheduledMeal.changeset(Map.put(attrs, :account_id, account_id))
-        |> Repo.insert()
+    Repo.transaction(fn ->
+      result =
+        case lock_slot_meal(account_id, date, slot) do
+          nil ->
+            %ScheduledMeal{}
+            |> ScheduledMeal.changeset(Map.put(attrs, :account_id, account_id))
+            |> Repo.insert()
 
-      meal ->
-        update_scheduled_meal(meal, attrs)
-    end
+          %ScheduledMeal{is_cooked: true} ->
+            {:error, :meal_already_confirmed}
+
+          %ScheduledMeal{not_cooked_at: %DateTime{}} ->
+            {:error, :meal_already_confirmed}
+
+          meal ->
+            update_scheduled_meal(meal, attrs)
+        end
+
+      case result do
+        {:ok, meal} -> meal
+        {:error, reason} -> Repo.rollback(reason)
+      end
+    end)
+  end
+
+  defp lock_slot_meal(account_id, date, slot) do
+    from(m in ScheduledMeal,
+      where: m.account_id == ^account_id and m.date == ^date and m.slot == ^slot,
+      lock: "FOR UPDATE"
+    )
+    |> Repo.one()
   end
 
   # The meal keeps its id, so the delete cascade never fires: a recipe swap has to drop the
   # open Shopping items itself, or they stay listed for the old recipe's ingredients. The
   # recipe is the only thing that changes what a meal needs; its date and slot are the lookup
-  # key, and the snapshot is frozen while the recipe stays.
+  # key, and the snapshot is frozen while the recipe stays. Runs inside the upsert's
+  # transaction, after the meal is locked.
   defp update_scheduled_meal(meal, attrs) do
     changeset = ScheduledMeal.changeset(meal, attrs)
 
-    Multi.new()
-    |> Multi.update(:meal, changeset)
-    |> Multi.run(:stale_shopping_items, fn _repo, %{meal: updated} ->
-      if Map.has_key?(changeset.changes, :recipe_id) do
-        {:ok, Shopping.delete_open_items_for_meal(updated.account_id, updated.id)}
-      else
-        {:ok, 0}
-      end
-    end)
-    |> Repo.transaction()
-    |> case do
-      {:ok, %{meal: updated}} -> {:ok, updated}
-      {:error, _step, reason, _changes} -> {:error, reason}
+    with {:ok, updated} <- Repo.update(changeset) do
+      if Map.has_key?(changeset.changes, :recipe_id),
+        do: Shopping.delete_open_items_for_meal(updated.account_id, updated.id)
+
+      {:ok, updated}
     end
   end
 
@@ -172,26 +190,32 @@ defmodule MealPlannerApi.Persistence.Calendar do
     Ecto.ConstraintError -> {:error, :persistence_error}
   end
 
-  # The cooked meals of the range stay, cooked (issue #368). A replacement
-  # meal on the date and slot of one refuses the whole replacement; the meals
-  # are locked first, so a concurrent mark as cooked is seen here.
+  # The answered meals of the range stay with their answer: the cooked ones
+  # (issue #368) and the ones answered "not cooked" (issue #395). A
+  # replacement meal on the date and slot of one refuses the whole
+  # replacement; the meals are locked first, so a concurrent answer is seen
+  # here.
   defp replace_range_transaction(account_id, from_date, to_date, normalized_meals) do
     Multi.new()
     |> PlanningRepo.delete_scheduled_meals_for_range(account_id, {from_date, to_date})
-    |> Multi.run(:cooked_meals_kept, fn _repo, %{scheduled_meals_range_lock: locked} ->
-      refuse_cooked_slots(locked, normalized_meals)
+    |> Multi.run(:answered_meals_kept, fn _repo, %{scheduled_meals_range_lock: locked} ->
+      refuse_answered_slots(locked, normalized_meals)
     end)
     |> PlanningRepo.insert_scheduled_meals(account_id, normalized_meals)
     |> Repo.transaction()
     |> map_replacement_result()
   end
 
-  defp refuse_cooked_slots(locked, normalized_meals) do
-    cooked = for meal <- locked, meal.is_cooked, into: MapSet.new(), do: {meal.date, meal.slot}
+  defp refuse_answered_slots(locked, normalized_meals) do
+    answered = Map.new(locked, &{{&1.date, &1.slot}, &1})
 
-    if Enum.any?(normalized_meals, &MapSet.member?(cooked, {&1.date, &1.slot})),
-      do: {:error, :scheduled_meal_cooked},
-      else: {:ok, MapSet.size(cooked)}
+    Enum.find_value(normalized_meals, {:ok, :kept}, fn meal ->
+      case Map.get(answered, {meal.date, meal.slot}) do
+        %{is_cooked: true} -> {:error, :scheduled_meal_cooked}
+        %{not_cooked_at: %DateTime{}} -> {:error, :meal_already_confirmed}
+        _unanswered_or_empty -> nil
+      end
+    end)
   end
 
   defp validate_range(%Date{} = from_date, %Date{} = to_date) do
@@ -268,7 +292,7 @@ defmodule MealPlannerApi.Persistence.Calendar do
   defp map_replacement_result({:ok, %{scheduled_meals_replacement: {count, _}}}),
     do: {:ok, %{replaced: count}}
 
-  defp map_replacement_result({:error, :cooked_meals_kept, reason, _changes}),
+  defp map_replacement_result({:error, :answered_meals_kept, reason, _changes}),
     do: {:error, reason}
 
   defp map_replacement_result({:error, _step, _reason, _changes}),
