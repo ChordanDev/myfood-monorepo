@@ -14,13 +14,24 @@ defmodule MealPlannerApi.Integrations.GoScraperClient do
             "name"       => "Pollo entero 1kg",
             "price"      => 1500.0,
             "unitPrice"  => 15.0,   # price per base unit (kg/l/unit)
-            "unit"       => "kg",
-            "unavailable" => false
+            "unit"       => "KG"
           },
           ...
         ],
         "failedScrapers" => ["carrefour"]
       }
+
+  The scraper lives in `apps/scraper`. Its contract with this client
+  (recorded in `apps/scraper/README.md`, "Contract with the API"):
+
+    * The real response has no `unavailable` field: the scraper drops
+      unavailable products itself, so the `false` default here is correct.
+    * `unit` is an uppercase code (`"KG"`, `"LT"`, `"UN"`, `"MT"`) or absent.
+      `parse_response/1` maps it to the unit prices are stored in.
+    * With `ENV=release` the scraper answers `403` unless the `Referer`
+      contains its `WEB_URL`. This client sends no `Referer`, so the scraper
+      runs with `ENV=debug` for it.
+    * A query with uppercase letters gets `403`; `fetch/1` downcases it.
 
   ## Price normalization strategy
 
@@ -32,8 +43,8 @@ defmodule MealPlannerApi.Integrations.GoScraperClient do
 
       price_per_unit_cents = round(unitPrice × 100)
 
-  The `unit` field from the API tells us what the unitPrice is expressed in.
-  It must match one of our `UnitConversion.from_unit` entries for that ingredient,
+  The `unit` field from the API (mapped by `parse_response/1`) tells us what
+  the unitPrice is expressed in. It must match one of our `UnitConversion.from_unit` entries for that ingredient,
   otherwise we skip that product.
   """
 
@@ -103,11 +114,16 @@ defmodule MealPlannerApi.Integrations.GoScraperClient do
   @spec base_url() :: String.t()
   def base_url, do: @base_url
 
-  # -------------------------------------------------------------------------
-  # Private
-  # -------------------------------------------------------------------------
+  @doc """
+  Parses a Go scraper response body.
 
-  defp parse_response(body) when is_map(body) do
+  The scraper's `unit` codes become the units prices are stored in
+  (`"KG"` -> `"kg"`, `"LT"` -> `"l"`, `"UN"` -> `"unit"`). Any other code,
+  such as `"MT"`, or a missing unit becomes `""`, so no `UnitConversion`
+  matches it and `mix price_sync.run` skips that product.
+  """
+  @spec parse_response(term()) :: {:ok, scrape_result()} | {:error, :parse_error}
+  def parse_response(body) when is_map(body) do
     products =
       Enum.map(body["products"] || [], fn p ->
         %{
@@ -115,7 +131,7 @@ defmodule MealPlannerApi.Integrations.GoScraperClient do
           name: p["name"] || "",
           price: p["price"] || 0.0,
           unit_price: p["unitPrice"] || 0.0,
-          unit: p["unit"] || "",
+          unit: stored_unit(p["unit"]),
           unavailable: p["unavailable"] || false
         }
       end)
@@ -127,5 +143,14 @@ defmodule MealPlannerApi.Integrations.GoScraperClient do
     _ -> {:error, :parse_error}
   end
 
-  defp parse_response(_), do: {:error, :parse_error}
+  def parse_response(_), do: {:error, :parse_error}
+
+  # -------------------------------------------------------------------------
+  # Private
+  # -------------------------------------------------------------------------
+
+  # `apps/scraper/unit/mapper.go` normalizes every unit to one of these codes.
+  @stored_units %{"KG" => "kg", "LT" => "l", "UN" => "unit"}
+
+  defp stored_unit(unit), do: Map.get(@stored_units, unit, "")
 end

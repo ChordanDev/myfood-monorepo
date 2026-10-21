@@ -32,6 +32,10 @@ defmodule Mix.Tasks.PriceSync.Run do
 
   use Mix.Task
 
+  # The task reads and writes through the Repo, which only runs once the app
+  # has started.
+  @requirements ["app.start"]
+
   alias MealPlannerApi.Data.{PriceRepo, UnitConversionRepo}
   alias MealPlannerApi.Integrations.GoScraperClient
   alias MealPlannerApi.Persistence.Catalog
