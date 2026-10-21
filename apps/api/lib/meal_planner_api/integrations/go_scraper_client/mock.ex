@@ -13,7 +13,9 @@ defmodule MealPlannerApi.Integrations.GoScraperClient.Mock do
     products = build_mock_products(ingredient_name)
     failed_scrapers = failed_scrapers_for_name(ingredient_name)
 
-    {:ok, %{products: products, failed_scrapers: failed_scrapers}}
+    timestamp = DateTime.utc_now() |> DateTime.to_iso8601()
+
+    {:ok, %{products: products, failed_scrapers: failed_scrapers, timestamp: timestamp}}
   end
 
   @spec unit_price_to_cents(float()) :: non_neg_integer()
@@ -34,6 +36,7 @@ defmodule MealPlannerApi.Integrations.GoScraperClient.Mock do
     |> Enum.with_index()
     |> Enum.map(fn {source, idx} ->
       %{
+        id: "mock-#{source}-#{:erlang.phash2(ingredient_name)}",
         source: source,
         name:
           "#{String.capitalize(ingredient_name)} #{pack_descriptions() |> Enum.at(idx, "premium")}",

@@ -75,6 +75,23 @@ defmodule MealPlannerApi.Integrations.GoScraperClientTest do
              ] = result.products
     end
 
+    test "keeps the response timestamp and each product id" do
+      assert {:ok, result} = GoScraperClient.parse_response(scraper_body([scraper_product("KG")]))
+
+      assert result.timestamp == "2026-10-21T14:51:40Z"
+      assert [%{id: "1"}] = result.products
+    end
+
+    test "leaves the timestamp nil and the product id empty when they are absent" do
+      body =
+        [scraper_product("KG") |> Map.delete("id")]
+        |> scraper_body()
+        |> Map.delete("timestamp")
+
+      assert {:ok, %{timestamp: nil, products: [%{id: ""}]}} =
+               GoScraperClient.parse_response(body)
+    end
+
     test "still reads an unavailable flag when one is sent" do
       product = Map.put(scraper_product("KG"), "unavailable", true)
 
@@ -84,6 +101,17 @@ defmodule MealPlannerApi.Integrations.GoScraperClientTest do
 
     test "rejects a body that is not a JSON object" do
       assert GoScraperClient.parse_response("Forbidden.") == {:error, :parse_error}
+    end
+  end
+
+  describe "Mock.fetch/1" do
+    alias MealPlannerApi.Integrations.GoScraperClient.Mock
+
+    test "answers with a timestamp and product ids, like the real client" do
+      assert {:ok, %{timestamp: timestamp, products: [_ | _] = products}} = Mock.fetch("arroz")
+
+      assert {:ok, _observed_at, _offset} = DateTime.from_iso8601(timestamp)
+      assert Enum.all?(products, &(is_binary(&1.id) and &1.id != ""))
     end
   end
 
