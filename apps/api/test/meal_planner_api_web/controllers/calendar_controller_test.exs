@@ -628,6 +628,63 @@ defmodule MealPlannerApiWeb.CalendarControllerTest do
       assert [{^cooked_id, true}, {_new_id, false}] = Enum.map(meals, &{&1.id, &1.is_cooked})
     end
 
+    # Issue #395: a meal answered "not cooked" stays, with its answer.
+    test "keeps the meals of the range answered not cooked, with their answer", %{conn: conn} do
+      {membership, token} = range_owner!("calendar-controller-keeps-answered@example.com")
+      answered = answered_meal!(membership.account_id, ~D[2026-07-02], :lunch)
+
+      conn =
+        conn
+        |> put_req_header("authorization", "Bearer " <> token)
+        |> put("/api/calendar/meals/range", %{
+          "from" => "2026-07-01",
+          "to" => "2026-07-07",
+          "meals" => [%{"date" => "2026-07-03", "slot" => "dinner"}]
+        })
+
+      assert %{"data" => %{"replaced" => 1}} = json_response(conn, 200)
+
+      meals =
+        PlanningRepo.list_scheduled_meals(membership.account_id, ~D[2026-07-01], ~D[2026-07-07])
+
+      answered_id = answered.id
+      answer = answered.not_cooked_at
+
+      assert [{^answered_id, ^answer}, {_new_id, nil}] =
+               Enum.map(meals, &{&1.id, &1.not_cooked_at})
+    end
+
+    test "answers 409 and changes no meal when a meal lands on an answered one", %{conn: conn} do
+      {membership, token} = range_owner!("calendar-controller-refuses-answered@example.com")
+      answered = answered_meal!(membership.account_id, ~D[2026-07-02], :lunch)
+
+      {:ok, planned} =
+        Calendar.upsert_scheduled_meal(membership.account_id, %{
+          date: ~D[2026-07-04],
+          slot: :dinner
+        })
+
+      conn =
+        conn
+        |> put_req_header("authorization", "Bearer " <> token)
+        |> put("/api/calendar/meals/range", %{
+          "from" => "2026-07-01",
+          "to" => "2026-07-07",
+          "meals" => [
+            %{"date" => "2026-07-02", "slot" => "lunch"},
+            %{"date" => "2026-07-03", "slot" => "dinner"}
+          ]
+        })
+
+      assert %{"error" => %{"code" => "meal_already_confirmed"}} = json_response(conn, 409)
+
+      meals =
+        PlanningRepo.list_scheduled_meals(membership.account_id, ~D[2026-07-01], ~D[2026-07-07])
+
+      assert [{answered.id, answered.not_cooked_at}, {planned.id, nil}] ==
+               Enum.map(meals, &{&1.id, &1.not_cooked_at})
+    end
+
     test "answers 409 and changes no meal when a meal lands on a cooked one", %{conn: conn} do
       {membership, token} = range_owner!("calendar-controller-refuses-cooked@example.com")
       cooked = cooked_meal!(membership.account_id, ~D[2026-07-02], :lunch)
@@ -977,6 +1034,16 @@ defmodule MealPlannerApiWeb.CalendarControllerTest do
       {stored.date, stored.slot}
     end
 
+    # Answers "not cooked" through the confirm endpoint, as the app does.
+    defp answered_not_cooked!(f, meal) do
+      build_conn()
+      |> put_req_header("authorization", "Bearer " <> f.token)
+      |> post("/api/calendar/meals/#{meal.id}/confirm", %{"cooked" => false})
+      |> json_response(200)
+
+      Repo.get!(Planning.ScheduledMeal, meal.id)
+    end
+
     test "swaps the meal with the one at the destination", f do
       source = scheduled!(f.account_id, f.tomorrow, :dinner)
       target = scheduled!(f.account_id, f.today, :lunch)
@@ -1043,6 +1110,39 @@ defmodule MealPlannerApiWeb.CalendarControllerTest do
 
       assert stored_position(cooked) == {f.tomorrow, :dinner}
       assert stored_position(source) == {f.tomorrow, :lunch}
+    end
+
+    # Issue #395: a meal answered "not cooked" is final.
+    test "answers 409 and saves nothing when the meal was answered not cooked", f do
+      answered = answered_not_cooked!(f, scheduled!(f.account_id, Date.add(f.today, -3), :dinner))
+      destination = Date.add(f.today, 2)
+
+      conn =
+        move(f.token, answered.id, %{"date" => Date.to_iso8601(destination), "slot" => "lunch"})
+
+      assert %{"error" => %{"code" => "meal_already_confirmed"}} = json_response(conn, 409)
+      assert stored_position(answered) == {Date.add(f.today, -3), :dinner}
+
+      assert Repo.get!(Planning.ScheduledMeal, answered.id).not_cooked_at ==
+               answered.not_cooked_at
+    end
+
+    test "answers 409 and saves nothing when the destination was answered not cooked", f do
+      answered = answered_not_cooked!(f, scheduled!(f.account_id, Date.add(f.today, -3), :dinner))
+      source = scheduled!(f.account_id, f.tomorrow, :lunch)
+
+      conn =
+        move(f.token, source.id, %{
+          "date" => Date.to_iso8601(answered.date),
+          "slot" => "dinner"
+        })
+
+      assert %{"error" => %{"code" => "meal_already_confirmed"}} = json_response(conn, 409)
+      assert stored_position(source) == {f.tomorrow, :lunch}
+      assert stored_position(answered) == {Date.add(f.today, -3), :dinner}
+
+      assert Repo.get!(Planning.ScheduledMeal, answered.id).not_cooked_at ==
+               answered.not_cooked_at
     end
 
     test "answers 409 for a meal being cooked on either side", f do
@@ -1555,5 +1655,10 @@ defmodule MealPlannerApiWeb.CalendarControllerTest do
   defp cooked_meal!(account_id, date, slot) do
     {:ok, meal} = Calendar.upsert_scheduled_meal(account_id, %{date: date, slot: slot})
     meal |> Planning.ScheduledMeal.changeset(%{is_cooked: true}) |> Repo.update!()
+  end
+
+  defp answered_meal!(account_id, date, slot) do
+    {:ok, meal} = Calendar.upsert_scheduled_meal(account_id, %{date: date, slot: slot})
+    meal |> Ecto.Changeset.change(not_cooked_at: DateTime.utc_now()) |> Repo.update!()
   end
 end

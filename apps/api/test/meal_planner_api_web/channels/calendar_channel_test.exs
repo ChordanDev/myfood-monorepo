@@ -424,22 +424,86 @@ defmodule MealPlannerApiWeb.CalendarChannelTest do
       refute stored_meal!(account, ~D[2026-03-24], :lunch).is_cooked
     end
 
-    test "leaves a cooked meal cooked when the payload omits is_cooked",
-         %{account: account, token: token} do
+    # Issue #395: an answered meal is final, so an upsert changes nothing on it.
+    test "refuses a cooked meal and changes nothing", %{
+      account: account,
+      user: user,
+      token: token
+    } do
+      recipe = upsert_recipe!(account, user, "Cooked upsert recipe")
+      other = upsert_recipe!(account, user, "Swapped upsert recipe")
+
       {:ok, meal} =
         Calendar.upsert_scheduled_meal(account.id, %{
           date: ~D[2026-03-24],
-          slot: :lunch
+          slot: :lunch,
+          recipe_id: recipe.id
         })
 
       meal |> Planning.ScheduledMeal.changeset(%{is_cooked: true}) |> Repo.update!()
 
       socket = join_calendar!(account, token)
-      ref = push(socket, "upsert_meal", %{"date" => "2026-03-24", "slot" => "lunch"})
 
-      assert_reply(ref, :ok, %{is_cooked: true})
-      assert stored_meal!(account, ~D[2026-03-24], :lunch).is_cooked
+      ref =
+        push(socket, "upsert_meal", %{
+          "date" => "2026-03-24",
+          "slot" => "lunch",
+          "recipe_id" => other.id
+        })
+
+      assert_reply(ref, :error, %{reason: "meal_already_confirmed"})
+      refute_broadcast("meal_updated", _)
+
+      stored = stored_meal!(account, ~D[2026-03-24], :lunch)
+      assert {stored.id, stored.recipe_id, stored.is_cooked} == {meal.id, recipe.id, true}
     end
+
+    test "refuses a meal answered not cooked and keeps its recipe and answer",
+         %{account: account, user: user, token: token} do
+      recipe = upsert_recipe!(account, user, "Answered upsert recipe")
+      other = upsert_recipe!(account, user, "Swapped answered recipe")
+
+      {:ok, meal} =
+        Calendar.upsert_scheduled_meal(account.id, %{
+          date: ~D[2026-03-24],
+          slot: :lunch,
+          recipe_id: recipe.id
+        })
+
+      answered =
+        meal |> Ecto.Changeset.change(not_cooked_at: DateTime.utc_now()) |> Repo.update!()
+
+      socket = join_calendar!(account, token)
+
+      ref =
+        push(socket, "upsert_meal", %{
+          "date" => "2026-03-24",
+          "slot" => "lunch",
+          "recipe_id" => other.id
+        })
+
+      assert_reply(ref, :error, %{reason: "meal_already_confirmed"})
+      refute_broadcast("meal_updated", _)
+
+      stored = stored_meal!(account, ~D[2026-03-24], :lunch)
+
+      assert {stored.id, stored.recipe_id, stored.not_cooked_at} ==
+               {meal.id, recipe.id, answered.not_cooked_at}
+    end
+  end
+
+  defp upsert_recipe!(account, user, name) do
+    {:ok, recipe} =
+      Catalog.create_recipe(%{
+        account_id: account.id,
+        created_by_user_id: user.id,
+        name: name,
+        source: :user_created,
+        servings: 2,
+        suitable_for_slots: [:lunch]
+      })
+
+    recipe
   end
 
   defp join_calendar!(account, token) do

@@ -43,6 +43,8 @@ defmodule MealPlannerApi.Persistence.Calendar.MealMove do
           :meal_not_found
           | :meal_cooked
           | :target_meal_cooked
+          | :meal_already_confirmed
+          | :target_meal_already_confirmed
           | :meal_cooking_in_progress
           | :target_meal_cooking_in_progress
           | :same_slot
@@ -57,7 +59,8 @@ defmodule MealPlannerApi.Persistence.Calendar.MealMove do
   (`MealPlannerApi.AccountClock`): it decides which archived Shopping items are
   dropped so that the next Shopping list read derives them again.
 
-  A cooked meal is refused on either side, and so is a meal on `today` with an
+  A cooked meal is refused on either side, and so is a meal answered "not
+  cooked" (issue #395: an answered meal is final) and a meal on `today` with an
   `active` Cooking session (issue #207). A session off `today` does not count:
   the app cannot finish it, since starting refuses a meal off today, so it
   must not pin its meal (issue #337).
@@ -136,6 +139,8 @@ defmodule MealPlannerApi.Persistence.Calendar.MealMove do
   defp refusal(%{date: date, slot: slot}, _displaced, {date, slot}), do: :same_slot
   defp refusal(%{is_cooked: true}, _displaced, _to), do: :meal_cooked
   defp refusal(_source, %{is_cooked: true}, _to), do: :target_meal_cooked
+  defp refusal(%{not_cooked_at: %DateTime{}}, _displaced, _to), do: :meal_already_confirmed
+  defp refusal(_source, %{not_cooked_at: %DateTime{}}, _to), do: :target_meal_already_confirmed
   defp refusal(_source, _displaced, _to), do: nil
 
   # Read after the meals are locked: starting a Cooking session inserts a row

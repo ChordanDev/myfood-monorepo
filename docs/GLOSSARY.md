@@ -106,7 +106,7 @@ This file and `docs/adr/` are the only durable docs in the repository. Specs, ma
 
 **Planning exception** — A logged anomaly scoped to a session: forbidden intent, validation error, optimizer failure. `(code: Persistence.Planning.PlanningException)`
 
-**Scheduled meal** — An accepted meal on a date and slot, carrying its Recipe snapshot and whether it was cooked. The set of Scheduled meals is the Account's live plan. `(code: Persistence.Planning.ScheduledMeal, mobile MealPlanEntry)` `(alias: Confirmed Meal Plan, Active Meal Plan, Plan de Comidas Local)`
+**Scheduled meal** — An accepted meal on a date and slot, carrying its Recipe snapshot and whether it was cooked. The set of Scheduled meals is the Account's live plan. A meal answered cooked or confirmed as not cooked is final: it is not moved, displaced by a move, given another recipe or replaced, and a range replacement keeps it with its answer. `(code: Persistence.Planning.ScheduledMeal, mobile MealPlanEntry)` `(alias: Confirmed Meal Plan, Active Meal Plan, Plan de Comidas Local)`
 
 **Unconfirmed meal** — A Scheduled meal whose date passed, by the Account's today, no more than 7 days ago, that was neither cooked nor answered. The User confirms it once, as cooked or as not cooked; after those 7 days an unanswered meal becomes a Skipped meal. `(code: Persistence.Calendar, Services.CookingService.confirm_meal)` `(alias: pending confirmation)`
 
