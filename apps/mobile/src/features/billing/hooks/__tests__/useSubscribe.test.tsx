@@ -31,6 +31,10 @@ jest.mock('../../constants', () => ({
 const mockPurchases = jest.mocked(Purchases);
 const mockPaywall = jest.mocked(RevenueCatUI);
 const SERVER_ID = 'rc-5b0c-issued-by-server';
+const emptyCustomerInfo = { entitlements: { active: {}, all: {} } } as never;
+const proCustomerInfo = {
+  entitlements: { active: { brosky_company_pro: { identifier: 'brosky_company_pro' } }, all: {} },
+} as never;
 const pending = { data: { state: 'pending_webhook' } };
 const active = { data: { state: 'active', source: 'entitlement' } };
 
@@ -129,6 +133,7 @@ describe('useSubscribe', () => {
   });
 
   it('confirms a restore on the restore route', async () => {
+    mockPurchases.getCustomerInfo.mockResolvedValueOnce(proCustomerInfo);
     mockPaywall.presentPaywall.mockResolvedValueOnce(PAYWALL_RESULT.RESTORED);
     (confirmRestore as jest.Mock).mockResolvedValueOnce(active);
     const rendered = await render();
@@ -139,6 +144,20 @@ describe('useSubscribe', () => {
     expect(confirmRestore).toHaveBeenCalledTimes(1);
     expect(confirmPurchase).not.toHaveBeenCalled();
     expect(refreshMe).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps "Suscribirme" when a restore found no subscription', async () => {
+    mockPaywall.presentPaywall.mockResolvedValueOnce(PAYWALL_RESULT.RESTORED);
+    mockPurchases.getCustomerInfo.mockResolvedValueOnce(emptyCustomerInfo);
+    const rendered = await render();
+    const { result, refreshMe } = rendered;
+
+    await subscribe(rendered);
+
+    expect(confirmRestore).not.toHaveBeenCalled();
+    expect(refreshMe).not.toHaveBeenCalled();
+    expect(result.current.status).toBe('idle');
+    expect(result.current.message).toBe(BILLING_COPY.nothingRestored);
   });
 
   it('treats a cancelled Paywall as no error', async () => {
@@ -192,6 +211,7 @@ describe('useSubscribe', () => {
   });
 
   it('checks a pending restore again on the restore route', async () => {
+    mockPurchases.getCustomerInfo.mockResolvedValueOnce(proCustomerInfo);
     mockPaywall.presentPaywall.mockResolvedValueOnce(PAYWALL_RESULT.RESTORED);
     (confirmRestore as jest.Mock).mockResolvedValue(pending);
     const rendered = await render();

@@ -1,10 +1,11 @@
 import { useCallback, useRef, useState } from 'react';
+import Purchases from 'react-native-purchases';
 import RevenueCatUI, { PAYWALL_RESULT } from 'react-native-purchases-ui';
 import { getAuthErrorMessage, isApiError } from '@/api/errors';
 import { useAuth } from '@/features/auth';
 import { BILLING_COPY } from '../constants/billingCopy';
 import { confirmWithServer, type ConfirmationKind } from '../services/confirmWithServer';
-import { ensureIdentified, isBillingEnabled } from '../services/revenueCat';
+import { ensureIdentified, hasProEntitlement, isBillingEnabled } from '../services/revenueCat';
 
 export type SubscribeStatus = 'idle' | 'opening' | 'confirming' | 'pending' | 'error';
 
@@ -17,6 +18,19 @@ export interface SubscribeState {
   subscribe: () => Promise<void>;
   /** After a `pending` purchase or restore: asks the server again and refreshes `/me`. */
   checkAgain: () => Promise<void>;
+}
+
+/**
+ * Whether the restore the Paywall reported found the subscription. A restore with nothing to
+ * restore must not wait for a webhook that never comes. When CustomerInfo cannot be read, the
+ * server is asked anyway.
+ */
+async function restoreFoundSubscription(): Promise<boolean> {
+  try {
+    return hasProEntitlement(await Purchases.getCustomerInfo());
+  } catch {
+    return true;
+  }
 }
 
 function errorMessage(error: unknown): string {
@@ -96,7 +110,12 @@ export function useSubscribe(): SubscribeState {
       if (result === PAYWALL_RESULT.PURCHASED) {
         await confirm('purchase');
       } else if (result === PAYWALL_RESULT.RESTORED) {
-        await confirm('restore');
+        if (await restoreFoundSubscription()) {
+          await confirm('restore');
+        } else {
+          setStatus('idle');
+          setMessage(BILLING_COPY.nothingRestored);
+        }
       } else if (result === PAYWALL_RESULT.ERROR) {
         fail(BILLING_COPY.storeError);
       } else {
