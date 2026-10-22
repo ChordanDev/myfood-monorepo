@@ -995,43 +995,45 @@ transferir ownership o eliminar la cuenta — no soportado todavía),
 |-------|--------|----------|
 | `ai_chat` | `ai_chat:<session_id>` | Asistente AI de meal planning |
 | `calendar` | `calendar:<account_id>` | Operaciones de calendario en tiempo real |
-| `planning` | `planning:<account_id>` | Generación de planes y confirmación |
+| `planning` | `planning:<account_id>` | Planificación con el agente y confirmación |
 
-### Canal de Planificación (para generar menús)
+### Canal de Planificación (agente de planificación)
 
 ```javascript
-// 1. Conectar al canal de planificación
-const planningChannel = socket.channel("planning:1", {});
-
-// 2. Unirse al canal
+// 1. Conectar al canal de planificación y unirse
+const planningChannel = socket.channel(`planning:${accountId}`, {});
 planningChannel.join()
   .receive("ok", resp => console.log("Joined!", resp))
   .receive("error", resp => console.log("Unable to join", resp));
 
-// 3. Escuchar eventos de generación
-planningChannel.on("generation_started", payload => {
-  console.log("Generando menú...", payload);
+// 2. Escuchar los eventos del agente de esta sesión
+planningChannel.on("agent_event", event => {
+  // event.type: assistant_message, question, proposal, consent_required, ...
+  if (event.type === "proposal") console.log("Propuesta", event.proposalId, event.meals);
 });
 
-planningChannel.on("proposal_ready", payload => {
-  console.log("Propuesta lista!", payload);
-  // payload.proposalId para confirmar/rechazar por HTTP
-});
+// 3. Abrir la sesión; el consentimiento se pide una sola vez por User
+planningChannel.push("start_session", { rangeFrom: "2026-06-10", dayCount: 7 })
+  .receive("ok", reply => {
+    if (reply.consentRequired) {
+      // Mostrar reply.consentText y, si el Member acepta:
+      planningChannel.push("give_consent", {});
+    }
+    planningChannel.push("send_message", { text: "algo liviano, sin pescado" });
+  });
 
-// 4. Abrir la sesión de planificación y su primera generación
-planningChannel.push("start_planning", {
-  rangeFrom: "2026-06-10",
-  rangeTo: "2026-06-16",
-  request: "algo liviano, sin pescado"
-});
+// 4. Confirmar la Propuesta que se muestra (también por el canal)
+planningChannel.push("confirm", { proposalId })
+  .receive("ok", ({ mealsCount }) => console.log("Guardadas", mealsCount));
 ```
 
-El tópico `planning:<account_id>` solo acepta los comandos de sesión
-(`start_planning`, `send_message`, `cancel_planning`). Confirmar y rechazar
-son requests HTTP (`POST /api/planning/confirm`,
-`POST /api/planning/proposals/:proposalId/reject`); los comandos viejos
-`generate_menu`, `swap_constraints`, `chat`, `confirm_proposal` y
-`reject_proposal` responden `invalid_payload`. Ver `docs/CHANNELS.md`.
+El tópico `planning:<account_id>` corre el agente de planificación (issue
+#423): `start_session`, `give_consent`, `send_message`, `stop`,
+`cancel_session`, `confirm` y `confirmation_status`. Consentimiento y
+confirmación van por el canal ([ADR 0007](../../../docs/adr/0007-planning-agent-commands-over-the-channel.md)).
+Los comandos viejos (`start_planning`, `cancel_planning`, `generate_menu`,
+`swap_constraints`, `chat`, `confirm_proposal`, `reject_proposal`)
+responden `invalid_payload`. Ver `docs/CHANNELS.md`.
 
 ### Canal de Calendario
 
@@ -1388,45 +1390,43 @@ async function getCalendar(month) {
 
 ```javascript
 class PlanningService {
-  constructor(socket) {
-    this.channel = socket.channel("planning:1", {});
-    this.listeners = {};
+  constructor(socket, accountId) {
+    this.channel = socket.channel(`planning:${accountId}`, {});
   }
 
-  async generate(dateFrom, dateTo, request) {
+  // Abre la sesión del agente y resuelve con la primera Propuesta.
+  // `askConsent(text)` muestra el texto de consentimiento y resuelve true si
+  // el Member acepta; solo se pregunta la primera vez que planifica.
+  generate(dateFrom, dateTo, request, askConsent) {
     return new Promise((resolve, reject) => {
-      // Escuchar respuesta
-      this.channel.on("proposal_ready", payload => {
-        resolve(payload);
+      this.channel.on("agent_event", event => {
+        if (event.type === "proposal") resolve(event);
+        if (event.type === "agent_unavailable") reject(new Error(event.reason));
       });
 
-      this.channel.on("generation_error", payload => {
-        reject(new Error(payload.reason));
-      });
-
-      // Unirse y abrir la sesión
       this.channel.join().receive("ok", () => {
         this.channel
-          .push("start_planning", { rangeFrom: dateFrom, rangeTo: dateTo, request })
-          .receive("ok", ({ sessionId }) => { this.sessionId = sessionId; });
+          .push("start_session", { rangeFrom: dateFrom, rangeTo: dateTo })
+          .receive("ok", async reply => {
+            if (reply.consentRequired) {
+              if (!(await askConsent(reply.consentText))) return reject(new Error("no_consent"));
+              this.channel.push("give_consent", {});
+            }
+            this.channel.push("send_message", { text: request });
+          })
+          .receive("error", ({ error }) => reject(new Error(error.code)));
       });
     });
   }
 
-  // Confirmar es un request HTTP, no un comando del canal
-  async confirm(proposalId) {
-    const token = await AsyncStorage.getItem("auth_token");
-
-    const response = await fetch("http://localhost:4000/api/planning/confirm", {
-      method: "POST",
-      headers: {
-        "Authorization": `Bearer ${token}`,
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify({ proposalId, sessionId: this.sessionId })
+  // Confirmar es un comando del canal (ADR 0007), idempotente por proposalId
+  confirm(proposalId) {
+    return new Promise((resolve, reject) => {
+      this.channel
+        .push("confirm", { proposalId })
+        .receive("ok", resolve)
+        .receive("error", ({ error }) => reject(new Error(error.code)));
     });
-
-    return response.json();
   }
 }
 ```
@@ -1455,11 +1455,12 @@ function App() {
   }, []);
 
   const handleGenerate = async () => {
-    const service = new PlanningService(socket);
+    const service = new PlanningService(socket, accountId);
     const result = await service.generate(
       "2026-06-10",
       "2026-06-16",
-      "algo liviano, sin pescado"
+      "algo liviano, sin pescado",
+      askConsent
     );
     setPlanning(result);
   };
