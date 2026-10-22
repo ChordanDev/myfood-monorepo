@@ -50,7 +50,7 @@ defmodule MealPlannerApi.PlanningAgent.SessionConfirmTest do
   # the session and the Proposal event.
   defp proposal!(who, opts \\ []) do
     {:ok, %{session_id: id, pid: pid}} =
-      Session.start(session_attrs(who),
+      Session.start(session_attrs(who, Keyword.get(opts, :range)),
         confirmation_store: Keyword.get(opts, :confirmation_store, Confirmation),
         model:
           {Scripted,
@@ -247,6 +247,26 @@ defmodule MealPlannerApi.PlanningAgent.SessionConfirmTest do
 
     assert length(scheduled(owner.account)) == 6
     _ = recipes
+  end
+
+  test "the occupied slots of a refused confirmation come in date order across months", %{
+    owner: owner
+  } do
+    today = MealPlannerApi.AccountClock.today(owner.account.id)
+    last_of_month = Date.end_of_month(today)
+    first_of_next = Date.add(last_of_month, 1)
+
+    %{proposal: %{"proposal_id" => proposal_id}} =
+      proposal!(owner, range: {today, first_of_next})
+
+    recipe = recipe!(owner.account, "Added meanwhile", ["lunch", "dinner"])
+    scheduled_meal!(owner.account, recipe, first_of_next, :lunch)
+    scheduled_meal!(owner.account, recipe, last_of_month, :dinner)
+
+    assert {:error, {:slot_occupied, occupied}} =
+             Session.confirm(owner.account.id, owner.membership.id, proposal_id)
+
+    assert occupied == [{last_of_month, :dinner}, {first_of_next, :lunch}]
   end
 
   test "a final meal is never overwritten: the confirmation is refused whole (S11)", %{

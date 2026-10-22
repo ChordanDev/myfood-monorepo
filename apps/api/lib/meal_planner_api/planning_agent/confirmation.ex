@@ -44,6 +44,7 @@ defmodule MealPlannerApi.PlanningAgent.Confirmation do
         }
 
   @slots %{"breakfast" => :breakfast, "lunch" => :lunch, "dinner" => :dinner}
+  @slot_order [:breakfast, :lunch, :dinner]
 
   @doc """
   Commits the confirmation in one transaction. Refuses with:
@@ -112,7 +113,11 @@ defmodule MealPlannerApi.PlanningAgent.Confirmation do
         select: {m.date, m.slot}
       )
       |> repo.all()
-      |> Enum.sort()
+      # Listed by date and slot, as a start refusal lists them; the lock
+      # keeps the id order.
+      |> Enum.sort_by(fn {date, slot} ->
+        {Date.to_gregorian_days(date), Enum.find_index(@slot_order, &(&1 == slot))}
+      end)
 
     if occupied == [], do: {:ok, :free}, else: {:error, occupied}
   end
