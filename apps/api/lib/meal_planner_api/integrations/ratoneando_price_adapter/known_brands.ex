@@ -84,6 +84,26 @@ defmodule MealPlannerApi.Integrations.RatoneandoPriceAdapter.KnownBrands do
     "Yogurísimo"
   ]
 
+  defmodule Text do
+    @moduledoc false
+
+    # Lowercase words without accents, joined by single spaces. Apostrophes are
+    # dropped so "Hellmann's" and "Hellmanns" read the same.
+    def normalize(text) do
+      text
+      |> String.normalize(:nfd)
+      |> String.replace(~r/\p{Mn}/u, "")
+      |> String.downcase()
+      |> String.replace(~r/['’]/u, "")
+      |> String.replace(~r/[^a-z0-9]+/, " ")
+      |> String.trim()
+    end
+  end
+
+  # Each brand is normalized once, at compile time, so matching a product
+  # normalizes only its name.
+  @patterns Enum.map(@brands, &{" #{Text.normalize(&1)} ", &1})
+
   @doc "Every known brand, as it is displayed."
   @spec all() :: [String.t()]
   def all, do: @brands
@@ -103,11 +123,11 @@ defmodule MealPlannerApi.Integrations.RatoneandoPriceAdapter.KnownBrands do
   """
   @spec match(String.t()) :: String.t()
   def match(name) when is_binary(name) do
-    padded_name = " #{normalize(name)} "
+    padded_name = " #{Text.normalize(name)} "
 
-    @brands
-    |> Enum.flat_map(fn brand ->
-      case :binary.match(padded_name, " #{normalize(brand)} ") do
+    @patterns
+    |> Enum.flat_map(fn {pattern, brand} ->
+      case :binary.match(padded_name, pattern) do
         {position, length} -> [{position, -length, brand}]
         :nomatch -> []
       end
@@ -117,16 +137,4 @@ defmodule MealPlannerApi.Integrations.RatoneandoPriceAdapter.KnownBrands do
   end
 
   def match(_name), do: ""
-
-  # Lowercase words without accents, joined by single spaces. Apostrophes are
-  # dropped so "Hellmann's" and "Hellmanns" read the same.
-  defp normalize(text) do
-    text
-    |> String.normalize(:nfd)
-    |> String.replace(~r/\p{Mn}/u, "")
-    |> String.downcase()
-    |> String.replace(~r/['’]/u, "")
-    |> String.replace(~r/[^a-z0-9]+/, " ")
-    |> String.trim()
-  end
 end
