@@ -594,7 +594,12 @@ defmodule MealPlannerApi.Optimization.OptimizerServer do
     if ts != nil and monotonic_ms() - ts >= circuit_reset_timeout_ms() do
       Logger.warning("OptimizerServer circuit breaker reset; restarting Python")
 
-      case restart_python(%{state | circuit_state: :closed, last_failure_at: nil}) do
+      case restart_python(%{
+             state
+             | circuit_state: :closed,
+               last_failure_at: nil,
+               consecutive_failures: 0
+           }) do
         {:ok, new_state} -> {:ok, new_state}
         {:error, reason} -> {:error, reason}
       end

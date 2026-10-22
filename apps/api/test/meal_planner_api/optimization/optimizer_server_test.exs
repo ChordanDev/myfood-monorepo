@@ -386,6 +386,37 @@ defmodule MealPlannerApi.Optimization.OptimizerServerTest do
       assert log =~ "circuit breaker reset"
     end
 
+    # With no fallback plan, a reset that kept the old count would reopen the
+    # circuit on the first failure after it and stop planning for every
+    # Account (Jorge TR-01 on #447).
+    test "a reset clears the failure count, so one later failure keeps the circuit closed" do
+      {pid, port, _name} = start_and_ready!()
+
+      capture_log(fn ->
+        for _ <- 1..3, do: reply_with_error!(pid, port, "boom")
+      end)
+
+      assert :sys.get_state(pid).circuit_state == :open
+
+      capture_log(fn ->
+        :sys.replace_state(pid, fn state ->
+          %{state | last_failure_at: System.monotonic_time(:millisecond) - 101}
+        end)
+
+        assert {:error, :optimizer_unavailable} = OptimizerServer.select_weekly_menu(@payload)
+      end)
+
+      new_port = :sys.get_state(pid).port
+      send(pid, {new_port, {:data, ~s({"type":"ready","version":"1.0"}\n)}})
+      :ok = await_handshake_ready(pid)
+
+      capture_log(fn -> reply_with_error!(pid, new_port, "boom") end)
+
+      state = :sys.get_state(pid)
+      assert state.circuit_state == :closed
+      assert state.consecutive_failures == 1
+    end
+
     test "circuit-open solve calls reply :optimizer_unavailable without a plan" do
       {pid, port, _name} = start_and_ready!()
 
