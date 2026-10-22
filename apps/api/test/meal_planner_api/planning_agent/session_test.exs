@@ -7,6 +7,8 @@ defmodule MealPlannerApi.PlanningAgent.SessionTest do
 
   use ExUnit.Case, async: false
 
+  import ExUnit.CaptureLog
+
   import MealPlannerApi.PlanningAgentFixtures
 
   alias MealPlannerApi.Data.PlanningRepo
@@ -15,6 +17,19 @@ defmodule MealPlannerApi.PlanningAgent.SessionTest do
   alias MealPlannerApi.PlanningAgent.{Consent, FakeOptimizer, Session}
   alias MealPlannerApi.PlanningAgent.Model.{ClaudeMessages, Scripted}
   alias MealPlannerApi.Repo
+
+  defmodule CrashingModel do
+    @moduledoc false
+    @behaviour MealPlannerApi.PlanningAgent.Model
+
+    @impl true
+    def init(_opts), do: {:ok, %{api_key: "secret-api-key"}}
+
+    # No clause matches a real request: the adapter crashes with its state
+    # among the arguments.
+    @impl true
+    def respond(%{api_key: _key} = _state, %{never: :matches}), do: :unreachable
+  end
 
   setup do
     sandbox_sessions!()
@@ -253,6 +268,25 @@ defmodule MealPlannerApi.PlanningAgent.SessionTest do
 
       assert_receive {:planning_agent_event, ^id,
                       %{"type" => "assistant_message", "text" => "again"}}
+    end
+
+    test "a crashing model never prints its state, which holds the API key", %{owner: owner} do
+      {:ok, %{session_id: id, pid: pid}} = start(owner, model: {CrashingModel, []})
+
+      log =
+        capture_log(fn ->
+          :ok = Session.send_message(pid, "Plan")
+
+          assert_receive {:planning_agent_event, ^id,
+                          %{"type" => "agent_unavailable", "reason" => "internal_error"}}
+
+          # The session survives and the crash report, if any, is written.
+          Process.sleep(100)
+          assert Process.alive?(pid)
+        end)
+
+      refute log =~ "secret-api-key"
+      refute log =~ owner.user.name
     end
 
     test "a turn past its deadline is killed and reported", %{owner: owner} do

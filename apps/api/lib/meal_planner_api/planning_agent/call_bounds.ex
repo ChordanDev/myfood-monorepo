@@ -22,6 +22,8 @@ defmodule MealPlannerApi.PlanningAgent.CallBounds do
   the latest reported state is kept, so a timed-out call still counts.
   """
 
+  require Logger
+
   @type kind :: :model | :solver | :read
   @type policy :: %{
           timeout_ms: pos_integer(),
@@ -169,9 +171,14 @@ defmodule MealPlannerApi.PlanningAgent.CallBounds do
     tag = make_ref()
     caller = self()
     report = fn reported -> send(caller, {__MODULE__, tag, reported}) end
-    task = Task.async(fn -> fun.(state, %{timeout_ms: timeout_ms, report: report}) end)
+    task = Task.async(fn -> guarded(fun, state, %{timeout_ms: timeout_ms, report: report}) end)
 
     case Task.yield(task, timeout_ms) || Task.shutdown(task, :brutal_kill) do
+      # A crashed attempt is a failure that is never retried; the latest
+      # reported state (its reserved spend) is kept.
+      {:ok, :crashed} ->
+        {:error, :internal_error, latest_report(tag, state)}
+
       {:ok, result} ->
         _ = latest_report(tag, state)
         result
@@ -182,6 +189,22 @@ defmodule MealPlannerApi.PlanningAgent.CallBounds do
       nil ->
         {:error, :timeout, latest_report(tag, state)}
     end
+  end
+
+  # A crash inside an attempt is caught here, so its report, whose
+  # stacktrace would carry the arguments (the model state holds the provider
+  # API key, the request the household's data), is never printed. Only the
+  # kind of failure is logged.
+  defp guarded(fun, state, call) do
+    fun.(state, call)
+  rescue
+    exception ->
+      Logger.error("planning agent call crashed: #{inspect(exception.__struct__)}")
+      :crashed
+  catch
+    kind, _reason ->
+      Logger.error("planning agent call crashed: #{kind}")
+      :crashed
   end
 
   defp latest_report(tag, state) do

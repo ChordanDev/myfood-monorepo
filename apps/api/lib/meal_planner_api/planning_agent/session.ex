@@ -453,8 +453,9 @@ defmodule MealPlannerApi.PlanningAgent.Session do
 
   def handle_info({:deadline, _stale}, state), do: {:noreply, state}
 
-  def handle_info({:DOWN, ref, :process, _pid, reason}, %{task: %Task{ref: ref}} = state) do
-    Logger.error("planning agent turn crashed: #{inspect(reason)}")
+  # The reason is not logged: it can carry the turn's arguments.
+  def handle_info({:DOWN, ref, :process, _pid, _reason}, %{task: %Task{ref: ref}} = state) do
+    Logger.error("planning agent turn ended abnormally")
     state = clear_turn(state)
     emit(state, %{"type" => "agent_unavailable", "reason" => "internal_error"})
     {:noreply, state}
@@ -681,7 +682,7 @@ defmodule MealPlannerApi.PlanningAgent.Session do
           end)
           |> Map.put(:report_allowance, &send(session, {:allowance, ref, &1}))
           |> Map.put(:on_workspace, &send(session, {:workspace, ref, &1}))
-          |> Loop.run()
+          |> run_guarded()
 
         %{result | model_state: seal(result.model_state)}
       end)
@@ -689,6 +690,17 @@ defmodule MealPlannerApi.PlanningAgent.Session do
     send(task.pid, {holder, task.ref})
     deadline_ref = Process.send_after(self(), {:deadline, task.ref}, state.deadline_ms)
     %{state | task: task, deadline_ref: deadline_ref}
+  end
+
+  # A crash in the turn would print the turn (the unsealed model state with
+  # the provider API key, and the household's data) in its report: only its
+  # kind is logged, and the turn ends with a shutdown the session reports.
+  defp run_guarded(turn) do
+    Loop.run(turn)
+  rescue
+    exception ->
+      Logger.error("planning agent turn crashed: #{inspect(exception.__struct__)}")
+      exit({:shutdown, :turn_crashed})
   end
 
   defp emit_outcome(state, :completed), do: emit(state, %{"type" => "turn_completed"})

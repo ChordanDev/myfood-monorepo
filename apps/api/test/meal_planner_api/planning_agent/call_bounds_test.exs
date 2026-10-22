@@ -130,4 +130,29 @@ defmodule MealPlannerApi.PlanningAgent.CallBoundsTest do
 
     assert timeout_ms <= 1_000
   end
+
+  test "a crashed attempt is not retried, keeps its reported state and never prints its arguments" do
+    test = self()
+
+    crashing = fn state, call ->
+      send(test, :attempt)
+      call.report.(%{reserved: 42, api_key: "secret-api-key"})
+      Map.fetch!(state, :missing)
+    end
+
+    log =
+      ExUnit.CaptureLog.capture_log(fn ->
+        assert {:error, :internal_error, %{reserved: 42}} =
+                 CallBounds.run(
+                   CallBounds.new(policies: @fast),
+                   :model,
+                   %{api_key: "secret-api-key"},
+                   crashing
+                 )
+      end)
+
+    assert attempts() == 1
+    assert log =~ "planning agent call crashed: KeyError"
+    refute log =~ "secret-api-key"
+  end
 end
