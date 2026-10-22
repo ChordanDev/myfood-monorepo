@@ -10,11 +10,13 @@ defmodule MealPlannerApiWeb.PlanningStartTest do
   use ExUnit.Case, async: false
 
   import Ecto.Query
+  import ExUnit.CaptureLog
   import MealPlannerApi.FactoryHelpers, only: [issue_access_v2_token: 2]
   import MealPlannerApi.PlanningAgentFixtures
   import MealPlannerApiWeb.ChannelHelpers, only: [persist_trial_window!: 2]
   import Phoenix.ChannelTest
 
+  alias MealPlannerApi.Data.PlanningRepo
   alias MealPlannerApi.Persistence.Planning.{PlanningConsent, PlanningSession, ScheduledMeal}
   alias MealPlannerApi.PlanningAgent.{Consent, Session}
   alias MealPlannerApi.PlanningAgent.Model.Scripted
@@ -76,6 +78,30 @@ defmodule MealPlannerApiWeb.PlanningStartTest do
     assert_reply(ref, :error, %{"error" => %{"code" => code, "message" => message}})
     assert is_binary(message)
     code
+  end
+
+  # A process registered as the Account's running session that answers
+  # every call with `reply`.
+  defp fake_session!(account, reply) do
+    test = self()
+
+    spawn_link(fn ->
+      {:ok, _owner} =
+        Registry.register(MealPlannerApi.PlanningAgent.Registry, {:account, account.id}, nil)
+
+      send(test, :registered)
+      answer_calls(reply)
+    end)
+
+    assert_receive :registered
+  end
+
+  defp answer_calls(reply) do
+    receive do
+      {:"$gen_call", from, _request} -> GenServer.reply(from, reply)
+    end
+
+    answer_calls(reply)
   end
 
   defp scheduled(account),
@@ -170,18 +196,45 @@ defmodule MealPlannerApiWeb.PlanningStartTest do
              }
     end
 
-    test "a second Member is told another session holds the range, and by whom", %{owner: owner} do
+    test "a second Member is told the Account already runs a session, and by whom, whatever its range",
+         %{owner: owner} do
       start!(join!(owner), owner)
+      peer = join!(member!(owner.account))
+
+      # One agent session per Account: the peer's range overlaps the running
+      # one in the first push and not in the second.
+      for offset <- [0, 5] do
+        ref =
+          push(peer, "start_session", %{
+            "rangeFrom" => Date.to_iso8601(Date.add(today(owner), offset)),
+            "dayCount" => 2
+          })
+
+        assert_reply(ref, :error, %{"error" => %{"code" => :planning_session_active} = error})
+        assert {offset, error["details"]} == {offset, %{"ownerName" => owner.user.name}}
+      end
+    end
+
+    test "a range a legacy session holds is locked, and names its member", %{owner: owner} do
       peer = member!(owner.account)
 
+      {:ok, _row} =
+        PlanningRepo.create_session(owner.account.id, %{
+          range_from: today(owner),
+          range_to: Date.add(today(owner), 1),
+          lock_owner_user_id: peer.user.id,
+          lock_owner_membership_id: peer.membership.id,
+          lease_expires_at: DateTime.add(DateTime.utc_now(), 120, :second)
+        })
+
       ref =
-        push(join!(peer), "start_session", %{
+        push(join!(owner), "start_session", %{
           "rangeFrom" => Date.to_iso8601(today(owner)),
           "dayCount" => 2
         })
 
       assert_reply(ref, :error, %{"error" => %{"code" => :planning_range_locked} = error})
-      assert error["details"] == %{"ownerName" => owner.user.name}
+      assert error["details"] == %{"ownerName" => peer.user.name}
     end
   end
 
@@ -300,6 +353,45 @@ defmodule MealPlannerApiWeb.PlanningStartTest do
       ref = push(join!(owner), "cancel_session", %{})
       assert_reply(ref, :ok, %{"status" => "cancelled"})
       assert %PlanningSession{status: :cancelled} = Repo.get!(PlanningSession, session_id)
+    end
+
+    test "a session that does not answer in time is not reported as gone", %{owner: owner} do
+      socket = join!(owner)
+      start!(socket, owner)
+      pid = Session.whereis(owner.account.id)
+      :ok = :sys.suspend(pid)
+
+      log =
+        capture_log(fn ->
+          # `GenServer.call/2` waits five seconds.
+          ref = push(socket, "stop", %{})
+          assert_reply(ref, :error, %{"error" => %{"code" => :unknown_error}}, 6_000)
+        end)
+
+      :ok = :sys.resume(pid)
+      assert Session.whereis(owner.account.id) == pid
+
+      # The kind of the exit is logged, never its reason.
+      assert log =~ "exited (timeout)"
+      refute log =~ "GenServer"
+      refute log =~ inspect(pid)
+    end
+
+    test "a reason outside the allowlist replies unknown_error and is logged", %{owner: owner} do
+      socket = join!(owner)
+      # A running session that answers a reason no code holds.
+      fake_session!(owner.account, {:error, {:storage_fault, "disk on fire"}})
+
+      log =
+        capture_log(fn ->
+          ref = push(socket, "cancel_session", %{})
+          assert_reply(ref, :error, %{"error" => %{"code" => :unknown_error}} = payload)
+          refute inspect(payload) =~ "storage_fault"
+          refute inspect(payload) =~ "disk on fire"
+        end)
+
+      assert log =~ "unknown_error"
+      assert log =~ "storage_fault"
     end
 
     test "without a session the commands say so", %{owner: owner} do

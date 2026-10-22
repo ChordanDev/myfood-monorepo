@@ -343,6 +343,10 @@ defmodule MealPlannerApiWeb.PlanningChannel do
         details = range_lock_details(membership.account_id, range, membership.id)
         {:reply, {:error, error_payload(:planning_range_locked, %{}, details)}, socket}
 
+      {:error, :session_active} ->
+        details = session_owner_details(membership.account_id, membership.id)
+        {:reply, {:error, error_payload(:planning_session_active, %{}, details)}, socket}
+
       {:error, reason} ->
         {:reply, {:error, error_payload(reason)}, socket}
     end
@@ -509,7 +513,11 @@ defmodule MealPlannerApiWeb.PlanningChannel do
       {:error, :invalid_range} ->
         {:error, :planning_session_invalid_range}
 
-      {:error, reason} when reason in [:session_already_active, :overlapping_range] ->
+      # One agent session per Account, whatever its range.
+      {:error, :session_already_active} ->
+        {:error, :session_active}
+
+      {:error, :overlapping_range} ->
         {:error, {:range_locked, range}}
 
       {:error, reason} ->
@@ -545,7 +553,9 @@ defmodule MealPlannerApiWeb.PlanningChannel do
     end)
   end
 
-  # A session that ends during the call is no longer active.
+  # A session that ends during the call is no longer active. Any other exit
+  # (a call that timed out, a session that crashed) is not reported as the
+  # session being gone: it replies `unknown_error` and logs its kind only.
   defp with_session(socket, command) do
     result =
       case Session.whereis(socket.assigns.account_id) do
@@ -558,8 +568,27 @@ defmodule MealPlannerApiWeb.PlanningChannel do
       {:error, reason} -> {:reply, {:error, error_payload(reason)}, socket}
     end
   catch
-    :exit, _reason -> {:reply, {:error, error_payload(:no_active_session)}, socket}
+    :exit, reason ->
+      if session_gone?(reason) do
+        {:reply, {:error, error_payload(:no_active_session)}, socket}
+      else
+        Logger.warning(
+          "PlanningChannel: a call to the planning session exited (#{exit_kind(reason)})"
+        )
+
+        {:reply, {:error, Casing.camelize_keys(ApiError.unknown_error_envelope())}, socket}
+      end
   end
+
+  defp session_gone?({reason, {GenServer, :call, _args}}), do: session_gone?(reason)
+  defp session_gone?(reason) when reason in [:noproc, :normal, :shutdown], do: true
+  defp session_gone?({:shutdown, _reason}), do: true
+  defp session_gone?(_reason), do: false
+
+  # Never the reason itself: it can carry the call's message and state.
+  defp exit_kind({reason, {GenServer, :call, _args}}), do: exit_kind(reason)
+  defp exit_kind(reason) when is_atom(reason), do: reason
+  defp exit_kind(_reason), do: :crash
 
   defp require_proposal_id(payload) do
     case Ecto.UUID.cast(Map.get(payload, "proposal_id")) do
@@ -592,6 +621,15 @@ defmodule MealPlannerApiWeb.PlanningChannel do
   defp agent_reason(reason), do: reason
 
   defp occupied_slot({date, slot}), do: %{date: Date.to_iso8601(date), slot: to_string(slot)}
+
+  # The details of `planning_session_active`: the display name of the member
+  # whose agent session runs, only when it is not the caller.
+  defp session_owner_details(account_id, caller_membership_id) do
+    case LockOwner.agent_session_owner_name(account_id, caller_membership_id) do
+      {:ok, name} -> %{owner_name: name}
+      :none -> %{}
+    end
+  end
 
   # The details of `planning_range_locked`: the display name of the member
   # who holds the range, only when it is not the caller.

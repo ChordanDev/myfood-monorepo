@@ -154,6 +154,7 @@ defmodule MealPlannerApiWeb.ApiError do
           | :planning_proposal_not_pending
           | :planning_slot_occupied
           | :planning_session_invalid_range
+          | :planning_session_active
           | :consent_required
           | :agent_busy
           | :agent_unavailable
@@ -325,6 +326,7 @@ defmodule MealPlannerApiWeb.ApiError do
     # The planning agent's commands on the channel (issue #423, ADR 0007).
     planning_session_invalid_range:
       {422, "The planning range must be 1 to 31 days and start today or later."},
+    planning_session_active: {409, "A planning session is already running on this account."},
     consent_required: {403, "AI-processing consent is required before the agent can plan."},
     agent_busy: {409, "The planning agent is still answering the previous message."},
     agent_unavailable: {503, "The planning agent is not available. Try again later."},

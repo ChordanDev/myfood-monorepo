@@ -303,6 +303,7 @@ defmodule MealPlannerApiWeb.ApiErrorTest do
       optimizer_timeout: 504,
       # The planning agent's commands (issue #423).
       planning_session_invalid_range: 422,
+      planning_session_active: 409,
       consent_required: 403,
       agent_busy: 409,
       agent_unavailable: 503,
