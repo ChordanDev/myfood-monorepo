@@ -15,8 +15,8 @@ defmodule MealPlannerApi.Persistence.Catalog.DietRules do
   # in `Ingredient.codes/0`.
   @mark_codes ~w(meat fish animal_product)
 
-  # Each list is in `Ingredient.codes/0` order: Diet marks first, then the
-  # Hard restriction codes. A Diet missing here (omnivore) forbids nothing.
+  # Each list names its Diet marks first, then its Hard restriction codes. A
+  # Diet missing here (omnivore) forbids nothing.
   @forbidden %{
     vegetarian: ~w(meat fish),
     vegan: ~w(meat fish animal_product dairy egg),

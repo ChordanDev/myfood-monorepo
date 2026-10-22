@@ -287,6 +287,22 @@ defmodule MealPlannerApi.Data.IngredientAllergensTest do
       assert review_state(reviewed_codes) == {nil, ["gluten", "egg"]}
       assert review_state(unreviewed) == {nil, ["gluten", "dairy"]}
     end
+
+    test "a later proposal refresh keeps the reviewed codes the reset moved to the proposal",
+         %{diet_marks_migration: migration} do
+      reviewed = insert_ingredient("Ravioles de carne", ["gluten", "egg"])
+
+      Repo.query!(migration.reset_sql())
+
+      {:ok, _} =
+        Catalog.upsert_ingredient_by_name(%{
+          name: "Ravioles de carne",
+          category: :otros,
+          allergens_proposed: ["meat", "egg"]
+        })
+
+      assert review_state(reviewed) == {nil, ["gluten", "egg", "meat"]}
+    end
   end
 
   describe "no Ingredient ships without tags" do
