@@ -36,8 +36,8 @@ This file and `docs/adr/` are the only durable docs in the repository. Specs, ma
 
 Which actions need an Eligible Account (decided in issue #397):
 
-- **Always, whatever the switch says:** Planning sessions and Cooking sessions, from start to finish, and any other recipe or cooking access. They spend AI or open recipes the Account pays for.
-- **Only while the switch is on:** everything else, including the calendar, Shopping, Inventory and consuming Inventory from the calendar (marking a meal cooked, confirming a past meal as cooked). With the switch on, an Account that is not eligible is refused; with it off, these actions are allowed, since they only change the Account's own data.
+- **Always, whatever the switch says:** starting a Planning session, every step of a Cooking session from start to finish, and any other recipe or cooking access. They spend AI or open recipes the Account pays for.
+- **Only while the switch is on:** everything else, including the later steps of a Planning session (chatting, confirming or rejecting a proposal), the calendar, Shopping, Inventory and consuming Inventory from the calendar (marking a meal cooked, confirming a past meal as cooked). With the switch on, an Account that is not eligible is refused; with it off, these actions are allowed, since they only change the Account's own data.
 
 ## Profile & preferences
 
