@@ -44,7 +44,8 @@ defmodule MealPlannerApi.PlanningAgent.Session do
   its paid calls are bounded by the model adapter's spend caps.
 
   The session renews its lease every minute up to the 30-minute cap of
-  `PlanningRepo.renew_session_lease/4`; a lost lease ends it. It also ends
+  `PlanningRepo.renew_session_lease/4`; a lost lease ends it, a renewal the
+  database did not answer is tried again on the next tick. It also ends
   when its last subscriber leaves. Absence grace, idle expiry and restart
   recovery belong to #432.
   """
@@ -107,6 +108,8 @@ defmodule MealPlannerApi.PlanningAgent.Session do
     * `:recipe_search` — `{module, opts}` replacing the recipe search (tests)
     * `:subscriber` — pid receiving events (more can join with `subscribe/2`)
     * `:max_iterations`, `:deadline_ms`, `:call_policies` — limits
+    * `:lease_store` — the module that renews and ends the session's row
+      (default `PlanningRepo`; tests)
   """
   @spec start(attrs(), keyword()) ::
           {:ok, %{session_id: Ecto.UUID.t(), pid: pid(), consent_required: boolean()}}
@@ -136,7 +139,8 @@ defmodule MealPlannerApi.PlanningAgent.Session do
         subscriber: Keyword.get(opts, :subscriber),
         max_iterations: Keyword.get(opts, :max_iterations, @default_max_iterations),
         deadline_ms: Keyword.get(opts, :deadline_ms, @default_deadline_ms),
-        call_policies: Keyword.get(opts, :call_policies, %{})
+        call_policies: Keyword.get(opts, :call_policies, %{}),
+        lease_store: Keyword.get(opts, :lease_store, PlanningRepo)
       }
 
       case DynamicSupervisor.start_child(@supervisor, {__MODULE__, init_args}) do
@@ -303,7 +307,8 @@ defmodule MealPlannerApi.PlanningAgent.Session do
       task: nil,
       deadline_ref: nil,
       deadline_ms: args.deadline_ms,
-      call_policies: args.call_policies
+      call_policies: args.call_policies,
+      lease_store: args.lease_store
     }
 
     state = if args.subscriber, do: add_subscriber(state, args.subscriber), else: state
@@ -475,7 +480,13 @@ defmodule MealPlannerApi.PlanningAgent.Session do
   end
 
   def handle_info(:renew_lease, state) do
-    case PlanningRepo.renew_session_lease(state.account_id, state.session_id, state.membership_id) do
+    case renew_lease(state) do
+      # The database did not answer: the 120-second lease outlives one
+      # missed renewal, so the next one is tried as usual.
+      :unavailable ->
+        schedule_lease_renewal()
+        {:noreply, state}
+
       {:ok, _session} ->
         schedule_lease_renewal()
         {:noreply, state}
@@ -498,12 +509,22 @@ defmodule MealPlannerApi.PlanningAgent.Session do
   def terminate(_reason, state) do
     _ = stop_turn(state)
 
+    # Subscribers are told first: ending the row can fail, and the lease
+    # then lapses on its own.
     if state.session_id do
-      _ = PlanningRepo.expire_session(state.account_id, state.session_id)
       emit(state, %{"type" => "session_ended"})
+      _ = state.lease_store.expire_session(state.account_id, state.session_id)
     end
 
     :ok
+  end
+
+  defp renew_lease(state) do
+    state.lease_store.renew_session_lease(state.account_id, state.session_id, state.membership_id)
+  rescue
+    exception in [DBConnection.ConnectionError, Postgrex.Error] ->
+      Logger.warning("planning agent lease renewal failed: #{inspect(exception.__struct__)}")
+      :unavailable
   end
 
   # The conversation is reduced to its length and a Member message to a
