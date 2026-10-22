@@ -63,6 +63,7 @@ defmodule MealPlannerApi.Services.PlanningService do
          true <- requested_days_valid?(params, max_days),
          {:ok, candidates_by_slot} <- build_candidates(user, identity),
          {:ok, result} <- run_optimizer(optimizer, selected_days, candidates_by_slot, user),
+         :ok <- refuse_deviations(result),
          :ok <- validate_meals_in_candidates(result["meals"], candidates_by_slot) do
       day_plans = build_day_plans(result["meals"], selected_days)
 
@@ -96,20 +97,45 @@ defmodule MealPlannerApi.Services.PlanningService do
   def max_planning_days, do: @max_planning_days
 
   @spec run_optimizer(module(), [String.t()], map(), planning_user()) ::
-          {:ok, %{required(String.t()) => [map()]}}
-          | {:error, :optimization_failed | :optimizer_unavailable}
-  def run_optimizer(_optimizer, [], _candidates, _user), do: {:ok, %{"meals" => []}}
+          {:ok, %{required(String.t()) => term()}} | {:error, term()}
+  def run_optimizer(_optimizer, [], _candidates, _user),
+    do: {:ok, %{"meals" => [], "deviations" => [], "optimality" => "optimal"}}
 
+  # The v2 optimizer plans ISO dates (issue #422), while this planner names
+  # its days. The n-th day is planned on the n-th date from today, and the
+  # meals come back under the day's own name.
   def run_optimizer(optimizer, days, candidates_by_slot, user) do
     slots = available_slots(candidates_by_slot)
+    dates = days |> Enum.with_index() |> Enum.map(&optimizer_date/1)
+    day_by_date = dates |> Enum.zip(days) |> Map.new()
 
     payload =
-      days
+      dates
       |> build_optimization_payload(candidates_by_slot, user)
       |> Map.put("slots", slots)
 
-    optimizer.select_weekly_menu(payload)
+    case optimizer.select_weekly_menu(payload) do
+      {:ok, %{"meals" => meals} = result} when is_list(meals) ->
+        {:ok, %{result | "meals" => Enum.map(meals, &name_meal_day(&1, day_by_date))}}
+
+      other ->
+        other
+    end
   end
+
+  defp optimizer_date({_day, offset}),
+    do: Date.utc_today() |> Date.add(offset) |> Date.to_iso8601()
+
+  defp name_meal_day(%{"day" => date} = meal, day_by_date),
+    do: %{meal | "day" => Map.get(day_by_date, date, date)}
+
+  defp name_meal_day(meal, _day_by_date), do: meal
+
+  # The v2 optimizer returns the closest plan and lists every goal it misses
+  # as a Deviation. This planner has no approval step, so a plan that misses
+  # the budget or a nutrition goal is refused, as when they were hard rules.
+  defp refuse_deviations(%{"deviations" => [_ | _]}), do: {:error, :optimization_failed}
+  defp refuse_deviations(_result), do: :ok
 
   defp client_module,
     do: Application.get_env(:meal_planner_api, :planning_optimizer_client, OptimizerMock)

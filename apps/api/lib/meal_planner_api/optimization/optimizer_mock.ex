@@ -2,8 +2,9 @@ defmodule MealPlannerApi.Optimization.OptimizerMock do
   @moduledoc """
   Test double for `OptimizerPort`.
 
-  Returns deterministic results. Configurable to produce errors on demand
-  via application env:
+  Returns deterministic results in the v2 result shape: the first candidate
+  of each slot for every day, no Deviations, proven optimal. Configurable to
+  produce errors on demand via application env:
   - `:optimizer_mock_error` — causes `select_weekly_menu` to return error
   """
 
@@ -23,7 +24,7 @@ defmodule MealPlannerApi.Optimization.OptimizerMock do
         Map.get(payload, "slots", Map.get(payload, :slots, Map.keys(candidates_by_slot)))
 
       meals = build_mock_meals(days, candidates_by_slot, slots)
-      {:ok, %{"meals" => meals}}
+      {:ok, %{"meals" => meals, "deviations" => [], "optimality" => "optimal"}}
     end
   end
 

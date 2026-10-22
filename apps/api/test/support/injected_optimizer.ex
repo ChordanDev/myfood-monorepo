@@ -9,7 +9,10 @@ defmodule MealPlannerApi.TestSupport.InjectedOptimizer do
   @behaviour MealPlannerApi.Optimization.OptimizerPort
 
   @impl true
-  def select_weekly_menu(_payload), do: {:ok, %{"meals" => [%{"recipe_id" => "injected"}]}}
+  def select_weekly_menu(_payload) do
+    {:ok,
+     %{"meals" => [%{"recipe_id" => "injected"}], "deviations" => [], "optimality" => "optimal"}}
+  end
 
   @impl true
   def health_check, do: :ok

@@ -8,8 +8,8 @@ defmodule MealPlannerApi.Optimization.PayloadAdapter do
   - recipe_prices: %{"id" => float}
   - recipe_macros: %{"id" => %{protein_g, calories, carbs_g}}
 
-  OptimizerServer (optimizador.py) expects:
-  - days: [date_string]
+  OptimizerServer (optimizador.py, v2 contract in `docs/OPTIMIZER_CONTRACT.md`) expects:
+  - days: [iso_date_string]
   - slots: [slot_type_string]
   - constraints: %{weekly_budget_cents, macro_bounds: %{protein_g: %{min, max}, ...}}
   - candidates_by_slot: %{slot_type => [%{recipe_id, estimated_cost_cents, protein_g_per_serving, ...}]}

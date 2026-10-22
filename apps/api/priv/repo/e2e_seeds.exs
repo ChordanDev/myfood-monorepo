@@ -8,8 +8,9 @@
 #
 #   * an Account in a trial that never ends, with a Budget, and its owner,
 #     the User of `E2E_LOGIN_EMAIL`, whose onboarding is complete;
-#   * one catalog Recipe per Meal slot, with ingredients, so a Planning
-#     session has a proposal and its Shopping list has items;
+#   * four catalog Recipes per Meal slot, with ingredients, so a Planning
+#     session has a proposal under the optimizer's variety rules and its
+#     Shopping list has items;
 #   * none of the data a journey leaves behind: the Account's Planning
 #     sessions, Scheduled meals, Shopping list, Cart, Inventory and
 #     favorites are deleted, and so are the login codes and request
@@ -38,7 +39,9 @@ alias MealPlannerApi.Repo
 alias MealPlannerApi.Services.OnboardingService
 
 if Mix.env() not in [:e2e, :test] do
-  Mix.raise("priv/repo/e2e_seeds.exs runs in MIX_ENV=e2e (or test, for its tests), not #{Mix.env()}")
+  Mix.raise(
+    "priv/repo/e2e_seeds.exs runs in MIX_ENV=e2e (or test, for its tests), not #{Mix.env()}"
+  )
 end
 
 # A database named for `e2e` only: the seed overwrites shared catalog rows
@@ -77,13 +80,44 @@ onboarding = %{
     )
 }
 
-# One Recipe per Meal slot: a Planning session needs a candidate for every
-# slot of every day. Quantities are in thousandths of the unit.
+# Four Recipes per Meal slot: a Planning session needs a candidate for every
+# slot of every day, and the optimizer allows one Recipe at most twice in any
+# 7 days and never in the same slot on consecutive days, so the default 7-day
+# Planning Range needs four. The Recipes of a slot share their Ingredients, so
+# the Shopping list a journey checks does not depend on which one is planned.
+# Quantities are in thousandths of the unit.
 recipes = [
   %{
     name: "E2E Avena con banana",
     slots: [:breakfast],
     step: "Cocinar la avena y servir con banana.",
+    ingredients: [
+      {"Avena", :granos, 80_000, :g},
+      {"Banana", :frutas, 1_000, :unit}
+    ]
+  },
+  %{
+    name: "E2E Porridge de avena y banana",
+    slots: [:breakfast],
+    step: "Hervir la avena con agua y sumar la banana pisada.",
+    ingredients: [
+      {"Avena", :granos, 80_000, :g},
+      {"Banana", :frutas, 1_000, :unit}
+    ]
+  },
+  %{
+    name: "E2E Avena tostada con banana",
+    slots: [:breakfast],
+    step: "Tostar la avena en sartén y servir con banana en rodajas.",
+    ingredients: [
+      {"Avena", :granos, 80_000, :g},
+      {"Banana", :frutas, 1_000, :unit}
+    ]
+  },
+  %{
+    name: "E2E Licuado de banana y avena",
+    slots: [:breakfast],
+    step: "Licuar la banana con la avena y servir frío.",
     ingredients: [
       {"Avena", :granos, 80_000, :g},
       {"Banana", :frutas, 1_000, :unit}
@@ -99,9 +133,63 @@ recipes = [
     ]
   },
   %{
+    name: "E2E Arroz con pollo",
+    slots: [:lunch],
+    step: "Cocinar el arroz junto con el pollo en trozos.",
+    ingredients: [
+      {"Pollo", :carnes, 300_000, :g},
+      {"Arroz", :granos, 200_000, :g}
+    ]
+  },
+  %{
+    name: "E2E Pollo salteado con arroz",
+    slots: [:lunch],
+    step: "Saltear el pollo en tiras y servir sobre arroz.",
+    ingredients: [
+      {"Pollo", :carnes, 300_000, :g},
+      {"Arroz", :granos, 200_000, :g}
+    ]
+  },
+  %{
+    name: "E2E Bowl de pollo y arroz",
+    slots: [:lunch],
+    step: "Servir el arroz en un bowl con el pollo a la plancha.",
+    ingredients: [
+      {"Pollo", :carnes, 300_000, :g},
+      {"Arroz", :granos, 200_000, :g}
+    ]
+  },
+  %{
     name: "E2E Fideos con tomate",
     slots: [:dinner],
     step: "Hervir los fideos y mezclar con tomate.",
+    ingredients: [
+      {"Fideos", :granos, 250_000, :g},
+      {"Tomate", :verduras, 200_000, :g}
+    ]
+  },
+  %{
+    name: "E2E Fideos al pomodoro",
+    slots: [:dinner],
+    step: "Hacer una salsa con el tomate y mezclar con los fideos.",
+    ingredients: [
+      {"Fideos", :granos, 250_000, :g},
+      {"Tomate", :verduras, 200_000, :g}
+    ]
+  },
+  %{
+    name: "E2E Fideos salteados con tomate",
+    slots: [:dinner],
+    step: "Saltear los fideos hervidos con tomate en cubos.",
+    ingredients: [
+      {"Fideos", :granos, 250_000, :g},
+      {"Tomate", :verduras, 200_000, :g}
+    ]
+  },
+  %{
+    name: "E2E Tomates rellenos de fideos",
+    slots: [:dinner],
+    step: "Rellenar los tomates con fideos cortos y gratinar.",
     ingredients: [
       {"Fideos", :granos, 250_000, :g},
       {"Tomate", :verduras, 200_000, :g}

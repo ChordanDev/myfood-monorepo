@@ -20,8 +20,8 @@ authentication bypass is involved: the API only issues a known code for one emai
 - Maestro CLI installed with `curl -Ls https://get.maestro.mobile.dev | bash`.
 - Java 17+ from macOS `java_home` or the Homebrew `openjdk@17` formula.
 - The monorepo API at `apps/api` with PostgreSQL available.
-- A Python with the optimizer requirements (`apps/api/optimizer/requirements.txt`). OR-Tools 9.12
-  has no wheels for Python 3.14, so use Python 3.13 or older, for example a `uv venv --python 3.12`.
+- A Python with the optimizer requirements (`apps/api/optimizer/requirements.txt`, which pins
+  OR-Tools 9.15). CI runs it on Python 3.12, for example a `uv venv --python 3.12`.
 
 ## Run
 

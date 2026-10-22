@@ -15,8 +15,8 @@ defmodule MealPlannerApi.TestSupport.OutOfCandidateOptimizer do
     recipe_id = Application.fetch_env!(:meal_planner_api, :out_of_candidate_recipe_id)
 
     case OptimizerMock.select_weekly_menu(payload) do
-      {:ok, %{"meals" => [first | rest]}} ->
-        {:ok, %{"meals" => [Map.put(first, "recipe_id", recipe_id) | rest]}}
+      {:ok, %{"meals" => [first | rest]} = result} ->
+        {:ok, %{result | "meals" => [Map.put(first, "recipe_id", recipe_id) | rest]}}
 
       other ->
         other

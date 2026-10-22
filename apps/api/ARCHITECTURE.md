@@ -24,7 +24,7 @@ Responsible for interacting with the database. The application layer delegates d
 
 ### Infrastructure Layer (External Services)
 - `MealPlannerApi.AI.GeminiClient`: Implements true HTTP Server-Sent Events (SSE) streaming with Google's Gemini API.
-- `MealPlannerApi.Planning.PythonOptimizerClient`: Integrates with a local Python script running Google OR-Tools to solve the nutritional and budget constraints for meal proposals.
+- `MealPlannerApi.Optimization.OptimizerServer`: Owns the OR-Tools optimizer (`optimizer/optimizador.py`) as a stdio Port and solves the budget, nutrition and variety constraints for meal proposals. The request and reply shapes are in `docs/OPTIMIZER_CONTRACT.md`. There is no fallback plan: an unavailable optimizer (process down or circuit open) replies `:optimizer_unavailable`.
 
 ## Auth Flow (HTTP + WS)
 
@@ -222,5 +222,5 @@ Flow" above.
 
 ## Integrations
 - **RevenueCat**: Webhook processing and active entitlement synchronization update user subscription tiers.
-- **OR-Tools (Python)**: The Elixir backend executes an external `optimizador.py` script via `System.cmd` to run the constraint solver over recipes.
+- **OR-Tools (Python)**: `OptimizerServer` keeps the `optimizador.py` CP-SAT solver (OR-Tools pinned to 9.15) running as a stdio Port and speaks the JSON-lines protocol of `docs/OPTIMIZER_CONTRACT.md`.
 - **Gemini**: Used for the conversational interface, providing a fully streamed AI experience.
