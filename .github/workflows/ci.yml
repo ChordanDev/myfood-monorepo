@@ -155,8 +155,14 @@ jobs:
           mix ecto.create --quiet
           mix ecto.migrate --quiet
 
-      - name: Run tests
-        run: mix test
+      # Runs the suite under ExCoveralls. There is no minimum yet
+      # (`coveralls.json`): the total is reported in the job summary only.
+      # `shell: bash` adds pipefail, so a failing test still fails the step.
+      - name: Run tests with coverage
+        shell: bash
+        run: |
+          mix coveralls | tee coverage.txt
+          echo "API test coverage: $(grep '^\[TOTAL\]' coverage.txt)" >> "$GITHUB_STEP_SUMMARY"
 
       # The concurrency tests `mix test` skips (issue #38), such as two
       # concurrent Cooking starts sharing one session. The runner creates a

@@ -17,6 +17,7 @@ defmodule MealPlannerApi.MixProject do
         plt_add_apps: [:mix, :ex_unit],
         flags: [:error_handling, :extra_return]
       ],
+      test_coverage: [tool: ExCoveralls],
       listeners: [Phoenix.CodeReloader]
     ]
   end
@@ -43,7 +44,7 @@ defmodule MealPlannerApi.MixProject do
 
   def cli do
     [
-      preferred_envs: [precommit: :test]
+      preferred_envs: [precommit: :test, coveralls: :test, "coveralls.html": :test]
     ]
   end
 
@@ -72,6 +73,7 @@ defmodule MealPlannerApi.MixProject do
       {:uuid, "~> 1.1"},
       {:tz, "~> 0.28"},
       {:mox, "~> 1.1", only: :test},
+      {:excoveralls, "~> 0.18", only: :test},
       {:ex_doc, "~> 0.36", only: :dev, runtime: false},
       {:tidewave, "~> 0.6", only: :dev},
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false},

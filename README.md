@@ -54,6 +54,8 @@ direnv stub that sets safe defaults and sources `.envrc.local` for secrets.
 Tests: `mix test` (uses `postgres`/`postgres` on `localhost`, database
 `meal_planner_api_test`; override with `MYFOOD_TEST_DATABASE`). The optimizer
 has its own suite: `cd optimizer && python3 -m unittest test_optimizador`.
+`mix coveralls` runs the same suite and prints the coverage per file (no
+minimum yet, see `coveralls.json`).
 
 ## Running the mobile app (`apps/mobile`)
 
@@ -66,7 +68,8 @@ npm install
 EXPO_PUBLIC_API_URL=http://127.0.0.1:4000 npx expo start
 ```
 
-Checks: `npm run lint`, `npx tsc --noEmit`, `npx jest`.
+Checks: `npm run lint`, `npx tsc --noEmit`, `npm run knip:ci`, `npx jest`.
+`npm run knip` prints the full report, unused exports included.
 
 ### Subscriptions (RevenueCat)
 
@@ -107,7 +110,9 @@ App-specific guides stay next to their app (`apps/mobile/docs/THEMING.md`,
 ## CI
 
 `.github/workflows/ci.yml` runs an `api` job (compile with warnings as errors,
-`mix test` against Postgres 16) and a `mobile` job (lint, typecheck, jest).
+`mix coveralls` against Postgres 16, the total in the job summary) and a
+`mobile` job (lint, typecheck, `npm run knip:ci` for unused files and
+dependencies, jest).
 Each job only runs when its `apps/<name>/` tree changes; `docs/`-only changes
 trigger neither.
 
