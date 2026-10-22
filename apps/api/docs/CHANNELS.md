@@ -218,7 +218,7 @@ Commands of an agent Planning session (issue #423, `MealPlannerApi.PlanningAgent
 - One agent session per Account. It holds the range lock of the Planning session row, so it also excludes a legacy session over the same days.
 - A User who has not given AI-processing consent is asked once (`consentRequired: true`); the consent is stored per User and valid in every Account. The text is a placeholder until its legal review.
 
-`give_consent`, `send_message` and `stop` act on the session of the caller; `cancel_session` also lets the Account owner end a Member's session. `confirm` saves the Proposal on display only: data are read again first, a Proposal that is no longer valid is withdrawn (`proposal_invalidated`), one whose content changed is shown again as a new Proposal. A confirmed Proposal answers the same summary again, also after the session ended, and nothing is saved twice. A final meal (cooked or confirmed not cooked) is never overwritten: a Proposal meal on its day and slot refuses the whole confirmation. The Shopping list is derived from the Scheduled meals on its next read.
+`give_consent`, `send_message` and `stop` act on the session of the caller; `cancel_session` also lets the Account owner end a Member's session. `confirm` saves the Proposal on display only: data are read again first, a Proposal that is no longer valid is withdrawn (`proposal_invalidated`), one whose content changed is shown again as a new Proposal. A confirmed Proposal answers the same summary again, also after the session ended, and nothing is saved twice. The agent never plans over a Scheduled meal: a meal scheduled in the range during the session, final or not, is never replaced; it refuses the whole confirmation. The Shopping list is derived from the Scheduled meals on its next read.
 
 Refusals reply the error envelope:
 
@@ -226,7 +226,7 @@ Refusals reply the error envelope:
 |------|---------|-----------|
 | `planning_session_invalid_range` | `start_session` | A date is missing or not ISO 8601, the range is not 1 to 31 days, or it starts before today |
 | `subscription_required` | `start_session` | The Account is not eligible |
-| `planning_slot_occupied` | `start_session` | A day of the range already has a Scheduled meal; `details.occupied` names each date and slot |
+| `planning_slot_occupied` | `start_session`, `confirm` | A day of the range already has a Scheduled meal; `details.occupied` names each date and slot. On `confirm` the meals were scheduled during the session (by another Member, the calendar or a move): nothing is saved, no meal is replaced, and the session goes on so the Member can plan again |
 | `planning_range_locked` | `start_session` | Another session of the Account is running or holds part of the range; `details.ownerName` names its member when it is not the caller |
 | `agent_unavailable` | `start_session` | The model is not configured (API key, prices or spend caps) |
 | `consent_required` | `send_message` | The User has not given AI-processing consent; a `consent_required` agent event carries the text |
@@ -238,7 +238,6 @@ Refusals reply the error envelope:
 | `stale_proposal` | `confirm` | Not the Proposal on display; the current one is pushed again |
 | `approval_required` | `confirm` | The Proposal is over the session budget; approving a deviation arrives with #430 |
 | `proposal_invalid` | `confirm` | The Proposal is no longer valid; nothing was saved |
-| `scheduled_meal_cooked`, `meal_already_confirmed` | `confirm` | A final meal holds one of its days and slots |
 | `confirmation_unresolved` | `confirm` | The outcome is not known yet; ask `confirmation_status` |
 | `transaction_failed` | `confirm` | The database refused it; nothing was saved |
 

@@ -213,8 +213,9 @@ defmodule MealPlannerApi.PlanningAgent.Session do
     * `:approval_required` — the Proposal is over the budget (approvals
       arrive with #430)
     * `:proposal_invalid` — it is no longer valid; nothing was saved
-    * `:scheduled_meal_cooked`, `:meal_already_confirmed` — a final meal
-      holds one of its days and slots
+    * `{:slot_occupied, [{date, slot}]}` — meals were scheduled in the
+      range during the session; they are never replaced, and the session
+      goes on
     * `:no_active_session` — no session runs and the Proposal was never
       confirmed
     * `:unresolved` — the outcome is not known yet; ask
