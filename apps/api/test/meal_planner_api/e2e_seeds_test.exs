@@ -20,6 +20,7 @@ defmodule MealPlannerApi.E2eSeedsTest do
     only: [answer_optimizer_request: 1, start_optimizer_server!: 0, stop_generation_server: 1]
 
   alias MealPlannerApi.Persistence.Accounts.User
+  alias MealPlannerApi.Persistence.Catalog.Recipe
   alias MealPlannerApi.Persistence.Planning.{PlanningSession, ScheduledMeal}
   alias MealPlannerApi.Repo
   alias MealPlannerApiWeb.{PlanningChannel, UserSocket}
@@ -73,6 +74,27 @@ defmodule MealPlannerApi.E2eSeedsTest do
 
     assert Repo.aggregate(ScheduledMeal, :count) == 0
     assert Repo.aggregate(PlanningSession, :count) == 0
+  end
+
+  # The optimizer allows one Recipe at most twice in any 7 days and never in
+  # the same slot on consecutive days, so the default 7-day Planning Range
+  # needs at least 4 Recipes per Meal slot (Jorge F2 on #447).
+  test "seeds at least 4 Recipes for every Meal slot" do
+    seed!()
+
+    for slot <- ~w(breakfast lunch dinner) do
+      count =
+        Repo.aggregate(
+          from(r in Recipe,
+            where: like(r.name, "E2E %"),
+            where: is_nil(r.account_id),
+            where: ^slot in r.suitable_for_slots
+          ),
+          :count
+        )
+
+      assert count >= 4, "#{slot} has #{count} E2E Recipes"
+    end
   end
 
   test "the seeded User signs in, skips onboarding, plans and finds its Shopping list" do
