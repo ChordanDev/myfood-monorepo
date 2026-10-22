@@ -40,6 +40,9 @@ defmodule MealPlannerApi.Persistence.Planning.PlanningSession do
     field(:started_at, :utc_datetime_usec)
     field(:terminal_at, :utc_datetime_usec)
 
+    # Owned by the planning agent (issue #423), not the legacy planner.
+    field(:agent, :boolean, default: false)
+
     belongs_to(:account, MealPlannerApi.Persistence.Accounts.Account)
     belongs_to(:lock_owner_user, MealPlannerApi.Persistence.Accounts.User)
     belongs_to(:lock_owner_membership, MealPlannerApi.Persistence.Accounts.AccountMembership)
@@ -79,7 +82,8 @@ defmodule MealPlannerApi.Persistence.Planning.PlanningSession do
       :lock_owner_user_id,
       :lock_owner_membership_id,
       :lease_expires_at,
-      :started_at
+      :started_at,
+      :agent
     ])
     |> put_default_status(:active)
     |> validate_required([

@@ -12,9 +12,10 @@
 #     session has a proposal under the optimizer's variety rules and its
 #     Shopping list has items;
 #   * none of the data a journey leaves behind: the Account's Planning
-#     sessions, Scheduled meals, Shopping list, Cart, Inventory and
-#     favorites are deleted, and so are the login codes and request
-#     counters of the email. Its device sessions stay, so a signed-in app
+#     sessions and their confirmations, Scheduled meals, Shopping list,
+#     Cart, Inventory and favorites are deleted, and so are the User's
+#     AI-processing consent and the login codes and request counters of
+#     the email. Its device sessions stay, so a signed-in app
 #     stays signed in.
 #
 # Run it with the API stopped, or restart the API after it: a running
@@ -203,7 +204,7 @@ recipes = [
 journey_tables = ~w(
   scheduled_meals shopping_items shopping_removals prepared_leftovers cooking_sessions
   inventory_mutation_events inventory_items checkout_sessions planning_generation_runs
-  planning_sessions favorite_recipes slot_favorites idempotency_keys
+  planning_confirmations planning_sessions favorite_recipes slot_favorites idempotency_keys
 )
 
 {:ok, _done} =
@@ -253,6 +254,9 @@ journey_tables = ~w(
     for table <- journey_tables do
       Repo.delete_all(from(row in table, where: row.account_id == type(^account.id, Ecto.UUID)))
     end
+
+    # The planning agent asks again for consent on the next journey.
+    Repo.delete_all(from(c in "planning_consents", where: c.user_id == type(^user.id, Ecto.UUID)))
 
     Repo.delete_all(from(c in EmailVerificationCode, where: c.email == ^email))
     Repo.delete_all(from(e in EmailAuthEvent, where: e.email == ^email))

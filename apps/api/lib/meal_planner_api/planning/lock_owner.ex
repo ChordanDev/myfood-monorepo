@@ -1,7 +1,8 @@
 defmodule MealPlannerApi.Planning.LockOwner do
   @moduledoc """
-  Read helper behind the `planning_range_locked` error of `start_planning`
-  (issue #25): who holds the date range a member asked for.
+  Read helper behind the `planning_range_locked` error (issue #25): who
+  holds the date range a member asked for; and behind
+  `planning_session_active` (issue #423): whose agent session runs.
 
   The lock is the `:active` row of `planning_sessions`; its owner is the
   Membership in `lock_owner_membership_id`, and the display name of a member
@@ -44,9 +45,33 @@ defmodule MealPlannerApi.Planning.LockOwner do
         select: u.name
       )
 
-    case Repo.one(query) do
-      name when is_binary(name) and name != "" -> {:ok, name}
-      _missing -> :none
-    end
+    query |> Repo.one() |> present_name()
   end
+
+  @doc """
+  The display name of the member whose agent session of `account_id` runs,
+  when that member is not `caller_membership_id`.
+
+  Returns `:none` when the running session is the caller's, when it ended
+  meanwhile, or when its owner has no name.
+  """
+  @spec agent_session_owner_name(Ecto.UUID.t(), Ecto.UUID.t()) :: {:ok, String.t()} | :none
+  def agent_session_owner_name(account_id, caller_membership_id) do
+    query =
+      from(s in PlanningSession,
+        join: u in User,
+        on: u.id == s.lock_owner_user_id,
+        where:
+          s.account_id == ^account_id and s.status == :active and s.agent and
+            s.lock_owner_membership_id != ^caller_membership_id,
+        order_by: [asc: s.started_at],
+        limit: 1,
+        select: u.name
+      )
+
+    query |> Repo.one() |> present_name()
+  end
+
+  defp present_name(name) when is_binary(name) and name != "", do: {:ok, name}
+  defp present_name(_missing), do: :none
 end

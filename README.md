@@ -51,6 +51,29 @@ and an explicit path is used as given; when that does not lead to an executable
 file the API refuses to start and logs which value it tried. `apps/api/.envrc` is a
 direnv stub that sets safe defaults and sources `.envrc.local` for secrets.
 
+### Planning agent
+
+The planning agent (issue #423) plans over the `planning:<account_id>` channel
+(`apps/api/docs/CHANNELS.md`) with Claude Haiku 5.5. Without
+`ANTHROPIC_API_KEY` no Planning session starts. The model, its prices and the
+spend caps per Planning session are set in `config/config.exs`; the caps are
+the same for every Account and are placeholders until the quality battery
+measures the real cost. Runtime overrides: `PLANNING_AGENT_CLAUDE_MODEL`,
+`PLANNING_AGENT_CLAUDE_EFFORT`, `PLANNING_AGENT_SPEND_CAP_MICROS`,
+`PLANNING_AGENT_TOKEN_CAP` and `ANTHROPIC_{INPUT,OUTPUT,CACHE_WRITE,CACHE_READ}_PRICE_MICROS_PER_MTOK`
+(change the prices with the model).
+
+Chat with it from the terminal, against a real Account and Member, from
+consent to Scheduled meals saved:
+
+```sh
+mix planning.chat --account ACCOUNT_ID --user EMAIL [--from YYYY-MM-DD] [--days N]
+mix planning.chat --account ACCOUNT_ID --user EMAIL --scripted   # offline: no key, no spend, no Python
+```
+
+Without `--scripted` it spends real money and needs the optimizer's Python.
+`/confirm` saves the plan on display; `/quit` cancels without saving.
+
 Tests: `mix test` (uses `postgres`/`postgres` on `localhost`, database
 `meal_planner_api_test`; override with `MYFOOD_TEST_DATABASE`). The optimizer
 has its own suite: `cd optimizer && python3 -m unittest test_optimizador`. Its

@@ -148,7 +148,7 @@ cooked or answered "not cooked", since an answered meal is final, and replies
 
 ### planning:* — Weekly Planning
 
-Real-time meal planning workflow coordination.
+Planning with the planning agent (issue #423): a Member opens an agent Planning session, gives AI-processing consent once, talks to the agent and confirms its Proposal into Scheduled meals. The agent replaced the legacy `start_planning`, `send_message` (intents) and `cancel_planning` handlers; there is no `planning_agent:*` topic. Per [ADR 0007](../../../docs/adr/0007-planning-agent-commands-over-the-channel.md), every agent command, consent and confirm included, goes over this topic.
 
 **Topic Pattern:** `planning:<account_id>`
 
@@ -160,7 +160,7 @@ A refused join replies the error envelope (see below) with one of three codes, c
 |------|-----------|
 | `unauthenticated` | The socket carries no identity, or its access token has expired since the socket connected |
 | `forbidden` | No Membership resolves for the socket, the Membership belongs to another Account than the topic, or it is not active |
-| `trial_expired` | Capability enforcement is on and the Account is not eligible. The HTTP API replies the same code for the same rule |
+| `trial_expired` | The Account is not eligible (issue #397), whatever `REVENUECAT_ACCESS_ENFORCEMENT` says. The HTTP API replies the same code for the same rule |
 
 `unauthenticated` is the client's cue to refresh the access token and reconnect the socket with the new one; rejoining on the same connection is refused again. A token without an expiry claim is not treated as expired. The other two codes do not change with a retry.
 
@@ -185,86 +185,91 @@ A failed join or command replies the error envelope, never a free-text reason:
 ```
 
 - `code` is always one of the codes of `MealPlannerApiWeb.ApiError` (`lib/meal_planner_api_web/controllers/api_error.ex`). A failure the server did not anticipate replies `unknown_error`. Clients branch on `code`; `message` is a human-readable description.
-- `start_planning` correlates the reply of a generation that could not start: it carries `requestId` (the one the command sent, or a generated one) next to `error`.
 
-**Example (start_planning, camelCase):**
+**Example (start_session, camelCase):**
 ```json
 { "rangeFrom": "2026-04-01", "rangeTo": "2026-04-07" }
 ```
 
-Ok reply; the `session_started` event carries the same `sessionId`:
-```json
-{ "sessionId": "550e8400-e29b-41d4-a716-446655440002", "status": "active" }
-```
-
 #### Ordering
 
-- An event the channel emits while it handles a command reaches the commanding client after the reply to that command. For example, `cancel_planning` replies first and `session_cancelled` follows on the same socket.
-- An event emitted by another server process (generation, the planning session, the session sweeper, the AI chat channel) has no ordering guarantee relative to a reply. `session_started` is one of them: a client must not assume on which side of the `start_planning` reply it arrives.
-- Clients correlate replies and events by `requestId` / `sessionId`, never by arrival order.
+- An event a command makes the agent session emit reaches the commanding client after the reply to that command. For example, `cancel_session` replies first and the `session_cancelled` agent event follows on the same socket.
+- An event the session emits on its own (an agent turn) has no ordering guarantee relative to a reply: `send_message` replies `accepted` and the agent's events follow whenever they happen. The same holds for broadcasts of other processes (the legacy generation and session servers, the session sweeper, the AI chat channel).
+- Clients correlate replies and events by `sessionId` and `proposalId`, never by arrival order.
 
-#### start_planning
+#### Planning agent commands
 
-The command that starts a Planning session and its first generation (issue #25).
+Commands of an agent Planning session (issue #423, `MealPlannerApi.PlanningAgent.Session`). The session's events reach the socket that started it as [`agent_event`](#agent-events). The session ends when that socket leaves; absence grace and recovery arrive with #432.
 
-| Param (camelCase) | Type | Description |
-|-------------------|------|-------------|
-| `rangeFrom` | `"YYYY-MM-DD"` | First day. Today or later; one day before today (UTC) is still accepted, because a member west of UTC sees a date that is yesterday in UTC |
-| `rangeTo` | `"YYYY-MM-DD"` | Last day, inclusive. Optional when `dayCount` is sent |
-| `dayCount` | integer | Number of days, 1 to 7. Optional when `rangeTo` is sent; when both are sent they must agree |
-| `request` | string | Optional free text, at most 1000 characters after trimming. A blank text counts as none. It reaches the generation as the `request` constraint |
-| `favoriteRecipeIds` | list of UUID strings | Optional. The Favorite recipes the member preselected for this plan; absent or `null` means none. Only the ids that are favorites of the caller (their own, in this Account) reach the engine: any other id is dropped, because a client cache can be stale. Duplicates collapse onto their first place and the client's order is kept. See [Planning context](#planning-context) |
-| `requestId` | string | Optional. Correlates `generation_started`, and `generation_error` when that event carries it; generated when missing |
+| Event | Payload | Ok reply |
+|-------|---------|----------|
+| `start_session` | `{"rangeFrom": "YYYY-MM-DD", "rangeTo": "YYYY-MM-DD"}` (or `dayCount` instead of `rangeTo`) | `{"sessionId", "status": "active", "rangeFrom", "rangeTo", "consentRequired"}`, plus `consentText` and `consentTextVersion` when `consentRequired` is `true` |
+| `give_consent` | none | `{"status": "granted"}` |
+| `send_message` | `{"text": "string"}` (at most 4000 bytes) | `{"status": "accepted"}`; the answer arrives as agent events |
+| `stop` | none | `{"status": "stopped"}`: halts the running turn, the session stays |
+| `cancel_session` | none | `{"status": "cancelled"}`: ends the session and frees its range |
+| `confirm` | `{"proposalId": "uuid"}` | `{"proposalId", "mealsCount", "rangeFrom", "rangeTo"}`: the Proposal was saved as Scheduled meals and the session ended |
+| `confirmation_status` | `{"proposalId": "uuid"}` | `{"status": "confirmed", "proposalId", "mealsCount", "rangeFrom", "rangeTo"}` or `{"status": "not_found", "proposalId"}` |
 
-The command validates the range, checks the Account is eligible, starts the session (`session_started`), then starts the generation and replies:
+`start_session`:
 
-```json
-{ "sessionId": "550e8400-e29b-41d4-a716-446655440002", "status": "active" }
-```
+- The range is 1 to 31 days and starts today or later in the Account's timezone. Only breakfast, lunch and dinner are planned.
+- The Account must be eligible (issue #397), checked again here after the join.
+- One agent session per Account. It holds the range lock of the Planning session row, so it also excludes a legacy session over the same days.
+- A User who has not given AI-processing consent is asked once (`consentRequired: true`); the consent is stored per User and valid in every Account. The text is a placeholder until its legal review.
 
-`generation_started` follows with the `runId`. When the generation cannot start the session is cancelled (`session_cancelled`), its process is stopped, and the command replies the error envelope with `requestId`, so the member can start again. A `generation_error` event is pushed too, except when the account already has a run in flight: that case replies `generation_in_progress` only, and the topic is not told of a failure. A start that does not get an answer from the generation server in time is handled as a failed start. `rangeTo` and `dayCount` sent as `null` count as absent. The range is capped at 7 days on every plan (`PlanningService.max_planning_days/0`, the same cap as `POST /api/planning/chat`), which is also the window of the generation server; a longer range is refused with `planning_date_range_too_long` before any session starts.
+`give_consent`, `send_message` and `stop` act on the session of the caller; `cancel_session` also lets the Account owner end a Member's session. `confirm` saves the Proposal on display only: data are read again first, a Proposal that is no longer valid is withdrawn (`proposal_invalidated`), one whose content changed is shown again as a new Proposal. A confirmed Proposal answers the same summary again, also after the session ended, and nothing is saved twice. The agent never plans over a Scheduled meal: a meal scheduled in the range during the session, final or not, is never replaced; it refuses the whole confirmation. The Shopping list is derived from the Scheduled meals on its next read.
 
-Refusals reply the error envelope with these codes:
+Refusals reply the error envelope:
 
-| Code | Condition |
-|------|-----------|
-| `planning_invalid_range` | A date is missing or is not an ISO 8601 date, the range ends before it starts, starts more than a day in the past, or `dayCount` is not a positive integer or disagrees with `rangeTo` |
-| `planning_date_range_too_long` | The range lasts more than 7 days, by `rangeTo` or by `dayCount`. `details.maxDays` is the allowed maximum (`{"maxDays": 7}`) |
-| `planning_range_locked` | An active session of the Account already holds part of the range |
-| `planning_slot_occupied` | A day of the range already has a Scheduled meal in a slot the session plans (breakfast, lunch or dinner). Refused before any session starts |
-| `invalid_payload` | `request` is not a string or is longer than 1000 characters, or `favoriteRecipeIds` is not a list of strings. Both are refused before any session starts |
-| `subscription_required` | The Account is not eligible |
-| `generation_in_progress` | A generation of the Account is already running (the session is cancelled) |
+| Code | Command | Condition |
+|------|---------|-----------|
+| `planning_session_invalid_range` | `start_session` | A date is missing or not ISO 8601, the range is not 1 to 31 days, or it starts before today |
+| `subscription_required` | `start_session` | The Account is not eligible |
+| `planning_slot_occupied` | `start_session`, `confirm` | A day of the range already has a Scheduled meal; `details.occupied` names each date and slot. On `confirm` the meals were scheduled during the session (by another Member, the calendar or a move): nothing is saved, no meal is replaced, and the session goes on: once those meals are removed, the same Proposal can be confirmed again. A new plan cannot help, since every Proposal covers every day and slot of the range |
+| `planning_session_active` | `start_session` | An agent session of the Account is already running, whatever its range; `details.ownerName` names its member when it is not the caller |
+| `planning_range_locked` | `start_session` | A legacy session holds part of the range; `details.ownerName` names its member when it is not the caller |
+| `agent_unavailable` | `start_session` | The model is not configured (API key, prices or spend caps) |
+| `consent_required` | `send_message` | The User has not given AI-processing consent; a `consent_required` agent event carries the text |
+| `agent_busy` | `send_message`, `confirm` | The agent is still answering the previous message |
+| `invalid_payload` | any | The payload is not a map, or the text is empty or too long |
+| `no_active_session` | `give_consent`, `send_message`, `stop`, `cancel_session`, `confirm` | No session is running (for `confirm`: and the Proposal was never confirmed) |
+| `unknown_error` | any | An unexpected failure, such as a session that does not answer in time; never reported as `no_active_session` |
+| `forbidden` | `give_consent`, `send_message`, `stop`, `cancel_session`, `confirm` | The session belongs to another Member (the owner may cancel it) |
+| `invalid_proposal_id` | `confirm`, `confirmation_status` | `proposalId` is not a UUID |
+| `stale_proposal` | `confirm` | Not the Proposal on display; the current one is pushed again |
+| `approval_required` | `confirm` | The Proposal is over the session budget; approving a deviation arrives with #430 |
+| `proposal_invalid` | `confirm` | The Proposal is no longer valid; nothing was saved |
+| `confirmation_unresolved` | `confirm` | The outcome is not known yet; ask `confirmation_status` |
+| `transaction_failed` | `confirm` | The database refused it; nothing was saved |
 
-`planning_range_locked` may carry `details` inside `error`, next to `code` and `message`: `{"ownerName": "Ana"}`, the display name of the member who holds the range. It is present only when that member is not the caller; a member who collides with their own session gets no `details`.
+#### Agent events
 
-```json
-{
-  "error": {
-    "code": "planning_range_locked",
-    "message": "Another planning session holds part of this date range.",
-    "details": { "ownerName": "Ana" }
-  }
-}
-```
+`agent_event` is pushed to the socket that started the session, with camelCase keys. Every event carries `type` and `sessionId`, and only the fields below: raw tool output and model reasoning never reach the client.
 
-`planning_slot_occupied` carries `details` naming every date and slot pair that already holds a Scheduled meal, ordered by date (issue #28). The Planner never plans over a Scheduled meal; a day outside the range does not block the start.
+| Type | Fields |
+|------|--------|
+| `progress` | `step`, `tool`, `outcome` |
+| `assistant_message` | `text` |
+| `question` | `text` |
+| `proposal` | `proposalId`, `status`, `meals`, `budget`, `deviations` |
+| `optimizer_failed` | `reason` |
+| `consent_required` | `text`, `textVersion` |
+| `limit_reached` | `limit` |
+| `agent_unavailable` | `reason` |
+| `turn_completed` | |
+| `stopped` | |
+| `session_cancelled` | |
+| `session_ended` | |
+| `proposal_confirmed` | `proposalId`, `mealsCount` |
+| `proposal_invalidated` | `proposalId`, `violations` |
+| `confirmation_unresolved` | `proposalId` |
 
-```json
-{
-  "error": {
-    "code": "planning_slot_occupied",
-    "message": "A meal is already scheduled for one of the requested days and slots.",
-    "details": { "occupied": [{ "date": "2026-06-10", "slot": "lunch" }] }
-  }
-}
-```
+A Proposal's `meals` are `{date, slot, recipeId, name, estimatedCostCents}`. Its `budget` is `{budgetCents, estimatedCostCents, withinBudget, uncertain}`: the session budget is the Account's weekly Budget (the tier default when it is not set) x days / 7, never under the owner's minimum. `status` is `valid`, or `requires_approval` when the estimated cost is over the budget (a `budget` deviation in `deviations`). `limit` is `time`, `iterations`, `no_progress`, `session_iterations`, `spend_cap` or `token_cap`.
 
-The older `invalid_range` and `overlapping_range` codes stay in the allowlist; `start_planning` no longer replies them.
+#### Confirm, reject and the session lease (HTTP, legacy planner)
 
-#### Confirm, reject and the session lease (HTTP)
-
-Per ADR 0004 the app confirms and rejects a proposal over HTTP, and the topic carries the notification (issue #28). Every error answers the mobile error envelope.
+These routes belong to the legacy planner, which is no longer started from the channel (issue #423) and is switched off by #436. Per ADR 0004 the app confirmed and rejected a legacy proposal over HTTP, and the topic carried the notification (issue #28). Every error answers the mobile error envelope.
 
 | Route | Body | Answer |
 |-------|------|--------|
@@ -274,7 +279,7 @@ Per ADR 0004 the app confirms and rejects a proposal over HTTP, and the topic ca
 
 #### Planning context
 
-`start_planning` hands the engine a Planning context with what the member set up during onboarding, the favorites they preselected (issue #29) and the Prepared leftovers available to eat (issue #123). It is a contract for the engine, not a payload the client receives: no event or reply carries it, and the mobile app has no type for it.
+Legacy planner: `start_planning`, removed from the channel by #423, handed the engine a Planning context with what the member set up during onboarding, the favorites they preselected (issue #29) and the Prepared leftovers available to eat (issue #123). It is a contract for the engine, not a payload the client receives: no event or reply carries it, and the mobile app has no type for it.
 
 It is read before the session starts, so a refused start leaves nothing behind, and it travels as one nested map under `"planning_context"` in the constraints of the generation, next to `"date_from"`, `"date_to"` and `"request"` (snake_case, as the rest of the constraints). The Generation run persists it at `input_context.constraints.planning_context`. Its own keys are camelCase strings and every key is always present:
 
@@ -334,27 +339,11 @@ A User with no preferences, no profile or no Slot cooking times still gets a con
 
 #### Incoming Events
 
-Every command the channel handles. Any other event name replies `invalid_payload`.
-
-These session commands are the only command set of the topic (issue #15). Confirm and reject are HTTP requests, `POST /api/planning/confirm` and `POST /api/planning/proposals/:proposalId/reject` (ADR 0004). The older commands `generate_menu`, `swap_constraints`, `chat`, `confirm_proposal` and `reject_proposal` were retired and reply `invalid_payload` like any unknown event.
-
-| Event | Payload | Description |
-|-------|---------|-------------|
-| `start_planning` | `{"rangeFrom": "YYYY-MM-DD", "rangeTo": "YYYY-MM-DD", "request": "text", "favoriteRecipeIds": ["uuid"], "requestId": "string"}` (or `dayCount` instead of `rangeTo`; `request`, `favoriteRecipeIds` and `requestId` are optional) | Start a planning session and its first generation, see [start_planning](#start_planning). Replies `{"sessionId": "uuid", "status": "active"}` |
-| `send_message` | `{"sessionId": "uuid", "intent": {"kind": "change_constraints" \| "request_slot_swap" \| "request_recipe_suggestion", ...}}` | Apply a typed intent to the session this socket started. Replies the validated intent; emits no event |
-| `cancel_planning` | `{"sessionId": "uuid"}` | Cancel the planning session with that id. Only its lock owner or the Account owner may. Replies `{"sessionId": "uuid", "status": "cancelled"}` |
-
-**Example Payload (start_planning):**
-```json
-{
-  "rangeFrom": "2026-06-09",
-  "rangeTo": "2026-06-15"
-}
-```
+The commands of [Planning agent commands](#planning-agent-commands): `start_session`, `give_consent`, `send_message`, `stop`, `cancel_session`, `confirm` and `confirmation_status`. Any other event name replies `invalid_payload`: the legacy `start_planning` and `cancel_planning` (issue #423) and the older `generate_menu`, `swap_constraints`, `chat`, `confirm_proposal` and `reject_proposal` (issue #15) are unknown events.
 
 #### Planner events (frozen shapes)
 
-The Planner screen reads five events of `planning:<account_id>` (issue #25). Their payloads are frozen: a key is added only with a new version of this section, and a test pins each shape. Every key is camelCase. The shapes are built by the channel (`MealPlannerApiWeb.Channels.Serializers.PlanningEvents`), not by the generation server.
+Legacy planner, switched off by #436. The legacy Planner screen reads five events of `planning:<account_id>` (issue #25). Their payloads are frozen: a key is added only with a new version of this section, and a test pins each shape. Every key is camelCase. The shapes are built by the channel (`MealPlannerApiWeb.Channels.Serializers.PlanningEvents`), not by the generation server.
 
 | Event | Emitted | Payload |
 |-------|---------|---------|
@@ -411,9 +400,9 @@ Order: `proposal_ready` is pushed before `planning_message`. `generation_started
 
 #### Planner fixtures
 
-The frozen payloads above are also committed as JSON in `apps/mobile/src/features/planner/fixtures/` (`startPlanningReply`, `sessionStarted`, `generationStarted`, `proposalReady`, `planningMessage`, `generationError`, `planningInvalidRangeError`, `planningRangeLockedError`, `planningContext`). The channel serializers are real: every fixture except `proposalReady`/`planningMessage` is recorded from a real channel run. `proposal_ready` is driven by a synthetic broadcast of a proposal built in the test (with a fractional macro and a missing one, as the producer sends them):
+The frozen payloads above are also committed as JSON in `apps/mobile/src/features/planner/fixtures/` (`startPlanningReply`, `sessionStarted`, `generationStarted`, `proposalReady`, `planningMessage`, `generationError`, `planningInvalidRangeError`, `planningRangeLockedError`, `planningContext`). Since `start_planning` left the channel (issue #423) only `proposalReady` and `planningMessage` are still recorded, from a synthetic broadcast of a proposal built in the test (with a fractional macro and a missing one, as the producer sends them); the others stay frozen for the mobile planner until its agent screen (#424) replaces it:
 
-- `test/meal_planner_api_web/channels/planner_fixtures_test.exs` runs `start_planning` and records each payload through `MealPlannerApiWeb.PlannerFixtures.check!/3`. Without `UPDATE_FIXTURES`, the test fails when a committed file differs from the fresh payload, so API drift fails an API test.
+- `test/meal_planner_api_web/channels/planner_fixtures_test.exs` records each payload through `MealPlannerApiWeb.PlannerFixtures.check!/3`. Without `UPDATE_FIXTURES`, the test fails when a committed file differs from the fresh payload, so API drift fails an API test.
 - The mobile test `src/features/planner/fixtures/__tests__/plannerFixtures.test.ts` parses each payload the client receives with the types in `src/features/planner/types/planningEvents.ts` (missing, extra or mistyped keys throw), so app drift fails an app test.
 - Volatile values are normalized: UUIDs become `00000000-0000-4000-8000-00000000000N` and the dates of the run become `2030-01-01`, `2030-01-02`.
 - `planningContext` is the exception to the rule above: it is the [Planning context](#planning-context) read back from the persisted Generation run of a User with every signal set, one slot at 0 minutes included, and one open Prepared leftover next to an expired one the context leaves out. The client never receives it, so no mobile type parses it; the API test is the only guard against drift.
@@ -432,13 +421,13 @@ The events of `PlanningChannel.outbound_events/0`. Every member joined to the to
 
 | Event | Payload | Description |
 |-------|---------|-------------|
-| `session_started` | `{"sessionId": "uuid"}` | A planning session was created by `start_planning` |
-| `session_resumed` | `{"sessionId", "proposalId", "proposal", "messages": [{"role", "content", "intentKind"}]}` | A session server restarted and resumed an active session (pushed to every joined socket), or a socket joined while its Account has an active session (pushed to that socket only). `proposal` is the latest pending proposal of the session whose generation completed, in the shape of `proposal_ready` (`null` when none is pending or its generation is still running), and `messages` are its last 20 messages, oldest first, each at most 2000 characters |
-| `session_cancelled` | `{"sessionId": "uuid"}` | A session was cancelled by `cancel_planning`, or by a `start_planning` whose generation could not start |
+| `agent_event` | `{"type", "sessionId", ...}` | An event of the agent session this socket started, pushed to that socket only; see [Agent events](#agent-events) |
+| `session_started` | `{"sessionId": "uuid"}` | A legacy planning session was created |
+| `session_resumed` | `{"sessionId", "proposalId", "proposal", "messages": [{"role", "content", "intentKind"}]}` | A legacy session server restarted and resumed an active session (pushed to every joined socket), or a socket joined while its Account has an active legacy session (pushed to that socket only; an agent session is not resumed). `proposal` is the latest pending proposal of the session whose generation completed, in the shape of `proposal_ready` (`null` when none is pending or its generation is still running), and `messages` are its last 20 messages, oldest first, each at most 2000 characters |
+| `session_cancelled` | `{"sessionId": "uuid"}` | A legacy session was cancelled |
 | `session_committed` | `{"sessionId", "proposalId", "scheduledMealsCount", "shoppingRebuilt": true}` | `POST /api/planning/confirm` committed the session, wrote its meals and rebuilt the Shopping list |
 | `session_lost_lock` | `{"sessionId": "uuid"}` | The channel process that held the session's range lock exited abnormally |
 | `session_expired` | `{"sessionId": "uuid"}` | The session sweeper expired a session that stayed active too long |
-| `generation_started` | `{"requestId", "runId", "sessionId"}` | A generation started; see [Planner events](#planner-events-frozen-shapes) |
 | `proposal_ready` | `{"proposalId", "runId", "estimatedCostCents", "days": [...]}` | A generation finished a proposal; see [Planner events](#planner-events-frozen-shapes) |
 | `planning_message` | `{"role": "assistant", "text", "proposalId", "runId", "summary": {...}}` | The assistant's message about a proposal, pushed right after `proposal_ready` |
 | `generation_error` | `{"reason", "details", "runId", "requestId"}` | A generation failed or could not start; see [Planner events](#planner-events-frozen-shapes) |

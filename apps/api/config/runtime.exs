@@ -114,6 +114,34 @@ if config_env() != :test do
       |> Kernel.in(["true", "1", "yes", "on"])
 end
 
+# Planning agent (issue #423): the Anthropic API key, and optional overrides
+# of the model, its effort, its prices and the spend caps set in
+# `config/config.exs`. Test keeps the scripted model.
+if config_env() != :test do
+  claude_overrides =
+    [
+      api_key: System.get_env("ANTHROPIC_API_KEY"),
+      model: System.get_env("PLANNING_AGENT_CLAUDE_MODEL"),
+      effort: System.get_env("PLANNING_AGENT_CLAUDE_EFFORT"),
+      spend_cap_micros: System.get_env("PLANNING_AGENT_SPEND_CAP_MICROS"),
+      token_cap: System.get_env("PLANNING_AGENT_TOKEN_CAP"),
+      input_price_micros_per_mtok: System.get_env("ANTHROPIC_INPUT_PRICE_MICROS_PER_MTOK"),
+      output_price_micros_per_mtok: System.get_env("ANTHROPIC_OUTPUT_PRICE_MICROS_PER_MTOK"),
+      cache_write_price_micros_per_mtok:
+        System.get_env("ANTHROPIC_CACHE_WRITE_PRICE_MICROS_PER_MTOK"),
+      cache_read_price_micros_per_mtok:
+        System.get_env("ANTHROPIC_CACHE_READ_PRICE_MICROS_PER_MTOK")
+    ]
+    |> Enum.reject(fn {_key, value} -> value in [nil, ""] end)
+    |> Enum.map(fn
+      {key, value} when key in [:api_key, :model, :effort] -> {key, value}
+      {key, value} -> {key, String.to_integer(value)}
+    end)
+
+  # Keyword config is deep-merged over `config/config.exs`.
+  config :meal_planner_api, MealPlannerApi.PlanningAgent.Model.ClaudeMessages, claude_overrides
+end
+
 config :meal_planner_api,
   gemini_model: System.get_env("GEMINI_MODEL", "gemini-2.5-flash-lite"),
   gemini_base_url: System.get_env("GEMINI_BASE_URL", "https://generativelanguage.googleapis.com"),
