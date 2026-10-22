@@ -129,6 +129,10 @@ defmodule MealPlannerApiWeb.CalendarChannelTest do
   # ==========================================================================
 
   describe "join/3 subscription enforcement (phase 4 task 4.1)" do
+    # Issue #397: the join is the only place the switch gates consuming
+    # Inventory from the channel; events on a joined socket are not checked
+    # again (see the set_is_cooked test below for an Account that expires
+    # after it joined).
     test "expired Account join returns subscription_required when enforcement is enabled (task 4.1)",
          %{account: account, token: token} do
       _ = persist_trial_window!(account, :expired)
@@ -653,6 +657,67 @@ defmodule MealPlannerApiWeb.CalendarChannelTest do
                Repo.all(from(e in InventoryMutationEvent, where: e.inventory_item_id == ^lot.id))
 
       assert user_id == user.id
+    end
+
+    # Issue #397: with the switch on, eligibility is checked at join only. A
+    # socket that joined while the Account was eligible still consumes after
+    # the Account expires, until it reconnects.
+    test "switch on: a socket joined while eligible still consumes after the Account expires",
+         %{account: account, user: user, token: token} do
+      {:ok, recipe} =
+        Catalog.create_recipe(%{
+          account_id: account.id,
+          created_by_user_id: user.id,
+          name: "Joined then expired recipe",
+          source: :user_created,
+          servings: 2,
+          suitable_for_slots: [:lunch]
+        })
+
+      {:ok, ingredient} =
+        Catalog.upsert_ingredient_by_name(%{
+          name: "Joined then expired #{Ecto.UUID.generate()}",
+          category: :otros
+        })
+
+      {:ok, _} =
+        Catalog.add_recipe_ingredient(%{
+          recipe_id: recipe.id,
+          ingredient_id: ingredient.id,
+          quantity_milli: 300,
+          unit: :g
+        })
+
+      lot =
+        Repo.insert!(%InventoryItem{
+          account_id: account.id,
+          ingredient_id: ingredient.id,
+          quantity_milli: 1000,
+          unit: :g,
+          source_kind: :planned,
+          last_mutation_at: DateTime.utc_now()
+        })
+
+      {:ok, meal} =
+        Planning.schedule_meal(%{
+          account_id: account.id,
+          date: Date.utc_today(),
+          slot: :lunch,
+          recipe_id: recipe.id
+        })
+
+      meal_id = meal.id
+      _ = persist_trial_window!(account, :eligible)
+
+      with_enforcement_enabled!(fn ->
+        socket = join_calendar!(account, token)
+        _ = persist_trial_window!(account, :expired)
+
+        ref = push(socket, "set_is_cooked", %{"meal_id" => meal_id, "is_cooked" => true})
+        assert_reply(ref, :ok, %{meal_id: ^meal_id, is_cooked: true})
+      end)
+
+      assert Repo.get!(InventoryItem, lot.id).quantity_milli == 700
     end
 
     test "set is_cooked with non-boolean value", %{account: account, token: token} do

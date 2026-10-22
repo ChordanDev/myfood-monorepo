@@ -30,6 +30,15 @@ This file and `docs/adr/` are the only durable docs in the repository. Specs, ma
 
 **Account's today** — The current calendar date for an Account: the date in the Account's stored IANA timezone, and the UTC date while none is stored. The server computes it; the app never sends its local date. `(code: AccountClock, Account.timezone, mobile useMealPlanStore.today)` `(alias: Account timezone, local date)`
 
+**Eligible Account** — An Account whose Access state is `trial` or `active`. An Account that is not eligible has an `expired` Access state. `(code: AccountAccess.eligible?/1)` `(alias: subscribed, has capability)`
+
+**Access enforcement switch** — The server-wide switch that decides whether everyday app use needs an Eligible Account. It stays off until the store subscription pipeline is verified in production, so an Account wrongly seen as expired, a paying one included, is not locked out of its own data. `(code: REVENUECAT_ACCESS_ENFORCEMENT, :revenuecat_access_enforcement)` `(alias: capability enforcement, rollout flag)`
+
+Which actions need an Eligible Account (decided in issue #397):
+
+- **Always, whatever the switch says:** starting a Planning session, opening a Recipe's detail, and every step of a Cooking session from start to finish.
+- **Only while the switch is on:** the Account's other actions, including the later steps of a Planning session (chatting, confirming or rejecting a proposal), the AI chat, the calendar, Shopping, Inventory and consuming Inventory from the calendar (marking a meal cooked, confirming a past meal as cooked). With the switch on, an Account that is not eligible is refused on every HTTP request, and on a realtime channel when it joins: a calendar that joined while the Account was eligible keeps working until it reconnects. With the switch off, these actions are allowed, since consuming Inventory from the calendar only changes the Account's own data.
+
 ## Profile & preferences
 
 **Onboarding profile** — The setup data captured right after first authentication: display name, household size and cooking skill. Dietary data is not part of it. `(code: mobile OnboardingProfile)` `(alias: signup data)`

@@ -76,6 +76,21 @@ Real-time calendar updates for meal planning.
 
 **Topic Pattern:** `calendar:<account_id>`
 
+#### Join
+
+A refused join replies a bare `{"reason": "<code>"}`, not the error envelope of the planning channel, with one of two codes, checked in this order:
+
+| Code | Condition |
+|------|-----------|
+| `forbidden` | No Membership resolves for the socket, the Membership belongs to another Account than the topic, or it is not active |
+| `subscription_required` | Capability enforcement is on and the Account is not eligible (`ChannelCapability.authorize/1`) |
+
+The calendar join names the denial `subscription_required`; the planning join and the HTTP API name the same rule `trial_expired`. Both codes mean the same thing.
+
+The check runs at join only. An event on a joined socket is not checked again: a socket that joined while the Account was eligible keeps sending `set_is_cooked` after the Account stops being eligible, until it reconnects.
+
+With capability enforcement off, an Account that is not eligible joins, and its `set_is_cooked` consumes the meal's Ingredients from the Inventory, as `POST /api/calendar/meals/:id/confirm` does. Consuming Inventory from the calendar follows the switch. Of the actions that consume Inventory, only a Cooking session always needs an eligible Account (issue #397; the full list is in `docs/GLOSSARY.md`).
+
 #### Incoming Events
 
 | Event | Payload | Description |
