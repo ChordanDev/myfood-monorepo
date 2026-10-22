@@ -31,6 +31,10 @@ defmodule MealPlannerApiWeb.MembershipScopedChannelTest do
     membership_a = Enum.find(user.memberships, &(&1.account.name == "Multi Familia A"))
     membership_b = Enum.find(user.memberships, &(&1.account.name == "Multi Familia B"))
 
+    # Planning needs an eligible Account (issue #397).
+    persist_trial_window!(membership_a.account, :eligible)
+    persist_trial_window!(membership_b.account, :eligible)
+
     token_a = issue_access_v2_token(user, membership_a)
     token_b = issue_access_v2_token(user, membership_b)
 

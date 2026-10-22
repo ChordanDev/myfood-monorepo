@@ -153,6 +153,14 @@ defmodule MealPlannerApiWeb.ApiError do
           | :not_owner
           | :planning_proposal_not_pending
           | :planning_slot_occupied
+          | :planning_session_invalid_range
+          | :consent_required
+          | :agent_busy
+          | :agent_unavailable
+          | :stale_proposal
+          | :approval_required
+          | :proposal_invalid
+          | :confirmation_unresolved
 
   @type envelope :: %{
           error:
@@ -313,7 +321,17 @@ defmodule MealPlannerApiWeb.ApiError do
     date_range_too_long: {422, "The date range must not be longer than 7 days."},
     optimization_failed: {422, "A menu could not be generated for this request."},
     optimizer_unavailable: {503, "The menu optimizer is not available. Try again later."},
-    optimizer_timeout: {504, "The menu optimizer took too long. Try again later."}
+    optimizer_timeout: {504, "The menu optimizer took too long. Try again later."},
+    # The planning agent's commands on the channel (issue #423, ADR 0007).
+    planning_session_invalid_range:
+      {422, "The planning range must be 1 to 31 days and start today or later."},
+    consent_required: {403, "AI-processing consent is required before the agent can plan."},
+    agent_busy: {409, "The planning agent is still answering the previous message."},
+    agent_unavailable: {503, "The planning agent is not available. Try again later."},
+    stale_proposal: {409, "This proposal is no longer the one on display."},
+    approval_required: {409, "This proposal is over the budget and needs approval first."},
+    proposal_invalid: {409, "This proposal is no longer valid. Nothing was saved."},
+    confirmation_unresolved: {503, "The confirmation outcome is not known yet. Check its status."}
   }
 
   @unknown_error_message "An unexpected error occurred."

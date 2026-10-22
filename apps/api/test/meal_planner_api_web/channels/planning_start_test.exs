@@ -1,1240 +1,337 @@
 defmodule MealPlannerApiWeb.PlanningStartTest do
   @moduledoc """
-  `start_planning` as the Planner screen uses it (issue #25): the command
-  validates a range of 1 to 7 days that starts today or later, starts the
-  Planning session, starts the generation, and the five events the screen
-  reads reach the client in camelCase with a frozen shape.
-
-  The frozen shapes are documented in `apps/api/docs/CHANNELS.md`.
+  The planning agent over `planning:<account_id>` (issue #423, ADR 0007):
+  start a session, give consent, talk to the agent and confirm the Proposal
+  into Scheduled meals, with the session's events pushed as `agent_event`.
+  The agent replaced the legacy `start_planning` / `cancel_planning`
+  handlers.
   """
-  use MealPlannerApiWeb.ChannelCase, async: false
 
-  import Ecto.Query, only: [from: 2]
-  import MealPlannerApiWeb.CasingAssertions, only: [assert_camel_case_keys: 1]
+  use ExUnit.Case, async: false
 
-  import MealPlannerApi.Generation.ServerTestFixtures,
-    only: [
-      answer_optimizer_request: 1,
-      insert_recipe: 2,
-      optimizer_request_payload: 1,
-      start_optimizer_server!: 0,
-      stop_generation_server: 1
-    ]
+  import Ecto.Query
+  import MealPlannerApi.FactoryHelpers, only: [issue_access_v2_token: 2]
+  import MealPlannerApi.PlanningAgentFixtures
+  import MealPlannerApiWeb.ChannelHelpers, only: [persist_trial_window!: 2]
+  import Phoenix.ChannelTest
 
-  import MealPlannerApiWeb.ChannelHelpers, only: [issue_identity_and_token: 2]
-
-  alias MealPlannerApi.Data.{AccountRepo, PlanningRepo, RecipeRepo}
-  alias MealPlannerApi.Generation.Server
-  alias MealPlannerApi.HouseholdDietFixtures
-  alias MealPlannerApi.Persistence.Accounts.Account
-  alias MealPlannerApi.Persistence.Accounts.{AccountMembership, User}
-  alias MealPlannerApi.Persistence.Leftovers
-  alias MealPlannerApi.Persistence.Planning.{PlanningGenerationRun, PlanningSession}
+  alias MealPlannerApi.Persistence.Planning.{PlanningConsent, PlanningSession, ScheduledMeal}
+  alias MealPlannerApi.PlanningAgent.{Consent, Session}
+  alias MealPlannerApi.PlanningAgent.Model.Scripted
   alias MealPlannerApi.Repo
-  alias MealPlannerApi.Services.{GenerationService, UserPreferencesService}
-  alias MealPlannerApiWeb.{ApiError, Endpoint, PlanningChannel, UserSocket}
+  alias MealPlannerApiWeb.{PlanningChannel, UserSocket}
+
+  @endpoint MealPlannerApiWeb.Endpoint
 
   @moduletag :capture_log
 
+  @plan [
+    {:tool_calls, [{"run_optimizer", %{}}]},
+    {:tool_calls, [{"present_proposal", %{}}]},
+    {:text, "Here is your plan."}
+  ]
+
   setup do
-    {:ok, user, account, token} = issue_identity_and_token("u_plan_start", "acct_plan_start")
-    _ = persist_trial_window!(account)
-
-    on_exit(fn ->
-      for {pid, _value} <-
-            Registry.lookup(MealPlannerApi.Generation.Generations, {:generation, account.id}) do
-        DynamicSupervisor.terminate_child(MealPlannerApi.Generation.ServerSupervisor, pid)
-      end
-    end)
-
-    %{user: user, account: account, token: token}
+    sandbox_sessions!()
+    owner = household!()
+    recipes_for_every_slot!(owner.account)
+    script!(@plan)
+    %{owner: owner}
   end
 
-  describe "error codes (T1)" do
-    test "ApiError holds planning_invalid_range (422) and planning_range_locked (409)" do
-      assert :planning_invalid_range in ApiError.codes()
-      assert :planning_range_locked in ApiError.codes()
+  # The scripted model every session started over the channel runs.
+  defp script!(script) do
+    previous = Application.get_env(:meal_planner_api, :planning_agent)
 
-      assert %{error: %{code: :planning_invalid_range}} =
-               ApiError.envelope(:planning_invalid_range)
+    Application.put_env(
+      :meal_planner_api,
+      :planning_agent,
+      Keyword.put(previous, :model, {Scripted, script: script})
+    )
 
-      assert %{error: %{code: :planning_range_locked}} =
-               ApiError.envelope(:planning_range_locked)
-    end
-
-    test "an unparseable date replies planning_invalid_range", %{account: account, token: token} do
-      socket = join_planning!(token, account)
-
-      ref =
-        push(socket, "start_planning", %{"rangeFrom" => "not-a-date", "rangeTo" => in_days(2)})
-
-      assert_error_reply(ref, :planning_invalid_range)
-    end
-
-    test "a range that ends before it starts replies planning_invalid_range", %{
-      account: account,
-      token: token
-    } do
-      socket = join_planning!(token, account)
-
-      ref = push(socket, "start_planning", %{"rangeFrom" => in_days(3), "rangeTo" => in_days(1)})
-
-      assert_error_reply(ref, :planning_invalid_range)
-    end
-
-    test "an overlap with the caller's own session replies planning_range_locked, no details",
-         %{account: account, user: user, token: token} do
-      {:ok, _existing} =
-        insert_session(account, user, owner_membership_id(account.id, user.id), 1, 5)
-
-      socket = join_planning!(token, account)
-
-      ref = push(socket, "start_planning", %{"rangeFrom" => in_days(3), "rangeTo" => in_days(7)})
-
-      payload = assert_error_reply(ref, :planning_range_locked)
-      refute Map.has_key?(payload["error"], "details")
-    end
-
-    test "an overlap with another member's session names its owner", %{
-      account: account,
-      token: token
-    } do
-      {peer_user, peer_membership} = insert_peer(account, "Ana Peer")
-      {:ok, _existing} = insert_session(account, peer_user, peer_membership.id, 1, 5)
-
-      socket = join_planning!(token, account)
-
-      ref = push(socket, "start_planning", %{"rangeFrom" => in_days(3), "rangeTo" => in_days(7)})
-
-      payload = assert_error_reply(ref, :planning_range_locked)
-      assert payload["error"]["details"] == %{"ownerName" => "Ana Peer"}
-      assert_camel_case_keys(payload)
-
-      active =
-        Repo.aggregate(
-          from(s in PlanningSession, where: s.account_id == ^account.id and s.status == :active),
-          :count
-        )
-
-      assert active == 1
-    end
-
-    for {label, own_offsets, peer_offsets} <- [
-          {"before", {1, 2}, {3, 4}},
-          {"after", {3, 4}, {1, 2}}
-        ] do
-      test "an overlap with the caller's session starting #{label} a peer's names the peer", %{
-        account: account,
-        user: user,
-        token: token
-      } do
-        {own_from, own_to} = unquote(Macro.escape(own_offsets))
-        {peer_from, peer_to} = unquote(Macro.escape(peer_offsets))
-
-        {:ok, _own} =
-          insert_session(
-            account,
-            user,
-            owner_membership_id(account.id, user.id),
-            own_from,
-            own_to
-          )
-
-        {peer_user, peer_membership} = insert_peer(account, "Ana Peer")
-        {:ok, _peer} = insert_session(account, peer_user, peer_membership.id, peer_from, peer_to)
-
-        socket = join_planning!(token, account)
-
-        ref =
-          push(socket, "start_planning", %{"rangeFrom" => in_days(1), "rangeTo" => in_days(4)})
-
-        payload = assert_error_reply(ref, :planning_range_locked)
-        assert payload["error"]["details"] == %{"ownerName" => "Ana Peer"}
-      end
-    end
-
-    test "an overlap with a session whose Membership was removed still names its owner", %{
-      account: account,
-      token: token
-    } do
-      {peer_user, peer_membership} = insert_peer(account, "Ana Peer")
-      {:ok, existing} = insert_session(account, peer_user, peer_membership.id, 1, 5)
-
-      Repo.delete!(peer_membership)
-      assert Repo.reload!(existing).lock_owner_membership_id == nil
-
-      socket = join_planning!(token, account)
-
-      ref = push(socket, "start_planning", %{"rangeFrom" => in_days(3), "rangeTo" => in_days(7)})
-
-      payload = assert_error_reply(ref, :planning_range_locked)
-      assert payload["error"]["details"] == %{"ownerName" => "Ana Peer"}
-    end
+    on_exit(fn -> Application.put_env(:meal_planner_api, :planning_agent, previous) end)
   end
 
-  describe "params (T2)" do
-    test "accepts camelCase dates and a free text, and starts the generation", %{
-      account: account,
-      token: token
-    } do
-      socket = join_planning!(token, account)
-      from = in_days(1)
-      to = in_days(3)
-
-      ref =
-        push(socket, "start_planning", %{
-          "rangeFrom" => from,
-          "rangeTo" => to,
-          "request" => "  something light, no fish  "
-        })
-
-      assert_reply(ref, :ok, %{"sessionId" => session_id, "status" => :active})
-
-      session = Repo.get!(PlanningSession, session_id)
-      assert session.range_from == Date.from_iso8601!(from)
-      assert session.range_to == Date.from_iso8601!(to)
-
-      # The generation started with the dates of the session and the free
-      # text as the request.
-      assert_push("generation_started", %{"runId" => run_id})
-      assert %{current_run_id: ^run_id, constraints: constraints} = Server.get_status(account.id)
-      assert constraints["date_from"] == from
-      assert constraints["date_to"] == to
-      assert constraints["request"] == "something light, no fish"
-
-      stop_generation_server(account.id)
-    end
-
-    test "dayCount stands for rangeTo, and the free text is optional", %{
-      account: account,
-      token: token
-    } do
-      socket = join_planning!(token, account)
-      from = in_days(0)
-
-      ref = push(socket, "start_planning", %{"rangeFrom" => from, "dayCount" => 4})
-
-      assert_reply(ref, :ok, %{"sessionId" => session_id})
-      session = Repo.get!(PlanningSession, session_id)
-      assert session.range_to == Date.add(Date.from_iso8601!(from), 3)
-
-      assert_push("generation_started", %{"runId" => run_id})
-      assert %{current_run_id: ^run_id, constraints: constraints} = Server.get_status(account.id)
-      refute Map.has_key?(constraints, "request")
-
-      stop_generation_server(account.id)
-    end
-
-    test "snake_case params keep working", %{account: account, token: token} do
-      socket = join_planning!(token, account)
-
-      ref =
-        push(socket, "start_planning", %{
-          "range_from" => in_days(1),
-          "range_to" => in_days(2),
-          "day_count" => 2
-        })
-
-      assert_reply(ref, :ok, %{"sessionId" => _})
-      assert_push("generation_started", %{"runId" => _})
-      stop_generation_server(account.id)
-    end
-
-    for {label, params} <- [
-          {"no end and no day count", %{"rangeFrom" => :from}},
-          {"a day count of zero", %{"rangeFrom" => :from, "dayCount" => 0}},
-          {"a day count that is a string", %{"rangeFrom" => :from, "dayCount" => "3"}},
-          {"a day count that disagrees with the end",
-           %{"rangeFrom" => :from, "rangeTo" => {:days, 2}, "dayCount" => 5}},
-          {"a start two days in the past", %{"rangeFrom" => {:days, -2}, "dayCount" => 2}},
-          {"a start that is not a string", %{"rangeFrom" => 20_261_010, "dayCount" => 2}}
-        ] do
-      test "#{label} replies planning_invalid_range and starts nothing", %{
-        account: account,
-        token: token
-      } do
-        socket = join_planning!(token, account)
-
-        params =
-          Map.new(unquote(Macro.escape(params)), fn
-            {key, :from} -> {key, in_days(0)}
-            {key, {:days, offset}} -> {key, in_days(offset)}
-            other -> other
-          end)
-
-        ref = push(socket, "start_planning", params)
-
-        assert_error_reply(ref, :planning_invalid_range)
-        assert active_sessions(account) == 0
-
-        assert Registry.lookup(MealPlannerApi.Generation.Generations, {:generation, account.id}) ==
-                 []
-      end
-    end
-
-    # Issue #213: a range longer than seven days gets its own code, with the
-    # allowed maximum, so the Planner can tell it from a reversed range.
-    for {label, params} <- [
-          {"a day count of eight", %{"rangeFrom" => :from, "dayCount" => 8}},
-          {"a range of eight days", %{"rangeFrom" => :from, "rangeTo" => {:days, 7}}},
-          {"a range of two years", %{"rangeFrom" => :from, "rangeTo" => {:days, 730}}}
-        ] do
-      test "#{label} replies planning_date_range_too_long and starts nothing", %{
-        account: account,
-        token: token
-      } do
-        socket = join_planning!(token, account)
-
-        params =
-          Map.new(unquote(Macro.escape(params)), fn
-            {key, :from} -> {key, in_days(0)}
-            {key, {:days, offset}} -> {key, in_days(offset)}
-            other -> other
-          end)
-
-        ref = push(socket, "start_planning", params)
-
-        payload = assert_error_reply(ref, :planning_date_range_too_long)
-        assert payload["error"]["details"] == %{"maxDays" => 7}
-        assert active_sessions(account) == 0
-
-        assert Registry.lookup(MealPlannerApi.Generation.Generations, {:generation, account.id}) ==
-                 []
-      end
-    end
-
-    test "today is a valid start", %{account: account, token: token} do
-      socket = join_planning!(token, account)
-
-      ref = push(socket, "start_planning", %{"rangeFrom" => in_days(0), "dayCount" => 1})
-
-      assert_reply(ref, :ok, %{"sessionId" => _})
-      stop_generation_server(account.id)
-    end
-
-    for {label, text} <- [
-          {"a number", 42},
-          {"a list", ["a"]},
-          {"more than 1000 characters", String.duplicate("a", 1001)}
-        ] do
-      test "a free text that is #{label} replies invalid_payload and starts nothing", %{
-        account: account,
-        token: token
-      } do
-        socket = join_planning!(token, account)
-
-        ref =
-          push(socket, "start_planning", %{
-            "rangeFrom" => in_days(0),
-            "dayCount" => 2,
-            "request" => unquote(Macro.escape(text))
-          })
-
-        assert_error_reply(ref, :invalid_payload)
-        assert active_sessions(account) == 0
-      end
-    end
-
-    test "a blank free text is the same as none", %{account: account, token: token} do
-      socket = join_planning!(token, account)
-
-      ref =
-        push(socket, "start_planning", %{
-          "rangeFrom" => in_days(0),
-          "dayCount" => 2,
-          "request" => "   "
-        })
-
-      assert_reply(ref, :ok, %{"sessionId" => _})
-      assert_push("generation_started", %{"runId" => _})
-      refute Map.has_key?(Server.get_status(account.id).constraints, "request")
-      stop_generation_server(account.id)
-    end
-
-    test "a generation that cannot start replies its error, cancels the session and stops it",
-         %{account: account, token: token} do
-      socket = join_planning!(token, account)
-      before = session_children()
-      start_generation_server_stub(account.id, {:error, :invalid_date_range})
-
-      ref =
-        push(socket, "start_planning", %{
-          "requestId" => "req_start_1",
-          "rangeFrom" => in_days(0),
-          "dayCount" => 2
-        })
-
-      assert_receive %Phoenix.Socket.Reply{ref: ^ref, status: :error, payload: payload}
-      assert payload["requestId"] == "req_start_1"
-
-      assert_push("generation_error", %{"requestId" => "req_start_1", "reason" => reason})
-      assert reason == "invalid_date_range"
-      assert_push("session_cancelled", %{"sessionId" => cancelled_id})
-
-      assert Repo.get!(PlanningSession, cancelled_id).status == :cancelled
-      assert active_sessions(account) == 0
-      assert session_children() -- before == []
-    end
-
-    test "a run already in flight replies generation_in_progress without a topic-wide error",
-         %{account: account, token: token} do
-      socket = join_planning!(token, account)
-      before = session_children()
-      start_generation_server_stub(account.id, {:error, :already_running})
-
-      ref =
-        push(socket, "start_planning", %{
-          "requestId" => "req_start_1",
-          "rangeFrom" => in_days(0),
-          "dayCount" => 2
-        })
-
-      payload = assert_error_reply(ref, :generation_in_progress)
-      assert payload["requestId"] == "req_start_1"
-
-      assert_push("session_cancelled", %{"sessionId" => cancelled_id})
-      refute_push("generation_error", _)
-
-      assert Repo.get!(PlanningSession, cancelled_id).status == :cancelled
-      assert active_sessions(account) == 0
-      assert session_children() -- before == []
-    end
-
-    @tag capture_log: true
-    test "a generation server that does not answer fails the start, the channel survives",
-         %{account: account, token: token} do
-      socket = join_planning!(token, account)
-      before = session_children()
-      start_generation_server_stub(account.id, :never_replies)
-
-      ref =
-        push(socket, "start_planning", %{
-          "requestId" => "req_start_1",
-          "rangeFrom" => in_days(0),
-          "dayCount" => 2
-        })
-
-      assert_receive %Phoenix.Socket.Reply{ref: ^ref, status: :error, payload: payload}, 8_000
-      assert payload["error"]["code"] == :generation_in_progress
-      assert payload["requestId"] == "req_start_1"
-
-      assert_push("generation_error", %{"requestId" => "req_start_1"})
-      assert_push("session_cancelled", %{"sessionId" => cancelled_id})
-      assert Repo.get!(PlanningSession, cancelled_id).status == :cancelled
-      assert active_sessions(account) == 0
-      assert session_children() -- before == []
-      assert Process.alive?(socket.channel_pid)
-    end
-
-    test "rangeTo null with a dayCount is accepted", %{account: account, token: token} do
-      socket = join_planning!(token, account)
-
-      ref =
-        push(socket, "start_planning", %{
-          "rangeFrom" => in_days(0),
-          "rangeTo" => nil,
-          "dayCount" => 3
-        })
-
-      assert_reply(ref, :ok, %{"sessionId" => _})
-      stop_generation_server(account.id)
-    end
-
-    test "a rangeTo with dayCount null is accepted", %{account: account, token: token} do
-      socket = join_planning!(token, account)
-
-      ref =
-        push(socket, "start_planning", %{
-          "rangeFrom" => in_days(0),
-          "rangeTo" => in_days(2),
-          "dayCount" => nil
-        })
-
-      assert_reply(ref, :ok, %{"sessionId" => _})
-      stop_generation_server(account.id)
-    end
-
-    # `Generation.Server` holds a window of 7 days, so the channel caps the
-    # range there and refuses a longer one before any session starts.
-    test "a range of seven days is the longest accepted", %{account: account, token: token} do
-      socket = join_planning!(token, account)
-
-      ref = push(socket, "start_planning", %{"rangeFrom" => in_days(0), "dayCount" => 7})
-
-      assert_reply(ref, :ok, %{"sessionId" => _})
-      assert_push("generation_started", %{"runId" => _})
-      stop_generation_server(account.id)
-    end
-  end
-
-  # Issue #28 — the Planner never plans over a Scheduled meal: a start whose
-  # range holds one in a slot it plans is refused before any session starts.
-  describe "occupied slots (#28)" do
-    test "a Scheduled meal on a day and slot of the range replies planning_slot_occupied", %{
-      account: account,
-      user: user,
-      token: token
-    } do
-      schedule_meal!(account, user, in_days(2), :lunch)
-      schedule_meal!(account, user, in_days(1), :dinner)
-      socket = join_planning!(token, account)
-
-      ref = push(socket, "start_planning", %{"rangeFrom" => in_days(1), "rangeTo" => in_days(3)})
-
-      payload = assert_error_reply(ref, :planning_slot_occupied)
-
-      assert payload["error"]["details"] == %{
-               "occupied" => [
-                 %{"date" => in_days(1), "slot" => "dinner"},
-                 %{"date" => in_days(2), "slot" => "lunch"}
-               ]
-             }
-
-      assert active_sessions(account) == 0
-      assert Server.get_status(account.id) == nil
-
-      MealPlannerApiWeb.PlannerFixtures.check!("planningSlotOccupiedError", payload, %{
-        in_days(1) => "2030-01-01",
-        in_days(2) => "2030-01-02"
-      })
-    end
-
-    test "a meal outside the range leaves the start free", %{
-      account: account,
-      user: user,
-      token: token
-    } do
-      schedule_meal!(account, user, in_days(4), :lunch)
-      socket = join_planning!(token, account)
-
-      ref = push(socket, "start_planning", %{"rangeFrom" => in_days(1), "rangeTo" => in_days(3)})
-
-      assert_reply(ref, :ok, %{"sessionId" => _session_id})
-      assert_push("generation_started", %{"runId" => _run_id})
-
-      # The engine plans exactly the slots the check covered.
-      assert %{constraints: constraints} = Server.get_status(account.id)
-      assert constraints["slot_types"] == ~w(breakfast lunch dinner)
-
-      stop_generation_server(account.id)
-    end
-  end
-
-  describe "planning context (#29)" do
-    test "hands the engine a context with every signal, read back from the run", %{
-      account: account,
-      user: user,
-      token: token
-    } do
-      [first, second] = favorites!(account, user, ["Lentil soup", "Veggie stew"])
-      set_up_signals!(user)
-
-      socket = join_planning!(token, account)
-
-      ref =
-        push(socket, "start_planning", %{
-          "rangeFrom" => in_days(1),
-          "rangeTo" => in_days(3),
-          "request" => "something light",
-          "favoriteRecipeIds" => [second.id, first.id]
-        })
-
-      assert_reply(ref, :ok, %{"sessionId" => _})
-      assert_push("generation_started", %{"runId" => run_id})
-
-      constraints = persisted_constraints(run_id)
-      assert constraints["request"] == "something light"
-      assert constraints["date_from"] == in_days(1)
-
-      context = constraints["planning_context"]
-      assert context["diet"] == "vegetarian"
-      assert context["softPreferences"] == ["quick_meals"]
-      assert context["cookingSkill"] == "intermediate"
-      assert context["householdSize"] == 3
-      assert context["favoriteRecipeIds"] == [second.id, first.id]
-
-      assert context["slotCookingTimes"]["breakfast"] == %{
-               "cooking" => "limited",
-               "maxMinutes" => 15,
-               "hungerLevel" => "light"
-             }
-
-      assert context["slotCookingTimes"]["dinner"] == %{
-               "cooking" => "limited",
-               "maxMinutes" => 45,
-               "hungerLevel" => "strong"
-             }
-
-      stop_generation_server(account.id)
-    end
-
-    test "the context has the three Meal slots and a 0-minute slot is do_not_cook", %{
-      account: account,
-      user: user,
-      token: token
-    } do
-      set_up_signals!(user)
-
-      times = start_and_read_context!(token, account)["slotCookingTimes"]
-
-      assert times |> Map.keys() |> Enum.sort() == ~w(breakfast dinner lunch)
-
-      assert times["lunch"] == %{
-               "cooking" => "do_not_cook",
-               "maxMinutes" => 0,
-               "hungerLevel" => "normal"
-             }
-
-      stop_generation_server(account.id)
-    end
-
-    test "the Hard restriction codes arrive as text", %{
-      account: account,
-      user: user,
-      token: token
-    } do
-      set_up_signals!(user)
-
-      codes = start_and_read_context!(token, account)["hardRestrictionCodes"]
-
-      assert Enum.sort(codes) == ["gluten", "peanut"]
-      assert Enum.all?(codes, &is_binary/1)
-
-      stop_generation_server(account.id)
-    end
-
-    test "a User who set nothing up still starts with a complete context", %{
-      account: account,
-      token: token
-    } do
-      context = start_and_read_context!(token, account)
-
-      assert context["diet"] == nil
-      assert context["hardRestrictionCodes"] == []
-      assert context["softPreferences"] == []
-      assert context["cookingSkill"] == nil
-      assert context["householdSize"] == nil
-      assert context["favoriteRecipeIds"] == []
-
-      assert context["slotCookingTimes"]
-             |> Map.values()
-             |> Enum.all?(&(&1["cooking"] == "no_constraint"))
-
-      stop_generation_server(account.id)
-    end
-
-    test "an id that is not a favorite of the caller is dropped", %{
-      account: account,
-      user: user,
-      token: token
-    } do
-      [mine] = favorites!(account, user, ["Lentil soup"])
-      not_a_favorite = insert_recipe("Not starred", account_id: account.id)
-
-      {peer, _membership} = insert_peer(account, "Ana Peer")
-      peer_recipe = insert_recipe("Peer stew", account_id: account.id)
-
-      {:ok, _favorite} =
-        RecipeRepo.add_favorite(%{account_id: account.id, user_id: peer.id}, peer_recipe.id)
-
-      context =
-        start_and_read_context!(token, account, %{
-          "favoriteRecipeIds" => [
-            not_a_favorite.id,
-            peer_recipe.id,
-            Ecto.UUID.generate(),
-            mine.id,
-            mine.id
-          ]
-        })
-
-      assert context["favoriteRecipeIds"] == [mine.id]
-
-      stop_generation_server(account.id)
-    end
-
-    test "a start without favoriteRecipeIds still works and preselects nothing", %{
-      account: account,
-      user: user,
-      token: token
-    } do
-      _ = favorites!(account, user, ["Lentil soup"])
-
-      assert start_and_read_context!(token, account)["favoriteRecipeIds"] == []
-
-      stop_generation_server(account.id)
-    end
-
-    test "a null favoriteRecipeIds is the same as none", %{account: account, token: token} do
-      context = start_and_read_context!(token, account, %{"favoriteRecipeIds" => nil})
-
-      assert context["favoriteRecipeIds"] == []
-
-      stop_generation_server(account.id)
-    end
-
-    test "a favoriteRecipeIds that is not a list of strings replies invalid_payload and starts nothing",
-         %{account: account, token: token} do
-      socket = join_planning!(token, account)
-      sessions_before = session_children()
-
-      for malformed <- ["a-recipe-id", %{"id" => "x"}, 7, ["ok", 7], [nil], [["nested"]]] do
-        ref =
-          push(socket, "start_planning", %{
-            "rangeFrom" => in_days(1),
-            "dayCount" => 2,
-            "favoriteRecipeIds" => malformed
-          })
-
-        assert_error_reply(ref, :invalid_payload)
-      end
-
-      assert active_sessions(account) == 0
-      assert session_children() == sessions_before
-      refute_push("generation_started", _payload)
-      assert Repo.aggregate(PlanningGenerationRun, :count) == 0
-    end
-  end
-
-  # Issue #311: `start_planning` names no participants, so the plan is for
-  # every active member of the Account and the engine is offered only the
-  # recipes that respect each one's rules.
-  describe "participants (#311)" do
-    test "the engine is offered only recipes every active member can eat", %{
-      account: account,
-      user: user,
-      token: token
-    } do
-      household = HouseholdDietFixtures.household_diet!(account, user)
-      breakfast = HouseholdDietFixtures.insert_safe_recipe!(account, user, "Oats", [:breakfast])
-      optimizer = start_optimizer_server!()
-
-      socket = join_planning!(token, account)
-      ref = push(socket, "start_planning", %{"rangeFrom" => in_days(1), "dayCount" => 2})
-
-      assert_reply(ref, :ok, %{"sessionId" => _})
-      assert_push("generation_started", %{"runId" => run_id})
-
-      offered_ids =
-        optimizer
-        |> optimizer_request_payload()
-        |> Map.fetch!("candidates_by_slot")
-        |> Map.values()
-        |> List.flatten()
-        |> Enum.map(& &1["recipe_id"])
-        |> Enum.uniq()
-        |> Enum.sort()
-
-      assert offered_ids == Enum.sort([breakfast.id | household.safe_recipe_ids])
-
-      assert Enum.sort(persisted_constraints(run_id)["participant_ids"]) ==
-               Enum.sort([user.id, household.member.id])
-
-      answer_optimizer_request(optimizer)
-      stop_generation_server(account.id)
-    end
-  end
-
-  describe "Prepared leftovers (#123)" do
-    test "a plan started without leftovers carries an empty list", %{
-      account: account,
-      token: token
-    } do
-      assert start_and_read_context!(token, account)["leftovers"] == []
-
-      stop_generation_server(account.id)
-    end
-
-    test "a plan started with leftovers carries the open ones not past their date", %{
-      account: account,
-      token: token
-    } do
-      {:ok, _expired} = store_leftover(account, "Expired soup", in_days(-1), 2)
-      {:ok, _today} = store_leftover(account, "Lentil stew", in_days(0), 3)
-      {:ok, _later} = store_leftover(account, "Rice", in_days(2), 1)
-
-      leftovers = start_and_read_context!(token, account)["leftovers"]
-
-      assert leftovers == [
-               %{
-                 "title" => "Lentil stew",
-                 "portions" => 3,
-                 "consumeByDate" => in_days(0),
-                 "scheduledMealId" => nil
-               },
-               %{
-                 "title" => "Rice",
-                 "portions" => 1,
-                 "consumeByDate" => in_days(2),
-                 "scheduledMealId" => nil
-               }
-             ]
-
-      stop_generation_server(account.id)
-    end
-  end
-
-  describe "events (T3)" do
-    setup %{account: account, token: token} do
-      %{socket: join_planning!(token, account)}
-    end
-
-    test "session_started carries the sessionId only", %{socket: socket, account: account} do
-      ref = push(socket, "start_planning", %{"rangeFrom" => in_days(0), "dayCount" => 2})
-
-      assert_reply(ref, :ok, %{"sessionId" => session_id})
-      assert_push("session_started", payload)
-      assert payload == %{"sessionId" => session_id}
-
-      stop_generation_server(account.id)
-    end
-
-    test "generation_started carries requestId, runId and sessionId", %{
-      socket: socket,
-      account: account
-    } do
-      ref =
-        push(socket, "start_planning", %{
-          "requestId" => "req_events_1",
-          "rangeFrom" => in_days(0),
-          "dayCount" => 2
-        })
-
-      assert_reply(ref, :ok, %{"sessionId" => session_id})
-      assert_push("generation_started", payload)
-
-      assert %{"requestId" => "req_events_1", "runId" => run_id, "sessionId" => ^session_id} =
-               payload
-
-      assert is_binary(run_id)
-      assert Enum.sort(Map.keys(payload)) == ["requestId", "runId", "sessionId"]
-      assert_camel_case_keys(payload)
-
-      stop_generation_server(account.id)
-    end
-
-    test "the generation error of a run with no recipes arrives normalized", %{
-      socket: socket,
-      account: account
-    } do
-      ref = push(socket, "start_planning", %{"rangeFrom" => in_days(0), "dayCount" => 2})
-      assert_reply(ref, :ok, %{"sessionId" => _})
-      assert_push("generation_started", %{"runId" => run_id})
-
-      assert_push("generation_error", error, 10_000)
-
-      assert Enum.sort(Map.keys(error)) == ["details", "reason", "requestId", "runId"]
-      assert error["runId"] == run_id
-      assert is_binary(error["reason"])
-      assert is_map(error["details"])
-      assert_camel_case_keys(error)
-
-      stop_generation_server(account.id)
-    end
-
-    test "generation_error has one shape whatever the broadcaster", %{
-      socket: _socket,
-      account: account
-    } do
-      topic = "planning:#{account.id}"
-
-      # Engine, pipeline failure: only a reason.
-      Endpoint.broadcast!(topic, "generation_error", %{reason: "pipeline_error"})
-
-      assert_push("generation_error", only_reason)
-
-      assert only_reason == %{
-               "reason" => "pipeline_error",
-               "details" => %{},
-               "runId" => nil,
-               "requestId" => nil
-             }
-
-      # Engine, optimization failure: run, reason and details.
-      Endpoint.broadcast!(topic, "generation_error", %{
-        run_id: "run-1",
-        reason: "optimization_failed",
-        details: %{missing_slots: 2}
-      })
-
-      assert_push("generation_error", from_engine)
-
-      assert from_engine == %{
-               "reason" => "optimization_failed",
-               "details" => %{"missingSlots" => 2},
-               "runId" => "run-1",
-               "requestId" => nil
-             }
-
-      # Channel, a command that failed: request id and reason.
-      Endpoint.broadcast!(topic, "generation_error", %{request_id: "req-9", reason: "forbidden"})
-
-      assert_push("generation_error", from_channel)
-
-      assert from_channel == %{
-               "reason" => "forbidden",
-               "details" => %{},
-               "runId" => nil,
-               "requestId" => "req-9"
-             }
-    end
-
-    test "proposal_ready carries day-by-day cards and the estimated cost, then planning_message follows",
-         %{socket: _socket, account: account} do
-      day_1 = in_days(1)
-      day_2 = in_days(2)
-
-      proposal =
-        GenerationService.build_proposal_json([
-          resolved(day_2, :dinner, "r-3", "Lentil stew", 700),
-          resolved(day_1, :lunch, "r-2", "Chicken rice", 1_250),
-          resolved(day_1, :breakfast, "r-1", "Oatmeal", nil)
-        ])
-
-      Endpoint.broadcast!("planning:#{account.id}", "proposal_ready", %{
-        proposal_id: "prop-1",
-        run_id: "run-1",
-        proposal: proposal
-      })
-
-      [first, second] = next_pushes(2)
-
-      assert {"proposal_ready", ready} = first
-      assert_camel_case_keys(ready)
-
-      assert ready == %{
-               "proposalId" => "prop-1",
-               "runId" => "run-1",
-               "estimatedCostCents" => 1_950,
-               "days" => [
-                 %{
-                   "date" => day_1,
-                   "costCents" => 1_250,
-                   "meals" => [
-                     meal("breakfast", "r-1", "Oatmeal", nil),
-                     meal("lunch", "r-2", "Chicken rice", 1_250)
-                   ]
-                 },
-                 %{
-                   "date" => day_2,
-                   "costCents" => 700,
-                   "meals" => [meal("dinner", "r-3", "Lentil stew", 700)]
-                 }
-               ]
-             }
-
-      assert {"planning_message", message} = second
-      assert_camel_case_keys(message)
-
-      assert message == %{
-               "role" => "assistant",
-               "text" => "Here is your plan for 2 days: 3 meals, estimated cost 19.50.",
-               "proposalId" => "prop-1",
-               "runId" => "run-1",
-               "summary" => %{"dayCount" => 2, "mealCount" => 3, "estimatedCostCents" => 1_950}
-             }
-    end
-
-    test "a proposal with one meal reads in the singular", %{socket: _socket, account: account} do
-      proposal =
-        GenerationService.build_proposal_json([
-          resolved(in_days(1), :lunch, "r-2", "Chicken rice", 100)
-        ])
-
-      Endpoint.broadcast!("planning:#{account.id}", "proposal_ready", %{
-        proposal_id: "p",
-        run_id: "r",
-        proposal: proposal
-      })
-
-      [_ready, {"planning_message", message}] =
-        next_pushes(2)
-
-      assert message["text"] == "Here is your plan for 1 day: 1 meal, estimated cost 1.00."
-    end
-
-    # The proposal of a real run (#158): the generation server builds it from
-    # the answer of the optimizer and broadcasts it, nothing is injected.
-    test "the proposal_ready of a generation carries the days and slots of the range", %{
-      socket: socket,
-      account: account
-    } do
-      recipe = insert_recipe("Planner recipe", suitable_for_slots: ~w(breakfast lunch dinner))
-      optimizer = start_optimizer_server!()
-      day_1 = in_days(1)
-      day_2 = in_days(2)
-
-      ref = push(socket, "start_planning", %{"rangeFrom" => day_1, "rangeTo" => day_2})
-      assert_reply(ref, :ok, %{"sessionId" => _})
-      assert_push("generation_started", %{"runId" => run_id})
-
-      answer_optimizer_request(optimizer)
-
-      assert_push("proposal_ready", ready, 5_000)
-      assert_camel_case_keys(ready)
-      assert %{"proposalId" => proposal_id, "runId" => ^run_id, "days" => days} = ready
-      assert is_binary(proposal_id)
-      assert Enum.map(days, & &1["date"]) == [day_1, day_2]
-
-      for day <- days do
-        assert Enum.map(day["meals"], &{&1["slot"], &1["recipeId"], &1["recipeName"]}) == [
-                 {"breakfast", recipe.id, "Planner recipe"},
-                 {"lunch", recipe.id, "Planner recipe"},
-                 {"dinner", recipe.id, "Planner recipe"}
-               ]
-      end
-
-      assert_push("planning_message", %{"proposalId" => ^proposal_id, "summary" => summary})
-      assert %{"dayCount" => 2, "mealCount" => 6} = summary
-
-      stop_generation_server(account.id)
-    end
-
-    test "a proposal_ready that is not the generation's keeps its payload", %{
-      socket: _socket,
-      account: account
-    } do
-      Endpoint.broadcast!("planning:#{account.id}", "proposal_ready", %{
-        request_id: "req-1",
-        proposal: %{scheduled_meals: []}
-      })
-
-      assert_push("proposal_ready", payload)
-      assert payload == %{"requestId" => "req-1", "proposal" => %{"scheduledMeals" => []}}
-      refute_push("planning_message", _)
-    end
-
-    test "the events of the Planner are intercepted" do
-      for event <-
-            ~w(session_started generation_started proposal_ready planning_message generation_error) do
-        assert event in PlanningChannel.outbound_events()
-      end
-    end
-  end
-
-  # ==========================================================================
-  # Helpers
-  # ==========================================================================
-
-  defp in_days(offset), do: Date.utc_today() |> Date.add(offset) |> Date.to_iso8601()
-
-  defp join_planning!(token, account) do
+  defp join!(%{account: account, user: user, membership: membership}) do
+    token = issue_access_v2_token(user, membership)
     {:ok, socket} = connect(UserSocket, %{"token" => token})
     {:ok, _reply, socket} = subscribe_and_join(socket, PlanningChannel, "planning:#{account.id}")
     socket
   end
 
-  defp persist_trial_window!(account) do
-    started = DateTime.utc_now()
-    ends = DateTime.add(started, 7 * 86_400, :second)
+  defp today(owner), do: MealPlannerApi.AccountClock.today(owner.account.id)
 
-    {:ok, updated} =
-      account
-      |> Account.changeset(%{
-        trial_started_at: started,
-        trial_ends_at: ends
-      })
-      |> Repo.update()
-
-    updated
-  end
-
-  defp owner_membership_id(account_id, user_id) do
-    Repo.one!(
-      from(m in AccountMembership,
-        where: m.account_id == ^account_id and m.user_id == ^user_id and m.status == :active,
-        select: m.id
-      )
-    )
-  end
-
-  defp insert_peer(account, name) do
-    peer_user =
-      %User{}
-      |> User.changeset(%{
-        email: "peer-#{System.unique_integer([:positive])}@example.com",
-        name: name,
-        role: :member
-      })
-      |> Repo.insert!()
-
-    {:ok, membership} =
-      %AccountMembership{}
-      |> AccountMembership.changeset(%{
-        account_id: account.id,
-        user_id: peer_user.id,
-        role: :member,
-        status: :active,
-        joined_at: DateTime.utc_now()
-      })
-      |> Repo.insert()
-
-    {peer_user, membership}
-  end
-
-  defp insert_session(account, user, membership_id, from_offset, to_offset) do
-    PlanningRepo.create_session(account.id, %{
-      range_from: Date.add(Date.utc_today(), from_offset),
-      range_to: Date.add(Date.utc_today(), to_offset),
-      lock_owner_user_id: user.id,
-      lock_owner_membership_id: membership_id,
-      lease_expires_at: DateTime.add(DateTime.utc_now(), 120, :second)
-    })
-  end
-
-  defp resolved(date, slot, recipe_id, name, price_cents) do
-    %{
-      date: date,
-      slot: slot,
-      recipe_id: recipe_id,
-      recipe_name: name,
-      price_cents: price_cents,
-      macros: %{protein_g: 30, calories: 500, carbs_g: 60}
-    }
-  end
-
-  defp meal(slot, recipe_id, name, price_cents) do
-    %{
-      "slot" => slot,
-      "recipeId" => recipe_id,
-      "recipeName" => name,
-      "priceCents" => price_cents,
-      "macros" => %{"proteinG" => 30, "calories" => 500, "carbsG" => 60}
-    }
-  end
-
-  # The first `count` pushes of proposal_ready or planning_message, in the order they reached
-  # the client. A selective `receive` with one pattern walks the mailbox in
-  # arrival order, so the list is the order.
-  defp next_pushes(count) do
-    for _ <- 1..count do
-      receive do
-        %Phoenix.Socket.Message{event: event, payload: payload}
-        when event in ["proposal_ready", "planning_message"] ->
-          {event, payload}
-      after
-        1_000 -> flunk("expected #{count} proposal_ready / planning_message pushes")
-      end
-    end
-  end
-
-  defp schedule_meal!(account, user, date, slot) do
-    {:ok, meal} =
-      PlanningRepo.schedule_meal(%{
-        account_id: account.id,
-        user_id: user.id,
-        date: Date.from_iso8601!(date),
-        slot: slot,
-        is_cooked: false
-      })
-
-    meal
-  end
-
-  defp active_sessions(account) do
-    Repo.aggregate(
-      from(s in PlanningSession, where: s.account_id == ^account.id and s.status == :active),
-      :count
-    )
-  end
-
-  # Registers a process as the generation server of the account. It answers
-  # `reply` to the first call it receives, whatever the call is.
-  defp start_generation_server_stub(account_id, reply) do
-    test_pid = self()
-
-    spawn_link(fn ->
-      {:ok, _owner} =
-        Registry.register(MealPlannerApi.Generation.Generations, {:generation, account_id}, nil)
-
-      send(test_pid, :generation_server_stub_registered)
-
-      receive do
-        {:"$gen_call", _from, _request} when reply == :never_replies -> Process.sleep(:infinity)
-        {:"$gen_call", from, _request} -> GenServer.reply(from, reply)
-      end
-    end)
-
-    assert_receive :generation_server_stub_registered
-  end
-
-  defp session_children do
-    MealPlannerApi.Generation.PlanningSessionSupervisor
-    |> DynamicSupervisor.which_children()
-    |> Enum.map(fn {_id, pid, _type, _modules} -> pid end)
-    |> Enum.filter(&(is_pid(&1) and Process.alive?(&1)))
-  end
-
-  # Starts a plan with the given extra params, waits for the generation to
-  # start and returns the Planning context persisted on its run.
-  defp start_and_read_context!(token, account, extra_params \\ %{}) do
-    socket = join_planning!(token, account)
-
+  defp start!(socket, owner, days \\ 2) do
     ref =
-      push(
-        socket,
-        "start_planning",
-        Map.merge(%{"rangeFrom" => in_days(1), "dayCount" => 2}, extra_params)
-      )
+      push(socket, "start_session", %{
+        "rangeFrom" => Date.to_iso8601(today(owner)),
+        "dayCount" => days
+      })
 
-    assert_reply(ref, :ok, %{"sessionId" => _})
-    assert_push("generation_started", %{"runId" => run_id})
-
-    persisted_constraints(run_id)["planning_context"]
+    assert_reply(ref, :ok, reply)
+    reply
   end
 
-  defp store_leftover(account, title, consume_by, portions) do
-    Leftovers.create(account.id, %{
-      title: title,
-      portions: portions,
-      consume_by_date: Date.from_iso8601!(consume_by)
-    })
+  defp error_code(ref) do
+    assert_reply(ref, :error, %{"error" => %{"code" => code, "message" => message}})
+    assert is_binary(message)
+    code
   end
 
-  defp persisted_constraints(run_id) do
-    Repo.get!(PlanningGenerationRun, run_id).input_context["constraints"]
-  end
+  defp scheduled(account),
+    do: Repo.aggregate(from(m in ScheduledMeal, where: m.account_id == ^account.id), :count)
 
-  defp favorites!(account, user, names) do
-    for name <- names do
-      recipe = insert_recipe(name, account_id: account.id)
+  describe "eligibility (#397)" do
+    test "an Account that is not eligible cannot join, with enforcement off" do
+      refute Application.get_env(:meal_planner_api, :revenuecat_access_enforcement)
+      expired = household!(eligible: false)
+      token = issue_access_v2_token(expired.user, expired.membership)
+      {:ok, socket} = connect(UserSocket, %{"token" => token})
 
-      {:ok, _favorite} =
-        RecipeRepo.add_favorite(%{account_id: account.id, user_id: user.id}, recipe.id)
+      assert {:error, %{"error" => %{"code" => :trial_expired}}} =
+               subscribe_and_join(socket, PlanningChannel, "planning:#{expired.account.id}")
+    end
 
-      recipe
+    test "an Account whose trial ends after the join cannot start", %{owner: owner} do
+      socket = join!(owner)
+      persist_trial_window!(owner.account, :expired)
+
+      ref = push(socket, "start_session", %{"rangeFrom" => Date.to_iso8601(today(owner))})
+      assert error_code(ref) == :planning_session_invalid_range
+
+      ref =
+        push(socket, "start_session", %{
+          "rangeFrom" => Date.to_iso8601(today(owner)),
+          "dayCount" => 1
+        })
+
+      assert error_code(ref) == :subscription_required
+      refute Repo.exists?(PlanningSession)
     end
   end
 
-  # Every onboarding signal of the Planning context, with a 0-minute lunch.
-  defp set_up_signals!(user) do
-    {:ok, _preferences} =
-      UserPreferencesService.replace(user.id, %{
-        diet: "vegetarian",
-        hard_restrictions: ["gluten", "peanut"],
-        soft_preferences: ["quick_meals"]
-      })
+  describe "start_session" do
+    test "opens a session and asks a User without consent for it", %{owner: owner} do
+      socket = join!(owner)
+      reply = start!(socket, owner)
 
-    user
-    |> User.profile_changeset(%{
-      name: user.name,
-      household_size: 3,
-      cooking_skill: "intermediate"
-    })
-    |> Repo.update!()
+      assert %{"sessionId" => session_id, "status" => "active", "consentRequired" => true} = reply
+      assert reply["consentText"] == Consent.text()
+      assert reply["consentTextVersion"] == Consent.text_version()
+      assert reply["rangeFrom"] == Date.to_iso8601(today(owner))
+      assert reply["rangeTo"] == Date.to_iso8601(Date.add(today(owner), 1))
 
-    {:ok, _rows} =
-      AccountRepo.replace_slot_cooking_times(user.id, %{
-        breakfast: %{cooking_time_minutes: 15, hunger_level: :light},
-        lunch: %{cooking_time_minutes: 0, hunger_level: :normal},
-        dinner: %{cooking_time_minutes: 45, hunger_level: :strong}
-      })
+      assert %PlanningSession{status: :active, agent: true} =
+               Repo.get!(PlanningSession, session_id)
+    end
+
+    test "a User who already consented is not asked again", %{owner: owner} do
+      consent!(owner.user)
+      reply = owner |> join!() |> start!(owner)
+
+      assert reply["consentRequired"] == false
+      refute Map.has_key?(reply, "consentText")
+    end
+
+    test "accepts rangeTo instead of dayCount, and 31 days at most", %{owner: owner} do
+      socket = join!(owner)
+      from = Date.to_iso8601(today(owner))
+
+      ref = push(socket, "start_session", %{"rangeFrom" => from, "dayCount" => 32})
+      assert error_code(ref) == :planning_session_invalid_range
+
+      ref = push(socket, "start_session", %{"rangeFrom" => "not-a-date", "dayCount" => 2})
+      assert error_code(ref) == :planning_session_invalid_range
+
+      ref =
+        push(socket, "start_session", %{
+          "range_from" => from,
+          "range_to" => Date.to_iso8601(Date.add(today(owner), 30))
+        })
+
+      assert_reply(ref, :ok, %{"status" => "active"})
+    end
+
+    test "a range with a Scheduled meal names the occupied day and slot", %{owner: owner} do
+      recipe = recipe!(owner.account, "Planned", ["lunch"])
+      scheduled_meal!(owner.account, recipe, today(owner), :lunch)
+      socket = join!(owner)
+
+      ref =
+        push(socket, "start_session", %{
+          "rangeFrom" => Date.to_iso8601(today(owner)),
+          "dayCount" => 2
+        })
+
+      assert_reply(ref, :error, %{"error" => %{"code" => :planning_slot_occupied} = error})
+
+      assert error["details"] == %{
+               "occupied" => [%{"date" => Date.to_iso8601(today(owner)), "slot" => "lunch"}]
+             }
+    end
+
+    test "a second Member is told another session holds the range, and by whom", %{owner: owner} do
+      start!(join!(owner), owner)
+      peer = member!(owner.account)
+
+      ref =
+        push(join!(peer), "start_session", %{
+          "rangeFrom" => Date.to_iso8601(today(owner)),
+          "dayCount" => 2
+        })
+
+      assert_reply(ref, :error, %{"error" => %{"code" => :planning_range_locked} = error})
+      assert error["details"] == %{"ownerName" => owner.user.name}
+    end
   end
 
-  defp assert_error_reply(ref, code) do
-    assert_receive %Phoenix.Socket.Reply{ref: ^ref, status: :error, payload: payload}
-    assert %{"error" => %{"code" => ^code, "message" => message}} = payload
-    assert is_binary(message) and message != ""
-    payload
+  describe "the whole path" do
+    test "consent, a message, a Proposal and its confirmation into Scheduled meals", %{
+      owner: owner
+    } do
+      socket = join!(owner)
+      %{"sessionId" => session_id} = start!(socket, owner)
+
+      # Without consent no model call is made.
+      ref = push(socket, "send_message", %{"text" => "Plan my days"})
+      assert error_code(ref) == :consent_required
+      assert_push("agent_event", %{"type" => "consent_required", "sessionId" => ^session_id})
+
+      ref = push(socket, "give_consent", %{})
+      assert_reply(ref, :ok, %{"status" => "granted"})
+      assert Repo.exists?(from(c in PlanningConsent, where: c.user_id == ^owner.user.id))
+
+      ref = push(socket, "send_message", %{"text" => "Plan my days"})
+      assert_reply(ref, :ok, %{"status" => "accepted"})
+
+      assert_push("agent_event", %{"type" => "proposal", "proposalId" => proposal_id} = proposal)
+      assert proposal["sessionId"] == session_id
+      assert proposal["status"] == "valid"
+      assert length(proposal["meals"]) == 6
+      assert %{"budgetCents" => _, "estimatedCostCents" => _} = proposal["budget"]
+      assert [%{"date" => _, "slot" => _, "recipeId" => _, "name" => _} | _] = proposal["meals"]
+
+      assert_push("agent_event", %{"type" => "assistant_message", "text" => "Here is your plan."})
+      assert_push("agent_event", %{"type" => "turn_completed"})
+
+      ref = push(socket, "confirm", %{"proposalId" => proposal_id})
+      assert_reply(ref, :ok, %{"proposalId" => ^proposal_id, "mealsCount" => 6} = summary)
+      assert_push("agent_event", %{"type" => "proposal_confirmed", "mealsCount" => 6})
+      assert_push("agent_event", %{"type" => "session_ended"})
+      assert scheduled(owner.account) == 6
+
+      # Idempotent: a replay answers the same summary and saves nothing more.
+      ref = push(socket, "confirm", %{"proposalId" => proposal_id})
+      assert_reply(ref, :ok, ^summary)
+      assert scheduled(owner.account) == 6
+
+      ref = push(socket, "confirmation_status", %{"proposalId" => proposal_id})
+      assert_reply(ref, :ok, %{"status" => "confirmed", "mealsCount" => 6})
+    end
+
+    test "a confirmation of a Proposal never shown is refused", %{owner: owner} do
+      consent!(owner.user)
+      socket = join!(owner)
+      start!(socket, owner)
+
+      ref = push(socket, "confirm", %{"proposalId" => Ecto.UUID.generate()})
+      assert error_code(ref) == :stale_proposal
+
+      ref = push(socket, "confirm", %{"proposalId" => "not-a-uuid"})
+      assert error_code(ref) == :invalid_proposal_id
+
+      ref = push(socket, "confirmation_status", %{"proposalId" => Ecto.UUID.generate()})
+      assert_reply(ref, :ok, %{"status" => "not_found"})
+      assert scheduled(owner.account) == 0
+    end
+  end
+
+  describe "who may act on a session" do
+    test "another Member cannot talk to, stop or confirm someone else's session", %{
+      owner: owner
+    } do
+      peer = member!(owner.account)
+      consent!(peer.user)
+      start!(join!(peer), owner)
+      socket = join!(owner)
+
+      ref = push(socket, "send_message", %{"text" => "Plan"})
+      assert error_code(ref) == :forbidden
+
+      ref = push(socket, "give_consent", %{})
+      assert error_code(ref) == :forbidden
+
+      ref = push(socket, "stop", %{})
+      assert error_code(ref) == :forbidden
+
+      ref = push(socket, "confirm", %{"proposalId" => Ecto.UUID.generate()})
+      assert error_code(ref) == :forbidden
+    end
+
+    test "the Account owner can cancel a Member's session", %{owner: owner} do
+      peer = member!(owner.account)
+      %{"sessionId" => session_id} = start!(join!(peer), owner)
+
+      ref = push(join!(owner), "cancel_session", %{})
+      assert_reply(ref, :ok, %{"status" => "cancelled"})
+      assert %PlanningSession{status: :cancelled} = Repo.get!(PlanningSession, session_id)
+    end
+
+    test "without a session the commands say so", %{owner: owner} do
+      socket = join!(owner)
+
+      for event <- ~w(send_message give_consent stop cancel_session) do
+        ref = push(socket, event, %{"text" => "Plan"})
+        assert {event, error_code(ref)} == {event, :no_active_session}
+      end
+    end
+  end
+
+  describe "lifecycle" do
+    test "stop halts the agent and the session goes on", %{owner: owner} do
+      consent!(owner.user)
+      test = self()
+
+      script!([
+        fn _request ->
+          send(test, :model_called)
+          Process.sleep(5_000)
+          {:text, "never"}
+        end,
+        {:text, "again"}
+      ])
+
+      socket = join!(owner)
+      start!(socket, owner)
+
+      ref = push(socket, "send_message", %{"text" => "Plan"})
+      assert_reply(ref, :ok, _)
+
+      ref = push(socket, "send_message", %{"text" => "Plan again"})
+      assert error_code(ref) == :agent_busy
+
+      # A step that never started is not consumed: stop once it runs.
+      assert_receive :model_called
+      ref = push(socket, "stop", %{})
+      assert_reply(ref, :ok, %{"status" => "stopped"})
+      assert_push("agent_event", %{"type" => "stopped"})
+
+      ref = push(socket, "send_message", %{"text" => "Plan again"})
+      assert_reply(ref, :ok, _)
+      assert_push("agent_event", %{"type" => "assistant_message", "text" => "again"})
+    end
+
+    test "the session ends when the socket that started it leaves", %{owner: owner} do
+      socket = join!(owner)
+      %{"sessionId" => session_id} = start!(socket, owner)
+      pid = Session.whereis(owner.account.id)
+      ref = Process.monitor(pid)
+
+      Process.unlink(socket.channel_pid)
+      leave(socket)
+
+      assert_receive {:DOWN, ^ref, :process, ^pid, :normal}
+      assert %PlanningSession{status: :expired} = Repo.get!(PlanningSession, session_id)
+    end
   end
 end

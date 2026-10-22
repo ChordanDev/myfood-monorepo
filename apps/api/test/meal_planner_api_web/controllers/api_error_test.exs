@@ -300,7 +300,16 @@ defmodule MealPlannerApiWeb.ApiErrorTest do
       invalid_date_range: 422,
       optimization_failed: 422,
       optimizer_unavailable: 503,
-      optimizer_timeout: 504
+      optimizer_timeout: 504,
+      # The planning agent's commands (issue #423).
+      planning_session_invalid_range: 422,
+      consent_required: 403,
+      agent_busy: 409,
+      agent_unavailable: 503,
+      stale_proposal: 409,
+      approval_required: 409,
+      proposal_invalid: 409,
+      confirmation_unresolved: 503
     }
 
     test "have an envelope with a message each" do

@@ -2,12 +2,12 @@ defmodule MealPlannerApi.E2eSeedsTest do
   @moduledoc """
   `priv/repo/e2e_seeds.exs`, the data of the Maestro flows (issue #376).
   The seed runs twice and leaves the same data; the seeded User then signs
-  in with the fixed `e2e` code, skips onboarding, gets a Planning proposal,
-  confirms it and finds its Shopping list.
+  in with the fixed `e2e` code, skips onboarding, plans with the planning
+  agent (issue #423), confirms its Proposal and finds its Shopping list.
 
-  The optimizer answers through `FakePortRunner` with what `OptimizerMock`
-  picks, as in the planning channel tests; the `e2e` API runs the real
-  one.
+  The agent runs the scripted model and the optimizer answers with what
+  `OptimizerMock` picks, as in the planning agent tests; the `e2e` API runs
+  the real ones.
   """
   use MealPlannerApiWeb.ChannelCase, async: false
 
@@ -16,12 +16,17 @@ defmodule MealPlannerApi.E2eSeedsTest do
   import Phoenix.ConnTest, except: [connect: 2, connect: 3]
   import Plug.Conn, only: [put_req_header: 3]
 
-  import MealPlannerApi.Generation.ServerTestFixtures,
-    only: [answer_optimizer_request: 1, start_optimizer_server!: 0, stop_generation_server: 1]
-
   alias MealPlannerApi.Persistence.Accounts.User
   alias MealPlannerApi.Persistence.Catalog.Recipe
-  alias MealPlannerApi.Persistence.Planning.{PlanningSession, ScheduledMeal}
+
+  alias MealPlannerApi.Persistence.Planning.{
+    PlanningConfirmation,
+    PlanningConsent,
+    PlanningSession,
+    ScheduledMeal
+  }
+
+  alias MealPlannerApi.PlanningAgent.Model.Scripted
   alias MealPlannerApi.Repo
   alias MealPlannerApiWeb.{PlanningChannel, UserSocket}
 
@@ -74,6 +79,8 @@ defmodule MealPlannerApi.E2eSeedsTest do
 
     assert Repo.aggregate(ScheduledMeal, :count) == 0
     assert Repo.aggregate(PlanningSession, :count) == 0
+    assert Repo.aggregate(PlanningConfirmation, :count) == 0
+    assert Repo.aggregate(PlanningConsent, :count) == 0
   end
 
   # The optimizer allows one Recipe at most twice in any 7 days and never in
@@ -116,39 +123,52 @@ defmodule MealPlannerApi.E2eSeedsTest do
 
   defp confirm_a_plan!(account_id, token \\ nil) do
     token = token || sign_in!().token
+    script_the_agent!()
+
     {:ok, socket} = connect(UserSocket, %{"token" => token})
     {:ok, _reply, socket} = subscribe_and_join(socket, PlanningChannel, "planning:#{account_id}")
 
-    optimizer = start_optimizer_server!()
-    range_from = in_days(1)
-    range_to = in_days(2)
+    ref = push(socket, "start_session", %{"rangeFrom" => in_days(1), "rangeTo" => in_days(2)})
+    assert_reply(ref, :ok, %{"sessionId" => _session_id, "consentRequired" => true}, 2_000)
 
-    ref = push(socket, "start_planning", %{"rangeFrom" => range_from, "rangeTo" => range_to})
-    # Starting the session writes and broadcasts before it replies.
-    assert_reply(ref, :ok, %{"sessionId" => session_id}, 2_000)
+    ref = push(socket, "give_consent", %{})
+    assert_reply(ref, :ok, %{"status" => "granted"})
 
-    answer_optimizer_request(optimizer)
-    assert_push("proposal_ready", %{"proposalId" => proposal_id, "days" => days}, 5_000)
-    assert Enum.map(days, & &1["date"]) == [range_from, range_to]
+    ref = push(socket, "send_message", %{"text" => "Plan these two days"})
+    assert_reply(ref, :ok, %{"status" => "accepted"})
 
-    assert %{"data" => _confirmed} =
-             authed(token)
-             |> post("/api/planning/confirm", %{
-               "proposalId" => proposal_id,
-               "sessionId" => session_id
-             })
-             |> json_response(200)
+    assert_push(
+      "agent_event",
+      %{"type" => "proposal", "proposalId" => proposal_id, "meals" => meals},
+      5_000
+    )
 
-    meals =
-      Repo.all(
-        from(m in ScheduledMeal,
-          where: m.account_id == ^account_id
-        )
-      )
+    assert meals |> Enum.map(& &1["date"]) |> Enum.uniq() == [in_days(1), in_days(2)]
 
+    ref = push(socket, "confirm", %{"proposalId" => proposal_id})
+    assert_reply(ref, :ok, %{"mealsCount" => 6}, 5_000)
+
+    meals = Repo.all(from(m in ScheduledMeal, where: m.account_id == ^account_id))
     assert length(meals) == 6
+  end
 
-    stop_generation_server(account_id)
+  # One plan, then text: what the scripted model answers in this journey.
+  defp script_the_agent! do
+    previous = Application.get_env(:meal_planner_api, :planning_agent)
+
+    script = [
+      {:tool_calls, [{"run_optimizer", %{}}]},
+      {:tool_calls, [{"present_proposal", %{}}]},
+      {:text, "Here is your plan."}
+    ]
+
+    Application.put_env(
+      :meal_planner_api,
+      :planning_agent,
+      Keyword.put(previous, :model, {Scripted, script: script})
+    )
+
+    on_exit(fn -> Application.put_env(:meal_planner_api, :planning_agent, previous) end)
   end
 
   defp sign_in! do

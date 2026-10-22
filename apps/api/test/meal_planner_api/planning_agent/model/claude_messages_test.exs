@@ -13,7 +13,6 @@ defmodule MealPlannerApi.PlanningAgent.Model.ClaudeMessagesTest do
   alias MealPlannerApi.PlanningAgent.ConcurrencyLimiter
   alias MealPlannerApi.PlanningAgent.Loop
   alias MealPlannerApi.PlanningAgent.Model.ClaudeMessages
-  alias MealPlannerApi.PlanningAgent.SpendLedger
 
   @stub __MODULE__
 
