@@ -19,7 +19,10 @@ defmodule MealPlannerApi.Persistence.Catalog do
   Inserts the Ingredient, or updates the one with the same name. `allergens`
   is never updated: only `apply_allergen_reviews/1` writes it on an existing
   Ingredient. `allergens_proposed` is refreshed only while the Ingredient is
-  still unreviewed, and a missing proposal keeps the stored one.
+  still unreviewed, and a refresh only adds codes: the new proposal is merged
+  into the stored one, in `Ingredient.codes/0` order. A stored code may be one
+  a human reviewed before the Diet marks reset (issue #441), so it is never
+  dropped. A missing proposal keeps the stored one.
   """
   def upsert_ingredient_by_name(attrs) do
     %Ingredient{}
@@ -38,9 +41,21 @@ defmodule MealPlannerApi.Persistence.Catalog do
               updated_at: fragment("EXCLUDED.updated_at"),
               allergens_proposed:
                 fragment(
-                  "CASE WHEN ? IS NULL THEN COALESCE(EXCLUDED.allergens_proposed, ?) ELSE ? END",
+                  """
+                  CASE
+                    WHEN ? IS NOT NULL OR EXCLUDED.allergens_proposed IS NULL THEN ?
+                    WHEN ? IS NULL THEN EXCLUDED.allergens_proposed
+                    ELSE ARRAY(
+                      SELECT code FROM unnest(?::varchar[]) WITH ORDINALITY AS c(code, position)
+                      WHERE code = ANY(? || EXCLUDED.allergens_proposed)
+                      ORDER BY position
+                    )
+                  END
+                  """,
                   i.allergens,
                   i.allergens_proposed,
+                  i.allergens_proposed,
+                  ^Ingredient.codes(),
                   i.allergens_proposed
                 )
             ]

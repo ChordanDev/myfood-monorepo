@@ -43,6 +43,17 @@ defmodule Mix.Tasks.Catalog.ReviewAllergensTest do
       assert_received {:mix_shell, :info, [message]}
       assert message =~ "2 unreviewed Ingredients"
     end
+
+    @tag :tmp_dir
+    test "pre-fills the proposed Diet marks", %{tmp_dir: tmp_dir} do
+      merluza = insert("Merluza rebozada", nil, ["gluten", "egg", "fish"])
+      path = Path.join(tmp_dir, "review.csv")
+
+      ReviewAllergens.run(["--export", path])
+
+      assert File.read!(path) ==
+               "#{@header}\n#{merluza.id},Merluza rebozada,otros,gluten egg fish,gluten egg fish,\n"
+    end
   end
 
   describe "--apply" do
@@ -103,7 +114,7 @@ defmodule Mix.Tasks.Catalog.ReviewAllergensTest do
     end
 
     @tag :tmp_dir
-    test "a file with any code outside the seven writes nothing and exits non-zero",
+    test "a file with any code outside the Ingredient codes writes nothing and exits non-zero",
          %{tmp_dir: tmp_dir} do
       good = insert("Good", nil, [])
       bad = insert("Bad", nil, [])
@@ -111,13 +122,34 @@ defmodule Mix.Tasks.Catalog.ReviewAllergensTest do
       path =
         write_csv(tmp_dir, [
           "#{good.id},Good,otros,,gluten,yes",
-          "#{bad.id},Bad,otros,,fish,"
+          "#{bad.id},Bad,otros,,sesame,"
         ])
 
-      assert_raise Mix.Error, ~r/fish/, fn -> ReviewAllergens.run(["--apply", path]) end
+      assert_raise Mix.Error, ~r/sesame/, fn -> ReviewAllergens.run(["--apply", path]) end
 
       assert allergens(good) == nil
       assert allergens(bad) == nil
+    end
+
+    @tag :tmp_dir
+    test "writes the Diet marks next to the Hard restriction codes, in catalog order",
+         %{tmp_dir: tmp_dir} do
+      milanesa = insert("Milanesa de carne", nil, ["gluten", "egg"])
+      merluza = insert("Merluza", nil, [])
+      miel = insert("Miel", nil, [])
+
+      path =
+        write_csv(tmp_dir, [
+          "#{milanesa.id},Milanesa de carne,otros,gluten egg,meat gluten egg,yes",
+          "#{merluza.id},Merluza,otros,,fish,yes",
+          "#{miel.id},Miel,otros,,animal_product,yes"
+        ])
+
+      ReviewAllergens.run(["--apply", path])
+
+      assert allergens(milanesa) == ["gluten", "egg", "meat"]
+      assert allergens(merluza) == ["fish"]
+      assert allergens(miel) == ["animal_product"]
     end
 
     @tag :tmp_dir
