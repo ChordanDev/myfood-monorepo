@@ -87,9 +87,8 @@ defmodule MealPlannerApiWeb.PlanningChannel do
   alias MealPlannerApiWeb.Channels.Serializers.PlanningEvents
   alias MealPlannerApiWeb.Plugs.LoadCurrentMembershipSocket
 
-  # The `ApiError` allowlist by reason name, so a reason a service returned as
-  # a string finds its code without creating an atom.
-  @codes_by_reason Map.new(ApiError.codes(), &{Atom.to_string(&1), &1})
+  # The `ApiError` allowlist.
+  @codes ApiError.codes()
 
   # Every event delivered on `planning:<account_id>`. The topic has five
   # broadcasters: this channel, `Generation.Server`, `PlanningSessionServer`,
@@ -452,16 +451,9 @@ defmodule MealPlannerApiWeb.PlanningChannel do
     end
   end
 
-  # A reason is an atom or a string, depending on the service it comes from,
-  # and is looked up by name. A changeset means the payload did not pass a
-  # validation and keeps the `invalid_payload` it has always been replied as;
-  # its details stay on the server. Any other term is a fault, not a reason.
-  defp error_code(reason) when is_atom(reason),
-    do: Map.fetch(@codes_by_reason, Atom.to_string(reason))
-
-  defp error_code(reason) when is_binary(reason), do: Map.fetch(@codes_by_reason, reason)
-  defp error_code(%Ecto.Changeset{}), do: {:ok, :invalid_payload}
-  defp error_code(_fault), do: :error
+  # Every reason the commands reply is an atom of the allowlist.
+  defp error_code(reason) when reason in @codes, do: {:ok, reason}
+  defp error_code(_reason), do: :error
 
   # The range of `start_session`: `range_from` is an ISO 8601 date and the
   # range ends with `range_to` or lasts `day_count` days. The session checks
