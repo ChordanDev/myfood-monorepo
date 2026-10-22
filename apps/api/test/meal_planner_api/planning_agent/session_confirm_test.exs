@@ -194,8 +194,15 @@ defmodule MealPlannerApi.PlanningAgent.SessionConfirmTest do
              items
 
     refute Repo.get(PlanningConfirmation, proposal_id)
-    # The session stays open, so the Member can plan again.
     assert Process.alive?(pid)
+
+    # Once the added meal is gone, the same Proposal confirms.
+    {:ok, _deleted} = Calendar.delete_scheduled_meal(owner.account.id, today, :lunch)
+
+    assert {:ok, %{meals_count: 6}} =
+             Session.confirm(owner.account.id, owner.membership.id, proposal_id)
+
+    assert length(scheduled(owner.account)) == 6
     _ = recipes
   end
 

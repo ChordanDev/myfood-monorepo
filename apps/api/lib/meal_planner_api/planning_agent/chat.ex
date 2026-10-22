@@ -131,7 +131,7 @@ defmodule MealPlannerApi.PlanningAgent.Chat do
 
   defp refusal({:slot_occupied, occupied}) do
     slots = Enum.map_join(occupied, ", ", fn {date, slot} -> "#{date} #{slot}" end)
-    "meals were scheduled meanwhile on #{slots}; ask the agent for a new plan"
+    "meals were scheduled meanwhile on #{slots}; remove them and /confirm again"
   end
 
   defp refusal(reason), do: to_string(reason)

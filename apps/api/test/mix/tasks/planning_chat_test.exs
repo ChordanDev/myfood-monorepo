@@ -93,7 +93,8 @@ defmodule Mix.Tasks.Planning.ChatTest do
     assert outcome == :quit
 
     assert output =~
-             "[confirm refused] meals were scheduled meanwhile on #{today} lunch"
+             "[confirm refused] meals were scheduled meanwhile on #{today} lunch; " <>
+               "remove them and /confirm again"
 
     assert Repo.aggregate(ScheduledMeal, :count) == 1
   end

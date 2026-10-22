@@ -226,7 +226,7 @@ Refusals reply the error envelope:
 |------|---------|-----------|
 | `planning_session_invalid_range` | `start_session` | A date is missing or not ISO 8601, the range is not 1 to 31 days, or it starts before today |
 | `subscription_required` | `start_session` | The Account is not eligible |
-| `planning_slot_occupied` | `start_session`, `confirm` | A day of the range already has a Scheduled meal; `details.occupied` names each date and slot. On `confirm` the meals were scheduled during the session (by another Member, the calendar or a move): nothing is saved, no meal is replaced, and the session goes on so the Member can plan again |
+| `planning_slot_occupied` | `start_session`, `confirm` | A day of the range already has a Scheduled meal; `details.occupied` names each date and slot. On `confirm` the meals were scheduled during the session (by another Member, the calendar or a move): nothing is saved, no meal is replaced, and the session goes on: once those meals are removed, the same Proposal can be confirmed again. A new plan cannot help, since every Proposal covers every day and slot of the range |
 | `planning_range_locked` | `start_session` | Another session of the Account is running or holds part of the range; `details.ownerName` names its member when it is not the caller |
 | `agent_unavailable` | `start_session` | The model is not configured (API key, prices or spend caps) |
 | `consent_required` | `send_message` | The User has not given AI-processing consent; a `consent_required` agent event carries the text |

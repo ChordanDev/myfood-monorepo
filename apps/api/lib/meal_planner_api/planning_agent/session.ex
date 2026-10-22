@@ -218,8 +218,9 @@ defmodule MealPlannerApi.PlanningAgent.Session do
       arrive with #430)
     * `:proposal_invalid` — it is no longer valid; nothing was saved
     * `{:slot_occupied, [{date, slot}]}` — meals were scheduled in the
-      range during the session; they are never replaced, and the session
-      goes on
+      range during the session; they are never replaced. The session goes
+      on: once they are removed, the same Proposal can be confirmed again
+      (a new plan cannot help, since a Proposal covers the whole range)
     * `:no_active_session` — no session runs and the Proposal was never
       confirmed
     * `:unresolved` — the outcome is not known yet; ask
