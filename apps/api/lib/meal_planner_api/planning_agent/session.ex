@@ -226,7 +226,8 @@ defmodule MealPlannerApi.PlanningAgent.Session do
       `confirmation_status/2`
   """
   @spec confirm(Ecto.UUID.t(), Ecto.UUID.t(), String.t()) ::
-          {:ok, Confirmation.summary()} | {:error, atom()}
+          {:ok, Confirmation.summary()}
+          | {:error, atom() | {:slot_occupied, [{Date.t(), atom()}]}}
   def confirm(account_id, membership_id, proposal_id) do
     case whereis(account_id) do
       nil ->
