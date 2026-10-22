@@ -10,7 +10,8 @@ defmodule MealPlannerApi.Integrations.GoScraperClient do
       %{
         "products" => [
           %{
-            "source"      => "jumbo",
+            "id"         => "7790070318117",
+            "source"     => "jumbo",
             "name"       => "Pollo entero 1kg",
             "price"      => 1500.0,
             "unitPrice"  => 15.0,   # price per base unit (kg/l/unit)
@@ -18,7 +19,8 @@ defmodule MealPlannerApi.Integrations.GoScraperClient do
           },
           ...
         ],
-        "failedScrapers" => ["carrefour"]
+        "failedScrapers" => ["carrefour"],
+        "timestamp"      => "2026-10-21T14:51:40.123456789-03:00"
       }
 
   The scraper lives in `apps/scraper`. Its contract with this client
@@ -34,6 +36,9 @@ defmodule MealPlannerApi.Integrations.GoScraperClient do
       contains its `WEB_URL`. This client sends no `Referer`, so the scraper
       runs with `ENV=debug` for it.
     * A query with uppercase letters gets `403`; `fetch/1` downcases it.
+    * `timestamp` is when the scraper built the response, kept as the raw
+      string it sent. `RatoneandoPriceAdapter` reads it as the time the prices
+      were observed (see `docs/PRICE_ADAPTER_CONTRACT.md`).
 
   ## Price normalization strategy
 
@@ -55,6 +60,7 @@ defmodule MealPlannerApi.Integrations.GoScraperClient do
 
   @typedoc "A single product result from the Go scraper API."
   @type scraped_product :: %{
+          id: String.t(),
           source: String.t(),
           name: String.t(),
           price: float(),
@@ -66,7 +72,8 @@ defmodule MealPlannerApi.Integrations.GoScraperClient do
   @typedoc "Full parsed API response."
   @type scrape_result :: %{
           products: [scraped_product()],
-          failed_scrapers: [String.t()]
+          failed_scrapers: [String.t()],
+          timestamp: String.t() | nil
         }
 
   # -------------------------------------------------------------------------
@@ -124,12 +131,16 @@ defmodule MealPlannerApi.Integrations.GoScraperClient do
   other code, such as `"MT"` or a store's own `"gr"`, or a missing unit
   becomes `""`, so no `UnitConversion` matches it and `mix price_sync.run`
   skips that product.
+
+  The response `timestamp` is kept as sent, or `nil` when absent, and each
+  product's `id` is kept, or `""` when absent.
   """
   @spec parse_response(term()) :: {:ok, scrape_result()} | {:error, :parse_error}
   def parse_response(body) when is_map(body) do
     products =
       Enum.map(body["products"] || [], fn p ->
         %{
+          id: p["id"] || "",
           source: p["source"] || "",
           name: p["name"] || "",
           price: p["price"] || 0.0,
@@ -141,7 +152,7 @@ defmodule MealPlannerApi.Integrations.GoScraperClient do
 
     failed_scrapers = body["failedScrapers"] || []
 
-    {:ok, %{products: products, failed_scrapers: failed_scrapers}}
+    {:ok, %{products: products, failed_scrapers: failed_scrapers, timestamp: body["timestamp"]}}
   rescue
     _ -> {:error, :parse_error}
   end
