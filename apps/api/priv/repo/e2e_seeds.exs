@@ -8,8 +8,9 @@
 #
 #   * an Account in a trial that never ends, with a Budget, and its owner,
 #     the User of `E2E_LOGIN_EMAIL`, whose onboarding is complete;
-#   * one catalog Recipe per Meal slot, with ingredients, so a Planning
-#     session has a proposal and its Shopping list has items;
+#   * four catalog Recipes per Meal slot, with ingredients, so a Planning
+#     session has a proposal under the optimizer's variety rules and its
+#     Shopping list has items;
 #   * none of the data a journey leaves behind: the Account's Planning
 #     sessions, Scheduled meals, Shopping list, Cart, Inventory and
 #     favorites are deleted, and so are the login codes and request

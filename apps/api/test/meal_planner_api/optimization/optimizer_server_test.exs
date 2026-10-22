@@ -437,7 +437,8 @@ defmodule MealPlannerApi.Optimization.OptimizerServerTest do
     for {reason, details} <- [
           {"infeasible", %{"causes" => [%{"cause" => "variety"}]}},
           {"inconclusive", %{"reason" => "time_limit"}},
-          {"invalid_days", nil}
+          {"invalid_days", nil},
+          {"missing_payload", nil}
         ] do
       test "#{reason} replies keep the circuit closed and the next request reaches Python" do
         {pid, port, _name} = start_and_ready!()
@@ -461,6 +462,30 @@ defmodule MealPlannerApi.Optimization.OptimizerServerTest do
 
         _reply_task = async_select()
         assert is_binary(await_pending(pid))
+      end
+    end
+
+    test "a request answer clears the failures counted before it" do
+      {pid, port, _name} = start_and_ready!()
+
+      for reason <- ["abnormal", "abnormal", "infeasible", "abnormal"] do
+        reply_with_error!(pid, port, reason)
+      end
+
+      state = :sys.get_state(pid)
+      assert state.circuit_state == :closed
+      assert state.consecutive_failures == 1
+    end
+
+    for reason <- ["solver_unavailable", "abnormal"] do
+      test "#{reason} replies are solver faults and open the circuit" do
+        {pid, port, _name} = start_and_ready!()
+
+        capture_log(fn ->
+          for _ <- 1..3, do: reply_with_error!(pid, port, unquote(reason))
+        end)
+
+        assert :sys.get_state(pid).circuit_state == :open
       end
     end
 
@@ -536,6 +561,13 @@ defmodule MealPlannerApi.Optimization.OptimizerServerTest do
     |> then(&if(details, do: Map.put(&1, "details", details), else: &1))
     |> Jason.encode!()
     |> Kernel.<>("\n")
+  end
+
+  defp reply_with_error!(pid, port, reason) do
+    reply_task = async_select()
+    request_id = await_pending(pid)
+    send(pid, {port, {:data, error_frame(request_id, reason, nil)}})
+    assert {:error, _reason} = Task.await(reply_task, 500)
   end
 
   defp async_select do
