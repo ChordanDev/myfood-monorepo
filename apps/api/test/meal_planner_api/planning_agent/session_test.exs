@@ -319,6 +319,32 @@ defmodule MealPlannerApi.PlanningAgent.SessionTest do
       assert_receive {:DOWN, ^ref, :process, ^pid, :normal}
     end
 
+    test "docs/CHANNELS.md documents exactly the event allowlist" do
+      [_before, section] = "docs/CHANNELS.md" |> File.read!() |> String.split("#### Agent events")
+      [table | _rest] = String.split(section, "A Proposal's")
+
+      documented =
+        for [_, type, fields] <- Regex.scan(~r/^\| `([a-z_]+)` \|([^|]*)\|$/m, table),
+            into: %{} do
+          {type,
+           fields
+           |> String.replace("`", "")
+           |> String.split(",")
+           |> Enum.map(&String.trim/1)
+           |> Enum.reject(&(&1 == ""))}
+        end
+
+      camel = fn field ->
+        [first | rest] = String.split(field, "_")
+        Enum.join([first | Enum.map(rest, &String.capitalize/1)])
+      end
+
+      assert documented ==
+               Map.new(Session.event_fields(), fn {type, fields} ->
+                 {type, Enum.map(fields, camel)}
+               end)
+    end
+
     test "events outside the allowlist never reach a subscriber" do
       assert Map.keys(Session.event_fields()) |> Enum.sort() ==
                ~w(agent_unavailable assistant_message confirmation_unresolved consent_required

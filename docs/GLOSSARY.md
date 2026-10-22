@@ -99,9 +99,19 @@ Which actions need an Eligible Account (decided in issue #397):
 
 **Planning context** — Everything the planner reasons over for one run: preferences, restrictions, favorites, inventory, budget, slots and date range. `(code: PlanningGenerationRun.input_context)` `(alias: prompt, chat context)`
 
-**Participant** — A member of the Account a plan is for: the Hard restrictions and Excluded ingredients of every Participant filter the plan's recipe candidates. A plan that names no Participants is for every active member of the Account; a plan may name fewer, but only active members. Invited and suspended members are never Participants. `(code: Services.PlanningRequestValidator)` `(alias: household members, user_ids)`
+**Participant** — A member of the Account a plan is for: the Hard restrictions and Excluded ingredients of every Participant filter the plan's recipe candidates. For the Planning agent, a Participant's Diet forbids its codes too, and only Excluded ingredients marked as an allergy filter: a dislike is a preference. A plan that names no Participants is for every active member of the Account; a plan may name fewer, but only active members. Invited and suspended members are never Participants. `(code: Services.PlanningRequestValidator)` `(alias: household members, user_ids)`
 
-**Planning session** — The per-Account, per-date-range conversation in which a plan is generated and refined. Holds a range lock and moves one-way out of `active` to `committed`, `cancelled`, `expired` or `lost_lock`. `(code: Persistence.Planning.PlanningSession, Generation.PlanningSessionServer)` `(alias: planner chat)`
+**Planning session** — The per-Account, per-date-range conversation in which a plan is generated and refined. Holds a range lock and moves one-way out of `active` to `committed`, `cancelled`, `expired` or `lost_lock`. An agent Planning session is run by the Planning agent; an Account has at most one at a time. `(code: Persistence.Planning.PlanningSession, Generation.PlanningSessionServer, PlanningAgent.Session)` `(alias: planner chat)`
+
+**Planning agent** — The conversational planner of an agent Planning session: a model that searches recipes, runs the Optimizer, presents Proposals and asks the Member questions. Which recipes are allowed and whether a Proposal is valid are decided by code, never by the model. `(code: PlanningAgent)` `(alias: culinary agent, AI planner)`
+
+**AI-processing consent** — A User's agreement that the Account's planning data, restrictions and allergies included, is sent to the external AI provider. Asked once per User, the first time they plan, and valid in every Account. `(code: PlanningAgent.Consent)`
+
+**Proposal** — The plan the Planning agent shows the Member: one meal per day and planned slot of the range, with its estimated cost against the Session budget. A Proposal over the budget requires approval. Every Proposal has its own identity; a recalculated plan is a new Proposal. `(code: PlanningAgent.Proposal)` `(alias: agent proposal)`
+
+**Session budget** — The Budget of a Planning Range: the Account's weekly Budget, or its tier default when it is not set, times the days of the range divided by 7, never under the owner's minimum. There is never "no budget". `(code: PlanningAgent.HouseholdContext.range_budget_cents)`
+
+**Planning confirmation** — The Member's confirmation of the Proposal on display, which saves it as Scheduled meals and ends the Planning session. A Proposal is confirmed at most once; confirming it again answers the same result. `(code: PlanningAgent.Confirmation)`
 
 **Range lock** — The guarantee that only one Planning session can be active for an Account over overlapping dates, owned by a lock-owner Membership and renewed by a lease. `(code: PlanningSession.lease_expires_at)`
 
@@ -111,7 +121,7 @@ Which actions need an Eligible Account (decided in issue #397):
 
 **Optimizer** — The external solver that assigns candidates to slots under budget, nutrition and variety constraints. It always returns the closest plan and names every goal the plan misses; when it is unavailable or finds no plan, planning reports an error, never a substitute plan. `(code: Optimization.OptimizerPort, Optimization.OptimizerServer)`
 
-**Planning proposal** — A generated plan awaiting the User's decision: `pending`, `accepted` or `rejected`. `(code: Persistence.Planning.PlanningProposal)` `(alias: Draft Meal Plan, Borrador de Plan)`
+**Planning proposal** — A plan the legacy planner generated, awaiting the User's decision: `pending`, `accepted` or `rejected`. `(code: Persistence.Planning.PlanningProposal)` `(alias: Draft Meal Plan, Borrador de Plan)`
 
 **Planning message** — One conversational turn in a Planning session, including refinement requests such as "swap Monday's dinner". `(code: Persistence.Planning.PlanningMessage)` `(alias: Recipe Refinement)`
 
