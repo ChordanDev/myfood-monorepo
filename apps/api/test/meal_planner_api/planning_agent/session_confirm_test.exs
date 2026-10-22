@@ -7,15 +7,35 @@ defmodule MealPlannerApi.PlanningAgent.SessionConfirmTest do
   use ExUnit.Case, async: false
 
   import Ecto.Query
+  import ExUnit.CaptureLog
   import MealPlannerApi.PlanningAgentFixtures
 
   alias MealPlannerApi.Persistence.Calendar
   alias MealPlannerApi.Persistence.Planning.{PlanningConfirmation, PlanningSession, ScheduledMeal}
   alias MealPlannerApi.Persistence.Shopping.ShoppingItem
-  alias MealPlannerApi.PlanningAgent.{FakeOptimizer, Session}
+  alias MealPlannerApi.PlanningAgent.{Confirmation, FakeOptimizer, Session}
   alias MealPlannerApi.PlanningAgent.Model.Scripted
   alias MealPlannerApi.Repo
   alias MealPlannerApi.Services.ShoppingService
+
+  # A confirmation store whose status read fails once with a lost
+  # connection; everything else is the real one.
+  defmodule FlakyConfirmationStore do
+    @moduledoc false
+
+    alias MealPlannerApi.PlanningAgent.Confirmation
+
+    def status(account_id, proposal_id) do
+      if :persistent_term.get({__MODULE__, :failed}, false) do
+        Confirmation.status(account_id, proposal_id)
+      else
+        :persistent_term.put({__MODULE__, :failed}, true)
+        raise DBConnection.ConnectionError, "connection lost"
+      end
+    end
+
+    defdelegate commit(attrs), to: Confirmation
+  end
 
   setup do
     sandbox_sessions!()
@@ -28,9 +48,10 @@ defmodule MealPlannerApi.PlanningAgent.SessionConfirmTest do
 
   # Starts a session and runs one turn that presents a Proposal; returns
   # the session and the Proposal event.
-  defp proposal!(who) do
+  defp proposal!(who, opts \\ []) do
     {:ok, %{session_id: id, pid: pid}} =
       Session.start(session_attrs(who),
+        confirmation_store: Keyword.get(opts, :confirmation_store, Confirmation),
         model:
           {Scripted,
            script: [
@@ -90,6 +111,28 @@ defmodule MealPlannerApi.PlanningAgent.SessionConfirmTest do
 
     assert %PlanningConfirmation{planning_session_id: ^id, meals_count: 6} =
              Repo.get!(PlanningConfirmation, proposal_id)
+  end
+
+  test "a database error before the commit answers unresolved and keeps the session", %{
+    owner: owner
+  } do
+    on_exit(fn -> :persistent_term.erase({FlakyConfirmationStore, :failed}) end)
+
+    %{id: id, pid: pid, proposal: %{"proposal_id" => proposal_id}} =
+      proposal!(owner, confirmation_store: FlakyConfirmationStore)
+
+    capture_log(fn ->
+      assert {:error, :unresolved} =
+               Session.confirm(owner.account.id, owner.membership.id, proposal_id)
+    end)
+
+    assert Process.alive?(pid)
+    refute_received {:planning_agent_event, ^id, %{"type" => "session_ended"}}
+    assert scheduled(owner.account) == []
+
+    # Once the database answers, the same Proposal confirms.
+    assert {:ok, %{meals_count: 6}} =
+             Session.confirm(owner.account.id, owner.membership.id, proposal_id)
   end
 
   test "a replayed confirmation answers the same summary and saves nothing twice", %{

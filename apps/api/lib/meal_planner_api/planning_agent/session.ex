@@ -110,6 +110,8 @@ defmodule MealPlannerApi.PlanningAgent.Session do
     * `:max_iterations`, `:deadline_ms`, `:call_policies` — limits
     * `:lease_store` — the module that renews and ends the session's row
       (default `PlanningRepo`; tests)
+    * `:confirmation_store` — the module that reads and commits
+      confirmations (default `Confirmation`; tests)
   """
   @spec start(attrs(), keyword()) ::
           {:ok, %{session_id: Ecto.UUID.t(), pid: pid(), consent_required: boolean()}}
@@ -140,7 +142,8 @@ defmodule MealPlannerApi.PlanningAgent.Session do
         max_iterations: Keyword.get(opts, :max_iterations, @default_max_iterations),
         deadline_ms: Keyword.get(opts, :deadline_ms, @default_deadline_ms),
         call_policies: Keyword.get(opts, :call_policies, %{}),
-        lease_store: Keyword.get(opts, :lease_store, PlanningRepo)
+        lease_store: Keyword.get(opts, :lease_store, PlanningRepo),
+        confirmation_store: Keyword.get(opts, :confirmation_store, Confirmation)
       }
 
       case DynamicSupervisor.start_child(@supervisor, {__MODULE__, init_args}) do
@@ -310,7 +313,8 @@ defmodule MealPlannerApi.PlanningAgent.Session do
       deadline_ref: nil,
       deadline_ms: args.deadline_ms,
       call_policies: args.call_policies,
-      lease_store: args.lease_store
+      lease_store: args.lease_store,
+      confirmation_store: args.confirmation_store
     }
 
     state = if args.subscriber, do: add_subscriber(state, args.subscriber), else: state
@@ -403,11 +407,19 @@ defmodule MealPlannerApi.PlanningAgent.Session do
       when membership_id != state.membership_id,
       do: {:reply, {:error, :forbidden}, state}
 
+  # The reads before the commit (the stored confirmation, the household's
+  # restrictions, the recipes) can fail when the database does not answer:
+  # the outcome is then unknown, nothing was saved and the session goes on.
+  # The commit itself reports its own failures.
   def handle_call({:confirm, _membership_id, proposal_id}, _from, state) do
-    case Confirmation.status(state.account_id, proposal_id) do
+    case state.confirmation_store.status(state.account_id, proposal_id) do
       {:confirmed, summary} -> {:reply, {:ok, summary}, state}
       :not_found -> confirm_current(state, proposal_id)
     end
+  rescue
+    exception in [DBConnection.ConnectionError, Postgrex.Error] ->
+      Logger.warning("planning agent confirm could not read: #{inspect(exception.__struct__)}")
+      {:reply, {:error, :unresolved}, state}
   end
 
   @impl true
@@ -612,13 +624,13 @@ defmodule MealPlannerApi.PlanningAgent.Session do
       meals: Proposal.meals(shown)
     }
 
-    case Confirmation.commit(attrs) do
+    case state.confirmation_store.commit(attrs) do
       {:ok, summary} ->
         confirmed(state, summary)
 
       # A concurrent replay stored it first.
       {:error, :already_confirmed} ->
-        case Confirmation.status(state.account_id, shown["proposal_id"]) do
+        case state.confirmation_store.status(state.account_id, shown["proposal_id"]) do
           {:confirmed, summary} -> confirmed(state, summary)
           :not_found -> {:reply, {:error, :rejected}, state}
         end
@@ -657,6 +669,8 @@ defmodule MealPlannerApi.PlanningAgent.Session do
       {:confirmed, summary} -> {:ok, summary}
       :not_found -> {:error, :no_active_session}
     end
+  rescue
+    _exception in [DBConnection.ConnectionError, Postgrex.Error] -> {:error, :unresolved}
   end
 
   defp put_proposal(state, proposal),
