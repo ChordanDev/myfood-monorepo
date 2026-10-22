@@ -18,7 +18,13 @@ defmodule Mix.Tasks.Catalog.ReviewAllergens do
   the header check and writes nothing.
 
   The reviewer corrects `allergens` and writes `yes` in `reviewed` on every
-  row they checked. `--apply` then writes `allergens` on those rows only:
+  row they checked. A cell holds the Hard restriction codes (`peanut,
+  tree_nut, shellfish, gluten, dairy, egg, soy`) and the Diet marks (issue
+  #441): `meat` for meat of any animal, poultry included; `fish` for fish and
+  seafood, so a shellfish Ingredient carries both `shellfish` and `fish`;
+  `animal_product` for any other product of animal origin, such as honey or
+  gelatin (dairy and eggs keep their own codes). `--apply` then writes
+  `allergens` on those rows only:
 
     * a row without `reviewed = yes` is skipped, so an untouched row never
       becomes "no allergens";
@@ -27,16 +33,16 @@ defmodule Mix.Tasks.Catalog.ReviewAllergens do
     * an Ingredient whose `allergens` is no longer NULL is left as it is;
     * a reviewed row whose id matches no Ingredient writes nothing, and the
       summary lists its id apart from the already reviewed ones;
-    * a file with any code outside `peanut, tree_nut, shellfish, gluten,
-      dairy, egg, soy`, a malformed id, a different header, a row with the
+    * a file with any code outside those ten (`Ingredient.codes/0`), a
+      malformed id, a different header, a row with the
       wrong number of columns, a quoted field that never closes, invalid
       UTF-8 or no content writes nothing and exits non-zero.
   """
 
   use Mix.Task
 
-  alias MealPlannerApi.Persistence.Accounts.UserHardRestriction
   alias MealPlannerApi.Persistence.Catalog
+  alias MealPlannerApi.Persistence.Catalog.Ingredient
 
   @shortdoc "Exports unreviewed Ingredient allergens to a CSV, or applies a reviewed one"
 
@@ -119,14 +125,14 @@ defmodule Mix.Tasks.Catalog.ReviewAllergens do
   defp parse_row({[id, _name, _category, _proposed, allergens, reviewed], number}) do
     codes = split_codes(allergens)
 
-    unknown = codes |> Enum.reject(&(&1 in UserHardRestriction.codes())) |> Enum.uniq()
+    unknown = codes |> Enum.reject(&(&1 in Ingredient.codes())) |> Enum.uniq()
 
     case {cast_id(String.trim(id)), unknown} do
       {{:ok, uuid}, []} ->
         {:ok,
          %{
            id: uuid,
-           codes: Enum.filter(UserHardRestriction.codes(), &(&1 in codes)),
+           codes: Enum.filter(Ingredient.codes(), &(&1 in codes)),
            reviewed?: String.downcase(String.trim(reviewed)) == "yes"
          }}
 

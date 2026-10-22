@@ -30,6 +30,15 @@ This file and `docs/adr/` are the only durable docs in the repository. Specs, ma
 
 **Account's today** — The current calendar date for an Account: the date in the Account's stored IANA timezone, and the UTC date while none is stored. The server computes it; the app never sends its local date. `(code: AccountClock, Account.timezone, mobile useMealPlanStore.today)` `(alias: Account timezone, local date)`
 
+**Eligible Account** — An Account whose Access state is `trial` or `active`. An Account that is not eligible has an `expired` Access state. `(code: AccountAccess.eligible?/1)` `(alias: subscribed, has capability)`
+
+**Access enforcement switch** — The server-wide switch that decides whether everyday app use needs an Eligible Account. It stays off until the store subscription pipeline is verified in production, so an Account wrongly seen as expired, a paying one included, is not locked out of its own data. `(code: REVENUECAT_ACCESS_ENFORCEMENT, :revenuecat_access_enforcement)` `(alias: capability enforcement, rollout flag)`
+
+Which actions need an Eligible Account (decided in issue #397):
+
+- **Always, whatever the switch says:** starting a Planning session, opening a Recipe's detail, and every step of a Cooking session from start to finish.
+- **Only while the switch is on:** the Account's other actions, including the later steps of a Planning session (chatting, confirming or rejecting a proposal), the AI chat, the calendar, Shopping, Inventory and consuming Inventory from the calendar (marking a meal cooked, confirming a past meal as cooked). With the switch on, an Account that is not eligible is refused on every HTTP request, and on a realtime channel when it joins: a calendar that joined while the Account was eligible keeps working until it reconnects. With the switch off, these actions are allowed, since consuming Inventory from the calendar only changes the Account's own data.
+
 ## Profile & preferences
 
 **Onboarding profile** — The setup data captured right after first authentication: display name, household size and cooking skill. Dietary data is not part of it. `(code: mobile OnboardingProfile)` `(alias: signup data)`
@@ -42,7 +51,9 @@ This file and `docs/adr/` are the only durable docs in the repository. Specs, ma
 
 **Diet** — The User's dietary pattern: `omnivore`, `vegetarian`, `vegan`, `pescatarian` (API also knows `celiac`); `null` means none chosen. `(code: Persistence.Accounts.UserDietaryProfile, mobile DietCode)`
 
-**Hard restriction** — A non-negotiable food rule such as an allergy or medical restriction; it excludes recipe candidates outright for every Participant of a plan, not only the User who asked for it. Stored as a code from a fixed list, distinct from an Excluded ingredient. An Ingredient lists the codes it carries in `allergens`; NULL means nobody reviewed it and the planner treats it as carrying every code. Only a human review writes `allergens` (`mix catalog.review_allergens`); `mix ai_populate` instead fills `allergens_proposed`, the codes the AI and the name rules suggest, which the reviewer starts from and the planner never reads. `(code: Persistence.Accounts.UserHardRestriction, Persistence.Catalog.AllergenRules, mobile HardRestrictionCode)` `(alias: restriction, allergy list)`
+**Hard restriction** — A non-negotiable food rule such as an allergy or medical restriction; it excludes recipe candidates outright for every Participant of a plan, not only the User who asked for it. Stored as a code from a fixed list, distinct from an Excluded ingredient. An Ingredient lists the codes it carries in `allergens`, next to its Diet marks; NULL means nobody reviewed it and the planner treats it as carrying every code. Only a human review writes `allergens` (`mix catalog.review_allergens`); `mix ai_populate` instead fills `allergens_proposed`, the codes the AI and the name rules suggest, which the reviewer starts from and the planner never reads. `(code: Persistence.Accounts.UserHardRestriction, Persistence.Catalog.AllergenRules, mobile HardRestrictionCode)` `(alias: restriction, allergy list)`
+
+**Diet marks** — The codes `meat`, `fish` and `animal_product` an Ingredient carries in `allergens`, next to its Hard restriction codes, so a Diet can be enforced like a Hard restriction rather than weighed like a preference. A User never declares them as Hard restrictions. `meat` is meat of any animal, poultry included; `fish` is fish and seafood, so a shellfish Ingredient carries both `shellfish` and `fish`; `animal_product` is any other product of animal origin, such as honey or gelatin (dairy and eggs keep their own codes). A Diet forbids codes: vegetarian forbids `meat` and `fish`; vegan forbids `meat`, `fish`, `animal_product`, `dairy` and `egg`; pescatarian forbids `meat`; celiac forbids `gluten`. They are reviewed with the Hard restriction codes, and an unreviewed Ingredient is excluded for every Diet. `(code: Persistence.Catalog.DietRules, Persistence.Catalog.Ingredient.codes/0)` `(alias: diet tags)`
 
 **Soft preference** — A negotiable like, dislike or goal that influences ranking but never blocks a plan. `(code: Persistence.Accounts.UserPreference.soft_preferences, mobile softPreferences)` `(alias: preference, dislike)`
 

@@ -3,6 +3,7 @@ defmodule MealPlannerApi.Persistence.Catalog.Ingredient do
   import Ecto.Changeset
 
   alias MealPlannerApi.Persistence.Accounts.UserHardRestriction
+  alias MealPlannerApi.Persistence.Catalog.DietRules
 
   @primary_key {:id, :binary_id, autogenerate: true}
   @foreign_key_type :binary_id
@@ -31,9 +32,9 @@ defmodule MealPlannerApi.Persistence.Catalog.Ingredient do
     field(:carbs_g_per_100, :decimal)
     field(:fat_g_per_100, :decimal)
 
-    # The Hard restriction codes this Ingredient carries. NULL means nobody
-    # has reviewed it (the planner treats it as carrying every code); `[]`
-    # means it was reviewed and carries none.
+    # The codes this Ingredient carries (`codes/0`): Hard restriction codes
+    # and Diet marks. NULL means nobody has reviewed it (the planner treats it
+    # as carrying every code); `[]` means it was reviewed and carries none.
     field(:allergens, {:array, :string})
 
     # The codes `mix ai_populate` proposes for an unreviewed Ingredient: a hint
@@ -44,6 +45,13 @@ defmodule MealPlannerApi.Persistence.Catalog.Ingredient do
 
     timestamps(type: :utc_datetime_usec)
   end
+
+  @doc """
+  The codes an Ingredient can carry in `allergens`: the Hard restriction codes,
+  then the Diet marks (`DietRules.mark_codes/0`), in catalog order.
+  """
+  @spec codes() :: [String.t()]
+  def codes, do: UserHardRestriction.codes() ++ DietRules.mark_codes()
 
   def changeset(ingredient, attrs) do
     ingredient
@@ -63,9 +71,9 @@ defmodule MealPlannerApi.Persistence.Catalog.Ingredient do
     |> validate_number(:protein_g_per_100, greater_than_or_equal_to: 0)
     |> validate_number(:carbs_g_per_100, greater_than_or_equal_to: 0)
     |> validate_number(:fat_g_per_100, greater_than_or_equal_to: 0)
-    |> validate_subset(:allergens, UserHardRestriction.codes())
+    |> validate_subset(:allergens, codes())
     |> check_constraint(:allergens, name: :ingredients_allergens_check)
-    |> validate_subset(:allergens_proposed, UserHardRestriction.codes())
+    |> validate_subset(:allergens_proposed, codes())
     |> check_constraint(:allergens_proposed, name: :ingredients_allergens_proposed_check)
     |> unique_constraint(:name)
   end
