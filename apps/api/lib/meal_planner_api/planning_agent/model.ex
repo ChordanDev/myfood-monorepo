@@ -1,7 +1,7 @@
 defmodule MealPlannerApi.PlanningAgent.Model do
   @moduledoc """
   Provider-neutral message-and-tool model interface for the planning agent
-  (spec #93, user story 105).
+  (ported from myfood@d9b965a, issue #423).
 
   One adapter per provider implements `init/1` and `respond/2`. The planning
   loop only ever speaks this shape, so switching providers never touches it.
@@ -64,38 +64,4 @@ defmodule MealPlannerApi.PlanningAgent.Model do
   @doc "Answers one request with either assistant text or tool calls plus usage."
   @callback respond(state :: term(), request()) ::
               {:ok, response(), state :: term()} | {:error, term(), state :: term()}
-
-  @doc """
-  The part of the state that must survive a server restart (issue #107),
-  such as the spend already used. It is stored, so it never holds
-  credentials. Work whose outcome is unknown (a reserved call) is
-  reconciled here, never replayed: its worst case counts as spent.
-  """
-  @callback recoverable(state :: term()) :: term()
-
-  @doc """
-  Rebuilds the state of a recovered Planning Session from `opts` (as
-  `init/1`) and what `recoverable/1` kept. An adapter without these
-  callbacks is recovered with `init/1` alone.
-  """
-  @callback recover(keyword(), recoverable :: term()) :: {:ok, state :: term()} | {:error, term()}
-
-  @optional_callbacks recoverable: 1, recover: 2
-
-  @doc "What `module` keeps of `state` across a restart, or `nil`."
-  @spec recoverable(module(), term()) :: term()
-  def recoverable(module, state) do
-    if exported?(module, :recoverable, 1), do: module.recoverable(state), else: nil
-  end
-
-  @doc "Rebuilds the state of `module` for a recovered Planning Session."
-  @spec recover(module(), keyword(), term()) :: {:ok, term()} | {:error, term()}
-  def recover(module, opts, recoverable) do
-    if exported?(module, :recover, 2),
-      do: module.recover(opts, recoverable),
-      else: module.init(opts)
-  end
-
-  defp exported?(module, name, arity),
-    do: Code.ensure_loaded?(module) and function_exported?(module, name, arity)
 end

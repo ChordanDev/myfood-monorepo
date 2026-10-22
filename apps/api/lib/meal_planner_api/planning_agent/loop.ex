@@ -3,7 +3,8 @@ defmodule MealPlannerApi.PlanningAgent.Loop do
   One agent turn: model call, tool calls, model call ... until the model
   answers with text, asks the human, fails, or reaches a limit of the
   session's `MealPlannerApi.PlanningAgent.Allowance` (iterations or
-  attempts without verifiable progress).
+  attempts without verifiable progress). Ported from myfood@d9b965a
+  (issue #423); the issue numbers below are that repository's.
 
   Runs inside a task owned by `MealPlannerApi.PlanningAgent.Session`, which
   enforces the global deadline by killing the task and emits the run's
@@ -106,8 +107,13 @@ defmodule MealPlannerApi.PlanningAgent.Loop do
 
     {_status, _result, model_state} = response
     checkpoint.(model_state)
-    turn = %{turn | model_state: model_state} |> refund_refused(response)
 
+    %{turn | model_state: model_state}
+    |> refund_refused(response)
+    |> handle_response(response)
+  end
+
+  defp handle_response(turn, response) do
     case response do
       {:ok, %{tool_calls: [_ | _] = calls}, _model_state} ->
         case run_tools(turn, calls) do
@@ -120,23 +126,17 @@ defmodule MealPlannerApi.PlanningAgent.Loop do
         turn.emit.(%{"type" => "assistant_message", "text" => text})
         finish(append(turn, %{role: :assistant, content: text}), :completed)
 
-      {:error, :deadline_exceeded, _model_state} ->
-        finish(turn, {:limit_reached, "time"})
-
-      {:error, :timeout, _model_state} ->
-        finish(turn, {:failed, :provider_timeout})
-
-      # The Planning Session's spend caps are never extended (issue #154).
-      {:error, :spend_cap_reached, _model_state} ->
-        finish(turn, {:exhausted, "spend_cap"})
-
-      {:error, :token_cap_reached, _model_state} ->
-        finish(turn, {:exhausted, "token_cap"})
-
       {:error, reason, _model_state} ->
-        finish(turn, {:failed, reason})
+        finish(turn, failure_outcome(reason))
     end
   end
+
+  defp failure_outcome(:deadline_exceeded), do: {:limit_reached, "time"}
+  defp failure_outcome(:timeout), do: {:failed, :provider_timeout}
+  # The Planning Session's spend caps are never extended (issue #154).
+  defp failure_outcome(:spend_cap_reached), do: {:exhausted, "spend_cap"}
+  defp failure_outcome(:token_cap_reached), do: {:exhausted, "token_cap"}
+  defp failure_outcome(reason), do: {:failed, reason}
 
   # A call refused before it reached the provider (no spend, no provider
   # work) is not an iteration (issue #154).
@@ -281,10 +281,6 @@ defmodule MealPlannerApi.PlanningAgent.Loop do
 
   @service_failure ~r/_(failed|unavailable|timeout|error)\z/
 
-  # A fixed meal whose Recipe is gone comes from the Member's own choice, not
-  # from a service outage.
-  defp service_failure?(%{"error" => "fixed_meal_unavailable"}), do: false
-
   defp service_failure?(%{"error" => error}) when is_binary(error),
     do: Regex.match?(@service_failure, error)
 
@@ -305,35 +301,23 @@ defmodule MealPlannerApi.PlanningAgent.Loop do
 
   @tool_names %{
     "search_recipes" => "recipe search",
-    "run_optimizer" => "meal plan optimizer",
-    "lookup_prices" => "price lookup",
-    "get_recipe" => "recipe details",
-    "get_plan" => "saved plans",
-    "reuse_plan" => "saved plans",
-    "get_pantry" => "pantry"
+    "run_optimizer" => "meal plan optimizer"
   }
 
   defp failure_notice(failures) do
     tools =
-      failures
-      |> Enum.map(fn {name, reason} ->
+      Enum.map_join(failures, ", ", fn {name, reason} ->
         "#{Map.get(@tool_names, name, tool_label(name))} (#{reason})"
       end)
-      |> Enum.join(", ")
 
     "I had to stop: some of the tools I need kept failing: #{tools}. " <>
       "This is a problem on our side, not with your request. Please try again later."
   end
 
-  @max_named_ingredients 10
-  @max_name_length 80
-
   # The latest tool results of the turn, when at least two in a row are
   # validation failures (a tool refused what it was given, not a service
   # outage) of one and the same tool.
   defp validation_notice(current) do
-    arguments = for %{role: :tool_call, id: id} = call <- current, into: %{}, do: {id, call}
-
     repeated =
       current
       |> Enum.filter(&(&1.role == :tool_result))
@@ -348,7 +332,7 @@ defmodule MealPlannerApi.PlanningAgent.Loop do
       |> Enum.reverse()
 
     case repeated do
-      [_, _ | _] -> validation_text(repeated, arguments)
+      [_, _ | _] -> validation_text(repeated)
       _too_few -> nil
     end
   end
@@ -360,60 +344,13 @@ defmodule MealPlannerApi.PlanningAgent.Loop do
 
   defp validation_failure?(_content), do: false
 
-  # A rejected Recipe Draft is named by the recipe the model asked for, and
-  # unknown Ingredients by the names it sent; both are bounded and never
-  # tool output.
-  defp validation_text([%{name: "create_recipe"} | _] = failures, arguments) do
-    causes =
-      failures
-      |> Enum.map(&{recipe_name(arguments[&1.id]), &1.content})
-      |> Enum.chunk_by(fn {recipe, content} -> {recipe, content["error"]} end)
-      |> Enum.map(&recipe_cause/1)
-      |> Enum.uniq()
-      |> Enum.join("; ")
-
-    "I had to stop: #{causes}. Send a new message to continue, for example with another dish."
-  end
-
-  defp validation_text([%{name: name} | _] = failures, _arguments) do
+  defp validation_text([%{name: name} | _] = failures) do
     reasons = failures |> Enum.map(&failure_reason(&1.content)) |> Enum.uniq() |> Enum.join(", ")
     tool = Map.get(@tool_names, name, tool_label(name))
 
     "I had to stop: the #{tool} kept rejecting the request (#{reasons}). " <>
       "Send a new message to continue."
   end
-
-  defp recipe_cause([{recipe, %{"error" => "unknown_ingredients"}} | _] = failures) do
-    ingredients =
-      failures
-      |> Enum.flat_map(fn {_recipe, content} -> List.wrap(content["ingredients"]) end)
-      |> Enum.map(&bounded_name/1)
-      |> Enum.reject(&is_nil/1)
-      |> Enum.uniq()
-      |> Enum.take(@max_named_ingredients)
-      |> Enum.join(", ")
-
-    "the recipe for #{recipe} needs ingredients that are not in the catalog: #{ingredients}"
-  end
-
-  defp recipe_cause([{recipe, content} | _]),
-    do: "the recipe for #{recipe} was rejected (#{failure_reason(content)})"
-
-  defp recipe_name(%{arguments: %{"name" => name}}), do: bounded_name(name) || "the dish"
-  defp recipe_name(_call), do: "the dish"
-
-  # Model-sent names only reach the Member as one bounded printable line.
-  defp bounded_name(name) when is_binary(name) do
-    name =
-      name
-      |> String.replace(~r/[[:cntrl:]]+/u, " ")
-      |> String.trim()
-      |> String.slice(0, @max_name_length)
-
-    if name == "", do: nil, else: name
-  end
-
-  defp bounded_name(_name), do: nil
 
   defp build_result(turn, outcome) do
     %{

@@ -1,33 +1,50 @@
 defmodule MealPlannerApi.PlanningAgent.Consent do
   @moduledoc """
-  Explicit consent before a Member's Household data is first sent to an
-  external AI provider (spec #93, user story 5). Recording it is a human-only
-  action; the agent can never grant it.
+  AI-processing consent before a User's data is first sent to the external
+  AI provider (issue #423). It is asked once per User, the first time they
+  plan, and stored: a User who consented is not asked again, in any Account.
+  Recording it is a human-only action; the agent can never grant it.
+
+  The consent text is a placeholder until its legal review (Argentina, Ley
+  25.326, health data). The reviewed text gets a new `text_version/0`.
+
+  Ported from myfood@d9b965a, where consent was stored per Account and User.
   """
 
   import Ecto.Query
 
-  alias MealPlannerApi.Persistence.Planning.AiProcessingConsent
+  alias MealPlannerApi.Persistence.Planning.PlanningConsent
   alias MealPlannerApi.Repo
 
-  @doc "Whether the User has consented to external AI processing in the Household."
-  @spec granted?(Ecto.UUID.t(), Ecto.UUID.t()) :: boolean()
-  def granted?(account_id, user_id) do
-    Repo.exists?(
-      from(c in AiProcessingConsent, where: c.account_id == ^account_id and c.user_id == ^user_id)
-    )
-  end
+  @text_version "placeholder-2026-10-22"
 
-  @doc "Records the User's consent. Idempotent."
-  @spec record(Ecto.UUID.t(), Ecto.UUID.t()) :: :ok | {:error, Ecto.Changeset.t()}
-  def record(account_id, user_id) do
-    %AiProcessingConsent{}
-    |> AiProcessingConsent.changeset(%{
-      account_id: account_id,
+  @text "PLACEHOLDER, pending legal review. To plan your meals, MyFood sends " <>
+          "your household's eating preferences, dietary restrictions and allergies " <>
+          "to an external AI provider (Anthropic). Do you agree?"
+
+  @doc "The consent text the User is asked to agree to."
+  @spec text() :: String.t()
+  def text, do: @text
+
+  @doc "The version of `text/0`, stored with every consent."
+  @spec text_version() :: String.t()
+  def text_version, do: @text_version
+
+  @doc "Whether the User has consented to AI processing."
+  @spec granted?(Ecto.UUID.t()) :: boolean()
+  def granted?(user_id),
+    do: Repo.exists?(from(c in PlanningConsent, where: c.user_id == ^user_id))
+
+  @doc "Records the User's consent to the current text. Idempotent."
+  @spec record(Ecto.UUID.t()) :: :ok | {:error, Ecto.Changeset.t()}
+  def record(user_id) do
+    %PlanningConsent{}
+    |> PlanningConsent.changeset(%{
       user_id: user_id,
-      granted_at: DateTime.utc_now()
+      granted_at: DateTime.utc_now(),
+      text_version: @text_version
     })
-    |> Repo.insert(on_conflict: :nothing, conflict_target: [:account_id, :user_id])
+    |> Repo.insert(on_conflict: :nothing, conflict_target: [:user_id])
     |> case do
       {:ok, _} -> :ok
       {:error, changeset} -> {:error, changeset}

@@ -36,6 +36,18 @@ config :meal_planner_api, :ai_client, MealPlannerApi.AI.MockClient
 
 config :meal_planner_api, MealPlannerApi.Auth.Guardian, secret_key: "test_guardian_secret_key"
 
+# The planning agent runs the scripted model in tests (issue #423); no test
+# calls Anthropic.
+config :meal_planner_api, :planning_agent,
+  model: {MealPlannerApi.PlanningAgent.Model.Scripted, []},
+  max_range_days: 31
+
+# The Claude adapter's tests pass their own prices and caps; the long-prompt
+# tier is off unless a test turns it on.
+config :meal_planner_api, MealPlannerApi.PlanningAgent.Model.ClaudeMessages,
+  long_context_threshold_tokens: nil,
+  long_context_price_multiplier: nil
+
 # Force mock optimizer client for deterministic planning tests
 config :meal_planner_api,
   planning_optimizer_client: MealPlannerApi.Optimization.OptimizerMock,

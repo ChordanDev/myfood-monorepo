@@ -1,9 +1,9 @@
 defmodule MealPlannerApi.PlanningAgent.Model.PaidCall do
   @moduledoc """
-  What every paid model adapter of the planning agent shares (spec #93):
-  the global provider concurrency cap, the HTTP failure classification,
-  the reserved-state checkpoint, the mandatory-configuration checks and the
-  spend kept across a server restart.
+  What every paid model adapter of the planning agent shares (ported from
+  myfood@d9b965a, issue #423): the global provider concurrency cap, the HTTP
+  failure classification, the reserved-state checkpoint and the
+  mandatory-configuration checks.
 
   Provider failures are typed: `:provider_unauthorized` (401/403),
   `:provider_rejected_request` (other 4xx), `:provider_conflict` (409),
@@ -12,7 +12,7 @@ defmodule MealPlannerApi.PlanningAgent.Model.PaidCall do
   (see `MealPlannerApi.PlanningAgent.CallBounds`).
   """
 
-  alias MealPlannerApi.PlanningAgent.{ConcurrencyLimiter, SpendLedger}
+  alias MealPlannerApi.PlanningAgent.ConcurrencyLimiter
 
   @doc """
   Runs `paid_call` (which returns the adapter's `respond/2` result) inside
@@ -90,25 +90,4 @@ defmodule MealPlannerApi.PlanningAgent.Model.PaidCall do
 
   @spec non_neg_integer?(term()) :: boolean()
   def non_neg_integer?(value), do: is_integer(value) and value >= 0
-
-  @doc """
-  The spend kept across a server restart (issue #107). A reservation still
-  open belongs to a call whose outcome is unknown, so its worst case is
-  counted as spent.
-  """
-  @spec recoverable_spend(SpendLedger.t()) :: %{
-          spent_micros: non_neg_integer(),
-          spent_tokens: non_neg_integer()
-        }
-  def recoverable_spend(ledger) do
-    %{
-      spent_micros: ledger.spent_micros + ledger.reserved_micros,
-      spent_tokens: ledger.spent_tokens + ledger.reserved_tokens
-    }
-  end
-
-  @doc "A fresh ledger carrying the kept spend."
-  @spec restore_spend(SpendLedger.t(), map()) :: SpendLedger.t()
-  def restore_spend(ledger, %{spent_micros: micros, spent_tokens: tokens}),
-    do: %{ledger | spent_micros: micros, spent_tokens: tokens}
 end

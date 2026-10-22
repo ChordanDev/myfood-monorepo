@@ -108,23 +108,30 @@ defmodule MealPlannerApi.PlanningAgent.CallBounds do
 
       remaining ->
         timeout_ms = min(policy.timeout_ms, remaining)
+        result = run_attempt(state, fun, timeout_ms)
+        attempted(bounds, kind, policy, fun, number, {timeout_ms, remaining}, result)
+    end
+  end
 
-        case run_attempt(state, fun, timeout_ms) do
-          {:ok, _value, _state} = ok ->
-            ok
+  # `timeout_ms == remaining`: the attempt's deadline was the global one.
+  defp attempted(bounds, kind, policy, fun, number, {timeout_ms, remaining}, result) do
+    globally_bounded? = timeout_ms == remaining
 
-          # The attempt was cut by the global deadline, not by its own.
-          {:error, :timeout, state} when timeout_ms == remaining ->
-            {:error, :deadline_exceeded, state}
+    case result do
+      {:ok, _value, _state} = ok ->
+        ok
 
-          {:error, :provider_timeout, state} = error when timeout_ms == remaining ->
-            if deadline_used?(bounds, timeout_ms),
-              do: {:error, :deadline_exceeded, state},
-              else: retry_or_fail(bounds, kind, policy, fun, number, error)
+      # The attempt was cut by the global deadline, not by its own.
+      {:error, :timeout, state} when globally_bounded? ->
+        {:error, :deadline_exceeded, state}
 
-          {:error, _reason, _state} = error ->
-            retry_or_fail(bounds, kind, policy, fun, number, error)
-        end
+      {:error, :provider_timeout, state} = error when globally_bounded? ->
+        if deadline_used?(bounds, timeout_ms),
+          do: {:error, :deadline_exceeded, state},
+          else: retry_or_fail(bounds, kind, policy, fun, number, error)
+
+      {:error, _reason, _state} = error ->
+        retry_or_fail(bounds, kind, policy, fun, number, error)
     end
   end
 

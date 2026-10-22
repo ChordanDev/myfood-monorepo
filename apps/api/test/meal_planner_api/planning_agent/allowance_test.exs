@@ -63,26 +63,6 @@ defmodule MealPlannerApi.PlanningAgent.AllowanceTest do
     assert {:exhausted, "session_iterations"} = Allowance.start_iteration(allowance)
   end
 
-  test "a restored allowance from an older snapshot gains the new counters" do
-    old = %{
-      __struct__: Allowance,
-      max_iterations: 10,
-      iteration_limit: 10,
-      iterations: 4,
-      max_no_progress: 3,
-      no_progress: 1,
-      evidence: MapSet.new()
-    }
-
-    restored = Allowance.restore(old, Allowance.new(15))
-
-    assert restored.iterations == 4
-    assert restored.no_progress == 1
-    assert restored.max_iterations == 15
-    assert restored.max_session_iterations == 60
-    assert {:ok, _} = restored |> Allowance.start_message() |> Allowance.start_iteration()
-  end
-
   test "new evidence resets the no-progress streak; repeated evidence does not" do
     allowance = Allowance.new(10)
 

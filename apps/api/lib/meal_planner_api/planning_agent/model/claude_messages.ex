@@ -1,10 +1,12 @@
 defmodule MealPlannerApi.PlanningAgent.Model.ClaudeMessages do
   @moduledoc """
-  Anthropic Messages API adapter for the planning agent (issue #141, spec
-  #93), over raw HTTP with `Req` (`POST /v1/messages`). Default model
-  `claude-haiku-5-5` with refusal fallbacks off (issue #169): the Haiku
-  quality battery passed with no hard violations at about 1/24 of the Opus
-  cost (#156). `claude-opus-5-5` remains available through `:model`.
+  Anthropic Messages API adapter for the planning agent, over raw HTTP with
+  `Req` (`POST /v1/messages`). Ported from myfood@d9b965a (issue #423); the
+  issue numbers below are that repository's. Default model
+  `claude-haiku-5-5` with refusal fallbacks off: the Haiku quality battery
+  passed with no hard violations at about 1/24 of the Opus cost (#156).
+  Another model is a configuration change (`:model`), made only after the
+  quality battery is re-run on it.
 
   ## Request
 
@@ -29,16 +31,12 @@ defmodule MealPlannerApi.PlanningAgent.Model.ClaudeMessages do
   append-only. The neutral message shape is not extended: the blocks live in
   the adapter state under `assistant_turns`, keyed by the position of the
   neutral messages they produced and by their identity (tool call ids, or
-  the text), and are part of `recoverable/1`. Without a matching entry (an
-  older session) the blocks are rebuilt from the neutral messages. The
-  instructions and tools must stay byte-identical for replayed thinking to
-  stay valid.
+  the text). Without a matching entry the blocks are rebuilt from the
+  neutral messages. The instructions and tools must stay byte-identical for
+  replayed thinking to stay valid.
 
   `assistant_turns` is never pruned within a Planning Session; it is bounded
-  by the Session's own limits. Its persisted copy (the
-  `planning_agent_recoveries` row) is deleted whenever the Session ends:
-  confirmed, cancelled, expired or lock lost (`PlanningRepo` and the
-  Planning Session sweeper).
+  by the Session's own limits and lives only in the Session's memory.
 
   ## Stop reasons
 
@@ -86,6 +84,13 @@ defmodule MealPlannerApi.PlanningAgent.Model.ClaudeMessages do
   highest price among the possible fallback models. Cache prices default
   to 1.25x (5-minute writes) and 1x (reads, conservative) the input price.
 
+  Long prompts: Claude Haiku 5.5 bills a prompt over 100K tokens at 5x its
+  rates. With `long_context_threshold_tokens` and
+  `long_context_price_multiplier` set, an attempt whose prompt (input,
+  cache write and cache read tokens) is over the threshold settles every
+  price multiplied, and a request whose bytes are over it reserves at the
+  multiplied prices (bytes never undercount tokens).
+
   ## Configuration
 
       config :meal_planner_api, MealPlannerApi.PlanningAgent.Model.ClaudeMessages,
@@ -104,6 +109,8 @@ defmodule MealPlannerApi.PlanningAgent.Model.ClaudeMessages do
         max_fallback_attempts: 1,
         fallback_input_price_micros_per_mtok: nil,
         fallback_output_price_micros_per_mtok: nil,
+        long_context_threshold_tokens: nil,          # 100_000 for Claude Haiku 5.5
+        long_context_price_multiplier: nil,          # 5 for Claude Haiku 5.5
         max_tokens: 16_000,                          # thinking plus reply
         receive_timeout_ms: 55_000
 
@@ -144,6 +151,8 @@ defmodule MealPlannerApi.PlanningAgent.Model.ClaudeMessages do
     max_fallback_attempts: 1,
     max_tokens: 16_000,
     receive_timeout_ms: 55_000,
+    long_context_threshold_tokens: nil,
+    long_context_price_multiplier: nil,
     concurrency_limiter: ConcurrencyLimiter,
     req_options: []
   ]
@@ -167,28 +176,6 @@ defmodule MealPlannerApi.PlanningAgent.Model.ClaudeMessages do
     end
   end
 
-  @doc """
-  The spend ledger (an open reservation counted as spent) and the preserved
-  assistant content blocks, kept across a server restart. The
-  configuration, with its API key, is never part of it.
-  """
-  @impl true
-  def recoverable(%{ledger: ledger, assistant_turns: turns}),
-    do: Map.put(PaidCall.recoverable_spend(ledger), :assistant_turns, turns)
-
-  @doc "A recovered Planning Session's state: fresh configuration, kept spend and blocks."
-  @impl true
-  def recover(opts, %{spent_micros: _, spent_tokens: _} = saved) do
-    with {:ok, state} <- init(opts) do
-      {:ok,
-       %{
-         state
-         | ledger: PaidCall.restore_spend(state.ledger, saved),
-           assistant_turns: Map.get(saved, :assistant_turns, %{})
-       }}
-    end
-  end
-
   @doc "Spend summary of the Planning Session so far."
   @spec spend(map()) :: map()
   def spend(%{ledger: ledger}), do: SpendLedger.summary(ledger)
@@ -208,27 +195,31 @@ defmodule MealPlannerApi.PlanningAgent.Model.ClaudeMessages do
 
         case post(state.config, body, receive_timeout(state.config, request)) do
           {:ok, response} ->
-            {usage, actual} =
-              case usage(state.config, response) do
-                {:ok, usage, actual} -> {usage, actual}
-                :unknown -> {nil, reservation}
-              end
-
-            state = %{state | ledger: SpendLedger.settle(state.ledger, reservation, actual)}
-
-            case parse(response) do
-              {:ok, text, tool_calls} ->
-                state = keep_turn(state, length(request.messages), response, text, tool_calls)
-                {:ok, %{text: text, tool_calls: tool_calls, usage: usage}, state}
-
-              {:error, reason} ->
-                {:error, reason, state}
-            end
+            settle(state, request, reservation, response)
 
           {:error, reason} ->
             {:error, reason,
              %{state | ledger: SpendLedger.settle(state.ledger, reservation, reservation)}}
         end
+
+      {:error, reason} ->
+        {:error, reason, state}
+    end
+  end
+
+  defp settle(state, request, reservation, response) do
+    {usage, actual} =
+      case usage(state.config, response) do
+        {:ok, usage, actual} -> {usage, actual}
+        :unknown -> {nil, reservation}
+      end
+
+    state = %{state | ledger: SpendLedger.settle(state.ledger, reservation, actual)}
+
+    case parse(response) do
+      {:ok, text, tool_calls} ->
+        state = keep_turn(state, length(request.messages), response, text, tool_calls)
+        {:ok, %{text: text, tool_calls: tool_calls, usage: usage}, state}
 
       {:error, reason} ->
         {:error, reason, state}
@@ -408,13 +399,14 @@ defmodule MealPlannerApi.PlanningAgent.Model.ClaudeMessages do
   end
 
   defp usage(config, %{"usage" => %{} = usage}),
-    do: sum([attempt(usage, primary_prices(config))])
+    do: sum([attempt(usage, &primary_prices(config, &1))])
 
   defp usage(_config, _response), do: :unknown
 
   defp attempt(_usage, :unknown), do: :unknown
 
-  defp attempt(usage, prices) do
+  # `prices` gives the prices of an attempt from its prompt tokens.
+  defp attempt(usage, prices_for) do
     # Cache counts are absent when nothing was cached; the others are required.
     counts = [
       usage["input_tokens"],
@@ -425,6 +417,7 @@ defmodule MealPlannerApi.PlanningAgent.Model.ClaudeMessages do
 
     if Enum.all?(counts, &PaidCall.non_neg_integer?/1) do
       [input, write, read, output] = counts
+      prices = prices_for.(input + write + read)
 
       micros =
         PaidCall.micros(input, prices.input) + PaidCall.micros(write, prices.cache_write) +
@@ -461,19 +454,30 @@ defmodule MealPlannerApi.PlanningAgent.Model.ClaudeMessages do
   # A fallback attempt the request never enabled has no configured price:
   # its settlement is unknown, so the worst case stays spent.
   defp prices(%{fallbacks: true} = config, %{"type" => "fallback_message"}),
-    do: fallback_prices(config)
+    do: fn _prompt_tokens -> fallback_prices(config) end
 
   defp prices(_config, %{"type" => "fallback_message"}), do: :unknown
-  defp prices(config, _iteration), do: primary_prices(config)
+  defp prices(config, _iteration), do: &primary_prices(config, &1)
 
-  defp primary_prices(config) do
+  defp primary_prices(config, prompt_tokens) do
+    multiplier = long_context_multiplier(config, prompt_tokens)
+
     %{
-      input: config.input_price_micros_per_mtok,
-      output: config.output_price_micros_per_mtok,
-      cache_write: config.cache_write_price_micros_per_mtok,
-      cache_read: config.cache_read_price_micros_per_mtok
+      input: config.input_price_micros_per_mtok * multiplier,
+      output: config.output_price_micros_per_mtok * multiplier,
+      cache_write: config.cache_write_price_micros_per_mtok * multiplier,
+      cache_read: config.cache_read_price_micros_per_mtok * multiplier
     }
   end
+
+  defp long_context_multiplier(
+         %{long_context_threshold_tokens: threshold, long_context_price_multiplier: multiplier},
+         prompt_tokens
+       )
+       when is_integer(threshold) and is_integer(multiplier) and prompt_tokens > threshold,
+       do: multiplier
+
+  defp long_context_multiplier(_config, _prompt_tokens), do: 1
 
   defp fallback_prices(config) do
     input = config.fallback_input_price_micros_per_mtok
@@ -496,7 +500,7 @@ defmodule MealPlannerApi.PlanningAgent.Model.ClaudeMessages do
   # `max_tokens` once, never doubled for a fallback attempt.
   defp worst_case(config, body) do
     input = body |> Jason.encode!() |> byte_size()
-    first = attempt_worst_micros(primary_prices(config), input, config.max_tokens)
+    first = attempt_worst_micros(primary_prices(config, input), input, config.max_tokens)
 
     micros =
       if config.fallbacks do
@@ -548,7 +552,7 @@ defmodule MealPlannerApi.PlanningAgent.Model.ClaudeMessages do
         )
 
     if Enum.all?(prices, &PaidCall.non_neg_integer?(config[&1])) and
-         positive_integer?(config[:max_tokens]) and
+         positive_integer?(config[:max_tokens]) and long_context_valid?(config) and
          (not config.fallbacks or PaidCall.non_neg_integer?(config[:max_fallback_attempts])),
        do: :ok,
        else: {:error, :pricing_unconfigured}
@@ -562,7 +566,7 @@ defmodule MealPlannerApi.PlanningAgent.Model.ClaudeMessages do
   defp validate_fallbacks(%{fallbacks: true, model: "claude-haiku-" <> _ = model}) do
     Logger.error(
       "ClaudeMessages: fallbacks: true is not supported by #{model}; " <>
-        "set PLANNING_AGENT_CLAUDE_FALLBACKS=false or choose a model that accepts " <>
+        "set fallbacks: false or choose a model that accepts " <>
         "server-side refusal fallbacks, such as claude-opus-5-5"
     )
 
@@ -572,4 +576,12 @@ defmodule MealPlannerApi.PlanningAgent.Model.ClaudeMessages do
   defp validate_fallbacks(_config), do: :ok
 
   defp positive_integer?(value), do: is_integer(value) and value > 0
+
+  # Both long-prompt settings or neither.
+  defp long_context_valid?(config) do
+    case {config[:long_context_threshold_tokens], config[:long_context_price_multiplier]} do
+      {nil, nil} -> true
+      {threshold, multiplier} -> positive_integer?(threshold) and positive_integer?(multiplier)
+    end
+  end
 end

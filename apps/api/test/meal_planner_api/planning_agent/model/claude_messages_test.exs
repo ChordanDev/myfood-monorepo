@@ -1,9 +1,8 @@
 defmodule MealPlannerApi.PlanningAgent.Model.ClaudeMessagesTest do
   @moduledoc """
   The Claude Messages adapter against a stubbed HTTP endpoint (no real
-  Anthropic call): the same contract as the OpenAI adapter (mandatory caps,
-  worst-case reservation, settlement to usage, typed failures) plus the
-  Claude specifics: tool_use / tool_result blocks, preserved assistant
+  Anthropic call): mandatory caps, worst-case reservation, settlement to
+  usage, typed failures, plus the Claude specifics: tool_use / tool_result blocks, preserved assistant
   content blocks, cache and fallback usage, and typed stop reasons.
   """
 
@@ -256,38 +255,6 @@ defmodule MealPlannerApi.PlanningAgent.Model.ClaudeMessagesTest do
     end
   end
 
-  describe "recovery" do
-    test "keeps the spend of the Planning Session, never its credentials" do
-      {:ok, state} = ClaudeMessages.init(opts())
-      {:ok, ledger} = SpendLedger.reserve(state.ledger, %{micros: 700, tokens: 70})
-      state = %{state | ledger: %{ledger | spent_micros: 300, spent_tokens: 150}}
-
-      saved = ClaudeMessages.recoverable(state)
-      refute inspect(saved, limit: :infinity) =~ "test-key"
-
-      assert {:ok, recovered} = ClaudeMessages.recover(opts(), saved)
-
-      assert ClaudeMessages.spend(recovered) == %{
-               spent_micros: 1_000,
-               spent_tokens: 220,
-               reserved_micros: 0,
-               reserved_tokens: 0
-             }
-
-      assert recovered.config.api_key == "test-key"
-    end
-
-    test "still refuses without configured caps" do
-      {:ok, state} = ClaudeMessages.init(opts())
-
-      assert {:error, :spend_caps_unconfigured} =
-               ClaudeMessages.recover(
-                 opts(spend_cap_micros: nil),
-                 ClaudeMessages.recoverable(state)
-               )
-    end
-  end
-
   describe "respond/2 request" do
     test "sends one Messages API request and settles spend to actual usage" do
       stub_response(
@@ -460,7 +427,7 @@ defmodule MealPlannerApi.PlanningAgent.Model.ClaudeMessagesTest do
                ClaudeMessages.respond(state, @request)
     end
 
-    test "assistant content blocks are resent unchanged on later requests and survive recovery" do
+    test "assistant content blocks are resent unchanged on later requests" do
       tool_turn = [
         @thinking,
         %{"type" => "text", "text" => "Let me look."},
@@ -497,9 +464,6 @@ defmodule MealPlannerApi.PlanningAgent.Model.ClaudeMessagesTest do
       assert {:ok, %{text: "Here is a plan."}, state} = ClaudeMessages.respond(state, second)
       assert_received {:provider_called, _, body}
       assert Enum.at(body["messages"], 1) == %{"role" => "assistant", "content" => tool_turn}
-
-      # A restart in between: the blocks come back from the stored part.
-      {:ok, state} = ClaudeMessages.recover(opts(), ClaudeMessages.recoverable(state))
 
       third = %{
         second
@@ -544,6 +508,74 @@ defmodule MealPlannerApi.PlanningAgent.Model.ClaudeMessagesTest do
       # count toward the token cap (issue #154): 100 + 1_000 + 50 tokens.
       assert %{spent_micros: 1_750, spent_tokens: 1_150, reserved_micros: 0} =
                ClaudeMessages.spend(state)
+    end
+
+    test "a prompt over the long-context threshold settles every price multiplied" do
+      long = [long_context_threshold_tokens: 3_000, long_context_price_multiplier: 5]
+
+      stub_responses([
+        text_response("ok", %{
+          "input_tokens" => 100,
+          "cache_creation_input_tokens" => 1_000,
+          "cache_read_input_tokens" => 2_000,
+          "output_tokens" => 50
+        }),
+        text_response("ok", %{"input_tokens" => 3_000, "output_tokens" => 50})
+      ])
+
+      {:ok, state} = ClaudeMessages.init(opts(long))
+
+      # A prompt of 3_100 tokens is over 3_000: (100 + 1_250 + 200 + 200) x 5.
+      assert {:ok, _response, state} = ClaudeMessages.respond(state, @request)
+      assert %{spent_micros: 8_750, reserved_micros: 0} = ClaudeMessages.spend(state)
+
+      # A prompt of exactly 3_000 tokens is not over it: 3_000 + 200.
+      assert {:ok, _response, state} = ClaudeMessages.respond(state, @request)
+      assert %{spent_micros: 11_950, reserved_micros: 0} = ClaudeMessages.spend(state)
+    end
+
+    test "a request whose bytes are over the long-context threshold reserves multiplied" do
+      {:ok, state} = ClaudeMessages.init(opts(fallbacks: false))
+
+      {:ok, long_state} =
+        ClaudeMessages.init(
+          opts(
+            fallbacks: false,
+            long_context_threshold_tokens: 10,
+            long_context_price_multiplier: 5
+          )
+        )
+
+      test = self()
+
+      checkpoint = fn reserved ->
+        send(test, {:reserved, ClaudeMessages.spend(reserved).reserved_micros})
+      end
+
+      request = Map.put(@request, :checkpoint, checkpoint)
+      stub_responses([text_response("ok"), text_response("ok")])
+
+      {:ok, _response, _state} = ClaudeMessages.respond(state, request)
+      assert_received {:reserved, plain}
+      {:ok, _response, _state} = ClaudeMessages.respond(long_state, request)
+      assert_received {:reserved, multiplied}
+
+      # Each price is rounded up to the micro-USD before multiplying.
+      assert multiplied in (plain * 5 - 8)..(plain * 5)
+      assert multiplied > plain * 4
+    end
+
+    test "the long-context settings are both set or both unset" do
+      assert {:error, :pricing_unconfigured} =
+               ClaudeMessages.init(opts(long_context_threshold_tokens: 100_000))
+
+      assert {:error, :pricing_unconfigured} =
+               ClaudeMessages.init(opts(long_context_price_multiplier: 5))
+
+      assert {:ok, _state} =
+               ClaudeMessages.init(
+                 opts(long_context_threshold_tokens: 100_000, long_context_price_multiplier: 5)
+               )
     end
 
     test "a realistic response settles exactly from its usage, never from the reservation" do
@@ -770,7 +802,7 @@ defmodule MealPlannerApi.PlanningAgent.Model.ClaudeMessagesTest do
 
       assert {:error, :provider_refused, state} = ClaudeMessages.respond(state, @request)
       assert %{spent_micros: 100, reserved_micros: 0} = ClaudeMessages.spend(state)
-      assert ClaudeMessages.recoverable(state).assistant_turns == %{}
+      assert state.assistant_turns == %{}
     end
 
     test "a refusal is not retried through the call bounds: billed once" do

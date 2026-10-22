@@ -70,17 +70,6 @@ defmodule MealPlannerApi.PlanningAgent.Allowance do
       max_no_progress: Keyword.get(opts, :max_no_progress, @default_max_no_progress)
     }
 
-  @doc """
-  A recovered allowance: the saved counters over `fresh`, so a snapshot
-  stored before a counter existed gains it with its default. The limits
-  are the current ones of `fresh`.
-  """
-  @spec restore(map(), t()) :: t()
-  def restore(saved, %__MODULE__{} = fresh) do
-    counters = Map.take(saved, [:iterations, :no_progress, :evidence])
-    struct(fresh, counters)
-  end
-
   @doc "A new Member message: its own `max_iterations` iterations start."
   @spec start_message(t()) :: t()
   def start_message(%__MODULE__{} = allowance),

@@ -48,6 +48,35 @@ config :meal_planner_api,
   optimizer_timeout_ms: 15_000,
   optimizer_inventory_weight: 100
 
+# Planning agent (issue #423). `model` is the model adapter every Planning
+# session uses; `max_range_days` the longest Planning Range.
+config :meal_planner_api, :planning_agent,
+  model: {MealPlannerApi.PlanningAgent.Model.ClaudeMessages, []},
+  max_range_days: 31
+
+# The Claude adapter of the planning agent. The model is Claude Haiku 5.5;
+# another model is a configuration change (`PLANNING_AGENT_CLAUDE_MODEL`
+# with its prices), made only after the quality battery (#435) is re-run on
+# it. Prices are micro-USD per million tokens: Claude Haiku 5.5 list prices
+# for prompts up to 100K tokens, 5x above. The spend caps are the same for
+# every Account and are PLACEHOLDERS until the quality battery measures the
+# real cost per session. `api_key` comes from `ANTHROPIC_API_KEY`
+# (`config/runtime.exs`); without it no Planning session starts.
+config :meal_planner_api, MealPlannerApi.PlanningAgent.Model.ClaudeMessages,
+  model: "claude-haiku-5-5",
+  effort: "medium",
+  input_price_micros_per_mtok: 100_000,
+  output_price_micros_per_mtok: 500_000,
+  cache_write_price_micros_per_mtok: 125_000,
+  cache_read_price_micros_per_mtok: 10_000,
+  long_context_threshold_tokens: 100_000,
+  long_context_price_multiplier: 5,
+  # US$0.50 and 5M tokens per Planning session (placeholders).
+  spend_cap_micros: 500_000,
+  token_cap: 5_000_000,
+  # Provider calls in flight across every Planning session.
+  max_concurrent_calls: 20
+
 # Social sign-in (issue #106). A provider with no client ID is refused,
 # so both lists stay empty until `config/runtime.exs` reads them.
 config :meal_planner_api,
