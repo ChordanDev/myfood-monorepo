@@ -173,6 +173,7 @@ export type AuthErrorCode =
   | 'optimizer_unavailable'
   | 'optimizer_timeout'
   | 'planning_session_invalid_range'
+  | 'planning_session_active'
   | 'consent_required'
   | 'agent_busy'
   | 'agent_unavailable'

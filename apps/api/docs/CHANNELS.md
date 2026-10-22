@@ -227,12 +227,14 @@ Refusals reply the error envelope:
 | `planning_session_invalid_range` | `start_session` | A date is missing or not ISO 8601, the range is not 1 to 31 days, or it starts before today |
 | `subscription_required` | `start_session` | The Account is not eligible |
 | `planning_slot_occupied` | `start_session` | A day of the range already has a Scheduled meal; `details.occupied` names each date and slot |
-| `planning_range_locked` | `start_session` | Another session of the Account is running or holds part of the range; `details.ownerName` names its member when it is not the caller |
+| `planning_session_active` | `start_session` | An agent session of the Account is already running, whatever its range; `details.ownerName` names its member when it is not the caller |
+| `planning_range_locked` | `start_session` | A legacy session holds part of the range; `details.ownerName` names its member when it is not the caller |
 | `agent_unavailable` | `start_session` | The model is not configured (API key, prices or spend caps) |
 | `consent_required` | `send_message` | The User has not given AI-processing consent; a `consent_required` agent event carries the text |
 | `agent_busy` | `send_message`, `confirm` | The agent is still answering the previous message |
 | `invalid_payload` | any | The payload is not a map, or the text is empty or too long |
 | `no_active_session` | `give_consent`, `send_message`, `stop`, `cancel_session`, `confirm` | No session is running (for `confirm`: and the Proposal was never confirmed) |
+| `unknown_error` | any | An unexpected failure, such as a session that does not answer in time; never reported as `no_active_session` |
 | `forbidden` | `give_consent`, `send_message`, `stop`, `cancel_session`, `confirm` | The session belongs to another Member (the owner may cancel it) |
 | `invalid_proposal_id` | `confirm`, `confirmation_status` | `proposalId` is not a UUID |
 | `stale_proposal` | `confirm` | Not the Proposal on display; the current one is pushed again |
