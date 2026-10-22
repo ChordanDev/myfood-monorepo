@@ -44,7 +44,8 @@ defmodule MealPlannerApi.PlanningAgent.Session do
   its paid calls are bounded by the model adapter's spend caps.
 
   The session renews its lease every minute up to the 30-minute cap of
-  `PlanningRepo.renew_session_lease/4`; a lost lease ends it. It also ends
+  `PlanningRepo.renew_session_lease/4`; a lost lease ends it, a renewal the
+  database did not answer is tried again on the next tick. It also ends
   when its last subscriber leaves. Absence grace, idle expiry and restart
   recovery belong to #432.
   """
@@ -107,6 +108,10 @@ defmodule MealPlannerApi.PlanningAgent.Session do
     * `:recipe_search` — `{module, opts}` replacing the recipe search (tests)
     * `:subscriber` — pid receiving events (more can join with `subscribe/2`)
     * `:max_iterations`, `:deadline_ms`, `:call_policies` — limits
+    * `:lease_store` — the module that renews and ends the session's row
+      (default `PlanningRepo`; tests)
+    * `:confirmation_store` — the module that reads and commits
+      confirmations (default `Confirmation`; tests)
   """
   @spec start(attrs(), keyword()) ::
           {:ok, %{session_id: Ecto.UUID.t(), pid: pid(), consent_required: boolean()}}
@@ -136,7 +141,9 @@ defmodule MealPlannerApi.PlanningAgent.Session do
         subscriber: Keyword.get(opts, :subscriber),
         max_iterations: Keyword.get(opts, :max_iterations, @default_max_iterations),
         deadline_ms: Keyword.get(opts, :deadline_ms, @default_deadline_ms),
-        call_policies: Keyword.get(opts, :call_policies, %{})
+        call_policies: Keyword.get(opts, :call_policies, %{}),
+        lease_store: Keyword.get(opts, :lease_store, PlanningRepo),
+        confirmation_store: Keyword.get(opts, :confirmation_store, Confirmation)
       }
 
       case DynamicSupervisor.start_child(@supervisor, {__MODULE__, init_args}) do
@@ -213,15 +220,18 @@ defmodule MealPlannerApi.PlanningAgent.Session do
     * `:approval_required` — the Proposal is over the budget (approvals
       arrive with #430)
     * `:proposal_invalid` — it is no longer valid; nothing was saved
-    * `:scheduled_meal_cooked`, `:meal_already_confirmed` — a final meal
-      holds one of its days and slots
+    * `{:slot_occupied, [{date, slot}]}` — meals were scheduled in the
+      range during the session; they are never replaced. The session goes
+      on: once they are removed, the same Proposal can be confirmed again
+      (a new plan cannot help, since a Proposal covers the whole range)
     * `:no_active_session` — no session runs and the Proposal was never
       confirmed
     * `:unresolved` — the outcome is not known yet; ask
       `confirmation_status/2`
   """
   @spec confirm(Ecto.UUID.t(), Ecto.UUID.t(), String.t()) ::
-          {:ok, Confirmation.summary()} | {:error, atom()}
+          {:ok, Confirmation.summary()}
+          | {:error, atom() | {:slot_occupied, [{Date.t(), atom()}]}}
   def confirm(account_id, membership_id, proposal_id) do
     case whereis(account_id) do
       nil ->
@@ -302,7 +312,9 @@ defmodule MealPlannerApi.PlanningAgent.Session do
       task: nil,
       deadline_ref: nil,
       deadline_ms: args.deadline_ms,
-      call_policies: args.call_policies
+      call_policies: args.call_policies,
+      lease_store: args.lease_store,
+      confirmation_store: args.confirmation_store
     }
 
     state = if args.subscriber, do: add_subscriber(state, args.subscriber), else: state
@@ -395,11 +407,19 @@ defmodule MealPlannerApi.PlanningAgent.Session do
       when membership_id != state.membership_id,
       do: {:reply, {:error, :forbidden}, state}
 
+  # The reads before the commit (the stored confirmation, the household's
+  # restrictions, the recipes) can fail when the database does not answer:
+  # the outcome is then unknown, nothing was saved and the session goes on.
+  # The commit itself reports its own failures.
   def handle_call({:confirm, _membership_id, proposal_id}, _from, state) do
-    case Confirmation.status(state.account_id, proposal_id) do
+    case state.confirmation_store.status(state.account_id, proposal_id) do
       {:confirmed, summary} -> {:reply, {:ok, summary}, state}
       :not_found -> confirm_current(state, proposal_id)
     end
+  rescue
+    exception in [DBConnection.ConnectionError, Postgrex.Error] ->
+      Logger.warning("planning agent confirm could not read: #{inspect(exception.__struct__)}")
+      {:reply, {:error, :unresolved}, state}
   end
 
   @impl true
@@ -474,7 +494,13 @@ defmodule MealPlannerApi.PlanningAgent.Session do
   end
 
   def handle_info(:renew_lease, state) do
-    case PlanningRepo.renew_session_lease(state.account_id, state.session_id, state.membership_id) do
+    case renew_lease(state) do
+      # The database did not answer: the 120-second lease outlives one
+      # missed renewal, so the next one is tried as usual.
+      :unavailable ->
+        schedule_lease_renewal()
+        {:noreply, state}
+
       {:ok, _session} ->
         schedule_lease_renewal()
         {:noreply, state}
@@ -497,12 +523,22 @@ defmodule MealPlannerApi.PlanningAgent.Session do
   def terminate(_reason, state) do
     _ = stop_turn(state)
 
+    # Subscribers are told first: ending the row can fail, and the lease
+    # then lapses on its own.
     if state.session_id do
-      _ = PlanningRepo.expire_session(state.account_id, state.session_id)
       emit(state, %{"type" => "session_ended"})
+      _ = state.lease_store.expire_session(state.account_id, state.session_id)
     end
 
     :ok
+  end
+
+  defp renew_lease(state) do
+    state.lease_store.renew_session_lease(state.account_id, state.session_id, state.membership_id)
+  rescue
+    exception in [DBConnection.ConnectionError, Postgrex.Error] ->
+      Logger.warning("planning agent lease renewal failed: #{inspect(exception.__struct__)}")
+      :unavailable
   end
 
   # The conversation is reduced to its length and a Member message to a
@@ -588,13 +624,13 @@ defmodule MealPlannerApi.PlanningAgent.Session do
       meals: Proposal.meals(shown)
     }
 
-    case Confirmation.commit(attrs) do
+    case state.confirmation_store.commit(attrs) do
       {:ok, summary} ->
         confirmed(state, summary)
 
       # A concurrent replay stored it first.
       {:error, :already_confirmed} ->
-        case Confirmation.status(state.account_id, shown["proposal_id"]) do
+        case state.confirmation_store.status(state.account_id, shown["proposal_id"]) do
           {:confirmed, summary} -> confirmed(state, summary)
           :not_found -> {:reply, {:error, :rejected}, state}
         end
@@ -633,6 +669,8 @@ defmodule MealPlannerApi.PlanningAgent.Session do
       {:confirmed, summary} -> {:ok, summary}
       :not_found -> {:error, :no_active_session}
     end
+  rescue
+    _exception in [DBConnection.ConnectionError, Postgrex.Error] -> {:error, :unresolved}
   end
 
   defp put_proposal(state, proposal),

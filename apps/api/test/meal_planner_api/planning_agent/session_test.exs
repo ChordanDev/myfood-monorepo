@@ -31,6 +31,26 @@ defmodule MealPlannerApi.PlanningAgent.SessionTest do
     def respond(%{api_key: _key} = _state, %{never: :matches}), do: :unreachable
   end
 
+  # A lease store whose renewal fails once with a lost connection and whose
+  # expire always fails; everything else is the real one.
+  defmodule FlakyLeaseStore do
+    @moduledoc false
+
+    alias MealPlannerApi.Data.PlanningRepo
+
+    def renew_session_lease(account_id, session_id, membership_id) do
+      if :persistent_term.get({__MODULE__, :failed}, false) do
+        PlanningRepo.renew_session_lease(account_id, session_id, membership_id)
+      else
+        :persistent_term.put({__MODULE__, :failed}, true)
+        raise DBConnection.ConnectionError, "connection lost"
+      end
+    end
+
+    def expire_session(_account_id, _session_id),
+      do: raise(DBConnection.ConnectionError, "connection lost")
+  end
+
   setup do
     sandbox_sessions!()
     on_exit(&FakeOptimizer.reset!/0)
@@ -340,6 +360,38 @@ defmodule MealPlannerApi.PlanningAgent.SessionTest do
       assert_receive {:DOWN, ^ref, :process, ^pid, :normal}
       assert %PlanningSession{status: :expired} = row(id)
       _ = test
+    end
+
+    test "a database error while renewing the lease keeps the session", %{owner: owner} do
+      on_exit(fn -> :persistent_term.erase({FlakyLeaseStore, :failed}) end)
+      {:ok, %{session_id: id, pid: pid}} = start(owner, lease_store: FlakyLeaseStore)
+
+      capture_log(fn ->
+        send(pid, :renew_lease)
+        # The second renewal reaches the real store.
+        send(pid, :renew_lease)
+        assert %{session_id: ^id} = Session.info(pid)
+      end)
+
+      assert Process.alive?(pid)
+      assert %PlanningSession{status: :active} = row(id)
+      refute_received {:planning_agent_event, ^id, %{"type" => "session_ended"}}
+    end
+
+    test "session_ended reaches the subscriber even when the row cannot be ended", %{
+      owner: owner
+    } do
+      {:ok, %{session_id: id, pid: pid}} = start(owner, lease_store: FlakyLeaseStore)
+      ref = Process.monitor(pid)
+
+      capture_log(fn ->
+        :ok =
+          DynamicSupervisor.terminate_child(MealPlannerApi.PlanningAgent.SessionSupervisor, pid)
+
+        assert_receive {:DOWN, ^ref, :process, ^pid, _reason}
+      end)
+
+      assert_received {:planning_agent_event, ^id, %{"type" => "session_ended"}}
     end
 
     test "a lost lease ends the session", %{owner: owner} do

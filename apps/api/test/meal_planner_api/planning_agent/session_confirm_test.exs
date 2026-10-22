@@ -7,12 +7,35 @@ defmodule MealPlannerApi.PlanningAgent.SessionConfirmTest do
   use ExUnit.Case, async: false
 
   import Ecto.Query
+  import ExUnit.CaptureLog
   import MealPlannerApi.PlanningAgentFixtures
 
+  alias MealPlannerApi.Persistence.Calendar
   alias MealPlannerApi.Persistence.Planning.{PlanningConfirmation, PlanningSession, ScheduledMeal}
-  alias MealPlannerApi.PlanningAgent.{FakeOptimizer, Session}
+  alias MealPlannerApi.Persistence.Shopping.ShoppingItem
+  alias MealPlannerApi.PlanningAgent.{Confirmation, FakeOptimizer, Session}
   alias MealPlannerApi.PlanningAgent.Model.Scripted
   alias MealPlannerApi.Repo
+  alias MealPlannerApi.Services.ShoppingService
+
+  # A confirmation store whose status read fails once with a lost
+  # connection; everything else is the real one.
+  defmodule FlakyConfirmationStore do
+    @moduledoc false
+
+    alias MealPlannerApi.PlanningAgent.Confirmation
+
+    def status(account_id, proposal_id) do
+      if :persistent_term.get({__MODULE__, :failed}, false) do
+        Confirmation.status(account_id, proposal_id)
+      else
+        :persistent_term.put({__MODULE__, :failed}, true)
+        raise DBConnection.ConnectionError, "connection lost"
+      end
+    end
+
+    defdelegate commit(attrs), to: Confirmation
+  end
 
   setup do
     sandbox_sessions!()
@@ -25,9 +48,10 @@ defmodule MealPlannerApi.PlanningAgent.SessionConfirmTest do
 
   # Starts a session and runs one turn that presents a Proposal; returns
   # the session and the Proposal event.
-  defp proposal!(who) do
+  defp proposal!(who, opts \\ []) do
     {:ok, %{session_id: id, pid: pid}} =
-      Session.start(session_attrs(who),
+      Session.start(session_attrs(who, Keyword.get(opts, :range)),
+        confirmation_store: Keyword.get(opts, :confirmation_store, Confirmation),
         model:
           {Scripted,
            script: [
@@ -87,6 +111,28 @@ defmodule MealPlannerApi.PlanningAgent.SessionConfirmTest do
 
     assert %PlanningConfirmation{planning_session_id: ^id, meals_count: 6} =
              Repo.get!(PlanningConfirmation, proposal_id)
+  end
+
+  test "a database error before the commit answers unresolved and keeps the session", %{
+    owner: owner
+  } do
+    on_exit(fn -> :persistent_term.erase({FlakyConfirmationStore, :failed}) end)
+
+    %{id: id, pid: pid, proposal: %{"proposal_id" => proposal_id}} =
+      proposal!(owner, confirmation_store: FlakyConfirmationStore)
+
+    capture_log(fn ->
+      assert {:error, :unresolved} =
+               Session.confirm(owner.account.id, owner.membership.id, proposal_id)
+    end)
+
+    assert Process.alive?(pid)
+    refute_received {:planning_agent_event, ^id, %{"type" => "session_ended"}}
+    assert scheduled(owner.account) == []
+
+    # Once the database answers, the same Proposal confirms.
+    assert {:ok, %{meals_count: 6}} =
+             Session.confirm(owner.account.id, owner.membership.id, proposal_id)
   end
 
   test "a replayed confirmation answers the same summary and saves nothing twice", %{
@@ -161,6 +207,68 @@ defmodule MealPlannerApi.PlanningAgent.SessionConfirmTest do
     assert scheduled(owner.account) == []
   end
 
+  test "a meal another Member adds during the session is never deleted: the confirmation is refused",
+       %{owner: owner, recipes: recipes} do
+    %{pid: pid, proposal: %{"proposal_id" => proposal_id}} = proposal!(owner)
+    today = MealPlannerApi.AccountClock.today(owner.account.id)
+    other = recipe!(owner.account, "Added by another Member", ["lunch"])
+
+    {:ok, meal} =
+      Calendar.upsert_scheduled_meal(owner.account.id, %{
+        date: today,
+        slot: :lunch,
+        recipe_id: other.id
+      })
+
+    :ok = ShoppingService.ensure_shopping_items_from_schedule(owner.account.id, [meal])
+
+    items =
+      Repo.aggregate(from(i in ShoppingItem, where: i.scheduled_meal_id == ^meal.id), :count)
+
+    assert items > 0
+
+    assert {:error, {:slot_occupied, [{^today, :lunch}]}} =
+             Session.confirm(owner.account.id, owner.membership.id, proposal_id)
+
+    assert [{^today, :lunch, recipe_id, false}] = scheduled(owner.account)
+    assert recipe_id == other.id
+
+    assert Repo.aggregate(from(i in ShoppingItem, where: i.scheduled_meal_id == ^meal.id), :count) ==
+             items
+
+    refute Repo.get(PlanningConfirmation, proposal_id)
+    assert Process.alive?(pid)
+
+    # Once the added meal is gone, the same Proposal confirms.
+    {:ok, _deleted} = Calendar.delete_scheduled_meal(owner.account.id, today, :lunch)
+
+    assert {:ok, %{meals_count: 6}} =
+             Session.confirm(owner.account.id, owner.membership.id, proposal_id)
+
+    assert length(scheduled(owner.account)) == 6
+    _ = recipes
+  end
+
+  test "the occupied slots of a refused confirmation come in date order across months", %{
+    owner: owner
+  } do
+    today = MealPlannerApi.AccountClock.today(owner.account.id)
+    last_of_month = Date.end_of_month(today)
+    first_of_next = Date.add(last_of_month, 1)
+
+    %{proposal: %{"proposal_id" => proposal_id}} =
+      proposal!(owner, range: {today, first_of_next})
+
+    recipe = recipe!(owner.account, "Added meanwhile", ["lunch", "dinner"])
+    scheduled_meal!(owner.account, recipe, first_of_next, :lunch)
+    scheduled_meal!(owner.account, recipe, last_of_month, :dinner)
+
+    assert {:error, {:slot_occupied, occupied}} =
+             Session.confirm(owner.account.id, owner.membership.id, proposal_id)
+
+    assert occupied == [{last_of_month, :dinner}, {first_of_next, :lunch}]
+  end
+
   test "a final meal is never overwritten: the confirmation is refused whole (S11)", %{
     owner: owner,
     recipes: recipes
@@ -169,7 +277,7 @@ defmodule MealPlannerApi.PlanningAgent.SessionConfirmTest do
     today = MealPlannerApi.AccountClock.today(owner.account.id)
     scheduled_meal!(owner.account, recipes["dinner"], today, :dinner, %{is_cooked: true})
 
-    assert {:error, :scheduled_meal_cooked} =
+    assert {:error, {:slot_occupied, [{^today, :dinner}]}} =
              Session.confirm(owner.account.id, owner.membership.id, proposal_id)
 
     assert [{^today, :dinner, _recipe, true}] = scheduled(owner.account)
@@ -184,7 +292,7 @@ defmodule MealPlannerApi.PlanningAgent.SessionConfirmTest do
       not_cooked_at: DateTime.utc_now()
     })
 
-    assert {:error, :meal_already_confirmed} =
+    assert {:error, {:slot_occupied, [{^today, :lunch}]}} =
              Session.confirm(owner.account.id, owner.membership.id, proposal_id)
 
     assert [{^today, :lunch, _recipe, false}] = scheduled(owner.account)

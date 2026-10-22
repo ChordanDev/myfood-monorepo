@@ -282,6 +282,31 @@ defmodule MealPlannerApiWeb.PlanningStartTest do
       assert_reply(ref, :ok, %{"status" => "confirmed", "mealsCount" => 6})
     end
 
+    test "a meal scheduled during the session refuses the confirmation and names its slot", %{
+      owner: owner
+    } do
+      consent!(owner.user)
+      socket = join!(owner)
+      start!(socket, owner)
+
+      ref = push(socket, "send_message", %{"text" => "Plan"})
+      assert_reply(ref, :ok, _)
+      assert_push("agent_event", %{"type" => "proposal", "proposalId" => proposal_id})
+
+      recipe = recipe!(owner.account, "Added meanwhile", ["dinner"])
+      scheduled_meal!(owner.account, recipe, today(owner), :dinner)
+
+      ref = push(socket, "confirm", %{"proposalId" => proposal_id})
+      assert_reply(ref, :error, %{"error" => %{"code" => :planning_slot_occupied} = error})
+
+      assert error["details"] == %{
+               "occupied" => [%{"date" => Date.to_iso8601(today(owner)), "slot" => "dinner"}]
+             }
+
+      assert scheduled(owner.account) == 1
+      assert Session.whereis(owner.account.id)
+    end
+
     test "a confirmation of a Proposal never shown is refused", %{owner: owner} do
       consent!(owner.user)
       socket = join!(owner)

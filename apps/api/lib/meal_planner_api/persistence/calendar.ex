@@ -178,43 +178,32 @@ defmodule MealPlannerApi.Persistence.Calendar do
           {Date.t(), Date.t()},
           [map()]
         ) :: {:ok, %{replaced: non_neg_integer()}} | {:error, atom()}
-  def replace_scheduled_meals_for_range(account_id, range, new_meals) when is_list(new_meals) do
-    with {:ok, multi} <- replace_scheduled_meals_multi(Multi.new(), account_id, range, new_meals) do
-      multi |> Repo.transaction() |> map_replacement_result()
+  def replace_scheduled_meals_for_range(account_id, {from_date, to_date}, new_meals)
+      when is_list(new_meals) do
+    with :ok <- validate_range(from_date, to_date),
+         {:ok, normalized_meals} <-
+           normalize_replacement_meals(account_id, from_date, to_date, new_meals) do
+      replace_range_transaction(account_id, from_date, to_date, normalized_meals)
     end
   rescue
     Postgrex.Error -> {:error, :persistence_error}
     Ecto.ConstraintError -> {:error, :persistence_error}
   end
 
-  @doc """
-  The steps of `replace_scheduled_meals_for_range/3` appended to `multi`, for
-  a caller that saves the meals together with its own rows (the planning
-  agent's confirmation, issue #423). The meals are validated first:
-  `{:error, reason}` when they cannot replace the range.
-
-  The answered meals of the range stay with their answer: the cooked ones
-  (issue #368) and the ones answered "not cooked" (issue #395). A
-  replacement meal on the date and slot of one fails the `:answered_meals_kept`
-  step with `:scheduled_meal_cooked` or `:meal_already_confirmed`; the meals
-  are locked first, so a concurrent answer is seen there. The inserted
-  meals are the `:scheduled_meals_replacement` step.
-  """
-  @spec replace_scheduled_meals_multi(Multi.t(), Ecto.UUID.t(), {Date.t(), Date.t()}, [map()]) ::
-          {:ok, Multi.t()} | {:error, atom()}
-  def replace_scheduled_meals_multi(multi, account_id, {from_date, to_date}, new_meals)
-      when is_list(new_meals) do
-    with :ok <- validate_range(from_date, to_date),
-         {:ok, normalized_meals} <-
-           normalize_replacement_meals(account_id, from_date, to_date, new_meals) do
-      {:ok,
-       multi
-       |> PlanningRepo.delete_scheduled_meals_for_range(account_id, {from_date, to_date})
-       |> Multi.run(:answered_meals_kept, fn _repo, %{scheduled_meals_range_lock: locked} ->
-         refuse_answered_slots(locked, normalized_meals)
-       end)
-       |> PlanningRepo.insert_scheduled_meals(account_id, normalized_meals)}
-    end
+  # The answered meals of the range stay with their answer: the cooked ones
+  # (issue #368) and the ones answered "not cooked" (issue #395). A
+  # replacement meal on the date and slot of one refuses the whole
+  # replacement; the meals are locked first, so a concurrent answer is seen
+  # here.
+  defp replace_range_transaction(account_id, from_date, to_date, normalized_meals) do
+    Multi.new()
+    |> PlanningRepo.delete_scheduled_meals_for_range(account_id, {from_date, to_date})
+    |> Multi.run(:answered_meals_kept, fn _repo, %{scheduled_meals_range_lock: locked} ->
+      refuse_answered_slots(locked, normalized_meals)
+    end)
+    |> PlanningRepo.insert_scheduled_meals(account_id, normalized_meals)
+    |> Repo.transaction()
+    |> map_replacement_result()
   end
 
   defp refuse_answered_slots(locked, normalized_meals) do

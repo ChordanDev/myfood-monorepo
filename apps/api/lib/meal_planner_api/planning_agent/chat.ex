@@ -124,10 +124,17 @@ defmodule MealPlannerApi.PlanningAgent.Chat do
       {:error, reason} ->
         # A refused confirmation may show a new or withdrawn Proposal.
         chat = drain(chat)
-        say(chat.io, "[confirm refused] #{reason}")
+        say(chat.io, "[confirm refused] #{refusal(reason)}")
         loop(chat)
     end
   end
+
+  defp refusal({:slot_occupied, occupied}) do
+    slots = Enum.map_join(occupied, ", ", fn {date, slot} -> "#{date} #{slot}" end)
+    "meals were scheduled meanwhile on #{slots}; remove them and /confirm again"
+  end
+
+  defp refusal(reason), do: to_string(reason)
 
   defp quit(chat) do
     if Process.alive?(chat.pid) do

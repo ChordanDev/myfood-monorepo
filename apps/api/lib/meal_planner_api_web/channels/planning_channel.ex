@@ -401,7 +401,14 @@ defmodule MealPlannerApiWeb.PlanningChannel do
          {:ok, summary} <- Session.confirm(membership.account_id, membership.id, proposal_id) do
       {:reply, {:ok, confirmation_payload(summary)}, socket}
     else
-      {:error, reason} -> {:reply, {:error, error_payload(agent_reason(reason))}, socket}
+      # Meals were scheduled in the range during the session: nothing was
+      # saved and the session goes on.
+      {:error, {:slot_occupied, occupied}} ->
+        details = %{occupied: Enum.map(occupied, &occupied_slot/1)}
+        {:reply, {:error, error_payload(:planning_slot_occupied, %{}, details)}, socket}
+
+      {:error, reason} ->
+        {:reply, {:error, error_payload(agent_reason(reason))}, socket}
     end
   end
 

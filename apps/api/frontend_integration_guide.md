@@ -1473,9 +1473,9 @@ Payload:
 
 ## 8.4 Incoming events from client
 
-The topic accepts the session commands only (issue #15): `start_planning`, `send_message` and `cancel_planning`. Their payloads and replies are in `docs/CHANNELS.md` (Incoming Events). Confirm and reject are HTTP requests: `POST /api/planning/confirm` and `POST /api/planning/proposals/:proposal_id/reject`.
+The topic runs the planning agent (issue #423): `start_session`, `give_consent`, `send_message`, `stop`, `cancel_session`, `confirm` and `confirmation_status`. Consent and confirm go over the channel too ([ADR 0007](../../docs/adr/0007-planning-agent-commands-over-the-channel.md)). Their payloads, replies and the `agent_event` pushes are in `docs/CHANNELS.md` ("Planning agent commands" and "Agent events").
 
-The older commands `generate_menu`, `swap_constraints`, `chat`, `confirm_proposal` and `reject_proposal` were retired. Like any unsupported event name, they reply the error envelope with code `invalid_payload`:
+The legacy `start_planning` and `cancel_planning` and the older commands `generate_menu`, `swap_constraints`, `chat`, `confirm_proposal` and `reject_proposal` were retired. Like any unsupported event name, they reply the error envelope with code `invalid_payload`:
 
 ```json
 {
@@ -1492,8 +1492,8 @@ The older commands `generate_menu`, `swap_constraints`, `chat`, `confirm_proposa
 2. Configure HTTP client with `Authorization: Bearer <token>`.
 3. Load `/api/account/context` for budget, inventory names, and plan limits.
 4. Open socket with token and join `planning:<account_id>`.
-5. Send `start_planning` over the channel, then `send_message` intents for iterative UX.
-6. Confirm the proposal with `POST /api/planning/confirm` or reject it with `POST /api/planning/proposals/:proposal_id/reject`.
+5. Send `start_session` over the channel; when the reply says `consentRequired`, show `consentText` and send `give_consent` once the Member agrees. Then send the Member's messages with `send_message` and render the `agent_event` pushes.
+6. Confirm the Proposal on display with `confirm` over the channel; after a lost reply, ask `confirmation_status`.
 7. Show shopping view from `/api/shopping-list` and manage cart/checkout flows.
 8. Update inventory using add/update/dispose/voice endpoints.
 

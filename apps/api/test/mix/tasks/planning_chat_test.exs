@@ -28,6 +28,7 @@ defmodule Mix.Tasks.Planning.ChatTest do
 
     read = fn _prompt ->
       Agent.get_and_update(input, fn
+        [line | rest] when is_function(line, 0) -> {line.() <> "\n", rest}
         [line | rest] -> {line <> "\n", rest}
         [] -> {:eof, []}
       end)
@@ -74,6 +75,28 @@ defmodule Mix.Tasks.Planning.ChatTest do
 
     assert Repo.exists?(from(c in PlanningConsent, where: c.user_id == ^owner.user.id))
     assert [%PlanningSession{status: :committed, agent: true}] = Repo.all(PlanningSession)
+  end
+
+  test "a meal scheduled meanwhile refuses /confirm and the chat goes on", %{owner: owner} do
+    consent!(owner.user)
+    today = MealPlannerApi.AccountClock.today(owner.account.id)
+    recipe = recipe!(owner.account, "Added meanwhile", ["lunch"])
+
+    lines = [
+      "Plan",
+      fn -> scheduled_meal!(owner.account, recipe, today, :lunch) && "/confirm" end,
+      "/quit"
+    ]
+
+    {outcome, output} = chat(args(owner), lines)
+
+    assert outcome == :quit
+
+    assert output =~
+             "[confirm refused] meals were scheduled meanwhile on #{today} lunch; " <>
+               "remove them and /confirm again"
+
+    assert Repo.aggregate(ScheduledMeal, :count) == 1
   end
 
   test "a User who already consented is not asked again", %{owner: owner} do
