@@ -503,10 +503,25 @@ defmodule MealPlannerApi.Optimization.OptimizerServer do
         reply_to(from, {:error, normalize_optimizer_error(reason, details)})
 
         new_state = %{state | pending_requests: new_pending}
-        new_state = %{new_state | consecutive_failures: new_state.consecutive_failures + 1}
-        maybe_open_circuit(new_state)
+
+        if request_answer?(reason) do
+          %{new_state | consecutive_failures: 0}
+        else
+          maybe_open_circuit(record_failure(new_state))
+        end
     end
   end
+
+  # An answer about the request itself (no plan exists, the deadline passed,
+  # the payload is malformed) comes from a healthy solver, so like a solution
+  # it clears the failure count: one Account's catalog must never open the
+  # circuit every Account shares. Solver faults (`solver_unavailable`,
+  # `abnormal`) and unknown reasons still count.
+  defp request_answer?(reason) when reason in ["infeasible", "inconclusive", "missing_payload"],
+    do: true
+
+  defp request_answer?("invalid_" <> _field), do: true
+  defp request_answer?(_reason), do: false
 
   defp normalize_optimizer_error("infeasible", details) when is_map(details),
     do: {:infeasible, details}
