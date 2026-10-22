@@ -6,9 +6,11 @@ defmodule Mix.Tasks.AiPopulate do
   Options: `--dry-run`, `--sleep-ms`, `--per-topic`, `--max-topics` and
   `--only-category`.
 
-  Each Ingredient is saved with `allergens` NULL (not reviewed) and with
-  `allergens_proposed` set to the codes the AI names together with the codes
-  `Catalog.AllergenRules` finds in its name. Neither source can claim the list
+  Each Ingredient is saved with `allergens` NULL (not reviewed), and the codes
+  the AI names together with the codes `Catalog.AllergenRules` finds in its
+  name are added to its `allergens_proposed`. Re-running on an Ingredient
+  nobody reviewed adds the new codes to the stored proposal and drops none
+  (`Catalog.upsert_ingredient_by_name/1`). Neither source can claim the list
   is complete, so only `mix catalog.review_allergens` writes `allergens`. The
   run ends by logging how many Ingredients are still unreviewed.
   """

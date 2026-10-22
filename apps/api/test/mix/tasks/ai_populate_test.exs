@@ -118,16 +118,20 @@ defmodule Mix.Tasks.AiPopulateTest do
              %{allergens: ["dairy"], allergens_proposed: ["dairy"]}
   end
 
-  test "re-running refreshes the proposal of an Ingredient nobody reviewed" do
+  test "re-running adds to the proposal of an Ingredient nobody reviewed, dropping no code" do
     {:ok, _} =
-      Catalog.create_ingredient(%{name: "Tofu firme", category: :otros, allergens_proposed: []})
+      Catalog.create_ingredient(%{
+        name: "Tofu firme",
+        category: :otros,
+        allergens_proposed: ["dairy"]
+      })
 
     answer([item("Tofu firme", ["gluten"])])
 
     capture_log(fn -> AiPopulate.run(@args) end)
 
     assert ingredient!("Tofu firme") |> Map.take([:allergens, :allergens_proposed]) ==
-             %{allergens: nil, allergens_proposed: ["gluten", "soy"]}
+             %{allergens: nil, allergens_proposed: ["gluten", "dairy", "soy"]}
   end
 
   test "logs how many Ingredients are still unreviewed at the end of the run" do
