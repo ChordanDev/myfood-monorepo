@@ -194,6 +194,12 @@ jobs:
       - name: Typecheck
         run: npx tsc --noEmit
 
+      # Blocks unused files and missing or unused dependencies. Unused exports
+      # are not checked yet: issue #416 removes them, then `npm run knip` (the
+      # full report) can replace this step.
+      - name: Knip (files and dependencies)
+        run: npm run knip:ci
+
       # Jest's transform cache normally lives in the runner's temp dir, so
       # every run re-transforms React Native, Expo and the app through Babel.
       # The key covers what changes every transform (dependencies and Babel
